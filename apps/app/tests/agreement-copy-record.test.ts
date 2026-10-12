@@ -6,7 +6,7 @@ import {
   prepareBaa,
   type BaaVariables,
 } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   afterAll,
   beforeAll,
@@ -96,32 +96,30 @@ const VARS: BaaVariables = {
 
 const PREPARED = prepareBaa(currentBaaTemplate(), VARS);
 
-/** A signed acceptance, written the way signAgreement writes one. */
+/**
+ * A signed acceptance, written the way signAgreement writes one: unbound, and
+ * naming only the columns the runtime role may insert (drizzle/0066 keeps the
+ * organisation, binding and termination columns behind their definers).
+ */
 async function seedAcceptance(): Promise<string> {
-  const [row] = await unsafeDb
-    .insert(baaAcceptances)
-    .values({
-      organizationId: null,
-      userId: null,
-      documentVersion: PREPARED.version,
-      documentHash: PREPARED.hash,
-      renderedText: PREPARED.text,
-      variables: {
-        ...VARS,
-        appliedClauses: PREPARED.clauseIds,
-        displayedHashVerified: true,
-      } as unknown as Record<string, unknown>,
-      // The full sentence the server derives, as signAgreement stores it.
-      assentLabel: assentSentence(VARS.clinicLegalName),
-      acceptedByName: VARS.signatoryName,
-      acceptedByEmail: VARS.signatoryEmail,
-      acceptedByTitle: VARS.signatoryTitle ?? null,
-      ipAddress: "203.0.113.42",
-      userAgent: "Mozilla/5.0",
-    })
-    .returning({ id: baaAcceptances.id });
+  const variables = {
+    ...VARS,
+    appliedClauses: PREPARED.clauseIds,
+    displayedHashVerified: true,
+  };
+  const { rows } = await unsafeDb.execute<{ id: string }>(sql`
+    insert into baa_acceptances
+      (user_id, document_version, document_hash, rendered_text, variables, assent_label,
+       accepted_by_name, accepted_by_email, accepted_by_title, ip_address, user_agent)
+    values
+      (null, ${PREPARED.version}, ${PREPARED.hash}, ${PREPARED.text},
+       ${JSON.stringify(variables)}::jsonb,
+       ${assentSentence(VARS.clinicLegalName)},
+       ${VARS.signatoryName}, ${VARS.signatoryEmail}, ${VARS.signatoryTitle ?? null},
+       '203.0.113.42', 'Mozilla/5.0')
+    returning id`);
 
-  return row!.id;
+  return rows[0]!.id;
 }
 
 /**

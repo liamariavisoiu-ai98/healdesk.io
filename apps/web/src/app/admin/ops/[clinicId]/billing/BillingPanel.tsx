@@ -152,7 +152,7 @@ function Said({ note }: { note: Note }) {
 const BUTTON =
   "border-line-strong rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-50";
 const PRIMARY = "rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-50";
-const INPUT = "border-line mt-1 rounded-lg border px-3 py-2";
+const INPUT = "border-line mt-1 rounded-sm border px-3 py-2";
 
 export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions: Actions }) {
   if (!view.ok) {
@@ -312,7 +312,7 @@ export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-line mt-8 rounded-2xl border bg-white p-5">
+    <section className="border-line mt-8 rounded-md border bg-white p-5">
       <h2 className="text-[13.2px] font-bold tracking-[0.06em] uppercase">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
@@ -363,7 +363,7 @@ function Attention({ view }: { view: View }) {
   }
   if (items.length === 0) return null;
   return (
-    <div role="status" className="border-red/30 bg-red/[0.06] mt-6 rounded-2xl border p-5 text-sm">
+    <div role="status" className="border-red/30 bg-red/[0.06] mt-6 rounded-md border p-5 text-sm">
       <p className="font-bold">Needs attention</p>
       <ul className="mt-2 list-disc pl-5">
         {items.map((item) => (
@@ -806,7 +806,7 @@ function Connect({
         approve healdesk. The link works for 15 minutes and is shown once.
       </p>
       {issued ? (
-        <div className="border-line mt-3 rounded-xl border p-3">
+        <div className="border-line mt-3 rounded-sm border p-3">
           <a href={issued.url} target="_blank" rel="noreferrer" className="break-all underline">
             {issued.url}
           </a>
@@ -949,28 +949,37 @@ function Refund({
 }) {
   const preview = useCall();
   const commit = useCall();
-  const [kind, setKind] = useState<RefundKind>("first_period_cancel");
+  // A § 5 refund already issued closes § 5, not the termination refund
+  // (BAA 1.3.0 clause 17), which apps/app caps by what each payment has left.
+  const sectionFiveOpen = !e.firstPeriodRefundedAt;
+  const [kind, setKind] = useState<RefundKind>(
+    sectionFiveOpen ? "first_period_cancel" : "agreement_terminated",
+  );
   const [shown, setShown] = useState<Extract<RefundPreviewOutcome, { status: "ok" }> | null>(null);
   const [typed, setTyped] = useState("");
   const [reason, setReason] = useState("");
-  if (e.firstPeriodRefundedAt) {
-    return (
-      <p className="text-sm">
-        A refund under § 5 was issued {e.firstPeriodRefundedAt}. The two refunds do not stack, and
-        the setup fee is never refunded.
-      </p>
-    );
-  }
   const matches = shown !== null && typedCents(typed) === shown.amountCents;
   return (
     <div className="grid gap-3 text-sm">
+      {sectionFiveOpen ? (
+        <p className="text-muted text-xs">
+          The first-period refund pays back the first period in full and cancels the plan at once;
+          the guarantee pays one month&rsquo;s fee and keeps the plan.
+          {view.flags.refundWindowOpen
+            ? ` The 14-day window is open until ${view.flags.refundEligibleUntil}.`
+            : " The 14-day window is not open."}{" "}
+          The setup fee is never refunded.
+        </p>
+      ) : (
+        <p>
+          A refund under § 5 was issued {e.firstPeriodRefundedAt}. The two refunds do not stack, and
+          the setup fee is never refunded.
+        </p>
+      )}
       <p className="text-muted text-xs">
-        The first-period refund pays back the first period in full and cancels the plan at once; the
-        guarantee pays one month&rsquo;s fee and keeps the plan.
-        {view.flags.refundWindowOpen
-          ? ` The 14-day window is open until ${view.flags.refundEligibleUntil}.`
-          : " The 14-day window is not open."}{" "}
-        The setup fee is never refunded.
+        The termination refund is owed only when the practice ended its agreement because healdesk
+        violated a material term, or under the Subcontractors clause: the subscription fees paid for
+        time after the termination day, never the setup fee or overage.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label>
@@ -978,14 +987,26 @@ function Refund({
           <select
             value={kind}
             onChange={(event) => {
-              setKind(event.target.value === "guarantee" ? "guarantee" : "first_period_cancel");
+              const value = event.target.value;
+              setKind(
+                value === "guarantee" || value === "agreement_terminated"
+                  ? value
+                  : "first_period_cancel",
+              );
               setShown(null);
               setTyped("");
             }}
             className={INPUT}
           >
-            <option value="first_period_cancel">First period, plan cancelled</option>
-            <option value="guarantee">Guarantee: one month&rsquo;s fee</option>
+            {sectionFiveOpen ? (
+              <>
+                <option value="first_period_cancel">First period, plan cancelled</option>
+                <option value="guarantee">Guarantee: one month&rsquo;s fee</option>
+              </>
+            ) : null}
+            <option value="agreement_terminated">
+              Agreement terminated: the fees after it ended
+            </option>
           </select>
         </label>
         <button
@@ -1008,7 +1029,7 @@ function Refund({
       <Said note={preview.note} />
       {shown ? (
         <form
-          className="border-line grid gap-3 rounded-xl border p-4"
+          className="border-line grid gap-3 rounded-sm border p-4"
           onSubmit={(event) => {
             event.preventDefault();
             if (!matches) return;
@@ -1024,9 +1045,25 @@ function Refund({
           <p>
             <strong>{money(shown.amountCents)}</strong> back to the card
             {shown.cancelsPlan ? ", and the plan is cancelled at once" : ", and the plan is kept"}.
-            Plan started {shown.planStartedOn ?? "?"}; this refund&rsquo;s window ends{" "}
-            {shown.windowEndsOn ?? "?"}.
+            {shown.kind === "agreement_terminated" ? (
+              <>
+                The agreement ended {shown.windowEndsOn ?? "?"}; the fees paid for time after that
+                day come back.
+              </>
+            ) : (
+              <>
+                Plan started {shown.planStartedOn ?? "?"}; this refund&rsquo;s window ends{" "}
+                {shown.windowEndsOn ?? "?"}.
+              </>
+            )}
           </p>
+          {shown.settleByHand ? (
+            <p>
+              <strong>Also owed, to settle by hand: {money(shown.settleByHand.amountCents)}</strong>,
+              paid outside Stripe&rsquo;s card payments, so it can&rsquo;t go back to the card and
+              isn&rsquo;t in the amount above. Invoices: {shown.settleByHand.invoiceIds.join(", ")}.
+            </p>
+          ) : null}
           <label>
             <span className="text-muted block text-xs font-bold uppercase">
               Type the amount to confirm ({money(shown.amountCents)})
@@ -1096,7 +1133,7 @@ function RequestRow({
         : `pending, next attempt ${request.nextAttemptAt}`;
   return (
     <li
-      className={`border-line rounded-xl border px-4 py-2 text-sm ${request.isStuck ? "border-red/40" : ""}`}
+      className={`border-line rounded-sm border px-4 py-2 text-sm ${request.isStuck ? "border-red/40" : ""}`}
     >
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-semibold">
@@ -1242,7 +1279,7 @@ function OverageRow({
 }) {
   const { pending, note, call } = useCall();
   return (
-    <li className="border-line rounded-xl border px-4 py-2 text-sm">
+    <li className="border-line rounded-sm border px-4 py-2 text-sm">
       <span className="font-semibold">
         {row.windowStartOn} → {row.windowEndOn}
       </span>
@@ -1313,7 +1350,7 @@ function EventRow({
 }) {
   const { pending, note, call } = useCall();
   return (
-    <li className="border-line rounded-xl border px-4 py-2 text-sm">
+    <li className="border-line rounded-sm border px-4 py-2 text-sm">
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-semibold">{event.type}</span>
         <span className="text-muted text-xs">

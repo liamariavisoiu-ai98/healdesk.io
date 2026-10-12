@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 
 import { BuyButton, useBuy } from "@/components/BuyModal";
 import { HeroPortrait } from "@/components/HeroPortrait";
@@ -47,9 +47,21 @@ import { site } from "@/lib/site";
  * locks them again. A page loaded already scrolled opens locked.
  *
  * Nothing else on the hero says that moving the cursor down does anything, so
- * a small pill at its foot does, "Move your cursor down", until the copy has
- * come up once. Meanwhile the logos' cards play on their own, one at a time
+ * an arrowhead at its foot does, pointing down and jumping slowly, until the
+ * copy has come up once. It was a pill that said "Move your cursor down"
+ * until the owner asked for the arrow alone (12 October 2026). Meanwhile the logos' cards play on their own, one at a time
  * (HeroPortrait), so the hero is not still while it waits.
+ *
+ * ## The entrance, and the copy line by line (owner, 12 October 2026)
+ *
+ * The page opens in one movement: the photo settles, the orbits draw in
+ * round her, the logos fan out along them, and last the cue's arrowhead
+ * draws in.
+ * The copy plays no part in that. Only when it comes up on the cursor does
+ * the announcement rise, then the headline line by line, then the buttons
+ * after its last line (HeroLines numbers the lines as the browser broke
+ * them). Where the copy is simply there, below 1280px or without a cursor,
+ * it does not animate at all.
  *
  * `data-reveal` on the section is that state: "hidden", "shown" or
  * "locked". globals.css acts on it only from 1280px and only where the
@@ -82,7 +94,7 @@ function useReveal(
   copy: React.RefObject<HTMLElement | null>,
 ): { reveal: Reveal; seen: boolean } {
   const [reveal, setReveal] = useState<Reveal>("hidden");
-  /** The copy has come up at least once this visit: the cue has done its job. */
+  /** The copy has come up at least once this visit: the cue no longer waits for the entrance. */
   const [seen, setSeen] = useState(false);
 
   useEffect(() => {
@@ -166,7 +178,6 @@ function useReveal(
 }
 
 export function HeroStage() {
-  const buy = useBuy();
   const heroRef = useRef<HTMLElement>(null);
   const copyRef = useRef<HTMLDivElement>(null);
   const { reveal, seen } = useReveal(heroRef, copyRef);
@@ -175,50 +186,34 @@ export function HeroStage() {
     <section ref={heroRef} aria-labelledby="hero-heading" className="hero" data-reveal={reveal}>
       {/* Above the photo, and transparent to the pointer everywhere but its
           own content, so the logos beside her still take a hover. */}
-      <div className="hero__copy pointer-events-none z-10 mx-auto w-full max-w-[1240px] px-5 pt-10 pb-8 text-center sm:px-8 sm:pt-16 lg:px-14 xl:pt-0 xl:pb-16 xl:text-left">
+      <div className="hero__copy pointer-events-none z-10 mx-auto w-full min-w-0 max-w-[1240px] px-5 pt-10 pb-8 text-center sm:px-8 sm:pt-16 lg:px-14 xl:pt-0 xl:pb-16 xl:text-left">
         <div ref={copyRef} className="pointer-events-auto mx-auto max-w-[760px] xl:mx-0 xl:max-w-[min(600px,46%)]">
-          {/* The announcement bar, after jasper.ai: a small tag, one bold
-              line, and the way in. It wraps inside the copy's column (run out
-              as one line on a desktop, it crossed the logos beside her), so it
-              is one paragraph: the tag leads the first line and the rest flows
-              after it, rather than each part taking a row of its own. The
-              space after the tag is a real one, so a screen reader, a copy
-              and the browser's find all get "New Instagram", not
-              "NEWInstagram". The link opens the purchase flow in place where
-              the provider exists and falls back to the standalone route. */}
-          <p className="hero-line border-line mb-8 inline-block max-w-full rounded-[6px] border bg-white py-1.5 pr-3.5 pl-1.5 text-[14.5px] leading-[1.75] shadow-[0_10px_28px_-18px_rgb(23_42_58/0.4)]">
-            <span className="bg-tint-mint text-ink mr-2 inline-block rounded-[3px] px-2 py-1 align-[1px] font-mono text-[11.5px] leading-none font-semibold tracking-[0.06em] uppercase">
-              {site.announcement.tag}
-            </span>{" "}
-            <span className="text-ink font-semibold">{site.announcement.text}</span>{" "}
-            {buy ? (
-              <button
-                type="button"
-                onClick={() => buy.open()}
-                className="text-red-deep hover:text-red ml-1.5 font-semibold whitespace-nowrap transition-colors"
-              >
-                {site.announcement.cta}
-              </button>
-            ) : (
-              <a
-                href={site.cta.primary.href}
-                className="text-red-deep hover:text-red ml-1.5 font-semibold whitespace-nowrap transition-colors"
-              >
-                {site.announcement.cta}
-              </a>
-            )}
-          </p>
+          {/* The announcement, as one pill on one line (owner, 12 October
+              2026): "NEW · Now on Instagram, Messenger and WhatsApp →", the
+              whole of it the way in. It used to be a bar with a "Get AYA"
+              link at its end, which wrapped onto a line of its own beside her
+              and repeated the red button under it. The pill opens the
+              purchase flow in place where the provider exists and falls back
+              to the standalone route. Its name is the sentence and where it
+              goes, so a screen reader hears "New: now on Instagram,
+              Messenger and WhatsApp. Get AYA" rather than an arrow. */}
+          <AnnouncementPill />
 
+          {/* Split into its lines on a desktop with a cursor, so the copy
+              comes up line by line (HeroLines). Named by the whole sentence,
+              so a screen reader hears it once rather than word by word. */}
           <h1
             id="hero-heading"
-            className="hero-line font-display text-ink text-[clamp(40px,4.9vw,68px)] leading-[1.04] font-normal tracking-[-0.03em] text-balance [--line-delay:100ms]"
+            aria-label={site.tagline}
+            className="font-display text-ink text-[clamp(40px,4.9vw,68px)] leading-[1.04] font-normal tracking-[-0.03em] text-balance"
           >
-            {site.tagline}
+            <HeroLines text={site.tagline} />
           </h1>
 
           {/* One column on a phone, two equal ones from 640px: the grid is
-              what makes the buttons the same size whatever their labels. */}
-          <div className="hero-line mx-auto mt-8 grid w-full max-w-[480px] grid-cols-1 gap-3 [--line-delay:200ms] sm:grid-cols-2 xl:mx-0 xl:mt-10">
+              what makes the buttons the same size whatever their labels.
+              They follow the headline's last line (`--hero-lines`). */}
+          <div className="hero-line hero-line--after mx-auto mt-8 grid w-full max-w-[480px] grid-cols-1 gap-3 sm:grid-cols-2 xl:mx-0 xl:mt-10">
             <BuyButton size="h-[54px] px-6 text-base" className="w-full whitespace-nowrap" />
             <a href={site.cta.secondary.href} className="btn-ink h-[54px] w-full px-6 text-base whitespace-nowrap">
               {site.cta.secondary.label}
@@ -231,19 +226,99 @@ export function HeroStage() {
         <HeroPortrait autoplay={reveal === "hidden"} />
       </div>
 
-      {/* Says what moving the cursor down does, until it has done it. Not for
-          a screen reader (the copy is in the page throughout) and not for a
-          touch screen (CSS shows it only with a pointer that hovers). */}
-      <p aria-hidden className="hero__cue" data-show={(reveal === "hidden" && !seen) || undefined}>
-        Move your cursor down
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m6 9 6 6 6-6" />
+      {/* Says what moving the cursor down does, whenever the copy is down:
+          after the first time it comes back sooner than the entrance has it.
+          Not for a screen reader (the copy is in the page throughout) and not
+          for a touch screen (CSS shows it only with a pointer that hovers). */}
+      <span aria-hidden className="hero__cue" data-show={reveal === "hidden" || undefined} data-again={seen || undefined}>
+        {/* Two strokes from the tip, so it draws outwards from its point. */}
+        <svg viewBox="0 0 36 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 16 4 4" pathLength={1} />
+          <path d="M18 16 32 4" pathLength={1} />
         </svg>
-      </p>
+      </span>
 
-      {/* The white the copy sits on, rising from the bottom with it: over
+      {/* The white the copy sits on, rising and fading in with it: over
           the photo, under the logos and the copy. */}
       <div aria-hidden className="hero__veil" />
     </section>
+  );
+}
+
+/**
+ * The announcement pill. One line at every width: the type steps down on a
+ * narrow phone, and if the sentence still cannot fit, it ends in an ellipsis
+ * rather than wrapping under the tag.
+ */
+function AnnouncementPill() {
+  const buy = useBuy();
+  const { tag, text, cta } = site.announcement;
+  const label = `${tag}: ${text}. ${cta}`;
+  const className =
+    "hero-line hero-pill group mb-8 inline-flex max-w-full items-center gap-2 rounded-full border border-line bg-white py-1.5 pr-3.5 pl-1.5 text-[clamp(12.5px,3.4vw,14.5px)] leading-none whitespace-nowrap shadow-sm transition-[border-color,box-shadow] duration-fast hover:border-line-strong hover:shadow-md";
+  const inner = (
+    <>
+      <span className="bg-tint-mint text-ink rounded-full px-2 py-1 text-[0.78em] font-semibold tracking-[0.06em] uppercase">{tag}</span>
+      <span aria-hidden className="text-muted">·</span>
+      <span className="text-ink min-w-0 overflow-hidden font-semibold text-ellipsis">{text}</span>
+      <svg aria-hidden viewBox="0 0 16 16" className="text-red-deep size-[1.05em] shrink-0 transition-transform duration-fast ease-out group-hover:translate-x-0.5">
+        <path d="M3 8h9.5M8.5 4l4 4-4 4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </>
+  );
+  return buy ? (
+    <button type="button" onClick={() => buy.open()} aria-label={label} className={className}>
+      {inner}
+    </button>
+  ) : (
+    <a href={site.cta.primary.href} aria-label={label} className={className}>
+      {inner}
+    </a>
+  );
+}
+
+/**
+ * The headline, word by word, each word told which line it landed on.
+ *
+ * The lines are wherever the browser broke them at this width, so they are
+ * read from the page rather than written in: each word's top, measured after
+ * layout and again whenever the heading's width changes, numbers its line
+ * (`--line`), and the copy is told how many lines there are
+ * (`--hero-lines`), so the buttons can follow the last. `offsetTop` ignores
+ * the transform a hidden word is under, so measuring while the copy is down
+ * is measuring where it will land. Before this runs, and without script,
+ * every word is on line 0, so the headline comes up as one.
+ */
+function HeroLines({ text }: { text: string }) {
+  const box = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const el = box.current;
+    const copy = el?.closest<HTMLElement>(".hero__copy");
+    if (!el || !copy) return;
+    const number = () => {
+      const words = [...el.querySelectorAll<HTMLElement>(".hero-word")];
+      const tops = [...new Set(words.map((word) => word.offsetTop))].sort((a, b) => a - b);
+      for (const word of words) word.style.setProperty("--line", String(tops.indexOf(word.offsetTop)));
+      copy.style.setProperty("--hero-lines", String(tops.length));
+    };
+    number();
+    const observer = new ResizeObserver(number);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const words = text.split(" ");
+  return (
+    <span ref={box} aria-hidden>
+      {words.map((word, i) => (
+        <Fragment key={i}>
+          <span className="hero-word">
+            <span>{word}</span>
+          </span>
+          {i < words.length - 1 ? " " : null}
+        </Fragment>
+      ))}
+    </span>
   );
 }

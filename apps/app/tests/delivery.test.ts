@@ -16,7 +16,7 @@ import { sendDueRecaps, weekKey } from "@/lib/scheduler/weekly-recap";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedConversation, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedConversation, seedEntitled } from "./setup/factories";
 
 /**
  * The delivery layer: who gets mail, and the ledger that makes every mailer
@@ -44,6 +44,7 @@ class FakeTransport implements EmailTransport {
 }
 
 async function makeProduction(clinicId: string, wentLiveAt: Date): Promise<void> {
+  await bindAgreementInEffect(clinicId);
   await getMigratorPool().query(
     `update clinics set data_classification = 'production', baa_signed_at = $2, went_live_at = $2 where id = $1`,
     [clinicId, wentLiveAt],
@@ -461,6 +462,12 @@ describeDb("delivery", () => {
           // The welcome email's backstop: a sweep, not a switched job, because
           // the welcome it retries goes unswitched at every provisioning.
           "welcome-email",
+          // Missed incident deadlines (drizzle/0066), hourly behind its switch.
+          "incident-deadlines",
+          // The deletion records' own clock (drizzle/0063): a sweep, not a
+          // switched job, because "no longer than it needs one" waits for no
+          // switch.
+          "erasure-expiry",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -470,10 +477,12 @@ describeDb("delivery", () => {
         if (job === "booking-requirements-defaults") continue; // §H.5 sweep, not a switched job
         if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
         if (job === "welcome-email") continue; // a sweep: retries only a welcome provisioning recorded as owed
+        if (job === "erasure-expiry") continue; // a sweep: empties and deletes only expired deletion records
         expect(status, job).toBe("disabled");
       }
       expect(jobs["booking-request-expiry"]).toBe("ok");
       expect(jobs["welcome-email"]).toBe("ok");
+      expect(jobs["erasure-expiry"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

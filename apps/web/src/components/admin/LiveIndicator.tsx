@@ -240,7 +240,7 @@ export function LiveIndicator({
       : ": includes unpushed work, so this is ahead of what GitHub can see.";
 
   return (
-    <div className="border-line rounded-2xl border bg-white px-4 py-3">
+    <div className="border-line rounded-md border bg-white px-4 py-3">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span
           aria-hidden
@@ -292,7 +292,7 @@ export function LiveIndicator({
       {warnings.length > 0 ? (
         <div
           role="status"
-          className="border-line-strong bg-paper-2 mt-3 rounded-xl border px-3 py-2.5"
+          className="border-line-strong bg-paper-2 mt-3 rounded-sm border px-3 py-2.5"
         >
           <p className="text-[13.2px] font-bold tracking-[0.12em] uppercase">
             {warnings.length === 1

@@ -121,24 +121,104 @@
   --font-display: var(--font-fraunces), Georgia, serif;
 
   /*
-   * Figures only, and the distinction is the point.
-   *
-   * TAN Ashford is a single-weight display face with a lot of voice. It held
-   * the whole heading layer briefly and overpowered every one of them; on a
-   * lone number it is exactly right. `font-figure` goes on the rating, the
-   * prices and the calculator's money, which are the places a number is the
-   * content rather than part of a sentence.
+   * Figures: the rating, the prices and the calculator's money, the places a
+   * number is the content rather than part of a sentence. Fraunces, as the
+   * headings are, since TAN Ashford was retired on 12 October 2026 (the site
+   * has two faces, app/layout.tsx). The utility keeps its own name so a
+   * figure can be told apart from a heading in the markup.
    */
-  --font-figure: var(--font-ashford), Georgia, serif;
+  --font-figure: var(--font-fraunces), Georgia, serif;
   /*
-   * The body slot. Hanken Grotesk, as it was.
+   * The body slot: Instrument Sans from 12 October 2026 (owner), replacing
+   * Hanken Grotesk.
    */
-  --font-sans: var(--font-hanken), system-ui, sans-serif;
+  --font-sans: var(--font-instrument), system-ui, sans-serif;
 
-  --shadow-brand: 0 20px 44px -24px rgb(230 38 39 / 0.5);
-  --shadow-brand-lg: 0 24px 48px -20px rgb(230 38 39 / 0.66);
+  /* --- Shape: three corner radii (owner, 12 October 2026) ---------------- */
+  /*
+   * Every corner on the site is one of these three, replacing 23 different
+   * values. `sm` is a control: a button, a field, a tag, a small notice; it
+   * is the 6px the owner chose for the buttons on 9 October. `md` is a card:
+   * a review, a tile, a notification, a popover. `lg` is a panel: a demo
+   * card, a section band, the phone. `rounded-full` is not a fourth radius
+   * but a shape, the pill and the circle, and the soul's blob is a shape too.
+   * Tailwind's own scale is cleared so a stray `rounded-xl` builds nothing
+   * rather than a fourth size; src/lib/design-tokens.test.ts fails on one.
+   */
+  --radius-*: initial;
+  --radius-sm: 6px;
+  --radius-md: 16px;
+  --radius-lg: 28px;
 
-  --ease-panel: cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* --- Elevation: three soft shadows --------------------------------------- */
+  /*
+   * Resting, raised and floating, each a tight contact shadow under a wide
+   * soft one, both in the ink. `sm` sits a chip, a button or a tile on the
+   * page; `md` lifts a card or a panel; `lg` floats a modal, a popover or the
+   * phone. A hairline drawn with box-shadow (`0 0 0 0.5px`) is a border, not
+   * elevation, and a focus ring is a ring: neither is counted here.
+   */
+  --shadow-*: initial;
+  --shadow-sm: 0 1px 2px rgb(23 42 58 / 0.06), 0 4px 12px -4px rgb(23 42 58 / 0.14);
+  --shadow-md: 0 1px 2px rgb(23 42 58 / 0.06), 0 14px 32px -14px rgb(23 42 58 / 0.34);
+  --shadow-lg: 0 2px 6px rgb(23 42 58 / 0.06), 0 36px 80px -32px rgb(23 42 58 / 0.5);
+
+  /* --- Motion: shared durations and easings --------------------------------- */
+  /*
+   * Four durations and four curves for every transition and every entrance
+   * on the site, in place of the one `--ease-panel` and the forty-odd values
+   * written out where they were used.
+   *
+   *   fast    160ms  a colour, a hover, a press
+   *   base    280ms  a small state: a card's lines, a chip, a tick
+   *   slow    480ms  a panel, a tile's flood, an open or a close
+   *   slower  800ms  an entrance: a reveal on scroll, the hero
+   *
+   * The curves: `standard` for colour and opacity, `out` (fast then settling)
+   * for anything that moves into place, `in-out` for what goes and comes
+   * back, and `spring`, which overshoots a hair and settles, for what drops
+   * in: iOS's notification spring, sampled as a `linear()` curve. Ambient
+   * loops (the soul's heartbeat, the orbit drift, a shimmer) keep their own
+   * periods: those are rhythms, not timings.
+   *
+   * Durations are not a Tailwind namespace, so `duration-fast` and the rest
+   * are utilities below; the easings are, so `ease-out` and the rest come
+   * from here.
+   */
+  --duration-fast: 160ms;
+  --duration-base: 280ms;
+  --duration-slow: 480ms;
+  --duration-slower: 800ms;
+
+  --ease-*: initial;
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.45, 0, 0.55, 1);
+  --ease-spring: linear(0, 0.114 5%, 0.348 9%, 0.589 14%, 0.784 18%, 0.919 23%, 0.999 27%, 1.036 32%, 1.046 36%, 1.041 41%, 1.031 45%, 1.02 50%, 1.01 55%, 1.004 59%, 1 64%, 0.998 68%, 0.998 73%, 0.998 77%, 0.999 82%, 0.999 86%, 0.999 91%, 1 95%, 1);
+
+  /* What a bare `transition` or `transition-colors` uses. */
+  --default-transition-duration: var(--duration-fast);
+  --default-transition-timing-function: var(--ease-standard);
+}
+
+/* The durations as utilities (see "Motion" in the tokens). Each sets
+   Tailwind's own variable too, so `transition-colors` beside it, in either
+   order, reads the same value. */
+@utility duration-fast {
+  --tw-duration: var(--duration-fast);
+  transition-duration: var(--duration-fast);
+}
+@utility duration-base {
+  --tw-duration: var(--duration-base);
+  transition-duration: var(--duration-base);
+}
+@utility duration-slow {
+  --tw-duration: var(--duration-slow);
+  transition-duration: var(--duration-slow);
+}
+@utility duration-slower {
+  --tw-duration: var(--duration-slower);
+  transition-duration: var(--duration-slower);
 }
 
 /* Gradient is used in a dozen places; keep one definition. */
@@ -210,9 +290,10 @@
     text-rendering: optimizeLegibility;
   }
 
+  /* The logo's orange at 40% (owner, 12 October 2026), over which the text
+     keeps its own colour: ink on the page, white on the dark bands. */
   ::selection {
-    background-color: var(--color-orange);
-    color: white;
+    background-color: color-mix(in srgb, var(--color-orange) 40%, transparent);
   }
 
   :focus-visible {
@@ -239,6 +320,94 @@
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* =============================================================================
+   Reveal on scroll (components/RevealOnScroll.tsx)
+   =============================================================================
+   One entrance for the whole site (owner, 12 October 2026): what is marked
+   `data-reveal` rises a little and fades in as it is scrolled to, once.
+   Hidden only once the script has run (`data-reveal-on` on the root) and
+   only while it is still below the fold, and never with reduced motion, so
+   nothing can be left invisible.
+
+   - `data-reveal`           the block rises 18px and fades in;
+   - `data-reveal="heading"` a section heading rises from behind its own
+                             bottom edge, so it comes up out of the line
+                             rather than sliding in;
+   - `data-reveal="stagger"` its children, one after another, 70ms apart.
+   ============================================================================= */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Waiting below the fold: invisible, and nothing else. */
+  [data-reveal-on] [data-reveal]:not([data-shown], [data-reveal="stagger"]),
+  [data-reveal-on] [data-reveal="stagger"]:not([data-shown]) > * {
+    opacity: 0;
+  }
+
+  /* Coming in: an animation rather than a transition, so it never takes over
+     a transition the element has of its own (a hover, a press), and filled
+     backwards only, so once it ends the element's own transform is its
+     own again. */
+  [data-reveal-on] [data-reveal][data-shown]:not([data-reveal="stagger"], [data-reveal="heading"]),
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > * {
+    animation: reveal-up var(--duration-slower) var(--ease-out) backwards;
+  }
+
+  [data-reveal-on] [data-reveal="heading"][data-shown] {
+    animation: reveal-heading var(--duration-slower) var(--ease-out) backwards;
+  }
+
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(2) { animation-delay: 70ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(3) { animation-delay: 140ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(4) { animation-delay: 210ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(5) { animation-delay: 280ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(6) { animation-delay: 350ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(7) { animation-delay: 420ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(n + 8) { animation-delay: 490ms; }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    translate: 0 18px;
+  }
+}
+
+@keyframes reveal-heading {
+  from {
+    opacity: 0;
+    translate: 0 0.45em;
+    clip-path: inset(-0.2em -0.2em 100% -0.2em);
+  }
+  to {
+    clip-path: inset(-0.2em -0.2em -0.3em -0.2em);
+  }
+}
+
+/* =============================================================================
+   Page transitions
+   =============================================================================
+   Every link on the site is a plain anchor and every navigation a full page
+   load (eslint.config.mjs says why), so the browser's own cross-document
+   view transition is all a cross-fade between pages needs: both pages opt
+   in here, and the old page fades out as the new one fades in. Where it is
+   not supported the navigation is as it always was. Reduced motion: none. */
+
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
   }
 }
 
@@ -284,11 +453,11 @@
   margin: auto;
   padding: 0;
   border: 0;
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   background: var(--color-paper);
   color: var(--color-ink);
   color-scheme: light;
-  box-shadow: 0 40px 90px -30px rgb(23 42 58 / 0.45);
+  box-shadow:  var(--shadow-lg);
   overflow: hidden;
 }
 
@@ -418,7 +587,7 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .hd-modal[open] {
-    animation: hd-modal-in 220ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    animation: hd-modal-in var(--duration-fast) var(--ease-out);
   }
 
   @keyframes hd-modal-in {
@@ -451,7 +620,7 @@
   right: 20px;
   width: 44px;
   height: 44px;
-  border-radius: 999px;
+  border-radius: 9999px;
   transform-origin: 50% 50%;
   transform: scale(1);
   /*
@@ -460,8 +629,11 @@
    * over four times the distance reads as a slow wipe rather than a flood, and
    * the copy waiting underneath it cannot turn white until the circle arrives.
    */
-  transition: transform var(--flood-ms, 620ms) var(--ease-panel);
+  transition: transform var(--flood-ms, var(--duration-slow)) var(--ease-out);
   /*
+   * The logo's orange (owner, 12 October 2026): it was the logo's red, and a
+   * red flood over a close-up face read as an alarm on a clinic's site.
+   *
    * Semi-transparent so the footage keeps moving underneath rather than being
    * replaced by a flat panel. The text mask below buys back the contrast.
    *
@@ -475,11 +647,22 @@
    *
    * The variable exists for the one borrower of this effect that has no
    * footage under it: the "leave a review" tile in Reviews.tsx is a white card,
-   * and 50% red over white is pink. It overrides the fill to solid red and
+   * and a 50% fill over white is pastel. It overrides the fill to solid red and
    * inherits everything else. The 0.50 default is still the measured value
    * above and still what every niche card gets.
    */
-  background-color: var(--flood-fill, rgb(230 38 39 / 0.5));
+  background-color: var(--flood-fill, rgb(255 118 30 / 0.5));
+}
+
+/* The still's own colours, blurred, under it until it loads. Scaled a touch
+   so the blur's soft edge is outside the card. */
+.niche-card__blur {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  filter: blur(14px) saturate(1.1);
+  scale: 1.12;
 }
 
 .niche-card--ready:hover .niche-card__flood,
@@ -502,7 +685,7 @@
  */
 .niche-card__arrow {
   transform: rotate(0deg);
-  transition: transform 560ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform var(--duration-slow) var(--ease-spring);
 }
 
 .niche-card--ready:hover .niche-card__arrow,
@@ -512,7 +695,7 @@
 
 .niche-card__video {
   opacity: 0;
-  transition: opacity 420ms ease;
+  transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
 .niche-card--ready:hover .niche-card__video,
@@ -643,7 +826,7 @@
     rgb(246 128 52 / 0.2) 44%,
     rgb(246 128 52 / 0) 74%
   );
-  animation: soul-aura var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: soul-aura var(--soul-beat) var(--ease-in-out) infinite;
 }
 
 .soul__aura::before,
@@ -759,7 +942,7 @@
   display: block;
   width: 100%;
   height: 100%;
-  animation: soul-heartbeat var(--soul-beat) cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: soul-heartbeat var(--soul-beat) var(--ease-in-out) infinite;
   /*
    * The white the clip arrives on is removed here, not on the video itself,
    * and the distinction cost an hour. A mask makes an element an isolated
@@ -812,7 +995,7 @@
    * gradients are also pulled well inside the box now, so nothing of the sheen
    * survives as far as the edge, where the sphere is meant to be dissolving.
    */
-  border-radius: 999px;
+  border-radius: 9999px;
   background-image:
     radial-gradient(
       52% 46% at 33% 27%,
@@ -836,7 +1019,7 @@
 .soul__ring {
   position: absolute;
   inset: 0;
-  border-radius: 999px;
+  border-radius: 9999px;
   border: 1.5px solid rgb(250 140 44 / 0.5);
   filter: blur(0.6px);
   opacity: 0;
@@ -937,7 +1120,7 @@
 }
 
 .soul--voice .soul__ring {
-  animation: soul-emit 1.7s cubic-bezier(0.22, 0.61, 0.36, 1) infinite;
+  animation: soul-emit 1.7s var(--ease-out) infinite;
 }
 
 /* =============================================================================
@@ -975,8 +1158,8 @@
 
    On a desktop with a mouse the hero opens on the photo and the logos alone.
    The white veil, solid behind the copy and very soft by the time it reaches
-   her face, rises from the bottom with the copy on it when the cursor comes
-   into the bottom third of the hero, and slides away when it leaves, while
+   her face, rises a little and fades in with the copy on it when the cursor
+   comes into the bottom third of the hero, and goes when it leaves, while
    the page is at the top. Scrolling down locks them up; back at the top they
    follow the cursor again. HeroStage holds the state in `data-reveal`
    (hidden, shown or locked); this file only draws each. Without a fine
@@ -1013,6 +1196,19 @@
   display: grid;
   width: 100%;
   overflow: hidden;
+
+  /*
+   * The entrance, as the page opens (owner, 12 October 2026): the photo
+   * settles, the full rings draw in round her, then each group's lit stretch,
+   * the chips appear at their heads and the logos fan out of them, and last
+   * the cue's arrowhead draws in. Each beat's start is here, so the order reads in
+   * one place; the copy is not part of it (it comes up on the cursor).
+   */
+  --entrance-rings: 300ms;
+  --entrance-arcs: 650ms;
+  --entrance-chips: 850ms;
+  --entrance-logos: 1000ms;
+  --entrance-cue: 2100ms;
 }
 
 .hero__veil {
@@ -1072,11 +1268,32 @@
     width: 100%;
   }
 
-  .hero__frame .portrait__photo {
-    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
-    mask-image: linear-gradient(to bottom, #000 82%, transparent);
+  /* The photo's foot fades into the page along an eased curve (a
+     smoothstep from 74%), not a straight ramp, which ended in a visible band
+     across the hero. */
+  .hero__frame {
+    --hero-foot: linear-gradient(
+      to bottom,
+      #000 74%,
+      rgb(0 0 0 / 0.96) 77.25%,
+      rgb(0 0 0 / 0.84) 80.5%,
+      rgb(0 0 0 / 0.68) 83.75%,
+      rgb(0 0 0 / 0.5) 87%,
+      rgb(0 0 0 / 0.32) 90.25%,
+      rgb(0 0 0 / 0.16) 93.5%,
+      rgb(0 0 0 / 0.04) 96.75%,
+      transparent
+    );
   }
 
+  .hero__frame .portrait__photo {
+    -webkit-mask-image: var(--hero-foot);
+    mask-image: var(--hero-foot);
+  }
+
+  /* The white the copy sits on: solid only under the buttons, then thinning
+     along a long eased curve, so it reads as light rather than a sheet. It
+     rises a little and fades in at once (see "Following the cursor"). */
   .hero__veil {
     display: block;
     position: absolute;
@@ -1086,15 +1303,21 @@
     background: linear-gradient(
       to top,
       var(--color-paper) 0%,
-      var(--color-paper) 22%,
-      rgb(253 253 253 / 0.92) 29%,
-      rgb(253 253 253 / 0.76) 35%,
-      rgb(253 253 253 / 0.5) 42%,
-      rgb(253 253 253 / 0.24) 49%,
-      rgb(253 253 253 / 0.07) 55%,
-      transparent 60%
+      var(--color-paper) 14%,
+      rgb(253 253 253 / 0.97) 20%,
+      rgb(253 253 253 / 0.9) 26%,
+      rgb(253 253 253 / 0.79) 32%,
+      rgb(253 253 253 / 0.65) 38%,
+      rgb(253 253 253 / 0.5) 44%,
+      rgb(253 253 253 / 0.35) 50%,
+      rgb(253 253 253 / 0.21) 56%,
+      rgb(253 253 253 / 0.1) 62%,
+      rgb(253 253 253 / 0.03) 68%,
+      transparent 74%
     );
-    transition: transform 800ms cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+      opacity var(--duration-slower) var(--ease-standard),
+      transform var(--duration-slower) var(--ease-out);
   }
 
   .hero__copy {
@@ -1111,8 +1334,8 @@
 }
 
 /* The cue: the copy is down until the cursor comes to the bottom third, and
-   nothing else on the hero says so. A small pill at the foot, until the first
-   time it comes up. */
+   nothing else on the hero says so. An arrowhead at the foot, pointing down,
+   whenever the copy is down. */
 .hero__cue {
   display: none;
 }
@@ -1120,20 +1343,63 @@
 /* Following the cursor: only where there is one that hovers. */
 @media (min-width: 1280px) and (hover: hover) and (pointer: fine) {
   .hero[data-reveal="hidden"] .hero__veil {
-    transform: translateY(100%);
+    opacity: 0;
+    transform: translateY(24%);
+  }
+
+  /*
+   * Coming: the announcement, then the headline line by line, then the
+   * buttons after its last line. Going: all at once and quicker, so a cursor
+   * that leaves is not left waiting on a slow exit. The pause between lines
+   * is `--line-step`; HeroLines (HeroStage.tsx) numbers each word's line and
+   * counts the lines into `--hero-lines`.
+   */
+  .hero__copy {
+    --line-step: 110ms;
+    --lines-from: 90ms;
   }
 
   .hero-line {
     transition:
-      opacity 600ms ease,
-      transform 800ms cubic-bezier(0.22, 1, 0.36, 1);
-    transition-delay: var(--line-delay, 0ms);
+      opacity var(--duration-slow) var(--ease-standard),
+      transform var(--duration-slower) var(--ease-out);
   }
 
-  /* Going, all at once; coming, line by line. */
+  .hero-line--after {
+    transition-delay: calc(var(--lines-from) + var(--hero-lines, 1) * var(--line-step) + 60ms);
+  }
+
   .hero[data-reveal="hidden"] .hero-line {
     opacity: 0;
-    transform: translateY(40px);
+    transform: translateY(24px);
+    transition-duration: var(--duration-base);
+    transition-delay: 0ms;
+  }
+
+  /* Each word rises from under its own line, which clips it: a line comes up
+     out of nothing rather than sliding in from below the one under it. The
+     padding gives the descenders and the italic overhang room inside the
+     clip, and the negative margin gives the room back. */
+  .hero-word {
+    display: inline-block;
+    overflow: clip;
+    padding-block: 0.06em 0.16em;
+    margin-block: -0.06em -0.16em;
+    vertical-align: top;
+  }
+
+  .hero-word > span {
+    display: inline-block;
+    transition:
+      transform var(--duration-slower) var(--ease-out),
+      opacity var(--duration-slow) var(--ease-standard);
+    transition-delay: calc(var(--lines-from) + var(--line, 0) * var(--line-step));
+  }
+
+  .hero[data-reveal="hidden"] .hero-word > span {
+    opacity: 0;
+    transform: translateY(105%);
+    transition-duration: var(--duration-base);
     transition-delay: 0ms;
   }
 
@@ -1144,46 +1410,83 @@
   .hero__cue {
     position: absolute;
     left: 50%;
-    bottom: 26px;
+    bottom: 22px;
     z-index: 6;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 14px 9px 18px;
-    border: 1px solid rgb(255 255 255 / 0.9);
-    border-radius: 9999px;
-    background: rgb(255 255 255 / 0.82);
-    -webkit-backdrop-filter: blur(14px) saturate(1.4);
-    backdrop-filter: blur(14px) saturate(1.4);
-    box-shadow:
-      0 1px 2px rgb(23 42 58 / 0.1),
-      0 12px 28px -14px rgb(23 42 58 / 0.5);
+    display: grid;
+    width: 64px;
+    height: 48px;
+    place-items: center;
     color: var(--color-ink);
-    font-size: 13.5px;
-    font-weight: 650;
-    white-space: nowrap;
     pointer-events: none;
     translate: -50% 0;
     opacity: 0;
-    transition: opacity 300ms ease;
+    /* Going, as the copy comes up: at once. */
+    transition: opacity var(--duration-base) var(--ease-standard);
+    /* When it draws in: the entrance's last beat the first time; after
+       that, once the copy has had time to go back down. */
+    --cue-at: var(--entrance-cue);
   }
 
-  /* Waits for the logos to have fanned out, then stays until the first reveal. */
-  .hero__cue[data-show] {
-    opacity: 1;
-    transition-delay: 1800ms;
+  .hero__cue[data-again] {
+    --cue-at: 520ms;
   }
 
   .hero__cue svg {
-    width: 16px;
-    height: 16px;
-    animation: hero-cue 1.6s ease-in-out infinite;
+    width: 34px;
+    height: 19px;
+    overflow: visible;
+    /* A white halo, so it reads over the photo's foot as well as the page. */
+    filter: drop-shadow(0 1px 2px rgb(255 255 255 / 0.9)) drop-shadow(0 2px 8px rgb(23 42 58 / 0.18));
+  }
+
+  .hero__cue path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+
+  /* The last beat of the entrance (see "The entrance" above): once the logos
+     have fanned out the arrowhead draws outwards from its point, then jumps,
+     slowly: down, a small settle, back up, and a long rest at the top. It
+     goes whenever the copy comes up, and whenever the copy goes back down it
+     comes back (owner, 12 October 2026), slowly: a beat later it fades in as
+     it draws again, and only then starts jumping. */
+  .hero__cue[data-show] {
+    opacity: 1;
+    transition: opacity var(--duration-slower) var(--ease-standard) var(--cue-at);
+  }
+
+  .hero__cue[data-show] path {
+    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--cue-at) both;
+  }
+
+  .hero__cue[data-show] svg {
+    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--cue-at) + 900ms) infinite;
   }
 }
 
-@keyframes hero-cue {
-  50% {
-    transform: translateY(3px);
+@keyframes hero-cue-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes hero-cue-jump {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  38% {
+    transform: translateY(11px);
+    opacity: 0.72;
+  }
+  52% {
+    transform: translateY(7px);
+    opacity: 0.86;
+  }
+  70% {
+    transform: translateY(0);
+    opacity: 1;
   }
 }
 
@@ -1202,6 +1505,24 @@
   width: 100%;
   height: 100%;
   user-select: none;
+  /* Settles: in from a touch larger, slower than it fades in, so it lands
+     rather than pops. A transform on the photo alone, never on .portrait,
+     which would trap the logos under the veil (see above). */
+  animation:
+    portrait-fade var(--duration-slower) var(--ease-standard) both,
+    portrait-settle calc(var(--duration-slower) * 2) var(--ease-out) both;
+}
+
+@keyframes portrait-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes portrait-settle {
+  from {
+    transform: scale(1.06);
+  }
 }
 
 .portrait__logos {
@@ -1239,8 +1560,8 @@
 /* Out of its chip and along its orbit, as the page opens, one after another.
    Translations are shares of the logo's own size. */
 .portrait__fan {
-  animation: portrait-fan 950ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(250ms + var(--i) * 80ms);
+  animation: portrait-fan var(--duration-slower) var(--ease-out) both;
+  animation-delay: calc(var(--entrance-logos, 250ms) + var(--i) * 70ms);
 }
 
 @keyframes portrait-fan {
@@ -1253,13 +1574,13 @@
 .portrait__spread {
   position: relative;
   transition:
-    transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 400ms ease;
+    transform var(--duration-slow) var(--ease-out),
+    opacity var(--duration-slow) var(--ease-standard);
 }
 
 /* A few degrees along the orbit and back, each logo at its own point in it. */
 .portrait__drift {
-  animation: portrait-orbit var(--orbit-time) ease-in-out calc(var(--i) * -1.7s) infinite alternate;
+  animation: portrait-orbit var(--orbit-time) var(--ease-in-out) calc(var(--i) * -1.7s) infinite alternate;
 }
 
 @keyframes portrait-orbit {
@@ -1281,7 +1602,7 @@
   height: 100%;
   padding: 0;
   border: 0;
-  border-radius: 24%;
+  border-radius: min(var(--radius-md), 24%);
   background: none;
   cursor: pointer;
 }
@@ -1298,14 +1619,12 @@
   width: 100%;
   height: 100%;
   padding: 13%;
-  border-radius: 24%;
+  border-radius: min(var(--radius-md), 24%);
   background: #fff;
-  box-shadow:
-    0 1px 2px rgb(23 42 58 / 0.12),
-    0 8px 18px -6px rgb(23 42 58 / 0.32);
+  box-shadow: var(--shadow-md);
   object-fit: contain;
   user-select: none;
-  transition: transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: transform var(--duration-base) var(--ease-out);
 }
 
 .portrait__node[data-shown] .portrait__logo {
@@ -1316,15 +1635,18 @@
    orbits' centre, and the other groups step back. */
 .portrait[data-group="messages"] .portrait__node[data-group="messages"] .portrait__spread,
 .portrait[data-group="bookings"] .portrait__node[data-group="bookings"] .portrait__spread,
+.portrait[data-group="synced"] .portrait__node[data-group="synced"] .portrait__spread,
 .portrait[data-group="payments"] .portrait__node[data-group="payments"] .portrait__spread {
   transform: translate(calc(var(--ux) * 22%), calc(var(--uy) * 22%));
 }
 
 .portrait[data-group="messages"] .portrait__node:not([data-group="messages"]) .portrait__spread,
 .portrait[data-group="bookings"] .portrait__node:not([data-group="bookings"]) .portrait__spread,
+.portrait[data-group="synced"] .portrait__node:not([data-group="synced"]) .portrait__spread,
 .portrait[data-group="payments"] .portrait__node:not([data-group="payments"]) .portrait__spread,
 .portrait[data-group="messages"] .portrait__orbit:not([data-group="messages"]),
 .portrait[data-group="bookings"] .portrait__orbit:not([data-group="bookings"]),
+.portrait[data-group="synced"] .portrait__orbit:not([data-group="synced"]),
 .portrait[data-group="payments"] .portrait__orbit:not([data-group="payments"]) {
   opacity: 0.35;
 }
@@ -1346,22 +1668,26 @@
 }
 
 .portrait__orbit {
-  transition: opacity 400ms ease;
+  transition: opacity var(--duration-slow) var(--ease-standard);
 }
 
-/* The whole circle, faint: what makes three arcs read as three rings. */
+/* The whole circle, faint: what makes the arcs read as rings. */
 .portrait__ring {
   fill: none;
   stroke: rgb(23 42 58 / 0.1);
   stroke-width: 1;
   stroke-linecap: round;
+  /* Drawn round, as the second beat of the entrance. */
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: portrait-orbit-draw calc(var(--duration-slower) * 1.6) var(--ease-out) var(--entrance-rings, 0ms) forwards;
 }
 
 .portrait__orbit path {
   fill: none;
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
-  animation: portrait-orbit-draw 1400ms cubic-bezier(0.22, 1, 0.36, 1) 150ms forwards;
+  animation: portrait-orbit-draw calc(var(--duration-slower) * 1.75) var(--ease-out) var(--entrance-arcs, 150ms) forwards;
 }
 
 .portrait__orbit-shade {
@@ -1371,11 +1697,12 @@
 
 .portrait__orbit-line {
   stroke-width: 1.6;
-  transition: stroke-width 300ms ease;
+  transition: stroke-width var(--duration-base) var(--ease-standard);
 }
 
 .portrait[data-group="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
 .portrait[data-group="bookings"] .portrait__orbit[data-group="bookings"] .portrait__orbit-line,
+.portrait[data-group="synced"] .portrait__orbit[data-group="synced"] .portrait__orbit-line,
 .portrait[data-group="payments"] .portrait__orbit[data-group="payments"] .portrait__orbit-line {
   stroke-width: 2.6;
 }
@@ -1383,6 +1710,7 @@
 /* The orbit of the card showing, whether a visitor chose it or the hero did. */
 .portrait[data-lit="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
 .portrait[data-lit="bookings"] .portrait__orbit[data-group="bookings"] .portrait__orbit-line,
+.portrait[data-lit="synced"] .portrait__orbit[data-group="synced"] .portrait__orbit-line,
 .portrait[data-lit="payments"] .portrait__orbit[data-group="payments"] .portrait__orbit-line {
   stroke-width: 2.6;
 }
@@ -1410,17 +1738,15 @@
   background: rgb(255 255 255 / 0.8);
   -webkit-backdrop-filter: blur(14px) saturate(1.4);
   backdrop-filter: blur(14px) saturate(1.4);
-  box-shadow:
-    0 1px 2px rgb(23 42 58 / 0.1),
-    0 10px 24px -12px rgb(23 42 58 / 0.45);
+  box-shadow: var(--shadow-md);
   color: var(--color-ink);
   font-size: 12.5px;
   font-weight: 650;
   white-space: nowrap;
   transition:
-    background-color 300ms ease,
-    opacity 300ms ease,
-    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    background-color var(--duration-base) var(--ease-standard),
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-out);
 }
 
 .portrait__chips .portrait__chip {
@@ -1430,7 +1756,7 @@
   z-index: 3;
   translate: -50% -50%;
   cursor: pointer;
-  animation: portrait-chip 600ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both;
+  animation: portrait-chip var(--duration-slow) var(--ease-out) var(--entrance-chips, 100ms) both;
 }
 
 .portrait__chips .portrait__chip:hover,
@@ -1476,11 +1802,9 @@
   width: 24px;
   height: 24px;
   padding: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: #fff;
-  box-shadow:
-    0 0 0 1.5px #fff,
-    0 1px 3px rgb(23 42 58 / 0.25);
+  box-shadow: 0 0 0 1.5px #fff, var(--shadow-sm);
   object-fit: contain;
 }
 
@@ -1515,6 +1839,60 @@
   }
 }
 
+/* --- The drift, from 1280px -----------------------------------------------
+   Each layer drifts after the cursor by its own few pixels, and the photo a
+   little the other way (`--mx`, `--my`, from -1 to 1, set by HeroPortrait),
+   so the hero has depth rather than pop-ups. The photo is a hundredth larger
+   than its box, so its drift never shows the page at the screen's edge.
+
+   From 12 October 2026 the photo and its orbits sat inside the content
+   column for an afternoon, centred, with its sides and its foot fading into
+   the page. Its grey wall ended in a soft box there, and the owner took the
+   photo back to the full screen the same day: the logos are placed against
+   the photo (integrations.test.ts), so they come with it. */
+@media (min-width: 1280px) {
+  .hero__frame .portrait {
+    --mx: 0;
+    --my: 0;
+  }
+
+  .portrait__logos,
+  .portrait__chips,
+  .portrait__orbits,
+  .portrait__photo {
+    transition: translate var(--duration-slower) var(--ease-out);
+  }
+
+  .portrait__logos {
+    translate: calc(var(--mx) * 12px) calc(var(--my) * 9px);
+  }
+
+  /* A translated box is the containing block of what is positioned inside
+     it, so the chips' layer has to be the photo's size for their percentages
+     to stay shares of the photo. */
+  .portrait__chips {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    translate: calc(var(--mx) * 8px) calc(var(--my) * 6px);
+  }
+
+  .portrait__chips .portrait__chip {
+    pointer-events: auto;
+  }
+
+  .portrait__orbits {
+    translate: calc(var(--mx) * 5px) calc(var(--my) * 4px);
+  }
+
+  .portrait__photo {
+    scale: 1.01;
+    translate: calc(var(--mx) * -4px) calc(var(--my) * -3px);
+  }
+
+}
+
 /* --- The cards ---------------------------------------------------------- */
 
 .portrait__card {
@@ -1522,40 +1900,96 @@
   top: 50%;
   z-index: 5;
   display: grid;
-  gap: 4px;
-  padding: 9px 12px 10px;
-  border-radius: 14px;
-  background: rgb(255 255 255 / 0.95);
+  width: 228px;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  background: rgb(255 255 255 / 0.96);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
-  box-shadow:
-    0 1px 2px rgb(23 42 58 / 0.1),
-    0 14px 32px -12px rgb(23 42 58 / 0.45);
+  box-shadow: var(--shadow-md);
   color: var(--color-ink);
-  font-size: 13px;
-  line-height: 1.25;
-  white-space: nowrap;
+  font-size: 12.5px;
+  line-height: 1.3;
+  /* Closed: a small oval bubble at the logo's side, which it goes back to
+     quickly. */
   opacity: 0;
   pointer-events: none;
-  transform: translate(var(--card-from), -50%) scale(0.96);
+  border-radius: 50%;
+  transform: translate(var(--card-from), -50%) scale(0.32);
   transition:
-    opacity 220ms ease,
-    transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-base) var(--ease-in-out),
+    border-radius var(--duration-base) var(--ease-in-out);
 }
 
-/* Always out to the right: the logos on her left open over her hair, the ones
-   on her right over the wall beyond them, and none over her face. */
+/* Out to the right: the logos on her left open over her hair, the ones on her
+   right over the wall beyond them, and none over her face. */
 .portrait__card {
   left: calc(100% + 12px);
-  --card-from: -6px;
+  --card-from: -10px;
   transform-origin: left center;
 }
 
+/* Open: it blows up out of the logo like a bubble, on the spring that
+   overshoots a hair and settles, its corners easing from round to the card's
+   own, and what it says comes in a beat after (owner, 12 October 2026: the
+   cards appeared at once). */
 .portrait__node[data-shown] .portrait__card {
   opacity: 1;
+  border-radius: var(--radius-md);
   transform: translate(0, -50%);
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-spring),
+    border-radius var(--duration-slow) var(--ease-out);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .portrait__node[data-shown] .portrait__card-head {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 90ms both;
+  }
+}
+
+/* Stripe's sits at the photo's right edge, level with the phone line on the
+   left, too near it for a card beside it: its card opens above it, its right
+   edge in line with the logo's, so it grows back towards her over the wall. */
+@media (min-width: 1280px) {
+  .portrait__node[data-card="above"] .portrait__card {
+    top: auto;
+    bottom: calc(100% + 12px);
+    left: auto;
+    right: 0;
+    transform: translate(0, 10px) scale(0.32);
+    transform-origin: 100% 100%;
+  }
+
+  .portrait__node[data-card="above"][data-shown] .portrait__card {
+    transform: translate(0, 0);
+  }
+}
+
+/* Below 1280px the photo is the screen's width, so a card opening outwards
+   from a logo on her right would leave it: those open inwards, and smaller. */
+@media (max-width: 1279px) {
+  .portrait__card {
+    width: 196px;
+    font-size: 11.5px;
+  }
+
+  .portrait__node[data-side="right"] .portrait__card {
+    left: auto;
+    right: calc(100% + 8px);
+    --card-from: 10px;
+    transform-origin: right center;
+  }
+}
+
+.portrait__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
 
 .portrait__card-name {
   color: var(--color-muted);
@@ -1565,56 +1999,849 @@
   text-transform: uppercase;
 }
 
-.portrait__card-line {
+/* "After hours": night-blue, with a moon that rises as the card opens. */
+.portrait__after {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 9999px;
+  background: #1b2440;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.portrait__after svg {
+  width: 10px;
+  height: 10px;
+  fill: #ffd98a;
+}
+
+/* --- The cards' scenes (HeroScenes.tsx) ----------------------------------
+   One example per channel and per tool, each in that channel's or tool's own
+   look (owner, 12 October 2026). Every movement here is keyed to the card
+   being shown, so a scene plays from its start each time its card opens and
+   rests, unseen, when it closes. About two seconds each; the hero gives a
+   card 3.6s (HeroPortrait.tsx). Reduced motion: each simply shows its last
+   frame. */
+
+.sc {
+  display: grid;
+  gap: 7px;
+}
+
+.sc-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.sc-strong {
   font-weight: 600;
-  opacity: 0;
-  transform: translateY(4px);
-  transition:
-    opacity 250ms ease,
-    transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* One line after another: received, then replied. */
-.portrait__node[data-shown] .portrait__card-line {
-  opacity: 1;
-  transform: none;
-  transition-delay: calc(80ms + var(--n) * 420ms);
+/* Text that types itself in: a mask running left to right. */
+.sc-type {
+  min-width: 0;
 }
 
-.portrait__tick {
-  flex: none;
-  width: 16px;
-  height: 12px;
+.sc-dots {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.sc-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.sc-check {
+  width: 13px;
+  height: 13px;
   fill: none;
-  stroke-width: 1.9;
+  stroke: currentColor;
+  stroke-width: 2.2;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
-.portrait__tick--grey {
-  stroke: #8696a0;
+.sc-sync {
+  display: block;
+  margin-top: 1px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 500;
 }
 
-.portrait__tick--blue {
-  width: 19px;
-  stroke: #53bdeb;
+/* Website chat */
+.sc-web__icon {
+  display: grid;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 9999px;
+  background: var(--color-paper-2);
+  color: var(--color-muted);
 }
 
-.portrait__tick--paid {
-  width: 16px;
+.sc-web__icon--booked {
+  background: #e6f4ea;
+  color: #1e8e3e;
+}
+
+/* Instagram */
+.sc-ig {
+  gap: 6px;
+}
+
+.sc-ig__divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8e8e8e;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.sc-ig__divider::before,
+.sc-ig__divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #dbdbdb;
+}
+
+.sc-ig__divider::before {
+  transform-origin: right center;
+}
+
+.sc-ig__divider::after {
+  transform-origin: left center;
+}
+
+.sc-ig__them {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.sc-ig__avatar {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 9999px;
+  background: linear-gradient(135deg, #f9ce34, #ee2a7b 55%, #6228d7);
+}
+
+.sc-ig__bubble,
+.sc-ig__me {
+  padding: 7px 11px;
+  border-radius: var(--radius-md);
+}
+
+.sc-ig__bubble {
+  background: #efefef;
+  color: #000;
+}
+
+.sc-ig__me {
+  justify-self: end;
+  background: linear-gradient(120deg, #3797f0, #8b3dff);
+  color: #fff;
+  font-weight: 600;
+  transform-origin: 100% 100%;
+}
+
+/* Messenger */
+.sc-ms {
+  gap: 4px;
+}
+
+.sc-ms__q,
+.sc-ms__a {
+  max-width: 180px;
+  padding: 7px 11px;
+  border-radius: var(--radius-md);
+}
+
+.sc-ms__q {
+  justify-self: end;
+  background: linear-gradient(135deg, #0099ff, #a033ff 60%, #ff5280);
+  color: #fff;
+}
+
+.sc-ms__seen {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 4px;
+  color: #65676b;
+  font-size: 10px;
+}
+
+.sc-ms__avatar {
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 9999px;
+  background: var(--color-red);
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.sc-ms__a {
+  justify-self: start;
+  margin-top: 3px;
+  background: #f0f0f0;
+  color: #050505;
+  font-weight: 600;
+  transform-origin: 0 100%;
+}
+
+/* WhatsApp */
+.sc-wa {
+  gap: 6px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  background: #efeae2;
+}
+
+.sc-wa__bubble {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 0.5px rgb(11 20 26 / 0.12);
+  color: #111b21;
+}
+
+.sc-wa__bubble--in {
+  justify-self: start;
+  background: #fff;
+}
+
+.sc-wa__bubble--out {
+  justify-self: end;
+  background: #d9fdd3;
+}
+
+.sc-wa__ticks {
+  display: inline-flex;
+  color: #8696a0;
+}
+
+/* Read: WhatsApp's blue. It rests blue and comes from grey as it plays. */
+.sc-wa__ticks--blue {
+  color: #53bdeb;
+}
+
+.sc-ticks {
+  width: 17px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* The phone line: a live call */
+/* In iOS voicemail's colours (owner, 12 October 2026): its light grey
+   ground and hairline, the time in its secondary grey, and the voice drawn
+   as its bars, blue where they have played and grey ahead, the blue moving
+   along as the call runs. */
+.sc-call__live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 11px;
+  border-radius: 9999px;
+  background: #f2f2f7;
+  box-shadow: 0 0 0 0.5px rgb(60 60 67 / 0.16);
+  color: rgb(60 60 67 / 0.8);
+}
+
+.sc-call__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #007aff;
+}
+
+/* The timer counts on its own: an integer property animated, printed by a
+   counter, so nothing re-renders to tick it. It rests at 0:42. */
+@property --sc-sec {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 42;
+}
+
+.sc-call__timer {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  counter-reset: sc-sec var(--sc-sec);
+}
+
+.sc-call__timer::after {
+  content: "0:" counter(sc-sec);
+}
+
+.sc-call__wave {
+  display: flex;
+  flex: 1;
   height: 16px;
+  align-items: center;
+  gap: 2px;
 }
 
-.portrait__tick--paid circle {
-  fill: #1f9d55;
-  stroke: none;
+.sc-call__wave i {
+  flex: 1;
+  height: 100%;
+  border-radius: 9999px;
+  background: #007aff;
+  scale: 1 0.3;
 }
 
-.portrait__tick--paid path {
-  stroke: #fff;
+/* The calendars: a day, its hours, and a block arriving at 3 PM */
+.sc-cal__day {
+  margin-bottom: -2px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sc-cal__grid {
+  position: relative;
+  display: grid;
+}
+
+.sc-cal__hour {
+  height: 27px;
+  padding-top: 2px;
+  border-top: 1px solid rgb(23 42 58 / 0.1);
+  color: var(--color-muted);
+  font-size: 9.5px;
+}
+
+.sc-gcal__block,
+.sc-calcom__block,
+.sc-hl__block {
+  position: absolute;
+  top: 29px;
+  right: 0;
+  left: 36px;
+  padding: 4px 8px 5px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.sc-gcal__block {
+  border: 1.5px dashed #1a73e8;
+  background: #e8f0fe;
+  color: #174ea6;
+}
+
+.sc-gcal__time {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.sc-calcom__block {
+  border-left: 3px solid #111827;
+  background: repeating-linear-gradient(135deg, #f3f4f6 0 6px, #e5e7eb 6px 12px);
+  color: #111827;
+  transform-origin: 50% 0;
+}
+
+.sc-hl__block {
+  border-left: 3px solid #188bf6;
+  background: rgb(24 139 246 / 0.12);
+  color: #0b4f8a;
+}
+
+.sc-calendly {
+  gap: 5px;
+}
+
+.sc-calendly__day {
+  color: #1a1a1a;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.sc-calendly__slot {
+  padding: 5px 0;
+  border: 1px solid rgb(0 105 255 / 0.5);
+  border-radius: var(--radius-sm);
+  color: #0069ff;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Taken off by the synced booking. It rests taken, and plays from free. */
+.sc-calendly__slot--taken {
+  border-color: rgb(23 42 58 / 0.12);
+  background: rgb(23 42 58 / 0.03);
+  color: #a6a6a6;
+  text-decoration: line-through;
+}
+
+/* Stripe */
+.sc-stripe__head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.sc-stripe__amount {
+  color: var(--color-ink);
+}
+
+.sc-stripe__bar {
+  display: block;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 9999px;
+  background: #e3e8ee;
+}
+
+.sc-stripe__bar i {
+  display: block;
+  height: 100%;
+  background: #1f9d55;
+  transform-origin: left center;
+}
+
+.sc-stripe__done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sc-stripe__tick {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 9999px;
+  background: #1f9d55;
+  color: #fff;
+}
+
+/* --- The scenes, playing --------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .portrait__node[data-shown] .sc-row--1 {
+    animation: sc-in var(--duration-base) var(--ease-out) 80ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--2 {
+    animation: sc-in var(--duration-slow) var(--ease-spring) 1100ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--1 .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 560ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--2 .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 1250ms both;
+  }
+
+  .portrait__node[data-shown] .sc-row--2 .sc-check path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-slow) var(--ease-out) 1250ms both;
+  }
+
+  /* Website chat: typing, then the question. */
+  .portrait__node[data-shown] .sc-web .sc-row--1 .sc-dots i {
+    animation: sc-bounce var(--duration-slow) var(--ease-in-out) 2 both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--1 .sc-dots i:nth-child(2) {
+    animation-delay: 90ms;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--1 .sc-dots i:nth-child(3) {
+    animation-delay: 180ms;
+  }
+
+  /* Then the price, confirmed from the clinic's own list (owner, 12 October
+     2026), and the booking a beat later than in the other scenes. */
+  .portrait__node[data-shown] .sc-web .sc-row--price {
+    animation: sc-in var(--duration-slow) var(--ease-spring) 1050ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--price .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 1180ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--price .sc-check path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-slow) var(--ease-out) 1180ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--2 {
+    animation-delay: 1850ms;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--2 .sc-type,
+  .portrait__node[data-shown] .sc-web .sc-row--2 .sc-check path {
+    animation-delay: 2000ms;
+  }
+
+  /* After hours: the tag fades in with the card, its moon rising into it. */
+  .portrait__node[data-shown] .portrait__after {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 60ms both;
+  }
+
+  .portrait__node[data-shown] .portrait__after svg {
+    animation: sc-moon var(--duration-slower) var(--ease-out) 120ms both;
+  }
+
+  /* Instagram: the divider opens from its middle, the question slides in,
+     the reply pops up from its corner. */
+  .portrait__node[data-shown] .sc-ig__divider::before,
+  .portrait__node[data-shown] .sc-ig__divider::after {
+    animation: sc-rule var(--duration-slow) var(--ease-out) 60ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ig__divider span {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 120ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ig__them {
+    animation: sc-from-left var(--duration-slow) var(--ease-out) 420ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ig__me {
+    animation: sc-pop var(--duration-slow) var(--ease-spring) 1200ms both;
+  }
+
+  /* Messenger: the question, the avatar dropping under it, the answer. */
+  .portrait__node[data-shown] .sc-ms__q {
+    animation: sc-from-right var(--duration-slow) var(--ease-out) 80ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ms__seen {
+    animation: sc-drop-in var(--duration-slow) var(--ease-spring) 700ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ms__a {
+    animation: sc-pop var(--duration-slow) var(--ease-spring) 1250ms both;
+  }
+
+  /* WhatsApp: received, its two ticks drawing; replied, its ticks drawing
+     grey and then turning blue as it is read. */
+  .portrait__node[data-shown] .sc-wa__bubble--in {
+    animation: sc-from-left var(--duration-slow) var(--ease-out) 80ms both;
+  }
+
+  .portrait__node[data-shown] .sc-wa__bubble--out {
+    animation: sc-from-right var(--duration-slow) var(--ease-out) 900ms both;
+  }
+
+  .portrait__node[data-shown] .sc-ticks path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-base) var(--ease-out) both;
+  }
+
+  .portrait__node[data-shown] .sc-wa__ticks--grey .sc-ticks path:first-child { animation-delay: 380ms; }
+  .portrait__node[data-shown] .sc-wa__ticks--grey .sc-ticks path:last-child { animation-delay: 520ms; }
+  .portrait__node[data-shown] .sc-wa__ticks--blue .sc-ticks path:first-child { animation-delay: 1200ms; }
+  .portrait__node[data-shown] .sc-wa__ticks--blue .sc-ticks path:last-child { animation-delay: 1340ms; }
+
+  .portrait__node[data-shown] .sc-wa__ticks--blue {
+    animation: sc-read var(--duration-base) var(--ease-standard) 1750ms both;
+  }
+
+  /* The phone line: the call live, its timer running up to 0:42 and its
+     voice moving, then the booking under it. */
+  .portrait__node[data-shown] .sc-call__live {
+    animation: sc-in var(--duration-base) var(--ease-out) 60ms both;
+  }
+
+  .portrait__node[data-shown] .sc-call__dot {
+    animation: sc-pulse 1.2s var(--ease-in-out) infinite;
+  }
+
+  .portrait__node[data-shown] .sc-call__timer {
+    animation: sc-tick calc(var(--duration-slower) * 1.6) steps(4, end) 100ms both;
+  }
+
+  .portrait__node[data-shown] .sc-call__wave i {
+    animation:
+      sc-wave 520ms var(--ease-in-out) calc(var(--b) * -73ms) infinite alternate,
+      sc-played var(--duration-base) var(--ease-standard) calc(200ms + var(--b) * 90ms) both;
+  }
+
+  .portrait__node[data-shown] .sc-call__wave i:nth-child(3n) {
+    animation-duration: 410ms;
+  }
+
+  .portrait__node[data-shown] .sc-call__wave i:nth-child(4n + 1) {
+    animation-duration: 640ms;
+  }
+
+  .portrait__node[data-shown] .sc-call__done {
+    animation-delay: 1500ms;
+  }
+
+  .portrait__node[data-shown] .sc-call__done .sc-type,
+  .portrait__node[data-shown] .sc-call__done .sc-check path {
+    animation-delay: 1650ms;
+  }
+
+  /* Google Calendar: the request drops into 3 PM on the spring. */
+  .portrait__node[data-shown] .sc-cal__hour {
+    animation: sc-fade var(--duration-base) var(--ease-standard) both;
+  }
+
+  .portrait__node[data-shown] .sc-cal__hour:nth-child(2) { animation-delay: 60ms; }
+  .portrait__node[data-shown] .sc-cal__hour:nth-child(3) { animation-delay: 120ms; }
+
+  .portrait__node[data-shown] .sc-gcal__block {
+    animation: sc-drop var(--duration-slow) var(--ease-spring) 600ms both;
+  }
+
+  /* Cal.com: the busy block grows down from 3 PM. */
+  .portrait__node[data-shown] .sc-calcom__block {
+    animation: sc-grow var(--duration-slow) var(--ease-out) 650ms both;
+  }
+
+  /* HighLevel: the blocked slot slides in from its edge. */
+  .portrait__node[data-shown] .sc-hl__block {
+    animation: sc-from-left var(--duration-slow) var(--ease-out) 650ms both;
+  }
+
+  .portrait__node[data-shown] .sc-calcom__block .sc-sync,
+  .portrait__node[data-shown] .sc-hl__block .sc-sync {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 1150ms both;
+  }
+
+  /* Calendly: the times arrive, then 3:00pm is taken off. */
+  .portrait__node[data-shown] .sc-calendly__slot {
+    animation: sc-in var(--duration-base) var(--ease-out) both;
+  }
+
+  /* The taken slot (the third) sets both its delays in its own rule below. */
+  .portrait__node[data-shown] .sc-calendly__slot:nth-of-type(4) { animation-delay: 140ms; }
+
+  .portrait__node[data-shown] .sc-calendly__slot--taken {
+    animation:
+      sc-in var(--duration-base) var(--ease-out) 70ms both,
+      sc-taken var(--duration-slow) var(--ease-standard) 900ms both;
+  }
+
+  .portrait__node[data-shown] .sc-calendly .sc-sync {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 1250ms both;
+  }
+
+  /* Stripe: the bar fills in Stripe's violet, turns green as it completes,
+     the tick pops, and the slot is confirmed. */
+  .portrait__node[data-shown] .sc-stripe__bar i {
+    animation:
+      sc-fill calc(var(--duration-slower) * 1.25) var(--ease-in-out) 150ms both,
+      sc-paid var(--duration-base) var(--ease-standard) 1150ms both;
+  }
+
+  .portrait__node[data-shown] .sc-stripe__tick {
+    animation: sc-pop var(--duration-slow) var(--ease-spring) 1250ms both;
+  }
+
+  .portrait__node[data-shown] .sc-stripe__tick .sc-check path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-slow) var(--ease-out) 1400ms both;
+  }
+
+  .portrait__node[data-shown] .sc-stripe__done .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 1450ms both;
+  }
+}
+
+@keyframes sc-moon {
+  from {
+    opacity: 0;
+    transform: translateY(5px) rotate(-35deg);
+  }
+}
+
+@keyframes sc-in {
+  from {
+    opacity: 0;
+    translate: 0 6px;
+    scale: 0.97;
+  }
+}
+
+@keyframes sc-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sc-type {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes sc-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes sc-bounce {
+  0%,
+  100% {
+    opacity: 0.35;
+    translate: 0 0;
+  }
+  50% {
+    opacity: 0.9;
+    translate: 0 -2px;
+  }
+}
+
+@keyframes sc-rule {
+  from {
+    scale: 0 1;
+  }
+}
+
+@keyframes sc-from-left {
+  from {
+    opacity: 0;
+    translate: -10px 0;
+  }
+}
+
+@keyframes sc-from-right {
+  from {
+    opacity: 0;
+    translate: 10px 0;
+  }
+}
+
+@keyframes sc-pop {
+  from {
+    opacity: 0;
+    scale: 0.8;
+  }
+}
+
+@keyframes sc-drop-in {
+  from {
+    opacity: 0;
+    translate: 0 -8px;
+  }
+}
+
+@keyframes sc-read {
+  from {
+    color: #8696a0;
+  }
+}
+
+@keyframes sc-pulse {
+  50% {
+    opacity: 0.35;
+    scale: 0.8;
+  }
+}
+
+@keyframes sc-tick {
+  from {
+    --sc-sec: 38;
+  }
+  to {
+    --sc-sec: 42;
+  }
+}
+
+@keyframes sc-played {
+  from {
+    background-color: #c7c7cc;
+  }
+}
+
+@keyframes sc-wave {
+  from {
+    scale: 1 0.22;
+  }
+  to {
+    scale: 1 1;
+  }
+}
+
+@keyframes sc-drop {
+  from {
+    opacity: 0;
+    translate: 0 -24px;
+    scale: 0.96;
+  }
+}
+
+@keyframes sc-grow {
+  from {
+    opacity: 0;
+    scale: 1 0;
+  }
+}
+
+@keyframes sc-taken {
+  from {
+    border-color: rgb(0 105 255 / 0.5);
+    background: transparent;
+    color: #0069ff;
+    text-decoration: none;
+  }
+}
+
+@keyframes sc-fill {
+  from {
+    scale: 0 1;
+    background: #635bff;
+  }
+  to {
+    background: #635bff;
+  }
+}
+
+@keyframes sc-paid {
+  from {
+    background: #635bff;
+  }
+  to {
+    background: #1f9d55;
+  }
 }
 
 /* =============================================================================
@@ -1640,7 +2867,7 @@
    ============================================================================= */
 
 .share-chevron {
-  transition: transform 460ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: transform var(--duration-slow) var(--ease-spring);
 }
 
 .share-toggle[aria-expanded="true"] .share-chevron {
@@ -1663,7 +2890,7 @@
 }
 
 .share-reveal > * {
-  animation: share-field-in 460ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: share-field-in var(--duration-slow) var(--ease-out) both;
 }
 
 .share-reveal > *:nth-child(1) {
@@ -1719,7 +2946,7 @@
 }
 
 .review-nudge {
-  animation: review-nudge 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: review-nudge 2.2s var(--ease-in-out) infinite;
 }
 
 /* The same lean, mirrored, for the arrowhead pointing the other way. */
@@ -1735,112 +2962,26 @@
 }
 
 .review-nudge--back {
-  animation: review-nudge-back 2.2s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+  animation: review-nudge-back 2.2s var(--ease-in-out) infinite;
 }
 
 /* =============================================================================
-   Review card, the flip
+   Review card
    =============================================================================
-   The card shows a rating, a headline and a name face up, and turns over to
-   show the quote. Written here rather than as Tailwind variants for the same
-   reason the niche flood is: this is one property animated from one place, and
-   the utility version needs `[transform-style:preserve-3d]`,
-   `[backface-visibility:hidden]` and two `[transform:rotateY()]` arbitrary
-   values scattered across three elements, where a stray `transform` utility on
-   any of them silently flattens the whole thing.
+   One face since 12 October 2026: the card no longer turns over to show the
+   quote (Reviews.tsx says why). What it kept is the laminate.
 
-   ## Three things that are not stylistic
-
-   `perspective` is on the OUTER element and `preserve-3d` on the inner one.
-   Putting both on the same element flattens the children into its own plane and
-   the card fades between faces instead of turning.
-
-   The rotation is negative, so the right edge swings towards the reader and the
-   card turns to the left. That direction is deliberate: the slider advances
-   leftward, and a card that turned the other way would fight it.
-
-   Hover is inside `@media (hover: hover)`. On a touch screen a `:hover` rule
-   latches after a tap and the card sits reversed until something else is
-   touched, so touch gets the explicit `data-flipped` toggle instead. Both are
-   listed here because a laptop with a touchscreen is both.
+   A gloss is not one effect. The stock carries a very slight gradient of its
+   own, brightest at the top left, because a highlight the same colour as the
+   surface is invisible; the rim is an inset hairline of white along the top
+   edge, which is what the folded edge of a laminate pouch does to the light;
+   and the specular streak is a background layer behind the type rather than
+   an overlay on it, because at the strength a white band needs to be seen on
+   a white card it greyed every word it crossed. No border, so the shadow is
+   the whole edge.
    ============================================================================= */
 
-.review-flip {
-  perspective: 1400px;
-}
-
-.review-flip__inner {
-  position: relative;
-  height: 100%;
-  transform-style: preserve-3d;
-  /*
-   * Ease-in-out, and no bounce. A half turn is a physical movement of something
-   * already on screen, which is the one case the ease-out family reads wrong,
-   * and an overshoot on a hover state means a card that wobbles every time a
-   * pointer crosses it.
-   */
-  transition: transform 700ms cubic-bezier(0.645, 0.045, 0.355, 1);
-}
-
-@media (hover: hover) {
-  .review-flip:hover .review-flip__inner {
-    transform: rotateY(-180deg);
-  }
-}
-
-.review-flip:focus-visible .review-flip__inner,
-.review-flip[data-flipped="true"] .review-flip__inner {
-  transform: rotateY(-180deg);
-}
-
-.review-flip__face {
-  position: absolute;
-  inset: 0;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  overflow: hidden;
-}
-
-.review-flip__face--back {
-  transform: rotateY(180deg);
-}
-
-/* -----------------------------------------------------------------------------
-   The laminate.
-
-   Three layers, and all three are needed. A gloss is not one effect:
-
-     1. The stock. A flat white card cannot show a sheen, because a highlight
-        the same colour as the surface is invisible. So the face carries a very
-        slight gradient of its own, brightest at the top left, and the sheen has
-        something to be brighter than.
-     2. The rim. An inset hairline of white along the top edge and a whisper of
-        ink along the bottom, which is what the folded edge of a laminate pouch
-        actually does to the light.
-     3. The specular streak, below.
-
-   The streak is on ::after and therefore paints OVER the copy, which is correct
-   rather than a bug: laminate goes on top of the print. It is pointer-events:
-   none, so nothing under it stops being clickable, and it inherits the radius
-   so it cannot square off the corner.
-   -------------------------------------------------------------------------- */
-
-/*
- * The sheen is a BACKGROUND layer, not an overlay, and that is the second
- * thing this effect got wrong.
- *
- * A laminate physically sits over the print, so the first version put the
- * streak on ::after above the copy. At the strength a white band needs to be
- * visible on a white card, it greys every word it crosses: the headline lost
- * its left half and the first star went pale. Behind the type it reads as the
- * same gloss and costs the copy nothing, and no reader has ever audited a card
- * for whether its highlight is in front of the ink.
- *
- * The stock underneath goes to a cool grey rather than staying white, because
- * a highlight the same colour as the surface is not a highlight. The band has
- * to have something to be brighter than.
- */
-.review-flip__face:not(.review-flip__face--back) {
+.review-card {
   background-image:
     linear-gradient(
       114deg,
@@ -1853,49 +2994,7 @@
       rgb(255 255 255 / 0) 100%
     ),
     linear-gradient(152deg, #ffffff 0%, #fafbfc 40%, #edf0f3 100%);
-  /*
-   * No border, so the shadow is the whole edge.
-   *
-   * The card used to carry a hairline outline and the shadow only had to lift
-   * it; with the outline gone a near-white card on a near-white page has
-   * nothing to separate it, so this is three shadows rather than two. The
-   * first is a contact shadow tight under the card, the second the ambient
-   * one, the third the soft cast that gives it height. The inset white line
-   * stays: it is the top edge catching the light, which is inside the card
-   * rather than an outline around it.
-   */
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.95),
-    0 1px 2px rgb(23 42 58 / 0.07),
-    0 6px 12px -8px rgb(23 42 58 / 0.28),
-    0 20px 36px -22px rgb(23 42 58 / 0.45);
-}
-
-/* Same material, different strengths. White on ink is a real highlight where
-   white on white is barely a suggestion, so the numbers cannot match. */
-.review-flip__face--back {
-  background-image: linear-gradient(
-    114deg,
-    rgb(255 255 255 / 0) 6%,
-    rgb(255 255 255 / 0.16) 18%,
-    rgb(255 255 255 / 0.04) 28%,
-    rgb(255 255 255 / 0) 42%,
-    rgb(255 255 255 / 0) 74%,
-    rgb(255 255 255 / 0.1) 90%,
-    rgb(255 255 255 / 0) 100%
-  );
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.18),
-    0 2px 4px -2px rgb(23 42 58 / 0.3),
-    0 18px 36px -20px rgb(23 42 58 / 0.55);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* Snap, rather than run the same half turn in 0.01ms. The global rule would
-     do that on its own and it reads as a glitch rather than as a card. */
-  .review-flip__inner {
-    transition: none;
-  }
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95), var(--shadow-md);
 }
 
 /* =============================================================================
@@ -1903,24 +3002,64 @@
    =============================================================================
    The eyebrow is a small label on a tinted field rather than the tracked
    small-caps the sections used to carry: it reads as a tag on the content,
-   not as a heading competing with the one beneath it. Its face is Helvetica
-   Now Display at 600, scalabid.com's section-label face, since 9 October 2026
-   (owner's request; app/layout.tsx says where the file comes from); it was a
-   system monospace before. The outline button is the secondary action beside
+   not as a heading competing with the one beneath it. Its face is the body
+   face at 600: it was Helvetica Now Display from 9 to 12 October 2026, and a
+   system monospace before that, until the site went to two faces
+   (app/layout.tsx). The outline button is the secondary action beside
    a flat solid one; both are rectangles with a small radius, not pills.
    ============================================================================= */
 
+/* The small title over a section's heading (owner, 12 October 2026: at 13px,
+   drawn at 90%, they read too small), on a stroke of highlighter rather than
+   a tidy tint (owner, the same day: some rawness in the design). One pass of
+   an orange chisel-tip marker, drawn as an SVG: a stroke that climbs a
+   little, with slanted ends; streaks along it where the felt ran lighter
+   (stretched noise); edges that wander (a displacement); and the ink a shade
+   deeper where the tip landed and lifted. It stretches to the words, so the
+   streaks run longer under a longer title, as they would. */
 @utility eyebrow-tag {
   display: inline-block;
-  font-family: var(--font-helvetica-now), "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 13px;
+  font-family: var(--font-sans);
+  font-size: 16.5px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.005em;
   line-height: 1;
-  padding: 7px 9px;
-  border-radius: 3px;
+  padding: 8px 14px;
   color: var(--color-ink);
-  background: var(--color-tint-peach);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 44' preserveAspectRatio='none'%3E%3Cfilter id='h' x='-4%25' y='-30%25' width='108%25' height='160%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='3' seed='4' result='s'/%3E%3CfeColorMatrix in='s' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 .38' result='m'/%3E%3CfeComposite in='SourceGraphic' in2='m' operator='in' result='t'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.018 .06' numOctaves='2' seed='9' result='e'/%3E%3CfeDisplacementMap in='t' in2='e' scale='3.2' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3ClinearGradient id='a' gradientUnits='userSpaceOnUse' x1='4' x2='52'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' gradientUnits='userSpaceOnUse' x1='295' x2='250'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.26'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cg filter='url(%23h)'%3E%3Cpath fill='%23ff9a4a' fill-opacity='.5' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23a)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23b)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat;
+}
+
+/*
+ * Every section heading on the site, at the size and measure of the
+ * homepage's "One assistant, every channel, 24/7" (owner, 12 October 2026):
+ * one scale for all of them rather than a size per section. The measure is
+ * the 760px that heading sits in; a centred section adds `mx-auto`. Colour is
+ * inherited, so the same heading works on the dark bands.
+ */
+/* As wide as what is under it, so a heading is one line wherever the column
+   has room for it (owner, 12 October 2026: they broke at 760px). */
+@utility heading-section {
+  max-width: none;
+  font-family: var(--font-display);
+  font-size: clamp(36px, 4.8vw, 66px);
+  font-weight: 400;
+  line-height: 1.02;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+/* A heading inside a section, under its own heading: the same face at about
+   half the size, at Fraunces' text optical size rather than its display cut,
+   so it reads as part of the section and not as the start of another (owner,
+   12 October 2026, of "See it in your own branding"). */
+@utility heading-sub {
+  max-width: 640px;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 2.5vw, 36px);
+  font-weight: 400;
+  line-height: 1.12;
+  letter-spacing: -0.018em;
+  text-wrap: balance;
 }
 
 @utility btn-outline {
@@ -1928,13 +3067,13 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--color-ink);
   color: var(--color-ink);
   font-weight: 600;
   transition:
-    background-color 200ms var(--ease-panel),
-    color 200ms var(--ease-panel);
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 
   &:hover {
     background: var(--color-ink);
@@ -1953,14 +3092,14 @@
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1.5px solid var(--color-ink);
   background: var(--color-ink);
   color: #fff;
   font-weight: 600;
   transition:
-    background-color 200ms var(--ease-panel),
-    color 200ms var(--ease-panel);
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 
   &:hover {
     background: #fff;
@@ -1998,10 +3137,97 @@
    typing dots that grow into the answer (ChatSkins). The global
    reduced-motion rule above stills all of it; the states still change. */
 
+/* --- Buttons whose word turns into an icon -------------------------------
+   The voice card's "Talk now" and the website chat's "Send" (owner, 12
+   October 2026): under the pointer, or with keyboard focus, the word blurs
+   away and an icon springs into its place, a phone that rings once or a
+   paper plane that flies in; when the pointer leaves they change back. The
+   two share the button's one cell, so it keeps the word's width, and the
+   word stays in the page as the button's name. */
+.morph-btn {
+  display: inline-grid;
+  place-items: center;
+}
+
+.morph-btn > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-spring),
+    filter var(--duration-base) var(--ease-standard);
+}
+
+.morph-btn__icon {
+  display: grid;
+  opacity: 0;
+  filter: blur(3px);
+  transform: scale(0.4) rotate(-30deg);
+}
+
+.morph-btn__icon svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.morph-btn__icon--fly {
+  transform: translate(-10px, 8px) scale(0.5) rotate(-12deg);
+}
+
+@media (hover: hover) {
+  .morph-btn:hover .morph-btn__label {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(0.7);
+  }
+
+  .morph-btn:hover .morph-btn__icon {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+.morph-btn:focus-visible:not(:disabled) .morph-btn__label {
+  opacity: 0;
+  filter: blur(4px);
+  transform: scale(0.7);
+}
+
+.morph-btn:focus-visible:not(:disabled) .morph-btn__icon {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+
+/* The phone rings once it is there. */
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .morph-btn:hover .morph-btn__icon--ring svg {
+    animation: morph-ring var(--duration-slower) var(--ease-in-out) var(--duration-base) both;
+  }
+}
+
+@keyframes morph-ring {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  15%,
+  45% {
+    transform: rotate(-14deg);
+  }
+  30%,
+  60% {
+    transform: rotate(14deg);
+  }
+  75% {
+    transform: rotate(-6deg);
+  }
+}
+
 /* --- M2: the call on her face ------------------------------------------- */
 
 .aya-breathe {
-  animation: aya-breathe 4.6s ease-in-out infinite;
+  animation: aya-breathe 4.6s var(--ease-in-out) infinite;
 }
 
 @keyframes aya-breathe {
@@ -2014,13 +3240,31 @@
   }
 }
 
+/* The soul's aura round her, on healdesk's own card: the same three layers
+   the soul has, larger, reaching well past her face so the part outside it
+   is the living edge. */
+.aya-aura {
+  --soul-beat: 3500ms;
+  --soul-aura: -34%;
+  --soul-aura-blur: 22px;
+  pointer-events: none;
+}
+
+.aya-portrait[data-state="connecting"] .aya-aura {
+  --soul-beat: 1400ms;
+}
+
+.aya-portrait[data-state="speaking"] .aya-aura {
+  --soul-beat: 1900ms;
+}
+
 .aya-halo {
   background: var(--clinic);
   opacity: 0.1;
 }
 
 .aya-portrait[data-state="connecting"] .aya-halo {
-  animation: aya-wait 1.6s ease-in-out infinite;
+  animation: aya-wait 1.6s var(--ease-in-out) infinite;
 }
 
 .aya-portrait[data-state="speaking"] .aya-halo {
@@ -2051,7 +3295,7 @@
 }
 
 .aya-portrait[data-state="listening"] .aya-ripple {
-  animation: aya-ripple 2.2s ease-out infinite;
+  animation: aya-ripple 2.2s var(--ease-out) infinite;
 }
 
 .aya-portrait[data-state="listening"] .aya-ripple--late {
@@ -2066,44 +3310,6 @@
   100% {
     opacity: 0;
     transform: scale(1.32);
-  }
-}
-
-.aya-cool {
-  background: radial-gradient(60% 60% at 30% 26%, rgb(255 255 255 / 0.35), transparent 70%),
-    linear-gradient(140deg, rgb(127 178 255 / 0.32), rgb(86 120 255 / 0.18));
-  opacity: 0;
-  transition: opacity 500ms ease;
-}
-
-.aya-portrait[data-state="listening"] .aya-cool {
-  opacity: 1;
-}
-
-.aya-sweep {
-  overflow: hidden;
-  border-radius: 9999px;
-}
-
-.aya-sweep::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -60%;
-  width: 45%;
-  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.7), transparent);
-  opacity: 0;
-}
-
-.aya-portrait[data-state="connecting"] .aya-sweep::after {
-  opacity: 1;
-  animation: aya-sweep 1.15s ease-in-out infinite;
-}
-
-@keyframes aya-sweep {
-  to {
-    left: 120%;
   }
 }
 
@@ -2132,12 +3338,303 @@
 
 .call-state[data-state="speaking"]::before,
 .call-state[data-state="connecting"]::before {
-  animation: call-dot 900ms ease-in-out infinite;
+  animation: call-dot 900ms var(--ease-in-out) infinite;
 }
 
 @keyframes call-dot {
   50% {
     opacity: 0.3;
+  }
+}
+
+/* --- The chat card, 12 October 2026 (ChatSkins.tsx, ChatCards.tsx) -------
+   The owner's picks for the demo's chat: one app morphing into the next, the
+   answer streaming in word by word, each app's receipts, the suggestions as a
+   row that swipes, cards under answers about booking and deposits, and a
+   frosted header that casts a shadow once the thread runs under it. */
+
+/* The header: glass over the thread, in each app's own colour. */
+.chat-head {
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  transition: box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.chat-head[data-skin="website"]:has([data-tone="light"]) {
+  background: rgb(255 255 255 / 0.8);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.chat-head[data-skin="website"]:has([data-tone="brand"]) {
+  background: color-mix(in srgb, var(--clinic) 90%, transparent);
+}
+
+.chat-head[data-skin="whatsapp"] {
+  background: rgb(0 128 105 / 0.93);
+}
+
+.chat-head[data-skin="instagram"] {
+  background: rgb(255 255 255 / 0.82);
+  border-bottom: 1px solid rgb(219 219 219 / 0.8);
+}
+
+.chat-head[data-skin="messenger"] {
+  background: rgb(255 255 255 / 0.82);
+}
+
+.chat-head[data-scrolled] {
+  box-shadow: var(--shadow-sm);
+}
+
+/* A word arriving: up out of a blur, once, as it lands. */
+.stream-word {
+  animation: stream-word var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes stream-word {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+
+/* A receipt changing, "Sent" to "Seen": in, quietly. */
+.receipt-in {
+  animation: receipt-in var(--duration-base) var(--ease-out) both;
+}
+
+@keyframes receipt-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+/* WhatsApp's ticks turning blue. */
+.wa-ticks {
+  transition: color var(--duration-slow) var(--ease-standard);
+}
+
+/* The suggestions: a row that swipes, its ends fading out. */
+.chip-rail__track {
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 28px), transparent);
+  cursor: grab;
+}
+
+.chip-rail__track::-webkit-scrollbar {
+  display: none;
+}
+
+.chip-rail__track[data-dragging] {
+  cursor: grabbing;
+  scroll-snap-type: none;
+}
+
+.chip-rail__chip {
+  scroll-snap-align: start;
+}
+
+/* A card under an answer, and each step inside one: in on the spring. */
+.chat-card-in {
+  animation: chat-card-in var(--duration-slow) var(--ease-spring) both;
+}
+
+@keyframes chat-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+/* The 60-second hold, running down: a real period, not a timing, so it is
+   the card's own (`--hold`, ChatCards.tsx), not a duration token. */
+.chat-hold-ring {
+  stroke-dasharray: 1;
+  animation: chat-hold var(--hold) linear both;
+}
+
+@keyframes chat-hold {
+  to {
+    stroke-dashoffset: 1;
+  }
+}
+
+.chat-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 9999px;
+  animation: chat-spin 0.8s linear infinite;
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* One app into the next: the header, the thread, the composer and the box's
+   highlight each morph, and the page itself does not cross-fade under them. */
+:root.chat-morph::view-transition-old(root),
+:root.chat-morph::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-group(*.chat-morph) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(*.chat-morph),
+::view-transition-new(*.chat-morph) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+/* --- The voice card, 12 October 2026 (VoiceCard.tsx) ---------------------
+   The owner's picks: iOS's segmented control, her face shrinking to the top
+   once a call is on and the call rising under it, captions, things to ask
+   her, iOS's round call buttons, a dial card, a switch for consent, and the
+   visitor's phone ringing. */
+
+/* The segmented control's pill, sliding to the way chosen: one column of the
+   control's grid wide (its padding and gap taken off), moved along by whole
+   widths of itself. */
+.voice-segments__pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--n));
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transform: translateX(calc(var(--at) * 100%));
+  transition: transform var(--duration-slow) var(--ease-spring);
+}
+
+/* What the panel changes to rises into place. */
+.voice-rise {
+  animation: voice-rise var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes voice-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* Her face growing and shrinking with the call. */
+.voice-talk .aya-portrait,
+.voice-talk .aya-portrait > .aya-breathe {
+  transition:
+    width var(--duration-slow) var(--ease-spring),
+    height var(--duration-slow) var(--ease-spring);
+}
+
+/* Each new line of hers comes up softly. */
+.voice-caption__line {
+  display: inline-block;
+  animation: stream-word var(--duration-slow) var(--ease-out) both;
+}
+
+/* Things to ask her, drifting slowly past; still where motion is reduced. */
+.voice-asks {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+}
+
+.voice-asks__track {
+  animation: voice-asks 34s linear infinite;
+}
+
+.voice-asks:hover .voice-asks__track {
+  animation-play-state: paused;
+}
+
+@keyframes voice-asks {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* The consent switch: iOS's, green when on. Still a checkbox underneath. */
+.voice-switch {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: 9999px;
+  background: rgb(120 120 128 / 0.28);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color var(--duration-base) var(--ease-standard);
+}
+
+.voice-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-base) var(--ease-spring);
+}
+
+.voice-switch:checked {
+  background: #34c759;
+}
+
+.voice-switch:checked::after {
+  transform: translateX(16px);
+}
+
+.voice-switch:focus-visible {
+  outline: 3px solid var(--color-orange);
+  outline-offset: 2px;
+}
+
+/* The visitor's phone ringing: a buzz, and a ring running round it. */
+.voice-buzz {
+  animation: voice-buzz 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes voice-buzz {
+  0%,
+  40%,
+  100% {
+    transform: rotate(0);
+  }
+  5%,
+  15%,
+  25% {
+    transform: rotate(-12deg);
+  }
+  10%,
+  20%,
+  30% {
+    transform: rotate(12deg);
+  }
+}
+
+/* As long as a call takes to reach the phone (`--ring`, VoiceCard.tsx). */
+.voice-ring {
+  stroke-dasharray: 1;
+  animation: voice-ring var(--ring) linear both;
+}
+
+@keyframes voice-ring {
+  from {
+    stroke-dashoffset: 1;
   }
 }
 
@@ -2157,7 +3654,7 @@
   border-radius: 9999px;
   background: currentColor;
   opacity: 0.45;
-  animation: typing-dot 1.2s ease-in-out infinite;
+  animation: typing-dot 1.2s var(--ease-in-out) infinite;
 }
 
 .typing-dots i:nth-child(2) {
@@ -2183,7 +3680,7 @@
 
 /* The first words of an answer arrive as the bubble opens round them. */
 .morph-text {
-  animation: morph-text 320ms 90ms ease both;
+  animation: morph-text var(--duration-base) 90ms var(--ease-standard) both;
 }
 
 @keyframes morph-text {
@@ -2199,7 +3696,7 @@
    built. Indeterminate, as Safari's own is until the page answers. */
 
 .safari-progress > span {
-  animation: safari-progress 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: safari-progress 1.6s var(--ease-standard) infinite;
 }
 
 @keyframes safari-progress {
@@ -2217,9 +3714,117 @@
   background: radial-gradient(120% 85% at 50% 0%, #ffe9db 0%, #fdf4ee 48%, #fbf9f7 100%);
 }
 
+/* The closing band (ClosingCta.tsx): AYA behind the own-branding stage's
+   peach light, pointing at the words. Below 1024px she is a band across the
+   top, fading into the stage at its foot, with the words centred under her;
+   from 1024px she stands at the right, the photo as tall as the band and
+   fading into it on her left, and the words are on the left. The light is
+   laid over her too, softer than the stage's own, so she sits in it. */
+.closing__photo {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -2;
+  width: 100%;
+  height: clamp(250px, 62vw, 380px);
+  object-fit: cover;
+  object-position: 74% 18%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 98%);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent 98%);
+}
+
+.closing__light {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 85% at 50% 0%, rgb(255 233 219 / 0.55) 0%, rgb(253 244 238 / 0.22) 48%, rgb(251 249 247 / 0) 100%);
+  pointer-events: none;
+}
+
+.closing__body {
+  padding: calc(clamp(250px, 62vw, 380px) - 12px) 24px 56px;
+  text-align: center;
+}
+
+.closing__body .heading-section,
+.closing__line {
+  margin-inline: auto;
+}
+
+.closing__line {
+  max-width: 52ch;
+}
+
+.closing__buttons {
+  margin-inline: auto;
+}
+
+@media (min-width: 640px) {
+  .closing__body {
+    padding-inline: 48px;
+    padding-bottom: 80px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .closing__photo {
+    inset: 0 0 0 auto;
+    width: auto;
+    height: 100%;
+    aspect-ratio: 1672 / 941;
+    object-position: 100% 30%;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 34%);
+    mask-image: linear-gradient(to right, transparent, #000 34%);
+  }
+
+  .closing__body {
+    max-width: min(560px, 50%);
+    padding: 88px 0 88px 64px;
+    text-align: left;
+  }
+
+  .closing__body .heading-section,
+  .closing__line,
+  .closing__buttons {
+    margin-inline: 0;
+  }
+}
+
+/* The address bar, until the visitor touches it (OwnBranding.tsx): Safari's
+   blue focus ring breathing round it, and a caret after the example it is
+   typing for itself, in the accent colour macOS gives a caret. */
+.own-address[data-pulse] {
+  animation: own-pulse 2.6s var(--ease-in-out) infinite;
+}
+
+@keyframes own-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0px rgb(0 113 227 / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(0 113 227 / 0.3);
+  }
+}
+
+.own-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 17px;
+  margin-left: 1px;
+  border-radius: 9999px;
+  background: #0071e3;
+  animation: own-caret 1.05s steps(1) infinite;
+}
+
+@keyframes own-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 /* What is in the window changes by rising into place, a short way. */
 .own-rise {
-  animation: own-rise 440ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation: own-rise var(--duration-slow) var(--ease-out) both;
 }
 
 @keyframes own-rise {
@@ -2233,7 +3838,7 @@
    a beat after their site has appeared. */
 .own-widget {
   transform-origin: 100% 100%;
-  animation: own-widget 640ms var(--notif-spring) 320ms both;
+  animation: own-widget var(--duration-slow) var(--ease-spring) 320ms both;
 }
 
 @keyframes own-widget {
@@ -2244,34 +3849,65 @@
 }
 
 /* =============================================================================
-   What changes in month one: an iOS lock screen (Outcomes.tsx)
+   What changes in month one: a lock screen (Outcomes.tsx)
    =============================================================================
-   The owner's pick of 9 October 2026, "Notification wall, but make it look
-   more like iOS". A blurred wallpaper with the date and a large clock, the
-   eight outcomes as notifications in iOS's frosted material, and the
-   flashlight, camera and home bar at the foot. Set in the platform's own
-   face where there is one (San Francisco on Apple devices), because a lock
-   screen in the site's serif reads as a picture of one, not as one.
+   One lock screen, drawn two ways (owner, 12 October 2026). From 1024px it is
+   the wall the owner picked on 9 October, "Notification wall, but make it look
+   more like iOS": a panel as wide as the page, the date and a large clock,
+   the eight outcomes as notifications in three columns (two below 1100px),
+   and the flashlight, camera and home bar at the foot. Below 1024px it is the
+   whole screen: pinned under the navbar edge to edge, it collects a
+   notification for each step of the track it is pinned in, as a phone does.
 
-   ## Arriving (12 October 2026)
+   Set in the platform's own face where there is one (San Francisco on Apple
+   devices), because a lock screen in the site's faces reads as a picture of
+   one, not as one.
 
-   The screen wakes (the wallpaper comes up from dark, the date and clock
-   rise into place) and the notifications drop in one after another on a
-   spring: a damped one, which overshoots by about four percent and settles,
-   written as a CSS `linear()` easing so it needs no script. It is the one
-   curve for the arrival, for the card opening, and for the browser's view
-   transition between them, so the three feel like one piece of glass.
+   ## Arriving
+
+   As iOS brings them: from below, out of a soft blur, on one long smooth
+   deceleration with no bounce (owner, 12 October 2026: they dropped from
+   above on a spring). On a desktop the screen wakes as it scrolls into view
+   (the wallpaper comes up from dark, the date and clock rise into place) and
+   the notifications rise into the wall one after another, oldest first, a
+   beat after it. Below 1024px each rises in at the foot of the stack as its
+   step of the track is reached, and the older ones move up.
+
+   ## The stack, below 1024px
+
+   Each notification is placed by its place from the newest (`--pos`, from
+   Outcomes.tsx; -1 is one not arrived yet, waiting under the foot) and by how
+   many fit one under another (`--fit`, measured there). Those past the last
+   that fits tuck under it, smaller and fainter, two deep, as iOS stacks older
+   ones. Every notification is the same height here, three lines of body at
+   most, so a place is a multiple of one height: a pressed notification opens
+   the whole of it.
 
    ## Opening
 
    A press scales a notification down a little, as iOS does under a finger.
-   Opened, it is a large card over a dimmed, blurred screen. In a browser with
-   view transitions the notification itself grows into the card and its
-   thumbnail into the photograph (`notif` and `notif-photo`); elsewhere the
-   card pops in on the same spring. */
+   Opened, it is a large card over a dimmed, blurred screen: inside the lock
+   screen on a desktop, over the page below 1024px. In a browser with view
+   transitions the notification itself grows into the card and its thumbnail
+   into the photograph (`notif` and `notif-photo`); elsewhere the card pops in
+   on the same spring.
+   ============================================================================= */
 
-:root {
-  --notif-spring: linear(0.0, 0.114 5%, 0.348 9%, 0.589 14%, 0.784 18%, 0.919 23%, 0.999 27%, 1.036 32%, 1.046 36%, 1.041 41%, 1.031 45%, 1.02 50%, 1.01 55%, 1.004 59%, 1.0 64%, 0.998 68%, 0.998 73%, 0.998 77%, 0.999 82%, 0.999 86%, 0.999 91%, 1.0 95%, 1.0);
+.month {
+  position: relative;
+  /* Under the navbar: what is left of the screen, and how far the track
+     scrolls for each notification. From 640px the site is drawn at 90%, and
+     its viewport units with it. */
+  --nav: 77px;
+  --screen-h: calc(100svh - var(--nav));
+  --step-scroll: 34svh;
+}
+
+@media (min-width: 640px) {
+  .month {
+    --screen-h: calc(100svh / 0.9 - var(--nav));
+    --step-scroll: calc(34svh / 0.9);
+  }
 }
 
 .lockscreen {
@@ -2281,11 +3917,8 @@
      card's sticky stage would then stick to it instead of to the screen. */
   overflow: hidden;
   overflow: clip;
-  border-radius: 34px;
-  padding: clamp(28px, 4vw, 52px) clamp(14px, 3vw, 40px) 22px;
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
-  box-shadow: 0 30px 70px -40px rgb(23 42 58 / 0.6);
 }
 
 .lockscreen__wallpaper {
@@ -2296,30 +3929,7 @@
     linear-gradient(180deg, rgb(10 18 28 / 0.35), rgb(10 18 28 / 0.1) 40%, rgb(10 18 28 / 0.35)),
     url("/outcomes/by-morning.webp") center / cover;
   filter: blur(26px) saturate(1.35) brightness(0.72);
-  transition: filter 1200ms ease;
-}
-
-/* Asleep, until it scrolls into view. */
-.lockscreen[data-state="armed"] .lockscreen__wallpaper {
-  filter: blur(26px) saturate(1.1) brightness(0.28);
-}
-
-.lockscreen__date,
-.lockscreen__time,
-.lockscreen__foot {
-  transition:
-    opacity 800ms ease 200ms,
-    transform 1000ms cubic-bezier(0.2, 0.8, 0.2, 1) 200ms;
-}
-
-.lockscreen[data-state="armed"] .lockscreen__date,
-.lockscreen[data-state="armed"] .lockscreen__time {
-  opacity: 0;
-  transform: translateY(12px) scale(0.98);
-}
-
-.lockscreen[data-state="armed"] .lockscreen__foot {
-  opacity: 0;
+  transition: filter calc(var(--duration-slower) * 1.5) var(--ease-standard);
 }
 
 .lockscreen__date {
@@ -2346,36 +3956,18 @@
 }
 
 .lockscreen__wall {
-  margin: clamp(24px, 3.4vw, 44px) auto 0;
+  --note-gap: 8px;
+  --note-h: 106px;
+  margin: 0;
   padding: 0;
-  max-width: 1080px;
   list-style: none;
-  columns: 1;
-  column-gap: 12px;
   transition:
-    filter 500ms ease,
-    scale 600ms var(--notif-spring);
-}
-
-@media (min-width: 720px) {
-  .lockscreen__wall {
-    columns: 2;
-  }
-}
-
-@media (min-width: 1100px) {
-  .lockscreen__wall {
-    columns: 3;
-  }
-}
-
-.lockscreen__wall > li {
-  break-inside: avoid;
-  margin-bottom: 12px;
+    filter var(--duration-slow) var(--ease-standard),
+    scale var(--duration-slow) var(--ease-spring);
 }
 
 /* The screen behind an open card: soft, and a step further away. */
-.lockscreen[data-open] .lockscreen__wall {
+.month[data-open] .lockscreen__wall {
   filter: blur(8px) brightness(0.8);
   scale: 0.985;
 }
@@ -2388,7 +3980,7 @@
   gap: 11px;
   padding: 12px 12px 13px;
   border: 0;
-  border-radius: 22px;
+  border-radius: var(--radius-md);
   background: rgb(246 246 248 / 0.72);
   -webkit-backdrop-filter: blur(28px) saturate(1.8);
   backdrop-filter: blur(28px) saturate(1.8);
@@ -2396,10 +3988,10 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 1px 1px rgb(0 0 0 / 0.04);
+  box-shadow: var(--shadow-sm);
   transition:
-    scale 220ms var(--notif-spring),
-    background-color 200ms ease;
+    scale var(--duration-fast) var(--ease-spring),
+    background-color var(--duration-fast) var(--ease-standard);
 }
 
 .notification:hover {
@@ -2409,7 +4001,6 @@
 /* Under a finger, as iOS does: a little smaller, and back on a spring. */
 .notification:active {
   scale: 0.97;
-  transition-duration: 90ms;
 }
 
 .notification:focus-visible {
@@ -2420,7 +4011,7 @@
 .notification__icon {
   width: 38px;
   height: 38px;
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: #fff;
   box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08);
 }
@@ -2464,43 +4055,29 @@
   width: 44px;
   height: 44px;
   margin-top: 1px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   object-fit: cover;
 }
 
-/* The arrival: armed below the fold, then in one after another, the first a
-   beat after the screen has woken. */
-.lockscreen[data-state="armed"] .notification {
-  opacity: 0;
-  transform: translateY(-96px) scale(0.92);
-}
-
-.lockscreen[data-state="in"] .notification {
-  animation:
-    notification-drop 820ms var(--notif-spring) both,
-    notification-fade 240ms ease-out both;
-  animation-delay: calc(550ms + var(--i) * 400ms);
-}
-
-@keyframes notification-drop {
-  from {
-    transform: translateY(-96px) scale(0.92);
-  }
-}
-
-@keyframes notification-fade {
-  from {
-    opacity: 0;
-  }
-}
-
 .lockscreen__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  max-width: 1080px;
-  margin: clamp(18px, 3vw, 36px) auto 0;
-  padding: 0 clamp(4px, 2vw, 24px);
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) 50px;
+  align-items: end;
+}
+
+.lockscreen__middle {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  padding-bottom: 2px;
+}
+
+/* Where iOS says "Swipe up to open". Only on the full-screen one. */
+.lockscreen__hint {
+  color: rgb(255 255 255 / 0.74);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
 }
 
 .lockscreen__button {
@@ -2526,17 +4103,249 @@
   background: rgb(255 255 255 / 0.85);
 }
 
+/* --- On a desktop: the wall ---------------------------------------------- */
+
+@media (min-width: 1024px) {
+  .lockscreen {
+    padding: clamp(28px, 4vw, 52px) clamp(14px, 3vw, 40px) 22px;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .lockscreen__wall {
+    max-width: 1080px;
+    margin: clamp(24px, 3.4vw, 44px) auto 0;
+    columns: 2;
+    column-gap: 12px;
+  }
+
+  .lockscreen__note {
+    break-inside: avoid;
+    margin-bottom: 12px;
+  }
+
+  .lockscreen__foot {
+    max-width: 1080px;
+    margin: clamp(18px, 3vw, 36px) auto 0;
+    padding: 0 clamp(4px, 2vw, 24px);
+    align-items: center;
+  }
+
+  .lockscreen__hint {
+    display: none;
+  }
+
+  .lockscreen__date,
+  .lockscreen__time,
+  .lockscreen__foot {
+    transition:
+      opacity var(--duration-slower) var(--ease-standard) 200ms,
+      transform calc(var(--duration-slower) * 1.25) var(--ease-out) 200ms;
+  }
+
+  /* Asleep, until it scrolls into view. */
+  .month[data-state="armed"] .lockscreen__wallpaper {
+    filter: blur(26px) saturate(1.1) brightness(0.28);
+  }
+
+  .month[data-state="armed"] .lockscreen__date,
+  .month[data-state="armed"] .lockscreen__time {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+
+  .month[data-state="armed"] .lockscreen__foot {
+    opacity: 0;
+  }
+
+  /* The arrival: armed below the fold, then in one after another as iOS
+     brings them, from below (owner, 12 October 2026: they dropped from
+     above, on a bouncing spring). Each rises out of a soft blur into its
+     place on one long, unhurried deceleration, oldest first, so the wall
+     fills from its foot to "now" at the top; the first a beat after the
+     screen has woken. `--n` is its place in the order they happened. */
+  .month[data-state="armed"] .notification {
+    opacity: 0;
+    transform: translateY(44px) scale(0.96);
+    filter: blur(8px);
+  }
+
+  .month[data-state="in"] .notification {
+    animation:
+      notification-rise calc(var(--duration-slower) * 1.15) var(--ease-out) both,
+      notification-fade var(--duration-slow) var(--ease-standard) both;
+    animation-delay: calc(600ms + var(--n) * 300ms);
+  }
+}
+
+@media (min-width: 1100px) {
+  .lockscreen__wall {
+    columns: 3;
+  }
+}
+
+@keyframes notification-rise {
+  from {
+    transform: translateY(44px) scale(0.96);
+    filter: blur(8px);
+  }
+}
+
+@keyframes notification-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* --- Below 1024px: the whole screen --------------------------------------- */
+
+@media (max-width: 1023px) {
+  /* Edge to edge, out over the page's gutters, and at least a screen tall. */
+  .lockscreen {
+    display: flex;
+    min-height: var(--screen-h);
+    flex-direction: column;
+    margin-inline: -20px;
+    padding: 26px 0 14px;
+  }
+
+  .lockscreen__time {
+    font-size: clamp(76px, 23vw, 120px);
+  }
+
+  .lockscreen__wall {
+    display: grid;
+    width: min(100% - 24px, 460px);
+    gap: var(--note-gap);
+    margin: 22px auto 18px;
+  }
+
+  .lockscreen__foot {
+    margin-top: auto;
+    padding: 0 22px;
+  }
+
+  /* The track: a screen, and a step for each notification. The lock screen is
+     pinned in it under the navbar. */
+  .month[data-live] {
+    height: calc(var(--screen-h) + var(--step-scroll) * 8.6);
+  }
+
+  .month[data-live] .lockscreen {
+    position: sticky;
+    top: var(--nav);
+    z-index: 1;
+    height: var(--screen-h);
+  }
+
+  .month[data-live] .lockscreen__wall {
+    position: relative;
+    display: block;
+    flex: 1;
+    min-height: 0;
+    margin-bottom: 14px;
+  }
+
+  /* Stacked from the foot of the screen up, as iOS keeps them: the newest
+     at the bottom, the older ones moved up a place each time one arrives,
+     and those past the last that fits tucked behind the top one. `--y` is
+     how far up from the foot. */
+  .month[data-live] .lockscreen__note {
+    /* How far past the last that fits: 0 for one that fits. */
+    --over: max(0, var(--pos) - var(--fit) + 1);
+    --y: calc(min(var(--pos), var(--fit) - 1) * (var(--note-h) + var(--note-gap)) + min(var(--over), 2) * 10px);
+    --k: calc(1 - min(var(--over), 2) * 0.05);
+    --o: clamp(0, 1 - var(--over) * 0.35, 1);
+    --b: 0px;
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    z-index: calc(20 - var(--pos));
+    height: var(--note-h);
+    opacity: var(--o);
+    filter: blur(var(--b));
+    transform: translateY(calc(-1 * var(--y))) scale(var(--k));
+    transform-origin: 50% 0;
+    transition:
+      transform calc(var(--duration-slower) * 1.1) var(--ease-out),
+      opacity var(--duration-slow) var(--ease-standard),
+      filter var(--duration-slow) var(--ease-standard);
+  }
+
+  /* Not arrived: waiting under the foot, faint and soft, to rise into place. */
+  .month[data-live] .lockscreen__note[data-pos="-1"] {
+    --y: calc(var(--note-h) * -0.6);
+    --k: 0.96;
+    --o: 0;
+    --b: 8px;
+    pointer-events: none;
+  }
+
+  /* Tucked: only the platter's edge shows, as on iOS; what it says would
+     otherwise show through the frosted one in front of it. */
+  .month[data-live] .lockscreen__note[data-tucked] {
+    pointer-events: none;
+  }
+
+  .month[data-live] .notification > * {
+    transition: opacity var(--duration-base) var(--ease-standard);
+  }
+
+  .month[data-live] .lockscreen__note[data-tucked] .notification > * {
+    opacity: 0;
+  }
+
+  .month[data-live] .notification {
+    height: 100%;
+  }
+
+  .month[data-live] .notification__title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .month[data-live] .notification__body {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+  }
+
+  /* Where each notification is on top, for focus to scroll to. */
+  .month__mark {
+    position: absolute;
+    top: calc(var(--at) * var(--step-scroll));
+    left: 0;
+    width: 1px;
+    height: 1px;
+    scroll-margin-top: var(--nav);
+  }
+
+  /* The open card covers the navbar too. */
+  .month[data-open] .lockscreen {
+    z-index: 70;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .lockscreen {
+    margin-inline: -32px;
+  }
+}
+
 /* --- Opened --------------------------------------------------------------- */
 
-/* Inside the lock screen, over its wall: its scrim, its corners. */
+/* Over the page below 1024px. */
 .notice-layer {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 6;
-  background: rgb(8 14 22 / 0.38);
-  -webkit-backdrop-filter: blur(20px) saturate(1.25);
-  backdrop-filter: blur(20px) saturate(1.25);
-  animation: notice-scrim 420ms ease both;
+  z-index: 60;
+  background: rgb(8 14 22 / 0.42);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  animation: notice-scrim var(--duration-slow) var(--ease-standard) both;
 }
 
 @keyframes notice-scrim {
@@ -2545,45 +4354,52 @@
   }
 }
 
-/* The card is centred in what the visitor can see of the lock screen: under
-   the navbar (77px), and no taller than the screen. On a desktop the lock
-   screen is shorter than that and the card sits in its middle; on a phone it
-   is much taller, and the stage keeps the card in view as the page scrolls. */
 .notice-stage {
-  position: sticky;
-  top: 77px;
   display: grid;
-  height: min(100%, calc(100svh - 77px));
+  height: 100%;
   place-items: center;
   padding: 16px;
 }
 
-@media (min-width: 640px) {
-  /* Viewport units are drawn at 90% under the site's zoom. */
-  .notice-stage {
-    height: min(100%, calc(100svh / 0.9 - 77px));
-  }
-}
-
 .notice {
-  scroll-margin: 90px 0 16px;
   width: min(560px, 100%);
   max-height: 100%;
   overflow: auto;
   padding: 16px 16px 18px;
-  border-radius: 32px;
+  border-radius: var(--radius-lg);
   background: rgb(247 247 250 / 0.97);
   color: #000;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
-  box-shadow:
-    0 0 0 0.5px rgb(0 0 0 / 0.06),
-    0 40px 90px -30px rgb(0 0 0 / 0.65);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), var(--shadow-lg);
   overscroll-behavior: contain;
+}
+
+/* Inside the lock screen on a desktop, over its wall: its scrim, its corners.
+   The card is centred in what the visitor can see of the lock screen, under
+   the navbar, and no taller than the screen. */
+@media (min-width: 1024px) {
+  .notice-layer {
+    position: absolute;
+    z-index: 6;
+    background: rgb(8 14 22 / 0.38);
+    -webkit-backdrop-filter: blur(20px) saturate(1.25);
+    backdrop-filter: blur(20px) saturate(1.25);
+  }
+
+  .notice-stage {
+    position: sticky;
+    top: 77px;
+    height: min(100%, calc(100svh / 0.9 - 77px));
+  }
+
+  .notice {
+    scroll-margin: 90px 0 16px;
+  }
 }
 
 /* Where there are no view transitions, the card comes in on the spring itself. */
 .notice-layer[data-pop] .notice {
-  animation: notice-pop 560ms var(--notif-spring) both;
+  animation: notice-pop var(--duration-slow) var(--ease-spring) both;
 }
 
 @keyframes notice-pop {
@@ -2603,7 +4419,7 @@
 .notice__icon {
   width: 30px;
   height: 30px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: #fff;
   box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08);
 }
@@ -2626,7 +4442,7 @@
   display: block;
   width: 100%;
   aspect-ratio: 2 / 1;
-  border-radius: 22px;
+  border-radius: var(--radius-md);
   object-fit: cover;
   object-position: 50% 42%;
 }
@@ -2670,7 +4486,7 @@
   height: 46px;
   place-items: center;
   border: 0;
-  border-radius: 15px;
+  border-radius: var(--radius-md);
   background: rgb(120 120 128 / 0.16);
   color: #000;
   font: inherit;
@@ -2678,8 +4494,8 @@
   font-weight: 600;
   cursor: pointer;
   transition:
-    scale 200ms var(--notif-spring),
-    background-color 200ms ease;
+    scale var(--duration-fast) var(--ease-spring),
+    background-color var(--duration-fast) var(--ease-standard);
 }
 
 .notice__button:hover {
@@ -2690,13 +4506,15 @@
   scale: 0.97;
 }
 
+/* "Talk to AYA": the logo's red (owner, 12 October 2026), with the deeper
+   red under the pointer that "Get AYA" has. */
 .notice__button--primary {
-  background: var(--color-ink);
+  background: var(--color-red);
   color: #fff;
 }
 
 .notice__button--primary:hover {
-  background: color-mix(in srgb, var(--color-ink) 88%, #fff);
+  background: var(--color-red-deep);
 }
 
 .notice__button:focus-visible {
@@ -2706,17 +4524,19 @@
 
 /* --- The morph ------------------------------------------------------------ */
 
-/* Only the two named things animate; the page itself swaps at once. */
-::view-transition-old(root),
-::view-transition-new(root) {
+/* Only the two named things animate; the page itself swaps at once. Scoped
+   to the morph (Outcomes.tsx puts `notif-morph` on the root while it runs),
+   so going between pages still cross-fades ("Page transitions"). */
+:root.notif-morph::view-transition-old(root),
+:root.notif-morph::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
 }
 
 ::view-transition-group(notif),
 ::view-transition-group(notif-photo) {
-  animation-duration: 640ms;
-  animation-timing-function: var(--notif-spring);
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-spring);
 }
 
 ::view-transition-old(notif),
@@ -2733,11 +4553,11 @@
 /* The outgoing face goes quickly, the incoming one arrives a beat later: the
    two have different shapes, and a long cross-fade between them shows both. */
 ::view-transition-old(notif) {
-  animation: notif-face-out 200ms ease-out both;
+  animation: notif-face-out var(--duration-fast) var(--ease-out) both;
 }
 
 ::view-transition-new(notif) {
-  animation: notif-face-in 360ms ease-out 120ms both;
+  animation: notif-face-in var(--duration-base) var(--ease-out) 120ms both;
 }
 
 @keyframes notif-face-out {
@@ -2769,15 +4589,14 @@
    there the big card is a wide banner and the tall one spans two rows. */
 
 .bento {
-  --bento-ease: cubic-bezier(0.22, 1, 0.36, 1);
   display: grid;
   gap: 12px;
   height: 1048px;
   grid-template-columns: var(--sm-cols, 1fr 1fr);
   grid-template-rows: var(--sm-rows, repeat(5, 1fr));
   transition:
-    grid-template-columns 700ms var(--bento-ease),
-    grid-template-rows 700ms var(--bento-ease);
+    grid-template-columns var(--duration-slow) var(--ease-out),
+    grid-template-rows var(--duration-slow) var(--ease-out);
 }
 
 @media (min-width: 640px) {

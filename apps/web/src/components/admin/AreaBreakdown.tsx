@@ -148,7 +148,7 @@ export function AreaBreakdown({
   const model = useMemo(() => buildModel(areas), [areas]);
 
   return (
-    <figure className="border-line rounded-[20px] border bg-white p-5 sm:p-6">
+    <figure className="border-line rounded-md border bg-white p-5 sm:p-6">
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-5 gap-y-2">
         <div>
           <h3 className="font-display text-[22.8px] leading-tight font-medium">
@@ -169,7 +169,7 @@ export function AreaBreakdown({
       </figcaption>
 
       {model.rows.length === 0 ? (
-        <p className="border-line text-muted mt-5 rounded-2xl border border-dashed px-4 py-10 text-center text-[16.8px] font-semibold">
+        <p className="border-line text-muted mt-5 rounded-md border border-dashed px-4 py-10 text-center text-[16.8px] font-semibold">
           {!ok
             ? "This is blank because the repository could not be read, not because nothing was touched"
             : areas.length === 0
@@ -193,7 +193,7 @@ export function AreaBreakdown({
                 onFocus={() => setActiveIndex(index)}
                 onBlur={() => setActiveIndex(null)}
                 className={[
-                  "-mx-2 rounded-xl px-2 py-2 transition-colors",
+                  "-mx-2 rounded-sm px-2 py-2 transition-colors",
                   isActive ? "bg-paper" : "bg-transparent",
                 ].join(" ")}
               >
@@ -227,7 +227,7 @@ export function AreaBreakdown({
                     {row.additions > 0 ? (
                       <div
                         className={
-                          row.deletions > 0 ? undefined : "rounded-r-[4px]"
+                          row.deletions > 0 ? undefined : "rounded-r-sm"
                         }
                         style={{
                           flexGrow: row.additions,
@@ -239,7 +239,7 @@ export function AreaBreakdown({
                     ) : null}
                     {row.deletions > 0 ? (
                       <div
-                        className="rounded-r-[4px]"
+                        className="rounded-r-sm"
                         style={{
                           flexGrow: row.deletions,
                           flexBasis: 0,
@@ -284,7 +284,7 @@ function KeyItem({ fill, label }: { fill: string; label: string }) {
   return (
     <span className="flex items-center gap-1.5">
       <span
-        className="block h-2.5 w-2.5 rounded-[2px]"
+        className="block h-2.5 w-2.5 rounded-sm"
         style={{ backgroundColor: fill }}
       />
       <span className="text-muted text-[13.2px] font-bold tracking-[0.08em] uppercase">
@@ -305,7 +305,7 @@ function Tooltip({
 }) {
   return (
     <div
-      className="bg-ink text-paper pointer-events-none absolute z-10 rounded-xl px-3 py-2 shadow-[0_12px_28px_-14px_rgb(36_22_15_/_0.7)]"
+      className="bg-ink text-paper pointer-events-none absolute z-10 rounded-sm px-3 py-2 shadow-md"
       style={{
         left: `${leftPct}%`,
         // Anchored by its near side at the edges rather than nudged inward, so

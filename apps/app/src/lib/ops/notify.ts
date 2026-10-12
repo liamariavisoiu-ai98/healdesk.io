@@ -66,6 +66,10 @@ export const OPS_EVENTS = [
   // started a week back and no further.
   "export_undelivered_before_destruction",
   "offboarding_started_late",
+  // The same from day 21 for a clinic on the export rule (BAA 1.3.0, the
+  // DPA), whose agreement promises the export within thirty days, unasked,
+  // and whose data then waits for it until the ninety days.
+  "export_due_undelivered",
   // The Google Calendar connection (the calendar session; the funnel and
   // portal contract of 6 October 2026 routes its ops alerts here): a
   // location's connection broke and it now takes booking requests. Raised
@@ -92,6 +96,39 @@ export const OPS_EVENTS = [
   // Raised by the connect flow's code exchange (lib/connections/google-oauth.ts)
   // and by the calendar watch's probe, with `code` oauth_client or api_disabled.
   "google_oauth_client_rejected",
+  // A recorded termination (BAA 1.3.0 clause 17) could not start a
+  // location's offboarding or record its billing clinic's cancellation, or
+  // recorded the cancellation while the billing-requests job that carries
+  // it out is switched off (lib/agreements/termination.ts); `phase` says
+  // which.
+  "agreement_termination_incomplete",
+  // A termination for one of the two reasons BAA 1.3.0 clause 17 ¶3 refunds
+  // (lib/agreements/termination.ts), once per billing clinic: the operator
+  // previews and confirms the refund on its Billing page.
+  "agreement_refund_due",
+  // The hourly billing reconcile finished a recorded termination's step that
+  // never ran (the process stopped between recording it and finishing):
+  // `phase` offboarding or billing, `count` how many (reconcileTerminations
+  // in lib/agreements/termination.ts).
+  "agreement_termination_finished_late",
+  // A location's billing clinic is one in another practice, so the answer
+  // gate treats it as having no billing clinic and doesn't answer for it
+  // (lib/billing/answering.ts), once per location.
+  "billing_pointer_outside_practice",
+  // A first-period refund under Terms § 5 recorded the plan's immediate
+  // cancellation while the billing-requests job, its only executor, is
+  // switched off (commitRefund in lib/billing/stripe-actions.ts).
+  "refund_cancel_job_off",
+  // An open incident past healdesk's internal 24-hour notice target with no
+  // notice recorded (BAA 1.3.0 release gate 5; the agreements promise 60
+  // calendar days), once per incident, by the hourly incident-deadlines job
+  // (lib/scheduler/incident-deadlines.ts).
+  "incident_notice_overdue",
+  // The nightly retention purge (lib/scheduler/retention-purge.ts): a clinic
+  // whose purge threw (`phase` clinic, with its id), or a run that could not
+  // purge at all (`phase` run). A purge that fails silently keeps records
+  // past the periods the agreements state.
+  "retention_purge_failed",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

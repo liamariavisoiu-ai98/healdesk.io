@@ -2,6 +2,13 @@
 
 import { useState, useTransition } from "react";
 
+import {
+  AGREEMENT_TERMINATION_REASON_COPY,
+  AGREEMENT_TERMINATION_REASONS,
+  isAgreementTerminationReason,
+  type AgreementTerminationReason,
+} from "@healdesk/catalog";
+
 import type {
   AgreementQuery,
   AgreementRetention,
@@ -73,6 +80,7 @@ export type RegisterActions = {
   markTerminated: (
     agreementId: string,
     terminationDate: string,
+    terminationReason: AgreementTerminationReason,
   ) => Promise<OpsResult<TerminateOutcome>>;
   /**
    * Authorise this browser for one agreement's PDF, then let the browser fetch
@@ -242,7 +250,7 @@ export function AgreementsRegister({
         /* The table scrolls inside this box. The page itself must never scroll
            sideways: an operator who has to pan the whole document to read a
            retention date will misread it. */
-        <div className="border-line mt-4 overflow-x-auto rounded-2xl border bg-white">
+        <div className="border-line mt-4 overflow-x-auto rounded-md border bg-white">
           <table className="w-full min-w-[1040px] border-collapse text-sm">
             <caption className="sr-only">
               Signed business associate agreements
@@ -313,7 +321,7 @@ function FilterRow({
     <form
       method="get"
       action={REGISTER_PATH}
-      className="border-line bg-paper-2/60 mt-5 flex flex-wrap items-end gap-3 rounded-2xl border p-4"
+      className="border-line bg-paper-2/60 mt-5 flex flex-wrap items-end gap-3 rounded-md border p-4"
     >
       <Field label="Search" className="min-w-[220px] flex-1">
         <input
@@ -322,7 +330,7 @@ function FilterRow({
           defaultValue={filters.query ?? ""}
           maxLength={200}
           placeholder="Clinic, signatory, email or fingerprint"
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
       </Field>
 
@@ -332,7 +340,7 @@ function FilterRow({
           name="from"
           defaultValue={filters.signedFrom ?? ""}
           max={today}
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
       </Field>
 
@@ -342,7 +350,7 @@ function FilterRow({
           name="to"
           defaultValue={filters.signedTo ?? ""}
           max={today}
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
       </Field>
 
@@ -354,7 +362,7 @@ function FilterRow({
           defaultValue={filters.version ?? ""}
           maxLength={64}
           placeholder="Any version"
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
         <datalist id="agreement-versions">
           {versions.map((version) => (
@@ -367,7 +375,7 @@ function FilterRow({
         <select
           name="status"
           defaultValue={filters.status ?? ""}
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         >
           {/* The three partition the register: an agreement that has ended and
               is still inside the six-year floor is "terminated", and one past
@@ -390,7 +398,7 @@ function FilterRow({
                 ? "missing"
                 : ""
           }
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         >
           <option value="">Either</option>
           <option value="sent">Delivered</option>
@@ -657,6 +665,7 @@ function RowDetail({
   const [terminate, setTerminate] = useState<string | null>(null);
   const [step, setStep] = useState<"idle" | "date" | "confirm">("idle");
   const [date, setDate] = useState("");
+  const [reason, setReason] = useState<AgreementTerminationReason | "">("");
   const [pending, startTransition] = useTransition();
 
   const alreadyTerminated = row.retention.state === "terminated";
@@ -737,16 +746,43 @@ function RowDetail({
                 value={date}
                 max={today}
                 onChange={(event) => setDate(event.target.value)}
-                className="border-line focus:border-orange mt-1.5 w-full rounded-lg border bg-white px-3 py-2.5 text-sm"
+                className="border-line focus:border-orange mt-1.5 w-full rounded-sm border bg-white px-3 py-2.5 text-sm"
               />
               <span className="text-muted mt-1 block text-xs">
                 A date that has already passed. Notice of a future end date is
                 not a termination yet, and this cannot be corrected later.
               </span>
             </label>
+            <label className="min-w-[280px]">
+              <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+                Who ended it, and why
+              </span>
+              <select
+                value={reason}
+                onChange={(event) =>
+                  setReason(
+                    isAgreementTerminationReason(event.target.value)
+                      ? event.target.value
+                      : "",
+                  )
+                }
+                className="border-line focus:border-orange mt-1.5 w-full rounded-lg border bg-white px-3 py-2.5 text-sm"
+              >
+                <option value="">Choose one</option>
+                {AGREEMENT_TERMINATION_REASONS.map((value) => (
+                  <option key={value} value={value}>
+                    {AGREEMENT_TERMINATION_REASON_COPY[value].label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-muted mt-1 block text-xs">
+                It decides whether the practice is refunded, and it cannot be
+                changed once recorded.
+              </span>
+            </label>
             <button
               type="button"
-              disabled={date === ""}
+              disabled={date === "" || reason === ""}
               onClick={() => setStep("confirm")}
               className="border-line-strong hover:border-ink rounded-full border px-5 py-2.5 text-sm font-bold transition-colors disabled:opacity-40"
             >
@@ -756,7 +792,7 @@ function RowDetail({
         ) : null}
 
         {step === "confirm" ? (
-          <div className="border-red/40 bg-red/[0.06] mt-3 rounded-xl border p-4">
+          <div className="border-red/40 bg-red/[0.06] mt-3 rounded-sm border p-4">
             <p className="text-sm font-bold">
               This starts a six-year retention clock, and this console cannot
               stop it.
@@ -773,13 +809,27 @@ function RowDetail({
               clear the date afterwards: correcting a mistake means a database
               administrator. Check the year.
             </p>
+            <p className="text-muted mt-2 text-sm">
+              Unless another agreement still covers the practice, its service
+              ends with this one: the assistant stops answering, every location
+              starts offboarding, and the subscription is cancelled at once.{" "}
+              {reason !== "" &&
+              AGREEMENT_TERMINATION_REASON_COPY[reason].refundsFees
+                ? "The agreement refunds the fees paid for any time after this date: preview and confirm that refund on the clinic's Billing page."
+                : "Nothing is refunded for this ending."}
+            </p>
             <div className="mt-3 flex flex-wrap gap-3">
               <button
                 type="button"
                 disabled={pending}
                 onClick={() => {
+                  if (reason === "") return;
                   startTransition(async () => {
-                    const result = await actions.markTerminated(row.id, date);
+                    const result = await actions.markTerminated(
+                      row.id,
+                      date,
+                      reason,
+                    );
                     setTerminate(describeTermination(result));
                     // Leave the confirm panel open on failure so the reason
                     // sits next to the date that caused it.
@@ -872,7 +922,12 @@ function describeTermination(result: OpsResult<TerminateOutcome>): string {
   if (!result.ok) return result.message;
   if (result.data.status === "refused") return result.data.message;
 
-  const recorded = `Recorded as terminated on ${result.data.terminatedOn}. This record must now be kept until ${result.data.retainUntil}, and nothing deletes it when that date passes.`;
+  const ended = result.data.servicesEnded
+    ? result.data.refundDue
+      ? " The practice's service has ended and its subscription is being cancelled; preview and confirm its refund on the clinic's Billing page."
+      : " The practice's service has ended and its subscription is being cancelled; nothing is refunded."
+    : "";
+  const recorded = `Recorded as terminated on ${result.data.terminatedOn}. This record must now be kept until ${result.data.retainUntil}, and nothing deletes it when that date passes.${ended}`;
 
   return result.data.auditRecorded ? recorded : `${recorded} ${UNAUDITED}`;
 }
@@ -912,7 +967,7 @@ export function RegisterLoading() {
     <div
       role="status"
       aria-busy="true"
-      className="border-line text-muted mt-8 rounded-2xl border bg-white p-6 text-sm"
+      className="border-line text-muted mt-8 rounded-md border bg-white p-6 text-sm"
     >
       <p className="font-semibold">Reading the register…</p>
       <p className="mt-1 max-w-[62ch]">
@@ -940,7 +995,7 @@ export function RegisterError({
   return (
     <div
       role="status"
-      className="border-red/30 bg-red/[0.06] mt-8 rounded-2xl border p-6"
+      className="border-red/30 bg-red/[0.06] mt-8 rounded-md border p-6"
     >
       <p className="text-sm font-bold">Could not load the register.</p>
       <p className="mt-1 max-w-[62ch] text-sm">{failure.message}</p>
@@ -992,7 +1047,7 @@ function queryString(filters: AgreementQuery): string {
 
 function EmptyPanel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="border-line text-muted mt-4 rounded-2xl border bg-white p-6 text-sm">
+    <p className="border-line text-muted mt-4 rounded-md border bg-white p-6 text-sm">
       {children}
     </p>
   );

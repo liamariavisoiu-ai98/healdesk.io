@@ -34,54 +34,66 @@ import { site } from "@/lib/site";
  * And on 12 October 2026 the sentence after the copyright, "Pricing figures
  * shown in demos are approximate industry ranges, not quotes.", went at the
  * owner's request. The contact page still carries its own version of it.
+ *
+ * ## Its size (owner, 12 October 2026)
+ *
+ * It was set in the page's own text sizes, which run a fifth larger than
+ * Tailwind's (globals.css, `--text-sm` is 16.8px), with the navbar's 28px
+ * wordmark and 48px of padding a side: about 300px tall on a desktop and
+ * nearly 600px on a phone, a section rather than a footer. It is now in fixed
+ * small sizes, 14px links and 12.5px small print, with a 22px wordmark: the
+ * mark and the line on the left and the links on the right, then one rule and
+ * the copyright, the address and the trademark line under it.
  */
 export function Footer() {
   return (
     <footer className="border-line border-t">
-      <div className="mx-auto flex max-w-[1240px] flex-col gap-8 px-5 py-12 sm:px-8 md:flex-row md:items-start md:justify-between lg:px-14">
-        <div className="max-w-[34ch]">
-          <a href="/" aria-label={`${site.name} home`} className="inline-block">
+      <div className="mx-auto flex max-w-[1240px] flex-col gap-5 px-5 pt-8 pb-6 sm:px-8 md:flex-row md:items-start md:justify-between md:gap-10 lg:px-14">
+        <div className="max-w-[46ch]">
+          <a href="/" aria-label={`${site.name} home`} className="inline-block [&_img]:h-[22px]">
             <WordmarkGlyphs />
           </a>
-          <p className="text-muted mt-4 text-sm font-medium">
+          <p className="text-muted mt-2.5 text-[13.5px] leading-[1.5] font-medium">
             An AI front desk for high-ticket elective clinics. Every call, chat
             and DM answered, and the appointment booked.
           </p>
         </div>
 
-        <div className="flex flex-col gap-4">
-          {/* The site's secondary navigation. The navbar carries one link and
-              the calls to action, so this is where contact and the legal
-              pages live. */}
-          <nav className="flex flex-wrap gap-x-10 gap-y-3" aria-label="Footer">
-            {site.footerLinks.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="text-muted hover:text-ink text-sm font-semibold transition-colors"
-              >
-                {item.label}
-              </a>
-            ))}
+        {/* The site's secondary navigation. The navbar carries one link and
+            the calls to action, so this is where contact and the legal pages
+            live. */}
+        <nav className="flex flex-wrap gap-x-6 gap-y-2 md:max-w-[560px] md:justify-end md:pt-0.5" aria-label="Footer">
+          {site.footerLinks.map((item) => (
             <a
-              href={`mailto:${site.email}`}
-              className="text-muted hover:text-ink text-sm font-semibold transition-colors"
+              key={item.href}
+              href={item.href}
+              className="text-muted hover:text-ink text-[14px] leading-6 font-semibold transition-colors"
             >
-              {site.email}
+              {item.label}
             </a>
-          </nav>
-          <address className="text-muted text-xs not-italic">{ENTITY.postalAddress}</address>
-        </div>
+          ))}
+          <a
+            href={`mailto:${site.email}`}
+            className="text-muted hover:text-ink text-[14px] leading-6 font-semibold transition-colors"
+          >
+            {site.email}
+          </a>
+        </nav>
       </div>
 
-      <div className="border-line mx-auto max-w-[1240px] space-y-2 border-t px-5 py-6 sm:px-8 lg:px-14">
-        <p className="text-muted text-xs">
-          © {new Date().getFullYear()} {site.name}.
-        </p>
-        {/* The homepage's hero carries these logos; lib/integrations.ts keeps
-            this line in step with them. Google's brand guidelines and Stripe's
-            terms ask for it, so it stays, but as the page's finest print. */}
-        <p className="text-muted/70 text-[11px] leading-relaxed">{TRADEMARKS}</p>
+      <div className="mx-auto max-w-[1240px] px-5 pb-6 sm:px-8 lg:px-14">
+        <div className="border-line space-y-1.5 border-t pt-4">
+          <div className="text-muted flex flex-wrap gap-x-3 gap-y-1 text-[12.5px] leading-[1.5]">
+            <p>
+              © {new Date().getFullYear()} {site.name}.
+            </p>
+            <address className="not-italic">{ENTITY.postalAddress}</address>
+          </div>
+          {/* The homepage's hero carries these logos; lib/integrations.ts keeps
+              this line in step with them. Google's brand guidelines and Stripe's
+              terms ask for it, so it stays, but as the page's finest print. */}
+          <p className="text-muted/70 text-[11px] leading-[1.5]">{TRADEMARKS}</p>
+        </div>
       </div>
     </footer>
   );

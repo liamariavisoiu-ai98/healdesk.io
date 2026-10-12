@@ -820,7 +820,7 @@ function Stat({
   emphasis?: boolean;
 }) {
   return (
-    <div className="border-line rounded-2xl border bg-white p-5">
+    <div className="border-line rounded-md border bg-white p-5">
       <dt className="text-muted text-[12.6px] leading-none font-bold tracking-[0.16em] uppercase">
         {label}
       </dt>
@@ -881,9 +881,9 @@ function WindowControl({
               disabled={disabled}
               onClick={() => onChoose(choice)}
               className={[
-                "rounded-full px-4 py-2 text-[15.6px] font-bold transition-all duration-200 disabled:opacity-40",
+                "rounded-full px-4 py-2 text-[15.6px] font-bold transition-all duration-fast disabled:opacity-40",
                 isSelected
-                  ? "bg-brand-gradient shadow-brand text-white"
+                  ? "bg-brand-gradient shadow-sm text-white"
                   : "text-muted hover:text-ink",
               ].join(" ")}
             >
@@ -908,7 +908,7 @@ function SessionExpiredNotice() {
   return (
     <div
       role="alert"
-      className="border-red/40 bg-paper-2 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border px-4 py-3"
+      className="border-red/40 bg-paper-2 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border px-4 py-3"
     >
       <p className="min-w-0 text-[15.6px] leading-snug font-medium">
         <span className="font-bold">This session has ended.</span>{" "}
@@ -919,7 +919,7 @@ function SessionExpiredNotice() {
       </p>
       <a
         href="/admin/sign-in"
-        className="bg-brand-gradient shadow-brand ml-auto shrink-0 rounded-full px-4 py-2 text-[15.6px] font-bold text-white transition-transform duration-200 hover:-translate-y-0.5"
+        className="bg-brand-gradient shadow-sm ml-auto shrink-0 rounded-full px-4 py-2 text-[15.6px] font-bold text-white transition-transform duration-fast hover:-translate-y-0.5"
       >
         Sign in again
       </a>

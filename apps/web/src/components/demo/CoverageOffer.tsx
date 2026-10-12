@@ -63,9 +63,9 @@ export function CoverageOffer({
         : "Open now (assumed 9 to 5, Mon–Fri)";
 
   return (
-    <section className="bg-ink mt-14 overflow-hidden rounded-[32px] px-5 py-12 text-center text-white sm:px-12 sm:py-14">
-      <p className="text-[13.2px] font-bold tracking-[0.14em] text-white/60 uppercase">Reachable around the clock</p>
-      <h2 className="font-display mx-auto mt-3 max-w-[24ch] text-[38px] leading-[1.05] font-medium tracking-[-0.025em] text-balance sm:text-[56px]">
+    <section className="bg-ink mt-14 overflow-hidden rounded-lg px-5 py-12 text-center text-white sm:px-12 sm:py-14">
+      <p className="text-[15px] font-bold tracking-[0.12em] text-white/60 uppercase">Reachable around the clock</p>
+      <h2 className="heading-section mx-auto mt-3">
         From {fmt(openHours)} to {HOURS_IN_A_WEEK} hours a week.
       </h2>
       <p className="mx-auto mt-4 max-w-[48ch] text-[18px] leading-[1.5] text-white/75">
@@ -73,7 +73,7 @@ export function CoverageOffer({
       </p>
 
       {/* The week, Monday to Sunday. */}
-      <figure className="mx-auto mt-9 max-w-[820px] rounded-3xl bg-white/[0.05] p-4 sm:p-6">
+      <figure className="mx-auto mt-9 max-w-[820px] rounded-lg bg-white/[0.05] p-4 sm:p-6">
         <div className="flex gap-2 sm:gap-3">
           {/* Hour scale. */}
           <div className="relative mt-7 hidden h-[260px] w-10 shrink-0 text-right text-[11.5px] text-white/45 sm:block" aria-hidden>
@@ -90,7 +90,7 @@ export function CoverageOffer({
               <div key={day} className="flex min-w-0 flex-1 flex-col items-center">
                 <span className="mb-2 h-5 text-[13.2px] font-bold text-white/80">{day}</span>
                 <div
-                  className="relative h-[260px] w-full overflow-hidden rounded-xl"
+                  className="relative h-[260px] w-full overflow-hidden rounded-md"
                   style={{ background: AYA_GREEN }}
                   role="img"
                   aria-label={
@@ -131,7 +131,7 @@ export function CoverageOffer({
 
       {/* Now, with AYA, and the difference. */}
       <div className="mx-auto mt-5 grid max-w-[820px] gap-3 sm:grid-cols-3">
-        <div className="rounded-2xl bg-white/[0.06] px-4 py-5">
+        <div className="rounded-md bg-white/[0.06] px-4 py-5">
           <p className="text-[13.2px] font-bold tracking-[0.1em] text-white/60 uppercase">Reachable now</p>
           <p className="font-display mt-1 text-[40px] leading-none font-medium">
             {fmt(openHours)}
@@ -139,7 +139,7 @@ export function CoverageOffer({
           </p>
           <p className="mt-2 text-[14.4px] text-white/60">{nowShare}% of the week</p>
         </div>
-        <div className="rounded-2xl bg-white/[0.12] px-4 py-5 ring-1 ring-white/20">
+        <div className="rounded-md bg-white/[0.12] px-4 py-5 ring-1 ring-white/20">
           <p className="text-[13.2px] font-bold tracking-[0.1em] text-white/60 uppercase">With {agent}</p>
           <p className="font-display mt-1 text-[40px] leading-none font-medium">
             {HOURS_IN_A_WEEK}
@@ -147,7 +147,7 @@ export function CoverageOffer({
           </p>
           <p className="mt-2 text-[14.4px] text-white/60">100% of the week</p>
         </div>
-        <div className="rounded-2xl px-4 py-5 text-[#172a3a]" style={{ background: AYA_GREEN }}>
+        <div className="rounded-md px-4 py-5 text-[#172a3a]" style={{ background: AYA_GREEN }}>
           <p className="text-[13.2px] font-bold tracking-[0.1em] uppercase opacity-70">More time to book</p>
           <p className="font-display mt-1 text-[40px] leading-none font-medium">+{increase}%</p>
           <p className="mt-2 text-[14.4px] font-semibold opacity-75">+{fmt(closed)} hours a week</p>
@@ -162,7 +162,7 @@ export function CoverageOffer({
           ["Steps in when your receptionist is busy", "With a patient or on another line, the call still gets answered."],
           ["Chats answered 24/7", "Your website, WhatsApp, Instagram and Messenger, always on."],
         ].map(([title, body]) => (
-          <li key={title} className="flex gap-3 rounded-2xl bg-white/[0.06] px-4 py-4">
+          <li key={title} className="flex gap-3 rounded-md bg-white/[0.06] px-4 py-4">
             <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-[#172a3a] [&_svg]:size-3.5" style={{ background: AYA_GREEN }}>
               {CHECK}
             </span>
@@ -176,7 +176,7 @@ export function CoverageOffer({
 
       <a
         href={`/demo/${slug}/onboard`}
-        className="mt-10 inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[18px] font-bold text-[#172a3a] shadow-[0_10px_30px_-10px_rgb(0_0_0/0.5)] transition-all duration-200 hover:-translate-y-0.5"
+        className="mt-10 inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[18px] font-bold text-[#172a3a] shadow-md transition-all duration-fast hover:-translate-y-0.5"
       >
         Book my onboarding
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className="size-5" aria-hidden>

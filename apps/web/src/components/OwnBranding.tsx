@@ -7,6 +7,7 @@ import { track } from "@/lib/analytics";
 import { readableOn } from "@/lib/demo/colour";
 import { greetingLead } from "@/lib/demo/greeting";
 import { site } from "@/lib/site";
+import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
  * "See it in your own branding", under the two agent cards: a visitor types
@@ -20,6 +21,26 @@ import { site } from "@/lib/site";
  * it, the window coming up out of its foot. The address pill is the field,
  * because typing your own address into a browser is what the visitor will do
  * to see the result, and "Show me" sits inside it.
+ *
+ * ## Drawing the eye to the address bar (owner, 12 October 2026)
+ *
+ * The address bar is the one thing to use here, and it read as part of a
+ * picture. So, until the visitor touches it:
+ *
+ *   - it types made-up clinics' addresses into itself and deletes them,
+ *     with a caret, showing what goes there (`useGhostAddress`; while the
+ *     section is on screen, never with reduced motion);
+ *   - Safari's blue focus ring breathes round it once the window is in view;
+ *   - and what is in it, theirs or the example, is echoed live in a
+ *     greeting from AYA's chat in the page's corner, "Hi, I'm AYA on
+ *     glowmedspa.com", before they press Show me.
+ *
+ * The window has no tab bar (owner, 12 October 2026): its "Start Page" tab,
+ * and the echo of the address in it, were a second line of chrome between
+ * the address bar and the page.
+ *
+ * The first touch, a press or focus, stops the typing and the ring for
+ * good; the echo follows what they type.
  *
  * ## What the window shows ("The visitor's own site, live")
  *
@@ -136,6 +157,54 @@ async function readSite(domain: string, host: string): Promise<Read> {
   }
 }
 
+/**
+ * Made-up clinics' addresses, which the empty address bar types for itself.
+ * Invented names, and only ever shown as text: nothing is fetched for them.
+ */
+const EXAMPLES = ["glowmedspa.com", "lumenaesthetics.com", "brightsmiledental.com", "harbourfertility.com", "novaskinclinic.com"] as const;
+
+/**
+ * The example the address bar is typing, as far as it has got: a character
+ * at a time, a pause to read it, deleted quicker, a beat, the next. Empty
+ * while `run` is false.
+ */
+function useGhostAddress(run: boolean): string {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    if (!run) return;
+    let word = 0;
+    let at = 0;
+    let erasing = false;
+    let timer = 0;
+    const tick = () => {
+      const example = EXAMPLES[word % EXAMPLES.length]!;
+      if (!erasing) {
+        at += 1;
+        setText(example.slice(0, at));
+        if (at >= example.length) {
+          erasing = true;
+          timer = window.setTimeout(tick, 1800);
+          return;
+        }
+        timer = window.setTimeout(tick, 55 + Math.random() * 60);
+        return;
+      }
+      at -= 1;
+      setText(example.slice(0, at));
+      if (at <= 0) {
+        erasing = false;
+        word += 1;
+        timer = window.setTimeout(tick, 520);
+        return;
+      }
+      timer = window.setTimeout(tick, 26);
+    };
+    timer = window.setTimeout(tick, 700);
+    return () => window.clearTimeout(timer);
+  }, [run]);
+  return run ? text : "";
+}
+
 const LOCK = (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden className="size-[13px] shrink-0">
     <rect x="3.2" y="7" width="9.6" height="7" rx="1.6" />
@@ -168,6 +237,25 @@ export function OwnBranding() {
   /** The visitor opened the sheet, so focus goes into it; opened by the page, the page leaves focus alone. */
   const byVisitor = useRef(false);
   const ids = useId();
+  const stage = useRef<HTMLDivElement>(null);
+  const reduce = useMediaQuery(REDUCED_MOTION);
+  /** The window is on screen. */
+  const [inView, setInView] = useState(false);
+  /** The visitor has pressed or focused the address bar: the typing and the ring stop for good. */
+  const [touched, setTouched] = useState(false);
+  /** The empty address bar is typing its examples. */
+  const typing = inView && !touched && !reduce && phase === "idle" && domain === "";
+  const ghost = useGhostAddress(typing);
+  /** What the address bar holds, theirs or the example, for AYA's greeting. */
+  const echo = hostOf(domain) || ghost;
+
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setInView(Boolean(entry?.isIntersecting)), { threshold: 0.35 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const host = preview?.host ?? hostOf(domain);
   const name = preview?.name ?? nameFromDomain(domain) ?? host;
@@ -287,9 +375,9 @@ export function OwnBranding() {
           : "";
 
   return (
-    <div className="own-stage relative mt-16 overflow-hidden rounded-[28px] border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:rounded-[36px] sm:px-10 sm:pt-16">
-      <div className="mx-auto max-w-[640px] text-center">
-        <h3 className="font-display text-ink text-[clamp(28px,3.2vw,40px)] leading-[1.08] font-normal tracking-[-0.025em] text-balance">
+    <div ref={stage} data-reveal className="own-stage relative mt-16 overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
+      <div className="mx-auto max-w-[760px] text-center">
+        <h3 className="heading-sub text-ink mx-auto">
           See it in your own branding
         </h3>
         <p className="text-muted mx-auto mt-3 max-w-[54ch] text-[clamp(16px,1.15vw,18px)] leading-[1.55] font-medium text-balance">
@@ -308,7 +396,7 @@ export function OwnBranding() {
       ) : null}
 
       {/* The window, coming up out of the stage's foot. */}
-      <div className="relative mx-auto mt-8 max-w-[760px] overflow-hidden rounded-t-[14px] border border-b-0 border-black/10 bg-white shadow-[0_0_0_0.5px_rgb(0_0_0/0.06),0_-18px_50px_-24px_rgb(23_42_58/0.35)]">
+      <div className="relative mx-auto mt-8 max-w-[760px] overflow-hidden rounded-t-md border border-b-0 border-black/10 bg-white shadow-lg ring-1 ring-black/[0.06]">
         {/* The toolbar, reduced to Safari's own: lights and the address pill. */}
         <form onSubmit={showMe} noValidate className="relative z-20 flex h-[52px] items-center gap-3 border-b border-black/[0.08] bg-[#f6f6f6] px-3.5">
           <span className="flex shrink-0 gap-2" aria-hidden>
@@ -317,7 +405,11 @@ export function OwnBranding() {
             <i className="size-3 rounded-full border border-black/10 bg-[#28c840]" />
           </span>
 
-          <div className="relative mx-auto flex h-[34px] min-w-0 flex-1 items-center gap-1.5 rounded-[9px] bg-[#e8e8ea] pr-1 pl-3 transition-[background-color,box-shadow] focus-within:bg-white focus-within:shadow-[0_0_0_3.5px_rgb(0_113_227/0.35)] sm:max-w-[500px]">
+          <div
+            onPointerDown={() => setTouched(true)}
+            data-pulse={(inView && !touched && phase === "idle") || undefined}
+            className="own-address relative mx-auto flex h-[34px] min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-[#e8e8ea] pr-1 pl-3 transition-[background-color,box-shadow] focus-within:bg-white focus-within:ring-[3.5px] focus-within:ring-[rgb(0_113_227/0.35)] sm:max-w-[500px]"
+          >
             <span className="text-[#8e8e93]">{LOCK}</span>
             <label htmlFor={`${ids}-domain`} className="sr-only">
               Your clinic&rsquo;s website
@@ -330,8 +422,9 @@ export function OwnBranding() {
               autoComplete="url"
               spellCheck={false}
               autoCapitalize="none"
-              placeholder="yourclinic.com"
+              placeholder={typing ? "" : "yourclinic.com"}
               value={domain}
+              onFocus={() => setTouched(true)}
               onChange={(event) => {
                 setDomain(event.target.value);
                 setDomainError(null);
@@ -343,12 +436,20 @@ export function OwnBranding() {
               aria-describedby={domainError ? `${ids}-domain-error` : undefined}
               className="h-full min-w-0 flex-1 bg-transparent text-center text-[15px] font-medium text-[#1d1d1f] outline-none placeholder:text-[#8e8e93] focus:text-left"
             />
+            {/* The example it is typing, with Safari's caret, drawn over the
+                empty field; the field itself is untouched. */}
+            {typing ? (
+              <span aria-hidden className="pointer-events-none absolute inset-y-0 right-[84px] left-8 flex items-center justify-center text-[15px] font-medium text-[#8e8e93]">
+                {ghost}
+                <i className="own-caret" />
+              </span>
+            ) : null}
             {phase !== "idle" && phase !== "reading" ? <span className="hidden text-[#8e8e93] sm:block">{RELOAD}</span> : null}
             <button
               type="submit"
               disabled={phase === "reading" || phase === "sending" || phase === "done"}
               aria-label={buttonLabel}
-              className="h-[26px] shrink-0 rounded-[7px] bg-[#0071e3] px-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#0077ed] disabled:opacity-60"
+              className="h-[26px] shrink-0 rounded-sm bg-[#0071e3] px-3 text-[13.5px] font-semibold text-white transition-colors hover:bg-[#0077ed] disabled:opacity-60"
             >
               {/* "Email it to me" leaves a phone's pill no room for the address. */}
               {buttonLabel === "Email it to me" ? (
@@ -380,7 +481,7 @@ export function OwnBranding() {
           aria-hidden={!sheetOpen}
           inert={!sheetOpen}
           className={[
-            "absolute inset-x-0 top-[52px] z-10 mx-auto w-[min(440px,calc(100%-24px))] rounded-b-[14px] border border-t-0 border-black/10 bg-white/95 px-5 pt-5 pb-4 shadow-[0_18px_40px_-12px_rgb(0_0_0/0.35)] backdrop-blur-xl transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.2,0.8,0.2,1)]",
+            "absolute inset-x-0 top-[52px] z-10 mx-auto w-[min(440px,calc(100%-24px))] rounded-b-md border border-t-0 border-black/10 bg-white/95 px-5 pt-5 pb-4 shadow-lg backdrop-blur-xl transition-[transform,opacity] duration-base ease-out",
             sheetOpen ? "translate-y-0 opacity-100" : "pointer-events-none -translate-y-[110%] opacity-0",
           ].join(" ")}
           onKeyDown={(event) => {
@@ -389,7 +490,7 @@ export function OwnBranding() {
         >
           <form onSubmit={submit} noValidate>
             <div className="flex items-start gap-3">
-              <img src="/icon.png" alt="" className="size-10 shrink-0 rounded-[10px] shadow-[0_0_0_1px_rgb(0_0_0/0.06)]" />
+              <img src="/icon.png" alt="" className="size-10 shrink-0 rounded-sm ring-1 ring-black/[0.06]" />
               <div className="min-w-0 text-left">
                 <p id={`${ids}-sheet-title`} className="text-[15.5px] leading-snug font-semibold text-[#1d1d1f]">
                   Send me my own free AI assistant in my own branding
@@ -419,7 +520,7 @@ export function OwnBranding() {
               disabled={phase === "sending"}
               aria-invalid={emailError ? true : undefined}
               aria-describedby={`${ids}-email-note`}
-              className="mt-4 h-[38px] w-full rounded-[8px] border border-black/15 bg-white px-3 text-[15px] text-[#1d1d1f] outline-none transition-shadow placeholder:text-[#8e8e93] focus:border-[#0071e3] focus:shadow-[0_0_0_3.5px_rgb(0_113_227/0.3)]"
+              className="mt-4 h-[38px] w-full rounded-sm border border-black/15 bg-white px-3 text-[15px] text-[#1d1d1f] outline-none transition-shadow placeholder:text-[#8e8e93] focus:border-[#0071e3] focus:ring-[3.5px] focus:ring-[rgb(0_113_227/0.3)]"
             />
             {/* For bots only: people never see it, and api/own-demo builds nothing when it is filled. */}
             <input
@@ -449,14 +550,14 @@ export function OwnBranding() {
               <button
                 type="button"
                 onClick={cancel}
-                className="h-[30px] rounded-[7px] border border-black/10 bg-white px-3.5 text-[13.5px] font-medium text-[#1d1d1f] shadow-[0_1px_1px_rgb(0_0_0/0.06)] transition-colors hover:bg-[#f5f5f7]"
+                className="h-[30px] rounded-sm border border-black/10 bg-white px-3.5 text-[13.5px] font-medium text-[#1d1d1f] shadow-sm transition-colors hover:bg-[#f5f5f7]"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={phase === "sending" || !email.trim()}
-                className="h-[30px] rounded-[7px] bg-[#0071e3] px-3.5 text-[13.5px] font-semibold text-white shadow-[0_1px_1px_rgb(0_0_0/0.1)] transition-colors hover:bg-[#0077ed] disabled:opacity-50"
+                className="h-[30px] rounded-sm bg-[#0071e3] px-3.5 text-[13.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed] disabled:opacity-50"
               >
                 {phase === "sending" ? "Sending…" : "Send it to me"}
               </button>
@@ -479,7 +580,24 @@ export function OwnBranding() {
                 )}
               </p>
             </div>
-          ) : (
+          ) : null}
+
+          {/* AYA's chat in the page's corner, greeting from whatever is in the
+              address bar, as it is typed. */}
+          {phase === "idle" || phase === "reading" ? (
+            <div aria-hidden className="own-rise absolute right-4 bottom-4 flex items-end gap-2.5 sm:right-6 sm:bottom-6">
+              <p className="max-w-[230px] rounded-md rounded-br-sm bg-white px-3.5 py-2.5 text-left text-[13px] leading-snug text-[#1d1d1f] shadow-md ring-1 ring-black/5">
+                Hi, I&rsquo;m {site.agent} on <span className="font-semibold break-all">{echo || "your site"}</span>
+              </p>
+              <span className="bg-ink grid size-11 shrink-0 place-items-center rounded-full text-white shadow-md">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="size-5">
+                  <path d="M4 5.5h16v10.5H9.5L5.5 19.5V16H4z" />
+                </svg>
+              </span>
+            </div>
+          ) : null}
+
+          {phase === "idle" || phase === "reading" ? null : (
             <div aria-hidden className="own-rise absolute inset-0">
               {/* Their header: their logo, or their name. */}
               <div className="flex h-[52px] items-center gap-3 border-b border-black/[0.06] bg-white px-5">
@@ -487,7 +605,7 @@ export function OwnBranding() {
                   <img src={preview.logoUrl} alt="" className="max-h-7 w-auto max-w-[160px] object-contain" />
                 ) : (
                   <>
-                    <span className="grid size-7 place-items-center rounded-md text-[13px] font-bold" style={{ background: colour, color: ink }}>
+                    <span className="grid size-7 place-items-center rounded-sm text-[13px] font-bold" style={{ background: colour, color: ink }}>
                       {initial}
                     </span>
                     <span className="truncate text-[15px] font-semibold text-[#1d1d1f]">{name}</span>
@@ -517,7 +635,7 @@ export function OwnBranding() {
 
               {/* AYA, in their corner, in their colour. */}
               <div className="own-widget absolute right-4 bottom-4 w-[min(268px,calc(100%-32px))] sm:right-6 sm:bottom-6">
-                <div className="overflow-hidden rounded-2xl bg-white shadow-[0_14px_36px_-12px_rgb(23_42_58/0.45),0_0_0_1px_rgb(0_0_0/0.05)]">
+                <div className="overflow-hidden rounded-md bg-white shadow-md ring-1 ring-black/5">
                   <div className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ background: colour, color: ink }}>
                     <span className="grid size-7 shrink-0 place-items-center rounded-full text-[12px] font-bold" style={{ background: ink, color: colour }}>
                       {initial}
@@ -528,7 +646,7 @@ export function OwnBranding() {
                     </span>
                   </div>
                   <div className="px-3 pt-3 pb-2.5">
-                    <p className="rounded-2xl rounded-bl-md bg-[#f1f1f1] px-3 py-2 text-[12.5px] leading-snug text-[#1d1d1f]">
+                    <p className="rounded-md rounded-bl-sm bg-[#f1f1f1] px-3 py-2 text-[12.5px] leading-snug text-[#1d1d1f]">
                       {greeted ? (
                         <span className="morph-text">{greetingLead(name)}</span>
                       ) : (

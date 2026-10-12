@@ -73,7 +73,13 @@
  * write, and says something different in each case.
  */
 
-import { SIGNATURE_HEADER, TIMESTAMP_HEADER, getPlan, sign } from "@healdesk/catalog";
+import {
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+  getPlan,
+  sign,
+  type AgreementTerminationReason,
+} from "@healdesk/catalog";
 import { headers } from "next/headers";
 
 import { requireOperator } from "@/lib/admin/operator";
@@ -174,6 +180,12 @@ type OperatorOp =
   | "startOffboarding"
   | "markExportDelivered"
   | "markVoiceVendorDataDeleted"
+  // Deletion on request (BAA 1.3.0 release gate 6): the subcontractor step's
+  // stamp, ids and a closed outcome. The deletion itself, and amendments and
+  // corrections (release gate 8), carry a patient's identifiers or words, so
+  // they are not operations here: they run in apps/app's shell
+  // (lib/admin/patient-rights.ts names the scripts), never through apps/web.
+  | "markErasureVendorDeleted"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -498,7 +510,20 @@ export type ResendOutcome =
   | { status: "refused"; message: string };
 
 export type TerminateOutcome =
-  | ({ status: "recorded"; terminatedOn: string; retainUntil: string } & Audited)
+  | ({
+      status: "recorded";
+      terminatedOn: string;
+      retainUntil: string;
+      /**
+       * Whether the practice's service ended with it: no agreement is left in
+       * effect, so the assistant has stopped, its locations are offboarding
+       * and its subscription is being cancelled. False when another agreement
+       * still covers it, or the agreement was never bound.
+       */
+      servicesEnded: boolean;
+      /** The agreement refunds this ending: ops is told to preview and confirm it on Billing. */
+      refundDue: boolean;
+    } & Audited)
   /**
    * Already terminated, signed later than the date given, dated in the future,
    * not a real date, gone, or beaten to it by a second operator.
@@ -658,11 +683,13 @@ export function markAgreementTerminated(
   agreementId: string,
   /** YYYY-MM-DD from a date input. Termination is a date, not a moment. */
   terminationDate: string,
+  /** Who ended it and why: AGREEMENT_TERMINATION_REASONS in @healdesk/catalog. */
+  terminationReason: AgreementTerminationReason,
 ): Promise<OpsResult<TerminateOutcome>> {
   return callOps(
     "markAgreementTerminated",
     "write",
-    { agreementId, terminationDate },
+    { agreementId, terminationDate, terminationReason },
     (value) => {
       const data = object(value, "markAgreementTerminated");
       if (state(data, "markAgreementTerminated") !== "recorded") {
@@ -683,6 +710,8 @@ export function markAgreementTerminated(
           data.auditRecorded,
           "markAgreementTerminated.auditRecorded",
         ),
+        servicesEnded: data.services === "services_ended",
+        refundDue: data.refundDue === true,
       };
     },
   );
@@ -2379,6 +2408,35 @@ export type CareView = {
       how: string | null;
     } | null;
   };
+  /**
+   * The clinic's deletion requests (apps/app lib/patient-rights/erasure.ts),
+   * newest first: who asked (one of three, as a label), the dates as "YYYY-MM-DD HH:MM
+   * UTC", the counts, and each subcontractor step, outstanding until stamped.
+   * Nothing here names the person: apps/app sends no number, address or
+   * reference to one.
+   */
+  /** How many amendments and contact corrections the practice has directed: counts only. */
+  patientRights: { amendments: number; corrections: number };
+  deletionRequests: {
+    id: string;
+    /** One of REQUESTER_LABELS (lib/admin/patient-rights.ts); the reader refuses anything else. */
+    requestedBy: (typeof REQUESTER_LABELS)[number];
+    receivedAt: string;
+    dueBy: string;
+    erasedAt: string;
+    /** Rows deleted, summed across the tables the deletion reached. */
+    rows: number;
+    /** When the restore references are emptied, or null once they have been. */
+    restoreRecordUntil: string | null;
+    steps: {
+      id: "retell";
+      label: string;
+      stampedAt: string | null;
+      stampedBy: string | null;
+      /** One of ERASURE_STEP_OUTCOMES' labels, never typed text; the reader refuses anything else. */
+      how: (typeof ERASURE_STEP_OUTCOMES)[ErasureStepOutcome] | null;
+    }[];
+  }[];
   recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
   deliveries: {
     kind: string;
@@ -2407,6 +2465,11 @@ export type CareView = {
 // Defined in lib/admin/incident-classes.ts so client components never import
 // a value from this server-only module; re-exported here for server callers.
 export { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
+import {
+  ERASURE_STEP_OUTCOMES,
+  REQUESTER_LABELS,
+  type ErasureStepOutcome,
+} from "@/lib/admin/patient-rights";
 
 function readCareView(value: unknown): CareView {
   const data = object(value, "getClinicCare");
@@ -2430,6 +2493,33 @@ function readCareView(value: unknown): CareView {
       destruction: readDestruction(clinic.destruction),
       voiceVendorDeletion: readVoiceVendorDeletion(clinic.voiceVendorDeletion),
     },
+    patientRights: readPatientRights(data.patientRights),
+    deletionRequests: list(data.deletionRequests ?? [], "care.deletionRequests").map((entry) => {
+      const d = object(entry, "care.deletionRequest");
+      const deleted = object(d.deleted, "care.deletionRequest.deleted");
+      return {
+        id: id(d.id, "care.deletionRequest.id"),
+        requestedBy: literal(d.requestedBy, REQUESTER_LABELS, "care.deletionRequest.requestedBy"),
+        receivedAt: instant(d.receivedAt, "care.deletionRequest.receivedAt").at,
+        dueBy: instant(d.dueBy, "care.deletionRequest.dueBy").at,
+        erasedAt: instant(d.erasedAt, "care.deletionRequest.erasedAt").at,
+        rows: Object.entries(deleted).reduce((sum, [key, n]) => sum + count(n, `care.deletionRequest.deleted.${key}`), 0),
+        restoreRecordUntil: optionalInstant(d.restoreRecordUntil, "care.deletionRequest.restoreRecordUntil")?.on ?? null,
+        steps: list(d.steps, "care.deletionRequest.steps").map((value) => {
+          const step = object(value, "care.deletionRequest.step");
+          return {
+            id: literal(step.id, ["retell"] as const, "care.deletionRequest.step.id"),
+            label: text(step.label, "care.deletionRequest.step.label"),
+            stampedAt: optionalInstant(step.stampedAt, "care.deletionRequest.step.stampedAt")?.at ?? null,
+            stampedBy: optionalText(step.stampedBy, "care.deletionRequest.step.stampedBy"),
+            how:
+              step.how === null || step.how === undefined
+                ? null
+                : literal(step.how, Object.values(ERASURE_STEP_OUTCOMES), "care.deletionRequest.step.how"),
+          };
+        }),
+      };
+    }),
     recipients: list(data.recipients, "care.recipients").map((entry) => {
       const r = object(entry, "care.recipient");
       return {
@@ -2467,6 +2557,15 @@ function readCareView(value: unknown): CareView {
         openedBy: text(i.openedBy, "care.incident.openedBy"),
       };
     }),
+  };
+}
+
+function readPatientRights(value: unknown): CareView["patientRights"] {
+  if (value === null || value === undefined) return { amendments: 0, corrections: 0 };
+  const p = object(value, "care.patientRights");
+  return {
+    amendments: count(p.amendments, "care.patientRights.amendments"),
+    corrections: count(p.corrections, "care.patientRights.corrections"),
   };
 }
 
@@ -2529,6 +2628,21 @@ export function markExportDelivered(clinicId: string, how: string) {
 export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
   return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
 }
+
+/**
+ * The operator's record that a subcontractor deleted what it held about a
+ * person: the request's id, the step and a closed outcome, nothing typed.
+ * The deletion itself runs in apps/app's shell, never here.
+ */
+export function markErasureVendorDeleted(
+  clinicId: string,
+  erasureId: string,
+  step: "retell",
+  how: ErasureStepOutcome,
+) {
+  return careWrite("markErasureVendorDeleted", { clinicId, erasureId, step, how });
+}
+
 
 export type OpenIncidentOutcome =
   | { status: "opened"; id: string; notifyBy: string; ftcNotifyBy: string | null }
@@ -2597,7 +2711,7 @@ const CHANNEL_WAITING_ON: readonly ChannelWaitingOn[] = [
 ];
 export type BillingRequestKind = "plan_start" | "step_up" | "close_setup" | "cancel_now";
 const REQUEST_OUTCOMES = ["done", "skipped", "dead_letter"] as const;
-export type RefundKind = "first_period_cancel" | "guarantee";
+export type RefundKind = "first_period_cancel" | "guarantee" | "agreement_terminated";
 export type DepositUncollectable = "book_and_flag" | "hold_and_alert" | "decline_and_alert";
 export type UsageMeter = "voice_minutes" | "chat_conversations";
 
@@ -3198,8 +3312,22 @@ export type RefundPreviewOutcome =
       cancelsPlan: boolean;
       planStartedOn: string | null;
       windowEndsOn: string | null;
+      /**
+       * Invoices the refund covers that were paid without a card payment
+       * (marked paid out of band): not in `amountCents`, for the operator to
+       * settle by hand. Null when there are none.
+       */
+      settleByHand: { amountCents: number; invoiceIds: string[] } | null;
     }
   | { status: "refused"; message: string };
+
+/** A Stripe invoice id, shown to the operator to look up. */
+function invoiceId(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^in_[A-Za-z0-9_]{1,64}$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  return value;
+}
 
 /** What a refund would pay back. A read: Stripe is asked, nothing is written but the audit row. */
 export function previewRefund(
@@ -3213,13 +3341,31 @@ export function previewRefund(
       v === null || v === undefined ? null : date(v, where);
     return {
       status: "ok",
-      kind: literal(data.kind, ["first_period_cancel", "guarantee"], "previewRefund.kind"),
+      kind: literal(
+        data.kind,
+        ["first_period_cancel", "guarantee", "agreement_terminated"],
+        "previewRefund.kind",
+      ),
       amountCents: count(data.amountCents, "previewRefund.amountCents"),
       cancelsPlan: bool(data.cancelsPlan, "previewRefund.cancelsPlan"),
       planStartedOn: optionalDate(data.planStartedOn, "previewRefund.planStartedOn"),
       windowEndsOn: optionalDate(data.windowEndsOn, "previewRefund.windowEndsOn"),
+      settleByHand: readSettleByHand(data.settleByHand),
     };
   });
+}
+
+function readSettleByHand(
+  value: unknown,
+): { amountCents: number; invoiceIds: string[] } | null {
+  if (value === null || value === undefined) return null;
+  const data = object(value, "previewRefund.settleByHand");
+  return {
+    amountCents: count(data.amountCents, "previewRefund.settleByHand.amountCents"),
+    invoiceIds: list(data.invoiceIds, "previewRefund.settleByHand.invoiceIds")
+      .slice(0, 50)
+      .map((entry) => invoiceId(entry, "previewRefund.settleByHand.invoiceIds")),
+  };
 }
 
 export type RefundOutcome =
@@ -3232,7 +3378,8 @@ export type RefundOutcome =
   | { status: "refused"; message: string };
 
 /**
- * Refund under Terms § 5. A write in the fullest sense: on a timeout or a
+ * Refund under Terms § 5, or the fees paid for time after a terminated
+ * agreement ended (BAA 1.3.0 clause 17). A write in the fullest sense: on a timeout or a
  * server error the sentence says it may have gone through, and the operator
  * checks Stripe before asking again (apps/app reuses any part already made).
  */

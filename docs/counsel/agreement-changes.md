@@ -549,7 +549,7 @@ down. On 6 October 2026:
 | Payments: healdesk may send a link in website chat or on Instagram, Messenger or WhatsApp, through Practice's own processor; on a call none, and the deposit is flagged for staff; a link, and what healdesk sends the processor, carry only an amount, a generic description and a reference number; no payer details kept from the processor's notice | On a call: `depositLine` in `apps/app/src/lib/voice/tools.ts` states the deposit and sends nothing. Links: nothing yet; deposit links are package D, which is paused | On a call, yes; links, no (package D; § 12.14, gate 10) |
 | Payments: healdesk never takes card numbers | Nothing in `apps/app` asks for, parses or stores a card number, and 1.2.1's minimum-necessary clause says the same. One a patient volunteers would sit in the conversation transcript like any other words; the audit weighs that against "never takes" | Yes, by absence |
 | State law: processes patient information only on Practice's documented instructions (this agreement and the portal settings) and for purposes a–i; does not sell or share it as 1798.140 defines the words; combines it with other sources only for security and fraud | Nothing in the code sells, shares or combines it across clinics (identifier references are keyed per clinic). The portal the instructions name is not built yet (the funnel session builds it) | By design |
-| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction). Nothing reachable deletes one person's records on request | Partly (no deletion; § 12.14, gate 6) |
+| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction), and since 12 October 2026 the operator's `ops:amend-record` and `ops:amend-contact` scripts in apps/app's own shell, which append an amendment beside a booking request, a conversation or an appointment (`record_amendments`) that both exports carry. Since 8 October 2026 a deletion (`apps/app/src/lib/patient-rights/erasure.ts`, run since 12 October 2026 by the `ops:erase-person` script in apps/app's shell, never apps/web) deletes one person, their raw payloads and their own messaging threads included, records the request without their number, and shows each subcontractor step outstanding with its ten-business-day deadline; backups age out at the host's 35 days (gate 18) | Deletion, yes (§ 12.14, gate 6); correction, yes (gate 8) |
 | State law: tells Practice if healdesk can no longer meet these obligations; lets it stop and remedy unauthorised use; provides compliance documents on request | Operating processes, none written down | No (a written process) |
 
 The release audit checks each row against the code. No clause promises a
@@ -1374,6 +1374,119 @@ these is closed, by code, a page, a signed paper or a host setting, and
    kept "so the request itself is honoured forever" changes with it. That is
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
+   Done on 8 October 2026 (`drizzle/0063_erasure_requests.sql`,
+   `apps/app/src/lib/patient-rights/erasure.ts`, pinned by
+   `tests/person-erasure.test.ts`):
+   - The operator erase path is `npm run ops:erase-person`, run in apps/app's
+     own shell, which reads the number and the address from a prompt, never
+     the command line. Until the second review of 12 October 2026 it was the
+     care page's "Delete a person", which sent them through a Vercel server
+     action into the signed ops envelope: a hop through a host with no BAA.
+     That operation, and `amendRecord` and `amendContact`, are gone from the
+     envelope; the care page keeps the records, the subcontractor steps (a
+     closed outcome each, never typed) and counts. No log line or audit row
+     carries the person's details, and the script prints the request's id,
+     its deadline and counts. On the AWS host it runs by contact id, through
+     run-task.sh only (HEALDESK_ERASURE_*: no interactive shell exists
+     there, and overrides are recorded by CloudTrail); the typed prompt is
+     for a development database. Amendment words and corrected details
+     cannot run there and wait for the M5 portal; getting a contact's id
+     without the person's details crossing a channel is an open item until
+     M5 (docs/handover.md, "Reaching the app's shell").
+   - One transaction runs `eraseContact` for each number and address, then
+     deletes what it does not reach: the person's raw payloads
+     (`webhook_events`: every voice payload of their calls, and any payload
+     carrying their number or address, matched whole, the number with or
+     without its country code; the first version's substring test took
+     joann@ for ann@ and missed "555 013 0001"), the drafts and `chat_threads` of
+     their own messaging threads, matched by the keyed references the tables
+     already hold, and their suppressions, consent records and
+     contact attempts (`app_erase_contact_evidence`, since the runtime role
+     has no DELETE on the three, and only under the record of the request:
+     one written in the same transaction, or one whose restore references
+     have not expired, and only what was recorded before it; the first
+     version took a bare cutoff that `now()` satisfied, so the runtime role
+     could delete any number's "stop" with no request at all, against 0058,
+     until the review of 12 October 2026). The second review found that a
+     record the runtime role wrote itself, or any record still holding its
+     references, still let it delete any number's stop; the function now
+     refuses a number any contact of the clinic still carries, so evidence
+     goes only after its person's contacts have, and every call that
+     deletes anything writes an audit row naming the request, the path and
+     the counts. What still bounds the restore path: the 35 days, what was
+     recorded before the deletion, numbers no one on file carries, and that
+     row. No telephone number of theirs is left, in
+     any table (the test reads every table with a `clinic_id`, and the
+     security events, for it).
+   - A booking request goes only with the person it names
+     (`app_erase_contacts`, 0054), and a messaging thread is the person's own
+     only when everything it sent named them. The first version deleted
+     every request a thread the person had touched ever sent
+     (`app_erase_thread_requests`), so erasing a child deleted the requests
+     their parent had made for themselves and for a sibling, and the
+     parent's thread; the review of 12 October 2026 proved it, and the
+     function is gone. A thread that also booked for someone else keeps what
+     it sent for others, with its drafts and its `chat_threads` row, and the
+     reply counts what was kept (`kept`), never naming anyone. One case
+     stays: a request the person sent from their own WhatsApp for someone
+     else carries their WhatsApp id, which is their number, as its sender,
+     and stays as the other person's record. Known limits, as specified and
+     recorded in docs/handover.md ("Deletion requests"): the closure is one
+     step (C1 {P, E1}, C2 {P, E2}, C3 {E2}: erasing E1 leaves C3 and E2's
+     payloads); a Meta request reuses a contact by number, so a parent
+     booking for a child with the parent's own number is one contact; and
+     the amendment identifier check misses wide separators, slashes and
+     spelled-out numbers, and refuses runs like "1200 1300 1400".
+   - `eraseContact` no longer writes `suppressions`, and its comment says
+     why. The request is recorded in `erasure_requests` without the number:
+     who asked (one of three, chosen, never typed: the first version took
+     free text screened only for numbers and addresses, so a name could be
+     kept; review of 12 October 2026), when it arrived, the ten-business-day
+     deadline (SL-06), when the deletion ran (the database's clock, stamped
+     by a trigger), the counts, and the operator's stamp for each
+     subcontractor step: Retell's, done in its console, since nothing in
+     apps/app reaches it yet. The care page shows each step outstanding,
+     with the deadline, until it is stamped; a stamp cannot be undone.
+   - The record's only reference to the person is `restore_refs`: keyed
+     references (`identifierRef`) to the numbers, addresses and messaging
+     threads the deletion found, used by `npm run reapply-erasures` to
+     delete the person again from a restored database, taking only what was
+     recorded before the deletion ran, and by nothing else. The hourly,
+     unswitched `erasure-expiry` sweep empties them 35 days after the
+     deletion (`BACKUP_RETENTION_DAYS`), when the row goes too unless a
+     subcontractor step is still outstanding (then it stays, holding
+     nothing of the person, until the step is stamped). The sweep runs in
+     the worker, which a restore keeps stopped, so a restore in progress
+     keeps the references it needs. Destruction deletes the records with the
+     rest of the clinic (`app_mark_clinic_destroyed` checks them). That clock
+     is the database's: the runtime role cannot empty the references, delete
+     a record or write a stamp that counts, so the expiry and destruction
+     run through definers (`app_expire_erasure_records`, on the 35 days by
+     the database's clock; `app_destroy_erasure_requests`, on
+     `app_destruction_due`), the guard refuses an early emptying from any
+     role, and a step counts as stamped only with a stamp the guard wrote and
+     timestamped. The first version held all of that only in TypeScript
+     (review of 12 October 2026).
+   - Nothing reads the record for a contact decision (a test lists the
+     modules that touch the table). Readers of `suppressions` after the
+     change: `canContact`, the outbound gate, which in v1 refuses before it
+     reads a row (`OUTBOUND_CONTACT_ENABLED` is false) and otherwise reads
+     only stops, of which v1 writes none; `exportPatient` and
+     `exportClinic`, which carry what is there; `reapplyErasures`, which
+     reads the numbers only to find a deleted person again after a restore;
+     and destruction. None of them sees an erasure.
+   - The purge deletes a `chat_threads` row once its last message is past
+     the record clock, clause 11's "until 90 days after the last time those
+     details were recorded".
+   - docs/handover.md has the "Deletion requests" runbook (who may ask, how
+     ops verifies, the operation, the vendor steps, the deadline, the
+     reply), and "Restoring" carries the records over and re-applies them.
+   - Left: a person who only ever messaged on Messenger or Instagram and
+     gave no number is found only by a thread id, which the practice cannot
+     see; their thread (a keyed reference and a time) goes with the purge.
+     Phase-two payloads (POS read-back) are matched by the number or the
+     address written verbatim, and a number formatted another way is not
+     found in them.
 7. **Offboarding (HRC-02, PT-01).** Code in
    `drizzle/0058_destruction_clock.sql` and
    `apps/app/src/lib/offboarding/offboarding.ts`, pinned by
@@ -1435,7 +1548,82 @@ these is closed, by code, a page, a signed paper or a host setting, and
    booking request or conversation it amends, carried by `exportPatient`,
    `exportClinic` and the portal export. The DPA's clause 13 promises the
    same, as a correction, so its release waits on this gate too (`dpa.md`,
-   gap 22).
+   gap 22). Done on 12 October 2026 (`drizzle/0064_record_amendments.sql`,
+   `apps/app/src/lib/patient-rights/amendments.ts`, pinned by
+   `tests/record-amendments.test.ts`):
+   - `record_amendments` holds each amendment: the record it amends (a
+     booking request or a conversation, by `target_kind` and exactly one
+     foreign key), Practice's words, who asked (one of three, chosen, never
+     typed: the second review found a typed "Jane Doe's mother, by telephone"
+     in the append-only audit log after Jane's deletion, so amendments and
+     corrections now take the same closed set as deletions, held by
+     `record_amendments_requested_by_check`), when
+     Practice directed it, who appended it, and when, stamped by the
+     database. Each foreign key carries `clinic_id` with the record's id, so
+     an amendment can only point at a record of its own clinic. Tenant RLS,
+     FORCEd, `TENANT_SCOPED_TABLES`, and the BAA gate.
+   - Append-only: the runtime role holds INSERT and SELECT only, a trigger
+     refuses any UPDATE by any role, and the foreign keys have no delete
+     action, so a record cannot be deleted around its amendment.
+   - Writers: the operator's scripts in apps/app's own shell,
+     `npm run ops:amend-record` and `npm run ops:amend-contact` (which
+     corrects a contact in place, the record that can change), reading the
+     words and the corrected details from a prompt, never the command line.
+     Until the second review of 12 October 2026 they were the care page's
+     forms, through a Vercel server action into the signed ops envelope; both
+     operations are gone from it. No audit row, log line or reply carries the
+     words. The portal (M5) calls `appendAmendment` with its member as the
+     recorder.
+   - Exports and uses: `exportPatient` and `exportClinic` carry each
+     amendment beside the request or conversation it amends (`amendments`,
+     oldest first), and the accounting of disclosures shows each being
+     written. The desk's view of a booking request (`/booking/<token>`)
+     says how many amendments the request carries and to read them in the
+     export, and never their words: it opens with the emailed token alone,
+     no passkey, and the first version printed the text there (review of 12
+     October 2026). The request's name and number on that page are an older
+     gap, which M5's passkey closes. The portal's export, and any
+     screen of it that shows a request or a conversation, must do the same
+     (the note in `amendments.ts`).
+   - Removal: an amendment goes with its record and at no other time, inside
+     the function that deletes that record: erasure (`app_erase_contacts`,
+     redefined on 0054's body, still taking only the people's own requests
+     and failing with nothing removed if anything else refers to them), the
+     purge (`app_purge_booking_requests`, redefined with 0058's UTC pin, and
+     the new `app_purge_amended_conversations`, under the same record-clock
+     floor, which deletes an amended conversation and its amendments
+     together), and destruction (the new `app_destroy_record_amendments`, on
+     `app_destruction_due`); `app_mark_clinic_destroyed` refuses while one
+     remains. The first version purged a conversation's amendments on their
+     own, floored on `started_at`, which the runtime role could write: it
+     could backdate a live conversation, purge its amendment and put the
+     date back (review of 12 October 2026). The runtime role can no longer
+     write `started_at` (nothing in the application did), and an amendment
+     never goes while what it amends stays. A booking request's floor
+     column, `created_at`, was already out of its reach.
+   - docs/handover.md has the "Amendments" runbook, and
+     `docs/incident-response.md` points to it.
+   - Appointments, and clearing a field (review of 12 October 2026). Only a
+     contact could be corrected, and the amendment record took only booking
+     requests and conversations, so an appointment's service, practitioner
+     or time could be neither corrected nor amended. An appointment is now a
+     target too (`record_amendments.appointment_id`, by the same
+     clinic-carrying key), carried by both exports, and it leaves with the
+     same paths as the others: erasure (`app_erase_contacts`), the purge
+     (the new `app_purge_amended_appointments`, which takes the appointment
+     and its amendments together, since its time is one the runtime role and
+     a sync can move), and destruction. It is appended rather than written
+     over, because the appointment is the booking as the practice's calendar
+     holds it. `amendContact` can now clear a name, number or address, but
+     only one named in `clear`; an empty value is still dropped.
+   - An amendment's words never carry a telephone number or an email
+     address, refused by the writer and by a CHECK
+     (`record_amendments_identifier_check`): an amendment on someone else's
+     record is never searched by a deletion, so one written there would
+     outlive the "no number left" promise (review of 12 October 2026).
+   - Left: nothing in v1 shows a conversation's record to anyone but the
+     operator's export yet; the portal's transcript view (M5) must show the
+     conversation's amendments beside it.
 9. **Retention (PT-28).** The nightly purge switched on for every 1.3.0
    clinic (0032 ships it off), and extended to webhook events that are never
    processed. Done in drizzle/0054 and `lib/retention/purge.ts`: the purge
@@ -1445,7 +1633,28 @@ these is closed, by code, a page, a signed paper or a host setting, and
    request names them (`booking_requests.contact_id` is ON DELETE NO
    ACTION), so a returning person's Meta request, which writes no
    conversation, no longer goes by cascade when their older call ages out. A request is
-   kept for its own period, which clause 11 now states (§ 12.12).
+   kept for its own period, which clause 11 now states (§ 12.12). The rest
+   done on 12 October 2026 (`lib/retention/purge.ts`,
+   `lib/scheduler/retention-purge.ts`, pinned by `tests/retention.test.ts`):
+   - The purge runs for every clinic bound to BAA 1.3.0 or later, or to the
+     DPA, every night, whether the job's switch is on or not
+     (`purgeIsPromised`, read from the agreement in effect: a version
+     promises the purge only if its own retention clause states the
+     purge's periods, which 1.3.0's and the DPA's do and 1.2.2's and
+     earlier do not. Until the third review of 12 October 2026 every
+     version off a list of earlier ones counted as promising, and 1.2.2,
+     released after the list, nearly did; `runWideningJob`, which keeps
+     runJob's lock and records each run). The switch, which 0032 ships off,
+     adds every other clinic. The owner switches it on at the release
+     (docs/handover.md, "Retention and offboarding"), so 1.2.2 and 1.2.1 clinics are
+     purged too. A sync run holds a clinic's purge only while it is younger
+     than six hours; one that crashed held it for good, since `sync_runs`
+     is append-only.
+   - A vendor payload never processed goes at the record clock, the period
+     clause 11 gives the conversation it would have become; one processed
+     goes at thirty days or the record clock if the practice has shortened
+     it below that, so no raw copy outlives its record. `purge.ts` lists
+     every period as clause 11 states it.
 10. **Payment links (PT-11, ICD-10, SL-08; package D).** Links only in website
     chat and on Meta, carrying only an amount, a generic description and a
     reference, metadata and statement descriptor included, and no payer
@@ -1579,11 +1788,15 @@ golden hashes and `docs/dpa-v1.0.0.txt` regenerated, no BAA hash moved):
   record can change, otherwise appended and linked. That rests on gate 8,
   so gate 8 holds the DPA's release too (`dpa.md`, gap 22).
 - Done: `docs/counsel/dpa.md` brought up to date.
-- Still to do: the "Clients' requests" and Term clauses say the telephone
-  number of a client whose information was deleted is kept as the record of
-  the request; gates 6 and 7 remove that number, and both sentences change
-  with them. Item c of the shared clause, which allows only a record kept no
-  longer than needed, governs meanwhile.
+- Done on 12 October 2026, with gates 6 and 7: the "Clients' requests"
+  clause no longer says a deleted client's telephone number is kept as the
+  record of the request. It says the record holds no telephone number,
+  email address or name, and, for the 35 days a backup could bring the
+  information back, one-way keyed references used only to delete it again
+  after a restore. The Term clause says that after destruction healdesk
+  holds no Client Information, with no exception for that number.
+  `docs/dpa-v1.0.0.txt` and the DPA's golden hashes were regenerated; no
+  BAA hash moved (`dpa.md`, gap 15).
 
 #### Flagged for the owner
 
@@ -1770,6 +1983,13 @@ The ten 1.3.0 hashes moved, as § 12.12 lists, and so did the DPA's eight
 1.2.1 / covered_estimated is still
 `618ac4a585a42f23d70865042c5a02e0b4765c07b6e65ba8ecf586e8f386cfd3`, and
 1.2.0, 1.0.0, 1.1.0-draft and 0.1.0-draft reproduce as before.
+
+The DPA's eight moved again with gates 6, 8 and 9 (12 October 2026), whose
+clause 13 and 17 sentences and term-time retention paragraph were drafted
+before 1.2.2 and merged after it, and with the owner's refund rule of the
+same day in its Term clause (dpa.md, gap 17): the DPA 1.0.0 sample is now
+`ff3e7acf0f37364ab85a352008fbbc1632e41f2f584514f5fde2fb6b4d9b3b3b`. No BAA
+hash moved with them.
 
 ### 13.5 What the change costs, for the owner
 

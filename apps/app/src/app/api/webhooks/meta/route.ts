@@ -1,10 +1,12 @@
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { touchChatThread } from "@/lib/chat/threads";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
 import { anthropicResponder, answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
+import { notifyDeskAfterCommit } from "@/lib/meta/booking-requests";
 import { recordGreeting } from "@/lib/meta/greeting";
 import { claimMetaMessage } from "@/lib/meta/inbound";
 import { parseMetaEvents, verifyMetaSignature } from "@/lib/meta/webhook";
@@ -127,13 +129,21 @@ export async function POST(request: Request): Promise<Response> {
       const sentAt = message.sentAt ?? now;
 
       // 1 and 2: a redelivery stops here, before anything is counted or
-      // answered; otherwise the message joins its conversation.
+      // answered; otherwise the message joins its conversation. A clinic that
+      // has left (offboarding started, or destroyed) keeps nothing new, not
+      // even the keyed references (lib/clinic/leaving.ts).
       const thread = await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
+        if (await clinicHasLeft(tx)) return "left" as const;
         if (message.messageId && !(await claimMetaMessage(tx, message.platform, message.messageId))) {
           return null;
         }
         return touchChatThread(tx, { channel: message.platform, partyId: message.senderId, sentAt });
       });
+      if (thread === "left") {
+        log.warn("meta message refused: the clinic has left", { clinicId: owner.clinicId });
+        skipped += 1;
+        continue;
+      }
       if (!thread) {
         skipped += 1;
         continue;
@@ -177,30 +187,44 @@ export async function POST(request: Request): Promise<Response> {
         log.error("meta conversation not counted", { clinicId, channel: message.platform, error: describeError(error) });
       }
 
-      // 5: the answer.
-      const sent = await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
-        const answer = await answerFrontDoor(tx, {
+      // 5: the answer, committed before anything is sent: a booking request
+      // it created survives a send that fails, which would otherwise roll it
+      // back after the message id was claimed, so a redelivery could never
+      // make it again.
+      const answer = await withTenant({ clinicId: owner.clinicId, actor }, (tx) =>
+        answerFrontDoor(tx, {
           platform: message.platform,
           text: message.text,
           responder,
           thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
-          transport: transportForTests,
           now: sentAt,
+        }),
+      );
+      if (!answer) {
+        skipped += 1;
+        continue;
+      }
+      try {
+        // 6: the reply. Replying to the message just received: the thread
+        // may hold no request yet, so the instant is passed in. sendMetaReply
+        // still drops the reply if that instant is more than 24 hours old.
+        await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
+          const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt, now });
+          // The greeting is given once the reply carrying it has gone out. A
+          // reply dropped outside the window (a backlog Meta delivers a day
+          // late) leaves it owed, so the first reply the person does get
+          // opens with it (lib/meta/greeting.ts).
+          if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
         });
-        if (!answer) return false;
-        // Replying to the message just received: the thread may hold no
-        // request yet, so the instant is passed in. sendMetaReply still drops
-        // the reply if that instant is more than 24 hours old.
-        const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt, now });
-        // The greeting is given once the reply carrying it has gone out. A
-        // reply dropped outside the window (a backlog Meta delivers a day
-        // late) leaves it owed, so the first reply the person does get opens
-        // with it (lib/meta/greeting.ts).
-        if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
-        return true;
-      });
-      if (sent) answered += 1;
-      else skipped += 1;
+        answered += 1;
+      } finally {
+        // 7: the desk's email, only now that the request it links to has
+        // committed, and whether or not the reply went out: the desk calls
+        // either way. It never throws.
+        if (answer.deskNotice) {
+          await notifyDeskAfterCommit(owner.clinicId, answer.deskNotice, { channel: "meta", platform: message.platform }, { transport: transportForTests, actor });
+        }
+      }
     } catch (error) {
       skipped += 1;
       // `channel`, never `platform`: lib/log.ts throws on a key off its

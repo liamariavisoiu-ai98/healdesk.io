@@ -6,8 +6,11 @@
 #   bash infra/aws/scripts/run-task.sh migrate        migrations, then queue:install
 #   bash infra/aws/scripts/run-task.sh db-bootstrap   init-secrets, then the two roles
 #   bash infra/aws/scripts/run-task.sh destroy-due    after a restore: destroy every clinic due
-#   bash infra/aws/scripts/run-task.sh patient-export <clinic id> "<who asked>"
+#   bash infra/aws/scripts/run-task.sh patient-export <clinic id>
 #                                                     a leaving clinic's return bundle
+#   bash infra/aws/scripts/run-task.sh erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at]
+#   bash infra/aws/scripts/run-task.sh amend-contact <clinic id> <contact id> <fields to clear> <who asked> <you@healdesk.io>
+#                                                     a person's deletion or correction request
 #
 # It runs the family's newest revision that names a deployed image, never
 # Terraform's own revisions: those name the image tag terraform-placeholder,
@@ -23,9 +26,16 @@
 # run-task arguments are recorded by CloudTrail, so commands and secrets live
 # in the task definition and nothing is overridden, with one exception:
 # patient-export takes three environment overrides, the clinic's id, who
-# asked (a label checked here to carry no email address or phone number) and
-# the object key, clinic-<id>-<UTC time>.json. None is secret or a
-# patient's. The bundle lands in the export bucket (infra/aws/exports.tf);
+# asked (always "practice": a whole clinic's bundle is the practice's, and
+# nothing typed reaches the audit row) and the object key,
+# clinic-<id>-<UTC time>.json. None is secret or a patient's. The two
+# patient-rights scripts take theirs the same way (apps/app/scripts/
+# ops-erase-person.ts, ops-amend-contact.ts): the clinic's and the contact's
+# ids, who asked (practice, person_via_practice or representative_via_practice),
+# the operator's work address, and for erasure the day the request came, for an
+# amendment the fields to clear (fullName, phone, email). Never a phone number,
+# an address or a name: the person is named by the contact's id, found in the
+# ops console first. The bundle lands in the export bucket (infra/aws/exports.tf);
 # on success this prints its key and the commands to download it and, after
 # the handover, delete it.
 #
@@ -56,13 +66,21 @@ fail() {
 }
 usage() {
   echo "usage: $0 migrate|db-bootstrap|destroy-due" >&2
-  echo "       $0 patient-export <clinic id> \"<who asked, and the ticket>\"" >&2
+  echo "       $0 patient-export <clinic id>" >&2
+  echo "       $0 erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at, e.g. 2026-10-12]" >&2
+  echo "       $0 amend-contact <clinic id> <contact id> <fields to clear, e.g. phone,email> <who asked> <you@healdesk.io>" >&2
+  echo "       who asked: practice | person_via_practice | representative_via_practice" >&2
   exit 64
 }
 
 EXPORT_BUCKET=healdesk-production-exports-$ACCOUNT
 [ "$#" -ge 1 ] || usage
-if [ "$1" = patient-export ]; then [ "$#" -eq 3 ] || usage; else [ "$#" -eq 1 ] || usage; fi
+case "$1" in
+  patient-export) [ "$#" -eq 2 ] || usage ;;
+  erase-person) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
+  amend-contact) [ "$#" -eq 6 ] || usage ;;
+  *) [ "$#" -eq 1 ] || usage ;;
+esac
 case "$1" in
   migrate)
     family=healdesk-production-migrate
@@ -80,37 +98,74 @@ case "$1" in
     family=healdesk-production-patient-export
     container=app
     ;;
+  erase-person)
+    family=healdesk-production-erase-person
+    container=app
+    ;;
+  amend-contact)
+    family=healdesk-production-amend-contact
+    container=app
+    ;;
   *) usage ;;
 esac
 
-# patient-export's three overrides, checked before any AWS call. The label
-# goes into a recorded override and the audit row, so it may hold letters,
-# digits, spaces and a little punctuation, and nothing shaped like an email
-# address or a phone number.
+is_uuid() { printf '%s' "$1" | grep -Eqi '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+check_requester() {
+  case "$1" in
+    practice | person_via_practice | representative_via_practice) ;;
+    *) fail "who asked is one of practice, person_via_practice, representative_via_practice: chosen, never typed" ;;
+  esac
+}
+check_operator() {
+  if [ "${#1}" -gt 254 ] || ! printf '%s' "$1" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+    fail "the operator is your healdesk work address (it names every row the script writes)"
+  fi
+}
+
+# patient-export's three overrides, checked before any AWS call.
 overrides=""
 export_key=""
 if [ "$1" = patient-export ]; then
   clinic_id=$2
-  requested_by=$3
   if ! printf '%s' "$clinic_id" | grep -Eqi '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
     fail "the clinic id must be the clinic's uuid (the ops console shows it)"
   fi
   clinic_id=$(printf '%s' "$clinic_id" | tr '[:upper:]' '[:lower:]')
-  if [ "${#requested_by}" -lt 3 ] || [ "${#requested_by}" -gt 200 ]; then
-    fail "say who asked, and the ticket, in 3 to 200 characters"
-  fi
-  if ! printf '%s' "$requested_by" | grep -Eq "^[A-Za-z0-9 ,.:;()'/_-]+\$"; then
-    fail "who asked may hold letters, digits, spaces and , . : ; ( ) ' / _ - only"
-  fi
-  # The audit row's own test (apps/app/src/lib/audit.ts, PHONE_LIKE): ten or
-  # more digits and separators read as a phone number, and so does a date
-  # written in digits, which is why dates go in words.
-  if printf '%s' "$requested_by" | grep -Eq '[0-9][0-9 ().-]{8,}[0-9]'; then
-    fail "who asked looks like it holds a phone number; describe it without one, and write any date in words (1 October 2026)"
-  fi
   export_key="clinic-$clinic_id-$(date -u +%Y%m%dT%H%M%SZ).json"
   overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_EXPORT_CLINIC_ID","value":"%s"},{"name":"HEALDESK_EXPORT_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_EXPORT_KEY","value":"%s"}]}]}' \
-    "$clinic_id" "$requested_by" "$export_key")
+    "$clinic_id" practice "$export_key")
+fi
+
+# The patient-rights scripts' overrides, checked the same way. Every value is
+# drawn from a character set that needs no quoting in JSON.
+if [ "$1" = erase-person ] || [ "$1" = amend-contact ]; then
+  is_uuid "$2" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
+  is_uuid "$3" || fail "the contact id must be the contact's uuid (the ops console shows it); a person is never named by their number, address or name here"
+  clinic_id=$(lower "$2")
+  contact_id=$(lower "$3")
+fi
+if [ "$1" = erase-person ]; then
+  check_requester "$4"
+  check_operator "$5"
+  received=""
+  if [ "$#" -eq 6 ]; then
+    if ! printf '%s' "$6" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,3})?)?(Z|[+-][0-9]{2}:[0-9]{2}))?$'; then
+      fail "received at is an ISO date or time, e.g. 2026-10-12 or 2026-10-12T15:30:00Z"
+    fi
+    received=$(printf ',{"name":"HEALDESK_ERASURE_RECEIVED_AT","value":"%s"}' "$6")
+  fi
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_ERASURE_CLINIC_ID","value":"%s"},{"name":"HEALDESK_ERASURE_CONTACT_ID","value":"%s"},{"name":"HEALDESK_ERASURE_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}%s]}]}' \
+    "$clinic_id" "$contact_id" "$4" "$(lower "$5")" "$received")
+fi
+if [ "$1" = amend-contact ]; then
+  if ! printf '%s' "$4" | grep -Eq '^(fullName|phone|email)(,(fullName|phone|email))*$'; then
+    fail "the fields to clear are a comma list of fullName, phone and email; new values wait for the portal"
+  fi
+  check_requester "$5"
+  check_operator "$6"
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_AMEND_CLINIC_ID","value":"%s"},{"name":"HEALDESK_AMEND_CONTACT_ID","value":"%s"},{"name":"HEALDESK_AMEND_CLEAR","value":"%s"},{"name":"HEALDESK_AMEND_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}]}]}' \
+    "$clinic_id" "$contact_id" "$4" "$5" "$(lower "$6")")
 fi
 case "$TIMEOUT_MINUTES" in
   '' | *[!0-9]* | 0) fail "RUN_TASK_TIMEOUT_MINUTES must be a whole number of minutes" ;;
@@ -140,7 +195,7 @@ fi
 
 # --- destroy-due: the image the worker runs ----------------------------------
 want_image=""
-if [ "$1" = destroy-due ] || [ "$1" = patient-export ]; then
+if [ "$1" != migrate ] && [ "$1" != db-bootstrap ]; then
   worker_td=$(aws_ ecs describe-services --cluster "$CLUSTER" --services "$WORKER_SERVICE" \
     --query 'services[0].taskDefinition' --output text)
   case "$worker_td" in
@@ -245,4 +300,7 @@ if [ "$1" = patient-export ]; then
   say "download it here, then Actions > Download file:  aws s3 cp s3://$EXPORT_BUCKET/$export_key ."
   say "after the handover, delete both copies:  aws s3 rm s3://$EXPORT_BUCKET/$export_key && rm -f $export_key"
   say "then record the handover on the clinic's care page in the ops console"
+fi
+if [ "$1" = erase-person ] || [ "$1" = amend-contact ]; then
+  say "its result (the request id, counts and any deadline: ids and numbers only) is in that log stream"
 fi

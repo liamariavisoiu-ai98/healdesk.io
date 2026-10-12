@@ -22,7 +22,7 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
 
 /**
  * The Meta front door: a narrow agent, a deterministic guard, and a webhook
@@ -37,8 +37,9 @@ const PAGE_ID = "123456789012345";
 const SERVICES = ["Botox", "Lip filler", "Laser hair removal"];
 
 describe("the guard", () => {
-  test("lets a public answer through", () => {
-    expect(guardReply("We're open Monday to Friday 9 to 5 and Saturday mornings. To book, call the practice at +1 415 555 0199 — a person can help with the rest.")).toEqual({ ok: true });
+  test("lets a public answer through, its hours among the clinic's own opening and closing times", () => {
+    // 9:00 and 17:00, the clinic's published hours (FrontDoorFacts.publishedTimes).
+    expect(guardReply("We're open Monday to Friday 9 to 5 and Saturday mornings. To book, call the practice at +1 415 555 0199 — a person can help with the rest.", { publishedTimes: [540, 1020] })).toEqual({ ok: true });
   });
 
   test("refuses an acknowledgement, a time, a provider, insurance, guidance, and a human claim", () => {
@@ -65,7 +66,7 @@ describe("the guard", () => {
     const line = handoffLine({ clinicName: "Radiance", phone: "+1 415 555 0199" });
     expect(guardReply(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true });
     expect(probeVerdict(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true, reason: null });
-    expect(probeVerdict("We're open 9 to 5.")).toEqual({ ok: false, reason: "no hand-off" });
+    expect(probeVerdict("We're open 9 to 5.", { publishedTimes: [540, 1020] })).toEqual({ ok: false, reason: "no hand-off" });
     // A practice named after what it sells can still say its own name.
     const named = handoffLine({ clinicName: "Botox Bar", phone: "+1 415 555 0199" });
     expect(guardReply(named, { clinicName: "Botox Bar", serviceNames: SERVICES })).toEqual({ ok: true });
@@ -88,8 +89,8 @@ describe("the guard", () => {
     expect(guardReply("Thanks for messaging Botox Bar! Call the practice to book.", bar)).toEqual({ ok: true });
     expect(guardReply("Botox Bar offers Botox — call the practice to book.", bar)).toEqual({ ok: false, reason: "a treatment name" });
     // The names come from the facts: every configured service, approved or not.
-    expect(guardContextFor({ clinicName: "Radiance", services: [], serviceNames: ["Lip filler"] })).toEqual({ clinicName: "Radiance", serviceNames: ["Lip filler"] });
-    expect(guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }] })).toEqual({ clinicName: "Radiance", serviceNames: ["Botox"] });
+    expect(guardContextFor({ clinicName: "Radiance", services: [], serviceNames: ["Lip filler"] })).toEqual({ clinicName: "Radiance", serviceNames: ["Lip filler"], publishedTimes: [] });
+    expect(guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }], publishedTimes: [540] })).toEqual({ clinicName: "Radiance", serviceNames: ["Botox"], publishedTimes: [540] });
   });
 
   test("refuses a reply that names an everyday skin or hair condition, acknowledged or not", () => {
@@ -294,6 +295,8 @@ describeDb("the front door, end to end", () => {
 
   test("answers only a clinic whose front door is on, sends with the sealed token, and stores nothing the person wrote", async () => {
     const c = await seedClinic("meta");
+    await bindAgreementInEffect(c.clinicId);
+    await setWeekdayHours(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     // A production clinic answers only with a billing row and a live channel
     // (the answer gate fails closed without them).
@@ -374,6 +377,7 @@ describeDb("the front door, end to end", () => {
     const PAGE = "523456789012345";
     const WA = "106540352242922";
     const c = await seedClinic("meta-platforms");
+    await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
@@ -436,6 +440,7 @@ describeDb("the front door, end to end", () => {
   test("a reply naming one of the clinic's services is replaced by the hand-off line, approved or not; the price without the name goes out", async () => {
     const pageId = "423456789012345";
     const c = await seedClinic("meta-names");
+    await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     // A production clinic answers only with a billing row and a live Meta
     // channel: the answer gate fails closed without them.

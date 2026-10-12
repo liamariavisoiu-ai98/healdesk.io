@@ -27,7 +27,7 @@ import { withTenant } from "@/lib/tenant";
 import { ingestCall, type VoiceCallEvent } from "@/lib/voice/ingest";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedConversation } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedConversation } from "./setup/factories";
 import { createStripeFake } from "./setup/stripe-fake";
 
 /**
@@ -54,6 +54,7 @@ function call(clinicId: string, over: Partial<VoiceCallEvent> = {}): VoiceCallEv
 }
 
 async function makeProduction(clinicId: string, wentLiveAt: Date): Promise<void> {
+  await bindAgreementInEffect(clinicId);
   await getMigratorPool().query(
     `update clinics set data_classification = 'production', baa_signed_at = $2, went_live_at = $2 where id = $1`,
     [clinicId, wentLiveAt],

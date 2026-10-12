@@ -14,6 +14,7 @@ import { checkoutStart } from "@/lib/pricing";
 import { replyByDate } from "@/lib/reply-by";
 import { gateState, invitesToBuy } from "@/lib/setup-gate";
 import { SETUP_COOKIE } from "@/lib/setup-link";
+import { site } from "@/lib/site";
 
 /** Every link state a visitor can be told about, from the cookie or from /start's redirect. */
 const NOTICES: readonly LinkNotice[] = ["invalid", "expired", "replaced", "used"];
@@ -96,6 +97,8 @@ export default async function GetStartedPage({
    * page shows, not what protects it.
    */
   const gate = await gateState((await cookies()).get(SETUP_COOKIE)?.value);
+  // Worked out once, so the form's promise and the card beside it name the same day.
+  const replyBy = replyByDate();
   const invited = gate.mode === "pilot" && gate.link === "valid" ? gate.request : null;
   const notice =
     gate.mode === "pilot" && gate.link !== "valid" && gate.link !== "none"
@@ -118,7 +121,14 @@ export default async function GetStartedPage({
 
       <main className="px-5 py-12 sm:px-8 sm:py-16">
         {gate.mode === "pilot" && !invited && !(demo && invitesToBuy(demo)) ? (
-          <SetupRequestForm replyBy={replyByDate()} notice={notice} />
+          // The form, and beside it from 1024px what sending it leads to
+          // (owner, 12 October 2026): on its own the page read as a bare
+          // column of fields. Below 1024px the card follows the form. The
+          // buy modal renders the same form without it, one column as before.
+          <div className="mx-auto grid max-w-[1120px] items-start gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:gap-16">
+            <SetupRequestForm replyBy={replyBy} notice={notice} />
+            <WhatHappensNext replyBy={replyBy} />
+          </div>
         ) : (
           <CheckoutFlow
             initialPlan={initialPlan}
@@ -140,5 +150,75 @@ export default async function GetStartedPage({
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * "What happens next", beside "Tell us about your clinic" (owner, 12 October
+ * 2026).
+ *
+ * Every line is one the site or the code already stands behind, and nothing
+ * else: the reply date is the form's own (`replyByDate`); a person reads each
+ * request and replies with the setup link (SetupRequestForm, /admin/setup);
+ * the purchase it opens is this page's own description, and the plan start
+ * is the package step's sentence; the channels go live as the homepage's
+ * answer to "How long until she's live?" says, step by step and never by the
+ * clock, because the funnel promises no timing before purchase
+ * (funnel-copy.test.ts). No price, no duration and no date but the reply's. A
+ * step that cannot be traced to one of those does not belong here.
+ */
+function WhatHappensNext({ replyBy }: { replyBy: string }) {
+  const steps = [
+    {
+      title: `We reply by ${replyBy}`,
+      body: "A person reads your request and answers at the clinic email you give, with your setup link.",
+    },
+    {
+      title: "Your setup link opens the purchase",
+      body: `Choose a package, tell us about your clinic, sign the agreement and pay the setup fee. Your plan starts the day ${site.agent} first answers a patient.`,
+    },
+    {
+      title: "Each channel goes live on its own",
+      body: "Website chat once the snippet is on your site, Instagram and Messenger once you connect them, your phone once call forwarding is set, and WhatsApp once its account has a payment method.",
+    },
+  ] as const;
+
+  return (
+    <aside
+      aria-labelledby="next-heading"
+      className="demo-field-warm rounded-lg p-3 lg:sticky lg:top-10 lg:mt-11"
+    >
+      <div className="rounded-md bg-white p-6 shadow-md sm:p-7">
+        <h2
+          id="next-heading"
+          className="font-display text-ink text-[26px] leading-tight font-normal tracking-[-0.02em]"
+        >
+          What happens next
+        </h2>
+        <ol className="divide-line mt-5 divide-y">
+          {steps.map((step, index) => (
+            <li key={step.title} className="flex gap-4 py-4 last:pb-0">
+              <span
+                aria-hidden
+                className="bg-tint-peach text-red-deep mt-0.5 grid size-7 shrink-0 place-items-center rounded-full text-[13px] font-bold tabular-nums"
+              >
+                {index + 1}
+              </span>
+              <div>
+                <p className="text-ink text-[16.5px] leading-snug font-semibold">{step.title}</p>
+                <p className="text-muted mt-1 text-[15px] leading-[1.5] font-medium">{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        <p className="border-line text-muted mt-5 border-t pt-5 text-sm font-medium">
+          Questions? Email{" "}
+          <a href={`mailto:${site.email}`} className="text-ink underline underline-offset-2">
+            {site.email}
+          </a>
+          .
+        </p>
+      </div>
+    </aside>
   );
 }

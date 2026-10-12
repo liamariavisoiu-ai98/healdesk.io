@@ -83,5 +83,10 @@ export async function POST(
 
     case "rejected":
       return Response.json({ error: result.reason }, { status: 400 });
+
+    case "left":
+      // 200, so the platform stops retrying; nothing it carried is kept
+      // (lib/clinic/leaving.ts).
+      return Response.json({ received: true });
   }
 }

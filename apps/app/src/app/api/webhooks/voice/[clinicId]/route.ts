@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 
 import { webhookEvents } from "@/db/schema";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { env } from "@/lib/env";
 import { describeError, log } from "@/lib/log";
 import { sendLiveAlert } from "@/lib/reporting/alerts";
@@ -40,6 +41,10 @@ export const runtime = "nodejs";
  * make sense of still leaves its raw body for the operator, flagged by the
  * processing error, and a replay of the same call id is a duplicate, not a
  * second conversation.
+ *
+ * Nothing is stored for a clinic that has left (offboarding started, or its
+ * data destroyed; lib/clinic/leaving.ts): a late call is answered 200, so the
+ * vendor does not retry it for ever, and only its clinic's id is logged.
  */
 const MAX_BODY_BYTES = 1_000_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -92,6 +97,8 @@ export async function POST(
 
   try {
     const outcome = await withTenant({ clinicId, actor }, async (tx) => {
+      // A clinic that has left keeps nothing new, not even the raw body.
+      if (await clinicHasLeft(tx)) return { left: true as const };
       // The raw body, keyed on the call id, so a replay collapses to one row.
       const stored = await tx.db
         .insert(webhookEvents)
@@ -107,7 +114,7 @@ export async function POST(
         })
         .returning({ id: webhookEvents.id });
       const row = stored[0];
-      if (!row) return { duplicate: true as const };
+      if (!row) return { left: false as const, duplicate: true as const };
 
       tx.audit.record({
         action: "create",
@@ -115,9 +122,13 @@ export async function POST(
         resourceId: row.id,
         metadata: { provider: "synthflow" },
       });
-      return { duplicate: false as const, eventId: row.id };
+      return { left: false as const, duplicate: false as const, eventId: row.id };
     });
 
+    if (outcome.left) {
+      log.warn("voice webhook refused: the clinic has left", { clinicId });
+      return Response.json({ received: true, stored: false });
+    }
     if (outcome.duplicate) return Response.json({ received: true, duplicate: true });
 
     // Its own tenant transaction, after the store committed: a failure here

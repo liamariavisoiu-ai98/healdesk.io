@@ -21,7 +21,11 @@ import type { EmailTemplate } from "./types";
  * The amount, the card it went back to and what it was for. The first-period
  * refund also ends the plan (BD14, R15), which the clinic hears about
  * separately when the subscription ends, with the steps for its calls and its
- * data; the guarantee refund leaves the plan running.
+ * data; the guarantee refund leaves the plan running. The termination refund
+ * (BAA 1.3.0 clause 17 ¶3) pays back only the fees for time after the
+ * agreement ended, never the first period in full, so it has words of its
+ * own: the plan ended with the agreement, and the separate email about the
+ * end of the service has gone or is on its way.
  */
 
 export type RefundIssuedPayload = NoticePayloads["refund_issued"];
@@ -30,6 +34,8 @@ const WHAT_FOR: Record<RefundIssuedPayload["kind"], string> = {
   first_period_cancel: `It refunds your first period's fee in full, under the ${FIRST_PERIOD_REFUND_DAYS}-day refund in our Terms, and your plan is cancelled with it. A separate email confirms when your service has ended, with what happens to your calls and your data.`,
   guarantee:
     "It's your first-month guarantee refund: one month's fee. Your plan carries on as before.",
+  agreement_terminated:
+    "It refunds the fees you paid for the time after your business associate agreement with healdesk ended, as that agreement provides. Your plan ended on the same day; a separate email confirms when your service has ended, with what happens to your calls and your data.",
   other: "If you have a question about it, reply to this email.",
 };
 

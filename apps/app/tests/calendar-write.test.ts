@@ -123,7 +123,7 @@ describeDb("the calendar write, against Google", () => {
 
   test("success: the desk's confirm records a desk booking, writes it under the request's key, and Google gets a first name, the service and the time — nothing else", async () => {
     const f = await deskLocation(google, "cal-ok");
-    const r = await phoneRequest(f.clinicId, { service: "facial" });
+    const r = await phoneRequest(f.clinicId, { service: "facial", phone: "+15550104242" });
     const when = deskTime(3, 10);
     const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
     expect(decided).toMatchObject({ outcome: "decided", followUp: null, calendarWrite: "written" });
@@ -152,7 +152,8 @@ describeDb("the calendar write, against Google", () => {
     expect(body.summary).toBe("Synthetic – Facial");
     expect(body.description).toBe("Added by healdesk after your front desk confirmed it.");
     expect(body).not.toHaveProperty("attendees");
-    expect(JSON.stringify(body)).not.toMatch(/555|Patient|@/);
+    // The caller's whole number, not "555": a uuid in the body can carry 555 by chance.
+    expect(JSON.stringify(body)).not.toMatch(/5550104242|Patient|@/);
 
     // The page: added. A second confirm is already decided, and a second write finds the row written.
     expect(await resolveBookingRequest(r.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "written", error: null }, calendar: null });

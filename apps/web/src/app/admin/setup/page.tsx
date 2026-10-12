@@ -152,7 +152,7 @@ export default async function SetupRequestsPage({
       </p>
 
       {result && RESULTS[result] ? (
-        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3 text-[15.6px] font-semibold" role="status">
+        <p className="border-line mt-6 rounded-sm border bg-white px-4 py-3 text-[15.6px] font-semibold" role="status">
           {RESULTS[result]}
         </p>
       ) : null}
@@ -169,7 +169,7 @@ export default async function SetupRequestsPage({
             const paid = request.status === "paid" || Boolean(request.paidAt);
             const canSend = open && !paid && !request.unsubscribedAt;
             return (
-              <li key={request.id} className="border-line rounded-2xl border bg-white p-5">
+              <li key={request.id} className="border-line rounded-md border bg-white p-5">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="text-[19.2px] font-bold">{request.clinicName}</span>
                   <span className="text-muted text-sm">asked {when(request.createdAt)}</span>

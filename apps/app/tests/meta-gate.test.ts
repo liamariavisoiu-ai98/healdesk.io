@@ -9,6 +9,7 @@ import type { FrontDoorResponder } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
+import { startOffboarding } from "@/lib/offboarding/offboarding";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -18,7 +19,13 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import {
+  bindAgreementInEffect,
+  inTenant,
+  seedClinic,
+  seedEntitled,
+  setWeekdayHours,
+} from "./setup/factories";
 
 /**
  * The Meta webhook in front of the answer gate (BD24, R18): a redelivered
@@ -102,6 +109,8 @@ describeDb("the Meta webhook and the answer gate", () => {
   /** A live production clinic on AYA Meta Chat, its plan started on 1 October, the Meta channel live. */
   async function liveClinic(label: string, pageId: string) {
     const c = await seedClinic(label);
+    await bindAgreementInEffect(c.clinicId);
+    await setWeekdayHours(c.clinicId);
     await getMigratorPool().query(
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
       [c.clinicId],
@@ -169,6 +178,26 @@ describeDb("the Meta webhook and the answer gate", () => {
       ),
     );
   }
+
+  test("a clinic that has left claims no message and opens no thread for a late one, and the batch is answered 200", async () => {
+    const c = await liveClinic("gate-left", "310000000000009");
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      startOffboarding(tx, "operator"),
+    );
+    const res = await post(
+      batch("310000000000009", [
+        { sender: "psid-left", text: "what are your hours?", mid: "mid.left" },
+      ]),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, answered: 0, skipped: 1 });
+    expect(sent).toHaveLength(0);
+    expect(asked).toHaveLength(0);
+    const s = await stored(c.clinicId);
+    expect(s.handled).toHaveLength(0);
+    expect(s.threads).toHaveLength(0);
+    expect(s.usage).toHaveLength(0);
+  });
 
   test("a redelivered batch is skipped entirely: one answer, one count, and only references stored", async () => {
     const c = await liveClinic("gate-redelivery", "310000000000001");

@@ -238,7 +238,8 @@ every item stays unproven until the owner's first `infra.yml` apply and first de
   what is known, not a rehearsed procedure); step 2's dates go back through the CloudShell VPC
   environment as the migrator. **Built:** offboarding's return bundle on this host, as the one-off
   `patient-export` task, which puts it in the export bucket (`infra/aws/exports.tf`;
-  `infra/aws/scripts/run-task.sh patient-export <clinic id> "<who asked>"`). **Half built:** the alarm on any transaction open
+  `infra/aws/scripts/run-task.sh patient-export <clinic id>`); and the patient-rights scripts as
+  `erase-person` and `amend-contact`, by contact id (see "Deletion requests" and "Amendments"). **Half built:** the alarm on any transaction open
   longer than five minutes, because one held open is the way left around the record clock's day
   and offboarding's thirty days (see "Retention and offboarding"). The alarm
   `healdesk-production-rds-idle-in-transaction` fires when a session has sat idle inside a
@@ -398,10 +399,29 @@ offboarding and then stays open for the day (or the thirty) commits a change who
 has already run, holding the clinic's row locked all that time. The long-transaction
 alarm in the AWS list is what catches it, and only half of it is built (see there).
 `retention-purge` runs both nightly and writes one audit row per clinic with counts.
-`baa_acceptances` has its own six-year floor.
+The same purge deletes a messaging thread (`chat_threads`) thirty days after its last
+message (sooner if the record clock or the portal's transcript period is shorter), a
+vendor payload (`webhook_events`) thirty days after it arrived once processed (or at the
+record clock, if shorter) and at the record clock if it was never processed, and either
+kind of payload no later than the transcript period, since a call's payload carries its
+transcript, and an amendment with the record it amends. `lib/retention/purge.ts` lists
+each period as BAA 1.3.0's clause 11 states it.
+
+Which clinics: a clinic whose agreement states the purge's periods is purged every night
+whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
+retention clause: BAA 1.3.0 and the DPA today, and any later version only if its text
+says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
+agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
+ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
+too, are purged as well, and check that the next 03 UTC run's note no longer begins
+"Switched off". A sync run (phase two) holds a clinic's purge only while it is younger
+than six hours, so a crashed one cannot hold it for good, and the purge runs again at
+09 UTC, so a clinic whose 02 UTC sync held it at 03 is purged the same day. `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
-set it to the minimum and screenshot it. Single-patient erasure is `eraseContact()` in
-`apps/app/src/lib/retention/purge.ts`. Set the host's snapshot retention to 35 days.
+set it to the minimum and screenshot it. Deleting one person on request is
+`npm run ops:erase-person -w @healdesk/app`, in the app's own shell ("Deletion
+requests", below). Set the host's snapshot
+retention to 35 days.
 
 When Stripe sends `customer.subscription.deleted` (or an operator starts it), the clinic
 gets `offboarding_started_at`, the end of its service, and a `destroy_after` thirty days
@@ -432,8 +452,7 @@ The destruction steps, in order:
    codes, so its calls fall through to its own line.
 2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
    <id> --all --requested-by "…"` (on the AWS host: `bash run-task.sh patient-export
-   <clinic id> "<who asked>"` in CloudShell, which stores it in the export bucket; write any
-   date in "who asked" in words), hand it over, and record the handover on the care
+   <clinic id>` in CloudShell, which stores it in the export bucket), hand it over, and record the handover on the care
    page. Producing it records nothing: the care page refuses the record until a bundle
    has been produced since offboarding started, and the stamp is the database's, at the
    moment of the record (`app_mark_export_delivered()`).
@@ -447,6 +466,217 @@ The destruction steps, in order:
 
 Export first, then destroy; the agreement's obligations persist until it is done.
 
+### Deletion requests
+
+BAA 1.3.0's clause 4(c) and the DPA's state-law clause (item c): when the practice tells
+us to delete a person's information, we delete it from our own records within ten
+business days, raw copies from other services included, have each subcontractor that
+holds it delete it in time, let our backups age it out within 35 days, and keep only a
+record of the request, no longer than we need it.
+
+1. **Who may ask.** The practice, and only the practice. A request the person makes to
+   us directly is passed to the practice within five business days, and our reply to
+   the person says we cannot act on it and have passed it on (the patient-rights
+   clause); we never contact the person afterwards.
+2. **Verify it.** Act on a request that comes from the practice's notice address (the
+   one email address on its account, which is the agreement's notice address), or one
+   confirmed from it: reply there, or call the practice's published number, before
+   acting on a request from anywhere else. The request names the person by the
+   telephone number and/or email address they gave the practice's assistant. Never ask
+   for, or write down, their name.
+3. **Run it, never on the care page.** The person's number and address must not cross
+   apps/web, which runs on a host with no business associate agreement, so the deletion
+   is a script in apps/app (`npm run ops:erase-person -w @healdesk/app`;
+   `erasePersonFromShell` in `apps/app/src/lib/ops/patient-entry.ts`):
+   - **on the AWS host: by contact id, through run-task.sh only.** It runs as a one-off
+     task of the app's image with only ids and closed choices in its environment:
+     `HEALDESK_ERASURE_CLINIC_ID`, `HEALDESK_ERASURE_CONTACT_ID`,
+     `HEALDESK_ERASURE_REQUESTED_BY` (`practice`, `person_via_practice` or
+     `representative_via_practice`), optionally `HEALDESK_ERASURE_RECEIVED_AT` (ISO),
+     and `HEALDESK_OPS_OPERATOR` (your healdesk address), set by `bash run-task.sh
+     erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at]` in
+     CloudShell. The person is whoever that
+     contact's number and address lead to, read inside the transaction. Nothing about
+     the person is typed or passed: there is no interactive shell there, and run-task's
+     overrides are recorded by CloudTrail ("Reaching the app's shell", below);
+   - **on a development machine, against a development database:** the same as
+     arguments (`--clinic`, `--contact`, `--requested-by`, `--received-at`,
+     `--operator`), or, without `--contact`, the number and the address typed at the
+     prompt, one per line, never on the command line (the script refuses a number or an
+     address in any argument, and refuses the prompt where `NODE_ENV` is production).
+
+   Who asked is one of three, chosen, never typed; the deadline runs from the received
+   time, or now. One transaction, with the same log line and security event the
+   console's form wrote, and it prints the request's id, the deadline and counts. Who the person is:
+   the number and address the practice gave, plus every number and address on a
+   contact either one matches (one step, never a chain); every contact carrying any of
+   those is theirs, and goes whole, so a second contact that shares their number goes
+   with its calls even when the practice gave only the address. The reply says how
+   many numbers and addresses that came to. What goes: the person's contacts, calls,
+   appointments, payments matched to them, every booking request that names them, their half-collected Meta drafts, their own messaging threads, the raw
+   payloads the voice vendor or another service sent about them, and their
+   suppressions, consent records and contact attempts. A booking request that names
+   someone else stays, even one the person sent: a messaging thread is theirs only when
+   everything it sent named them, and a thread that also booked for others (a parent
+   booking for a child and for themselves) keeps what it sent for them, with its draft
+   and its thread. The reply counts what was kept that way, never who; tell the
+   practice those requests stay as the other people's records. The care page then
+   lists the request, its deadline and its subcontractor steps, and nothing that
+   names the person.
+4. **The subcontractor steps.** The care page lists each one outstanding, with the
+   deadline, until it is recorded. Retell: in Retell's console, find and delete the
+   person's calls and transcripts by their number, then record how it went on the care
+   page, one of two choices ("Deleted in the vendor's console", "The vendor held
+   nothing for the person"), never typed. Anthropic is not
+   a step: what it keeps it keeps under the exception clause 4(c) names, for the period
+   the Subcontractors clause states. AWS is our database and its backups, which the
+   deletion and the 35-day backup window reach. Meta and Google Calendar are the
+   practice's own services: tell the practice it may delete the person's messages in its
+   own inboxes and their events in its own calendar.
+5. **The deadline.** Ten business days (Monday to Friday, counted in UTC) after the
+   request reached us, for the deletion here and every subcontractor step; the care page
+   shows it and marks it overdue.
+6. **The reply.** On the practice's own thread, so it names no one: the date we deleted
+   the information, the date each subcontractor deleted its copy, and that copies in
+   our encrypted backups expire within 35 days of the deletion. Keep the thread (it holds
+   the number) until the record's restore references expire, 35 days after the
+   deletion, as the fallback a restore after a total loss needs (below), and for nothing
+   else, then delete it from the mailbox and its trash. The DPA's Clients' requests
+   clause says exactly this: the practice's own message, for those 35 days, used only to
+   delete the information again after a restore. Copy nothing from it anywhere else:
+   "who asked" on the care page is chosen from three (the practice; the person, through
+   the practice; a legal representative, through the practice), never typed.
+
+What it cannot find. A call with no caller ID creates no contact, so nothing ties it to
+the person by number: the deletion finds such a call only if the practice names its
+number and the vendor's payload carries it, and its conversation, which names no one,
+stays until the record clock takes it. Raw payloads are searched string by string (a
+JSON body is decoded first; any other body is read as text) for the number and the
+address matched whole: the address with no address character before it or domain
+character after it, the number in its international form and, for a North American
+number, its ten digits without the country code but never right after another
+country's "+" code, with spaces, dots, dashes or brackets between the digits; another
+country's number is found only in its international form.
+Tell the practice when it asks about a call it believes had no caller ID.
+
+Known limits, as specified (second review, 12 October 2026):
+
+- **One step, not a chain.** The person's numbers and addresses are the ones given and
+  those on the contacts they match, and no further. Contacts C1 {number P, address E1},
+  C2 {P, E2} and C3 {E2}: erasing E1 takes C1 and C2 (through P) whole, but not C3, and
+  not the raw payloads that carry only E2. Run a second deletion for E2 if the practice
+  says it is the same person.
+- **A Meta request reuses a contact by number.** A parent who books for a child with
+  the parent's own number makes one contact for both (`lib/meta/booking-requests.ts`),
+  so erasing either takes the other's requests with that contact.
+- **Amendment words** are refused when they carry ten digits or more with up to two
+  separators between them, or an address. A number written with wider separators ("555
+  - 013 - 0001"), with slashes or in words gets through, and a run of figures such as
+  "1200 1300 1400" is refused. Never write a number into an amendment; correct the
+  contact instead.
+
+What is kept: one `erasure_requests` row, with who asked (one of three), the dates, the
+counts and the subcontractor stamps, and no number, address or name; and, for 35 days,
+the practice's message in the mailbox (step 6). Its `restore_refs` are keyed
+references to what the deletion found, used only by `npm run reapply-erasures` after a
+restore. The hourly `erasure-expiry` sweep in the worker empties them 35 days
+(`BACKUP_RETENTION_DAYS`) after the deletion, when no backup that held the person is
+left, and deletes the row then too, or as soon as its last subcontractor step is
+recorded. It is not a switched job. Nothing reads the record to decide whether to
+contact anyone: v1 contacts no one first, and an erasure no longer writes the number
+into `suppressions`, which was the do-not-contact list. Destruction at offboarding
+deletes the clinic's records with the rest. The `person data erased` log line (clinic,
+request id, count) is the record outside the database.
+
+### Amendments
+
+BAA 1.3.0's clause 14(b) and the DPA's Clients' requests clause: healdesk incorporates any
+amendment the practice directs. Where the record can be changed, we correct our own
+copy; where a record must stay as it was made, a booking request or the record of a
+conversation, we append the amendment to it and link the two, and every later use and
+export of that record carries it. An appointment takes an appended amendment too: it is
+the booking as the practice's calendar holds it, which a sync or a reschedule moves, so
+a correction of its service, practitioner or time is appended beside it, never written
+over the calendar's.
+
+1. **Who may direct one.** The practice, from its notice address, verified as for a
+   deletion request. A patient who asks us directly is passed to the practice within
+   five business days (docs/incident-response.md, "Patient rights requests").
+2. **Find the record.** Produce the patient's export (`npm run patient-export`) and read
+   the id of the contact, booking request, appointment or conversation the practice
+   means. Ask the
+   practice, never the patient, when it is not clear which.
+3. **Record it, never on the care page.** The practice's words and a contact's details
+   must not cross apps/web. Two scripts in apps/app (`lib/ops/patient-entry.ts`):
+   - `npm run ops:amend-record -w @healdesk/app` appends an amendment to a booking
+     request, a conversation or an appointment: `--clinic`, `--operator`, `--kind`
+     (`booking_request`, `conversation` or `appointment`), `--record` (its id),
+     `--requested-by` and optionally `--requested-at`, then the practice's words, one
+     line, at the prompt. It is written to `record_amendments`
+     (`apps/app/src/lib/patient-rights/amendments.ts`) and never changed afterwards; a
+     later correction is another amendment beside it. The words never carry a telephone
+     number or an email address (the script and the database refuse them): an amendment
+     can sit on someone else's record, where deleting that person would never find it;
+   - `npm run ops:amend-contact -w @healdesk/app` corrects a contact's name, number or
+     address in place, or clears one: `--clinic`, `--operator`, `--contact`,
+     `--requested-by` and optionally `--clear fullName,phone,email`, then the corrected
+     name, number and address at the prompt, one per line (a blank line leaves that
+     field as it is; a field is cleared only when `--clear` names it). The audit row says
+     which fields changed and who asked, not what they said.
+
+   Who asked is one of three, chosen, never typed. Each script refuses a number or an
+   address on its command line, prints ids only, and writes the same audit row, log
+   line and security event the console's forms did. **On the AWS host:** an amendment's
+   words and a contact's corrected details are themselves patient data, so they can be
+   neither typed there nor passed in a run-task override; they wait for the M5 portal,
+   which takes them from the practice behind step-up. The one correction that runs
+   there is clearing fields, by contact id, through run-task.sh only, with
+   `HEALDESK_AMEND_CLINIC_ID`, `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`,
+   `HEALDESK_AMEND_REQUESTED_BY` and `HEALDESK_OPS_OPERATOR` in the task's environment, set by
+   `bash run-task.sh amend-contact <clinic id> <contact id> <fields to clear> <who asked>
+   <you@healdesk.io>` in CloudShell.
+   Typed entry is for a development machine and its database only. The care page shows
+   how many amendments and corrections the clinic has, and nothing they say.
+4. **The deadline.** Ten business days from the practice's request.
+5. **The reply.** On the practice's own thread: the date it was done, and that every
+   export of the record now carries the amendment. A fresh export shows it under
+   `amendments` beside the request or conversation.
+
+An amendment lives exactly as long as the record it amends: the erasure, the purge and
+destruction delete it with that record, in the same function, and nothing deletes it
+on its own (drizzle/0064). The portal (M5) must show amendments beside every record it
+shows or exports.
+
+### Reaching the app's shell
+
+There is no interactive shell on the AWS host, by design: ECS Exec is off
+(`enable_execute_command` is false; infra/aws/README.md lists it as deliberately not
+built, since "it would put a root shell on a container holding PHI"), a Fargate one-off
+task started by `infra/aws/scripts/run-task.sh` has no stdin, and RDS is private with no
+bastion, so no laptop reaches it. And run-task's command and environment overrides are
+recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh only.
+
+- `ops:erase-person` runs as a one-off task with `HEALDESK_ERASURE_CLINIC_ID`,
+  `HEALDESK_ERASURE_CONTACT_ID`, `HEALDESK_ERASURE_REQUESTED_BY`, optionally
+  `HEALDESK_ERASURE_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR`.
+- `ops:amend-contact` runs as one only to clear fields, with `HEALDESK_AMEND_CLINIC_ID`,
+  `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`, `HEALDESK_AMEND_REQUESTED_BY` and
+  `HEALDESK_OPS_OPERATOR`.
+- `ops:amend-record`, and a correction with new values, do not run on AWS: the words
+  and the details are patient data. They wait for the M5 portal, which takes them from
+  the practice behind step-up.
+
+**Open items.** The task families for these scripts (the task definitions, roles, log
+groups, the deploy workflow and run-task.sh's list) are the infra owner's to add once
+the scripts are on main; nothing in infra/ runs them yet. And the operator needs a
+contact's id without the person's details crossing any channel: the clean route is a
+deletion request the practice files in its portal behind step-up (M5), which yields the
+request's or the contact's id for the task's environment. Until M5 there is no such
+route on AWS: finding a contact's id from a number would mean typing the number there.
+No real patient data exists before BAA coverage, so this blocks nothing yet, but it
+must close before the first live clinic. On a development machine the scripts run as
+above, with the prompt, against a development database.
+
 ### Restoring
 
 Restore from the host's physical snapshot or point-in-time recovery, or from a full
@@ -455,17 +685,26 @@ data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of
 table) fires two BEFORE INSERT triggers from 0054 that refuse it: `clinics_insert_guard`
 refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
 every booking request whose key is already there, which is all of them, since
-`booking_request_keys` sorts ahead of `booking_requests` in a dump. For such a load the
-owner disables both by name, loads every table, `booking_request_keys` included, and
-enables both again, in one transaction:
+`booking_request_keys` sorts ahead of `booking_requests` in a dump. A third, 0063's
+`erasure_requests_guard`, does not refuse but restamps every deletion request's
+`erased_at` with the moment of the load, which would keep its restore references longer
+than the backup window and move the line `reapply-erasures` draws between what the
+person gave before the deletion and after it; 0064's `record_amendments_guard` likewise
+restamps every amendment's `recorded_at`. For such a load the owner disables all four
+by name, loads every table, `booking_request_keys` included, and enables them again, in
+one transaction:
 
 ```sql
 BEGIN;
 ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
+ALTER TABLE erasure_requests DISABLE TRIGGER erasure_requests_guard;
+ALTER TABLE record_amendments DISABLE TRIGGER record_amendments_guard;
 -- the data-only load
 ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
+ALTER TABLE erasure_requests ENABLE TRIGGER erasure_requests_guard;
+ALTER TABLE record_amendments ENABLE TRIGGER record_amendments_guard;
 COMMIT;
 ```
 
@@ -478,10 +717,13 @@ request loaded without its key could be deleted and written again with another d
 `tests/booking-request-destruction.test.ts` runs these steps.
 
 A restore brings back every clinic as it was at the point restored to, so a clinic
-destroyed since comes back with its patients. After any restore, of any kind, destruction
-runs again before the service reopens:
+destroyed since comes back with its patients, and a person deleted since comes back
+with their records. After any restore, of any kind, destruction and every deletion
+request run again before the service reopens:
 
-1. Keep the web tier, the worker and the voice process stopped.
+1. Keep the web tier, the worker and the voice process stopped. The worker runs the
+   hourly expiry of deletion records, so stopping it keeps every record's restore
+   references while the restore is in progress.
 2. Read the `clinic data destroyed` log lines written after the point restored to (the
    log groups never expire). Each names a clinic and the dates it was destroyed on:
    `serviceEndedAt`, and `exportDeliveredAt` when its export had been delivered. For each
@@ -495,7 +737,32 @@ runs again before the service reopens:
    runtime role's `DATABASE_URL`. It destroys every clinic that is due, on every rule at
    once, whether or not the `offboarding-destroy` job is switched on, and exits non-zero
    while any clinic is still due.
-4. Only then reopen the service.
+4. Put back the deletion requests the restore lost. A restore to a point before a
+   deletion loses that deletion's `erasure_requests` row with it, and the row is what
+   finds the person again. RDS restores into a new instance, so while the old one still
+   exists, copy its `erasure_requests` rows into the restored one as the owner, clinic by
+   clinic inside each clinic's tenant (the table is FORCEd), with
+   `erasure_requests_guard` disabled as above so each keeps its `erased_at`. If the old
+   instance is gone, the `person data erased` log lines written after the point restored
+   to name each request lost (clinic and request id): run each deletion again from the
+   practice's request, which the mailbox keeps for those 35 days ("Deletion requests").
+5. Run `npm run reapply-erasures -w @healdesk/app` with the runtime role's
+   `DATABASE_URL`. For every deletion whose record still holds its references, it finds
+   the person in the restored data and deletes what was recorded no later than the
+   deletion ran, so anything they gave afterwards stays, and writes no new record. It
+   exits non-zero if any clinic could not be done.
+6. **Amendments and corrections.** A restore to a point before an amendment or a
+   contact correction loses it, and its security event, which sits in the same
+   database. Read the `record amended` and `contact corrected` log lines written after
+   the point restored to: each names the clinic and the amendment or contact, and when,
+   never the words. For each, ask the practice, on its own notice address, to send the
+   amendment or correction again, and record it as on the first day ("Amendments"),
+   within ten business days of its reply. While the old instance still exists, its
+   `record_amendments` rows can be copied over instead, as the owner inside each
+   clinic's tenant, with `record_amendments_guard` disabled as in step 4 so each keeps
+   its `recorded_at`; a contact correction cannot be copied, because the restored row
+   is the old one, so it is always asked for again.
+7. Only then reopen the service.
 
 ### Logs
 

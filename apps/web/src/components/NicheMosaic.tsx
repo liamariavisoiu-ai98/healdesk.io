@@ -19,10 +19,13 @@ import type { Specialty } from "@/lib/specialties";
  *
  * ## One card open, wherever the visitor is (the owner, 12 October)
  *
- * The first card is open by default: larger, its description showing and its
- * footage playing. Resting on another card (or focusing it, or tapping it on a
- * touch screen) opens that one where it is, and the first closes. Nothing is
- * moved or re-ordered. The cards sit in a fixed map, and what changes is the
+ * No card is open until a visitor is on one. Until the same day the first was
+ * open by default, its footage playing by itself, and the owner asked that
+ * footage, and every other movement a card makes, start only under the
+ * pointer. Resting on a card (or focusing it, or tapping it on a touch
+ * screen) opens that one where it is: larger, its description showing and its
+ * footage playing; moving to another opens that one and closes the first.
+ * Nothing is moved or re-ordered. The cards sit in a fixed map, and what changes is the
  * size of the grid's own tracks: the open card's columns and rows grow and the
  * others' shrink, so the whole bento is one CSS transition (globals.css, "The
  * specialties bento") and nothing is measured or animated from here.
@@ -36,8 +39,8 @@ import type { Specialty } from "@/lib/specialties";
  * Which tracks a card spans is in the two maps below, and the grid's CSS puts
  * the cards in the same cells. A card on its own track gets all of the boost;
  * the big card, on two, gets half on each. At rest, with nobody on the bento,
- * the boost is half of what a visitor's card gets, so the first card is open
- * without the others looking squeezed.
+ * there is no boost: every track is even, and the big card is big only by
+ * the two tracks it spans.
  *
  * ## Letting a card slide under a pointer without a flicker
  *
@@ -48,7 +51,7 @@ import type { Specialty } from "@/lib/specialties";
  * row start narrower than the first, so a card widens leftwards and upwards
  * over its old place).
  *
- * The bento returns to the first card 0.9s after the pointer or focus leaves
+ * The bento closes its open card 0.9s after the pointer or focus leaves
  * it. On a touch screen the first tap opens a card and the second goes to the
  * agent, as a click does with a mouse.
  *
@@ -58,8 +61,8 @@ import type { Specialty } from "@/lib/specialties";
  * grid is exactly full.
  *
  * Every tile's footage is mounted, each preloading its metadata only: the body
- * of a clip is fetched when a card opens or a hover asks for it, and the open
- * card does not fetch until the bento is near the screen.
+ * of a clip is fetched when a card opens or a hover asks for it, and nothing
+ * fetches until the bento is near the screen.
  */
 
 type Cell = { cols: readonly number[]; rows: readonly number[] };
@@ -88,15 +91,16 @@ const TWO: readonly Cell[] = [
   { cols: [1], rows: [4] },
 ];
 
-/** `fr` sizes for a layout's columns and rows with card `active` open. */
-function tracks(map: readonly Cell[], active: number, shape: [number, number], boost: [number, number], strength: number) {
-  const cell = map[active] ?? map[0]!;
+/** `fr` sizes for a layout's columns and rows with card `active` open, or none. */
+function tracks(map: readonly Cell[], active: number | null, shape: [number, number], boost: [number, number]) {
+  const cell = active === null ? undefined : map[active];
+  const strength = cell ? 1 : 0;
   const size = (count: number, spanned: readonly number[], by: number) =>
     Array.from({ length: count }, (_, i) => `${(1 + (spanned.includes(i) ? (by * strength) / spanned.length : 0)).toFixed(3)}fr`).join(" ");
-  return { cols: size(shape[0], cell.cols, boost[0]), rows: size(shape[1], cell.rows, boost[1]) };
+  return { cols: size(shape[0], cell?.cols ?? [], boost[0]), rows: size(shape[1], cell?.rows ?? [], boost[1]) };
 }
 
-/** How long a pointer rests on a card before it opens, and how long after leaving the bento returns to the first. */
+/** How long a pointer rests on a card before it opens, and how long after leaving the bento closes it. */
 const INTENT_MS = 120;
 const RETURN_MS = 900;
 
@@ -110,9 +114,8 @@ export function NicheMosaic({
 }) {
   const tiles = specialties.filter((s) => NICHE_MEDIA[s.id]);
   const grid = useRef<HTMLUListElement>(null);
-  const [active, setActive] = useState(0);
-  /** A visitor has a card of their own open, not the default. */
-  const [engaged, setEngaged] = useState(false);
+  /** The open card: the one a visitor is on, or none. */
+  const [active, setActive] = useState<number | null>(null);
   /** Near the screen: an open card may now fetch and play its footage. */
   const [live, setLive] = useState(false);
   const rest = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -155,22 +158,17 @@ export function NicheMosaic({
   const open = useCallback((index: number) => {
     clearTimeout(rest.current);
     setActive(index);
-    setEngaged(true);
   }, []);
 
-  /** Back to the first card, a moment after the pointer and focus have both left. */
+  /** Closed again, a moment after the pointer and focus have both left. */
   const settle = useCallback(() => {
     clearTimeout(intent.current);
     clearTimeout(rest.current);
-    rest.current = setTimeout(() => {
-      setActive(0);
-      setEngaged(false);
-    }, RETURN_MS);
+    rest.current = setTimeout(() => setActive(null), RETURN_MS);
   }, []);
 
-  const strength = engaged ? 1 : 0.5;
-  const four = tracks(FOUR, active, [4, 3], [0.9, 0.9], strength);
-  const two = tracks(TWO, active, [2, 5], [0.5, 0.9], strength);
+  const four = tracks(FOUR, active, [4, 3], [0.9, 0.9]);
+  const two = tracks(TWO, active, [2, 5], [0.5, 0.9]);
   const style = {
     ["--lg-cols" as string]: four.cols,
     ["--lg-rows" as string]: four.rows,
@@ -226,6 +224,7 @@ export function NicheMosaic({
             title={s.name}
             body={s.hook}
             still={NICHE_MEDIA[s.id]!.still}
+            placeholder={NICHE_MEDIA[s.id]!.blur}
             video={NICHE_MEDIA[s.id]!.video}
             onActivate={onOpen}
             compact

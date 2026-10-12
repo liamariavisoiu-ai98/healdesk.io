@@ -424,14 +424,18 @@ async function alertsFor(event: string, clinicId: string) {
 const notDue = { code: "23514", message: expect.stringMatching(/not due for destruction/) };
 
 /**
- * Each of the four functions that refuse a clinic that is not due, called as
- * the runtime role: the three deletes (the calendar's providers since 0057)
- * and the destroyed stamp.
+ * Each of the seven functions that refuse a clinic that is not due, called as
+ * the runtime role: the six deletes (the calendar's providers since 0057,
+ * the records of deletion requests since 0063, the amendments since 0064,
+ * the deposits since 0065) and the destroyed stamp.
  */
 const GUARDED = [
   `select app_destroy_booking_requests($1::uuid)`,
   `select * from app_destroy_contact_evidence($1::uuid)`,
   `select app_destroy_clinic_providers($1::uuid)`,
+  `select app_destroy_erasure_requests($1::uuid)`,
+  `select app_destroy_record_amendments($1::uuid)`,
+  `select * from app_destroy_deposit_payments($1::uuid)`,
   `select app_mark_clinic_destroyed($1::uuid)`,
 ];
 
@@ -450,6 +454,15 @@ const DAY_COUNTING_FUNCTIONS = [
   "app_record_days_in_force(integer, integer, timestamptz)",
   "app_record_cutoff()",
   "app_purge_booking_requests(timestamptz)",
+  // 0063: the deletion records' own clock, and their delete at destruction.
+  "app_expire_erasure_records()",
+  "app_destroy_erasure_requests(uuid)",
+  // 0064: the amendments' delete at destruction, and at the purge.
+  "app_destroy_record_amendments(uuid)",
+  // 0065: the deposits' delete at destruction.
+  "app_destroy_deposit_payments(uuid)",
+  "app_purge_amended_appointments(timestamptz)",
+  "app_purge_amended_conversations(timestamptz)",
 ];
 
 async function offboard(
@@ -738,7 +751,7 @@ describeDb("the destruction clock in the database", () => {
     }
   }, 120_000);
 
-  test("from day 21 ops is told once, for a clinic on the thirty days with no export delivered, and never otherwise", async () => {
+  test("from day 21 ops is told once, at its own rule's deadline, for a clinic with no export delivered, and never otherwise", async () => {
     const flat = await offboard("clock-alert-flat", "1.2.1");
     const none = await offboard("clock-alert-none", null);
     const delivered = await offboard("clock-alert-delivered", "1.2.1");
@@ -767,6 +780,21 @@ describeDb("the destruction clock in the database", () => {
     }
     for (const c of [delivered, early, v130, dpa]) {
       expect(await alertsFor("export_undelivered_before_destruction", c.clinicId)).toEqual([]);
+    }
+    // BAA 1.3.0 and the DPA promise the export within thirty days, unasked:
+    // ops hears at day 21 too, with that deadline and the ninety days' end.
+    for (const c of [v130, dpa]) {
+      const started = (await stamps(c.clinicId)).offboarding_started_at!;
+      expect(await alertsFor("export_due_undelivered", c.clinicId)).toEqual([
+        {
+          clinicId: c.clinicId,
+          exportDueAt: new Date(started.getTime() + THIRTY_DAY_LIMIT_DUE_DAYS * DAY).toISOString(),
+          destroyAt: new Date(started.getTime() + NINETY_DAY_LIMIT_DUE_DAYS * DAY).toISOString(),
+        },
+      ]);
+    }
+    for (const c of [flat, none, delivered, early]) {
+      expect(await alertsFor("export_due_undelivered", c.clinicId)).toEqual([]);
     }
     // One row, one email: the repeats are counted on it, not sent.
     const { rows } = await getMigratorPool().query<{ n: number }>(

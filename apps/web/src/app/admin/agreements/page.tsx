@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 
+import type { AgreementTerminationReason } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
@@ -269,10 +270,15 @@ async function resendCopy(
 async function markTerminated(
   agreementId: string,
   terminationDate: string,
+  terminationReason: AgreementTerminationReason,
 ): Promise<OpsResult<TerminateOutcome>> {
   "use server";
 
-  const result = await markTerminatedUpstream(agreementId, terminationDate);
+  const result = await markTerminatedUpstream(
+    agreementId,
+    terminationDate,
+    terminationReason,
+  );
   revalidatePath("/admin/agreements");
   return result;
 }

@@ -667,6 +667,28 @@ describeDb("the voice tools", () => {
     );
   });
 
+  test("the demo clinic once it has left: hold, book and request write nothing and the caller hears the failure line (R11)", async () => {
+    const demo = await liveDemoClinic("db-demo-left");
+    // Its offboarding starts: a demo clinic is synthetic, so the database's
+    // gate lets its rows through; the tools must refuse themselves.
+    await inTenant(demo.clinicId, (client) =>
+      client.query(`select * from app_start_offboarding($1::uuid, null)`, [demo.clinicId]),
+    );
+    for (const tool of ["hold", "book", "request"] as const) {
+      const res = await post(
+        tool,
+        demo.clinicId,
+        call(`call_left_${tool}`, { first_name: "Maria", preferred_window: "Tuesday morning", service: "Consultation" }),
+      );
+      expect(res.status, tool).toBe(403);
+      expect(await json(res), tool).toEqual({ error: "not_available", say: TOOL_FAILURE_LINE });
+    }
+    const stored = await storedAt(demo.clinicId);
+    expect(stored.requests).toEqual([]);
+    expect(stored.holds).toEqual([]);
+    expect(stored.appointments).toEqual([]);
+  });
+
   test("rate limits: twelve calls a minute per call id, sixty per clinic", async () => {
     const c = await liveClinic("db-limit", { calendar: false });
     for (let i = 0; i < VOICE_TOOL_LIMITS.perCall; i += 1) expect((await post("context", c.clinicId, call("call_busy"))).status).toBe(200);

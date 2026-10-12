@@ -1,14 +1,16 @@
-import { findClinicalContent, findUrgentContent, metaEligible, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
+import { findClinicalContent, findUrgentContent, metaEligible, namesMetaTreatment, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
 import { eq } from "drizzle-orm";
 
-import { agentConfigs, clinics } from "@/db/schema";
+import { agentConfigs, clinicChannels, clinics, clinicSettings } from "@/db/schema";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
 import { describeError, log } from "@/lib/log";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
+import { parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
-import type { EmailTransport } from "@/lib/reporting/deliver";
+import { urgentHelpNumber } from "@/lib/setup/urgent";
 import type { TenantTx } from "@/lib/tenant";
 
 import {
@@ -18,10 +20,10 @@ import {
   isComplete,
   mergeDraft,
   missingPieces,
-  notifyDesk,
   requestReceivedLine,
   type BookingFields,
   type BookingThread,
+  type CreatedBookingRequest,
 } from "./booking-requests";
 import { touchMetaThread } from "./channels";
 import { openMetaConversation, type MetaConversation } from "./greeting";
@@ -115,10 +117,12 @@ export type FrontDoorFacts = {
   /** The number to hand off to: the clinic's published line. */
   phone: string | null;
   /**
-   * The number the urgent line gives: the clinic's direct line, which
-   * reaches a person and never forwards back to us (clinic_settings). Absent
-   * or null, the urgent line gives `phone`. The urgent-help number the setup
-   * wizard asks for (plan step 2.5) is meant to take its place.
+   * The number the urgent line gives: the clinic's urgent-help number from
+   * the setup wizard (plan Part E, 2.5), or, left empty, its default as
+   * lib/setup/urgent.ts resolves it when read: the direct line, which reaches
+   * a person and never forwards back to us, for a practice with phone, and
+   * the main number for one without. Absent or null, the urgent line gives
+   * `phone`.
    */
   urgentPhone?: string | null;
   websiteHint: string | null;
@@ -135,6 +139,14 @@ export type FrontDoorFacts = {
   requirements: BookingField[];
   /** The rest of the set — asked by the practice on the phone, never here. */
   deferredRequirements: BookingField[];
+  /** The location's street address, as the clinic wrote it: the guard lets its words through. */
+  address?: string | null;
+  /**
+   * The clinic's own opening and closing times, minutes after local
+   * midnight, from its weekly hours: the only clock times a reply may name
+   * (the guard). Absent or empty, a reply may name none.
+   */
+  publishedTimes?: readonly number[];
 };
 
 export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">): string {
@@ -269,6 +281,15 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(side effects?|downtime|recovery (time|takes)|contraindicat|dosage|units of)\b/i, label: "clinical detail" },
   { pattern: /\bI('m| am) (a )?(human|person|real person)\b/i, label: "a human claim" },
   { pattern: /\b(you're|you are|it's|it is|that's) (all )?(booked|confirmed|in the diary|scheduled)\b/i, label: "a booking confirmation" },
+  { pattern: /\b(you're|you are) all set\b/i, label: "a booking confirmation" },
+  // A confirmation with no "you're" or "it's" in it: "your appointment on
+  // Tuesday is confirmed", "is booked for next Tuesday", "we have you down
+  // for", "we've reserved Tuesday for you", "we'll pencil you in".
+  { pattern: /\b(is|are|was|were|been|be) (now |all )?(booked|confirmed|reserved|scheduled|pencil(l)?ed in|locked in|set for)\b/i, label: "a booking confirmation" },
+  { pattern: /\b(have|has|got|put|pencil(l)?ed|pencil|book(ed)?|squeeze[sd]?|fit|fitted) you (down|in)\b/i, label: "a booking confirmation" },
+  { pattern: /\b(we|I)('ve| have| will|'ll)? (reserved|booked|scheduled|held|saved|blocked out) (you|your|a|the|that|this|it|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)\b/i, label: "a booking confirmation" },
+  // A day agreed to, with or without a time: "Tuesday works", "Friday is fine".
+  { pattern: /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)s?\b[^.?!]{0,24}\b(works|would work|is fine|is perfect|is great|is good|is available|is free|is open for you)\b/i, label: "an appointment day" },
   { pattern: /\b(we|I)('ll| will) (text|sms|message you a link)\b/i, label: "a text promise" },
   // WhatsApp's policy bars promoting medical and healthcare products, and the
   // line between a treatment and a product is not one to test in a DM.
@@ -287,24 +308,374 @@ export type GuardContext = {
   serviceNames?: readonly string[];
   /** The clinic's own name: public, and allowed to contain a service's ("Botox Bar"). */
   clinicName?: string;
+  /** The clinic's opening and closing times, minutes after midnight: the only clock times a reply may name. */
+  publishedTimes?: readonly number[];
+  /** The clinic's own street address: public, and allowed to contain a treatment word ("Peel Street"). */
+  address?: string | null;
 };
 
-export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames">): GuardContext {
-  return { clinicName: facts.clinicName, serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name) };
+export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address">): GuardContext {
+  return {
+    clinicName: facts.clinicName,
+    serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name),
+    publishedTimes: facts.publishedTimes ?? [],
+    ...(facts.address ? { address: facts.address } : {}),
+  };
+}
+
+/**
+ * The reply with each part of the clinic's address taken out (split at
+ * commas and line breaks, and the street also without its number), its
+ * punctuation kept and each part left as the word "place", so the date and
+ * time checks still read "10/21" and "9:30" in what is left.
+ */
+function withoutAddress(reply: string, address: string | null | undefined): string {
+  let out = reply;
+  for (const part of addressParts(address)) {
+    const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    // Left as the word "place", so "between 4th and" what was "5th Avenue"
+    // still reads as a place.
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu"), " place ");
+  }
+  return out;
+}
+
+/** The address's parts, longest first, with each street also without its number. */
+function addressParts(address: string | null | undefined): string[] {
+  const parts: string[] = [];
+  for (const part of (address ?? "").split(/[,\n]+/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    parts.push(trimmed);
+    const street = trimmed.replace(/^\d+[a-z]?\s+/i, "");
+    if (street !== trimmed) parts.push(street);
+  }
+  return parts.sort((a, b) => b.length - a.length);
+}
+
+/**
+ * The reply with the clinic's own words taken out: its name, and each part
+ * of its address (split at commas and line breaks), with the street also
+ * without its number ("Peel Street" for "1200 Peel Street"). Both are
+ * public, the person wrote to the clinic, and "Botox Bar" on "Laser Lane"
+ * must still be able to say who and where it is.
+ */
+function withoutOwnWords(reply: string, context: GuardContext): string {
+  const phrases: string[] = [];
+  if (context.clinicName) phrases.push(context.clinicName);
+  phrases.push(...addressParts(context.address));
+  return phrases.reduce((text, phrase) => withoutPhrase(text, phrase), reply);
 }
 
 /** Deterministic: a reply that trips any line is not sent. */
 export function guardReply(reply: string, context: GuardContext = {}): GuardVerdict {
   if (!reply.trim()) return { ok: false, reason: "empty" };
   if (reply.length > 700) return { ok: false, reason: "too long" };
-  const hit = REFUSED.find((r) => r.pattern.test(reply));
+  // Line breaks read as spaces: a confirmation split across lines ("Confirmed
+  // for\nTuesday afternoon") is the same confirmation, and the patterns
+  // below match across what was a line break.
+  const flat = reply.replace(/\s*[\r\n]+\s*/g, " ");
+  const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
   // A condition named in a reply is refused even where no acknowledgement
   // above catches it ("Yes, we treat rosacea"), as the screen refuses it inbound.
   const clinical = findClinicalContent({ reply }, { conditions: true });
   if (clinical.length) return { ok: false, reason: clinical[0]!.label };
   if (namesATreatment(reply, context)) return { ok: false, reason: "a treatment name" };
-  return { ok: true };
+  // The catalogue's treatment vocabulary, for every clinic, with or without
+  // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
+  if (namesMetaTreatment(withoutOwnWords(reply, context))) return { ok: false, reason: "a treatment name" };
+  // No appointment details (appointmentDetail).
+  // On the reply without the clinic's own address, which is public and may
+  // carry an ordinal or a number ("120 5th Avenue").
+  const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
+  return reason ? { ok: false, reason } : { ok: true };
+}
+
+/**
+ * The front door never books, so a reply names a day, a date or a time only
+ * to say when the clinic is open (the verification of 3a6de11): a weekday,
+ * a day named from today, a calendar date or a clock time may appear only in
+ * a sentence about the opening hours ("open", "close", "hours", "opening",
+ * "until", "from"), only when no booking word appears anywhere in the reply,
+ * and a clock time only when it is one of the clinic's own opening or
+ * closing times. Anything else is the fixed hand-off. This does not chase
+ * phrasings: "Tuesday afternoon it is", "We look forward to seeing you on
+ * Tuesday afternoon" and "Your visit is Tuesday afternoon" name a day outside
+ * any sentence about the hours, which is all it takes. "Call the practice to
+ * book" and "to confirm", the hand-off itself, are not booking words.
+ */
+function appointmentDetail(reply: string, published: readonly number[]): string | null {
+  const booking = BOOKING_CUE.test(reply.replace(TO_BOOK, " "));
+  const allowed = new Set(published);
+  for (const sentence of sentencesOf(reply)) {
+    const date = DATE_IN_REPLY.some((pattern) => pattern.test(sentence));
+    const day = WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence);
+    const times = clockTimes(sentence);
+    if (!date && !day && times.length === 0) continue;
+    const named = date ? "an appointment date" : day ? "an appointment day" : "an appointment time";
+    if (booking || !HOURS_CUE.test(sentence)) return named;
+    // "The 22nd is open", "Tuesday is free": a day or a time on offer, not
+    // the clinic's hours, unless the clinic is what is open.
+    if (AVAILABLE.test(sentence) && !CLINIC_IS_OPEN.test(sentence)) return named;
+    if (!times.every((candidates) => candidates.some((minutes) => allowed.has(minutes)))) {
+      return "an appointment time";
+    }
+  }
+  return null;
+}
+
+/** A reply's sentences, split after . ! ? or ;. "9.30", "$4.50" and "21.10" stay whole. */
+function sentencesOf(reply: string): string[] {
+  return reply.split(/(?<=[.!?;])\s+/).filter((sentence) => sentence.trim() !== "");
+}
+
+/** A day of the week, by name or a long abbreviation. "Sat", "Sun" and "Wed" are words too often to count. */
+const WEEKDAY = /\b(mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|tues|weds|thurs)\b/i;
+
+/** A day named by its distance from today. */
+const RELATIVE_DAY =
+  /\b(today|tonight|tomorrow|tmrw|(this|next) (week|weekend|month)|this (morning|afternoon|evening)|later today)\b/i;
+
+/**
+ * Words that make a reply about an appointment: the booking verbs, "an
+ * opening" (but not "opening hours" or "a late opening"), "see you", "expect
+ * you", "fit you in". One anywhere in a reply and no sentence of it may name
+ * a day or a time.
+ */
+const BOOKING_CUE =
+  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|seeing you|expect you|expecting you|schedule|scheduled|slots?|an opening|openings|appointments?|fit you in|squeeze you in|come in|come by|pop in)\b/i;
+
+/**
+ * "Call the practice to book", "to make an appointment": the hand-off every
+ * reply ends with, which confirms nothing, so it doesn't count as a booking
+ * word ("We're open weekdays 9 to 5, call the practice to book").
+ */
+const TO_BOOK =
+  /\bto (book|confirm|schedule|make (an |a )?(appointment|booking)s?|arrange (an |a )?(appointment|booking)s?)\b|\bbook(ing)? (by phone|online|on the website)\b/gi;
+
+/** Something is open, free or available: the clinic, or a time on offer. */
+const AVAILABLE = /\b(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|free|available)\b/i;
+
+/** The clinic is what is open: "the practice is open", "reception's open", "we're open". */
+const CLINIC_IS_OPEN =
+  /\b(we|it|reception|(the|our)\s+(practice|clinic|office|surgery|studio|spa|front desk|reception|doors?))\s*(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|available)\b/i;
+
+/** Words that make a sentence about the clinic's opening hours ("a late opening on Thursdays until 8pm"). */
+const HOURS_CUE = /\b(open|opens|opened|opening|close|closes|closed|closing|hours|until|till|from)\b/i;
+
+const MONTH =
+  "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
+
+/** What an ordinal names when it is a place, not a day. */
+const PLACE_WORD =
+  "(?:floor|fl|storey|story|level|street|st|avenue|ave|av|road|rd|boulevard|blvd|lane|ln|drive|dr|place|pl|terrace|crescent|parkway|pkwy|highway|hwy)\\b";
+
+/** A month by name, for the word-form dates: "may" and "march" are verbs too often to lead one. */
+const MONTH_WORDS =
+  "(?:january|february|april|june|july|august|september|october|november|december|jan|feb|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
+
+const UNIT_WORD = "(?:one|two|three|four|five|six|seven|eight|nine)";
+const UNIT_ORDINAL = "(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)";
+/** A day of the month as an ordinal word, from the tenth up: "the first" is far more often "the first visit". */
+const HIGH_ORDINAL = `(?:tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|(?:twenty|thirty)[- ]?${UNIT_ORDINAL})`;
+/** Any day of the month in words: an ordinal, or a cardinal ("October twenty one"). */
+const DAY_WORD = `(?:${UNIT_ORDINAL}|${HIGH_ORDINAL}|(?:twenty|thirty)[- ]?${UNIT_WORD}|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty)`;
+
+/**
+ * A calendar date: "Oct 21", "21st of October", "10/21", "21.10.2026",
+ * "2026-10-21", "the 22nd", "October twenty first", "the twenty-first".
+ * "24/7" is not one.
+ */
+const DATE_IN_REPLY: readonly RegExp[] = [
+  new RegExp(`\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`, "i"),
+  new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH}`, "i"),
+  /\b(?!24\/7\b)\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/,
+  /(?<![$\d.,])\d{1,2}\.\d{1,2}\.\d{2,4}\b/,
+  /\b\d{4}-\d{1,2}-\d{1,2}\b/,
+  // An ordinal day, but not a floor, a level or a street ("the 2nd floor",
+  // "5th Avenue", "between 4th and 5th Avenue", "14th St").
+  new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)\\b(?!\\s+(?:(?:and|&|or|to)\\s+(?:\\d{1,2}(?:st|nd|rd|th)\\s+)?)?${PLACE_WORD})`, "i"),
+  new RegExp(`\\b${MONTH_WORDS}\\s+(?:the\\s+)?${DAY_WORD}\\b`, "i"),
+  new RegExp(`\\b${DAY_WORD}\\s+(?:of\\s+)?${MONTH_WORDS}`, "i"),
+  new RegExp(`\\bthe\\s+${HIGH_ORDINAL}\\b`, "i"),
+];
+
+const HOUR_WORDS: Readonly<Record<string, number>> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+
+/** Every reading of an hour and minute: the 24-hour one when it can only be that, else morning and afternoon. */
+function readings(hour: number, minute: number, meridiem: string | undefined): number[] {
+  if (hour > 24 || minute > 59) return [];
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return [];
+    const pm = meridiem.startsWith("p");
+    return [((hour % 12) + (pm ? 12 : 0)) * 60 + minute];
+  }
+  if (hour > 12) return [hour * 60 + minute];
+  if (hour === 0) return [minute];
+  return [(hour % 12) * 60 + minute, ((hour % 12) + 12) * 60 + minute];
+}
+
+const CLOCK_HOUR_WORD = "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
+/** An hour of the 24-hour clock in words, before "hundred": "fourteen", "oh nine", "twenty-one". */
+const TWENTY_FOUR_HOUR_WORD =
+  "(?:oh|zero)[\\s-]?(?:one|two|three|four|five|six|seven|eight|nine)|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[\\s-](?:one|two|three))?";
+
+const DAY_HOURS: Readonly<Record<string, number>> = {
+  thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+};
+
+/** "fourteen" as 14, "oh nine" as 9, "twenty-one" as 21. */
+function hourOfDayWord(words: string): number | null {
+  const parts = words.split(/[\s-]+/);
+  if (parts[0] === "oh" || parts[0] === "zero") return parts[1] ? (UNITS[parts[1]] ?? null) : null;
+  if (parts[0] === "twenty" && parts[1]) return 20 + (UNITS[parts[1]] ?? 0);
+  return HOUR_WORDS[parts[0]!] ?? DAY_HOURS[parts[0]!] ?? null;
+}
+const CLOCK_HOUR = "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\\d{1,2})";
+
+const MINUTE_WORDS: Readonly<Record<string, number>> = {
+  half: 30, quarter: 15, five: 5, ten: 10, twenty: 20, "twenty-five": 25,
+};
+
+function hourOf(word: string): number | null {
+  const hour = HOUR_WORDS[word] ?? Number(word);
+  return Number.isInteger(hour) && hour >= 1 && hour <= 12 ? hour : null;
+}
+
+const UNITS: Readonly<Record<string, number>> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+};
+const TENS: Readonly<Record<string, number>> = { twenty: 20, thirty: 30, forty: 40, fifty: 50 };
+
+/** "oh five", "fifteen", "thirty", "forty-five" as minutes past the hour. */
+function minutesOf(words: string): number | null {
+  const [first, second] = words.split(/[- ]+/);
+  if (first === "oh") return second ? (UNITS[second] ?? null) : null;
+  if (first === "ten") return 10;
+  if (first === "fifteen") return 15;
+  const tens = TENS[first!];
+  if (tens === undefined) return null;
+  return tens + (second ? (UNITS[second] ?? 0) : 0);
+}
+
+/** A number that starts a street address: "at 1200 Peel Street", "at 12 Laser Lane". */
+const STREET_AFTER =
+  /^\s+(?:[\p{L}'.-]+\s+){0,3}(street|st|avenue|ave|road|rd|boulevard|blvd|lane|ln|drive|dr|way|place|pl|court|ct|square|sq|parkway|pkwy|highway|hwy|suite|ste|unit|floor|building|plaza|terrace|crescent)\b/iu;
+
+/** What follows a number that makes it a count, a price or a length rather than an hour. */
+const NOT_AN_HOUR = /^\s*(%|percent|\$|dollars?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|units?|ml|mg|sessions?|treatments?|visits?|times|people|patients|areas?|syringes?|vials?|st|nd|rd|th)\b/i;
+
+/**
+ * Every clock time a reply names, each as its possible readings in minutes
+ * after midnight. A number counts as an hour when a meridiem, a colon or
+ * "o'clock" marks it, or when a word for a time leads into it ("at 2",
+ * "from 9", "9 to 5", "until noon"), unless what follows makes it a count
+ * ("2 weeks", "30 minutes") or a dollar sign leads it.
+ */
+function clockTimes(reply: string): number[][] {
+  const found: number[][] = [];
+  const text = reply.toLowerCase();
+  for (const m of text.matchAll(/(?<![$\d.,])(\d{1,2}):(\d{2})(?:\s*([ap])\.?m\b\.?)?/g)) {
+    found.push(readings(Number(m[1]), Number(m[2]), m[3]));
+  }
+  for (const m of text.matchAll(/(?<![$\d.,:])(\d{1,2})(?:\.(\d{2}))?\s*([ap])\.?m\b\.?/g)) {
+    found.push(readings(Number(m[1]), Number(m[2] ?? 0), m[3]));
+  }
+  for (const m of text.matchAll(/\b(noon|midday|midnight)\b/g)) found.push([m[1] === "midnight" ? 0 : 720]);
+  for (const m of text.matchAll(/\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*o'?clock\b/g)) {
+    found.push(readings(HOUR_WORDS[m[1]!] ?? Number(m[1]), 0, undefined));
+  }
+  // "9.30", "21.10": an hour and two-digit minutes after a dot, never after
+  // a currency sign ("$4.50"). Followed by am or pm, the pattern above has it.
+  for (const m of text.matchAll(/(?<![$£€\d.,])(\d{1,2})\.(\d{2})(?!\.?\d)(?!\s*[ap]\.?m\b)/g)) {
+    if (NOT_AN_HOUR.test(text.slice(m.index! + m[0].length))) continue;
+    found.push(readings(Number(m[1]), Number(m[2]), undefined));
+  }
+  // The 24-hour forms: "14h", "14h30", and four digits after a word for a
+  // time ("at 1430", "from 0900"), unless they start a street address.
+  for (const m of text.matchAll(/(?<![$£€\d.,:])([01]?\d|2[0-3])h([0-5]\d)?\b/g)) {
+    found.push([Number(m[1]) * 60 + Number(m[2] ?? 0)]);
+  }
+  // "1430h", "0930hrs": four digits marked as a time.
+  for (const m of text.matchAll(/(?<![$£€\d.,:])([01]\d|2[0-3])([0-5]\d)\s?h(?:rs?|ours)?\b/g)) {
+    found.push([Number(m[1]) * 60 + Number(m[2])]);
+  }
+  // "fourteen hundred", "oh nine hundred".
+  for (const m of text.matchAll(new RegExp(`\\b(${TWENTY_FOUR_HOUR_WORD})[\\s-]+hundred\\b`, "g"))) {
+    const hour = hourOfDayWord(m[1]!);
+    if (hour !== null) found.push([hour * 60]);
+  }
+  // "at two", "at eleven": an hour in words after "at", unless it counts
+  // something ("at one of our clinics").
+  for (const m of text.matchAll(new RegExp(`\\bat\\s+${CLOCK_HOUR_WORD}\\b(?![\\s-]+(?:of|hundred|oh|ten|fifteen|twenty|thirty|forty|fifty|o'?clock)\\b)`, "g"))) {
+    if (NOT_AN_HOUR.test(text.slice(m.index! + m[0].length))) continue;
+    found.push(readings(HOUR_WORDS[m[1]!]!, 0, undefined));
+  }
+  for (const m of text.matchAll(/\b(?:at|from|until|till|til|to|by|after|before|around)\s+([01]\d|2[0-3])([0-5]\d)\b/g)) {
+    const after = text.slice(m.index! + m[0].length);
+    if (NOT_AN_HOUR.test(after) || STREET_AFTER.test(after)) continue;
+    found.push([Number(m[1]) * 60 + Number(m[2])]);
+  }
+  // Word forms: "half past two", "quarter to three", "ten past 9", "half
+  // two", "two thirty", "nine fifteen".
+  for (const m of text.matchAll(new RegExp(`\\b(half|quarter|five|ten|twenty(?:[- ]five)?)\\s+(past|after|to|till|before)\\s+${CLOCK_HOUR}\\b`, "g"))) {
+    const offset = MINUTE_WORDS[m[1]!.replace(/[- ]/, "-")] ?? 0;
+    const hour = hourOf(m[3]!);
+    if (hour === null || NOT_AN_HOUR.test(text.slice(m.index! + m[0].length))) continue;
+    found.push(
+      /^(past|after)$/.test(m[2]!)
+        ? readings(hour, offset, undefined)
+        : readings(hour === 1 ? 12 : hour - 1, 60 - offset, undefined),
+    );
+  }
+  for (const m of text.matchAll(new RegExp(`\\bhalf\\s+${CLOCK_HOUR_WORD}\\b`, "g"))) {
+    found.push(readings(HOUR_WORDS[m[1]!]!, 30, undefined));
+  }
+  for (const m of text.matchAll(new RegExp(`\\b${CLOCK_HOUR_WORD}[\\s-]+(oh[- ]?${UNIT_WORD}|ten|fifteen|twenty(?:[- ]${UNIT_WORD})?|thirty(?:[- ]${UNIT_WORD})?|forty(?:[- ]${UNIT_WORD})?|fifty(?:[- ]${UNIT_WORD})?)\\b`, "g"))) {
+    const minutes = minutesOf(m[2]!);
+    if (minutes !== null) found.push(readings(HOUR_WORDS[m[1]!]!, minutes, undefined));
+  }
+  // A bare hour led into by a word for a time. Digits only: "one" is "speak
+  // to one of our team" far more often than it is an hour.
+  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)(?!h\b)/g;
+  for (const m of text.matchAll(lead)) {
+    const after = text.slice(m.index! + m[0].length);
+    if (NOT_AN_HOUR.test(after) || /^\s*o'?clock/.test(after) || STREET_AFTER.test(after)) continue;
+    // "and 2" or "or 3" is a count as often as a time: an hour only after "between".
+    if (/^(and|or)\b/.test(m[0]) && !/\bbetween\b[^.?!]*$/.test(text.slice(0, m.index!))) continue;
+    found.push(readings(Number(m[1]), 0, undefined));
+  }
+  // Either end of a range of hours: "9-5", "9 to 5", "10 until 4".
+  for (const m of text.matchAll(/(?<![$\d.,:])(\d{1,2})\s*(?:-|–|—|\s(?:to|until|till)\s)\s*(\d{1,2})\b(?![:.]?\d)/g)) {
+    const after = text.slice(m.index! + m[0].length);
+    if (NOT_AN_HOUR.test(after) || /^\s*[ap]\.?m\b/.test(after)) continue;
+    found.push(readings(Number(m[1]), 0, undefined), readings(Number(m[2]), 0, undefined));
+  }
+  return found;
+}
+
+/** Every opening and closing time in the clinic's weekly hours, minutes after local midnight. */
+export function publishedTimesOf(hours: unknown): number[] {
+  if (!hours) return [];
+  let parsed: OpeningHours;
+  try {
+    parsed = parseOpeningHours(hours);
+  } catch {
+    return [];
+  }
+  const times = new Set<number>();
+  for (const ranges of Object.values(parsed)) {
+    for (const range of ranges) {
+      for (const hhmm of range) {
+        const [h, m] = hhmm.split(":").map(Number);
+        if (Number.isInteger(h) && Number.isInteger(m)) times.add(h! * 60 + m!);
+      }
+    }
+  }
+  return [...times];
 }
 
 /**
@@ -317,7 +688,7 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
 function namesATreatment(reply: string, context: GuardContext): boolean {
   const names = context.serviceNames ?? [];
   if (names.length === 0) return false;
-  const text = context.clinicName ? withoutPhrase(reply, context.clinicName) : reply;
+  const text = withoutOwnWords(reply, context);
   try {
     assertNoTreatmentName(text, names);
     return false;
@@ -414,6 +785,8 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
       enabled: clinics.metaFrontDoorEnabled,
       specialty: clinics.specialty,
       bookingRequirements: clinics.bookingRequirements,
+      openingHours: clinics.openingHours,
+      address: clinics.address,
     })
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
@@ -426,10 +799,23 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     .limit(1);
   const resolved = resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements);
   const settings = await getClinicSettings(tx);
+  // The urgent-help number as the wizard resolves it (lib/setup/urgent.ts):
+  // the clinic's own, else the direct line with phone, the main number without.
+  const [urgent] = await tx.db
+    .select({ urgentHelpE164: clinicSettings.urgentHelpE164 })
+    .from(clinicSettings)
+    .where(eq(clinicSettings.clinicId, tx.clinicId))
+    .limit(1);
+  const bought = await tx.db.select({ channel: clinicChannels.channel }).from(clinicChannels).where(eq(clinicChannels.clinicId, tx.clinicId));
+  const urgentPhone = urgentHelpNumber({
+    channels: bought,
+    settings: { urgentHelpE164: urgent?.urgentHelpE164 ?? null, directLineE164: settings.directLineE164 },
+    clinic: { publishedPhoneE164: clinic.phone },
+  });
   return {
     clinicName: clinic.name,
     phone: clinic.phone,
-    urgentPhone: settings.directLineE164,
+    urgentPhone,
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.
@@ -439,6 +825,8 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     escalationHours: agent?.approvedAt ? agent.escalationHours : null,
     requirements: metaEligible(resolved),
     deferredRequirements: resolved.filter((f) => !f.metaEligible),
+    publishedTimes: publishedTimesOf(clinic.openingHours),
+    address: clinic.address,
   };
 }
 
@@ -462,10 +850,19 @@ export type FrontDoorAnswer = {
    * up, and the first reply the person did get would open without it.
    */
   greetingToRecord: MetaConversation | null;
+  /**
+   * The booking request this message created, for the caller to email the
+   * desk about with notifyDeskAfterCommit (lib/meta/booking-requests.ts)
+   * once the transaction that created it has committed. Null when no request
+   * came of it. Emailed any sooner, a send that failed afterwards rolled the
+   * request back with the email already gone, and the claimed message id
+   * kept a redelivery from making it again: the request was lost.
+   */
+  deskNotice: CreatedBookingRequest | null;
 };
 
-/** An answer while it is being written: the greeting's record is settled last. */
-type Draft = Omit<FrontDoorAnswer, "greetingToRecord">;
+/** An answer while it is being written: the greeting's record and the desk's email are settled last. */
+type Draft = Omit<FrontDoorAnswer, "greetingToRecord" | "deskNotice">;
 
 type ThreadInput = BookingThread & { connectionId: string | null };
 
@@ -484,12 +881,15 @@ export async function answerFrontDoor(
     text: string;
     responder: FrontDoorResponder | null;
     thread?: ThreadInput;
-    transport?: EmailTransport;
     now?: Date;
   },
 ): Promise<FrontDoorAnswer | null> {
   const facts = await frontDoorFacts(tx);
   if (!facts) return null;
+  // A clinic that has left keeps nothing new (lib/clinic/leaving.ts). Asked
+  // here without holding the clinic's row, because the model call below can
+  // take seconds, and asked again, with the row held, before the first write.
+  if (await clinicHasLeft(tx, { lock: false })) return null;
   // The clinic's switch for this platform (Settings). The webhook skips such
   // a message before it gets here; this holds for any other caller.
   if (!(await metaPlatformOn(tx, input.platform))) return null;
@@ -497,18 +897,16 @@ export async function answerFrontDoor(
   const now = input.now ?? new Date();
   const thread: ThreadInput | null = input.thread ? { platform: input.platform, externalId: input.thread.externalId, senderId: input.thread.senderId, connectionId: input.thread.connectionId } : null;
 
-  if (thread) await touchMetaThread(tx, thread.platform, thread.senderId, now);
-  // Which conversation this message belongs to, and whether its reply is the first.
-  const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
-
+  // Everything up to the model's answer reads; nothing is written before it.
   let answer: Draft;
   let extracted: BookingFields | null = null;
+  let deskNotice: CreatedBookingRequest | null = null;
   let wants = false;
   const screened = screenInbound(input.text);
   if (screened === "urgent") {
-    // Before the model, and instead of it: the fixed line, and the clinic's urgent alert.
+    // Before the model, and instead of it: the fixed line, and (below, with
+    // the writes) the clinic's urgent alert.
     answer = { text: urgentLine(facts), source: "urgent", guard: null, screened, booking: "none", greeted: false };
-    await notifyBookingAlert(tx, "urgent", {});
   } else if (screened === "clinical") {
     answer = { text: fallback, source: "handoff", guard: null, screened, booking: "none", greeted: false };
   } else if (!input.responder) {
@@ -528,6 +926,16 @@ export async function answerFrontDoor(
     }
   }
 
+  // The writes, from here to the commit, with the clinic's row held
+  // (clinicHasLeft, FOR SHARE): an offboarding that started while the model
+  // ran is seen now, and leaves nothing written; one that starts from now
+  // waits for this transaction.
+  if (await clinicHasLeft(tx)) return null;
+  if (thread) await touchMetaThread(tx, thread.platform, thread.senderId, now);
+  // Which conversation this message belongs to, and whether its reply is the first.
+  const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
+  if (screened === "urgent") await notifyBookingAlert(tx, "urgent", {});
+
   // Only the model extracts booking fields, so a screened message never
   // reaches the draft or a request.
   const gathered =
@@ -544,7 +952,9 @@ export async function answerFrontDoor(
         fields: merged,
         lastInboundAt: now,
       });
-      await notifyDesk(tx, created, { channel: "meta", platform: thread.platform }, { transport: input.transport });
+      // The desk is emailed by the caller, after this transaction commits
+      // (FrontDoorAnswer.deskNotice), never from inside it.
+      deskNotice = created;
       answer = { text: requestReceivedLine(facts.clinicName, merged.firstName), source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
     } else {
       answer = {
@@ -568,7 +978,7 @@ export async function answerFrontDoor(
   }
 
   recordAnswer(tx, input.platform, answer);
-  return { ...answer, greetingToRecord };
+  return { ...answer, greetingToRecord, deskNotice };
 }
 
 function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void {

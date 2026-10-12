@@ -285,7 +285,7 @@ function TruncationNote({
   counted: number;
 }) {
   return (
-    <p className="border-line text-muted mt-1 ml-7 rounded-2xl border border-dashed px-4 py-3 text-[15px] leading-snug font-medium">
+    <p className="border-line text-muted mt-1 ml-7 rounded-md border border-dashed px-4 py-3 text-[15px] leading-snug font-medium">
       Listing the newest {NUMBER.format(listed)} of {NUMBER.format(counted)}{" "}
       commits in this window. The older {NUMBER.format(counted - listed)} are
       not listed here, but they are counted in the totals and the chart above.
@@ -332,7 +332,7 @@ function ChangeEntry({
 
       <article
         className={[
-          "mb-2 min-w-0 flex-1 rounded-2xl border px-3.5 py-3",
+          "mb-2 min-w-0 flex-1 rounded-md border px-3.5 py-3",
           isFresh ? "hd-change-fresh" : "border-transparent",
         ].join(" ")}
       >
@@ -490,7 +490,7 @@ function FileRow({ file }: { file: ChangedFile }) {
   return (
     <li className="flex items-baseline gap-2 text-[14.4px]">
       <span
-        className="bg-paper-2 text-ink grid size-[18px] shrink-0 place-items-center rounded-[5px] font-mono text-[12px] font-bold"
+        className="bg-paper-2 text-ink grid size-[18px] shrink-0 place-items-center rounded-sm font-mono text-[12px] font-bold"
         title={status.label}
       >
         <span aria-hidden>{status.mark}</span>
@@ -534,7 +534,7 @@ function EmptyFeed({ ok, warnings }: { ok: boolean; warnings?: string[] }) {
       : "No commits landed in this window. The history read cleanly, so there is genuinely nothing here.";
 
   return (
-    <div className="border-line rounded-2xl border border-dashed px-5 py-8 text-center">
+    <div className="border-line rounded-md border border-dashed px-5 py-8 text-center">
       <p className="font-display text-[21.6px] font-medium">{heading}</p>
       <p className="text-muted mx-auto mt-2 max-w-[46ch] text-[16.2px] font-medium">
         {body}

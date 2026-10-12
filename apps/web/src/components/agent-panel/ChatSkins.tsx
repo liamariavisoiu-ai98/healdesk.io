@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 
+import { BookingCard, cardFor, DepositCard, type CardAccent } from "@/components/agent-panel/ChatCards";
 import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
@@ -31,6 +33,28 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  * visibly grows out of the wait rather than replacing it. The opening is a
  * clip-path, not a size animation, so the text lays out once, at its final
  * width, and never reflows mid-motion.
+ *
+ * ## The owner's picks of 12 October 2026
+ *
+ *   - Changing the box morphs one app into the next: the browser's view
+ *     transition carries the header, the thread, the composer and the box's
+ *     highlight from one look to the other, rather than swapping the card.
+ *   - The answer streams in word by word, each word fading up out of a
+ *     blur as it lands; each app waits its own way (WhatsApp says "typing…"
+ *     in its header and draws no bubble until the words come; the others
+ *     keep the dots that open into the answer).
+ *   - Each app's own receipts and times: WhatsApp's ticks, grey until she
+ *     answers and blue once she has; Messenger's "Sent", then the little
+ *     avatar that says it was seen; Instagram's "Seen"; the website's "Sent"
+ *     and "Seen" with the time; and the date or time over the thread in each
+ *     app's way.
+ *   - The suggested questions are a row that swipes sideways above the
+ *     composer; one pressed flies into the field and sends.
+ *   - A question about booking or deposits gets a card under the answer, as
+ *     a patient would see one (ChatCards.tsx): times, a 60-second hold, the
+ *     booking, the deposit link. Previews: nothing is booked or charged.
+ *   - The header is frosted glass over the thread, and gains a soft shadow
+ *     once the thread scrolls under it.
  */
 
 export type Skin = "website" | "whatsapp" | "instagram" | "messenger";
@@ -123,15 +147,42 @@ const BOXES: { id: Skin; label: string; badge: string; ink: string; icon: ReactN
   { id: "messenger", label: "Messenger", badge: "linear-gradient(45deg,#0099ff,#a033ff 60%,#ff5280)", ink: "#fff", icon: Icon.messenger },
 ];
 
-function Avatar({ name, logoUrl, size, ring }: { name: string; logoUrl: string | null; size: number; ring?: boolean }) {
+function Avatar({
+  name,
+  logoUrl,
+  size,
+  ring,
+  filled,
+}: {
+  name: string;
+  logoUrl: string | null;
+  size: number;
+  ring?: boolean;
+  /**
+   * The mark in white on the brand's colour, rather than in colour on white:
+   * the homepage's white header (see `headerTone`). For a one-colour mark on
+   * a transparent ground, which healdesk's "h" is.
+   */
+  filled?: boolean;
+}) {
   const inner = (
     <span
       className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-white text-[12px] font-bold"
-      style={{ width: size, height: size, boxShadow: "0 0 0 1px rgb(0 0 0 / 0.06)" }}
+      style={{
+        width: size,
+        height: size,
+        boxShadow: "0 0 0 1px rgb(0 0 0 / 0.06)",
+        ...(filled ? { background: "var(--clinic)" } : {}),
+      }}
       aria-hidden
     >
       {logoUrl ? (
-        <img src={logoUrl} alt="" referrerPolicy="no-referrer" className="size-full object-contain p-[2px]" />
+        <img
+          src={logoUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          className={`size-full object-contain ${filled ? "p-[5px] brightness-0 invert" : "p-[2px]"}`}
+        />
       ) : (
         <span className="grid size-full place-items-center" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
           {name.slice(0, 1).toUpperCase()}
@@ -174,18 +225,36 @@ function useHydrated(): boolean {
  * full size and clipped back to that footprint, then unclipped from its
  * bottom-left corner, where the dots sat, outwards.
  */
+/**
+ * Words as they stream in, each in its own span so that each one fades up as
+ * it lands: React keeps the spans already there and mounts only the new
+ * ones, and the animation runs on mount. Once the answer is complete it is
+ * plain text again, so a finished answer never animates twice, when the box
+ * changes or the thread re-renders.
+ */
+function StreamWords({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(\s+)/).map((part, i) => (/^\s*$/.test(part) ? part : <span key={i} className="stream-word">{part}</span>))}
+    </>
+  );
+}
+
 function AssistantBubble({
   typing,
+  streaming = false,
   className,
   style,
   children,
   after,
 }: {
   typing: boolean;
+  /** These are the words arriving now: they stream in (StreamWords). */
+  streaming?: boolean;
   className: string;
   style?: CSSProperties;
   /** The words. */
-  children: ReactNode;
+  children: string;
   /** Laid over the bubble, such as WhatsApp's time. */
   after?: ReactNode;
 }) {
@@ -233,11 +302,66 @@ function AssistantBubble({
           <i />
         </span>
       ) : (
-        <span className={`whitespace-pre-wrap ${opened ? "morph-text" : ""}`}>{children}</span>
+        <span className={`whitespace-pre-wrap ${opened ? "morph-text" : ""}`}>{streaming ? <StreamWords text={children} /> : children}</span>
       )}
       {after}
     </div>
   );
+}
+
+/** Each app's colour for a card's button and ring, and for the chips. */
+const ACCENT: Record<Skin, CardAccent> = {
+  website: { bg: "var(--clinic)", ink: "var(--clinic-ink)" },
+  whatsapp: { bg: "#00a884", ink: "#ffffff" },
+  instagram: { bg: "#3797f0", ink: "#ffffff" },
+  messenger: { bg: "#0a7cff", ink: "#ffffff" },
+};
+
+/**
+ * A row that a mouse can drag sideways, as a finger swipes it. A drag that
+ * moved is not also a press: the click that ends it is swallowed.
+ */
+function useDragScroll() {
+  const ref = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; left: number; moved: boolean } | null>(null);
+  return {
+    ref,
+    onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => {
+      if (event.pointerType !== "mouse" || !ref.current) return;
+      drag.current = { x: event.clientX, left: ref.current.scrollLeft, moved: false };
+    },
+    onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+      const el = ref.current;
+      const d = drag.current;
+      if (!el || !d) return;
+      const dx = event.clientX - d.x;
+      if (!d.moved && Math.abs(dx) < 5) return;
+      d.moved = true;
+      el.dataset.dragging = "";
+      el.scrollLeft = d.left - dx;
+    },
+    onPointerUp: () => {
+      const el = ref.current;
+      if (el) delete el.dataset.dragging;
+      window.setTimeout(() => (drag.current = null), 0);
+    },
+    onPointerLeave: () => {
+      const el = ref.current;
+      if (el) delete el.dataset.dragging;
+      drag.current = null;
+    },
+    onClickCapture: (event: React.MouseEvent) => {
+      if (drag.current?.moved) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+  };
+}
+
+/** The page's zoom, read off an element: its drawn width over its laid-out one (0.9 from 640px). */
+function zoomOf(el: HTMLElement): number {
+  return el.getBoundingClientRect().width / Math.max(1, el.offsetWidth) || 1;
 }
 
 export function ChatSkins({
@@ -256,6 +380,7 @@ export function ChatSkins({
   error,
   composer,
   footnote,
+  headerTone = "brand",
 }: {
   /** Whose assistant this is: the clinic's name, or AYA. */
   name: string;
@@ -263,7 +388,7 @@ export function ChatSkins({
   logoUrl: string | null;
   /** The whole thread, greeting first. */
   messages: readonly SkinMessage[];
-  /** Offered under the greeting until the conversation starts. */
+  /** Offered over the composer until the conversation starts. */
   chips: readonly string[];
   onSend: (text: string) => void;
   input: string;
@@ -283,24 +408,54 @@ export function ChatSkins({
   composer?: ReactNode;
   /** Under the composer, such as a note on what not to type. */
   footnote?: ReactNode;
+  /**
+   * The website skin's header: in the brand's colour, as a clinic's widget
+   * is (the default), or white with the avatar in the brand's colour, as the
+   * homepage's AYA card is (owner, 12 October 2026: the solid red bar was the
+   * heaviest thing on the page).
+   */
+  headerTone?: "brand" | "light";
 }) {
   const [skin, setSkin] = useState<Skin>("website");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const hydrated = useHydrated();
+  const reduce = useMediaQuery(REDUCED_MOTION);
   // The greeting has no time of its own: it was said when the card opened.
   const [openedAt] = useState(() => Date.now());
+  /** The thread has scrolled under the header, which then casts a shadow. */
+  const [scrolled, setScrolled] = useState(false);
+  /** The header's height, which the thread starts under. */
+  const [headH, setHeadH] = useState<number | null>(null);
+  /** A pressed suggestion, flying into the field. */
+  const [flying, setFlying] = useState<string | null>(null);
+  const rail = useDragScroll();
+  /** This card's names for the view transition, unique on the page. */
+  const vt = `chat${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, skin, composer]);
 
-  const time = (message: SkinMessage) =>
-    hydrated
-      ? new Date(message.at ?? openedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-      : "";
+  useEffect(() => {
+    const el = headRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setHeadH(el.offsetHeight));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const time = (at: number | undefined) =>
+    hydrated ? new Date(at ?? openedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "";
 
   const onlyGreeting = messages.length === 1;
+  const lastUser = messages.reduce((found, message, i) => (message.role === "user" ? i : found), -1);
+  /** She has started on an answer to the visitor's last message: it was read. */
+  const seen = lastUser >= 0 && messages.slice(lastUser + 1).some((message) => message.role === "assistant");
+  const accent = ACCENT[skin];
+
   const send = () => {
     if (!input.trim() || streaming || disabled) return;
     onSend(input);
@@ -310,6 +465,7 @@ export function ChatSkins({
     send();
   };
   const inputProps = {
+    ref: inputRef,
     value: input,
     onChange: (event: React.ChangeEvent<HTMLInputElement>) => onInput(event.target.value),
     maxLength: 1000,
@@ -318,20 +474,91 @@ export function ChatSkins({
   };
   const off = disabled ? disabledPlaceholder : undefined;
 
+  /** Another app: one morphs into the next where the browser can (view transitions), at once where it cannot. */
+  const switchSkin = (next: Skin) => {
+    if (next === skin) return;
+    if (typeof document.startViewTransition !== "function" || reduce) {
+      setSkin(next);
+      return;
+    }
+    const root = document.documentElement;
+    root.classList.add("chat-morph");
+    const run = document.startViewTransition(() => {
+      flushSync(() => setSkin(next));
+    });
+    void run.finished.finally(() => root.classList.remove("chat-morph"));
+  };
+
+  /**
+   * A suggestion pressed: a copy of it flies from the row into the field, its
+   * words land there, and it sends. At once with reduced motion, or with the
+   * email ask in the composer's place.
+   */
+  const fly = (event: React.MouseEvent<HTMLButtonElement>, chip: string) => {
+    const chipEl = event.currentTarget;
+    const field = inputRef.current;
+    if (reduce || !field || typeof chipEl.animate !== "function" || flying) {
+      onSend(chip);
+      return;
+    }
+    const zoom = zoomOf(chipEl);
+    const from = chipEl.getBoundingClientRect();
+    const to = field.getBoundingClientRect();
+    const ghost = chipEl.cloneNode(true) as HTMLElement;
+    Object.assign(ghost.style, {
+      position: "fixed",
+      left: `${from.left / zoom}px`,
+      top: `${from.top / zoom}px`,
+      width: `${chipEl.offsetWidth}px`,
+      height: `${chipEl.offsetHeight}px`,
+      margin: "0",
+      zIndex: "90",
+      pointerEvents: "none",
+    });
+    document.body.appendChild(ghost);
+    setFlying(chip);
+    const dx = (to.left - from.left) / zoom + 6;
+    const dy = (to.top + to.height / 2 - (from.top + from.height / 2)) / zoom;
+    const tokens = getComputedStyle(document.documentElement);
+    const animation = ghost.animate(
+      [
+        { transform: "translate(0, 0) scale(1)", opacity: 1 },
+        { transform: `translate(${dx * 0.55}px, ${dy * 0.55 - 18}px) scale(1.04)`, opacity: 1, offset: 0.5 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.9)`, opacity: 0 },
+      ],
+      { duration: 560, easing: tokens.getPropertyValue("--ease-in-out").trim() || "ease-in-out" },
+    );
+    window.setTimeout(() => onInput(chip), 300);
+    animation.onfinish = () => {
+      ghost.remove();
+      setFlying(null);
+      onSend(chip);
+    };
+  };
+
   // ─── The four costumes ─────────────────────────────────────────────────────
 
   const header = {
-    website: (
-      <div className="flex items-center gap-2.5 px-4 py-3" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
-        <Avatar name={name} logoUrl={logoUrl} size={34} />
-        <div className="min-w-0">
-          <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
-          <p className="truncate text-[12.6px] leading-tight opacity-80">We typically reply instantly</p>
+    website:
+      headerTone === "light" ? (
+        <div className="text-ink flex items-center gap-2.5 px-4 py-3" data-tone="light">
+          <Avatar name={name} logoUrl={logoUrl} size={34} filled />
+          <div className="min-w-0">
+            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
+            <p className="text-muted truncate text-[12.6px] leading-tight">We typically reply instantly</p>
+          </div>
         </div>
-      </div>
-    ),
+      ) : (
+        <div className="flex items-center gap-2.5 px-4 py-3" data-tone="brand" style={{ color: "var(--clinic-ink)" }}>
+          <Avatar name={name} logoUrl={logoUrl} size={34} />
+          <div className="min-w-0">
+            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
+            <p className="truncate text-[12.6px] leading-tight opacity-80">We typically reply instantly</p>
+          </div>
+        </div>
+      ),
     whatsapp: (
-      <div className="flex items-center gap-2 px-2.5 py-2.5 text-white" style={{ background: "#008069" }}>
+      <div className="flex items-center gap-2 px-2.5 py-2.5 text-white">
         <span className="[&_svg]:size-5">{Icon.back}</span>
         <Avatar name={name} logoUrl={logoUrl} size={36} />
         <div className="min-w-0 flex-1">
@@ -345,7 +572,7 @@ export function ChatSkins({
       </div>
     ),
     instagram: (
-      <div className="flex items-center gap-2.5 border-b border-[#dbdbdb] bg-white px-3 py-2.5 text-black">
+      <div className="flex items-center gap-2.5 px-3 py-2.5 text-black">
         <span className="[&_svg]:size-6">{Icon.back}</span>
         <Avatar name={name} logoUrl={logoUrl} size={30} ring />
         <div className="min-w-0 flex-1">
@@ -359,7 +586,7 @@ export function ChatSkins({
       </div>
     ),
     messenger: (
-      <div className="flex items-center gap-2.5 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgb(0_0_0/0.08)]" style={{ color: "#0a7cff" }}>
+      <div className="flex items-center gap-2.5 px-3 py-2.5" style={{ color: "#0a7cff" }}>
         <span className="[&_svg]:size-6">{Icon.back}</span>
         <span className="relative">
           <Avatar name={name} logoUrl={logoUrl} size={36} />
@@ -388,30 +615,76 @@ export function ChatSkins({
         }
       : { background: "#ffffff" };
 
+  /** Over the thread, each app's own way of saying when: a date pill, a time, "Today" and a time. */
+  const opening =
+    skin === "whatsapp" ? (
+      <p className="mx-auto mb-1.5 w-fit rounded-sm bg-white/90 px-2.5 py-1 text-[11.5px] font-medium tracking-[0.02em] text-[#54656f] uppercase shadow-sm">Today</p>
+    ) : skin === "instagram" ? (
+      <p className="pb-1 text-center text-[11.5px] font-medium text-[#737373]">{hydrated ? `Today ${time(messages[0]?.at)}` : "Today"}</p>
+    ) : skin === "messenger" ? (
+      <p className="pb-1 text-center text-[11.5px] font-medium tracking-[0.04em] text-[#65676b] uppercase">{hydrated ? `Today at ${time(messages[0]?.at)}` : "Today"}</p>
+    ) : null;
+
+  /** Under the visitor's last message: each app's receipt, "Sent" until she starts answering. */
+  function receipt(message: SkinMessage) {
+    if (skin === "whatsapp") return null;
+    if (skin === "messenger") {
+      return seen ? (
+        <div className="receipt-in flex justify-end pr-0.5">
+          <span title="Seen">
+            <Avatar name={name} logoUrl={logoUrl} size={14} />
+          </span>
+        </div>
+      ) : (
+        <p className="flex items-center justify-end gap-1 text-[11.5px] text-[#65676b]">
+          <span className="grid size-3 place-items-center rounded-full border border-[#65676b] [&_svg]:size-2">{Icon.ticks}</span>
+          Sent
+        </p>
+      );
+    }
+    if (skin === "instagram") {
+      return <p className="receipt-in pr-1 text-right text-[11.5px] text-[#737373]">{seen ? "Seen" : "Sent"}</p>;
+    }
+    return (
+      <p className="receipt-in pr-1 text-right text-[11.5px] font-medium text-[#8e8e93]">
+        {seen ? "Seen" : "Sent"}
+        {hydrated ? ` · ${time(message.at)}` : ""}
+      </p>
+    );
+  }
+
   function bubble(message: SkinMessage, i: number) {
     const mine = message.role === "user";
     const typing = !mine && message.content === "";
     const prev = messages[i - 1];
     const firstOfRun = !prev || prev.role !== message.role;
+    const live = streaming && i === messages.length - 1 && !mine;
 
     if (skin === "whatsapp") {
-      const shape = firstOfRun ? (mine ? "rounded-[7.5px] rounded-tr-none" : "rounded-[7.5px] rounded-tl-none") : "rounded-[7.5px]";
-      const className = `relative max-w-[82%] px-2.5 pt-1.5 pb-[18px] text-[14.6px] leading-[1.38] text-[#111b21] shadow-[0_1px_0.5px_rgb(11_20_26/0.13)] ${shape}`;
+      // WhatsApp says "typing…" in its header and draws nothing in the chat
+      // until the words arrive.
+      if (typing) return null;
+      const shape = firstOfRun ? (mine ? "rounded-sm rounded-tr-none" : "rounded-sm rounded-tl-none") : "rounded-sm";
+      const className = `relative max-w-[82%] px-2.5 pt-1.5 pb-[18px] text-[14.6px] leading-[1.38] text-[#111b21] shadow-sm ${shape}`;
+      // Grey ticks until she has started on an answer, blue once she has: read.
+      const read = !mine || i < lastUser || seen;
       const stamp = (
         <span className="absolute right-2 bottom-1 flex items-center gap-0.5 text-[11px] text-[#667781]">
-          {time(message)}
-          {mine ? <span className="text-[#53bdeb] [&_svg]:h-[11px] [&_svg]:w-[16px]">{Icon.ticks}</span> : null}
+          {time(message.at)}
+          {mine ? (
+            <span className={`wa-ticks [&_svg]:h-[11px] [&_svg]:w-[16px] ${read ? "text-[#53bdeb]" : "text-[#8696a0]"}`}>{Icon.ticks}</span>
+          ) : null}
         </span>
       );
       return (
-        <div key={i} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+        <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
           {mine ? (
             <div className={className} style={{ background: "#d9fdd3" }}>
               <span className="whitespace-pre-wrap">{message.content}</span>
               {stamp}
             </div>
           ) : (
-            <AssistantBubble typing={typing} className={`${className} min-w-[64px]`} style={{ background: "#ffffff" }} after={typing ? null : stamp}>
+            <AssistantBubble typing={false} streaming={live} className={`${className} min-w-[64px]`} style={{ background: "#ffffff" }} after={stamp}>
               {message.content}
             </AssistantBubble>
           )}
@@ -421,9 +694,9 @@ export function ChatSkins({
 
     if (skin === "instagram" || skin === "messenger") {
       const ig = skin === "instagram";
-      const shape = ig ? "rounded-[22px] px-3.5 py-2 text-[15px] leading-[1.38]" : "rounded-[18px] px-3 py-2 text-[15px] leading-[1.34]";
+      const shape = ig ? "rounded-md px-3.5 py-2 text-[15px] leading-[1.38]" : "rounded-md px-3 py-2 text-[15px] leading-[1.34]";
       return (
-        <div key={i} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+        <div className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
           {!mine ? <span className="w-7">{firstOfRun ? <Avatar name={name} logoUrl={logoUrl} size={28} /> : null}</span> : null}
           {mine ? (
             <p
@@ -435,6 +708,7 @@ export function ChatSkins({
           ) : (
             <AssistantBubble
               typing={typing}
+              streaming={live}
               className={`max-w-[75%] ${shape}`}
               style={ig ? { background: "#efefef", color: "#000" } : { background: "#f0f0f0", color: "#050505" }}
             >
@@ -446,21 +720,37 @@ export function ChatSkins({
     }
 
     return (
-      <div key={i} className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
+      <div className={`flex items-end gap-2 ${mine ? "justify-end" : "justify-start"}`}>
         {!mine ? <Avatar name={name} logoUrl={logoUrl} size={26} /> : null}
         {mine ? (
           <p
-            className="max-w-[82%] rounded-2xl rounded-br-md px-3.5 py-2.5 text-[15.2px] leading-[1.45] whitespace-pre-wrap"
+            className="max-w-[82%] rounded-md rounded-br-sm px-3.5 py-2.5 text-[15.2px] leading-[1.45] whitespace-pre-wrap"
             style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
           >
             {message.content}
           </p>
         ) : (
-          <AssistantBubble typing={typing} className="text-ink max-w-[82%] rounded-2xl rounded-bl-md bg-[#f1f1f1] px-3.5 py-2.5 text-[15.2px] leading-[1.45]">
+          <AssistantBubble
+            typing={typing}
+            streaming={live}
+            className="text-ink max-w-[82%] rounded-md rounded-bl-sm bg-[#f1f1f1] px-3.5 py-2.5 text-[15.2px] leading-[1.45]"
+          >
             {message.content}
           </AssistantBubble>
         )}
       </div>
+    );
+  }
+
+  /** The card under an answer to a question about booking or deposits, once the answer is complete. */
+  function card(message: SkinMessage, i: number) {
+    if (message.role !== "assistant" || !message.content) return null;
+    if (streaming && i === messages.length - 1) return null;
+    const asked = messages[i - 1];
+    const kind = asked?.role === "user" ? cardFor(asked.content) : null;
+    if (!kind) return null;
+    return (
+      <div className="chat-card-in pl-9">{kind === "booking" ? <BookingCard accent={accent} /> : <DepositCard accent={accent} />}</div>
     );
   }
 
@@ -475,10 +765,18 @@ export function ChatSkins({
         <button
           type="submit"
           disabled={disabled || streaming || !input.trim()}
-          className="shrink-0 rounded-full px-5 py-2.5 text-[15.2px] font-bold transition-opacity disabled:opacity-45"
+          className="morph-btn shrink-0 rounded-full px-5 py-2.5 text-[15.2px] font-bold transition-opacity disabled:opacity-45"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
-          Send
+          <span className="morph-btn__label">Send</span>
+          {/* Under the pointer the word folds into a paper plane, and back
+              when it leaves (owner, 12 October 2026). */}
+          <span aria-hidden className="morph-btn__icon morph-btn__icon--fly">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.5 2.5 10.6 13.4" />
+              <path d="M21.5 2.5 14.6 21.4l-4-8-8-4z" />
+            </svg>
+          </span>
         </button>
       </form>
     ),
@@ -538,7 +836,7 @@ export function ChatSkins({
   }[skin];
 
   return (
-    <div className="flex h-[600px] flex-1 flex-col sm:h-[620px]">
+    <div className="flex h-[600px] flex-1 flex-col sm:h-[620px]" data-skin={skin}>
       {/* The boxes: where the same assistant answers. They change the look, never the conversation. */}
       <div className="border-line grid grid-cols-4 gap-1 border-b p-2" role="tablist" aria-label="Where patients can message you">
         {BOXES.map((box) => {
@@ -549,47 +847,78 @@ export function ChatSkins({
               type="button"
               role="tab"
               aria-selected={active}
-              onClick={() => setSkin(box.id)}
-              className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 transition-colors ${active ? "bg-paper-2 ring-line-strong ring-1" : "hover:bg-paper-2/60"}`}
+              onClick={() => switchSkin(box.id)}
+              className={`relative flex flex-col items-center gap-1 rounded-sm px-1 py-2 transition-colors ${active ? "" : "hover:bg-paper-2/60"}`}
             >
-              <span className="grid size-8 place-items-center rounded-[10px] [&_svg]:size-[18px]" style={{ background: box.badge, color: box.ink }}>
+              {/* The highlight, which the view transition carries from box to box. */}
+              {active ? (
+                <span
+                  aria-hidden
+                  className="bg-paper-2 ring-line-strong absolute inset-0 rounded-sm ring-1"
+                  style={{ viewTransitionName: `${vt}-tab`, ["viewTransitionClass" as string]: "chat-morph" }}
+                />
+              ) : null}
+              <span className="relative grid size-8 place-items-center rounded-sm [&_svg]:size-[18px]" style={{ background: box.badge, color: box.ink }}>
                 {box.icon}
               </span>
-              <span className={`text-[12.6px] font-bold ${active ? "text-ink" : "text-muted"}`}>{box.label}</span>
+              <span className={`relative text-[12.6px] font-bold ${active ? "text-ink" : "text-muted"}`}>{box.label}</span>
             </button>
           );
         })}
       </div>
 
-      {header}
+      <div className="relative flex min-h-0 flex-1 flex-col" style={{ ["--chat-head" as string]: `${headH ?? 60}px` }}>
+        {/* Frosted glass over the thread, shadowed once the thread runs under it. */}
+        <div
+          ref={headRef}
+          className="chat-head absolute inset-x-0 top-0 z-10"
+          data-skin={skin}
+          data-scrolled={scrolled || undefined}
+          style={{ viewTransitionName: `${vt}-head`, ["viewTransitionClass" as string]: "chat-morph" }}
+        >
+          {header}
+        </div>
 
-      <div
-        ref={scrollRef}
-        className={`scroll-subtle min-h-0 flex-1 overflow-y-auto px-3 py-4 ${skin === "whatsapp" ? "space-y-1.5" : "space-y-2"}`}
-        style={surface}
-        aria-live="polite"
-      >
-        {skin === "whatsapp" ? (
-          <p className="mx-auto mb-2 w-fit rounded-md bg-[#ffeecd] px-3 py-1.5 text-center text-[12px] text-[#54656f] shadow-[0_1px_0.5px_rgb(11_20_26/0.13)]">
-            {aiNotice}
-          </p>
-        ) : null}
-        {messages.map(bubble)}
-        {onlyGreeting && !disabled && chips.length > 0 ? (
-          <div className="flex flex-wrap gap-2 pt-2 pl-9">
+        <div
+          ref={scrollRef}
+          onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 2)}
+          className={`scroll-subtle min-h-0 flex-1 overflow-y-auto px-3 pt-[calc(var(--chat-head)+14px)] pb-4 ${skin === "whatsapp" ? "space-y-1.5" : "space-y-2"}`}
+          style={{ ...surface, viewTransitionName: `${vt}-body`, ["viewTransitionClass" as string]: "chat-morph" }}
+          aria-live="polite"
+        >
+          {opening}
+          {skin === "whatsapp" ? (
+            <p className="mx-auto mb-2 w-fit rounded-sm bg-[#ffeecd] px-3 py-1.5 text-center text-[12px] text-[#54656f] shadow-sm">
+              {aiNotice}
+            </p>
+          ) : null}
+          {messages.map((message, i) => (
+            <Fragment key={i}>
+              {bubble(message, i)}
+              {i === lastUser ? receipt(message) : null}
+              {card(message, i)}
+            </Fragment>
+          ))}
+        </div>
+      </div>
+
+      {/* The suggestions: a row that swipes sideways over the composer. */}
+      {onlyGreeting && !disabled && chips.length > 0 && !composer ? (
+        <div className="chip-rail border-t border-black/5 bg-white py-2.5" aria-label="Suggested questions">
+          <div {...rail} className="chip-rail__track flex gap-2 overflow-x-auto px-3">
             {chips.map((chip) => (
               <button
                 key={chip}
                 type="button"
-                onClick={() => onSend(chip)}
-                className="border-line hover:border-line-strong text-ink rounded-full border bg-white px-3 py-1.5 text-left text-[13.8px] font-semibold transition-colors"
+                onClick={(event) => fly(event, chip)}
+                className={`chip-rail__chip border-line hover:border-line-strong text-ink shrink-0 rounded-full border bg-white px-3.5 py-1.5 text-[13.8px] font-semibold whitespace-nowrap transition-colors ${flying === chip ? "invisible" : ""}`}
               >
                 {chip}
               </button>
             ))}
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="text-red-deep bg-white px-4 py-2 text-[14.4px] font-semibold" role="alert">
@@ -597,7 +926,7 @@ export function ChatSkins({
         </p>
       ) : null}
 
-      {composer ?? skinComposer}
+      <div style={{ viewTransitionName: `${vt}-compose`, ["viewTransitionClass" as string]: "chat-morph" }}>{composer ?? skinComposer}</div>
       {footnote}
     </div>
   );

@@ -144,8 +144,9 @@ describeDb("database audit (0031)", () => {
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
     // The BAA gate's two (0031), the agreement-kind gate's two (0051), the
     // offboarding and record-clock columns (0054), the client number every
-    // sealed credential is labelled with (migration A, 0057), and the
-    // export's delivery, which the destruction floor reads (0058).
+    // sealed credential is labelled with (migration A, 0057), the export's
+    // delivery, which the destruction floor reads (0058), and the
+    // organisation, which the agreement gate reads (0066).
     expect(locked).toEqual([
       "agreement_kind",
       "baa_signed_at",
@@ -155,9 +156,49 @@ describeDb("database audit (0031)", () => {
       "destroyed_at",
       "export_delivered_at",
       "offboarding_started_at",
+      "organization_id",
       "regulatory_regime",
       "retention_record_days_previous",
       "retention_record_days_shortened_at",
+    ]);
+  });
+
+  test("the runtime role cannot delete a clinic (0066)", async () => {
+    // A clinic ends by offboarding and destruction, which keep its row.
+    // Deleting one and inserting its id again as synthetic reopened the
+    // agreement gate, and the cascades took its patient rows with no export.
+    const { rows } = await getMigratorPool().query<{ deletable: boolean }>(
+      `select has_table_privilege('healdesk_app', 'clinics'::regclass, 'DELETE') as deletable`,
+    );
+    expect(rows[0]!.deletable).toBe(false);
+  });
+
+  test("the runtime role inserts a signature unbound, and never the agreement gate's inputs (0066)", async () => {
+    // INSERT on baa_acceptances is column-scoped: a signature is written
+    // unbound by signAgreement and bound, terminated or given a reason only by
+    // the definers and the console's own writes. With any of the four, the
+    // runtime role could write itself an agreement in effect (review R1).
+    const { rows } = await getMigratorPool().query<{ attname: string }>(`
+      select a.attname
+        from pg_attribute a
+       where a.attrelid = 'baa_acceptances'::regclass and a.attnum > 0 and not a.attisdropped
+         and has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'INSERT')
+       order by a.attname
+    `);
+    expect(rows.map((r) => r.attname)).toEqual([
+      "accepted_at",
+      "accepted_by_email",
+      "accepted_by_name",
+      "accepted_by_title",
+      "assent_label",
+      "document_hash",
+      "document_version",
+      "id",
+      "ip_address",
+      "rendered_text",
+      "user_agent",
+      "user_id",
+      "variables",
     ]);
   });
 
@@ -593,7 +634,8 @@ describeDb("database audit (0031)", () => {
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
     // In the catalogue's own (C collation) order. 0057 added the slot holds
     // (a time tied to a call and a contact) and the named providers with
-    // their services (whose patient someone is, beside a booking).
+    // their services (whose patient someone is, beside a booking); 0064 the
+    // amendments Practice directs to a request or a conversation.
     const expected = [
       "appointments",
       "booking_requests",
@@ -605,6 +647,7 @@ describeDb("database audit (0031)", () => {
       "conversations",
       "deposit_payments",
       "meta_booking_drafts",
+      "record_amendments",
       "slot_holds",
       "suppressions",
       "transactions",

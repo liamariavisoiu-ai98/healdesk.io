@@ -181,6 +181,14 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.",
   },
+  // The same, from day 21, for a clinic whose agreement (BAA 1.3.0, the DPA)
+  // promises the export within thirty days and destroys the data once it is
+  // delivered, or at the ninety days without it.
+  export_due_undelivered: {
+    title: "A leaving practice's export is due and not delivered",
+    action:
+      "Deliver this practice's export, and record the handover on its care page, before the export deadline below: its agreement promises the export within thirty days of the end, without being asked. Its data is destroyed once the export is delivered, and at the destruction time below whether or not it was.",
+  },
   // Raised once by the Stripe webhook (lib/billing/events.ts) when a
   // subscription's end was processed more than a week after it happened, so
   // the database started the clock a week back and no further. Its facts are
@@ -247,10 +255,65 @@ const WORDING: Record<OpsEvent, Wording> = {
   // checks meet the same refusal (code oauth_client, also when apps/app has
   // no client set) or Google says the Calendar API is disabled for the
   // project (code api_disabled): every clinic is affected until it is fixed.
+  // Raised by the nightly retention purge for each clinic whose purge threw
+  // (`phase` clinic, its id), and once when a run could not purge at all
+  // (`phase` run). Ids and the step only; the error is in the worker's log.
+  retention_purge_failed: {
+    title: "The retention purge failed",
+    action:
+      "The nightly retention purge could not finish for the clinic below, or for every clinic. Until it runs, that clinic keeps conversations, transcripts and raw payloads past the periods its agreement states. Read the worker's error lines for the retention purge and the job's note in the console's job list, fix the cause, then let the next run, at 03 or 09 UTC, catch up: it deletes everything that came due meanwhile.",
+  },
   google_oauth_client_rejected: {
     title: "Google refused healdesk's OAuth client",
     action:
       "Google refused healdesk's own OAuth client, or apps/app has none set (code oauth_client), or Google says the Calendar API is disabled in healdesk's Google Cloud project (code api_disabled). Until it is fixed no clinic can connect a calendar or keep one working, and the calendar watch moves each connection it checks to booking requests. Check the Calendar OAuth client and that the Google Calendar API is enabled in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store; a clinic whose connect failed can then try again.",
+  },
+  // Raised by a recorded termination (lib/agreements/termination.ts) for each
+  // location it could not start offboarding (phase offboarding), each
+  // billing clinic it could not record a cancellation for (phase billing),
+  // each billing clinic whose cancellation is recorded while the
+  // billing-requests job is off (phase billing_job_off), and each location
+  // whose billing pointer leads outside its practice (phase billing_pointer).
+  // The termination itself is recorded, and the assistant has stopped.
+  agreement_termination_incomplete: {
+    title: "A terminated practice's service did not fully end",
+    action:
+      "The agreement's termination is recorded and the assistant has stopped, but one step did not finish for the clinic below. For phase offboarding, start offboarding from its care page. For phase billing, cancel the subscription in Stripe at once, without proration: every ending stops the fees on the day. For phase billing_job_off, the cancellation is recorded but the billing-requests job that carries it out is switched off, so the subscription keeps billing: switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration. For phase billing_pointer, the location's billing clinic is recorded as one in another practice, so nothing was cancelled for it: find which subscription bills this location and cancel it in Stripe at once, without proration, then correct the location's billing clinic.",
+  },
+  // Raised by the hourly reconcile per practice and step it finished.
+  agreement_termination_finished_late: {
+    title: "A termination's last steps were finished late",
+    action:
+      "A recorded termination had a step that never ran, and the hourly reconcile has now finished it for the practice below: for phase offboarding it started its locations' offboarding, for phase billing it recorded the subscription's cancellation. Check the practice in the console. If its subscription billed in between, refund that period, and if the termination refunds fees, confirm that refund on its Billing page.",
+  },
+  // Raised once per location by the answer gate.
+  billing_pointer_outside_practice: {
+    title: "A location is billed to another practice",
+    action:
+      "The clinic below records its billing clinic as one in another practice. The assistant treats it as having no billing and passes its calls and messages to the clinic rather than answer them. Find which practice the location belongs to and correct its billing clinic.",
+  },
+  // Raised by a first-period refund (commitRefund) whose cancel_now waits on
+  // the switched-off billing-requests job.
+  refund_cancel_job_off: {
+    title: "A refunded plan is still billing",
+    action:
+      "A first-period refund under the Terms was issued and the plan's cancellation recorded, but the billing-requests job that carries it out is switched off, so the subscription keeps billing. Switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration.",
+  },
+  // Raised by a recorded termination for each billing clinic when the
+  // practice ended the agreement because healdesk violated a material term,
+  // or under the Subcontractors clause: the two endings BAA 1.3.0 clause 17
+  // refunds.
+  // Raised once per incident by the hourly incident-deadlines job, with the
+  // clinic's and the incident's ids.
+  incident_notice_overdue: {
+    title: "An incident's notice target has passed",
+    action:
+      "Our own target is to tell the practice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, well inside the agreement's outer limit, and no notice is recorded for the incident below. Send the notice to the practice's notice address now, following docs/incident-response.md, then record it on the incident in the console.",
+  },
+  agreement_refund_due: {
+    title: "A terminated practice is owed a refund",
+    action:
+      "The practice ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day. On the clinic's Billing page, preview the termination refund, check it, and confirm it. Confirm it before the practice's data is destroyed (at the earliest 29 days after the termination): destruction removes the billing records the console refunds from, and after it the refund has to be made by hand in the Stripe Dashboard. The subscription is already being cancelled.",
   },
 };
 

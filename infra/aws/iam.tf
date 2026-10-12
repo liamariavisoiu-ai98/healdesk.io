@@ -357,6 +357,8 @@ locals {
     db_bootstrap   = "${local.name}-db-bootstrap"
     destroy_due    = "${local.name}-destroy-due"
     patient_export = local.export_task_family
+    erase_person   = "${local.name}-erase-person"
+    amend_contact  = "${local.name}-amend-contact"
   }
 
   task_definition_arn_prefix = "arn:aws:ecs:${var.region}:${local.account_id}:task-definition"

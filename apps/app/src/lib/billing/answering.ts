@@ -1,5 +1,5 @@
 import { COVERAGE_MODES, type Channel } from "@healdesk/catalog";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import {
@@ -16,7 +16,7 @@ import type { ActorContext } from "@/lib/audit";
 import { isPaused, type ClinicPause } from "@/lib/channels/state";
 import { clinicLocalDate, closedOn } from "@/lib/clinic/closures";
 import { isOpenAt, parseOpeningHours } from "@/lib/clinic/opening-hours";
-import { notifyOps } from "@/lib/ops/notify";
+import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { withTenant } from "@/lib/tenant";
 
 import { effectiveIncluded, getEntitlements, hasPlanStarted } from "./entitlements";
@@ -25,9 +25,9 @@ import { enqueueAllowanceFallback, openWindowAt, usedOf } from "./usage";
 
 /**
  * May the assistant answer this call or conversation? The one place every
- * answer rule lives (build decisions BD9, BD22 and R1): billing, whether the
- * channel was bought, whether it is on and live, the header's pause, voice
- * coverage, and "Stop and fall back" at the allowance.
+ * answer rule lives (build decisions BD9, BD22 and R1): the agreement,
+ * billing, whether the channel was bought, whether it is on and live, the
+ * header's pause, voice coverage, and "Stop and fall back" at the allowance.
  *
  * Two halves. `decideAnswer` is pure: the rules, in order, over a set of
  * facts, so every reason and its precedence is one table test.
@@ -58,10 +58,13 @@ export type CoverageMode = "all_calls" | "overflow_after_hours" | "after_hours_o
 
 /**
  * Why the assistant passes a call or conversation through instead of
- * answering, in the order BD22 checks them: billing (BD9, R21), not bought,
- * the channel row, the pause, voice coverage, the allowance cap.
+ * answering, in the order BD22 checks them: no agreement in effect (BAA 1.3.0
+ * clause 17: terminating the agreement ends the Services that day), billing
+ * (BD9, R21), not bought, the channel row, the pause, voice coverage, the
+ * allowance cap.
  */
 export type PassThroughReason =
+  | "no_agreement"
   | "unpaid"
   | "not_active"
   | "cancel_before_start"
@@ -106,6 +109,15 @@ export type AnswerFacts = {
    * closed.
    */
   isSynthetic: boolean;
+  /**
+   * The location's organisation and its agreements (app_agreement_in_effect,
+   * drizzle/0048): one is in effect; it had one and every one has been
+   * terminated (`ended`); or none was ever bound to it (`none`). Ending the
+   * agreement ends the Services on the same day (BAA 1.3.0 clauses 1, 17 and
+   * 20), so `ended` refuses on every clinic, and `none` refuses everywhere
+   * but on synthetic data, which no agreement is needed for.
+   */
+  agreement: "in_effect" | "ended" | "none";
   /** The BILLING clinic's entitlements, or null when it has no row. */
   billing: {
     status: BillingStatus;
@@ -149,6 +161,12 @@ export type AssistantMayAnswerInput = {
   channel: Channel;
   /** The call's or conversation's usage reference; it replaces `startsNew` (R1). */
   usage?: { source: UsageSource; sourceRef: string };
+  /**
+   * The interaction is one already had (the desk's Meta follow-up): it is
+   * not a new conversation for the allowance cap, and asking raises no
+   * allowance notice.
+   */
+  continuing?: boolean;
   now?: Date;
   actor: ActorContext;
 };
@@ -270,6 +288,10 @@ function billingRefusal(
  * The rules, in order; the first that refuses decides (BD22, with R1, R8,
  * R18, R20 and R21):
  *
+ *   0. the agreement: none in effect is `no_agreement`, on synthetic data
+ *      too once one has been terminated (see `AnswerFacts.agreement`). It
+ *      comes first because nothing else can make a terminated practice's
+ *      Services run again;
  *   1. billing (BD9). A synthetic clinic with no billing row skips it; any
  *      other clinic with none is `not_active` (fail closed, R1). A `demo`
  *      row skips it on a synthetic clinic and is `not_active` elsewhere;
@@ -290,6 +312,11 @@ function billingRefusal(
 export function decideAnswer(facts: AnswerFacts): AnswerDecision {
   const { channel, now, billing } = facts;
   const refuse = (reason: PassThroughReason) => passThrough(channel, reason, facts.directLine);
+
+  // 0. The agreement.
+  if (facts.agreement === "ended" || (facts.agreement === "none" && !facts.isSynthetic)) {
+    return refuse("no_agreement");
+  }
 
   // 1. Billing.
   if (billing === null) {
@@ -373,6 +400,7 @@ async function runGate(
         callRouting: clinics.callRouting,
         dataClassification: clinics.dataClassification,
         billingClinicId: clinics.billingClinicId,
+        organizationId: clinics.organizationId,
       })
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
@@ -394,6 +422,22 @@ async function runGate(
       .where(eq(clinicSettings.clinicId, tx.clinicId))
       .limit(1);
 
+    // The organisation's agreements, as the tenant sees them: its own
+    // organisation's rows (baa_acceptances is FORCE RLS, 0031).
+    const agreementRows = await tx.db.execute<{ in_effect: boolean; any_bound: boolean }>(
+      sql`select exists (select 1 from app_agreement_in_effect(c.organization_id)) as in_effect,
+                 exists (select 1 from baa_acceptances b
+                          where b.organization_id = c.organization_id) as any_bound
+            from clinics c
+           where c.id = ${tx.clinicId}`,
+    );
+    const agreementRow = agreementRows.rows[0];
+    const agreement: AnswerFacts["agreement"] = agreementRow?.in_effect
+      ? "in_effect"
+      : agreementRow?.any_bound
+        ? "ended"
+        : "none";
+
     const coverageMode = coverageModeOf(clinic, settings ?? null);
     const openNow = channel === "voice" ? openAt(clinic.openingHours, now, clinic.timezone) : null;
     // A closure day matters only where it could change the answer: an After
@@ -411,7 +455,9 @@ async function runGate(
 
     return {
       billingClinicId: clinic.billingClinicId ?? tx.clinicId,
+      organizationId: clinic.organizationId,
       isSynthetic: clinic.dataClassification === "synthetic",
+      agreement,
       channelRow: row ?? null,
       pause: { pausedAt: settings?.pausedAt ?? null, pausedUntil: settings?.pausedUntil ?? null },
       directLine: settings?.directLine ?? null,
@@ -427,6 +473,21 @@ async function runGate(
 
   const { billingClinicId } = location;
   const billed = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+    // billing_clinic_id is the runtime role's to write, so a location's
+    // pointer is followed only into its own practice (as the termination
+    // follows it, app_organization_clinics): one at another practice's
+    // billing clinic is treated as no billing clinic at all, which fails
+    // closed, and ops is told once.
+    if (billingClinicId !== input.clinicId) {
+      const [payer] = await tx.db
+        .select({ organizationId: clinics.organizationId })
+        .from(clinics)
+        .where(eq(clinics.id, billingClinicId))
+        .limit(1);
+      if (payer && payer.organizationId !== location.organizationId) {
+        return { row: null, counted: false, foreign: true };
+      }
+    }
     const row = await getEntitlements(tx.db, billingClinicId);
     if (!row || !input.usage) return { row, counted: false };
     const [seen] = await tx.db
@@ -444,11 +505,15 @@ async function runGate(
     return { row, counted: seen !== undefined };
   });
 
+  if ("foreign" in billed) {
+    await notifyOpsOnce("billing_pointer_outside_practice", { clinicId: input.clinicId });
+  }
   const row = billed.row;
   const facts: AnswerFacts = {
     channel,
     now,
     isSynthetic: location.isSynthetic,
+    agreement: location.agreement,
     billing: row
       ? {
           status: row.status,
@@ -469,7 +534,7 @@ async function runGate(
     coverageMode: location.coverageMode,
     openNow: location.openNow,
     closedToday: location.closedToday,
-    startsNew: !billed.counted,
+    startsNew: input.continuing ? false : !billed.counted,
   };
   const decision = decideAnswer(facts);
 

@@ -210,7 +210,7 @@ describeDb("incidents, exports and offboarding", () => {
     });
 
     const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportPatient(tx, { phone: "+15550100777", requestedBy: "operator" }),
+      exportPatient(tx, { phone: "+15550100777", requestedBy: "practice" }),
     );
     expect(bundle.contacts.map((r) => r.id)).toEqual([contactId]);
     expect(bundle.conversations.map((r) => r.id)).toEqual([conversationId]);
@@ -220,12 +220,12 @@ describeDb("incidents, exports and offboarding", () => {
 
     // The export itself is an access, and the next accounting shows it.
     const second = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportPatient(tx, { phone: "+15550100777", requestedBy: "operator" }),
+      exportPatient(tx, { phone: "+15550100777", requestedBy: "practice" }),
     );
     expect(second.accountingOfDisclosures.filter((a) => a.action === "export").length).toBeGreaterThanOrEqual(1);
 
     await expect(
-      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { requestedBy: "operator" })),
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { requestedBy: "practice" })),
     ).rejects.toThrow(/phone number or an email/);
   });
 
@@ -233,7 +233,7 @@ describeDb("incidents, exports and offboarding", () => {
     const c = await seedClinic("amend");
     const contactId = await seedContact(c.clinicId, "+15550100900");
     const changed = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      amendContact(tx, contactId, { fullName: "Corrected Name" }, "operator"),
+      amendContact(tx, contactId, { fullName: "Corrected Name" }, "practice"),
     );
     expect(changed).toBe(true);
     const row = await inTenant(c.clinicId, async (client) => {
@@ -249,7 +249,7 @@ describeDb("incidents, exports and offboarding", () => {
     expect(JSON.stringify(row.metadata)).not.toContain("Synthetic Patient");
 
     const missing = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      amendContact(tx, "00000000-0000-4000-8000-000000000000", { fullName: "x" }, "operator"),
+      amendContact(tx, "00000000-0000-4000-8000-000000000000", { fullName: "x" }, "practice"),
     );
     expect(missing).toBe(false);
   });

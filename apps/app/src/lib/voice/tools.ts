@@ -31,6 +31,7 @@ import {
   slotGoneLine,
   TOOL_FAILURE_LINE,
 } from "@/lib/booking/lines";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { isDemoClinic } from "@/lib/booking/terms";
 import { env } from "@/lib/env";
@@ -163,6 +164,17 @@ export async function handleVoiceTool(request: Request, clinicIdParam: string, t
 
   const call: ToolCall = { clinicId, callId, callRef: callRefOf(callId), phone, body, now: deps.now ?? new Date(), transport: deps.transport };
   try {
+    // The tools that write (a hold, a booking, a request) write nothing for
+    // a clinic that has left (lib/clinic/leaving.ts; the branch review's
+    // R11): the caller hears the failure line, and the call goes on to the
+    // clinic's direct line as any failure does.
+    if (tool !== "context" && tool !== "slots") {
+      const left = await withTenant({ clinicId, actor: TOOL_ACTOR }, (tx) => clinicHasLeft(tx));
+      if (left) {
+        log.warn("voice tool refused: the clinic has left", { clinicId, op: tool });
+        return Response.json(LEFT_REPLY.body, { status: LEFT_REPLY.status });
+      }
+    }
     let reply: ToolReply;
     if (tool === "book") {
       reply = await voiceToolBook(call);
@@ -187,6 +199,9 @@ export async function handleVoiceTool(request: Request, clinicIdParam: string, t
     return Response.json({ error: "The tool could not be completed." }, { status: 500 });
   }
 }
+
+/** A hold, a booking or a request for a clinic that has left. */
+const LEFT_REPLY = { status: 403, body: { error: "not_available", say: TOOL_FAILURE_LINE } } as const;
 
 type ToolCall = { clinicId: string; callId: string; callRef: string; phone: string; body: Record<string, unknown>; now: Date; transport?: EmailTransport };
 type ToolReply = { status: number; body: Record<string, unknown> };

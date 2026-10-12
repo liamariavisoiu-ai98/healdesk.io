@@ -1,19 +1,30 @@
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import {
+  agreementKindOfVersion,
+  getBaaTemplate,
+  getDpaTemplate,
+  TRANSCRIPT_RETENTION_DAYS,
+  type BaaVariables,
+  type DpaVariables,
+} from "@healdesk/catalog";
+import { and, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 
 import {
   appointments,
   bookingRequests,
+  chatThreads,
+  clinicSettings,
   clinics,
   contacts,
   conversations,
   metaBookingDrafts,
   reconciliationExceptions,
+  recordAmendments,
   slotHolds,
-  suppressions,
   syncRuns,
   transactions,
   webhookEvents,
 } from "@/db/schema";
+import { CHAT_THREAD_IDLE_RETENTION_DAYS } from "@/lib/billing/housekeeping";
 import { DRAFT_TTL_HOURS } from "@/lib/meta/booking-requests";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -29,7 +40,9 @@ import type { TenantTx } from "@/lib/tenant";
  * ## Two clocks, per clinic
  *
  * `clinics.retention_media_days` (default 90) removes the transcript
- * REFERENCE from a conversation. No audio is kept anywhere (decision of
+ * REFERENCE from a conversation, sooner when the practice has shortened its
+ * transcripts in the portal (`clinic_settings.transcript_retention_days`,
+ * 30 or 7 days; it can only shorten, and reaches no other record). No audio is kept anywhere (decision of
  * 21 September 2026; the vendor's recording storage is off in its console,
  * docs/hipaa-risk-analysis.md T5). The transcript text itself lives with the
  * voice vendor under its own retention setting, which must be at most this
@@ -59,22 +72,70 @@ import type { TenantTx } from "@/lib/tenant";
  * clock cannot be shortened, used and put back in one go. An appointment a
  * remaining request still holds waits for the night the request goes. A Meta
  * draft abandoned for a day goes here too, as a backstop to the sweep the
- * clinic's next Meta message runs.
+ * clinic's next Meta message runs, and a messaging thread (chat_threads)
+ * once its last message is past the record clock. An amendment Practice
+ * directed (record_amendments, lib/patient-rights/amendments.ts) goes the
+ * night the booking request, appointment or conversation it amends goes, in
+ * the same call, and never before.
+ *
+ * ## The periods, as BAA 1.3.0's clause 11 states them
+ *
+ * The record clock is the clinic's `retention_record_days`
+ * (TRANSCRIPT_RETENTION_DAYS, 90, unless the practice shortens it):
+ *
+ *   - a conversation, with its transcript reference: the record clock after
+ *     it took place (the media clock clears the reference sooner);
+ *   - an appointment: the record clock after its time;
+ *   - a booking request: the record clock after the latest of when it was
+ *     made, the time it was confirmed for and its appointment's time;
+ *   - a contact: while any of those of theirs is kept, and in any case the
+ *     record clock after it was last written;
+ *   - a messaging thread: thirty days after its last message, or the record
+ *     clock or the transcript clock if either is shorter;
+ *   - an amendment Practice directed: with the request, appointment or
+ *     conversation it amends, and never before;
+ *   - a vendor payload (webhook_events), the raw copy of a call or a
+ *     booking: once processed, thirty days after it arrived
+ *     (WEBHOOK_PAYLOAD_RETENTION_DAYS) or the record clock if that is
+ *     shorter; never processed (its signature failed, it named no call, or
+ *     every attempt to read it failed), the record clock, the period of the
+ *     conversation it would have become; either way never past the
+ *     transcript clock, since a call's payload carries its transcript.
+ *     Until BAA 1.3.0's release gate 9 (PT-28) a payload never processed was
+ *     never deleted;
+ *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS).
+ *
+ * A backup copy of anything deleted here expires with the host's backups,
+ * within BACKUP_RETENTION_DAYS.
+ *
+ * ## Which clinics, and the switch
+ *
+ * The `retention-purge` job ships switched off (0032), like every job, and
+ * its switch is one for every clinic. A clinic bound to BAA 1.3.0 or later,
+ * or to the DPA, which state these periods as the purge runs them, is purged
+ * every night whether the switch is on or not (`purgeIsPromised`; release
+ * gate 9): the agreement it signed does not wait for an operator. The switch
+ * adds every other clinic, and the owner turns it on at the release of 1.3.0
+ * (docs/handover.md, "Retention and offboarding").
  *
  * ## What the record clock never purges, and why
  *
  * `consent_records`, `suppressions` and `contact_attempts` are not on the
- * record clock. A suppression is a person's "stop", or the record that their
- * information was erased (eraseContact below), and has to outlast the rows it
- * stopped; all three are append-only by grant (0010). None of them stays for
- * good, though: they go with the rest of the clinic's data when it is
- * destroyed at offboarding (destroyClinicData in lib/offboarding, through
+ * record clock. A suppression is a person's "stop", and has to outlast the
+ * rows it stopped; all three are append-only by grant (0010). None of them
+ * stays for good, though: a person's go when that person is erased
+ * (app_erase_contact_evidence, through the erase path in
+ * lib/patient-rights/erasure.ts), and the rest with the clinic's data when it
+ * is destroyed at offboarding (destroyClinicData in lib/offboarding, through
  * app_destroy_contact_evidence, drizzle/0058). They were kept past that as
  * the TCPA evidence that an outbound contact was lawful, but v1 contacts no
  * one first, so there is nothing for them to evidence, and every agreement's
- * return-or-destroy clause reaches them (BAA 1.3.0 release gate 7).
- * `audit_log` is append-only by grant. `baa_acceptances` has its own
- * six-year floor (0025) and is never swept by anything.
+ * return-or-destroy clause reaches them (BAA 1.3.0 release gate 7). An
+ * erasure is recorded in `erasure_requests`, without the number, and that
+ * record has its own clock: BACKUP_RETENTION_DAYS, run hourly by
+ * expireErasureRecords. `audit_log` is append-only by grant.
+ * `baa_acceptances` has its own six-year floor (0025) and is never swept by
+ * anything.
  *
  * ## Tenant isolation is the API, not a check
  *
@@ -85,9 +146,25 @@ import type { TenantTx } from "@/lib/tenant";
  * nothing at all.
  */
 
+/**
+ * A processed vendor payload's period: thirty days after it arrived, or the
+ * clinic's record clock if that is shorter. Processed, it has done its work
+ * (the conversation, appointment or request it became is the record), and
+ * the copy is kept only to re-read a payload found to be misparsed.
+ */
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
 /** A slot hold that has stopped blocking is kept a week at most (plan §11.8), less on a shorter record clock. */
 export const SLOT_HOLD_RETENTION_DAYS = 7;
+
+/**
+ * A sync run started longer ago than this is a crashed one, not one in
+ * flight: sync_runs is append-only by grant (0015), so a run that died
+ * leaves its row "running" for good, and without a bound it would hold the
+ * purge off that clinic forever. The nightly sync starts at 02 and the purge
+ * at 03, so a held clinic would be skipped every night; the purge runs again
+ * at 09 (lib/scheduler/tick.ts), when a hold from 02 has run out.
+ */
+export const SYNC_HOLDS_PURGE_HOURS = 6;
 
 export type PurgeResult = {
   clinicId: string;
@@ -100,8 +177,91 @@ export type PurgeResult = {
   contactsDeleted: number;
   draftsDeleted: number;
   webhookEventsDeleted: number;
+  chatThreadsDeleted: number;
   slotHoldsDeleted: number;
 };
+
+/**
+ * The purge's periods, as an agreement has to state them to promise the
+ * nightly purge: BAA 1.3.0's clause 11 and the DPA's "Minimum necessary"
+ * clause (since 12 October 2026, docs/counsel/dpa.md gap 2) say each of
+ * these, word for word, with TRANSCRIPT_RETENTION_DAYS. 1.2.2 and earlier say
+ * only "keeps transcripts and conversation records for 90 days", which
+ * promises no period for a booking request, an appointment or a contact.
+ * Matched on the text with its line breaks folded, so the 78-column wrap
+ * cannot hide one.
+ */
+const PURGE_PERIODS: readonly string[] = [
+  `keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place`,
+  `each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time`,
+  `keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time`,
+  `contact details are kept while any conversation, appointment record or booking request of theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded or changed`,
+];
+
+/** Any practice: every clause body is pure and total, and what is read here is the same for all. */
+const SAMPLE_BAA: BaaVariables = {
+  specialty: "med-spa",
+  attributionMode: "estimated",
+  connectedPlatform: null,
+  isCoveredEntity: true,
+  outboundMessaging: false,
+  bookingSystem: "google_calendar",
+  calendarAccount: "workspace_baa",
+  clinicLegalName: "Practice",
+  signatoryName: "Signatory",
+  signatoryEmail: "signatory@practice.test",
+  effectiveDate: "2026-01-01",
+};
+const SAMPLE_DPA: DpaVariables = {
+  clinicLegalName: "Practice",
+  signatoryName: "Signatory",
+  signatoryEmail: "signatory@practice.test",
+  effectiveDate: "2026-01-01",
+  specialty: "med-spa",
+  bookingSystem: "google_calendar",
+  calendarAccount: "workspace_baa",
+};
+
+/**
+ * Whether an agreement's own clauses state every one of the purge's periods,
+ * read from the clauses a sample practice's copy contains (the retention
+ * clause applies to every practice in both agreements).
+ */
+export function agreementStatesThePurge(version: string): boolean {
+  const bodies =
+    agreementKindOfVersion(version) === "dpa"
+      ? (getDpaTemplate(version)?.clauses ?? [])
+          .filter((c) => c.appliesWhen(SAMPLE_DPA))
+          .map((c) => c.body(SAMPLE_DPA))
+      : (getBaaTemplate(version)?.clauses ?? [])
+          .filter((c) => c.appliesWhen(SAMPLE_BAA))
+          .map((c) => c.body(SAMPLE_BAA));
+  const text = bodies.join(" ").replace(/\s+/g, " ");
+  return PURGE_PERIODS.every((period) => text.includes(period));
+}
+
+const promised = new Map<string, boolean>();
+
+/**
+ * Whether the agreement a clinic is on (the version in effect,
+ * app_agreement_in_effect) promises the purge's periods, so that the nightly
+ * run purges it whatever the job's switch says: read from that version's own
+ * text (agreementStatesThePurge), so each version decides by what it says.
+ * BAA 1.3.0 and the DPA do; 1.2.2 and earlier do not; a version the catalog
+ * does not hold has no text, and promises nothing. Until 12 October 2026
+ * every version not on a list of earlier ones counted as promising, and
+ * 1.2.2, released after the list was written, would have been purged with
+ * the switch off had it not been added by hand (third review).
+ */
+export function purgeIsPromised(version: string | null): boolean {
+  if (version === null) return false;
+  let answer = promised.get(version);
+  if (answer === undefined) {
+    answer = agreementStatesThePurge(version);
+    promised.set(version, answer);
+  }
+  return answer;
+}
 
 function daysAgo(now: Date, days: number): Date {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
@@ -110,9 +270,11 @@ function daysAgo(now: Date, days: number): Date {
 /**
  * One clinic, one transaction, on its own two clocks.
  *
- * Refuses to touch a clinic with a sync run in flight: the reconciler joins
- * appointments to transactions, and deleting one side of a pair it is about
- * to match creates the very exception the report then has to explain.
+ * Refuses to touch a clinic with a sync run in flight (phase two): the
+ * reconciler joins appointments to transactions, and deleting one side of a
+ * pair it is about to match creates the very exception the report then has
+ * to explain. Only a run started in the last SYNC_HOLDS_PURGE_HOURS holds it,
+ * so a crashed one cannot keep a clinic's records past its periods.
  */
 export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise<PurgeResult> {
   const result: PurgeResult = {
@@ -126,13 +288,20 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     contactsDeleted: 0,
     draftsDeleted: 0,
     webhookEventsDeleted: 0,
+    chatThreadsDeleted: 0,
     slotHoldsDeleted: 0,
   };
 
   const [running] = await tx.db
     .select({ id: syncRuns.id })
     .from(syncRuns)
-    .where(and(eq(syncRuns.clinicId, tx.clinicId), eq(syncRuns.status, "running")))
+    .where(
+      and(
+        eq(syncRuns.clinicId, tx.clinicId),
+        eq(syncRuns.status, "running"),
+        gt(syncRuns.startedAt, new Date(now.getTime() - SYNC_HOLDS_PURGE_HOURS * 60 * 60 * 1000)),
+      ),
+    )
     .limit(1);
   if (running) {
     result.skipped = "sync_running";
@@ -149,7 +318,18 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .limit(1);
   if (!clinic) return result;
 
-  const mediaBefore = daysAgo(now, clinic.mediaDays);
+  // The transcript clock: the practice's portal setting (Settings, 90, 30 or
+  // 7 days; clinic_settings.transcript_retention_days) may shorten the media
+  // clock, never lengthen it, and reaches transcripts only, no other record
+  // (BAA 1.3.0 clause 11, "Practice may shorten these periods in its
+  // portal"). A clinic with no settings row keeps the media clock.
+  const [settings] = await tx.db
+    .select({ transcriptDays: clinicSettings.transcriptRetentionDays })
+    .from(clinicSettings)
+    .where(eq(clinicSettings.clinicId, tx.clinicId))
+    .limit(1);
+  const transcriptDays = Math.min(clinic.mediaDays, settings?.transcriptDays ?? clinic.mediaDays);
+  const mediaBefore = daysAgo(now, transcriptDays);
   const recordBefore = daysAgo(now, clinic.recordDays);
 
   // 1. Media references.
@@ -257,17 +437,55 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
       .update(transactions)
       .set({ appointmentId: null })
       .where(and(eq(transactions.clinicId, tx.clinicId), inArray(transactions.appointmentId, appointmentIds)));
+    // An amended appointment is left to the definer below, which takes it
+    // with its amendments: the runtime role cannot delete an amendment, and
+    // the foreign key keeps it from deleting what one amends.
     const gone = await tx.db
       .delete(appointments)
-      .where(and(eq(appointments.clinicId, tx.clinicId), inArray(appointments.id, appointmentIds)))
+      .where(
+        and(
+          eq(appointments.clinicId, tx.clinicId),
+          inArray(appointments.id, appointmentIds),
+          sql`not exists (select 1 from ${recordAmendments} ra where ra.appointment_id = ${appointments.id})`,
+        ),
+      )
       .returning({ id: appointments.id });
     result.appointmentsDeleted = gone.length;
   }
+  // An amended appointment goes with its amendments, in one call, at the
+  // earlier of this job's cutoff and the database's own, as the booking
+  // requests above (app_purge_amended_appointments, drizzle/0064). Its time
+  // is one the runtime role and a sync can move, so an amendment never goes
+  // on its own: only with the appointment it amends.
+  const amendedAppointments = await tx.db.execute<{ n: number }>(
+    sql`select app_purge_amended_appointments(least(${recordBefore}::timestamptz, app_record_cutoff())) as n`,
+  );
+  result.appointmentsDeleted += amendedAppointments.rows[0]?.n ?? 0;
 
+  // An amended conversation goes with its amendments, in one call: the
+  // runtime role may delete a conversation but not an amendment, and no
+  // conversation goes while one of its amendments remains (record_amendments,
+  // a foreign key with no delete action, drizzle/0064), so
+  // app_purge_amended_conversations() takes the two together, at the earlier
+  // of this job's cutoff and the database's own, as the booking requests
+  // above, whose amendments go inside app_purge_booking_requests(). An
+  // amendment never goes while what it amends stays. An amended conversation
+  // past this job's cutoff but not the database's (a job clock ahead of it,
+  // or a clock shortened in the last day) waits for the night it goes.
+  const amendedGone = await tx.db.execute<{ n: number }>(
+    sql`select app_purge_amended_conversations(least(${recordBefore}::timestamptz, app_record_cutoff())) as n`,
+  );
+  result.conversationsDeleted = amendedGone.rows[0]?.n ?? 0;
   const oldConversations = await tx.db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(and(eq(conversations.clinicId, tx.clinicId), lt(conversations.startedAt, recordBefore)));
+    .where(
+      and(
+        eq(conversations.clinicId, tx.clinicId),
+        lt(conversations.startedAt, recordBefore),
+        sql`not exists (select 1 from ${recordAmendments} ra where ra.conversation_id = ${conversations.id})`,
+      ),
+    );
   const conversationIds = oldConversations.map((r) => r.id);
   if (conversationIds.length) {
     await tx.db
@@ -278,7 +496,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
       .delete(conversations)
       .where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.id, conversationIds)))
       .returning({ id: conversations.id });
-    result.conversationsDeleted = gone.length;
+    result.conversationsDeleted += gone.length;
   }
 
   // 4. Contacts nothing refers to any more, and that are themselves old. A
@@ -302,15 +520,28 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: contacts.id });
   result.contactsDeleted = orphaned.length;
 
-  // 5. Processed vendor payloads: raw bodies, PHI by the migration's own
-  //    admission, and useless once processed.
+  // 5. Vendor payloads: raw bodies, PHI by the migration's own admission. A
+  //    processed one at thirty days, or the record clock when the clinic
+  //    has shortened it below that, so no raw copy outlives the record it
+  //    became. One never processed at the record clock: the period of the
+  //    conversation it would have been (BAA 1.3.0 release gate 9). And
+  //    neither past the transcript clock: a voice payload carries the whole
+  //    transcript, so a practice that keeps transcripts seven days must not
+  //    keep their raw copy thirty (second review, 12 October 2026).
+  const processedBefore = daysAgo(
+    now,
+    Math.min(WEBHOOK_PAYLOAD_RETENTION_DAYS, clinic.recordDays, transcriptDays),
+  );
+  const unprocessedBefore = daysAgo(now, Math.min(clinic.recordDays, transcriptDays));
   const payloads = await tx.db
     .delete(webhookEvents)
     .where(
       and(
         eq(webhookEvents.clinicId, tx.clinicId),
-        sql`${webhookEvents.processedAt} is not null`,
-        lt(webhookEvents.receivedAt, daysAgo(now, WEBHOOK_PAYLOAD_RETENTION_DAYS)),
+        or(
+          and(sql`${webhookEvents.processedAt} is not null`, lt(webhookEvents.receivedAt, processedBefore)),
+          and(sql`${webhookEvents.processedAt} is null`, lt(webhookEvents.receivedAt, unprocessedBefore)),
+        ),
       ),
     )
     .returning({ id: webhookEvents.id });
@@ -331,6 +562,30 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ senderId: metaBookingDrafts.senderId });
   result.draftsDeleted = drafts.length;
 
+  // 7. Messaging threads gone quiet. A thread is a keyed reference to the
+  //    sender's platform id (for WhatsApp, their number) and when they last
+  //    wrote, kept to count conversations and to know whose first reply has
+  //    carried the opening line. It goes after thirty days of silence
+  //    (CHAT_THREAD_IDLE_RETENTION_DAYS, which billing-housekeeping also
+  //    sweeps, but that job ships switched off), or at the record clock or
+  //    the transcript clock when either is shorter: a thread is the trace of
+  //    a conversation, and outlives neither its record nor its transcript
+  //    (second review, 12 October 2026). BAA 1.3.0's clause 11 keeps a
+  //    person's contact details "until 90 days after the last time those
+  //    details were recorded"; a thread's last message is that time, so this
+  //    is never later. Nothing is lost by it: a message after a day's
+  //    silence starts a new conversation, and its first reply the opening
+  //    line, whether or not the thread is still there.
+  const threadsBefore = daysAgo(
+    now,
+    Math.min(CHAT_THREAD_IDLE_RETENTION_DAYS, clinic.recordDays, transcriptDays),
+  );
+  const quietThreads = await tx.db
+    .delete(chatThreads)
+    .where(and(eq(chatThreads.clinicId, tx.clinicId), lt(chatThreads.lastInboundAt, threadsBefore)))
+    .returning({ ref: chatThreads.partyRef });
+  result.chatThreadsDeleted = quietThreads.length;
+
   // The audit row says what kind and how many — never which person.
   const total =
     result.mediaCleared +
@@ -341,6 +596,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.contactsDeleted +
     result.draftsDeleted +
     result.webhookEventsDeleted +
+    result.chatThreadsDeleted +
     result.slotHoldsDeleted;
   if (total > 0) {
     tx.audit.record({
@@ -356,8 +612,10 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         contacts: result.contactsDeleted,
         drafts: result.draftsDeleted,
         webhookEvents: result.webhookEventsDeleted,
+        chatThreads: result.chatThreadsDeleted,
         slotHolds: result.slotHoldsDeleted,
         mediaDays: clinic.mediaDays,
+        transcriptDays,
         recordDays: clinic.recordDays,
       },
     });
@@ -373,6 +631,14 @@ export type ErasureRequest = {
   email?: string;
   /** Who asked, for the audit row: "patient", "clinic", or a ticket id. */
   requestedBy: string;
+  /**
+   * Only what was recorded no later than this: a contact created by then, a
+   * draft last written by then. Omitted, everything there is. The erase path
+   * applied again after a restore passes the time of the original deletion
+   * (reapplyErasures in lib/patient-rights/erasure.ts), so a person who came
+   * back after asking to be deleted keeps what they gave afterwards.
+   */
+  before?: Date;
 };
 
 export type ErasureResult = {
@@ -382,7 +648,8 @@ export type ErasureResult = {
   appointmentsDeleted: number;
   transactionsDeleted: number;
   draftsDeleted: number;
-  suppressed: boolean;
+  /** Amendments of the requests and conversations deleted (drizzle/0064). */
+  amendmentsDeleted: number;
 };
 
 /**
@@ -393,12 +660,19 @@ export type ErasureResult = {
  * waiting for a join. Their booking requests go too, whatever the desk
  * decided, as do a payment matched to one of their appointments and a
  * half-collected Meta draft carrying the number. A deleted request's id and
- * token hash are never written again (booking_request_keys). What remains
- * afterwards is a suppression row for the phone number — deliberately. The
- * number is kept so the request itself is honoured for as long as healdesk
- * holds the clinic's data; keeping it is what the law expects of a
- * do-not-contact list, and it is the one thing an erasure must not erase.
- * Destruction at offboarding takes it with everything else (lib/offboarding).
+ * token hash are never written again (booking_request_keys).
+ *
+ * Nothing of the person is kept afterwards, the number included. Until 8
+ * October 2026 this wrote the number into `suppressions` "so the request
+ * itself is honoured", a copy kept for as long as the clinic's data was;
+ * BAA 1.3.0's clause 4(c) allows only a record of the request, for no
+ * longer than it is needed, and v1 contacts no one first, so there is no
+ * do-not-contact list for the number to stay on. The operator's erase path
+ * (erasePerson in lib/patient-rights/erasure.ts) runs this, deletes what this
+ * does not reach (the person's raw call payloads, their own messaging
+ * threads with their drafts, and their own suppressions, consent records and
+ * contact attempts), and records the request in erasure_requests, without
+ * the number.
  */
 export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promise<ErasureResult> {
   if (!request.phone && !request.email) {
@@ -413,8 +687,9 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
         eq(contacts.clinicId, tx.clinicId),
         or(
           request.phone ? eq(contacts.phone, request.phone) : sql`false`,
-          request.email ? eq(contacts.email, request.email) : sql`false`,
+          request.email ? sql`lower(${contacts.email}) = ${request.email.toLowerCase()}` : sql`false`,
         ),
+        request.before ? lte(contacts.createdAt, request.before) : sql`true`,
       ),
     );
   const ids = matches.map((m) => m.id);
@@ -425,7 +700,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     appointmentsDeleted: 0,
     transactionsDeleted: 0,
     draftsDeleted: 0,
-    suppressed: false,
+    amendmentsDeleted: 0,
   };
 
   if (ids.length) {
@@ -482,12 +757,16 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     // app_erase_contacts() does it as their owner. It takes the people in the
     // same call and fails with nothing removed if anything else still refers
     // to them, someone else's request on one of their appointments included,
-    // so a request leaves only with the person it names.
+    // so a request leaves only with the person it names. The amendments of
+    // the requests and conversations it deletes go first, in the same call
+    // (record_amendments, drizzle/0064): an amendment leaves only with what
+    // it amends.
     const [erased] = (
       await tx.db.execute<{
         requests_deleted: number;
         appointments_deleted: number;
         conversations_deleted: number;
+        amendments_deleted: number;
       }>(
         sql`select * from app_erase_contacts(array[${sql.join(
           ids.map((id) => sql`${id}`),
@@ -498,6 +777,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     result.bookingRequestsDeleted = erased?.requests_deleted ?? 0;
     result.appointmentsDeleted = erased?.appointments_deleted ?? 0;
     result.conversationsDeleted = erased?.conversations_deleted ?? 0;
+    result.amendmentsDeleted = erased?.amendments_deleted ?? 0;
   }
 
   // A half-collected Meta draft has no contact, only the number typed into
@@ -508,29 +788,15 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
   if (phones.length) {
     const drafts = await tx.db
       .delete(metaBookingDrafts)
-      .where(and(eq(metaBookingDrafts.clinicId, tx.clinicId), inArray(metaBookingDrafts.phone, phones)))
+      .where(
+        and(
+          eq(metaBookingDrafts.clinicId, tx.clinicId),
+          inArray(metaBookingDrafts.phone, phones),
+          request.before ? lte(metaBookingDrafts.updatedAt, request.before) : sql`true`,
+        ),
+      )
       .returning({ senderId: metaBookingDrafts.senderId });
     result.draftsDeleted = drafts.length;
-  }
-
-  // The do-not-contact row outlives the erasure, on purpose.
-  const phone = request.phone ?? matches.find((m) => m.phone)?.phone ?? null;
-  if (phone) {
-    const [existing] = await tx.db
-      .select({ id: suppressions.id })
-      .from(suppressions)
-      .where(and(eq(suppressions.clinicId, tx.clinicId), eq(suppressions.phone, phone), isNull(suppressions.channel)))
-      .limit(1);
-    if (!existing) {
-      await tx.db.insert(suppressions).values({
-        clinicId: tx.clinicId,
-        phone,
-        channel: null,
-        reason: "erasure_request",
-        note: `Erasure requested by ${request.requestedBy}`,
-      });
-    }
-    result.suppressed = true;
   }
 
   tx.audit.record({
@@ -545,7 +811,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
       appointments: result.appointmentsDeleted,
       transactions: result.transactionsDeleted,
       drafts: result.draftsDeleted,
-      suppressed: result.suppressed,
+      amendments: result.amendmentsDeleted,
     },
   });
 

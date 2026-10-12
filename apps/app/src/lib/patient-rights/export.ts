@@ -8,11 +8,15 @@ import {
   contactAttempts,
   contacts,
   conversations,
+  depositPayments,
   slotHolds,
   suppressions,
   transactions,
 } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
+
+import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendments";
+import { isPatientRequester, type PatientRequester } from "./requesters";
 
 /**
  * The patient-rights export: everything held about one person, in one
@@ -28,30 +32,75 @@ import type { TenantTx } from "@/lib/tenant";
  * Its own audit row is written for the export itself: producing a bundle is
  * an access, and the next accounting request must show this one.
  *
+ * Each booking request, appointment and conversation carries its amendments beside it
+ * (`amendments`, oldest first; lib/patient-rights/amendments.ts), as BAA
+ * 1.3.0's clause 14(b) promises: "Every later use and export of that record
+ * then carries the amendment." So does the whole clinic's bundle. The
+ * portal's export (M5) must do the same, and so must any screen that shows a
+ * request or a conversation.
+ *
+ * Each bundle also carries the deposits the clinic took through its own
+ * Stripe account for the person's appointments (the whole clinic's, in its
+ * bundle): the amount, when and how it was paid, and the Stripe session the
+ * clinic can find it by. Destruction deletes them (BAA 1.3.0 clause 17 lets
+ * only two records survive), so the return bundle is the clinic's copy.
+ *
+ * Who asked is one of PATIENT_REQUESTERS, chosen, never typed: the audit
+ * row this writes outlives the person, so it holds nothing typed.
+ *
  * Operator-only, on purpose. The covered entity validates the request; we
  * produce the bundle. Never a self-serve clinic feature.
  */
+/** A record as exported: the row, and every amendment Practice directed to it beside it. */
+export type Amended<T> = T & { amendments: RecordAmendment[] };
+
 export type PatientBundle = {
   producedAt: string;
   contacts: (typeof contacts.$inferSelect)[];
-  conversations: (typeof conversations.$inferSelect)[];
-  appointments: (typeof appointments.$inferSelect)[];
+  conversations: Amended<typeof conversations.$inferSelect>[];
+  appointments: Amended<typeof appointments.$inferSelect>[];
   transactions: (typeof transactions.$inferSelect)[];
   consentRecords: (typeof consentRecords.$inferSelect)[];
   suppressions: (typeof suppressions.$inferSelect)[];
   contactAttempts: (typeof contactAttempts.$inferSelect)[];
   /** Booking requests from any channel, handed to the desk on the manual booking path; the token digest is not included. */
-  bookingRequests: Omit<typeof bookingRequests.$inferSelect, "tokenHash">[];
+  bookingRequests: Amended<Omit<typeof bookingRequests.$inferSelect, "tokenHash">>[];
+  /** Deposits taken through the clinic's own Stripe account for their appointments: never the Stripe account id or event id. */
+  depositPayments: DepositRecord[];
   /** Times the assistant held for them on a call (plan §11.8): when, for how long, and what became of it. */
   slotHolds: { id: string; startsAt: Date; endsAt: Date; status: string; createdAt: Date }[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
   accountingOfDisclosures: (typeof auditLog.$inferSelect)[];
 };
 
+export type DepositRecord = Pick<
+  typeof depositPayments.$inferSelect,
+  "id" | "appointmentId" | "channel" | "amountCents" | "currency" | "status" | "checkoutSessionId" | "paidAt" | "createdAt"
+>;
+
+const DEPOSIT_COLUMNS = {
+  id: depositPayments.id,
+  appointmentId: depositPayments.appointmentId,
+  channel: depositPayments.channel,
+  amountCents: depositPayments.amountCents,
+  currency: depositPayments.currency,
+  status: depositPayments.status,
+  checkoutSessionId: depositPayments.checkoutSessionId,
+  paidAt: depositPayments.paidAt,
+  createdAt: depositPayments.createdAt,
+};
+
+function assertRequester(requestedBy: unknown): asserts requestedBy is PatientRequester {
+  if (!isPatientRequester(requestedBy)) {
+    throw new Error("Who asked is one of the closed set (PATIENT_REQUESTERS), never typed.");
+  }
+}
+
 export async function exportPatient(
   tx: TenantTx,
-  query: { phone?: string; email?: string; requestedBy: string },
+  query: { phone?: string; email?: string; requestedBy: PatientRequester },
 ): Promise<PatientBundle> {
+  assertRequester(query.requestedBy);
   if (!query.phone && !query.email) throw new Error("A phone number or an email address is required.");
 
   const found = await tx.db
@@ -91,11 +140,20 @@ export async function exportPatient(
   const bookings = ids.length
     ? (await tx.db.select().from(bookingRequests).where(and(eq(bookingRequests.clinicId, tx.clinicId), inArray(bookingRequests.contactId, ids)))).map(withoutDigest)
     : [];
+  const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((c) => c.id));
+  const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
+  const appointmentAmendments = await amendmentsFor(tx, "appointment", appts.map((a) => a.id));
   const holds = ids.length
     ? await tx.db
         .select({ id: slotHolds.id, startsAt: slotHolds.startsAt, endsAt: slotHolds.endsAt, status: slotHolds.status, createdAt: slotHolds.createdAt })
         .from(slotHolds)
         .where(and(eq(slotHolds.clinicId, tx.clinicId), inArray(slotHolds.contactId, ids)))
+    : [];
+  const deposits = appts.length
+    ? await tx.db
+        .select(DEPOSIT_COLUMNS)
+        .from(depositPayments)
+        .where(and(eq(depositPayments.clinicId, tx.clinicId), inArray(depositPayments.appointmentId, appts.map((a) => a.id))))
     : [];
 
   const everyId = [
@@ -105,7 +163,15 @@ export async function exportPatient(
     ...txns.map((t) => t.id),
     ...consents.map((c) => c.id),
     ...bookings.map((b) => b.id),
+    ...[
+      ...conversationAmendments.values(),
+      ...bookingAmendments.values(),
+      ...appointmentAmendments.values(),
+    ]
+      .flat()
+      .map((a) => a.id),
     ...holds.map((h) => h.id),
+    ...deposits.map((d) => d.id),
   ];
   const accounting = everyId.length
     ? await tx.db
@@ -133,33 +199,43 @@ export async function exportPatient(
   return {
     producedAt: new Date().toISOString(),
     contacts: found,
-    conversations: convos,
-    appointments: appts,
+    conversations: withAmendments(convos, conversationAmendments),
+    appointments: withAmendments(appts, appointmentAmendments),
     transactions: txns,
     consentRecords: consents,
     suppressions: supp,
     contactAttempts: attempts,
-    bookingRequests: bookings,
+    bookingRequests: withAmendments(bookings, bookingAmendments),
+    depositPayments: deposits,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
   };
 }
 
 /**
- * Amendment: a real correction, with the prior value in the audit trail.
+ * Amendment where the record can be changed: a real correction.
  *
- * The clause promises the copy is corrected, not annotated. So the row
- * changes, and what it used to say is recorded on the audit row's metadata
- * — which is itself PHI-scanned, so the prior value is stored under a key
- * the scanner allows, as a hash and a length, not the text. The text of the
- * old value lives nowhere after this: that is the point of amending.
+ * BAA 1.3.0's clause 14(b): "Where the record can be changed, healdesk
+ * corrects its own copy." A contact's name, number and address are that
+ * kind of record, so the row changes, and the audit row says which fields
+ * changed and who asked, never what they said: a "prior" that carried the
+ * old name would keep the wrong data the amendment exists to remove. The
+ * records that must stay as they were made (a booking request, a
+ * conversation) take an appended amendment instead
+ * (lib/patient-rights/amendments.ts). The operator's path is
+ * `npm run ops:amend-contact` in apps/app's own shell (lib/ops/patient-entry.ts),
+ * never apps/web; the portal's comes with M5.
  */
 export async function amendContact(
   tx: TenantTx,
   contactId: string,
   changes: { fullName?: string | null; phone?: string | null; email?: string | null },
-  requestedBy: string,
+  /** One of PATIENT_REQUESTERS: the audit row outlives the contact, so it holds nothing typed. */
+  requestedBy: PatientRequester,
 ): Promise<boolean> {
+  if (!isPatientRequester(requestedBy)) {
+    throw new Error("Who asked is one of the closed set (PATIENT_REQUESTERS), never typed.");
+  }
   const [before] = await tx.db
     .select({ id: contacts.id, fullName: contacts.fullName, phone: contacts.phone, email: contacts.email })
     .from(contacts)
@@ -194,7 +270,8 @@ export async function amendContact(
  * shape as one patient's bundle so the same reader handles both. Its own audit
  * row is written for the export, which is the last accounting the clinic gets.
  */
-export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<PatientBundle> {
+export async function exportClinic(tx: TenantTx, requestedBy: PatientRequester): Promise<PatientBundle> {
+  assertRequester(requestedBy);
   const c = tx.clinicId;
   const found = await tx.db.select().from(contacts).where(eq(contacts.clinicId, c));
   const convos = await tx.db.select().from(conversations).where(eq(conversations.clinicId, c));
@@ -204,10 +281,14 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
   const supp = await tx.db.select().from(suppressions).where(eq(suppressions.clinicId, c));
   const attempts = await tx.db.select().from(contactAttempts).where(eq(contactAttempts.clinicId, c));
   const bookings = (await tx.db.select().from(bookingRequests).where(eq(bookingRequests.clinicId, c))).map(withoutDigest);
+  const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((v) => v.id));
+  const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
+  const appointmentAmendments = await amendmentsFor(tx, "appointment", appts.map((a) => a.id));
   const holds = await tx.db
     .select({ id: slotHolds.id, startsAt: slotHolds.startsAt, endsAt: slotHolds.endsAt, status: slotHolds.status, createdAt: slotHolds.createdAt })
     .from(slotHolds)
     .where(eq(slotHolds.clinicId, c));
+  const deposits = await tx.db.select(DEPOSIT_COLUMNS).from(depositPayments).where(eq(depositPayments.clinicId, c));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
 
   const rows = found.length + convos.length + appts.length + txns.length + consents.length;
@@ -222,13 +303,14 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
   return {
     producedAt: new Date().toISOString(),
     contacts: found,
-    conversations: convos,
-    appointments: appts,
+    conversations: withAmendments(convos, conversationAmendments),
+    appointments: withAmendments(appts, appointmentAmendments),
     transactions: txns,
     consentRecords: consents,
     suppressions: supp,
     contactAttempts: attempts,
-    bookingRequests: bookings,
+    bookingRequests: withAmendments(bookings, bookingAmendments),
+    depositPayments: deposits,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
   };

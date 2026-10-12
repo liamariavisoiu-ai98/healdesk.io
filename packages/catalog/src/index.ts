@@ -14,6 +14,7 @@
 
 export * from "./agreement-copy";
 export * from "./agreement-kind";
+export * from "./agreement-termination";
 export * from "./assistant-settings";
 export * from "./audience";
 export * from "./baa";
@@ -42,5 +43,6 @@ export * from "./specialties";
 export * from "./subprocessor-notice";
 export * from "./time-zones";
 export * from "./treatment-names";
+export * from "./treatment-vocabulary";
 export * from "./urgent-content";
 export * from "./welcome";

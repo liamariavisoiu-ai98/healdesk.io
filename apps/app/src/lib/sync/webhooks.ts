@@ -14,6 +14,7 @@ import {
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_SYNC_CONNECTION,
 } from "@/lib/queue/boss";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { withTenant } from "@/lib/tenant";
 
 import { upsertAppointments, upsertContacts, upsertSales } from "./upsert";
@@ -43,7 +44,9 @@ export type IngestResult =
   | { status: "stored"; eventId: string; deliveryId: string }
   | { status: "duplicate"; deliveryId: string }
   | { status: "rejected"; reason: string }
-  | { status: "unverified"; eventId: string; deliveryId: string };
+  | { status: "unverified"; eventId: string; deliveryId: string }
+  /** The clinic has left (offboarding started, or destroyed): nothing stored. */
+  | { status: "left" };
 
 export async function ingestWebhook(input: {
   clinicId: string;
@@ -62,6 +65,9 @@ export async function ingestWebhook(input: {
   const actor: ActorContext = { type: "service", serviceName: "webhook-ingest" };
 
   return withTenant({ clinicId: input.clinicId, actor }, async (tx) => {
+    // A clinic that has left keeps nothing new, not even a raw payload
+    // (lib/clinic/leaving.ts; the branch review's R11).
+    if (await clinicHasLeft(tx)) return { status: "left" as const };
     const [connection] = await tx.db
       .select({ id: providerConnections.id })
       .from(providerConnections)

@@ -512,7 +512,8 @@ describeDb("the booking engine (C13)", () => {
       const events = google.events(f.sub);
       expect(events).toHaveLength(1);
       expect(events[0]!.inserted).toMatchObject({ summary: "Ana – Facial" });
-      expect(JSON.stringify(events[0]!.inserted)).not.toMatch(/Maria|555|0188/);
+      // The caller's whole number, not "555" or "0188": an id in the event can carry either by chance.
+      expect(JSON.stringify(events[0]!.inserted)).not.toMatch(/Maria|4155550188/);
 
       // A booking the assistant made raises nothing (Annex X6).
       expect(alertsOf(f.clinicId)).toEqual([]);

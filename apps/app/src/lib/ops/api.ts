@@ -12,6 +12,7 @@ import {
   clinics,
   connectionLinks,
   providerConnections,
+  recordAmendments,
   reportDeliveries,
   scheduledJobs,
   type PhiBasis,
@@ -24,6 +25,7 @@ import {
 } from "@/lib/agreements";
 import { agreementInEffectFor } from "@/lib/agreements/in-effect";
 import { agreementTemplateReleased } from "@/lib/agreements/kind";
+import { endServicesAfterTermination, type TerminationEffect } from "@/lib/agreements/termination";
 import {
   AgreementSearchError,
   searchAgreements,
@@ -38,6 +40,7 @@ import {
   findClinicalContent,
   forwardingInstructions,
   getConnectionGuide,
+  isAgreementTerminationReason,
   isCarrier,
   isOnboardingStep,
   isServicePriceKind,
@@ -86,11 +89,25 @@ import {
 } from "@/lib/ops/calendar-ops";
 import { readMetaPlatformSwitches, setMetaPlatformEnabled } from "@/lib/channels/meta-platforms";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
+import {
+  ERASURE_STEP_OUTCOMES,
+  isErasureStepOutcome,
+  isErasureVendorStep,
+  listErasureRequests,
+  stampErasureVendorStep,
+  type ErasureVendorStepId,
+} from "@/lib/patient-rights/erasure";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
 import { bookingRequestCounts } from "@/lib/meta/booking-requests";
-import { attachMetaChannel, isMetaPlatform, META_PROVIDERS, setMetaFrontDoor } from "@/lib/meta/channels";
+import {
+  attachMetaChannel,
+  isMetaPlatform,
+  META_PROVIDERS,
+  MetaAssetTakenError,
+  setMetaFrontDoor,
+} from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
@@ -300,6 +317,14 @@ const OPERATIONS = [
   "startOffboarding",
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
+  // Deletion on request (lib/patient-rights/erasure.ts; BAA 1.3.0 release gate
+  // 6): the subcontractor step's stamp, a closed outcome, never typed. The
+  // deletion itself, and amendments and corrections (release gate 8), take a
+  // patient's identifiers or words in, so they are not operations here at
+  // all: they run in apps/app's own shell (lib/ops/patient-entry.ts, npm run
+  // ops:erase-person, ops:amend-record, ops:amend-contact), and nothing of a
+  // patient crosses apps/web (review of 12 October 2026).
+  "markErasureVendorDeleted",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -397,6 +422,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "startOffboarding",
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
+  "markErasureVendorDeleted",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -900,6 +926,8 @@ export async function runOperation(
       return opMarkExportDelivered(args, operator);
     case "markVoiceVendorDataDeleted":
       return opMarkVoiceVendorDataDeleted(args, operator);
+    case "markErasureVendorDeleted":
+      return opMarkErasureVendorDeleted(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -1605,6 +1633,20 @@ export type MarkTerminatedState =
       /** The floor this just created, so the operator sees what they did. */
       retainUntil: string;
       auditRecorded: boolean;
+      /**
+       * What it did to the Services (lib/agreements/termination.ts):
+       * `services_ended` when no agreement is left in effect for the
+       * practice, so its locations are offboarding and its subscriptions
+       * are being cancelled with a refund; `agreement_in_effect` when
+       * another agreement still covers it; `unbound` when the agreement was
+       * never bound to a practice.
+       */
+      services: TerminationEffect["status"];
+      /**
+       * Clause 17 ¶3 refunds this ending and the Services ended with it: ops
+       * was told to preview and confirm the refund on Billing.
+       */
+      refundDue: boolean;
     }
   | { status: "error"; message: string };
 
@@ -1625,6 +1667,26 @@ export type MarkTerminatedState =
  * sets `terminated_at` back to null. Undoing a mistake means a human with the
  * migrator role, deliberately. The console must say so before it fires, because
  * an operator who learns that afterwards has learned it too late.
+ *
+ * ## What it ends
+ *
+ * Every ending of the agreement ends the Services, and the Fees, on the same
+ * day (BAA 1.3.0 clauses 1, 17 and 20). The operator records who ended it and
+ * why, from the closed set in @healdesk/catalog, in the same write as the
+ * date (both write-once, drizzle/0066), because the reason decides the
+ * refund: clause 17 ¶3 refunds the fees paid for time after the day only
+ * where the practice ended it because healdesk violated a material term, or
+ * under the Subcontractors clause.
+ *
+ * Once the date is committed, and only then, a practice left with no
+ * agreement in effect has its locations offboarded and its subscriptions
+ * cancelled at once without proration (endServicesAfterTermination), and for
+ * those two reasons ops is told to preview and confirm the refund on the
+ * clinic's Billing page; the answer gate and the database's patient-data gate
+ * already refuse it, since both read the agreements. The termination is
+ * recorded first so that no failure after it can leave the agreement looking
+ * live: a step that fails is retried or put in front of ops, never rolled
+ * back into a live agreement.
  */
 async function opMarkAgreementTerminated(
   args: Record<string, unknown>,
@@ -1636,6 +1698,7 @@ async function opMarkAgreementTerminated(
   // termination the operator never typed, on a column nothing can correct.
   // DATE_SHAPED refuses the whole string instead.
   const terminationDate = stringArg(args, "terminationDate", 64);
+  const terminationReason = stringArg(args, "terminationReason", 64);
 
   if (!agreementId || !UUID_SHAPED.test(agreementId)) {
     return ok({
@@ -1649,6 +1712,16 @@ async function opMarkAgreementTerminated(
     return ok({
       status: "error",
       message: "That is not a real date.",
+    } satisfies MarkTerminatedState);
+  }
+
+  // Who ended it and why, from the closed set. Checked before the row is
+  // read, like the date: it is a statement about what the operator chose.
+  if (!isAgreementTerminationReason(terminationReason)) {
+    return ok({
+      status: "error",
+      message:
+        "Say who ended the agreement and why. It decides whether the practice is refunded, and it cannot be changed once recorded.",
     } satisfies MarkTerminatedState);
   }
 
@@ -1694,6 +1767,7 @@ async function opMarkAgreementTerminated(
       acceptedAt: baaAcceptances.acceptedAt,
       terminatedAt: baaAcceptances.terminatedAt,
       version: baaAcceptances.documentVersion,
+      organizationId: baaAcceptances.organizationId,
     })
     .from(baaAcceptances)
     .where(eq(baaAcceptances.id, agreementId))
@@ -1729,7 +1803,7 @@ async function opMarkAgreementTerminated(
    */
   const [updated] = await unsafeDb
     .update(baaAcceptances)
-    .set({ terminatedAt })
+    .set({ terminatedAt, terminationReason })
     .where(
       and(
         eq(baaAcceptances.id, agreementId),
@@ -1759,6 +1833,7 @@ async function opMarkAgreementTerminated(
     // as a phone-shaped string and would refuse the whole write. Same reason
     // the connect link records hours rather than a timestamp.
     terminatedAtEpochMs: terminatedAt.getTime(),
+    terminationReason,
   });
 
   // A terminated agreement voids every location's calendar terms (plan
@@ -1770,6 +1845,17 @@ async function opMarkAgreementTerminated(
   // keeps its calendar. Never throws.
   await sweepCalendarTerms(undefined, { actor: actorFor(operator) });
 
+  // The Services end with the agreement (see "What it ends" above). Never
+  // throws; a step it could not take is in front of ops.
+  const services = await endServicesAfterTermination({
+    agreementId,
+    organizationId: row.organizationId,
+    terminatedAt,
+    reason: terminationReason,
+    actor: actorFor(operator),
+    request: operator.request,
+  });
+
   return ok({
     status: "recorded",
     terminatedOn: terminationDate,
@@ -1777,6 +1863,8 @@ async function opMarkAgreementTerminated(
     // generated rather than from six added to a year here.
     retainUntil: asDate(updated.retentionEligibleAt),
     auditRecorded,
+    services: services.status,
+    refundDue: services.status === "services_ended" && services.refundDue,
   } satisfies MarkTerminatedState);
 }
 
@@ -3126,6 +3214,30 @@ export type CareView = {
       how: string | null;
     } | null;
   };
+  /**
+   * The clinic's deletion requests (lib/patient-rights/erasure.ts), newest
+   * first: who asked (one of three, as the console says it), the dates, the counts and each
+   * subcontractor step, outstanding until stamped, with the deadline. Never a
+   * number, an address or a reference to one.
+   */
+  /**
+   * How many amendments the practice has directed at this clinic, and how
+   * many contact corrections: counts only. Both are entered in apps/app's
+   * shell (lib/ops/patient-entry.ts), never here.
+   */
+  patientRights: { amendments: number; corrections: number };
+  deletionRequests: {
+    id: string;
+    requestedBy: string;
+    receivedAt: string;
+    dueBy: string;
+    erasedAt: string;
+    deleted: Record<string, number>;
+    /** When the record's restore references are emptied; null once they have been. */
+    restoreRecordUntil: string | null;
+    /** `how` is the closed outcome's label (ERASURE_STEP_OUTCOMES), never typed text. */
+    steps: { id: string; label: string; stampedAt: string | null; stampedBy: string | null; how: string | null }[];
+  }[];
   recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
   deliveries: {
     kind: string;
@@ -3174,6 +3286,15 @@ async function opGetClinicCare(
         .limit(DELIVERY_ROWS);
       const incidents = await listIncidents(tx);
       tx.audit.record({ action: "read", resourceType: "incident", resultCount: incidents.length, metadata: { purpose: "care_view" } });
+      const deletionRequests = await listErasureRequests(tx);
+      const [amendmentCount] = await tx.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(recordAmendments)
+        .where(eq(recordAmendments.clinicId, tx.clinicId));
+      const [correctionCount] = await tx.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(auditLog)
+        .where(and(eq(auditLog.clinicId, tx.clinicId), eq(auditLog.resourceType, "contact_amendment")));
       return {
         clinic: {
           id: clinic.id,
@@ -3205,6 +3326,23 @@ async function opGetClinicCare(
               }
             : null,
         },
+        patientRights: { amendments: amendmentCount?.n ?? 0, corrections: correctionCount?.n ?? 0 },
+        deletionRequests: deletionRequests.map((d) => ({
+          id: d.id,
+          requestedBy: d.requestedBy,
+          receivedAt: d.receivedAt.toISOString(),
+          dueBy: d.dueBy.toISOString(),
+          erasedAt: d.erasedAt.toISOString(),
+          deleted: d.deleted,
+          restoreRecordUntil: d.restoreRecordUntil?.toISOString() ?? null,
+          steps: d.steps.map((step) => ({
+            id: step.id,
+            label: step.label,
+            stampedAt: step.stamp?.at ?? null,
+            stampedBy: step.stamp?.by ?? null,
+            how: step.stamp ? (isErasureStepOutcome(step.stamp.how) ? ERASURE_STEP_OUTCOMES[step.stamp.how] : "Recorded") : null,
+          })),
+        })),
         recipients: recipients.map((r) => ({
           email: r.email,
           label: r.label,
@@ -3513,6 +3651,39 @@ async function opMarkVoiceVendorDataDeleted(
   return care.updated();
 }
 
+// -----------------------------------------------------------------------------
+// Deletion on request: the subcontractor steps
+// -----------------------------------------------------------------------------
+
+/**
+ * The operator's stamp that a subcontractor deleted what it held about the
+ * person, in its own console. Once per step. How it went is one of a closed
+ * set (ERASURE_STEP_OUTCOMES), never typed: the stamp outlives the person,
+ * and a line typed here could name them. The deletion itself, and
+ * amendments and corrections, are not operations of this envelope: they run
+ * in apps/app's shell (lib/ops/patient-entry.ts), so no patient's identifier
+ * or words cross apps/web.
+ */
+async function opMarkErasureVendorDeleted(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const erasureId = stringArg(args, "erasureId");
+  if (!erasureId || !UUID_SHAPED.test(erasureId)) return care.error("Which deletion request?");
+  const step = stringArg(args, "step", 40);
+  if (!isErasureVendorStep(step)) return care.error("Which subcontractor step?");
+  const how = stringArg(args, "how", 40);
+  if (!isErasureStepOutcome(how)) {
+    return care.error(`How did it go? One of: ${Object.keys(ERASURE_STEP_OUTCOMES).join(", ")}.`);
+  }
+  const outcome = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => stampErasureVendorStep(tx, { erasureId, step: step as ErasureVendorStepId, by: operator.email, how }),
+  );
+  if (outcome === "not_found") return care.error("No such deletion request at this clinic.");
+  if (outcome === "already_stamped") return care.error("That step is already recorded.");
+  await audit(operator, "erasure_vendor_step_recorded", { clinicSlug: clinic.slug, erasureId, step, how });
+  return care.updated();
+}
 
 // -----------------------------------------------------------------------------
 // Phase 8: forwarding test, first-weeks health, human touches
@@ -3589,10 +3760,15 @@ async function opAttachMetaChannel(
   const accessToken = stringArg(args, "accessToken", 1024);
   if (!accessToken || accessToken.length < 20) return care.error("Paste the page or WhatsApp access token.");
   const label = stringArg(args, "label", 120);
-  await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => attachMetaChannel(tx, { platform, externalId, accessToken, label }),
-  );
+  try {
+    await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) => attachMetaChannel(tx, { platform, externalId, accessToken, label }),
+    );
+  } catch (error) {
+    if (error instanceof MetaAssetTakenError) return care.error(error.message);
+    throw error;
+  }
   await audit(operator, "meta_channel_attached", { clinicSlug: clinic.slug, platform });
   return care.updated();
 }

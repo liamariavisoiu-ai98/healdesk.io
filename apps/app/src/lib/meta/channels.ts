@@ -2,9 +2,11 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { bookingRequests, clinics } from "@/db/schema";
-import { syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
+import type { ActorContext } from "@/lib/audit";
+import { assistantMayAnswer } from "@/lib/billing/answering";
+import { metaPlatformOn, syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
-import type { TenantTx } from "@/lib/tenant";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
 import { GRAPH_VERSION } from "./graph";
@@ -29,6 +31,15 @@ import { META_PROVIDERS } from "./providers";
  * no HUMAN_AGENT send and no WhatsApp template: the out-of-window template
  * path of 23 September 2026 (§G.3) was removed, and nothing in this file can
  * reach a person who has not written in the last 24 hours.
+ *
+ * The second rule is the practice's switches (BAA 1.3.0 clause 16: Practice
+ * "may switch them off at any time"). A reply that answers the message just
+ * received is sent only after the webhook has found the front door and the
+ * platform's switch on and the answer gate open. A reply sent later, on the
+ * desk's decision (the follow-up and the reschedule line), takes an owner
+ * resolved by `resolveFollowUpOwner` just before it, through the same three
+ * checks, and an owner they refused is never sent for: `sendMetaReply` drops
+ * it and records why, as it records a send outside the window.
  */
 export { META_PROVIDERS };
 
@@ -39,9 +50,46 @@ export function isMetaPlatform(value: unknown): value is MetaPlatform {
   return value === "messenger" || value === "instagram" || value === "whatsapp";
 }
 
+/** Each platform's account, as a refusal names it. */
+const ASSET_WORDS: Record<MetaPlatform, string> = {
+  messenger: "Facebook Page",
+  instagram: "Instagram account",
+  whatsapp: "WhatsApp number",
+};
+
+/**
+ * The Page, Instagram account or WhatsApp number is already connected to
+ * another practice on healdesk. Its message is for the person connecting.
+ */
+export class MetaAssetTakenError extends Error {
+  constructor(readonly platform: MetaPlatform) {
+    super(
+      `That ${ASSET_WORDS[platform]} is already connected to another practice on healdesk, so it can't be connected here too. Disconnect it there first, or reply to your setup email and we'll sort it out.`,
+    );
+    this.name = "MetaAssetTakenError";
+  }
+}
+
+/** The unique index that keeps one Meta asset on one clinic (drizzle/0066). */
+function isAssetTaken(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const e = current as { code?: unknown; constraint?: unknown };
+    if (e.code === "23505" && e.constraint === "provider_connections_meta_asset_live_idx") return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * Store one Meta channel for the tenant, replacing any earlier connection on
  * the same platform (`saveConnection` keeps one per provider).
+ *
+ * One asset, one clinic: a Page, Instagram account or WhatsApp number another
+ * clinic holds (not revoked) is refused by the database's unique index
+ * (drizzle/0066), and the refusal is a MetaAssetTakenError in plain words.
+ * Two clinics on one asset would have had every message routed to the older
+ * one: another practice's patients in its records.
  *
  * `secrets` are sealed with the token, never written in clear: today only a
  * WhatsApp number's registration PIN, which re-registering the number needs.
@@ -66,12 +114,18 @@ export async function attachMetaChannel(
     via?: "operator" | "facebook_login" | "embedded_signup";
   },
 ): Promise<string> {
-  const id = await saveConnection(tx.db, {
-    clinicId: tx.clinicId,
-    provider: META_PROVIDERS[input.platform],
-    credentials: { ...input.secrets, accessToken: input.accessToken },
-    metadata: { ...input.details, externalId: input.externalId, label: input.label ?? null },
-  });
+  let id: string;
+  try {
+    id = await saveConnection(tx.db, {
+      clinicId: tx.clinicId,
+      provider: META_PROVIDERS[input.platform],
+      credentials: { ...input.secrets, accessToken: input.accessToken },
+      metadata: { ...input.details, externalId: input.externalId, label: input.label ?? null },
+    });
+  } catch (error) {
+    if (isAssetTaken(error)) throw new MetaAssetTakenError(input.platform);
+    throw error;
+  }
   tx.audit.record({
     action: "create",
     resourceType: "provider_connection",
@@ -104,9 +158,60 @@ export type MetaChannelOwner = {
   clinicId: string;
   connectionId: string;
   platform: MetaPlatform;
+  /** The operator's front door is on (and, for a follow-up, the answer gate is open). */
   enabled: boolean;
+  /** The clinic's own switch for this platform is on. */
   platformEnabled: boolean;
+  /** Why a follow-up owner is refused: `front_door_off`, `platform_off`, or the answer gate's reason. */
+  withheld?: string;
 };
+
+/**
+ * The owner for a reply that does not answer the message just received: the
+ * desk's follow-up and the reschedule line. Resolved outside any transaction,
+ * because the answer gate opens its own (lib/billing/answering.ts, R1), just
+ * before the decision's transaction that sends it. Enabled only while the
+ * operator's Meta front door is on (`clinics.meta_front_door_enabled`), the
+ * clinic's own switch for the platform the request came in on is on
+ * (lib/channels/meta-platforms.ts), both of which the webhook obeys, and the
+ * answer gate would answer on Meta now: no pause, the channel bought, on and
+ * live, billing in good standing (not suspended or cancelled), and an
+ * agreement in effect. The follow-up belongs to a conversation already had,
+ * so it is not a new one for the allowance cap, and asking raises no
+ * allowance notice.
+ */
+export async function resolveFollowUpOwner(input: {
+  clinicId: string;
+  connectionId: string;
+  platform: MetaPlatform;
+  actor: ActorContext;
+  now?: Date;
+}): Promise<MetaChannelOwner> {
+  const base = { clinicId: input.clinicId, connectionId: input.connectionId, platform: input.platform };
+  const switches = await withTenant({ clinicId: input.clinicId, actor: input.actor }, async (tx) => {
+    const [row] = await tx.db
+      .select({ enabled: clinics.metaFrontDoorEnabled })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    return { frontDoor: row?.enabled === true, platform: await metaPlatformOn(tx, input.platform) };
+  });
+  if (!switches.frontDoor) {
+    return { ...base, enabled: false, platformEnabled: switches.platform, withheld: "front_door_off" };
+  }
+  if (!switches.platform) return { ...base, enabled: true, platformEnabled: false, withheld: "platform_off" };
+  const decision = await assistantMayAnswer({
+    clinicId: input.clinicId,
+    channel: "meta",
+    continuing: true,
+    now: input.now,
+    actor: input.actor,
+  });
+  if (decision.decision === "pass_through") {
+    return { ...base, enabled: false, platformEnabled: true, withheld: decision.reason };
+  }
+  return { ...base, enabled: true, platformEnabled: true };
+}
 
 /** Which clinic owns this page / account / number. Ids and the two switches only; see 0036 and 0061. */
 export async function resolveMetaChannel(externalId: string): Promise<MetaChannelOwner | null> {
@@ -188,7 +293,11 @@ export async function graphSend(input: Parameters<MetaSender>[0]): Promise<void>
   if (!response.ok) throw new Error(`Graph API ${response.status}`);
 }
 
-export type MetaSendOutcome = { status: "sent" } | { status: "outside_window" };
+export type MetaSendOutcome =
+  | { status: "sent" }
+  | { status: "outside_window" }
+  /** The owner was refused: the front door or the platform's switch is off, or the answer gate would not answer. */
+  | { status: "withheld"; reason: string };
 
 /**
  * Send free-form text on a thread, inside its window only. The only send
@@ -211,6 +320,13 @@ export async function sendMetaReply(
   opts: { lastInboundAt?: Date | null; now?: Date } = {},
 ): Promise<MetaSendOutcome> {
   const now = opts.now ?? new Date();
+  // The practice's switches first: an owner refused is never sent for,
+  // whatever the caller asked (see the header).
+  if (!owner.enabled || !owner.platformEnabled) {
+    const reason = owner.withheld ?? (owner.enabled ? "platform_off" : "front_door_off");
+    tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "withheld", reason } });
+    return { status: "withheld", reason };
+  }
   const lastInbound = opts.lastInboundAt !== undefined ? opts.lastInboundAt : await metaThreadLastInbound(tx, owner.platform, recipientId);
   if (!lastInbound || lastInbound.getTime() + META_WINDOW_MS < now.getTime()) {
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "outside_window" } });

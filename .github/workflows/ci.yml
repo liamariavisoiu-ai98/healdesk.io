@@ -86,9 +86,12 @@ jobs:
       # One run, machine-readable. The previous version ran the suite twice —
       # once for humans, once to grep the count out of coloured terminal output,
       # which failed because the ANSI escapes sit between "Tests" and the number.
-      # Parsing a reporter's prose was the mistake; vitest emits JSON.
+      # Parsing a reporter's prose was the mistake; vitest emits JSON. The dot
+      # reporter runs beside it so a failing test is named in the log: with the
+      # JSON reporter alone a red run said only "exit code 1", and the report
+      # that named the test stayed on the runner.
       - name: Test — apps/app
-        run: npm test -w @healdesk/app -- --reporter=json --outputFile=../../test-results.json
+        run: npm test -w @healdesk/app -- --reporter=dot --reporter=json --outputFile.json=../../test-results.json
 
       # The point of the whole job. The step above fails on any failing test;
       # this one fails when the database-backed suites SKIPPED — which is the

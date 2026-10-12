@@ -909,6 +909,36 @@ describeDb("deletion on request", () => {
     expect(await whereTheNumberIs(c.clinicId, "5550138001")).toEqual([]);
   });
 
+  test("a raw payload goes only when it carries the person's address or number whole, written with or without the country code", async () => {
+    const c = await seedClinic("erase-whole-token");
+    const at = new Date(Date.now() - 2 * DAY);
+    const ids = await inTenant(c.clinicId, async (client) => ({
+      // Another person, whose address contains the one erased: stays. The
+      // first version's substring test deleted it, possibly the only copy of
+      // a call nothing had processed yet.
+      joann: await payload(client, c.clinicId, "mindbody", "evt_joann", { client: { email: "joann@mail.test", mobile: "+15559990000" } }, at, false),
+      ann: await payload(client, c.clinicId, "mindbody", "evt_ann", { client: { email: "Ann@Mail.test" } }, at, true),
+      // The number as a person writes it, with no country code: goes.
+      national: await payload(client, c.clinicId, "mindbody", "evt_national", { note: "call back on 555 013 9201 after five" }, at, true),
+      bracketed: await payload(client, c.clinicId, "mindbody", "evt_bracketed", { note: "(555) 013-9201" }, at, true),
+      // A longer number that contains it: stays.
+      longer: await payload(client, c.clinicId, "mindbody", "evt_longer", { ref: "2555013920100" }, at, true),
+    }));
+    const outcome = data<ErasePersonOutcome>(
+      await runOperation(
+        "erasePerson",
+        { clinicId: c.clinicId, phone: "+15550139201", email: "ann@mail.test", requestedBy: "practice" },
+        OPERATOR,
+      ),
+    );
+    if (outcome.status !== "erased") throw new Error("not erased");
+    expect(outcome.deleted.webhookEvents).toBe(3);
+    const left = await inTenant(c.clinicId, async (client) =>
+      (await client.query<{ id: string }>(`select id from webhook_events order by id`)).rows.map((r) => r.id),
+    );
+    expect(left).toEqual([ids.joann, ids.longer].sort());
+  });
+
   test("a deletion that finds more than two hundred references still completes, and records them all", async () => {
     // The first version capped restore_refs at 200 (a CHECK), and recorded
     // every reference the survey found, so a person past the cap could never

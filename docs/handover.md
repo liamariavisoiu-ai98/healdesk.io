@@ -462,6 +462,15 @@ record of the request, no longer than we need it.
    "who asked" on the care page is chosen from three (the practice; the person, through
    the practice; a legal representative, through the practice), never typed.
 
+What it cannot find. A call with no caller ID creates no contact, so nothing ties it to
+the person by number: the deletion finds such a call only if the practice names its
+number and the vendor's payload carries it, and its conversation, which names no one,
+stays until the record clock takes it. Raw payloads are searched for the number and the
+address matched whole, the number in its international form and, for a North American
+number, its ten digits without the country code, with spaces, dots, dashes or brackets
+between the digits; another country's number is found only in its international form.
+Tell the practice when it asks about a call it believes had no caller ID.
+
 What is kept: one `erasure_requests` row, with who asked (one of three), the dates, the
 counts and the subcontractor stamps, and no number, address or name; and, for 35 days,
 the practice's message in the mailbox (step 6). Its `restore_refs` are keyed

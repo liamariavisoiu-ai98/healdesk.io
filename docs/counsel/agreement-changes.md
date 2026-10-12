@@ -1373,7 +1373,9 @@ these is closed, by code, a page, a signed paper or a host setting, and
    - One transaction runs `eraseContact` for each number and address, then
      deletes what it does not reach: the person's raw payloads
      (`webhook_events`: every voice payload of their calls, and any payload
-     carrying their number or address), the drafts and `chat_threads` of
+     carrying their number or address, matched whole, the number with or
+     without its country code; the first version's substring test took
+     joann@ for ann@ and missed "555 013 0001"), the drafts and `chat_threads` of
      their own messaging threads, matched by the keyed references the tables
      already hold, and their suppressions, consent records and
      contact attempts (`app_erase_contact_evidence`, since the runtime role

@@ -438,17 +438,50 @@ async function ownThreads(
   return { own: candidates.filter((t) => !forOthers.has(t)), kept };
 }
 
+/** A regular expression's special characters, escaped, for a literal inside a POSIX pattern. */
+function literal(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The digit runs a number can be written as: its full international form
+ * and, for a North American number, its ten-digit national number, each
+ * digit allowed up to two separators after it ("+1 (555) 013-0001",
+ * "555 013 0001", "15550130001"). No digit may stand directly before or
+ * after the run, so a number is matched whole and never inside a longer one.
+ * Other countries' numbers are matched in their international form only.
+ */
+function numberPatterns(phone: string): string[] {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 7) return [];
+  const forms = [digits];
+  if (phone.startsWith("+1") && digits.length === 11) forms.push(digits.slice(1));
+  return forms.map((form) => `(^|[^0-9])${form.split("").join("[ ().-]{0,2}")}($|[^0-9])`);
+}
+
+/**
+ * An address, matched whole: nothing that can belong to an address's local
+ * part before it, and nothing that continues its domain after it (a full
+ * stop ending a sentence is not a continuation). "ann@mail.test" is not
+ * found inside "joann@mail.test" or "ann@mail.tester".
+ */
+function addressPattern(email: string): string {
+  return `(^|[^a-z0-9._%+-])${literal(email.toLowerCase())}($|[^a-z0-9.-]|[.]($|[^a-z0-9-]))`;
+}
+
 /** The ids of the raw payloads about them: their calls' voice payloads, and any payload naming their number or address. */
 async function payloadsAbout(tx: TenantTx, s: Survey, before: Date): Promise<string[]> {
   const found = new Set<string>();
-  const digits = [
-    ...new Set(s.phones.map((p) => p.replace(/\D/g, "")).filter((d) => d.length >= 7)),
+  const patterns = [
+    ...new Set([...s.phones.flatMap(numberPatterns), ...s.emails.map(addressPattern)]),
   ];
-  const needles = [...digits, ...s.emails.map((e) => e.toLowerCase())];
 
-  // Any provider: the number's digits or the address, verbatim in the body.
-  // A substring test in the database, so no body is read out of it.
-  if (s.callIds.length || needles.length) {
+  // Any provider: the number or the address in the body, matched whole, by a
+  // regular expression in the database, so no body is read out of it. The
+  // first version tested for a substring, so erasing ann@mail.test deleted
+  // joann@mail.test's payloads, possibly the only copy of an unprocessed
+  // call, and missed a number written without its country code.
+  if (s.callIds.length || patterns.length) {
     const rows = await tx.db
       .select({ id: webhookEvents.id })
       .from(webhookEvents)
@@ -463,8 +496,8 @@ async function payloadsAbout(tx: TenantTx, s: Survey, before: Date): Promise<str
                   inArray(webhookEvents.deliveryId, s.callIds),
                 )
               : sql`false`,
-            needles.length
-              ? sql`exists (select 1 from unnest(${textArray(needles)}) n where position(n in lower(${webhookEvents.rawPayload})) > 0)`
+            patterns.length
+              ? sql`lower(${webhookEvents.rawPayload}) ~ any(${textArray(patterns)})`
               : sql`false`,
           ),
         ),
@@ -473,7 +506,7 @@ async function payloadsAbout(tx: TenantTx, s: Survey, before: Date): Promise<str
   }
 
   // The voice vendor's payloads, read as ingestion reads them, for a number
-  // written in a shape the substring test above misses ("(555) 123-4567").
+  // in a shape the patterns above miss.
   if (s.phones.length) {
     const wanted = new Set(s.phones);
     for await (const row of synthflowPayloads(tx, before)) {

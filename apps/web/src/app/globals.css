@@ -1786,7 +1786,8 @@
   font-size: 12.5px;
   line-height: 1.3;
   /* Closed: a small oval bubble at the logo's side, which it goes back to
-     quickly. */
+     quickly. Its scale is HeroPortrait's CLOSED_SCALE, which works out from
+     it where the open card will be. */
   opacity: 0;
   pointer-events: none;
   border-radius: 50%;

@@ -630,6 +630,9 @@
    */
   transition: transform var(--flood-ms, var(--duration-slow)) var(--ease-out);
   /*
+   * The logo's orange (owner, 12 October 2026): it was the logo's red, and a
+   * red flood over a close-up face read as an alarm on a clinic's site.
+   *
    * Semi-transparent so the footage keeps moving underneath rather than being
    * replaced by a flat panel. The text mask below buys back the contrast.
    *
@@ -643,11 +646,22 @@
    *
    * The variable exists for the one borrower of this effect that has no
    * footage under it: the "leave a review" tile in Reviews.tsx is a white card,
-   * and 50% red over white is pink. It overrides the fill to solid red and
+   * and a 50% fill over white is pastel. It overrides the fill to solid red and
    * inherits everything else. The 0.50 default is still the measured value
    * above and still what every niche card gets.
    */
-  background-color: var(--flood-fill, rgb(230 38 39 / 0.5));
+  background-color: var(--flood-fill, rgb(255 118 30 / 0.5));
+}
+
+/* The still's own colours, blurred, under it until it loads. Scaled a touch
+   so the blur's soft edge is outside the card. */
+.niche-card__blur {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+  filter: blur(14px) saturate(1.1);
+  scale: 1.12;
 }
 
 .niche-card--ready:hover .niche-card__flood,

@@ -15,10 +15,12 @@ import { useCallback, useEffect, useRef } from "react";
  *
  * ## Layers, bottom to top
  *
+ *   blur    the still at 16px, blurred, until the still has loaded
  *   still   the poster frame, always painted
  *   video   cross-fades in on hover and plays; identical crop to the still, so
  *           the handoff reveals nothing
- *   flood   the icon's own circle, scaled up to cover the tile, 72% red
+ *   flood   the icon's own circle, scaled up to cover the tile, the logo's
+ *           orange at half strength
  *   mask    a bottom-up ink gradient, so the copy survives a bright frame
  *   copy    title on the floor of the card, description opening under it,
  *           and the arrow that never moves
@@ -60,6 +62,7 @@ export function CircleExpandCard({
   title,
   body,
   still,
+  placeholder,
   video,
   onActivate,
   tabIndex,
@@ -74,6 +77,11 @@ export function CircleExpandCard({
   body: string;
   /** Poster frame. Must be the same crop as the video's first frame. */
   still: string;
+  /**
+   * A tiny inline copy of the still, painted blurred under it until it has
+   * loaded, so a card is never a flat grey box (lib/niche-media.ts).
+   */
+  placeholder?: string;
   /** Sources without extensions, `.webm` and `.mp4` are both offered. */
   video?: string;
   onActivate: () => void;
@@ -186,6 +194,10 @@ export function CircleExpandCard({
         interactive ? "niche-card--ready group" : "",
       ].join(" ")}
     >
+      {placeholder ? (
+        <span aria-hidden className="niche-card__blur" style={{ backgroundImage: `url("${placeholder}")` }} />
+      ) : null}
+
       <img
         src={still}
         alt=""

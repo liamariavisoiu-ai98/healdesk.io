@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
+import { notifyOps } from "@/lib/ops/notify";
 import { purgeClinic, purgeIsPromised, type PurgeResult } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
 
@@ -68,6 +69,10 @@ export async function sweepRetention(
         reason:
           error instanceof Error ? `${error.name}: ${error.message}`.slice(0, 200) : "Unknown error",
       });
+      // A failed purge keeps records past their periods, so a person hears
+      // of it: the clinic's id and the step, never the error's text, which
+      // can quote a row (lib/ops/notify.ts).
+      await notifyOps("retention_purge_failed", { clinicId: clinic.id, phase: "clinic" });
     }
   }
   return out;
@@ -78,7 +83,13 @@ export async function runRetentionPurgeJob(options: { now?: Date } = {}) {
   return runWideningJob(
     JOB_RETENTION_PURGE,
     async (switchedOn) => {
-      const sweep = await sweepRetention(now, { onlyPromised: !switchedOn });
+      let sweep: RetentionSweepResult;
+      try {
+        sweep = await sweepRetention(now, { onlyPromised: !switchedOn });
+      } catch (error) {
+        await notifyOps("retention_purge_failed", { phase: "run" });
+        throw error;
+      }
       const totals = sweep.results.reduce(
         (acc, r) => ({
           media: acc.media + r.mediaCleared,

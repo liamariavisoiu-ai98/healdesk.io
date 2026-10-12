@@ -4,7 +4,6 @@ import { useCallback } from "react";
 
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { ChatDemo } from "@/components/ChatDemo";
-import { HealdeskSoul } from "@/components/HealdeskSoul";
 import { NicheCarousel } from "@/components/NicheCarousel";
 import { Outcomes } from "@/components/Outcomes";
 import { OwnBranding } from "@/components/OwnBranding";
@@ -87,10 +86,13 @@ export function HomeExperience() {
           className="grid grid-cols-1 gap-5 lg:grid-cols-2"
           style={{ ["--clinic" as string]: "var(--color-red)", ["--clinic-ink" as string]: "#ffffff" }}
         >
-          <AgentPanel label="AI voice agent" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
+          {/* No mark in the cards' top rows (owner, 12 October 2026): the
+              soul sat there as a blurred orange orb, which at 36px read as a
+              rendering fault. The label stands alone; AYA is in the cards. */}
+          <AgentPanel label="AI voice agent" name={site.agent} logoUrl={null} mark={false}>
             <VoiceDemo />
           </AgentPanel>
-          <AgentPanel label="Website chat & Meta DMs" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
+          <AgentPanel label="Website chat & Meta DMs" name={site.agent} logoUrl={null} mark={false}>
             <ChatDemo />
           </AgentPanel>
         </div>

@@ -59,16 +59,20 @@ export function AgentPanel({
   /** Whose assistant it is, for the mark. */
   name: string;
   logoUrl: string | null;
-  /** Drawn in place of the mark: the homepage's cards carry the animated soul. */
-  mark?: ReactNode;
+  /**
+   * Drawn in place of the mark, or `false` for none: the homepage's cards
+   * carried the animated soul here until 12 October 2026, and now carry no
+   * mark at all, the label alone.
+   */
+  mark?: ReactNode | false;
   /** Laid over the whole card, e.g. the demo page's "Archived". */
   overlay?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="border-line relative flex flex-col overflow-hidden rounded-lg border bg-white shadow-md">
-      <div className={`border-line flex items-center gap-3 border-b px-5 ${mark ? "py-3" : "py-3.5"}`}>
-        {mark ?? <AgentMark name={name} logoUrl={logoUrl} size={28} />}
+      <div className={`border-line flex items-center gap-3 border-b px-5 ${mark === false ? "py-4" : mark ? "py-3" : "py-3.5"}`}>
+        {mark === false ? null : (mark ?? <AgentMark name={name} logoUrl={logoUrl} size={28} />)}
         <div className="min-w-0">
           <p className="text-muted text-[12px] font-bold tracking-[0.1em] uppercase">{label}</p>
           {title ? <p className="truncate text-[15.6px] font-semibold">{title}</p> : null}

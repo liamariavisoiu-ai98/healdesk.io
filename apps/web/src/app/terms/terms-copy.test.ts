@@ -393,3 +393,59 @@ function pageTextOf(markup: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * The Meta channels, no more strongly than BAA 1.3.0's clause 16 as the owner
+ * softened it on 12 October 2026: each message checked before the model sees
+ * it, no message and no summary kept, the assistant instructed, each reply
+ * checked by filters designed to keep clinical content out, a refused reply
+ * replaced by a fixed one, and no filter catching every wording. Section 9 and
+ * the annex used to say clinical content was "caught on arrival" and "not
+ * stored", and that replies "never name a treatment", which no word list can
+ * promise.
+ */
+describe("the Meta channels are described as the agreement describes them", () => {
+  const text = pageText();
+
+  test("section 9 and the annex say instructed, filtered, replaced, and not every wording", () => {
+    for (const sentence of [
+      "We check each message a person sends there for clinical content before the language model sees it, and keep no message there and no summary of one. The agent is instructed not to repeat clinical content, name a treatment or confirm appointment details there",
+      "We check each message for clinical content before the language model sees it, and keep no message there and no summary of one. The assistant is instructed not to repeat clinical content, name a treatment or confirm appointment details there",
+    ]) {
+      expect(text).toContain(sentence);
+    }
+    const filtered = text.match(
+      /Each reply the language model writes there is checked by automated filters designed to keep those out, and a reply the filters refuse is replaced by a fixed one\. No filter catches every wording, so do not invite patients to send clinical information on these channels\./g,
+    );
+    expect(filtered?.length, "section 9 and the annex both carry it").toBe(2);
+  });
+
+  test("and nothing stronger", () => {
+    expect(text).not.toMatch(
+      /caught on arrival|caught when it arrives|is not stored|not repeated back|never name a treatment|never sends clinical content|keeps none|repeats none|confirms no appointment details|not kept at all|scoped to carry nothing clinical|every later use/i,
+    );
+  });
+});
+
+/**
+ * On Instagram, Messenger and WhatsApp the assistant takes booking requests
+ * and books nothing (lib/meta/front-door.ts calls createBookingRequest and no
+ * calendar writer), and it sends no payment link there: its prompt forbids
+ * deposits and links, and nothing calls depositLinkMessage
+ * (lib/booking/deposit-gate.ts). Section 9 said it "can book and can send your
+ * own payment link".
+ */
+describe("the Meta assistant takes booking requests and sends no payment link", () => {
+  const text = pageText();
+
+  test("sections 2 and 9 say so", () => {
+    expect(text).toContain(
+      "On Instagram, Messenger and WhatsApp it books nothing: it takes booking requests for your staff to confirm, and sends no payment link.",
+    );
+    expect(text).toContain(
+      "and takes booking requests for your staff to confirm, and it sends no payment link there.",
+    );
+    expect(text).toContain("sends a hosted deposit link in website chat");
+    expect(text).not.toMatch(/can book and (?:can )?send your own payment link/);
+  });
+});

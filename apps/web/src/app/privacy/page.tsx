@@ -66,7 +66,7 @@ export const metadata: Metadata = {
  * homepage's "See it in your own branding" (api/own-demo), and the number a
  * personalised demo's "Call us" keeps, which shipped without a line here.
  *
- * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
+ * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.2, for BAA 1.3.0
  * (release gate 12, agreement-changes.md § 12.14):
  *   - section 14 is the public commitment 1.3.0's clause headed "healdesk's
  *     own use, and de-identified statistics" says healdesk makes "at
@@ -80,7 +80,23 @@ export const metadata: Metadata = {
  *     1.3.0's Subcontractors clause does, a promise rather than a statement
  *     of fact. Its breach clock stays the 9 October wording: the 24 hours
  *     apps/app's incident deadline keeps is an internal operating target, and
- *     no public page promises it.
+ *     no public page promises it;
+ *   - section 12 says no more than 1.3.0's softened clauses 11 and 16, which
+ *     the owner chose on 12 October 2026: no message and no summary is kept;
+ *     from these channels only a first name and a telephone number, each
+ *     checked by automated filters designed to keep clinical content out,
+ *     preferred times in a fixed day-and-time form, and Meta's identifier
+ *     for the conversation (booking_requests.sender_id, which clause 4's data
+ *     list names); each message checked before the model sees it; the
+ *     assistant instructed, each reply filtered, a refused reply replaced by
+ *     a fixed one, and no filter catching every wording. It said the
+ *     conversation was kept for 90 days and that clinical content was
+ *     "detected … and not stored". Section 5's "keeps them non-clinical" is
+ *     "set up to keep clinical content off them". Section 12 also says the
+ *     assistant takes a request for an appointment, books nothing and sends
+ *     no payment link there, where it said it could "book an appointment or
+ *     send the clinic's own payment link": lib/meta/front-door.ts creates
+ *     booking requests only, and nothing calls depositLinkMessage.
  */
 export default function PrivacyPage() {
   return (
@@ -98,7 +114,7 @@ export default function PrivacyPage() {
         {/* Adopted 3 Oct 2026 by the owner without external counsel review.
             The scope sentence for sections 11 to 13, which Google's and Meta's
             app reviews read. Section 14 added 12 Oct 2026 (LEGAL_VERSION
-            2026-10-12.1). */}
+            2026-10-12.2). */}
         <p>
           Sections 11 and 12 also describe what the product does with data it receives from Google
           and from Meta when a clinic connects its Google Calendar, its Facebook Page, its Instagram
@@ -360,8 +376,8 @@ export default function PrivacyPage() {
           Inside the product, patient information is processed by our cloud hosting provider, our
           voice provider and our AI model provider, each under a business associate agreement with
           us, signed before any patient information reaches it; messages on Instagram, Messenger
-          and WhatsApp travel through Meta, which signs no such agreement, so the product keeps
-          them non-clinical (section 12). The list of the subcontractors that handle patient
+          and WhatsApp travel through Meta, which signs no such agreement, so the product is set up
+          to keep clinical content off them (section 12). The list of the subcontractors that handle patient
           information is given to clinics on request, under the Business Associate Agreement.
         </p>
       </Section>
@@ -503,7 +519,7 @@ export default function PrivacyPage() {
           verbatim in substance. It describes the v1 calendar connection in
           docs/v1-product-spec.md ("Where bookings are written"); every
           sentence must be true before the first clinic connects. Revised 12
-          Oct 2026 (LEGAL_VERSION 2026-10-12.1) to BAA 1.3.0's clause headed
+          Oct 2026 (LEGAL_VERSION 2026-10-12.2) to BAA 1.3.0's clause headed
           "Google Calendar", which every calendar clause and election shares
           in these respects. */}
       <Section id="google" title="11. Google Calendar data (clinics that connect a calendar)">
@@ -584,11 +600,10 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-3 pl-6">
           <li>
             <strong>Only to answer.</strong> The assistant uses the messages to answer the person
-            who wrote, on the clinic&apos;s behalf, and to book an appointment or send the
-            clinic&apos;s own payment link while that conversation is open. The payment link
-            itself carries an amount and a reference and never names a time, service or
-            practitioner. The messages are never used for advertising, never sold, and never used
-            to train models.
+            who wrote, on the clinic&apos;s behalf, and to take a request for an appointment,
+            which the clinic&apos;s staff then confirm, while that conversation is open. It books
+            nothing itself and sends no payment link there. The messages are never used for
+            advertising, never sold, and never used to train models.
           </li>
           <li>
             <strong>Only when the person wrote first.</strong> The assistant replies only inside the
@@ -596,18 +611,30 @@ export default function PrivacyPage() {
             sends nothing after a conversation ends.
           </li>
           <li>
-            <strong>Nothing clinical.</strong> Meta does not sign the agreements that health
-            information requires, so these conversations are kept non-clinical: clinical content is
-            detected when a message arrives and is not stored, and the assistant moves the
-            conversation to a call or the clinic&apos;s own secure route.
+            <strong>Nothing clinical, as far as we can.</strong> Meta does not sign the
+            agreements that health information requires, so the product is set up to keep these
+            conversations non-clinical. Each message is checked for clinical content before the
+            language model sees it. The assistant is instructed not to repeat clinical content,
+            name a treatment or confirm appointment details there, and to move anything clinical
+            to a call or the clinic&apos;s own secure route. Each reply the language model writes
+            there is checked by automated filters designed to keep those out, and a reply the
+            filters refuse is replaced by a fixed one. No filter catches every wording, so clinics
+            should not invite clinical information on these channels, and you should not send it
+            there.
           </li>
           <li>
-            <strong>Kept for the clinic.</strong> The conversation is kept for the clinic that
-            received it, under that clinic&apos;s instructions and its Business Associate Agreement
-            with us, and is visible to that clinic&apos;s team in its portal, and to healdesk staff
-            only as the clinic&apos;s agreement allows. It is deleted automatically{" "}
-            {TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if the clinic chooses.
-            If you wrote to a clinic, that clinic controls the record; see section 13.
+            <strong>Kept for the clinic.</strong> We do not keep the messages a person sends, or
+            a summary of one. From these channels we keep only what a booking request needs, for
+            the clinic that received it: a first name and a telephone number, each checked by automated
+            filters designed to keep clinical content out, the times the person prefers, only in a
+            fixed day-and-time form, and the identifier Meta attaches to the conversation. They are
+            kept under that clinic&apos;s instructions and its Business Associate Agreement with us,
+            are visible to that clinic&apos;s team in its portal, and to healdesk staff only as the
+            clinic&apos;s agreement allows, and are deleted automatically within the periods that
+            agreement sets, which run at most {TRANSCRIPT_RETENTION_DAYS} days from the latest of
+            the request, its appointment and the last change to those details, or sooner if the
+            clinic chooses. If you wrote to a clinic, that clinic controls the record; see section
+            13.
           </li>
         </ul>
       </Section>
@@ -631,7 +658,7 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      {/* Added 12 Oct 2026 (LEGAL_VERSION 2026-10-12.1). BAA 1.3.0's clause
+      {/* Added 12 Oct 2026 (LEGAL_VERSION 2026-10-12.2). BAA 1.3.0's clause
           headed "healdesk's own use, and de-identified statistics" says
           healdesk "commits publicly, at healdesk.io/privacy, to keep and use
           that information only in de-identified form and not to try to

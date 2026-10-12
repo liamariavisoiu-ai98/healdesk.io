@@ -106,7 +106,7 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  * Complete Frontdesk), which section 3's table reads from the catalog: that
  * branch numbered them 2026-10-07.3 on its own line, which never went out.
  *
- * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
+ * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.2, for BAA 1.3.0
  * (release gate 14, docs/counsel/agreement-changes.md § 12.14):
  *   - section 1 defines the "Data Agreement": the Business Associate
  *     Agreement, or the data protection agreement a Practice signs in its
@@ -133,7 +133,23 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  *     signed, and says no real patient information is processed until every
  *     agreement in the chain is in place. It names no vendor, as the owner's
  *     direction of 9 October 2026 has it; sections 9 and 14 say "consistently
- *     with" (ICD-16).
+ *     with" (ICD-16);
+ *   - section 9's Meta paragraph and the annex's Instagram, Messenger and
+ *     WhatsApp item say no more than 1.3.0's softened clause 16, which the
+ *     owner chose on 12 October 2026: each message checked before the model
+ *     sees it; no message and no summary kept; the assistant instructed not
+ *     to repeat clinical content, name a treatment or confirm appointment
+ *     details there; each reply checked by automated filters designed to keep
+ *     those out, a refused reply replaced by a fixed one; and, since no
+ *     filter catches every wording, no invitation to send clinical
+ *     information there. "Caught on arrival", "not stored" and "replies never
+ *     name a treatment" are gone;
+ *   - sections 2 and 9 say the Meta assistant takes booking requests for staff
+ *     to confirm and sends no payment link, which is what the code does:
+ *     lib/meta/front-door.ts creates booking requests and books nothing, its
+ *     prompt forbids deposits and links, and nothing calls
+ *     depositLinkMessage (lib/booking/deposit-gate.ts). Section 2's deposit
+ *     link is "in website chat", not "in chat".
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -168,16 +184,17 @@ export default function TermsPage() {
           website chat, Instagram, Messenger and WhatsApp, on the channels you buy, from the
           services, prices, hours and policies you approve; qualifies enquiries; books
           appointments straight into the Google Calendar you connect, during the conversation,
-          holding the slot before anything is confirmed; sends a hosted deposit link in chat,
-          through your own payment gateway, where you want one; routes anything clinical to your
-          Practice; and reports conversations handled, appointments booked, calls answered that
+          holding the slot before anything is confirmed; sends a hosted deposit link in website
+          chat, through your own payment gateway, where you want one; routes anything clinical to
+          your Practice; and reports conversations handled, appointments booked, calls answered that
           would otherwise have rung out, deposits collected and booked value, meaning the bookings
           it made multiplied by your own configured prices. It does not report revenue, because
           it cannot see it. "Auto-confirm bookings" is on by default; you may instead set every
           booking to be a request your staff approve, and a Practice whose booking system does
           not read Google Calendar for conflicts runs that way (section 8). By phone it cannot
-          take a payment: it books and flags the deposit for your staff to collect. Card numbers
-          are never taken on any channel.
+          take a payment: it books and flags the deposit for your staff to collect. On Instagram,
+          Messenger and WhatsApp it books nothing: it takes booking requests for your staff to
+          confirm, and sends no payment link. Card numbers are never taken on any channel.
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>
@@ -492,11 +509,16 @@ export default function TermsPage() {
           <strong>Meta channels.</strong> Instagram, Messenger and WhatsApp are operated by Meta,
           which does not sign Business Associate Agreements. If you connect them, the agent replies
           there only inside the conversation the person opened, and only within the window Meta
-          allows; it answers from your public menu, prices, hours and policies, can book and can
-          send your own payment link, and never sends clinical content or a treatment name there.
-          Clinical content a person sends on those channels is caught on arrival and is not stored,
-          echoed back or carried into a summary; the agent moves the person to a call or to your
-          own secure route and says why in one sentence. What a person chooses to send to Meta,
+          allows; it answers from your public menu, prices, hours and policies, and takes booking
+          requests for your staff to confirm, and it sends no payment link there. We check each
+          message a person sends there for clinical
+          content before the language model sees it, and keep no message there and no summary of
+          one. The agent is instructed not to repeat clinical content, name a treatment or confirm
+          appointment details there, and to move anything clinical to a call or to your own secure
+          route and say why in one sentence. Each reply the language model writes there is checked
+          by automated filters designed to keep those out, and a reply the filters refuse is
+          replaced by a fixed one. No filter catches every wording, so do not invite patients to
+          send clinical information on these channels. What a person chooses to send to Meta,
           and what Meta keeps, is outside our control and yours. You may switch those channels off
           at any time, and you accept this documented limitation when you connect them.
         </p>
@@ -793,11 +815,16 @@ export default function TermsPage() {
           <li>
             <strong>Instagram, Messenger and WhatsApp.</strong> Meta signs no business associate
             agreement for any messaging product, and no vendor in front of Meta can change that.
-            So these channels are scoped to carry nothing clinical. A patient&apos;s message
-            travels through Meta because that is where the patient wrote to you. Anything clinical
-            in it is caught when it arrives, is not stored, is not repeated back and is not carried
-            into a summary, and the assistant moves the conversation to a call or your own secure
-            route and says why in one sentence. Replies never name a treatment.
+            So the product is set up to keep clinical content off these channels. A patient&apos;s
+            message travels through Meta because that is where the patient wrote to you. We check
+            each message for clinical content before the language model sees it, and keep no
+            message there and no summary of one. The assistant is instructed not to repeat
+            clinical content, name a treatment or confirm appointment details there, and to move
+            anything clinical to a call or your own secure route and say why in one sentence. Each
+            reply the language model writes there is checked by automated filters designed to keep
+            those out, and a reply the filters refuse is replaced by a fixed one. No filter catches
+            every wording, so do not invite patients to send clinical information on these
+            channels.
           </li>
           <li>
             <strong>Deposits.</strong> A deposit is taken through your own payment processor

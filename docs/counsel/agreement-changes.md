@@ -1717,10 +1717,10 @@ these is closed, by code, a page, a signed paper or a host setting, and
     the same day, with the refund clause 17 gives (HRC-07, SUB-03); §9 and
     §14 may say "consistently with" for "in the same way" (ICD-16).
 
-Gates 12 and 14 are written in LEGAL_VERSION 2026-10-12.1, which replaces
-2026-10-09.1; gate 13 is retired. The owner decided on 12 October 2026 for
-the direction of 9 October (cc7d209 and 2acc070, on main through PR #6,
-f002e3f): breaches and incidents are reported "without unreasonable delay
+Gates 12 and 14 are written in LEGAL_VERSION 2026-10-12.2, which replaces
+2026-10-12.1 (main's consent wording, 8eb9b24); gate 13 is retired. The
+owner decided on 12 October 2026 for the direction of 9 October (cc7d209 and
+2acc070, on main through PR #6, f002e3f): breaches and incidents are reported "without unreasonable delay
 and in no case later than 60 calendar days after discovery", and the 24
 hours apps/app's incident deadline keeps is an internal operating target
 that no public page promises; `/subprocessors` is retired, the list given to
@@ -1752,6 +1752,19 @@ is the Terms' annex, "How we protect data".
   since Stripe's portal has cancellation off. The code that ends the
   subscription and refunds on termination (blocker 1 of the C19 audit, refund
   kind `agreement_terminated`) is another branch's.
+- Meta, on the same version: `/privacy` §§ 5 and 12, Terms § 9 and the
+  Terms' annex say no more than clauses 11 and 16 as the owner softened them
+  on 12 October 2026 (no message or summary kept; the assistant instructed;
+  replies checked by filters designed to keep clinical content out, a refused
+  reply replaced by a fixed one; no filter catches every wording). "Caught on
+  arrival", "not stored", "replies never name a treatment" and the 90-day
+  Meta conversation are gone. `/privacy` § 12 also names Meta's identifier
+  for the conversation, which the code keeps (`booking_requests.sender_id`)
+  and clause 4 lists, though clause 11's "keeps only the details in (a)" does
+  not. The same pages say the Meta assistant takes booking requests, books
+  nothing and sends no payment link there, as the code does today
+  (`lib/meta/front-door.ts`; nothing calls `depositLinkMessage`), although
+  clauses 4 and 7 permit a link on Meta.
 
 **Paper and settings**
 

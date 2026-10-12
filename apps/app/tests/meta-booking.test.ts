@@ -311,6 +311,17 @@ describeDb("the booking hand-off, end to end", () => {
     await getMigratorPool().query(`alter table booking_requests enable trigger booking_requests_no_rewrite`);
     expect(await resolveBookingRequest(token)).toBeNull();
     expect(await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
+    // Both refusals are on the record: the second decision, and the decision on a dead link.
+    const refused = await inTenant(c.clinicId, (client) =>
+      client.query<{ reason: string; decision: string }>(
+        `select metadata->>'reason' as reason, metadata->>'decision' as decision from audit_log
+          where resource_type = 'booking_request' and action = 'update' and metadata->>'outcome' = 'rejected' order by occurred_at, id`,
+      ),
+    );
+    expect(refused.rows).toEqual([
+      { reason: "already-decided", decision: "declined" },
+      { reason: "invalid", decision: "accepted" },
+    ]);
   });
 
   test("one message with the three things creates the request at once; nothing else the person wrote survives, and no consent row is written", async () => {
@@ -414,6 +425,12 @@ describeDb("the booking hand-off, end to end", () => {
     const chosen = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
     expect(chosen).toMatchObject({ outcome: "decided", followUp: "sent", calendarWrite: "not-connected" });
     expect(chosen.appointmentId).not.toBeNull();
+    // No calendar terms here: the booking occupies no calendar time (booking_origin
+    // NULL, no calendar), is never written, and carries the request's own key.
+    const requestId = (await resolveBookingRequest(token))!.id;
+    expect((await inTenant(c.clinicId, (client) => client.query(`select booking_origin, calendar_id, calendar_event_key, calendar_write_status from appointments`))).rows).toEqual([
+      { booking_origin: null, calendar_id: null, calendar_event_key: requestId, calendar_write_status: "none" },
+    ]);
     expect(await resolveBookingRequest(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
     expect((await inTenant(c.clinicId, (client) => client.query<{ scheduled_for: Date }>(`select scheduled_for from appointments`))).rows.map((r) => new Date(r.scheduled_for).getTime())).toEqual([Math.floor(d3.getTime() / 1000) * 1000 + (d3.getTime() % 1000)]);
     expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });

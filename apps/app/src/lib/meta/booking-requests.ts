@@ -1,8 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import { BOOKING_FIELDS, findClinicalContent, resolveBookingRequirements, type BookingField, type BookingFieldId } from "@healdesk/catalog";
-import { toE164 } from "@healdesk/connectors";
-import { and, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { GOOGLE_CALENDAR_PROVIDER, googleCalendarAdapter, toE164 } from "@healdesk/connectors";
+import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -13,12 +13,20 @@ import {
   contacts,
   metaBookingDrafts,
   reportRecipients,
+  slotHolds,
+  type AgentService,
   type BookedVia,
+  type BookingOrigin,
   type CalendarWriteStatus,
   type ProposedSlot,
+  type SlotHoldStatus,
 } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
-import { slotLabel, slotsFor, writableConnection, writeToCalendar, type CalendarSlot, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { availableSlotsFor, deskSpanFree, openContext, serviceDuration } from "@/lib/booking/availability";
+import { arrangeSlots, namedWeekdays, slotLabel, writableConnection, writeToCalendar, type CalendarSlot, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { lockClinicCalendar } from "@/lib/booking/holds";
+import { calendarTermsFor } from "@/lib/booking/terms";
+import { calendarBreakOf, googleCalendarConnection, isTokenBreak, markCalendarBroken } from "@/lib/connections/google-calendar";
 import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/reschedule";
 import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
@@ -580,8 +588,10 @@ export type ResolvedBookingRequest = {
   lastInboundAt: Date | null;
   /** Free slots from the writable calendar while the request is open (§B.3); null when there is no writable connection. */
   calendar: { writable: boolean; slots: CalendarSlot[] } | null;
-  /** The confirmed appointment's calendar write, for the read-only views. */
-  calendarWrite: { status: CalendarWriteStatus; error: string | null } | null;
+  /** The confirmed appointment's calendar write, for the read-only views; `attempts` so the page knows when retries have run out. */
+  calendarWrite: { status: CalendarWriteStatus; error: string | null; attempts: number } | null;
+  /** When the assistant held time for this request on the call, if it did. */
+  heldFor: Date | null;
   /** §G.1: whether a Meta line could still reach them; null for a phone request. */
   metaWindowOpen: boolean | null;
 };
@@ -598,7 +608,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
   const clinicId = await clinicForTokenHash(hash);
   if (!clinicId) return null;
 
-  return withTenant({ clinicId, actor: LINK_ACTOR, request }, async (tx) => {
+  const resolved = await withTenant({ clinicId, actor: LINK_ACTOR, request }, async (tx) => {
     const [row] = await tx.db
       .select({
         id: bookingRequests.id,
@@ -624,6 +634,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
         phone: contacts.phone,
         calendarWriteStatus: appointments.calendarWriteStatus,
         calendarWriteError: appointments.calendarWriteError,
+        calendarWriteAttempts: appointments.calendarWriteAttempts,
       })
       .from(bookingRequests)
       .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
@@ -638,11 +649,12 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
     }
     tx.audit.record({ action: "read", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "opened", status: row.status } });
 
-    const open = row.status === "requested" || row.status === "accepted" || row.status === "rescheduling";
-    let calendar: ResolvedBookingRequest["calendar"] = null;
-    if (open && (await writableConnection(tx))) {
-      calendar = { writable: true, slots: await slotsFor(tx, 14, { preferred: [row.preferredWindow, ...row.alternativeWindows] }) };
-    }
+    const [held] = await tx.db
+      .select({ startsAt: slotHolds.startsAt })
+      .from(slotHolds)
+      .where(eq(slotHolds.bookingRequestId, row.id))
+      .orderBy(desc(slotHolds.createdAt))
+      .limit(1);
     return {
       id: row.id,
       clinicId,
@@ -665,11 +677,44 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
       rescheduleExpiresAt: row.rescheduleExpiresAt,
       bookedVia: row.bookedVia,
       lastInboundAt: row.lastInboundAt,
-      calendar,
-      calendarWrite: row.calendarWriteStatus ? { status: row.calendarWriteStatus, error: row.calendarWriteError ?? null } : null,
+      calendar: null as ResolvedBookingRequest["calendar"],
+      calendarWrite: row.calendarWriteStatus ? { status: row.calendarWriteStatus, error: row.calendarWriteError ?? null, attempts: row.calendarWriteAttempts ?? 0 } : null,
+      heldFor: held?.startsAt ?? null,
       metaWindowOpen: row.channel === "meta" ? row.lastInboundAt !== null && row.lastInboundAt.getTime() + META_WINDOW_MS > Date.now() : null,
     };
   });
+  if (!resolved) return null;
+
+  // The calendar's free times, after the transaction and never inside it
+  // (plan §6.4): Google is asked with no transaction open.
+  const open = resolved.status === "requested" || resolved.status === "accepted" || resolved.status === "rescheduling";
+  if (open) resolved.calendar = await deskCalendarSlots(clinicId, resolved);
+  return resolved;
+}
+
+/**
+ * The free times the desk page lists for an open request: the request's
+ * service on the calendar it books into, arranged for a desk with the
+ * person's own windows in front of it (arrangeSlots). The request's own
+ * holds do not block it: a time the assistant reserved for this person is
+ * one the desk may confirm for them. Null where healdesk may not write
+ * (nothing to pick from); an empty list when Google did not answer just
+ * now, so the desk types a time.
+ */
+async function deskCalendarSlots(clinicId: string, req: ResolvedBookingRequest): Promise<ResolvedBookingRequest["calendar"]> {
+  const now = new Date();
+  try {
+    const found = await availableSlotsFor(clinicId, { service: req.treatment ?? req.collectedFields.service ?? null, exceptRequestId: req.id, now, actor: LINK_ACTOR });
+    if (found.status === "ok") {
+      const spans = found.slots.map((s) => ({ startsAt: s.at, endsAt: new Date(s.at.getTime() + found.serviceMinutes * 60_000) }));
+      return { writable: true, slots: arrangeSlots(spans, { timeZone: found.timeZone, now, named: namedWeekdays([req.preferredWindow, ...req.alternativeWindows]) }) };
+    }
+    if (found.status === "broken" || (found.status === "unavailable" && found.reason === "not_writable")) return null;
+    return { writable: true, slots: [] };
+  } catch (error) {
+    log.warn("desk page free times not read", { clinicId, requestId: req.id, error: describeError(error) });
+    return { writable: true, slots: [] };
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -677,12 +722,27 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
 // -----------------------------------------------------------------------------
 
 export type DecisionOutcome = {
-  outcome: "decided" | "already-decided" | "invalid";
+  outcome:
+    | "decided"
+    | "already-decided"
+    | "invalid"
+    /** healdesk already has that time on that calendar (plan §7.10 step 3). */
+    | "slot_taken"
+    /** Google shows the time busy; "Confirm anyway" (addAnyway) books it regardless. */
+    | "calendar_busy"
+    /** The assistant's own write for this request has not settled yet: try again in a minute. */
+    | "checking"
+    /** The assistant's booking for this request reached the calendar after all, and stands. */
+    | "already_in_calendar";
   /** null when the channel has nothing to say on (a phone request: the desk calls). */
   followUp: "sent" | "failed" | "no-channel" | "outside_window" | null;
   appointmentId: string | null;
   /** §B.4: the calendar write's outcome once an appointment was created; null when nothing was confirmed. */
   calendarWrite: CalendarWriteOutcome | null;
+  /** For `slot_taken`: someone holding it on a call right now, or a booking made through healdesk. */
+  takenBy?: "live_call" | "booking";
+  /** For `already_in_calendar`: when the assistant booked them. */
+  bookedFor?: Date;
 };
 
 export type DecisionInput = {
@@ -692,6 +752,8 @@ export type DecisionInput = {
   treatment?: string | null;
   /** §C.1: one to three future times, each from the calendar or typed by the desk. */
   proposedSlots?: { at: Date; source?: "calendar" | "desk" }[];
+  /** "Confirm anyway": staff saw Google show the time busy and confirm it regardless. Audited. */
+  addAnyway?: boolean;
   request?: RequestContext;
   /** Injectable so tests can pin the clock. */
   now?: Date;
@@ -707,6 +769,10 @@ const DECIDABLE_FROM: Record<BookingDecision, OpenStatus[]> = {
   rescheduling: ["requested", "accepted", "rescheduling"],
 };
 
+/** How long after the assistant's insert attempt its outcome may still be on its way (plan §7.10). */
+export const ASSISTANT_WRITE_GRACE_MS = 2 * 60_000;
+const ASSISTANT_LATE_LABEL = "assistant (calendar write confirmed after the call)";
+
 function isValidDate(value: unknown): value is Date {
   return value instanceof Date && Number.isFinite(value.getTime());
 }
@@ -717,19 +783,87 @@ export function rescheduleDeadline(expiresAt: Date, slots: readonly { at: Date }
   return new Date(Math.min(...candidates));
 }
 
+type RequestFacts = {
+  id: string;
+  status: BookingRequestStatus;
+  expired: boolean;
+  treatment: string | null;
+  collectedFields: Record<string, string>;
+  /** The request's newest hold that is not finished, if any. */
+  hold: { id: string; status: SlotHoldStatus; insertAttemptedAt: Date | null } | null;
+  /** The request's newest hold in any state: the calendar a confirmation goes on, and the event key it is written under. */
+  keyHold: { id: string; calendarId: string } | null;
+  /** The services list, for the confirmed span's length and canonical name. */
+  services: AgentService[];
+};
+
+/** The facts the guard and the re-check need, read before the decision's own transaction. */
+async function readRequestFacts(tx: TenantTx, hash: Buffer): Promise<RequestFacts | null> {
+  const [row] = await tx.db
+    .select({
+      id: bookingRequests.id,
+      status: bookingRequests.status,
+      expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
+      treatment: bookingRequests.treatment,
+      collectedFields: bookingRequests.collectedFields,
+    })
+    .from(bookingRequests)
+    .where(eq(bookingRequests.tokenHash, hash))
+    .limit(1);
+  if (!row) return null;
+  const [hold] = await tx.db
+    .select({ id: slotHolds.id, status: slotHolds.status, insertAttemptedAt: slotHolds.insertAttemptedAt })
+    .from(slotHolds)
+    .where(and(eq(slotHolds.bookingRequestId, row.id), inArray(slotHolds.status, ["writing", "unknown", "reserved", "held"])))
+    .orderBy(desc(slotHolds.createdAt))
+    .limit(1);
+  const [keyHold] = await tx.db
+    .select({ id: slotHolds.id, calendarId: slotHolds.calendarId })
+    .from(slotHolds)
+    .where(eq(slotHolds.bookingRequestId, row.id))
+    .orderBy(desc(slotHolds.createdAt))
+    .limit(1);
+  const [agent] = await tx.db.select({ services: agentConfigs.services }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
+  return { ...row, hold: hold ?? null, keyHold: keyHold ?? null, services: agent?.services ?? [] };
+}
+
 /**
- * The desk's answer. One conditional UPDATE decides who wins a double
- * click; the trigger in 0040 makes the decision final, with the permitted
- * second steps (accepted → confirmed, → rescheduling; rescheduling →
- * confirmed, declined). Confirming a slot is the one place in the product
- * an appointment row is created from an agent's conversation: the desk's
- * click, not the agent's word, is the booking. Then, on a Meta thread, the
- * person is told through the clinic's sealed token — the fixed line above,
- * never the desk's note and never the time — and only inside Meta's window.
+ * The desk's answer (plan §7.10). One conditional UPDATE, under the request's
+ * row lock, decides who wins a double click; the trigger in 0040 makes the
+ * decision final, with the permitted second steps (accepted → confirmed,
+ * → rescheduling; rescheduling → confirmed, declined). Confirming a slot is
+ * the one place in the product an appointment row is created from a request:
+ * the desk's click, not the agent's word, is the booking. Then, on a Meta
+ * thread, the person is told through the clinic's sealed token — the fixed
+ * line above, never the desk's note and never the time — and only inside
+ * Meta's window.
  *
- * The transaction commits exactly as before; the calendar write (§B.4)
- * happens after it, so a vendor timeout can never roll back the desk's
- * decision, and a re-notify or retry finds the row in the state it was left.
+ * Before anything is decided:
+ *
+ *   1. **The assistant's own write.** Where the assistant held time for this
+ *      request and its Google insert has not settled (a hold `writing`, or
+ *      `unknown` within two minutes of the attempt), every decision answers
+ *      `checking`: deciding now could put a second booking in the calendar
+ *      beside one about to land. An `unknown` hold past the grace is read
+ *      back from Google: found, the assistant's booking stands
+ *      (`already_in_calendar`); gone, the decision goes on.
+ *   2. **Google, for a confirmation** on a location whose terms let healdesk
+ *      write: the exact span, freshly (deskSpanFree). Busy is
+ *      `calendar_busy` until staff confirm anyway; a definitive failure has
+ *      already flipped the location to manual booking, and the decision goes
+ *      on.
+ *   3. **The decision**, under the location's calendar lock and the
+ *      request's row lock. Its own holds are settled first: a deposit
+ *      reservation over exactly the confirmed span becomes the booking;
+ *      every other is released. A confirmation on a location whose terms
+ *      let healdesk write occupies its calendar (`booking_origin 'desk'`),
+ *      so the database refuses one that overlaps a live hold or another
+ *      healdesk booking (`slot_taken`); elsewhere (`not_used`, `none`) it
+ *      occupies nothing, and staff may confirm two at once for two people.
+ *
+ * The transaction commits before the calendar write (plan §7.12), so a
+ * Google timeout can never roll back the desk's decision, and a re-notify
+ * or retry finds the row in the state it was left.
  */
 export async function decideBookingRequest(
   token: string,
@@ -755,111 +889,69 @@ export async function decideBookingRequest(
   }
   const clinicId = await clinicForTokenHash(hash);
   if (!clinicId) return none;
+  const actor = { clinicId, actor: LINK_ACTOR, request: input.request };
+  const from = DECIDABLE_FROM[decision];
 
-  const decided = await withTenant({ clinicId, actor: LINK_ACTOR, request: input.request }, async (tx): Promise<DecisionOutcome> => {
-    const from = DECIDABLE_FROM[decision];
-    const [candidate] = await tx.db
-      .select({
-        id: bookingRequests.id,
-        status: bookingRequests.status,
-        contactId: bookingRequests.contactId,
-        conversationId: bookingRequests.conversationId,
-        treatment: bookingRequests.treatment,
-        collectedFields: bookingRequests.collectedFields,
-        expiresAt: bookingRequests.expiresAt,
-        expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
-        timezone: clinics.timezone,
-        clinicName: clinics.name,
-      })
-      .from(bookingRequests)
-      .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
-      .where(eq(bookingRequests.tokenHash, hash))
-      .limit(1);
-    const decidable = candidate && !candidate.expired && (from as string[]).includes(candidate.status);
-    if (!decidable) {
-      const outcome = candidate && !candidate.expired ? "already-decided" : "invalid";
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate?.id, metadata: { outcome: "rejected", reason: outcome, decision } });
-      return { ...none, outcome };
+  // 1. The assistant's own write, outside any transaction. A refusal is
+  // audited as the decision's own transaction audits one.
+  const facts = await withTenant(actor, async (tx) => {
+    const read = await readRequestFacts(tx, hash);
+    if (read && (read.expired || !(from as string[]).includes(read.status))) {
+      rejected(tx, read.id, read.expired ? "invalid" : "already-decided", decision);
     }
-
-    // Confirming creates the appointment FIRST, so the status and the
-    // appointment id land in one statement: the table's shape check says a
-    // confirmed row always has both, and a check is judged per statement.
-    let appointmentId: string | null = null;
-    if (decision === "confirmed") {
-      appointmentId = await insertAppointment(tx, {
-        contactId: candidate.contactId,
-        conversationId: candidate.conversationId,
-        scheduledFor: input.confirmedFor!,
-        treatment: input.treatment?.trim().slice(0, 120) || candidate.treatment || candidate.collectedFields.service || null,
-      });
-    }
-
-    const slots: ProposedSlot[] = proposed.map((s) => ({ at: s.at.toISOString(), label: slotLabel(s.at, candidate.timezone), source: s.source }));
-
-    // One conditional UPDATE decides who wins a double click.
-    const [row] = await tx.db
-      .update(bookingRequests)
-      .set({
-        status: decision,
-        decidedAt: now,
-        decidedByLabel: input.decidedByLabel?.trim().slice(0, 80) || null,
-        deskNote: input.deskNote?.trim().slice(0, 500) || null,
-        ...(decision === "confirmed" ? { confirmedFor: input.confirmedFor!, appointmentId } : {}),
-        ...(decision === "rescheduling" ? { proposedSlots: slots, rescheduleExpiresAt: rescheduleDeadline(candidate.expiresAt, proposed, now) } : {}),
-      })
-      .where(and(eq(bookingRequests.id, candidate.id), inArray(bookingRequests.status, from), gt(bookingRequests.expiresAt, sql`now()`)))
-      .returning({
-        id: bookingRequests.id,
-        channel: bookingRequests.channel,
-        platform: bookingRequests.platform,
-        externalId: bookingRequests.externalId,
-        senderId: bookingRequests.senderId,
-        connectionId: bookingRequests.connectionId,
-      });
-    if (!row) {
-      // Lost the race to a colleague's click between the read and the write.
-      if (appointmentId) await tx.db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)));
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "rejected", reason: "already-decided", decision } });
-      return { ...none, outcome: "already-decided" };
-    }
-    if (appointmentId) {
-      tx.audit.record({
-        action: "create",
-        resourceType: "appointment",
-        resourceId: appointmentId,
-        metadata: { conversationId: candidate.conversationId ?? undefined, bookingRequestId: row.id, confirmedByDesk: true, confirmedByClinicSystem: false },
-      });
-    }
-    tx.audit.record({
-      action: "update",
-      resourceType: "booking_request",
-      resourceId: row.id,
-      metadata: { outcome: "decided", decision, channel: row.channel, slots: decision === "rescheduling" ? slots.length : undefined },
-    });
-
-    // §C.2: the desk goes through the alternatives by phone; on a Meta
-    // thread, a fixed line says so, inside the window only.
-    if (decision === "rescheduling") {
-      const outreach: RescheduleOutreach = await planRescheduleOutreach(tx, row, { send, now });
-      return { outcome: "decided", followUp: outreach.meta, appointmentId: null, calendarWrite: null };
-    }
-
-    if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
-    if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
-    const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true };
-    try {
-      // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
-      // message tag and no template, so the desk calls instead.
-      const sent = await sendMetaReply(tx, owner, row.externalId, row.senderId, followUpLine(candidate.clinicName, decision), send, { now });
-      if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null };
-      tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: row.platform, source: "booking_follow_up" } });
-      return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null };
-    } catch (error) {
-      log.error("booking follow-up not sent", { clinicId: tx.clinicId, requestId: row.id, error: describeError(error) });
-      return { outcome: "decided", followUp: "failed", appointmentId, calendarWrite: null };
-    }
+    return read;
   });
+  if (!facts) return none;
+  if (facts.expired) return none;
+  if (!(from as string[]).includes(facts.status)) return { ...none, outcome: "already-decided" };
+  const guard = await assistantWriteGuard(clinicId, facts, now);
+  if (guard) {
+    await withTenant(actor, async (tx) => rejected(tx, facts.id, guard.outcome, decision));
+    return guard;
+  }
+
+  // 2. Google, for a confirmation: on the calendar of the assistant's hold
+  // for this request when it held time (that is where its event, if any,
+  // lives, and the desk's goes under the same key), else the service's.
+  const service = serviceDuration(facts.services, input.treatment?.trim() || facts.treatment || facts.collectedFields.service || null);
+  let deskCalendar: { calendarId: string; providerId: string | null } | null = null;
+  if (decision === "confirmed") {
+    const span = await deskSpanFree(clinicId, { startsAt: input.confirmedFor!, durationMinutes: service.minutes, service: service.canonicalName, calendarId: facts.keyHold?.calendarId ?? null, actor: LINK_ACTOR });
+    if (span.status === "free" || span.status === "busy") deskCalendar = { calendarId: span.calendarId, providerId: span.providerId };
+    if (span.status === "busy" && !input.addAnyway) {
+      // A colleague may have confirmed it meanwhile, and its event is what
+      // Google shows: that is already-decided, not a busy calendar.
+      return withTenant(actor, async (tx) => {
+        const again = await readRequestFacts(tx, hash);
+        const outcome = !again || again.expired || !(from as string[]).includes(again.status) ? "already-decided" : "calendar_busy";
+        rejected(tx, facts.id, outcome, decision);
+        return { ...none, outcome };
+      });
+    }
+  }
+
+  // 3. The decision.
+  let decided: DecisionOutcome;
+  try {
+    decided = await withTenant(actor, (tx) =>
+      decideWithin(tx, { hash, decision, input, proposed, from, now, service, deskCalendar, send }),
+    );
+  } catch (error) {
+    if (codeOf(error) !== "23P01") throw error;
+    // The database refused a booking over time healdesk already has there.
+    // Decided meanwhile by a colleague is already-decided; otherwise say
+    // whether it is a live call holding it or a booking.
+    return withTenant(actor, async (tx) => {
+      const again = await readRequestFacts(tx, hash);
+      if (!again || !(from as string[]).includes(again.status)) {
+        rejected(tx, facts.id, "already-decided", decision);
+        return { ...none, outcome: "already-decided" as const };
+      }
+      const live = await liveHoldOverlaps(tx, input.confirmedFor!, service.minutes);
+      rejected(tx, again.id, "slot_taken", decision);
+      return { ...none, outcome: "slot_taken" as const, takenBy: live ? ("live_call" as const) : ("booking" as const) };
+    });
+  }
 
   // §B.4: after the commit, and never inside it.
   if (decided.outcome === "decided" && decided.appointmentId) {
@@ -868,10 +960,365 @@ export async function decideBookingRequest(
   return decided;
 }
 
-async function insertAppointment(
-  tx: TenantTx,
-  input: { contactId: string; conversationId: string | null; scheduledFor: Date; treatment: string | null },
-): Promise<string> {
+/** The desk's decision refused, audited as the decision's own transaction audits one. */
+function rejected(tx: TenantTx, requestId: string, reason: string, decision: BookingDecision): void {
+  tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "rejected", reason, decision } });
+}
+
+/**
+ * Step 1 of the desk path (plan §7.10): null to go on, or the outcome to
+ * answer with. Only an `unknown` hold past its grace asks Google, and only
+ * an answer that leaves the assistant's write unsettled keeps the desk
+ * waiting: a transient miss is `checking`; a grant or calendar taken away
+ * breaks the connection (the location books by request from now on) and
+ * the desk decides, as it does when the event is gone, deleted, or not
+ * ours.
+ */
+async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: Date): Promise<DecisionOutcome | null> {
+  const hold = facts.hold;
+  const checking: DecisionOutcome = { outcome: "checking", followUp: null, appointmentId: null, calendarWrite: null };
+  if (!hold) return null;
+  if (hold.status === "writing") return checking;
+  if (hold.status !== "unknown") return null;
+  if (!hold.insertAttemptedAt || now.getTime() - hold.insertAttemptedAt.getTime() < ASSISTANT_WRITE_GRACE_MS) return checking;
+
+  const read = await withTenant({ clinicId, actor: LINK_ACTOR }, async (tx) => {
+    const target = await writableConnection(tx);
+    if (!target) return null;
+    const [row] = await tx.db
+      .select({ calendarId: slotHolds.calendarId, startsAt: slotHolds.startsAt })
+      .from(slotHolds)
+      .where(eq(slotHolds.id, hold.id))
+      .limit(1);
+    if (!row) return null;
+    const context = await openContext(tx, target, "calendar_read_back");
+    return { target, calendarId: row.calendarId, context: { ...context, metadata: { ...context.metadata, calendarId: row.calendarId } }, startsAt: row.startsAt };
+  });
+  // Nowhere to read back from: the location's calendar is gone, so the
+  // assistant's write cannot be confirmed, and the desk decides.
+  if (!read) return null;
+  const found = await googleCalendarAdapter.findAppointmentByKey(read.context, { idempotencyKey: `hold:${hold.id}`, around: read.startsAt });
+  if (!found.ok) {
+    const code = calendarBreakOf(found.error);
+    if (code) {
+      // A named provider's calendar gone is that calendar's problem, not the
+      // location's (as availability reads it); the grant gone, or the
+      // location's own calendar, breaks the connection.
+      if (isTokenBreak(code) || read.calendarId === read.target.calendarId) {
+        try {
+          await markCalendarBroken(clinicId, { code, connectionId: read.target.connectionId, credentialVersion: read.target.credentialVersion, actor: LINK_ACTOR });
+        } catch (error) {
+          log.error("calendar break not recorded", { clinicId, error: describeError(error) });
+        }
+      }
+      return null;
+    }
+    const reason = found.error.reason;
+    return reason === "deleted_in_calendar" || reason === "not_ours" ? null : checking;
+  }
+  if (!found.value) return null;
+  const event = found.value;
+
+  let recorded: RecordedLateWrite;
+  try {
+    recorded = await withTenant({ clinicId, actor: LINK_ACTOR }, (tx) => recordAssistantWrite(tx, hold.id, event.externalId, now));
+  } catch (error) {
+    if (codeOf(error) !== "23P01") throw error;
+    // §7.9: the assistant's event reached Google after its hold stopped
+    // blocking, and the time has been taken since. The record rolled back
+    // whole; the hold is let go and never retried (the writer never deletes
+    // an event), and the desk decides.
+    await withTenant({ clinicId, actor: LINK_ACTOR }, (tx) => releaseUnknownHold(tx, hold.id, "record_conflict"));
+    return null;
+  }
+  return recorded.kind === "recorded"
+    ? { outcome: "already_in_calendar", followUp: null, appointmentId: recorded.appointmentId, calendarWrite: "written", bookedFor: recorded.startsAt }
+    : null;
+}
+
+type RecordedLateWrite =
+  | { kind: "recorded"; appointmentId: string; startsAt: Date }
+  /** The hold is no longer `unknown`: someone else recorded or released it. */
+  | { kind: "settled" }
+  /** The request was decided (or erased) meanwhile: the hold is released, nothing recorded. */
+  | { kind: "request_decided" };
+
+/**
+ * The record step for an assistant write found in Google after the fact
+ * (plan §7.9, the watch's fence): the `unknown` hold becomes `converted`,
+ * its booking is recorded as written with the hold's own time, length and
+ * calendar, and the request is confirmed by the assistant.
+ *
+ * The hold and its request are read and locked before anything is written,
+ * so a hold someone else settled, or a request decided meanwhile, changes
+ * nothing but the release of that hold (`request_decided`). A 23P01 from
+ * the booking (its time retaken after the hold stopped blocking) rolls the
+ * whole of it back; the caller releases the hold.
+ */
+async function recordAssistantWrite(tx: TenantTx, holdId: string, externalId: string, now: Date): Promise<RecordedLateWrite> {
+  await lockClinicCalendar(tx);
+  const [hold] = await tx.db
+    .select({ startsAt: slotHolds.startsAt, minutes: slotHolds.durationMinutes, calendarId: slotHolds.calendarId, requestId: slotHolds.bookingRequestId })
+    .from(slotHolds)
+    .where(and(eq(slotHolds.id, holdId), eq(slotHolds.clinicId, tx.clinicId), eq(slotHolds.status, "unknown")))
+    .for("update")
+    .limit(1);
+  if (!hold) return { kind: "settled" };
+  const [request] = hold.requestId
+    ? await tx.db
+        .select({ id: bookingRequests.id, contactId: bookingRequests.contactId, conversationId: bookingRequests.conversationId, treatment: bookingRequests.treatment, status: bookingRequests.status, expired: sql<boolean>`${bookingRequests.expiresAt} <= now()` })
+        .from(bookingRequests)
+        .where(eq(bookingRequests.id, hold.requestId))
+        .for("update")
+        .limit(1)
+    : [];
+  if (!request || request.expired || !(DECIDABLE_FROM.confirmed as string[]).includes(request.status)) {
+    await releaseUnknownHold(tx, holdId, "request_decided");
+    return { kind: "request_decided" };
+  }
+  await tx.db
+    .update(slotHolds)
+    .set({ status: "converted", outcomeReason: "written_late", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
+    .where(and(eq(slotHolds.id, holdId), eq(slotHolds.status, "unknown")));
+  const appointmentId = await insertAppointment(tx, {
+    contactId: request.contactId,
+    conversationId: request.conversationId,
+    scheduledFor: hold.startsAt,
+    treatment: request.treatment,
+    durationMinutes: hold.minutes,
+    bookingOrigin: "assistant",
+    calendarEventKey: `hold:${holdId}`,
+    calendarId: hold.calendarId,
+    written: { externalId, at: now },
+  });
+  await tx.db.update(slotHolds).set({ appointmentId, updatedAt: sql`now()` }).where(eq(slotHolds.id, holdId));
+  await tx.db
+    .update(bookingRequests)
+    .set({ status: "confirmed", confirmedFor: hold.startsAt, appointmentId, decidedAt: now, decidedByLabel: ASSISTANT_LATE_LABEL })
+    .where(eq(bookingRequests.id, request.id));
+  tx.audit.record({ action: "create", resourceType: "appointment", resourceId: appointmentId, metadata: { bookingRequestId: request.id, bookedByAssistant: true, writtenLate: true } });
+  return { kind: "recorded", appointmentId, startsAt: hold.startsAt };
+}
+
+/** Let go of an `unknown` hold whose write will never be recorded (plan §7.9), audited. */
+async function releaseUnknownHold(tx: TenantTx, holdId: string, reason: "record_conflict" | "request_decided"): Promise<void> {
+  const released = await tx.db
+    .update(slotHolds)
+    .set({ status: "released", outcomeReason: reason, releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
+    .where(and(eq(slotHolds.id, holdId), eq(slotHolds.clinicId, tx.clinicId), eq(slotHolds.status, "unknown")))
+    .returning({ id: slotHolds.id });
+  if (released.length) {
+    tx.audit.record({ action: "update", resourceType: "slot_hold", resourceId: holdId, metadata: { outcome: "released", reason } });
+  }
+}
+
+/** Whether a live hold (a call holding time right now) overlaps the span, on any calendar. */
+async function liveHoldOverlaps(tx: TenantTx, startsAt: Date, minutes: number): Promise<boolean> {
+  const end = new Date(startsAt.getTime() + minutes * 60_000);
+  const [row] = await tx.db
+    .select({ id: slotHolds.id })
+    .from(slotHolds)
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        sql`${slotHolds.startsAt} < ${end} and ${startsAt} < ${slotHolds.endsAt}`,
+        sql`((${slotHolds.status} = 'held' and ${slotHolds.expiresAt} > clock_timestamp())
+             or (${slotHolds.status} in ('writing', 'unknown', 'reserved') and ${slotHolds.blocksUntil} > clock_timestamp()))`,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+type DecideWithinInput = {
+  hash: Buffer;
+  decision: BookingDecision;
+  input: DecisionInput;
+  proposed: { at: Date; source: "calendar" | "desk" }[];
+  from: OpenStatus[];
+  now: Date;
+  service: { minutes: number; canonicalName: string | null };
+  deskCalendar: { calendarId: string; providerId: string | null } | null;
+  send?: MetaSender;
+};
+
+/** Step 3 of the desk path: the decision itself, in the caller's transaction. */
+async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<DecisionOutcome> {
+  const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null, calendarWrite: null };
+  const { decision, input, from, now } = d;
+  // The calendar lock first, then the request's row lock: two confirmations
+  // of one request queue here, and the second finds it decided.
+  await lockClinicCalendar(tx);
+  const [candidate] = await tx.db
+    .select({
+      id: bookingRequests.id,
+      status: bookingRequests.status,
+      contactId: bookingRequests.contactId,
+      conversationId: bookingRequests.conversationId,
+      treatment: bookingRequests.treatment,
+      collectedFields: bookingRequests.collectedFields,
+      expiresAt: bookingRequests.expiresAt,
+      expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
+    })
+    .from(bookingRequests)
+    .where(eq(bookingRequests.tokenHash, d.hash))
+    .for("update")
+    .limit(1);
+  const [clinic] = await tx.db.select({ timezone: clinics.timezone, clinicName: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
+  const decidable = candidate && clinic && !candidate.expired && (from as string[]).includes(candidate.status);
+  if (!decidable) {
+    const outcome = candidate && !candidate.expired ? "already-decided" : "invalid";
+    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate?.id, metadata: { outcome: "rejected", reason: outcome, decision } });
+    return { ...none, outcome };
+  }
+
+  // The request's own holds. One still being written means the assistant
+  // may yet book it (the guard above saw it a moment ago, or it started
+  // since): the desk waits.
+  const holds = await tx.db
+    .select({ id: slotHolds.id, status: slotHolds.status, startsAt: slotHolds.startsAt, minutes: slotHolds.durationMinutes, calendarId: slotHolds.calendarId, insertAttemptedAt: slotHolds.insertAttemptedAt })
+    .from(slotHolds)
+    .where(eq(slotHolds.bookingRequestId, candidate.id))
+    .orderBy(desc(slotHolds.createdAt));
+  if (holds.some((h) => h.status === "writing" || (h.status === "unknown" && (!h.insertAttemptedAt || now.getTime() - h.insertAttemptedAt.getTime() < ASSISTANT_WRITE_GRACE_MS)))) {
+    rejected(tx, candidate.id, "checking", decision);
+    return { ...none, outcome: "checking" };
+  }
+  const terms = await calendarTermsFor(tx);
+  const writes = terms.kind === "covered" || terms.kind === "uncovered";
+  const reserved =
+    decision === "confirmed"
+      ? holds.find((h) => h.status === "reserved" && h.startsAt.getTime() === input.confirmedFor!.getTime() && h.minutes === d.service.minutes)
+      : undefined;
+  if (reserved) {
+    await tx.db
+      .update(slotHolds)
+      .set({ status: "converted", outcomeReason: "desk_confirmed", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
+      .where(and(eq(slotHolds.id, reserved.id), eq(slotHolds.status, "reserved")));
+  }
+  await tx.db
+    .update(slotHolds)
+    .set({ status: "released", outcomeReason: "desk_decided", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
+    .where(and(eq(slotHolds.bookingRequestId, candidate.id), inArray(slotHolds.status, ["held", "reserved", "unknown"])));
+
+  // Confirming creates the appointment FIRST, so the status and the
+  // appointment id land in one statement: the table's shape check says a
+  // confirmed row always has both, and a check is judged per statement.
+  let appointmentId: string | null = null;
+  if (decision === "confirmed") {
+    // Where the assistant held time for this request, the booking takes the
+    // hold's key and the hold's calendar together: Google's event ids are
+    // unique only within a calendar, so an assistant insert that landed late
+    // meets this event there (a 409, read back) instead of sitting beside it
+    // on another provider's calendar.
+    const assistantHold = reserved ?? holds[0];
+    const target = writes ? await writableConnection(tx) : null;
+    const connection = writes && !target ? await googleCalendarConnection(tx) : null;
+    appointmentId = await insertAppointment(tx, {
+      contactId: candidate.contactId,
+      conversationId: candidate.conversationId,
+      scheduledFor: input.confirmedFor!,
+      treatment: d.service.canonicalName ?? (input.treatment?.trim().slice(0, 120) || candidate.treatment || candidate.collectedFields.service || null),
+      durationMinutes: d.service.minutes,
+      // Occupies the location's calendar wherever healdesk writes to it, a
+      // broken connection included, so it still blocks the assistant after
+      // a reconnect; under terms that never write it occupies nothing.
+      bookingOrigin: writes ? "desk" : null,
+      calendarEventKey: assistantHold ? `hold:${assistantHold.id}` : candidate.id,
+      calendarId: writes ? (assistantHold?.calendarId ?? d.deskCalendar?.calendarId ?? target?.calendarId ?? connection?.calendarId ?? "primary") : null,
+    });
+    if (reserved) {
+      await tx.db.update(slotHolds).set({ appointmentId, updatedAt: sql`now()` }).where(eq(slotHolds.id, reserved.id));
+    }
+    if (input.addAnyway) {
+      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "confirmed_over_busy", decision } });
+    }
+  }
+
+  const slots: ProposedSlot[] = d.proposed.map((s) => ({ at: s.at.toISOString(), label: slotLabel(s.at, clinic.timezone), source: s.source }));
+
+  // One conditional UPDATE decides who wins a double click.
+  const [row] = await tx.db
+    .update(bookingRequests)
+    .set({
+      status: decision,
+      decidedAt: now,
+      decidedByLabel: input.decidedByLabel?.trim().slice(0, 80) || null,
+      deskNote: input.deskNote?.trim().slice(0, 500) || null,
+      ...(decision === "confirmed" ? { confirmedFor: input.confirmedFor!, appointmentId } : {}),
+      ...(decision === "rescheduling" ? { proposedSlots: slots, rescheduleExpiresAt: rescheduleDeadline(candidate.expiresAt, d.proposed, now) } : {}),
+    })
+    .where(and(eq(bookingRequests.id, candidate.id), inArray(bookingRequests.status, from), gt(bookingRequests.expiresAt, sql`now()`)))
+    .returning({
+      id: bookingRequests.id,
+      channel: bookingRequests.channel,
+      platform: bookingRequests.platform,
+      externalId: bookingRequests.externalId,
+      senderId: bookingRequests.senderId,
+      connectionId: bookingRequests.connectionId,
+    });
+  if (!row) {
+    // Lost the race to a colleague's click between the read and the write.
+    if (appointmentId) await tx.db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)));
+    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "rejected", reason: "already-decided", decision } });
+    return { ...none, outcome: "already-decided" };
+  }
+  if (appointmentId) {
+    tx.audit.record({
+      action: "create",
+      resourceType: "appointment",
+      resourceId: appointmentId,
+      metadata: { conversationId: candidate.conversationId ?? undefined, bookingRequestId: row.id, confirmedByDesk: true, confirmedByClinicSystem: false },
+    });
+  }
+  tx.audit.record({
+    action: "update",
+    resourceType: "booking_request",
+    resourceId: row.id,
+    metadata: { outcome: "decided", decision, channel: row.channel, slots: decision === "rescheduling" ? slots.length : undefined },
+  });
+
+  // §C.2: the desk goes through the alternatives by phone; on a Meta
+  // thread, a fixed line says so, inside the window only.
+  if (decision === "rescheduling") {
+    const outreach: RescheduleOutreach = await planRescheduleOutreach(tx, row, { send: d.send, now });
+    return { outcome: "decided", followUp: outreach.meta, appointmentId: null, calendarWrite: null };
+  }
+
+  if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
+  if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
+  const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true };
+  try {
+    // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
+    // message tag and no template, so the desk calls instead.
+    const sent = await sendMetaReply(tx, owner, row.externalId, row.senderId, followUpLine(clinic.clinicName, decision), d.send, { now });
+    if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null };
+    tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: row.platform, source: "booking_follow_up" } });
+    return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null };
+  } catch (error) {
+    log.error("booking follow-up not sent", { clinicId: tx.clinicId, requestId: row.id, error: describeError(error) });
+    return { outcome: "decided", followUp: "failed", appointmentId, calendarWrite: null };
+  }
+}
+
+type AppointmentInput = {
+  contactId: string;
+  conversationId: string | null;
+  scheduledFor: Date;
+  treatment: string | null;
+  /** The canonical service's length; null is read as 30 by the guard and the writer. */
+  durationMinutes: number | null;
+  /** 'desk' where the location's terms let healdesk write; 'assistant' for its own; null elsewhere. */
+  bookingOrigin: BookingOrigin | null;
+  /** What the Google event id derives from: "hold:" + the hold's id, or the request's id. */
+  calendarEventKey: string;
+  /** The calendar it occupies and is written to; null where nothing is written. */
+  calendarId: string | null;
+  /** Already in Google: the assistant's write, found by a read-back. */
+  written?: { externalId: string; at: Date };
+};
+
+async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise<string> {
   // The agent's script carries the clinic's deposit rule; with no payment
   // link path, a required deposit is owed to the front desk.
   const [agent] = await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
@@ -889,9 +1336,31 @@ async function insertAppointment(
       // The desk confirmed it; the clinic's own system has not reported it
       // back to us, and may never. See schema.ts.
       externalConfirmedAt: null,
+      durationMinutes: input.durationMinutes,
+      bookingOrigin: input.bookingOrigin,
+      calendarEventKey: input.calendarEventKey,
+      calendarId: input.calendarId,
+      ...(input.written
+        ? {
+            calendarWriteStatus: "written" as const,
+            calendarWrittenAt: input.written.at,
+            externalAppointmentId: input.written.externalId,
+            externalSource: GOOGLE_CALENDAR_PROVIDER,
+          }
+        : {}),
     })
     .returning({ id: appointments.id });
   return appointment!.id;
+}
+
+function codeOf(error: unknown): string | undefined {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
+    if (typeof current !== "object") return undefined;
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 // -----------------------------------------------------------------------------

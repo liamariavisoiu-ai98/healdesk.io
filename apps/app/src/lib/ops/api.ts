@@ -2768,10 +2768,16 @@ async function readBookingState(
   clinic: Awaited<ReturnType<typeof listClinicOverviews>>[number],
   connections: Awaited<ReturnType<typeof listConnections>>,
 ) {
+  // The location's Google Calendar when healdesk may write to it now (C12):
+  // the one write target v1 has. It decides the console's `calendar` gate;
+  // the legacy projection below keeps describing vendor connections only,
+  // until the console's cards are rebuilt (C17).
   const writable = await writableConnection(tx);
   // The connection healdesk COULD write into once a basis is recorded: the
   // active connection whose registered adapter has the write side. Reported
   // even when not yet writable, so the console can offer the basis select.
+  // No vendor connection is written to any more (lib/booking/calendar.ts is
+  // Google-only), so such a connection is never `writable`.
   // Never the Google Calendar connection, although its adapter has the write
   // side: what may reach it is the location's calendar terms, never a basis
   // an operator records (setConnectionPhiBasis refuses one), so offering the
@@ -2789,11 +2795,9 @@ async function readBookingState(
         .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.id, candidates[0]!.id)))
         .limit(1)
     : [];
-  const calendarConnection = writable
-    ? { connectionId: writable.connectionId, platform: writable.provider, phiBasis: writable.phiBasis, writable: true }
-    : candidate
-      ? { connectionId: candidate.id, platform: candidate.provider, phiBasis: candidate.phiBasis, writable: false }
-      : null;
+  const calendarConnection = candidate
+    ? { connectionId: candidate.id, platform: candidate.provider, phiBasis: candidate.phiBasis, writable: false }
+    : null;
 
   const [outstanding] = await tx.db
     .select({ id: connectionLinks.id })

@@ -1,19 +1,175 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 
-import { slotHolds, type SlotHoldStatus } from "@/db/schema";
-import type { TenantTx } from "@/lib/tenant";
+import { and, eq, inArray, lt, sql } from "drizzle-orm";
+
+import { slotHolds, type SlotHoldChannel, type SlotHoldStatus } from "@/db/schema";
+import type { ActorContext } from "@/lib/audit";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 /**
  * Slot holds: the time the assistant is holding on a location's calendar
  * (plan §7). The overlap guard, the states and the write-once fields are the
  * database's (drizzle/0057, app_slot_hold_guard and app_slot_hold_transition);
  * placing, claiming and converting a hold arrive with the booking engine
- * (C12, C13). What is here already is the one step every change of calendar
- * needs: letting go of what the location holds.
+ * (C13). Here: the location's calendar lock, placing a 60-second hold on
+ * one calendar, and the one step every change of calendar needs, letting go
+ * of what the location holds.
  */
+
+/** How long a `held` hold lasts: the minute the assistant has to take the details (Q7). */
+export const HOLD_SECONDS = 60;
+
+/**
+ * Take the location's calendar lock for the rest of the transaction (plan
+ * §7.2): the advisory lock app_slot_hold_guard, app_slot_hold_transition and
+ * app_appointment_time_guard take, keyed on the clinic. Re-entrant, so a
+ * transaction that takes it first and then writes a hold or a booking, whose
+ * trigger takes it again, waits once. Everything that reads what occupies
+ * time and then occupies some takes it first, so the read and the write see
+ * the same state.
+ */
+export async function lockClinicCalendar(tx: TenantTx): Promise<void> {
+  await tx.db.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended('healdesk:calendar-time:' || ${tx.clinicId}::text, 0))`,
+  );
+}
+
+/** sha256 hex of a holder key ("voice:" + the call id, …): what slot_holds keeps. Never the key. */
+export function holderRefOf(holderKey: string): string {
+  return createHash("sha256").update(holderKey, "utf8").digest("hex");
+}
+
+export type HoldInput = {
+  channel: SlotHoldChannel;
+  holderKey: string;
+  /** The calendar the time is on: the location's own, or a named provider's (availability). */
+  calendarId: string;
+  startsAt: Date;
+  minutes: number;
+  contactId?: string | null;
+  /** sha256 of the call or session, for the audit row; never a raw vendor id. */
+  callRef?: string;
+};
+
+export type HoldPlaced =
+  | { kind: "held"; holdId: string; expiresAt: Date; startsAt: Date; minutes: number }
+  /** Another holder's live hold, or a healdesk booking, already has that time on that calendar. */
+  | { kind: "slot_taken" };
+
+/**
+ * Hold `minutes` from `startsAt` on one calendar for 60 seconds (plan §7.5
+ * step 5), in the caller's transaction: take the calendar lock; let go of
+ * this holder's own `held` holds (a holder holds one time at once;
+ * `superseded`); mark the location's lapsed `held` holds expired; delete
+ * spent holds older than a day; insert. The database refuses the insert
+ * (23P01) when another holder's live hold or a healdesk booking overlaps it
+ * on the same calendar (app_slot_hold_guard, drizzle/0059), which rolls the
+ * whole transaction back: the caller answers `slot_taken` (placeHold does).
+ *
+ * The audit row carries the hold's id, the call reference and the length:
+ * never a time, which assertNoPhi would read as a number.
+ */
+export async function holdSpanWithin(tx: TenantTx, input: HoldInput): Promise<HoldPlaced> {
+  if (!Number.isInteger(input.minutes) || input.minutes < 5 || input.minutes > 480) {
+    throw new Error("A hold lasts 5 to 480 minutes.");
+  }
+  const holderRef = holderRefOf(input.holderKey);
+  await lockClinicCalendar(tx);
+  await tx.db
+    .update(slotHolds)
+    .set({
+      status: sql`case when ${slotHolds.expiresAt} <= clock_timestamp() then 'expired' else 'released' end`,
+      outcomeReason: "superseded",
+      releasedAt: sql`clock_timestamp()`,
+      updatedAt: sql`now()`,
+    })
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        eq(slotHolds.holderRef, holderRef),
+        eq(slotHolds.status, "held"),
+      ),
+    );
+  await tx.db
+    .update(slotHolds)
+    .set({ status: "expired", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        eq(slotHolds.status, "held"),
+        sql`${slotHolds.expiresAt} <= clock_timestamp()`,
+      ),
+    );
+  await tx.db
+    .delete(slotHolds)
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        inArray(slotHolds.status, FINISHED),
+        lt(slotHolds.createdAt, sql`clock_timestamp() - interval '1 day'`),
+      ),
+    );
+  const [hold] = await tx.db
+    .insert(slotHolds)
+    .values({
+      clinicId: tx.clinicId,
+      channel: input.channel,
+      holderRef,
+      calendarId: input.calendarId,
+      startsAt: input.startsAt,
+      durationMinutes: input.minutes,
+      endsAt: new Date(input.startsAt.getTime() + input.minutes * 60_000),
+      contactId: input.contactId ?? null,
+    })
+    .returning({ id: slotHolds.id, expiresAt: slotHolds.expiresAt });
+  if (!hold) throw new Error("Slot hold: no row returned.");
+  tx.audit.record({
+    action: "create",
+    resourceType: "slot_hold",
+    resourceId: hold.id,
+    metadata: { holdId: hold.id, callRef: input.callRef, minutes: input.minutes },
+  });
+  return {
+    kind: "held",
+    holdId: hold.id,
+    expiresAt: hold.expiresAt,
+    startsAt: input.startsAt,
+    minutes: input.minutes,
+  };
+}
+
+const HOLD_ACTOR: ActorContext = { type: "service", serviceName: "slot-hold" };
+
+/** holdSpanWithin in its own transaction, a lost race answered as `slot_taken`. */
+export async function holdSpan(
+  clinicId: string,
+  input: HoldInput,
+  options: { actor?: ActorContext } = {},
+): Promise<HoldPlaced> {
+  try {
+    return await withTenant({ clinicId, actor: options.actor ?? HOLD_ACTOR }, (tx) =>
+      holdSpanWithin(tx, input),
+    );
+  } catch (error) {
+    if (pgCodeOf(error) === "23P01") return { kind: "slot_taken" };
+    throw error;
+  }
+}
+
+function pgCodeOf(error: unknown): string | undefined {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
+    if (typeof current !== "object") return undefined;
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
 
 /** Every state that has not reached its end. */
 const UNFINISHED: SlotHoldStatus[] = ["held", "reserved", "writing", "unknown"];
+/** Every state that has. */
+const FINISHED: SlotHoldStatus[] = ["converted", "released", "expired"];
 
 /** outcome_reason's CHECK: a short code, never free text. */
 const REASON = /^[a-z0-9_]{1,40}$/;

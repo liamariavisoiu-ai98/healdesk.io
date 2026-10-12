@@ -1,24 +1,24 @@
-import { fixtureAdapter, type CanonicalSlot } from "@healdesk/connectors";
-import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
+import { googleEventIdFor, HEALDESK_EVENT_MARKER, type CanonicalSlot, type FakeGoogleCalendar } from "@healdesk/connectors";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
-import { arrangeSlots, attendeeEmailFor, namedWeekdays, slotLabel, slotsFor, writableConnection, writeToCalendar } from "@/lib/booking/calendar";
-import { markVerified, saveConnection } from "@/lib/connections/store";
-import { createBookingRequest, decideBookingRequest, resolveBookingRequest } from "@/lib/meta/booking-requests";
+import { arrangeSlots, namedWeekdays, slotLabel, writableConnection, writeToCalendar } from "@/lib/booking/calendar";
+import { decideBookingRequest, resolveBookingRequest } from "@/lib/meta/booking-requests";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
+import { deskLocation, deskTime, freshGoogle, installGoogleEnv, phoneRequest, restoreGoogleEnv } from "./setup/desk-calendar";
+import { inTenant } from "./setup/factories";
 
 /**
- * The calendar write (design of 23 September 2026, §B.3–B.4), against the
- * fixture adapter, which books like a vendor with no idempotency key: the
- * same request twice is two bookings unless the caller reads back first. No
- * real vendor is registered in v1 (the Cal.com adapter was removed; Google
- * Calendar is not built yet), so the fixture is the only writable calendar.
+ * The desk path's calendar write (plan §7.12; design of 23 September 2026,
+ * §B.3–B.4), against the in-memory Google: the one write target v1 has,
+ * reached only where the location's calendar terms let healdesk write. The
+ * event carries a first name, the service as the clinic's list names it and
+ * the time, under an id derived from the booking, so a write Google has
+ * seen is read back, never doubled.
  */
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "test" } as const;
-const DAY = 24 * 60 * 60 * 1000;
 const TZ = "America/New_York";
 
 describe("slots, labelled and arranged for the desk", () => {
@@ -49,158 +49,187 @@ describe("slots, labelled and arranged for the desk", () => {
     expect(Math.max(...perDay.values())).toBeLessThanOrEqual(6);
     // Only the future.
     expect(arrangeSlots(slots, { timeZone: TZ, now: new Date("2027-01-01T00:00:00Z"), named: new Set() })).toEqual([]);
-    expect(attendeeEmailFor("3fa85f64-5717-4562-b3fc-2c963f66afa6")).toBe("bookings+3fa85f64-5717-4562-b3fc-2c963f66afa6@sink.healdesk.io");
   });
 });
 
-describeDb("the calendar write, against the fixture", () => {
+describeDb("the calendar write, against Google", () => {
+  let google: FakeGoogleCalendar;
+
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    installGoogleEnv();
     process.env.BETTER_AUTH_URL = "https://app.healdesk.test";
   }, 60_000);
 
-  afterEach(() => {
-    fixtureAdapter.reset();
+  beforeEach(() => {
+    google = freshGoogle();
   });
 
   afterAll(async () => {
+    restoreGoogleEnv();
     await closePools();
   });
 
-  /** A clinic with an active fixture connection (and a PHI basis unless told otherwise) and one voice request. */
-  async function clinicWithRequest(label: string, opts: { phiBasis?: "practice_account" | null; windows?: [string, ...string[]] } = {}) {
-    const c = await seedClinic(label);
-    await inTenant(c.clinicId, (client) => client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [c.clinicId, "desk@example-clinic.test"]));
-    const connectionId = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
-      const id = await saveConnection(tx.db, { clinicId: c.clinicId, provider: "fixture", credentials: { apiKey: "fx-key" }, metadata: { durationMinutes: 30 } });
-      await markVerified(tx.db, { clinicId: c.clinicId, connectionId: id, capabilities: {} });
-      return id;
-    });
-    if (opts.phiBasis !== null) {
-      await inTenant(c.clinicId, (client) => client.query(`update provider_connections set phi_basis = $2 where id = $1`, [connectionId, opts.phiBasis ?? "practice_account"]));
-    }
-    const contactId = await seedContact(c.clinicId, "+15550104040");
-    const { conversationId } = await seedConversation(c.clinicId, { startedAt: new Date(), contactId });
-    const [primary, ...alternatives] = opts.windows ?? ["Thursday afternoon", "Friday morning", "Friday morning"];
-    const created = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      createBookingRequest(tx, { channel: "voice", contactId, conversationId, preferredWindow: primary, treatment: "Consultation", alternativeWindows: alternatives }),
-    );
-    return { clinicId: c.clinicId, connectionId, token: created.token, requestId: created.id };
-  }
-
   const appointmentRow = (clinicId: string) =>
-    inTenant(clinicId, (client) =>
-      client.query<{ id: string; calendar_write_status: string; calendar_write_error: string | null; calendar_written_at: string | null; external_appointment_id: string | null; external_source: string | null; external_confirmed_at: string | null }>(
-        `select id, calendar_write_status, calendar_write_error, calendar_written_at, external_appointment_id, external_source, external_confirmed_at from appointments`,
-      ),
+    inTenant(clinicId, async (client) =>
+      (
+        await client.query<{
+          id: string;
+          calendar_write_status: string;
+          calendar_write_error: string | null;
+          calendar_written_at: string | null;
+          calendar_write_attempts: number;
+          external_appointment_id: string | null;
+          external_source: string | null;
+          external_confirmed_at: string | null;
+          booking_origin: string | null;
+          duration_minutes: number | null;
+          calendar_event_key: string | null;
+          calendar_id: string | null;
+        }>(
+          `select id, calendar_write_status, calendar_write_error, calendar_written_at, calendar_write_attempts,
+                  external_appointment_id, external_source, external_confirmed_at, booking_origin,
+                  duration_minutes, calendar_event_key, calendar_id
+             from appointments`,
+        )
+      ).rows,
     );
+  const inserts = () => google.requests.filter((r) => r.endpoint === "insert");
 
-  test("a writable connection needs an adapter that writes AND a recorded PHI basis; the page lists the calendar's free times, the named days first", async () => {
-    const none = await clinicWithRequest("cal-nobasis", { phiBasis: null });
-    expect(await withTenant({ clinicId: none.clinicId, actor: ACTOR }, (tx) => writableConnection(tx))).toBeNull();
+  test("the target is the location's Google Calendar under terms that write; the page lists its free times, the named days first", async () => {
+    const bare = await deskLocation(google, "cal-noconn", { connect: false });
+    expect(await withTenant({ clinicId: bare.clinicId, actor: ACTOR }, (tx) => writableConnection(tx))).toBeNull();
+    const manual = await deskLocation(google, "cal-manual", { bookingSystem: "mindbody" });
+    expect(await withTenant({ clinicId: manual.clinicId, actor: ACTOR }, (tx) => writableConnection(tx))).toBeNull();
+    const none = await phoneRequest(manual.clinicId);
     expect(await resolveBookingRequest(none.token)).toMatchObject({ calendar: null, alternativeWindows: ["Friday morning"], treatment: "Consultation" });
 
-    const f = await clinicWithRequest("cal-list");
+    const f = await deskLocation(google, "cal-list");
     const writable = await withTenant({ clinicId: f.clinicId, actor: ACTOR }, (tx) => writableConnection(tx));
-    expect(writable).toMatchObject({ connectionId: f.connectionId, provider: "fixture", phiBasis: "practice_account" });
-    const listed = await withTenant({ clinicId: f.clinicId, actor: ACTOR }, (tx) => slotsFor(tx, 14, { preferred: ["Thursday afternoon", "Friday morning"] }));
+    expect(writable).toMatchObject({ connectionId: f.connectionId, provider: "google_calendar", phiBasis: "calendar_terms", calendarId: "primary" });
+    const r = await phoneRequest(f.clinicId);
+    const opened = await resolveBookingRequest(r.token);
+    expect(opened).toMatchObject({ calendar: { writable: true }, preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning"] });
+    const listed = opened!.calendar!.slots;
     expect(listed.length).toBeGreaterThan(0);
     expect(listed.length).toBeLessThanOrEqual(40);
     expect(listed[0]!.label).toMatch(/^(Thu|Fri) /);
     for (const s of listed) {
-      expect(Date.parse(s.at)).toBeGreaterThan(Date.now());
+      expect(Date.parse(s.at)).toBeGreaterThan(Date.now() + 119 * 60_000);
       expect(s.label).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}, \d{1,2}:\d{2} (AM|PM)$/);
     }
-    const opened = await resolveBookingRequest(f.token);
-    expect(opened).toMatchObject({ calendar: { writable: true }, preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning"] });
-    expect(opened!.calendar!.slots.map((s) => s.at)).toEqual(listed.map((s) => s.at));
   });
 
-  test("success: the desk's confirm records the appointment, writes it, and hands the vendor a name, a sink address and a time — never a number", async () => {
-    const f = await clinicWithRequest("cal-ok");
-    const slot = (await resolveBookingRequest(f.token))!.calendar!.slots[0]!;
-    const decided = await decideBookingRequest(f.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: new Date(slot.at) });
+  test("success: the desk's confirm records a desk booking, writes it under the request's key, and Google gets a first name, the service and the time — nothing else", async () => {
+    const f = await deskLocation(google, "cal-ok");
+    const r = await phoneRequest(f.clinicId, { service: "facial" });
+    const when = deskTime(3, 10);
+    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
     expect(decided).toMatchObject({ outcome: "decided", followUp: null, calendarWrite: "written" });
-    expect(decided.appointmentId).not.toBeNull();
 
     const rows = await appointmentRow(f.clinicId);
-    expect(rows.rows).toHaveLength(1);
-    expect(rows.rows[0]).toMatchObject({ id: decided.appointmentId, calendar_write_status: "written", calendar_write_error: null, external_appointment_id: `fx-${f.requestId}`, external_source: "fixture", external_confirmed_at: null });
-    expect(rows.rows[0]!.calendar_written_at).not.toBeNull();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: decided.appointmentId,
+      calendar_write_status: "written",
+      calendar_write_error: null,
+      calendar_write_attempts: 1,
+      external_appointment_id: googleEventIdFor(r.requestId),
+      external_source: "google_calendar",
+      external_confirmed_at: null,
+      booking_origin: "desk",
+      duration_minutes: 60,
+      calendar_event_key: r.requestId,
+      calendar_id: "primary",
+    });
 
-    const writes = fixtureAdapter.recordedWrites();
-    expect(writes).toHaveLength(1);
-    const input = writes[0]!.input;
-    expect(input.attendee.email).toBe(attendeeEmailFor(f.requestId));
-    expect(input.attendee.email).toMatch(/^bookings\+[0-9a-f-]{36}@sink\.healdesk\.io$/);
-    expect(input.attendee).toEqual({ name: "Synthetic Patient", email: attendeeEmailFor(f.requestId), timeZone: TZ });
-    expect(input).toMatchObject({ idempotencyKey: f.requestId, service: "Consultation", durationMinutes: 30 });
-    expect(input.startsAt.toISOString()).toBe(slot.at);
-    expect(JSON.stringify(input)).not.toMatch(/phone|5550104040|4040/i);
-    expect(Object.keys(input).sort()).toEqual(["attendee", "durationMinutes", "idempotencyKey", "service", "startsAt"]);
+    const [event] = google.events(f.sub);
+    expect(event).toMatchObject({ id: googleEventIdFor(r.requestId), status: "confirmed" });
+    expect(Date.parse(event!.start)).toBe(when.getTime());
+    expect(Date.parse(event!.end)).toBe(when.getTime() + 60 * 60_000);
+    const body = inserts()[0]!.json as Record<string, unknown>;
+    expect(body.summary).toBe("Synthetic – Facial");
+    expect(body.description).toBe("Added by healdesk after your front desk confirmed it.");
+    expect(body).not.toHaveProperty("attendees");
+    expect(JSON.stringify(body)).not.toMatch(/555|Patient|@/);
 
-    // The page: added, and the confirm copy.
-    expect(await resolveBookingRequest(f.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "written", error: null }, calendar: null });
-    // A second confirm is already decided, and a second write finds the row written.
-    expect((await decideBookingRequest(f.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: new Date(slot.at) })).outcome).toBe("already-decided");
+    // The page: added. A second confirm is already decided, and a second write finds the row written.
+    expect(await resolveBookingRequest(r.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "written", error: null }, calendar: null });
+    expect((await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when })).outcome).toBe("already-decided");
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!)).toBe("written");
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(1);
+    expect(inserts()).toHaveLength(1);
     const audit = await inTenant(f.clinicId, (client) => client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'appointment' and metadata->>'calendarWrite' is not null`));
-    expect(audit.rows).toEqual([{ metadata: { calendarWrite: "written", provider: "fixture" } }]);
+    expect(audit.rows).toEqual([{ metadata: { calendarWrite: "written", provider: "google_calendar" } }]);
   });
 
-  test("the vendor says no: the appointment stays, the row says failed, the page tells the desk to add it by hand", async () => {
-    const f = await clinicWithRequest("cal-fail");
-    fixtureAdapter.failNextWrite();
-    const when = new Date(Date.now() + 3 * DAY);
-    const decided = await decideBookingRequest(f.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
+  test("a vet's calendar entry says Client when the name cannot be used", async () => {
+    const f = await deskLocation(google, "cal-vet", { specialty: "veterinary" });
+    const r = await phoneRequest(f.clinicId);
+    await inTenant(f.clinicId, (client) => client.query(`update contacts set full_name = '555 0100' where id = $1`, [r.contactId]));
+    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 11) });
+    expect(decided.calendarWrite).toBe("written");
+    expect((inserts()[0]!.json as { summary: string }).summary).toBe("Client – Consultation");
+  });
+
+  test("Google says no: the appointment stays, the row says failed, and only the ops retry tries again, reading back first", async () => {
+    const f = await deskLocation(google, "cal-fail");
+    const r = await phoneRequest(f.clinicId);
+    google.failNext({ on: "insert", status: 400, reason: "badRequest" });
+    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 12) });
     expect(decided).toMatchObject({ outcome: "decided", calendarWrite: "failed" });
-    const rows = await appointmentRow(f.clinicId);
-    expect(rows.rows).toHaveLength(1);
-    expect(rows.rows[0]).toMatchObject({ calendar_write_status: "failed", calendar_write_error: "conflict", external_appointment_id: null, calendar_written_at: null });
-    expect(await resolveBookingRequest(f.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "failed", error: "conflict" } });
+    const [row] = await appointmentRow(f.clinicId);
+    expect(row).toMatchObject({ calendar_write_status: "failed", external_appointment_id: null, calendar_written_at: null });
+    expect(await resolveBookingRequest(r.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "failed" } });
     // Not retried by the plain path; the ops retry reads back and then creates.
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!)).toBe("failed");
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(0);
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!, { fromFailed: true })).toBe("written");
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(1);
+    expect(google.requests.filter((q) => q.endpoint === "get")).toHaveLength(1);
+    expect(google.events(f.sub)).toHaveLength(1);
   });
 
-  test("a timeout is unknown, and the retry adopts the booking the vendor already holds instead of booking the slot twice", async () => {
-    const f = await clinicWithRequest("cal-timeout");
-    fixtureAdapter.timeoutNextWrite();
-    const when = new Date(Date.now() + 3 * DAY);
-    const decided = await decideBookingRequest(f.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
+  test("a timeout is unknown, and the retry adopts the event Google already holds instead of booking the slot twice", async () => {
+    const f = await deskLocation(google, "cal-timeout");
+    const r = await phoneRequest(f.clinicId);
+    google.failNext({ on: "insert", status: 503, reason: "backendError" });
+    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 13) });
     expect(decided).toMatchObject({ outcome: "decided", calendarWrite: "unknown" });
-    expect((await appointmentRow(f.clinicId)).rows[0]).toMatchObject({ calendar_write_status: "unknown", calendar_write_error: "timeout", external_appointment_id: null });
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(1);
-    expect(fixtureAdapter.recordedWrites()[0]!.timedOut).toBe(true);
+    expect((await appointmentRow(f.clinicId))[0]).toMatchObject({ calendar_write_status: "unknown", external_appointment_id: null });
 
+    // Meanwhile the event did land (a 5xx after Google stored it).
+    google.addEvent(f.sub, {
+      id: googleEventIdFor(r.requestId),
+      start: deskTime(3, 13),
+      end: new Date(deskTime(3, 13).getTime() + 30 * 60_000),
+      privateProperties: { ...HEALDESK_EVENT_MARKER },
+    });
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!)).toBe("written");
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(1);
-    expect((await appointmentRow(f.clinicId)).rows[0]).toMatchObject({ calendar_write_status: "written", external_appointment_id: `fx-${f.requestId}`, external_source: "fixture", calendar_write_error: null, external_confirmed_at: null });
+    expect(google.events(f.sub)).toHaveLength(1);
+    expect((await appointmentRow(f.clinicId))[0]).toMatchObject({ calendar_write_status: "written", external_appointment_id: googleEventIdFor(r.requestId), calendar_write_attempts: 2 });
     const audit = await inTenant(f.clinicId, (client) => client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'appointment' and metadata->>'calendarWrite' is not null order by occurred_at`));
-    expect(audit.rows.map((r) => r.metadata)).toEqual([
-      { calendarWrite: "unknown", provider: "fixture", reason: "timeout" },
-      { calendarWrite: "written", provider: "fixture", adopted: true, retry: true },
+    expect(audit.rows.map((x) => x.metadata)).toEqual([
+      { calendarWrite: "unknown", provider: "google_calendar", reason: "unconfirmed" },
+      { calendarWrite: "written", provider: "google_calendar", adopted: true, retry: true },
     ]);
   });
 
-  test("a write in flight is not started twice, and a clinic with no PHI basis gets no write at all", async () => {
-    const f = await clinicWithRequest("cal-guard");
-    const when = new Date(Date.now() + 3 * DAY);
-    const decided = await decideBookingRequest(f.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
+  test("a write in flight is not started twice, and a location whose system does not read Google gets no write at all", async () => {
+    const f = await deskLocation(google, "cal-guard");
+    const r = await phoneRequest(f.clinicId);
+    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 14) });
     expect(decided.calendarWrite).toBe("written");
-    await inTenant(f.clinicId, (client) => client.query(`update appointments set calendar_write_status = 'writing', external_appointment_id = null where id = $1`, [decided.appointmentId]));
+    await inTenant(f.clinicId, (client) =>
+      client.query(`update appointments set calendar_write_status = 'writing', calendar_write_claimed_at = clock_timestamp() where id = $1`, [decided.appointmentId]),
+    );
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!)).toBe("unknown");
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(1);
-    expect((await appointmentRow(f.clinicId)).rows[0]!.calendar_write_status).toBe("writing");
+    expect(inserts()).toHaveLength(1);
+    expect((await appointmentRow(f.clinicId))[0]!.calendar_write_status).toBe("writing");
 
-    const none = await clinicWithRequest("cal-none", { phiBasis: null });
-    const bare = await decideBookingRequest(none.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
+    const manual = await deskLocation(google, "cal-none", { bookingSystem: "mindbody" });
+    const m = await phoneRequest(manual.clinicId);
+    const bare = await decideBookingRequest(m.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 14) });
     expect(bare).toMatchObject({ outcome: "decided", calendarWrite: "not-connected" });
-    expect((await appointmentRow(none.clinicId)).rows[0]).toMatchObject({ calendar_write_status: "none", external_appointment_id: null });
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(1);
+    expect((await appointmentRow(manual.clinicId))[0]).toMatchObject({ calendar_write_status: "none", booking_origin: null, calendar_id: null });
+    expect(inserts()).toHaveLength(1);
   });
 });

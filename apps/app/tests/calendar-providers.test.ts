@@ -269,9 +269,10 @@ describeDb("HRC-04 and named providers", () => {
 
     // Google cannot be asked: no.
     google.failNext({ on: "calendarList", status: 503, reason: "backendError" });
-    expect(await confirmCalendarTarget({ ...covered, calendarId: partner })).toEqual({
+    expect(await confirmCalendarTarget({ ...covered, calendarId: partner })).toMatchObject({
       allowed: false,
       reason: "unverified",
+      error: { reason: "backendError" },
     });
 
     // Covered terms need a Workspace account; every kind needs the one its terms name.

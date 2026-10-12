@@ -957,7 +957,17 @@ export type CalendarTargetRefusal =
   | "unverified";
 
 export type CalendarTargetCheck =
-  { allowed: true; ownOrganization: boolean } | { allowed: false; reason: CalendarTargetRefusal };
+  | { allowed: true; ownOrganization: boolean }
+  | {
+      allowed: false;
+      reason: CalendarTargetRefusal;
+      /**
+       * For `unverified`: what Google answered, so a writer can tell a grant
+       * taken away (a break, which flips the location to manual booking)
+       * from a miss worth trying again.
+       */
+      error?: ConnectorError;
+    };
 
 /**
  * May healdesk book into this calendar, for these terms, on this
@@ -1000,7 +1010,7 @@ export async function confirmCalendarTarget(input: {
   const listed = await googleCalendarAdapter.listCalendars(input.context, {
     ownOrganizationOnly: covered,
   });
-  if (!listed.ok) return { allowed: false, reason: "unverified" };
+  if (!listed.ok) return { allowed: false, reason: "unverified", error: listed.error };
   if (!listed.value.some((calendar) => calendar.id === input.calendarId)) {
     return { allowed: false, reason: covered ? "outside_organisation" : "not_owned" };
   }

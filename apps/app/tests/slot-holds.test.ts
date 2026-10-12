@@ -206,8 +206,8 @@ describeDb("slot holds and the overlap guard (0057)", () => {
       const insertWith = (columns: string, values: string) =>
         asApp(clinicId, (c) =>
           c.query(
-            `insert into slot_holds (clinic_id, channel, holder_ref, starts_at, duration_minutes, ends_at${columns})
-           values ($1, 'voice', repeat('a', 64), $2::timestamptz, 30, $2::timestamptz + interval '30 minutes'${values})`,
+            `insert into slot_holds (clinic_id, channel, holder_ref, calendar_id, starts_at, duration_minutes, ends_at${columns})
+           values ($1, 'voice', repeat('a', 64), 'primary', $2::timestamptz, 30, $2::timestamptz + interval '30 minutes'${values})`,
             [clinicId, base],
           ),
         );
@@ -238,8 +238,8 @@ describeDb("slot holds and the overlap guard (0057)", () => {
       await expect(
         asApp(clinicId, (c) =>
           c.query(
-            `insert into slot_holds (clinic_id, channel, holder_ref, starts_at, duration_minutes, ends_at)
-           values ($1, 'voice', repeat('b', 64), $2::timestamptz, 30, $2::timestamptz + interval '20 minutes')`,
+            `insert into slot_holds (clinic_id, channel, holder_ref, calendar_id, starts_at, duration_minutes, ends_at)
+           values ($1, 'voice', repeat('b', 64), 'primary', $2::timestamptz, 30, $2::timestamptz + interval '20 minutes')`,
             [clinicId, base],
           ),
         ),
@@ -248,8 +248,8 @@ describeDb("slot holds and the overlap guard (0057)", () => {
       await expect(
         asApp(clinicId, (c) =>
           c.query(
-            `insert into slot_holds (clinic_id, channel, holder_ref, starts_at, duration_minutes, ends_at)
-           values ($1, 'voice', 'voice:CA123', $2::timestamptz, 30, $2::timestamptz + interval '30 minutes')`,
+            `insert into slot_holds (clinic_id, channel, holder_ref, calendar_id, starts_at, duration_minutes, ends_at)
+           values ($1, 'voice', 'voice:CA123', 'primary', $2::timestamptz, 30, $2::timestamptz + interval '30 minutes')`,
             [clinicId, base],
           ),
         ),

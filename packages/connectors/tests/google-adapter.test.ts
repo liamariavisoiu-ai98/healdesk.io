@@ -243,6 +243,17 @@ describe("the event body (plan §5.3)", () => {
     );
   });
 
+  test("at a vet the fallback word is Client, never Patient; a clean name is untouched", async () => {
+    succeeded(await create(named("5550101234", { idempotencyKey: "vet-1", audience: "clients" })));
+    succeeded(await create(named("Avery", { idempotencyKey: "vet-2", audience: "clients" })));
+    succeeded(await create(named("", { idempotencyKey: "vet-3", audience: "patients" })));
+    expect(bodiesOf<{ summary: string }>("insert").map((body) => body.summary)).toEqual([
+      "Client – Botox",
+      "Avery – Botox",
+      "Patient – Botox",
+    ]);
+  });
+
   test("no duration means 30 minutes", async () => {
     const created = succeeded(await create(booking({ durationMinutes: null })));
     expect(created.endsAt).toEqual(new Date("2026-10-07T14:30:00Z"));

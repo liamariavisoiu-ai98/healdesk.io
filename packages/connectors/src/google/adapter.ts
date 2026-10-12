@@ -835,6 +835,7 @@ export class GoogleCalendarAdapter implements ConnectorAdapter {
       endsAt: new Date(input.startsAt.getTime() + minutes * 60_000),
       timeZone: input.attendee.timeZone,
       origin: input.origin ?? "desk",
+      audience: input.audience,
     });
 
     const token = await tokenFor(config.value, "insert");

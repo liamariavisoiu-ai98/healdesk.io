@@ -8,6 +8,7 @@ import {
   conversations,
   metaBookingDrafts,
   reconciliationExceptions,
+  slotHolds,
   suppressions,
   syncRuns,
   transactions,
@@ -85,6 +86,8 @@ import type { TenantTx } from "@/lib/tenant";
  */
 
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
+/** A slot hold that has stopped blocking is kept a week at most (plan §11.8), less on a shorter record clock. */
+export const SLOT_HOLD_RETENTION_DAYS = 7;
 
 export type PurgeResult = {
   clinicId: string;
@@ -97,6 +100,7 @@ export type PurgeResult = {
   contactsDeleted: number;
   draftsDeleted: number;
   webhookEventsDeleted: number;
+  slotHoldsDeleted: number;
 };
 
 function daysAgo(now: Date, days: number): Date {
@@ -122,6 +126,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     contactsDeleted: 0,
     draftsDeleted: 0,
     webhookEventsDeleted: 0,
+    slotHoldsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -161,7 +166,33 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: conversations.id });
   result.mediaCleared = cleared.length;
 
-  // 2. Records, children first. Booking requests lead: one that produced an
+  // 2. Slot holds first (plan §11.8). A hold names its contact, request and
+  //    appointment, each ON DELETE SET NULL, so the deletes below would
+  //    otherwise rewrite holds through the transition trigger. Every hold
+  //    that has stopped blocking goes once it is a week old, or older than
+  //    the record clock when that is shorter: a hold is made when its
+  //    request is, so no hold younger than the clock names a request this
+  //    run deletes. One that still blocks is never deleted (the delete
+  //    guard, drizzle/0057), and the same predicate keeps it out of reach
+  //    here, by the database's clock.
+  const holdsBefore = new Date(
+    Math.max(daysAgo(now, SLOT_HOLD_RETENTION_DAYS).getTime(), recordBefore.getTime()),
+  );
+  const holds = await tx.db
+    .delete(slotHolds)
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        lt(slotHolds.createdAt, holdsBefore),
+        sql`not ((${slotHolds.status} = 'held' and ${slotHolds.expiresAt} > clock_timestamp())
+                 or (${slotHolds.status} in ('writing', 'unknown', 'reserved')
+                     and ${slotHolds.blocksUntil} > clock_timestamp()))`,
+      ),
+    )
+    .returning({ id: slotHolds.id });
+  result.slotHoldsDeleted = holds.length;
+
+  // 3. Records, children first. Booking requests lead: one that produced an
   //    appointment holds it, so it goes before it, once its own dates and
   //    its appointment's are all past the clock. Through
   //    app_purge_booking_requests(), as the app role has no DELETE on them,
@@ -250,7 +281,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.conversationsDeleted = gone.length;
   }
 
-  // 3. Contacts nothing refers to any more, and that are themselves old. A
+  // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
   //    the contact without touching updated_at, and a person a request names
   //    cannot be deleted (booking_requests.contact_id is NO ACTION), so
@@ -271,7 +302,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: contacts.id });
   result.contactsDeleted = orphaned.length;
 
-  // 4. Processed vendor payloads: raw bodies, PHI by the migration's own
+  // 5. Processed vendor payloads: raw bodies, PHI by the migration's own
   //    admission, and useless once processed.
   const payloads = await tx.db
     .delete(webhookEvents)
@@ -285,7 +316,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: webhookEvents.id });
   result.webhookEventsDeleted = payloads.length;
 
-  // 5. Abandoned Meta drafts: a first name and a number, "swept after a day"
+  // 6. Abandoned Meta drafts: a first name and a number, "swept after a day"
   //    when the clinic's next Meta message arrives (readMetaDraft in
   //    lib/meta/booking-requests.ts). A clinic whose threads go quiet would
   //    keep them for good without this.
@@ -309,7 +340,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.conversationsDeleted +
     result.contactsDeleted +
     result.draftsDeleted +
-    result.webhookEventsDeleted;
+    result.webhookEventsDeleted +
+    result.slotHoldsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -324,6 +356,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         contacts: result.contactsDeleted,
         drafts: result.draftsDeleted,
         webhookEvents: result.webhookEventsDeleted,
+        slotHolds: result.slotHoldsDeleted,
         mediaDays: clinic.mediaDays,
         recordDays: clinic.recordDays,
       },

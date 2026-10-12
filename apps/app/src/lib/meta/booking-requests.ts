@@ -583,13 +583,20 @@ export function requestReceivedLine(clinicName: string, firstName: string): stri
 
 export type BookingDecision = "accepted" | "declined" | "confirmed" | "rescheduling";
 
-/** What the person is told on a Meta thread after the desk decides. Never a time, never a provider. */
+/**
+ * What the person is told on a Meta thread after the desk decides. Never a
+ * time, never a provider, and never that anything is booked: a confirmed or
+ * accepted request says only that the practice has reviewed it and will call
+ * (META_CHANNEL_PROHIBITIONS[0], "Confirming the person is, was, or will be a
+ * patient"; BAA 1.3.0 clause 16, "confirms no appointment details"). The
+ * appointment itself is settled on the phone.
+ */
 export function followUpLine(clinicName: string, decision: BookingDecision): string {
   switch (decision) {
     case "confirmed":
-      return `Good news — ${clinicName} has confirmed your request. They'll call or message you with the details, so keep an eye on your phone.`;
+      return `${clinicName} has reviewed your request; they'll call you. Keep an eye on your phone.`;
     case "accepted":
-      return `Good news — ${clinicName} has accepted your request and will call you to confirm the details. Nothing further is needed from you here.`;
+      return `${clinicName} has reviewed your request; they'll call you to go through it. Nothing further is needed from you here.`;
     case "declined":
       return `${clinicName} has looked at your request and can't offer that window, but they'll call you to find a time that works.`;
     case "rescheduling":

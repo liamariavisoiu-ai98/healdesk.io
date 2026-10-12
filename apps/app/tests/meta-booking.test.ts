@@ -123,6 +123,16 @@ describe("what the model may hand over", () => {
     expect(followUpLine("Radiance", "rescheduling")).not.toMatch(/monday|tuesday|wednesday|thursday|friday|saturday|sunday|dr\b/i);
   });
 
+  test("a confirmed or accepted request's line says no more than that the practice reviewed it and will call", () => {
+    // META_CHANNEL_PROHIBITIONS[0]: nothing on Meta confirms the person is, or
+    // will be, a patient; BAA 1.3.0 clause 16, no appointment details.
+    expect(followUpLine("Radiance", "confirmed")).toBe("Radiance has reviewed your request; they'll call you. Keep an eye on your phone.");
+    expect(followUpLine("Radiance", "accepted")).toBe("Radiance has reviewed your request; they'll call you to go through it. Nothing further is needed from you here.");
+    for (const decision of ["confirmed", "accepted", "declined", "rescheduling"] as const) {
+      expect(followUpLine("Radiance", decision), decision).not.toMatch(/\b(confirm(ed|s)?|booked|good news|appointment|see you)\b/i);
+    }
+  });
+
   test("a reply that confirms a booking or promises a text is refused", () => {
     expect(guardReply("Great, you're all booked, see you then!")).toEqual({ ok: false, reason: "a booking confirmation" });
     expect(guardReply("We'll text you when the desk has confirmed.")).toEqual({ ok: false, reason: "a text promise" });

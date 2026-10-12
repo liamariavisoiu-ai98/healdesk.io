@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { resolveBookingRequest } from "@/lib/meta/booking-requests";
 import {
@@ -248,6 +248,53 @@ describeDb("the amendment record", () => {
       expect(refused.status, JSON.stringify(args).slice(0, 80)).toBe("error");
     }
     expect(await amendmentIds(c.clinicId)).toHaveLength(2);
+  });
+
+  test("each amendment and correction is logged outside the database by id, clinic and time, never its words", async () => {
+    // A restore to a point before an amendment loses it, and its security
+    // event with it: the log line is how ops knows to ask for it again.
+    const c = await seedClinic("amend-log");
+    const contactId = await seedContact(c.clinicId, "+15550149201");
+    const requestId = await request(c.clinicId, contactId, new Date());
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "info").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    let amendmentId: string;
+    try {
+      amendmentId = await amendOp(c.clinicId, "booking_request", requestId, "Prefers Rhys as a name.");
+      data(
+        await runOperation(
+          "amendContact",
+          {
+            clinicId: c.clinicId,
+            contactId,
+            fullName: "Rhys Morgan",
+            email: "rhys@example-patient.test",
+            requestedBy: "the practice",
+          },
+          OPERATOR,
+        ),
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    const fields = (text: string) => {
+      const line = lines.find((l) => l.includes(text) && l.includes(c.clinicId));
+      expect(line, text).toBeDefined();
+      return JSON.parse(line!.slice(line!.indexOf("{"))) as Record<string, unknown>;
+    };
+    expect(fields("record amended")).toMatchObject({
+      clinicId: c.clinicId,
+      amendmentId,
+      kind: "booking_request",
+    });
+    expect(fields("contact corrected")).toMatchObject({
+      clinicId: c.clinicId,
+      contactId,
+      field: "email,fullName",
+    });
+    expect(lines.join("\n")).not.toMatch(/Rhys|example-patient/);
   });
 
   test("append-only: the runtime role may add and read an amendment, and no role may change or delete one", async () => {

@@ -527,19 +527,22 @@ every booking request whose key is already there, which is all of them, since
 `erasure_requests_guard`, does not refuse but restamps every deletion request's
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
-person gave before the deletion and after it. For such a load the owner disables all
-three by name, loads every table, `booking_request_keys` included, and enables them
-again, in one transaction:
+person gave before the deletion and after it; 0060's `record_amendments_guard` likewise
+restamps every amendment's `recorded_at`. For such a load the owner disables all four
+by name, loads every table, `booking_request_keys` included, and enables them again, in
+one transaction:
 
 ```sql
 BEGIN;
 ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests DISABLE TRIGGER erasure_requests_guard;
+ALTER TABLE record_amendments DISABLE TRIGGER record_amendments_guard;
 -- the data-only load
 ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests ENABLE TRIGGER erasure_requests_guard;
+ALTER TABLE record_amendments ENABLE TRIGGER record_amendments_guard;
 COMMIT;
 ```
 
@@ -586,7 +589,18 @@ request run again before the service reopens:
    the person in the restored data and deletes what was recorded no later than the
    deletion ran, so anything they gave afterwards stays, and writes no new record. It
    exits non-zero if any clinic could not be done.
-6. Only then reopen the service.
+6. **Amendments and corrections.** A restore to a point before an amendment or a
+   contact correction loses it, and its security event, which sits in the same
+   database. Read the `record amended` and `contact corrected` log lines written after
+   the point restored to: each names the clinic and the amendment or contact, and when,
+   never the words. For each, ask the practice, on its own notice address, to send the
+   amendment or correction again, and record it as on the first day ("Amendments"),
+   within ten business days of its reply. While the old instance still exists, its
+   `record_amendments` rows can be copied over instead, as the owner inside each
+   clinic's tenant, with `record_amendments_guard` disabled as in step 4 so each keeps
+   its `recorded_at`; a contact correction cannot be copied, because the restored row
+   is the old one, so it is always asked for again.
+7. Only then reopen the service.
 
 ### Logs
 

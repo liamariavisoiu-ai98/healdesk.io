@@ -3843,6 +3843,12 @@ async function opAmendRecord(args: Record<string, unknown>, operator: Operator):
   if (outcome.status === "not_found") {
     return amend.error(`No such ${kind === "booking_request" ? "booking request" : kind} at this clinic.`);
   }
+  // Outside the database, after the commit, as for a deletion: a restore to
+  // a point before this loses the amendment with its security event, and
+  // this line, which names the amendment and the clinic and never its words,
+  // is what tells ops to ask the practice to send it again
+  // (docs/handover.md, "Restoring").
+  log.info("record amended", { clinicId: clinic.id, amendmentId: outcome.id, kind });
   await audit(operator, "record_amended", { clinicSlug: clinic.slug, amendmentId: outcome.id, targetKind: kind });
   return ok({
     status: "amended",
@@ -3924,6 +3930,14 @@ async function opAmendContact(args: Record<string, unknown>, operator: Operator)
     (tx) => amendContact(tx, contactId, changes, requestedBy),
   );
   if (!found) return correct.error("No such contact at this clinic.");
+  // Outside the database, after the commit: which contact and which fields,
+  // never what they now say, so a restore that loses the correction can have
+  // the practice send it again (docs/handover.md, "Restoring").
+  log.info("contact corrected", {
+    clinicId: clinic.id,
+    contactId,
+    field: Object.keys(changes).sort().join(","),
+  });
   await audit(operator, "contact_corrected", {
     clinicSlug: clinic.slug,
     contactId,

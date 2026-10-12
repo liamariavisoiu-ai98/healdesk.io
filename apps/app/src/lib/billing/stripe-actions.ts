@@ -2703,6 +2703,10 @@ function feesOn(lines: InvoiceLineLike[]): number {
  *     invoice's overage or setup line, which no refund kind pays back.
  *
  * The three kinds share this one cap, so a charge is never paid back twice.
+ *
+ * Tax: fee lines are amounts before tax, so if STRIPE_AUTOMATIC_TAX is ever
+ * switched on, every kind under-refunds the tax charged on the refunded
+ * time. Credit notes, which carry the tax with the line, are the fix then.
  */
 async function cappedPart(
   stripe: Stripe,

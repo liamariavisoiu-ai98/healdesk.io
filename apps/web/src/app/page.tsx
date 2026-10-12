@@ -13,12 +13,12 @@ import { SAMPLE } from "@/lib/reviews.sample";
 
 /**
  * The reviews the wall shows: the published ones once there are any, and
- * until then the sample set, labelled as examples on the wall itself.
+ * until then the sample set.
  *
- * ⚠️ The sample set is invented (src/lib/reviews.sample.ts). It is on the
- * live site by the owner's decision of 3 October 2026 ONLY with Reviews'
- * `examples` flag set, which prints EXAMPLE_NOTICE above the rating. Never
- * render SAMPLE without it. src/lib/reviews.test.ts pins both lines.
+ * ⚠️ The sample set is invented (src/lib/reviews.sample.ts). Until 12
+ * October 2026 the wall printed a line above the rating calling it examples;
+ * the owner replaced that line with the section's heading that day and will
+ * replace the set with real reviews before launch.
  */
 const SHOWING_EXAMPLES = PUBLISHED.length === 0;
 const REVIEWS = SHOWING_EXAMPLES ? SAMPLE : summarize(PUBLISHED);
@@ -46,8 +46,8 @@ export const metadata: Metadata = {
  * competes with the demo for a visitor's first click.
  *
  * What clinics say is the review wall. Until real reviews are published it
- * shows the sample set, labelled as examples (see REVIEWS above). "Leave a
- * review" sits in its header.
+ * shows the sample set (see REVIEWS above). "Leave a review" sits under its
+ * score.
  *
  * ## Nothing is parked any more
  *
@@ -78,7 +78,7 @@ export default function HomePage() {
 
         {/* Social proof sits between the money question and the FAQ on
             purpose: the FAQ then answers whatever the reviews raised. */}
-        <Reviews summary={REVIEWS} examples={SHOWING_EXAMPLES} />
+        <Reviews summary={REVIEWS} />
 
         <KnowMore />
 

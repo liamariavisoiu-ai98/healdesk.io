@@ -53,6 +53,21 @@ describe("the notices", () => {
     expect(problemNotice({ ...SESSION, buildNote: "No services found" }, "failed").text).toContain("No services found");
     expect(problemNotice(SESSION, "unsent").subject).toBe("Demo ready, email not sent: peachystudio.com");
   });
+
+  it("call a demo the audit held what it is: built, unsent, and released from the console, not rebuilt", () => {
+    const { subject, text } = problemNotice({ ...SESSION, status: "held", auditScore: 58, buildNote: null } as DemoSession, "held");
+    expect(subject).toBe("Demo held for review: peachystudio.com");
+    expect(text).toContain("was built, but its audit held it back");
+    expect(text).toContain("owner@peachystudio.com has not been sent anything");
+    expect(text).toContain("Audit score: 58/100.");
+    expect(text).toContain("Releasing the demo there sends the link");
+    expect(text).toContain("/admin/demos");
+    expect(text).not.toMatch(/did not build|failed/i);
+    // No score and no note: nothing blank where they would go.
+    const bare = problemNotice({ ...SESSION, status: "held", auditScore: null } as DemoSession, "held").text;
+    expect(bare).not.toContain("Audit score");
+    expect(bare).not.toMatch(/\n\n\n/);
+  });
 });
 
 describe("buildSelfServeDemo", () => {
@@ -82,6 +97,17 @@ describe("buildSelfServeDemo", () => {
     await buildSelfServeDemo(SESSION);
     expect(sentTo().map((m) => m.subject)).toEqual(["Demo request: peachystudio.com", "Demo build failed: peachystudio.com"]);
     expect(sentTo()[1]).toMatchObject({ to: "hello@healdesk.io", replyTo: "owner@peachystudio.com", tag: "own-demo-failed" });
+  });
+
+  it("tells hello@ the audit held it, once, without calling it a failure or alerting twice", async () => {
+    const held = { ...SESSION, status: "held", auditScore: 58, emailRequested: true };
+    runDemoBuild.mockResolvedValue(held);
+    getDemoSession.mockResolvedValue(held);
+    await buildSelfServeDemo(SESSION);
+    expect(sentTo().map((m) => m.subject)).toEqual(["Demo request: peachystudio.com", "Demo held for review: peachystudio.com"]);
+    expect(sentTo()[1]).toMatchObject({ to: "hello@healdesk.io", replyTo: "owner@peachystudio.com", tag: "own-demo-held" });
+    // The request's own alert only: lib/demo/build.ts raised the held one.
+    expect(postInternalAlert).toHaveBeenCalledTimes(1);
   });
 
   it("tells hello@ when the demo built but the visitor's link could not be sent", async () => {

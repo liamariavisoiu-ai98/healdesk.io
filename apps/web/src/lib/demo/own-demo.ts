@@ -18,6 +18,14 @@ import { site } from "@/lib/site";
  * the visitor's email could not be sent. A request nobody looks at is a lead
  * nobody follows up.
  *
+ * A demo that has been built is then audited before it reaches anyone
+ * (lib/demo/audit.ts), and a visitor who typed a stranger's site is as likely
+ * to be held as any: the link goes out only when it passes. A held demo is
+ * not a failed one. It is built, the request is on file with its email, and an
+ * operator releasing it from the console sends the link, so the team's second
+ * message says so, rather than calling it a failure and sending them to
+ * rebuild what only needs reading.
+ *
  * Every message to the team replies to the visitor, so answering one is
  * writing to them. Business contact data only: a website, an address, a
  * link. Never anything a patient said, which this side never holds.
@@ -65,7 +73,7 @@ export function requestNotice(session: DemoSession): { subject: string; text: st
       `Demo link: ${demoUrl(session.slug)}`,
       `Console: ${demoConsoleUrl()}`,
       "",
-      "It is being built now, and the link goes to them by email when it is ready. You will hear about this one again only if the build fails or that email cannot be sent.",
+      "It is being built now, and the link goes to them by email when it is ready. You will hear about this one again only if the build fails, the audit holds it for review, or that email cannot be sent.",
       "",
       "Reply to this message to write to them.",
     ].join("\n"),
@@ -73,9 +81,26 @@ export function requestNotice(session: DemoSession): { subject: string; text: st
 }
 
 /** To hello@, when a person has to finish what the automation could not. Exported for the test. */
-export function problemNotice(session: DemoSession, problem: "failed" | "unsent"): { subject: string; text: string } {
+export function problemNotice(session: DemoSession, problem: "failed" | "held" | "unsent"): { subject: string; text: string } {
   const host = hostOf(session);
   const who = session.leadEmail ?? "the visitor";
+  if (problem === "held") {
+    const score = typeof session.auditScore === "number" ? `Audit score: ${session.auditScore}/100.` : null;
+    return {
+      subject: `Demo held for review: ${host}`,
+      text: [
+        `The demo for ${session.websiteUrl} was built, but its audit held it back, so ${who} has not been sent anything. Their page says the team is putting the finishing touches on it.`,
+        "",
+        ...(score ? [score] : []),
+        ...(session.buildNote ? [session.buildNote] : []),
+        ...(score || session.buildNote ? [""] : []),
+        `Read what the audit found in the console. Releasing the demo there sends the link to them, because their request is on file; rebuilding it audits it again:`,
+        demoConsoleUrl(),
+        "",
+        "Reply to this message to write to them.",
+      ].join("\n"),
+    };
+  }
   if (problem === "failed") {
     return {
       subject: `Demo build failed: ${host}`,
@@ -131,7 +156,10 @@ export async function buildSelfServeDemo(session: DemoSession): Promise<void> {
     const built = await runDemoBuild(session.slug, { sendEmail: true });
     // Re-read: the link's email stamps the row after the build returns it.
     const latest = (await getDemoSession(session.slug, { fresh: true }).catch(() => null)) ?? built;
-    if (!latest || latest.status !== "ready") {
+    if (latest?.status === "held") {
+      // The build raised its own alert for a held demo (lib/demo/build.ts); one more would only repeat it.
+      await tellTheTeam(latest, problemNotice(latest, "held"), "held");
+    } else if (!latest || latest.status !== "ready") {
       const failed = latest ?? session;
       await tellTheTeam(failed, problemNotice(failed, "failed"), "failed");
       await postInternalAlert(`Homepage demo for ${hostOf(failed)} failed to build. ${demoConsoleUrl()}`);

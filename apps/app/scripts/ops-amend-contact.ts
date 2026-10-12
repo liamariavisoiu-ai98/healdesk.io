@@ -3,6 +3,7 @@ import {
   askLines,
   optionsFrom,
   refusePatientDataInArgs,
+  scriptFailure,
   shellOperator,
   typedEntryAllowed,
 } from "../src/lib/ops/patient-entry";
@@ -93,8 +94,6 @@ async function main(): Promise<void> {
 main()
   .then(() => process.exit(0))
   .catch((error: unknown) => {
-    console.error(
-      `[healdesk] amend-contact failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(scriptFailure("amend-contact", error));
     process.exit(1);
   });

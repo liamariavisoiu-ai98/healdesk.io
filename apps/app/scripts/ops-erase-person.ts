@@ -3,6 +3,7 @@ import {
   erasePersonFromShell,
   optionsFrom,
   refusePatientDataInArgs,
+  scriptFailure,
   shellOperator,
   typedEntryAllowed,
 } from "../src/lib/ops/patient-entry";
@@ -97,8 +98,6 @@ async function main(): Promise<void> {
 main()
   .then(() => process.exit(0))
   .catch((error: unknown) => {
-    console.error(
-      `[healdesk] erase-person failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    console.error(scriptFailure("erase-person", error));
     process.exit(1);
   });

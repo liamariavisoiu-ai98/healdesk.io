@@ -14,13 +14,20 @@ import {
   optionsFrom,
   parseArgs,
   refusePatientDataInArgs,
+  scriptFailure,
   shellOperator,
   typedEntryAllowed,
 } from "@/lib/ops/patient-entry";
 import { ERASURE_STEP_OUTCOMES } from "@/lib/patient-rights/erasure";
 import { REQUESTER_LABELS } from "@/lib/patient-rights/requesters";
 
-import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import {
+  closePools,
+  getMigratorPool,
+  hasTestDatabase,
+  runMigrations,
+  truncateAll,
+} from "./setup/db";
 import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
 
 /**
@@ -169,6 +176,25 @@ describe("the shell takes patient data from the prompt, never the command line",
     expect(correct.status).toBe(1);
     expect(correct.stderr).toMatch(/can only clear fields/);
   }, 120_000);
+
+  test("each script's failure line is the database's reason, never a failed query's parameters", () => {
+    // drizzle's wrapper, by its shape: the query and its parameters as own
+    // properties, the driver's error as the cause.
+    const cause = Object.assign(new Error("canceling statement due to lock timeout"), {
+      name: "error",
+    });
+    const wrapped = Object.assign(
+      new Error("Failed query: select 1\nparams: ann@mail.test,(?<![0-9])5[ ().-]{0,2}5"),
+      { query: "select 1", params: ["ann@mail.test"], cause },
+    );
+    for (const script of ["erase-person", "amend-record", "amend-contact"]) {
+      const line = scriptFailure(script, wrapped);
+      expect(line).toBe(
+        `[healdesk] ${script} failed: error: canceling statement due to lock timeout`,
+      );
+    }
+    expect(scriptFailure("amend-contact", new Error("for ann@mail.test"))).not.toMatch(/ann@/);
+  });
 
   test("the prompt reads one answer per question, a blank line an empty one, and writes only the questions", async () => {
     const input = new PassThrough();
@@ -345,6 +371,52 @@ describeDb("patient data never crosses the ops envelope", () => {
       client.query(`select 1 from contacts where id = $1`, [person]),
     );
     expect(gone.rows).toEqual([]);
+  }, 120_000);
+
+  test("a failed erasure prints the database's reason, never the failed query's parameters, which are the person's details", async () => {
+    // drizzle's error message is "Failed query: …" with every parameter, and
+    // an erasure's parameters are the person's numbers, their address and the
+    // patterns built from their digits. The script printed that message, so a
+    // task's log on the AWS host received them (review of 12 October 2026).
+    // Here the evidence step fails: it deletes suppressions under the
+    // person's numbers, and a lock held on that table outlasts the script's
+    // lock timeout.
+    const c = await seedClinic("entry-failure");
+    const person = await seedContact(c.clinicId, "+15550138951");
+    await inTenant(c.clinicId, (client) =>
+      client.query(`update contacts set email = 'sky.failure@example-patient.test' where id = $1`, [
+        person,
+      ]),
+    );
+    const holder = await getMigratorPool().connect();
+    let run: ReturnType<typeof runScript>;
+    try {
+      await holder.query("begin");
+      await holder.query("lock table suppressions in share mode");
+      run = runScript("ops-erase-person", [], "", {
+        HEALDESK_ERASURE_CLINIC_ID: c.clinicId,
+        HEALDESK_ERASURE_CONTACT_ID: person,
+        HEALDESK_ERASURE_REQUESTED_BY: "practice",
+        HEALDESK_OPS_OPERATOR: "ops@healdesk.test",
+        PGOPTIONS: "-c lock_timeout=1500",
+      });
+    } finally {
+      await holder.query("rollback");
+      holder.release();
+    }
+    expect(run.status, run.stderr).toBe(1);
+    expect(run.stderr).toMatch(
+      /erase-person failed: \w*error: canceling statement due to lock timeout/i,
+    );
+    const printed = `${run.stdout}${run.stderr}`;
+    // The patterns write a digit, then "[ ().-]{0,2}", then the next.
+    expect(printed.replace(/\[ \(\)\.-\]\{0,2\}/g, "")).not.toMatch(/0138951/);
+    expect(printed).not.toMatch(/sky|failure@|example-patient|params/i);
+    // And the transaction rolled back: nothing of the person went.
+    const still = await inTenant(c.clinicId, (client) =>
+      client.query(`select 1 from contacts where id = $1`, [person]),
+    );
+    expect(still.rows).toHaveLength(1);
   }, 120_000);
 
   test("ops:erase-person deletes the person typed at its prompt, prints ids and counts only, and refuses a number on the command line", async () => {

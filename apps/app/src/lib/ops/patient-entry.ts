@@ -394,6 +394,19 @@ export async function amendContactFromShell(input: {
 // -----------------------------------------------------------------------------
 
 /**
+ * The line a script prints when it fails, built from describeError (lib/log),
+ * never the error's own message. A failed query's message from drizzle is
+ * "Failed query: …" with its parameters, and an erasure's parameters are the
+ * person's address and the patterns built from their number's digits; on the
+ * AWS host a task's stderr goes to its CloudWatch log, so printing the
+ * message wrote the person's details there (review of 12 October 2026).
+ * describeError keeps the database's own reason and drops the query.
+ */
+export function scriptFailure(script: string, error: unknown): string {
+  return `[healdesk] ${script} failed: ${describeError(error)}`;
+}
+
+/**
  * Whether patient data may be typed at a prompt here: on a development
  * machine only. The image runs with NODE_ENV=production, and on the AWS host
  * nothing is typed: by contact id, through run-task.sh only.

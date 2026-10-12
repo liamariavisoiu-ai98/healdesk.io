@@ -2024,108 +2024,22 @@
 }
 
 /* =============================================================================
-   Review card, the flip
+   Review card
    =============================================================================
-   The card shows a rating, a headline and a name face up, and turns over to
-   show the quote. Written here rather than as Tailwind variants for the same
-   reason the niche flood is: this is one property animated from one place, and
-   the utility version needs `[transform-style:preserve-3d]`,
-   `[backface-visibility:hidden]` and two `[transform:rotateY()]` arbitrary
-   values scattered across three elements, where a stray `transform` utility on
-   any of them silently flattens the whole thing.
+   One face since 12 October 2026: the card no longer turns over to show the
+   quote (Reviews.tsx says why). What it kept is the laminate.
 
-   ## Three things that are not stylistic
-
-   `perspective` is on the OUTER element and `preserve-3d` on the inner one.
-   Putting both on the same element flattens the children into its own plane and
-   the card fades between faces instead of turning.
-
-   The rotation is negative, so the right edge swings towards the reader and the
-   card turns to the left. That direction is deliberate: the slider advances
-   leftward, and a card that turned the other way would fight it.
-
-   Hover is inside `@media (hover: hover)`. On a touch screen a `:hover` rule
-   latches after a tap and the card sits reversed until something else is
-   touched, so touch gets the explicit `data-flipped` toggle instead. Both are
-   listed here because a laptop with a touchscreen is both.
+   A gloss is not one effect. The stock carries a very slight gradient of its
+   own, brightest at the top left, because a highlight the same colour as the
+   surface is invisible; the rim is an inset hairline of white along the top
+   edge, which is what the folded edge of a laminate pouch does to the light;
+   and the specular streak is a background layer behind the type rather than
+   an overlay on it, because at the strength a white band needs to be seen on
+   a white card it greyed every word it crossed. No border, so the shadow is
+   the whole edge.
    ============================================================================= */
 
-.review-flip {
-  perspective: 1400px;
-}
-
-.review-flip__inner {
-  position: relative;
-  height: 100%;
-  transform-style: preserve-3d;
-  /*
-   * Ease-in-out, and no bounce. A half turn is a physical movement of something
-   * already on screen, which is the one case the ease-out family reads wrong,
-   * and an overshoot on a hover state means a card that wobbles every time a
-   * pointer crosses it.
-   */
-  transition: transform 700ms cubic-bezier(0.645, 0.045, 0.355, 1);
-}
-
-@media (hover: hover) {
-  .review-flip:hover .review-flip__inner {
-    transform: rotateY(-180deg);
-  }
-}
-
-.review-flip:focus-visible .review-flip__inner,
-.review-flip[data-flipped="true"] .review-flip__inner {
-  transform: rotateY(-180deg);
-}
-
-.review-flip__face {
-  position: absolute;
-  inset: 0;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  overflow: hidden;
-}
-
-.review-flip__face--back {
-  transform: rotateY(180deg);
-}
-
-/* -----------------------------------------------------------------------------
-   The laminate.
-
-   Three layers, and all three are needed. A gloss is not one effect:
-
-     1. The stock. A flat white card cannot show a sheen, because a highlight
-        the same colour as the surface is invisible. So the face carries a very
-        slight gradient of its own, brightest at the top left, and the sheen has
-        something to be brighter than.
-     2. The rim. An inset hairline of white along the top edge and a whisper of
-        ink along the bottom, which is what the folded edge of a laminate pouch
-        actually does to the light.
-     3. The specular streak, below.
-
-   The streak is on ::after and therefore paints OVER the copy, which is correct
-   rather than a bug: laminate goes on top of the print. It is pointer-events:
-   none, so nothing under it stops being clickable, and it inherits the radius
-   so it cannot square off the corner.
-   -------------------------------------------------------------------------- */
-
-/*
- * The sheen is a BACKGROUND layer, not an overlay, and that is the second
- * thing this effect got wrong.
- *
- * A laminate physically sits over the print, so the first version put the
- * streak on ::after above the copy. At the strength a white band needs to be
- * visible on a white card, it greys every word it crosses: the headline lost
- * its left half and the first star went pale. Behind the type it reads as the
- * same gloss and costs the copy nothing, and no reader has ever audited a card
- * for whether its highlight is in front of the ink.
- *
- * The stock underneath goes to a cool grey rather than staying white, because
- * a highlight the same colour as the surface is not a highlight. The band has
- * to have something to be brighter than.
- */
-.review-flip__face:not(.review-flip__face--back) {
+.review-card {
   background-image:
     linear-gradient(
       114deg,
@@ -2138,49 +2052,7 @@
       rgb(255 255 255 / 0) 100%
     ),
     linear-gradient(152deg, #ffffff 0%, #fafbfc 40%, #edf0f3 100%);
-  /*
-   * No border, so the shadow is the whole edge.
-   *
-   * The card used to carry a hairline outline and the shadow only had to lift
-   * it; with the outline gone a near-white card on a near-white page has
-   * nothing to separate it, so this is three shadows rather than two. The
-   * first is a contact shadow tight under the card, the second the ambient
-   * one, the third the soft cast that gives it height. The inset white line
-   * stays: it is the top edge catching the light, which is inside the card
-   * rather than an outline around it.
-   */
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.95),
-    0 1px 2px rgb(23 42 58 / 0.07),
-    0 6px 12px -8px rgb(23 42 58 / 0.28),
-    0 20px 36px -22px rgb(23 42 58 / 0.45);
-}
-
-/* Same material, different strengths. White on ink is a real highlight where
-   white on white is barely a suggestion, so the numbers cannot match. */
-.review-flip__face--back {
-  background-image: linear-gradient(
-    114deg,
-    rgb(255 255 255 / 0) 6%,
-    rgb(255 255 255 / 0.16) 18%,
-    rgb(255 255 255 / 0.04) 28%,
-    rgb(255 255 255 / 0) 42%,
-    rgb(255 255 255 / 0) 74%,
-    rgb(255 255 255 / 0.1) 90%,
-    rgb(255 255 255 / 0) 100%
-  );
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 0.18),
-    0 2px 4px -2px rgb(23 42 58 / 0.3),
-    0 18px 36px -20px rgb(23 42 58 / 0.55);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  /* Snap, rather than run the same half turn in 0.01ms. The global rule would
-     do that on its own and it reads as a glitch rather than as a card. */
-  .review-flip__inner {
-    transition: none;
-  }
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.95), var(--shadow-md);
 }
 
 /* =============================================================================

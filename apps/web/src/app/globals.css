@@ -1391,15 +1391,18 @@
    orbits' centre, and the other groups step back. */
 .portrait[data-group="messages"] .portrait__node[data-group="messages"] .portrait__spread,
 .portrait[data-group="bookings"] .portrait__node[data-group="bookings"] .portrait__spread,
+.portrait[data-group="synced"] .portrait__node[data-group="synced"] .portrait__spread,
 .portrait[data-group="payments"] .portrait__node[data-group="payments"] .portrait__spread {
   transform: translate(calc(var(--ux) * 22%), calc(var(--uy) * 22%));
 }
 
 .portrait[data-group="messages"] .portrait__node:not([data-group="messages"]) .portrait__spread,
 .portrait[data-group="bookings"] .portrait__node:not([data-group="bookings"]) .portrait__spread,
+.portrait[data-group="synced"] .portrait__node:not([data-group="synced"]) .portrait__spread,
 .portrait[data-group="payments"] .portrait__node:not([data-group="payments"]) .portrait__spread,
 .portrait[data-group="messages"] .portrait__orbit:not([data-group="messages"]),
 .portrait[data-group="bookings"] .portrait__orbit:not([data-group="bookings"]),
+.portrait[data-group="synced"] .portrait__orbit:not([data-group="synced"]),
 .portrait[data-group="payments"] .portrait__orbit:not([data-group="payments"]) {
   opacity: 0.35;
 }
@@ -1451,6 +1454,7 @@
 
 .portrait[data-group="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
 .portrait[data-group="bookings"] .portrait__orbit[data-group="bookings"] .portrait__orbit-line,
+.portrait[data-group="synced"] .portrait__orbit[data-group="synced"] .portrait__orbit-line,
 .portrait[data-group="payments"] .portrait__orbit[data-group="payments"] .portrait__orbit-line {
   stroke-width: 2.6;
 }
@@ -1458,6 +1462,7 @@
 /* The orbit of the card showing, whether a visitor chose it or the hero did. */
 .portrait[data-lit="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
 .portrait[data-lit="bookings"] .portrait__orbit[data-group="bookings"] .portrait__orbit-line,
+.portrait[data-lit="synced"] .portrait__orbit[data-group="synced"] .portrait__orbit-line,
 .portrait[data-lit="payments"] .portrait__orbit[data-group="payments"] .portrait__orbit-line {
   stroke-width: 2.6;
 }

@@ -35,10 +35,11 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  *
  * ## Three orbits, and the chips that fan out (the owner's pick, 9 October)
  *
- * Three concentric circles ring her head, one per group (the owner asked on
- * 12 October 2026 for true circles; they were ovals): Messages & Calls
- * (website chat, Instagram, Messenger, WhatsApp and her phone line) down the
- * wall on her left, Bookings on the right, Payments low on the right. Each
+ * Three concentric circles ring her head (the owner asked on 12 October 2026
+ * for true circles; they were ovals): Messages & Calls (website chat,
+ * Instagram, Messenger, WhatsApp and her phone line) down the wall on her
+ * left; on the right the inner circle carries Bookings (Google Calendar) and,
+ * after it, the calendars synced with Google; Payments is low on the right. Each
  * circle is drawn whole and faint, so three rings read as three rings, with
  * its group's stretch lit from a chip with its title, and as the page opens
  * the logos fan out of their chip along the circle to their places,
@@ -50,8 +51,10 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  *
  * Cal.com, Calendly and HighLevel are there as calendars that read Google's,
  * never as ones she writes into: v1 writes bookings to the clinic's Google
- * Calendar and nothing else, so their cards say a slot was blocked, and
- * Google Calendar's that a consultation was booked (docs/v1-product-spec.md,
+ * Calendar and nothing else. Since 12 October 2026 (owner) they are their own
+ * group under a "Synced with Google" chip rather than part of Bookings, and
+ * their cards say the slot came from Google and was blocked, while Google
+ * Calendar's says a consultation was booked (docs/v1-product-spec.md,
  * "Where bookings are written"). Stripe is the gateway a clinic connects to
  * take deposits in chat.
  *
@@ -141,7 +144,7 @@ function useResting(target: RefObject<HTMLElement | null>) {
 const LOGO_PX = 0.05 * PHOTO.width;
 
 /** Seconds for one drift along the orbit and back, by orbit: the outer ones slower. */
-const ORBIT_TIME: Record<LogoGroup, number> = { messages: 12, bookings: 16, payments: 20 };
+const ORBIT_TIME: Record<LogoGroup, number> = { messages: 12, bookings: 16, synced: 16, payments: 20 };
 /** How far each way along its orbit a logo drifts, in degrees. */
 const DRIFT_DEGREES = 3;
 /** How long each card shows while a chip plays its group's in turn. */
@@ -339,11 +342,15 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
               );
             })}
           </defs>
-          {ORBITS.map((orbit) => {
+          {ORBITS.map((orbit, i) => {
             const { d } = arcPath(orbit);
+            // A circle two groups share is drawn once, with the first.
+            const ring = ORBITS.findIndex((o) => o.r === orbit.r) === i;
             return (
               <g key={orbit.group} className="portrait__orbit" data-group={orbit.group}>
-                <circle cx={ORBIT_CENTRE.x} cy={ORBIT_CENTRE.y} r={orbit.r} className="portrait__ring" vectorEffect="non-scaling-stroke" />
+                {ring ? (
+                  <circle cx={ORBIT_CENTRE.x} cy={ORBIT_CENTRE.y} r={orbit.r} pathLength={1} className="portrait__ring" vectorEffect="non-scaling-stroke" />
+                ) : null}
                 <path d={d} pathLength={1} className="portrait__orbit-shade" vectorEffect="non-scaling-stroke" />
                 <path d={d} pathLength={1} className="portrait__orbit-line" stroke={`url(#orbit-fade-${orbit.group})`} vectorEffect="non-scaling-stroke" />
               </g>

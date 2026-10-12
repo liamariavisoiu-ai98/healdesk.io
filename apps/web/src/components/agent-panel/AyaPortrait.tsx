@@ -29,11 +29,15 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  * ## The call, choreographed (the owner's M2, 9 October 2026)
  *
  *   - idle: breathing, and the glances above.
- *   - connecting: a light sweeps across her, again and again, until it answers.
- *   - listening: live, and she is quiet, so it is the caller's turn. A cool
- *     tint and two slow ripples.
+ *   - connecting: the aura quickens, or the halo waits, until it answers.
+ *   - listening: live, and she is quiet, so it is the caller's turn. Two slow
+ *     ripples round her.
  *   - speaking: live, and she is talking. The ring swells with the loudness
  *     of her voice (`level`, 0 to 1, from the call's audio).
+ *
+ * Nothing is laid over her face: the white light that swept across her while
+ * the call connected, and the cool wash while she listened, are gone (owner,
+ * 12 October 2026). Everything that tells the call is round her.
  *
  * Visitors who ask for less motion get the same states without the movement.
  */
@@ -150,10 +154,6 @@ export function AyaPortrait({
             />
           ))
         )}
-        {/* Connecting: a light passing across her. */}
-        <span aria-hidden className="aya-sweep pointer-events-none absolute inset-0" />
-        {/* Listening: the cool tint over her. */}
-        <span aria-hidden className="aya-cool pointer-events-none absolute inset-0" />
       </div>
     </div>
   );

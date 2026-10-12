@@ -3308,44 +3308,6 @@
   }
 }
 
-.aya-cool {
-  background: radial-gradient(60% 60% at 30% 26%, rgb(255 255 255 / 0.35), transparent 70%),
-    linear-gradient(140deg, rgb(127 178 255 / 0.32), rgb(86 120 255 / 0.18));
-  opacity: 0;
-  transition: opacity var(--duration-slow) var(--ease-standard);
-}
-
-.aya-portrait[data-state="listening"] .aya-cool {
-  opacity: 1;
-}
-
-.aya-sweep {
-  overflow: hidden;
-  border-radius: 9999px;
-}
-
-.aya-sweep::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: -60%;
-  width: 45%;
-  background: linear-gradient(100deg, transparent, rgb(255 255 255 / 0.7), transparent);
-  opacity: 0;
-}
-
-.aya-portrait[data-state="connecting"] .aya-sweep::after {
-  opacity: 1;
-  animation: aya-sweep 1.15s var(--ease-in-out) infinite;
-}
-
-@keyframes aya-sweep {
-  to {
-    left: 120%;
-  }
-}
-
 /* The state, in words, beside her. */
 .call-state {
   display: inline-flex;

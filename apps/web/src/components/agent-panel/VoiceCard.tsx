@@ -21,9 +21,9 @@ import { countryByIso, DIAL_COUNTRIES, formatNational, splitNumber, toInternatio
  * caller's number first, and what the call-me request carries.
  *
  * AYA's face sits where a phone icon would, and tells the call as it goes
- * (the owner's M2, AyaPortrait.tsx): a light sweeping across her while it
- * connects, a cool tint and ripples while she listens, her ring swelling with
- * her voice while she speaks, and the same state in words beside her.
+ * (the owner's M2, AyaPortrait.tsx): the aura quickening while it connects,
+ * ripples while she listens, her ring swelling with her voice while she
+ * speaks, and the same state in words beside her.
  *
  * ## Talk here
  *

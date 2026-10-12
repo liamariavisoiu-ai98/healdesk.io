@@ -2647,14 +2647,76 @@ async function firstPlanPeriod(
   return { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) };
 }
 
+type RefundOnRecord = {
+  amount?: number | null;
+  status?: string | null;
+  metadata?: Record<string, string> | null;
+};
+
+/** What an invoice charged in subscription fees: its fee lines after discounts, credits included. */
+function feesOn(lines: InvoiceLineLike[]): number {
+  return lines.reduce((sum, line) => sum + netAmount(line), 0);
+}
+
+/**
+ * One invoice's part of a refund of `kind`: `wantedCents`, capped by what
+ * the payment has left, or null when nothing is left or the invoice was not
+ * paid through a payment intent.
+ *
+ * The refunds counted against it are those of another kind on its payment
+ * intent that have not failed or been cancelled. A refund of the same kind
+ * is not counted: commit reuses that one (refundPart), and a preview after a
+ * partial commit shows the same amount as before. Two caps, the lower wins:
+ *
+ *   - what the charge has left: what the invoice was paid, less every such
+ *     refund, a guarantee, first-period or termination refund or one made by
+ *     hand in the Dashboard (no hd_kind), so Stripe is never asked for more
+ *     than the charge holds;
+ *   - what its fees have left: the invoice's subscription-fee lines
+ *     (`invoiceFeeCents`), less the refunds healdesk made of another kind,
+ *     every one of which paid back fees. Without it, a § 5 refund after a
+ *     termination refund (or the other way round) would reach into the
+ *     invoice's overage or setup line, which no refund kind pays back.
+ *
+ * The three kinds share this one cap, so a charge is never paid back twice.
+ */
+async function cappedPart(
+  stripe: Stripe,
+  invoice: InvoiceSummary,
+  kind: RefundKind,
+  wantedCents: number,
+  invoiceFeeCents: number,
+): Promise<RefundPart | null> {
+  if (wantedCents <= 0) return null;
+  const paymentIntentId = await paymentIntentOf(stripe, invoice.id);
+  if (!paymentIntentId) return null;
+  const refunds = (await stripe.refunds.list(
+    { payment_intent: paymentIntentId, limit: 100 },
+    WORKER_STRIPE_OPTIONS,
+  )) as unknown as { data?: RefundOnRecord[] };
+  const elsewhere = (refunds.data ?? []).filter(
+    (refund) =>
+      refund.status !== "failed" &&
+      refund.status !== "canceled" &&
+      refund.metadata?.hd_kind !== kind,
+  );
+  const sum = (list: RefundOnRecord[]) =>
+    list.reduce((total, refund) => total + (refund.amount ?? 0), 0);
+  const chargeLeft = (invoice.amount_paid ?? 0) - sum(elsewhere);
+  const feesLeft =
+    invoiceFeeCents - sum(elsewhere.filter((refund) => Boolean(refund.metadata?.hd_kind)));
+  const amountCents = Math.min(wantedCents, chargeLeft, feesLeft);
+  return amountCents > 0 ? { invoiceId: invoice.id, paymentIntentId, amountCents } : null;
+}
+
 /**
  * What a refund pays back, invoice by invoice (R15).
  *
  * `first_period_cancel`: every subscription-fee line (the package price and
  * its prorations, never setup or overage) on the subscription's paid
- * invoices whose period starts inside the first plan period, per invoice no
- * more than it was paid. That is the whole first period, a year on an annual
- * plan, including any step-up made in it.
+ * invoices whose period starts inside the first plan period. That is the
+ * whole first period, a year on an annual plan, including any step-up made
+ * in it.
  *
  * `guarantee`: one month's fee from the first plan invoice's package line:
  * the line itself on a monthly plan, a twelfth of it on an annual one
@@ -2662,6 +2724,9 @@ async function firstPlanPeriod(
  *
  * `agreement_terminated`: the fees paid for time after the agreement ended
  * (terminationRefund).
+ *
+ * Every kind, per invoice, is no more than the payment has left after the
+ * refunds of other kinds on it (cappedPart).
  */
 async function planRefund(
   stripe: Stripe,
@@ -2681,15 +2746,14 @@ async function planRefund(
       {},
       WORKER_STRIPE_OPTIONS,
     )) as unknown as InvoiceSummary;
-    const packageCents = (await subscriptionFeeLines(stripe, invoiceId))
+    const lines = await subscriptionFeeLines(stripe, invoiceId);
+    const packageCents = lines
       .filter((line) => line.parent?.subscription_item_details?.proration !== true)
       .reduce((sum, line) => sum + netAmount(line), 0);
     const monthCents =
       row.billingInterval === "year" ? Math.floor(packageCents / 12) : packageCents;
-    const amountCents = Math.min(Math.max(monthCents, 0), invoice.amount_paid ?? 0);
-    if (amountCents <= 0) return [];
-    const paymentIntentId = await paymentIntentOf(stripe, invoiceId);
-    return paymentIntentId ? [{ invoiceId, paymentIntentId, amountCents }] : [];
+    const part = await cappedPart(stripe, invoice, kind, monthCents, feesOn(lines));
+    return part ? [part] : [];
   }
 
   const period = await firstPlanPeriod(stripe, row, start);
@@ -2709,7 +2773,8 @@ async function planRefund(
     )) as unknown as { data?: InvoiceSummary[]; has_more?: boolean };
     const data = list.data ?? [];
     for (const invoice of data) {
-      const feeCents = (await subscriptionFeeLines(stripe, invoice.id))
+      const lines = await subscriptionFeeLines(stripe, invoice.id);
+      const feeCents = lines
         .filter((line) => {
           const lineStart = line.period?.start;
           return (
@@ -2717,10 +2782,8 @@ async function planRefund(
           );
         })
         .reduce((sum, line) => sum + netAmount(line), 0);
-      const amountCents = Math.min(Math.max(feeCents, 0), invoice.amount_paid ?? 0);
-      if (amountCents <= 0) continue;
-      const paymentIntentId = await paymentIntentOf(stripe, invoice.id);
-      if (paymentIntentId) parts.push({ invoiceId: invoice.id, paymentIntentId, amountCents });
+      const part = await cappedPart(stripe, invoice, kind, feeCents, feesOn(lines));
+      if (part) parts.push(part);
     }
     if (!list.has_more || data.length === 0) break;
     startingAfter = data[data.length - 1]!.id;
@@ -2765,11 +2828,7 @@ function unusedShare(line: InvoiceLineLike, fromSec: number): number {
  * line, only the $0 placeholder, and the eligibility refuses first.
  *
  * Per invoice the refund is no more than the payment has left after every
- * other refund on its payment intent (a guarantee or first-period refund
- * earlier in the period, one made by hand in the Dashboard), so nothing is
- * paid back twice. A refund of this kind already there is not counted
- * against it: commit reuses it (refundPart), and a preview after a partial
- * commit shows the same amount as before.
+ * refund of another kind on its payment intent (cappedPart).
  */
 async function terminationRefund(
   stripe: Stripe,
@@ -2791,33 +2850,10 @@ async function terminationRefund(
     )) as unknown as { data?: InvoiceSummary[]; has_more?: boolean };
     const data = list.data ?? [];
     for (const invoice of data) {
-      const unused = (await subscriptionFeeLines(stripe, invoice.id)).reduce(
-        (sum, line) => sum + unusedShare(line, fromSec),
-        0,
-      );
-      if (unused <= 0) continue;
-      const paymentIntentId = await paymentIntentOf(stripe, invoice.id);
-      if (!paymentIntentId) continue;
-      const refunds = (await stripe.refunds.list(
-        { payment_intent: paymentIntentId, limit: 100 },
-        WORKER_STRIPE_OPTIONS,
-      )) as unknown as {
-        data?: Array<{
-          amount?: number | null;
-          status?: string | null;
-          metadata?: Record<string, string> | null;
-        }>;
-      };
-      const refundedElsewhere = (refunds.data ?? [])
-        .filter(
-          (refund) =>
-            refund.status !== "failed" &&
-            refund.status !== "canceled" &&
-            refund.metadata?.hd_kind !== "agreement_terminated",
-        )
-        .reduce((sum, refund) => sum + (refund.amount ?? 0), 0);
-      const amountCents = Math.min(unused, (invoice.amount_paid ?? 0) - refundedElsewhere);
-      if (amountCents > 0) parts.push({ invoiceId: invoice.id, paymentIntentId, amountCents });
+      const lines = await subscriptionFeeLines(stripe, invoice.id);
+      const unused = lines.reduce((sum, line) => sum + unusedShare(line, fromSec), 0);
+      const part = await cappedPart(stripe, invoice, "agreement_terminated", unused, feesOn(lines));
+      if (part) parts.push(part);
     }
     if (!list.has_more || data.length === 0) break;
     startingAfter = data[data.length - 1]!.id;
@@ -2969,8 +3005,9 @@ export async function commitRefund(
     await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
       // The termination refund does not stamp the § 5 marker: it is not a
       // § 5 refund, and stamping it would refuse a § 5 refund the Terms may
-      // still owe for the time before the end. Stripe refuses any refund
-      // beyond what a charge has left, so the two never pay a charge twice.
+      // still owe for the time before the end. Each kind is capped by what
+      // the payment has left after the others (cappedPart), so the two never
+      // pay a charge twice.
       if (input.kind !== "agreement_terminated") {
         await markFirstPeriodRefunded(tx.db, billingClinicId, now);
       }

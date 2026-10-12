@@ -349,10 +349,10 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
 
     // The operator previews the refund: this period's package line, from the
     // day after the termination to the period's end (18 of its 30 days),
-    // capped by what the payment has left after the guarantee refund. Never
-    // the setup fee, never the overage line.
+    // capped by the fee the payment has left after the guarantee refund.
+    // Never the setup fee, never the overage line.
     const unused = Math.trunc((PACKAGE_CENTS * 18) / 30);
-    const expected = Math.min(unused, PACKAGE_CENTS + 8_000 - 50_000);
+    const expected = Math.min(unused, PACKAGE_CENTS - 50_000);
     const preview = await previewRefund(
       { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
       { stripe: world.stripe },
@@ -441,6 +441,65 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       ),
     ).toMatchObject({ status: "refunded", amountCents: expected });
     expect(world.fake.callsTo("refunds.create")).toHaveLength(1);
+  }, 180_000);
+
+  test("a § 5 refund after the termination refund pays back only the fee the payment has left", async () => {
+    const practice = await seedPractice("term-then-s5");
+    const world = worldFor(practice);
+    const invoice = thisPeriodInvoice(world);
+    await run("markAgreementTerminated", {
+      agreementId: practice.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "practice_healdesk_breach",
+    });
+
+    // The termination refund first: 18 of the period's 30 days.
+    const unused = Math.trunc((PACKAGE_CENTS * 18) / 30);
+    expect(
+      await commitRefund(
+        {
+          clinicId: practice.billingClinicId,
+          kind: "agreement_terminated",
+          confirmAmountCents: unused,
+          reason: "Terminated for our breach, clause 17",
+          actorLabel: OPERATOR.email,
+        },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "refunded", amountCents: unused });
+
+    // Then the first period in full under § 5: the package fee less what the
+    // termination already paid back, and not a cent of the overage line the
+    // charge also holds. Uncapped, it asked Stripe for the whole fee again.
+    const left = PACKAGE_CENTS - unused;
+    expect(
+      await previewRefund(
+        { clinicId: practice.billingClinicId, kind: "first_period_cancel" },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "ok", amountCents: left });
+    expect(
+      await commitRefund(
+        {
+          clinicId: practice.billingClinicId,
+          kind: "first_period_cancel",
+          confirmAmountCents: left,
+          reason: "First period under § 5",
+          actorLabel: OPERATOR.email,
+        },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "refunded", amountCents: left });
+
+    const creates = world.fake.callsTo("refunds.create");
+    expect(creates.map((call) => (call.args[0] as { amount: number }).amount)).toEqual([
+      unused,
+      left,
+    ]);
+    const refunded = world.state.refunds
+      .filter((refund) => refund.payment_intent === `pi_${invoice.id}`)
+      .reduce((sum, refund) => sum + (refund.amount as number), 0);
+    expect(refunded).toBe(PACKAGE_CENTS);
   }, 180_000);
 
   test("who ended it and why is recorded once, with the date, and never changed", async () => {

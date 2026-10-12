@@ -1093,6 +1093,19 @@
   display: grid;
   width: 100%;
   overflow: hidden;
+
+  /*
+   * The entrance, as the page opens (owner, 12 October 2026): the photo
+   * settles, the full rings draw in round her, then each group's lit stretch,
+   * the chips appear at their heads and the logos fan out of them, and last
+   * the cue pill draws in. Each beat's start is here, so the order reads in
+   * one place; the copy is not part of it (it comes up on the cursor).
+   */
+  --entrance-rings: 300ms;
+  --entrance-arcs: 650ms;
+  --entrance-chips: 850ms;
+  --entrance-logos: 1000ms;
+  --entrance-cue: 2100ms;
 }
 
 .hero__veil {
@@ -1203,16 +1216,59 @@
     transform: translateY(100%);
   }
 
+  /*
+   * Coming: the announcement, then the headline line by line, then the
+   * buttons after its last line. Going: all at once and quicker, so a cursor
+   * that leaves is not left waiting on a slow exit. The pause between lines
+   * is `--line-step`; HeroLines (HeroStage.tsx) numbers each word's line and
+   * counts the lines into `--hero-lines`.
+   */
+  .hero__copy {
+    --line-step: 110ms;
+    --lines-from: 90ms;
+  }
+
   .hero-line {
     transition:
       opacity var(--duration-slow) var(--ease-standard),
       transform var(--duration-slower) var(--ease-out);
   }
 
-  /* Going, all at once; coming, line by line. */
+  .hero-line--after {
+    transition-delay: calc(var(--lines-from) + var(--hero-lines, 1) * var(--line-step) + 60ms);
+  }
+
   .hero[data-reveal="hidden"] .hero-line {
     opacity: 0;
-    transform: translateY(40px);
+    transform: translateY(24px);
+    transition-duration: var(--duration-base);
+    transition-delay: 0ms;
+  }
+
+  /* Each word rises from under its own line, which clips it: a line comes up
+     out of nothing rather than sliding in from below the one under it. The
+     padding gives the descenders and the italic overhang room inside the
+     clip, and the negative margin gives the room back. */
+  .hero-word {
+    display: inline-block;
+    overflow: clip;
+    padding-block: 0.06em 0.16em;
+    margin-block: -0.06em -0.16em;
+    vertical-align: top;
+  }
+
+  .hero-word > span {
+    display: inline-block;
+    transition:
+      transform var(--duration-slower) var(--ease-out),
+      opacity var(--duration-slow) var(--ease-standard);
+    transition-delay: calc(var(--lines-from) + var(--line, 0) * var(--line-step));
+  }
+
+  .hero[data-reveal="hidden"] .hero-word > span {
+    opacity: 0;
+    transform: translateY(105%);
+    transition-duration: var(--duration-base);
     transition-delay: 0ms;
   }
 
@@ -1245,16 +1301,47 @@
     transition: opacity var(--duration-base) var(--ease-standard);
   }
 
-  /* Waits for the logos to have fanned out, then stays until the first reveal. */
+  /* The last beat of the entrance (see "The entrance" below): once the logos
+     have fanned out, the pill draws in from its middle, and its words follow.
+     It stays until the copy first comes up, then fades. */
   .hero__cue[data-show] {
     opacity: 1;
-    transition-delay: 1800ms;
+    animation: hero-cue-draw var(--duration-slow) var(--ease-out) var(--entrance-cue) both;
   }
 
   .hero__cue svg {
     width: 16px;
     height: 16px;
-    animation: hero-cue 1.6s ease-in-out infinite;
+  }
+
+  .hero__cue[data-show] svg {
+    animation:
+      hero-cue-words var(--duration-slow) var(--ease-standard) calc(var(--entrance-cue) + 180ms) both,
+      hero-cue 1.6s var(--ease-in-out) calc(var(--entrance-cue) + 700ms) infinite;
+  }
+}
+
+/* The pill's words are a text node, which no selector reaches, so the pill's
+   own colour brings them in; the arrow is `currentColor` and comes with it. */
+@keyframes hero-cue-draw {
+  from {
+    opacity: 0;
+    clip-path: inset(0 50% 0 50% round 9999px);
+    color: transparent;
+  }
+  60% {
+    opacity: 1;
+    color: transparent;
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 9999px);
+  }
+}
+
+@keyframes hero-cue-words {
+  from {
+    opacity: 0;
+    translate: 0 4px;
   }
 }
 
@@ -1279,6 +1366,24 @@
   width: 100%;
   height: 100%;
   user-select: none;
+  /* Settles: in from a touch larger, slower than it fades in, so it lands
+     rather than pops. A transform on the photo alone, never on .portrait,
+     which would trap the logos under the veil (see above). */
+  animation:
+    portrait-fade var(--duration-slower) var(--ease-standard) both,
+    portrait-settle calc(var(--duration-slower) * 2) var(--ease-out) both;
+}
+
+@keyframes portrait-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes portrait-settle {
+  from {
+    transform: scale(1.06);
+  }
 }
 
 .portrait__logos {
@@ -1316,8 +1421,8 @@
 /* Out of its chip and along its orbit, as the page opens, one after another.
    Translations are shares of the logo's own size. */
 .portrait__fan {
-  animation: portrait-fan 950ms cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(250ms + var(--i) * 80ms);
+  animation: portrait-fan var(--duration-slower) var(--ease-out) both;
+  animation-delay: calc(var(--entrance-logos, 250ms) + var(--i) * 70ms);
 }
 
 @keyframes portrait-fan {
@@ -1433,13 +1538,17 @@
   stroke: rgb(23 42 58 / 0.1);
   stroke-width: 1;
   stroke-linecap: round;
+  /* Drawn round, as the second beat of the entrance. */
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: portrait-orbit-draw calc(var(--duration-slower) * 1.6) var(--ease-out) var(--entrance-rings, 0ms) forwards;
 }
 
 .portrait__orbit path {
   fill: none;
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
-  animation: portrait-orbit-draw 1400ms cubic-bezier(0.22, 1, 0.36, 1) 150ms forwards;
+  animation: portrait-orbit-draw calc(var(--duration-slower) * 1.75) var(--ease-out) var(--entrance-arcs, 150ms) forwards;
 }
 
 .portrait__orbit-shade {
@@ -1508,7 +1617,7 @@
   z-index: 3;
   translate: -50% -50%;
   cursor: pointer;
-  animation: portrait-chip 600ms cubic-bezier(0.22, 1, 0.36, 1) 100ms both;
+  animation: portrait-chip var(--duration-slow) var(--ease-out) var(--entrance-chips, 100ms) both;
 }
 
 .portrait__chips .portrait__chip:hover,

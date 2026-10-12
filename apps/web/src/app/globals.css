@@ -290,9 +290,10 @@
     text-rendering: optimizeLegibility;
   }
 
+  /* The logo's orange at 40% (owner, 12 October 2026), over which the text
+     keeps its own colour: ink on the page, white on the dark bands. */
   ::selection {
-    background-color: var(--color-orange);
-    color: white;
+    background-color: color-mix(in srgb, var(--color-orange) 40%, transparent);
   }
 
   :focus-visible {

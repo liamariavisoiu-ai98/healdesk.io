@@ -28,7 +28,7 @@ export function NicheCarousel({
   return (
     <section id="specialties" className="scroll-mt-24 py-20 sm:py-24">
       {/* Centred to sit over the deck, which is centred too. */}
-      <div className="mx-auto max-w-[52ch] text-center">
+      <div data-reveal="stagger" className="mx-auto max-w-[760px] text-center">
         <p className="eyebrow-tag">
           Where you can trust us
         </p>
@@ -45,7 +45,7 @@ export function NicheCarousel({
         </h2>
       </div>
 
-      <div className="mt-12">
+      <div data-reveal className="mt-12">
         <NicheMosaic specialties={specialties} onOpen={onSelect} />
       </div>
     </section>

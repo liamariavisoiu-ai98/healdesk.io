@@ -4,6 +4,7 @@ import { Fraunces, Instrument_Sans } from "next/font/google";
 import { CookieNotice } from "@/components/analytics/CookieNotice";
 import { CampaignMemory } from "@/components/analytics/CampaignMemory";
 import { PostHogProvider } from "@/components/analytics/PostHogProvider";
+import { RevealOnScroll } from "@/components/RevealOnScroll";
 import { site } from "@/lib/site";
 
 import "./globals.css";
@@ -117,6 +118,7 @@ export default function RootLayout({
             and never on /get-started/done or /admin. No advertising pixel or
             tag manager may ever be added here — see src/lib/analytics.ts and
             docs/architecture.md "No conversion attribution to ad platforms". */}
+        <RevealOnScroll />
         <PostHogProvider />
         <CookieNotice />
         <CampaignMemory />

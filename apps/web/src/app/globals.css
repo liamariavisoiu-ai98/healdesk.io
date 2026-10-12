@@ -323,6 +323,94 @@
 }
 
 /* =============================================================================
+   Reveal on scroll (components/RevealOnScroll.tsx)
+   =============================================================================
+   One entrance for the whole site (owner, 12 October 2026): what is marked
+   `data-reveal` rises a little and fades in as it is scrolled to, once.
+   Hidden only once the script has run (`data-reveal-on` on the root) and
+   only while it is still below the fold, and never with reduced motion, so
+   nothing can be left invisible.
+
+   - `data-reveal`           the block rises 18px and fades in;
+   - `data-reveal="heading"` a section heading rises from behind its own
+                             bottom edge, so it comes up out of the line
+                             rather than sliding in;
+   - `data-reveal="stagger"` its children, one after another, 70ms apart.
+   ============================================================================= */
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Waiting below the fold: invisible, and nothing else. */
+  [data-reveal-on] [data-reveal]:not([data-shown], [data-reveal="stagger"]),
+  [data-reveal-on] [data-reveal="stagger"]:not([data-shown]) > * {
+    opacity: 0;
+  }
+
+  /* Coming in: an animation rather than a transition, so it never takes over
+     a transition the element has of its own (a hover, a press), and filled
+     backwards only, so once it ends the element's own transform is its
+     own again. */
+  [data-reveal-on] [data-reveal][data-shown]:not([data-reveal="stagger"], [data-reveal="heading"]),
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > * {
+    animation: reveal-up var(--duration-slower) var(--ease-out) backwards;
+  }
+
+  [data-reveal-on] [data-reveal="heading"][data-shown] {
+    animation: reveal-heading var(--duration-slower) var(--ease-out) backwards;
+  }
+
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(2) { animation-delay: 70ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(3) { animation-delay: 140ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(4) { animation-delay: 210ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(5) { animation-delay: 280ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(6) { animation-delay: 350ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(7) { animation-delay: 420ms; }
+  [data-reveal-on] [data-reveal="stagger"][data-shown] > :nth-child(n + 8) { animation-delay: 490ms; }
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    translate: 0 18px;
+  }
+}
+
+@keyframes reveal-heading {
+  from {
+    opacity: 0;
+    translate: 0 0.45em;
+    clip-path: inset(-0.2em -0.2em 100% -0.2em);
+  }
+  to {
+    clip-path: inset(-0.2em -0.2em -0.3em -0.2em);
+  }
+}
+
+/* =============================================================================
+   Page transitions
+   =============================================================================
+   Every link on the site is a plain anchor and every navigation a full page
+   load (eslint.config.mjs says why), so the browser's own cross-document
+   view transition is all a cross-fade between pages needs: both pages opt
+   in here, and the old page fades out as the new one fades in. Where it is
+   not supported the navigation is as it always was. Reduced motion: none. */
+
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition {
+    navigation: none;
+  }
+}
+
+/* =============================================================================
    The purchase modal
    =============================================================================
    A UA-default <dialog> is `background: Canvas; color: CanvasText; border:

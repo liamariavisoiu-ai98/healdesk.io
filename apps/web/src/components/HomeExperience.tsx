@@ -63,7 +63,7 @@ export function HomeExperience() {
             every channel by name, bookings and payment links. Payment links
             are claimed for chat only, because voice cannot send one in v1;
             on a call she books and flags the deposit (docs/v1-product-spec.md). */}
-        <div className="mx-auto mb-8 max-w-[760px] text-center sm:mb-10">
+        <div data-reveal="stagger" className="mx-auto mb-8 max-w-[760px] text-center sm:mb-10">
           <p className="eyebrow-tag">
             {site.agent} 3.0 · Meet your smart assistant
           </p>
@@ -83,6 +83,7 @@ export function HomeExperience() {
             to the cards' widest content, which ran the chat card past a 320px
             screen in Firefox and into the page's margin in Chrome. */}
         <div
+          data-reveal="stagger"
           className="grid grid-cols-1 gap-5 lg:grid-cols-2"
           style={{ ["--clinic" as string]: "var(--color-red)", ["--clinic-ink" as string]: "#ffffff" }}
         >

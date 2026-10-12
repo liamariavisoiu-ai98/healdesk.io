@@ -1,4 +1,5 @@
 import { ContactCard } from "@/components/ContactCard";
+import { FaqItem } from "@/components/FaqItem";
 import { site } from "@/lib/site";
 
 /**
@@ -140,7 +141,7 @@ const FAQS = [
 export function KnowMore() {
   return (
     <section id="more" className="scroll-mt-24 pt-8 pb-24 sm:pb-28">
-      <div className="max-w-[52ch]">
+      <div data-reveal="stagger" className="max-w-[760px]">
         <p className="eyebrow-tag">
           Want to know more?
         </p>
@@ -149,29 +150,15 @@ export function KnowMore() {
         </h2>
       </div>
 
-      <div className="mt-11 grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-14">
+      <div data-reveal="stagger" className="mt-11 grid items-start gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] lg:gap-14">
         <ContactCard />
 
         <div>
           {FAQS.map((faq) => (
-            <details
-              key={faq.q}
-              // Native disclosure rather than a hand-rolled accordion: it is
-              // keyboard-operable, announced correctly, and findable by the
-              // browser's own in-page search, all without a line of JS.
-              className="group border-line border-b py-5 first:border-t"
-            >
-              <summary className="flex cursor-pointer list-none items-start gap-4 [&::-webkit-details-marker]:hidden">
-                <span className="font-display flex-1 text-[21.6px] leading-snug font-medium tracking-[-0.015em]">
-                  {faq.q}
-                </span>
-                <span
-                  aria-hidden
-                  className="text-red-deep mt-0.5 shrink-0 text-[21.6px] leading-none transition-transform duration-200 group-open:rotate-45"
-                >
-                  +
-                </span>
-              </summary>
+            // A native <details> still (FaqItem): keyboard-operable, announced
+            // correctly, and findable by the browser's own in-page search; it
+            // only adds the smooth open and close.
+            <FaqItem key={faq.q} question={faq.q}>
               {"list" in faq ? (
                 <ul className="mt-3 max-w-[62ch] space-y-2">
                   {faq.list.map((item) => (
@@ -187,7 +174,7 @@ export function KnowMore() {
               <p className="text-muted mt-3 max-w-[62ch] text-[18px] leading-[1.55] font-medium">
                 {faq.a}
               </p>
-            </details>
+            </FaqItem>
           ))}
         </div>
       </div>

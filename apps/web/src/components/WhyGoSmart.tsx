@@ -86,7 +86,7 @@ export function WhyGoSmart({
 
   return (
     <section id="why" className="scroll-mt-24 py-20 sm:py-28">
-      <div className="max-w-[54ch]">
+      <div data-reveal="stagger" className="max-w-[760px]">
         <p className="eyebrow-tag">Why go smart?</p>
         <h2 className="heading-section mt-5">
           The calls you never hear about are the ones{" "}

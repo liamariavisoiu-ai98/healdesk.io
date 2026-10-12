@@ -4703,7 +4703,9 @@ export type SlotHoldStatus = (typeof SLOT_HOLD_STATUSES)[number];
  * and the BAA gate. No ISO times in audit rows. The foreign keys may be set
  * to NULL in any state, so erasing a person never fails on a hold. A hold
  * that still blocks cannot be deleted, by any role: only spent holds are
- * purged, so a delete never frees time the hold's own clock still claims.
+ * purged, so a delete never frees time the hold's own clock still claims. An
+ * erasure lets the person's holds go first and then deletes them
+ * (clearHoldsForErasure, lib/booking/holds.ts).
  */
 export const slotHolds = pgTable(
   "slot_holds",
@@ -4713,7 +4715,11 @@ export const slotHolds = pgTable(
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
     channel: text("channel").$type<SlotHoldChannel>().notNull(),
-    /** sha256 hex of the holder key (e.g. "voice:" + the call id). Never the raw key. */
+    /**
+     * holderRefOf (lib/booking/holds.ts): a keyed HMAC of the holder key (e.g.
+     * "retell:" + the call id), 64 hex. Rows placed before 12 October 2026
+     * carry its plain sha256. Never the raw key.
+     */
     holderRef: text("holder_ref").notNull(),
     startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
     durationMinutes: smallint("duration_minutes").notNull(),

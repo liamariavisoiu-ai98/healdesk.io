@@ -916,7 +916,8 @@ describeDb("deletion on request", () => {
       consentRecords: 1,
       contactAttempts: 1,
     });
-    expect(JSON.stringify(audit[0]!.metadata)).not.toMatch(/555/);
+    // The number, not "555": a uuid in the metadata can hold those three digits.
+    expect(JSON.stringify(audit[0]!.metadata)).not.toMatch(/0137002|\+1555/);
 
     // And the record's counts are written in that transaction and no other.
     await expect(

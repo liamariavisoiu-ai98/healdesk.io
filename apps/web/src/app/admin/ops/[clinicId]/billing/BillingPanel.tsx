@@ -1057,6 +1057,13 @@ function Refund({
               </>
             )}
           </p>
+          {shown.settleByHand ? (
+            <p>
+              <strong>Also owed, to settle by hand: {money(shown.settleByHand.amountCents)}</strong>,
+              paid outside Stripe&rsquo;s card payments, so it can&rsquo;t go back to the card and
+              isn&rsquo;t in the amount above. Invoices: {shown.settleByHand.invoiceIds.join(", ")}.
+            </p>
+          ) : null}
           <label>
             <span className="text-muted block text-xs font-bold uppercase">
               Type the amount to confirm ({money(shown.amountCents)})

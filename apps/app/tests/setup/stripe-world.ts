@@ -350,7 +350,8 @@ export function createStripeWorld(options: StripeWorldOptions) {
   });
   fake.on("invoicePayments.list", (params) => {
     const invoice = invoiceById((params as { invoice: string }).invoice);
-    return invoice.status === "paid"
+    // An invoice marked paid out of band has no payment, so no payment intent.
+    return invoice.status === "paid" && invoice.paid_out_of_band !== true
       ? { data: [{ payment: { type: "payment_intent", payment_intent: `pi_${invoice.id}` } }] }
       : { data: [] };
   });
@@ -387,6 +388,8 @@ export function createStripeWorld(options: StripeWorldOptions) {
   function addPaidSubscriptionInvoice(input: {
     created: number;
     billingReason?: string;
+    /** Marked paid in the Dashboard (a cheque, a wire): no payment intent. */
+    paidOutOfBand?: boolean;
     lines: Array<{
       lookupKey?: string;
       amount: number;
@@ -402,6 +405,7 @@ export function createStripeWorld(options: StripeWorldOptions) {
       status: "paid",
       created: input.created,
       billing_reason: input.billingReason ?? "subscription_update",
+      ...(input.paidOutOfBand ? { paid_out_of_band: true } : {}),
       subscription: subscription.id,
       total,
       amount_due: total,

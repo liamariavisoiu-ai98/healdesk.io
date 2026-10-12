@@ -438,12 +438,18 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     );
     expect(marker[0]!.first_period_refunded_at).toBeNull();
 
-    // A second confirmation reuses the refund already made rather than paying twice.
+    // A second preview or confirmation is refused with the day it was made,
+    // rather than reading as a second refund: no second refund, billing note
+    // or audit row.
+    const refundedOn = new Date().toISOString().slice(0, 10);
     const again = await previewRefund(
       { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
       { stripe: world.stripe },
     );
-    expect(again).toMatchObject({ status: "ok", amountCents: expected });
+    expect(again).toEqual({
+      status: "refused",
+      message: expect.stringMatching(new RegExp(`^Already refunded on ${refundedOn}`)),
+    });
     expect(
       await commitRefund(
         {
@@ -455,8 +461,23 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
         },
         { stripe: world.stripe },
       ),
-    ).toMatchObject({ status: "refunded", amountCents: expected });
+    ).toEqual({
+      status: "refused",
+      message: expect.stringMatching(new RegExp(`^Already refunded on ${refundedOn}`)),
+    });
     expect(world.fake.callsTo("refunds.create")).toHaveLength(1);
+    const records = await inTenant(
+      practice.billingClinicId,
+      async (c) =>
+        (
+          await c.query<{ n: number }>(
+            `select count(*)::int as n from billing_transitions
+              where clinic_id = $1 and reason = 'refund_agreement_terminated'`,
+            [practice.billingClinicId],
+          )
+        ).rows[0]!.n,
+    );
+    expect(records).toBe(1);
   }, 180_000);
 
   test("a § 5 refund after the termination refund pays back only the fee the payment has left", async () => {
@@ -672,6 +693,104 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     // Nor does the hourly reconcile follow it.
     await reconcileBilling(new Date());
     expect(await requestsOf(other.billingClinicId)).toEqual([]);
+  }, 180_000);
+
+  test("a refund that died after Stripe and before the record is finished by the next confirmation, once", async () => {
+    const practice = await seedPractice("term-recover");
+    const world = worldFor(practice);
+    const invoice = thisPeriodInvoice(world);
+    await run("markAgreementTerminated", {
+      agreementId: practice.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "practice_healdesk_breach",
+    });
+    const unused = Math.trunc((PACKAGE_CENTS * 18) / 30);
+    // The refund went through in Stripe, and nothing was recorded.
+    world.state.refunds.push({
+      id: "re_made_before_the_crash",
+      object: "refund",
+      payment_intent: `pi_${invoice.id}`,
+      amount: unused,
+      status: "succeeded",
+      metadata: { hd_kind: "agreement_terminated", hd_invoice: invoice.id },
+    });
+    expect(
+      await previewRefund(
+        { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "ok", amountCents: unused });
+    expect(
+      await commitRefund(
+        {
+          clinicId: practice.billingClinicId,
+          kind: "agreement_terminated",
+          confirmAmountCents: unused,
+          reason: "Finishing the refund",
+          actorLabel: OPERATOR.email,
+        },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "refunded", amountCents: unused });
+    expect(world.fake.callsTo("refunds.create")).toHaveLength(0);
+    expect(
+      await previewRefund(
+        { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "refused", message: expect.stringMatching(/^Already refunded on/) });
+  }, 180_000);
+
+  test("an invoice paid out of band is shown to settle by hand, not left out of what is owed", async () => {
+    const practice = await seedPractice("term-oob");
+    const world = worldFor(practice);
+    const card = thisPeriodInvoice(world);
+    // A renewal for the next period, marked paid in the Dashboard (a wire):
+    // owed back in full, but there is no card payment to refund it to.
+    const wired = world.addPaidSubscriptionInvoice({
+      created: s(PERIOD_END),
+      paidOutOfBand: true,
+      lines: [
+        {
+          lookupKey: "healdesk_web-voice_month_89700",
+          amount: PACKAGE_CENTS,
+          periodStart: s(PERIOD_END),
+          periodEnd: s(new Date(PERIOD_END.getTime() + 30 * DAY)),
+        },
+      ],
+    });
+    await run("markAgreementTerminated", {
+      agreementId: practice.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "practice_subcontractor_objection",
+    });
+    const unused = Math.trunc((PACKAGE_CENTS * 18) / 30);
+    expect(
+      await previewRefund(
+        { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({
+      status: "ok",
+      amountCents: unused,
+      settleByHand: { amountCents: PACKAGE_CENTS, invoiceIds: [wired.id] },
+    });
+    await commitRefund(
+      {
+        clinicId: practice.billingClinicId,
+        kind: "agreement_terminated",
+        confirmAmountCents: unused,
+        reason: "Subcontractor objection",
+        actorLabel: OPERATOR.email,
+      },
+      { stripe: world.stripe },
+    );
+    // Only the card payment was refunded through Stripe.
+    expect(
+      world.fake
+        .callsTo("refunds.create")
+        .map((call) => (call.args[0] as { payment_intent: string }).payment_intent),
+    ).toEqual([`pi_${card.id}`]);
   }, 180_000);
 
   test("who ended it and why is recorded once, with the date, and never changed", async () => {

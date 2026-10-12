@@ -1374,7 +1374,9 @@ export async function opPreviewRefund(
  * terminated agreement ended (BAA 1.3.0 clause 17 ¶3). The amount must equal
  * the one the preview showed, and stripe-actions.ts works it out again before
  * refunding anything; a repeat of a § 5 refund is refused because the two
- * never stack, and a repeat of the termination refund reuses what was made.
+ * never stack, and a repeat of the termination refund once it is recorded is
+ * refused with the day it was made (a commit that died after Stripe is
+ * finished instead, reusing what was made).
  */
 export async function opCommitRefund(
   args: Record<string, unknown>,

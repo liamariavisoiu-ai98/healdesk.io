@@ -2367,8 +2367,17 @@ export type PreviewRefundResult =
        */
       planStartedOn: string | null;
       windowEndsOn: string | null;
+      /**
+       * Invoices this refund covers that were paid without a payment intent
+       * (marked paid out of band), so nothing of them can go back to a
+       * card: not in `amountCents`, for the operator to settle by hand.
+       * Absent when there are none.
+       */
+      settleByHand?: SettleByHand;
     }
   | { status: "refused" | "not_available"; message: string };
+
+export type SettleByHand = { amountCents: number; invoiceIds: string[] };
 
 export type CommitRefundInput = {
   clinicId: string;
@@ -2546,7 +2555,19 @@ function refundEligibility(
   return { ok: true, start, windowEnd: addMonthsUtc(start, 1) };
 }
 
-type RefundPart = { invoiceId: string; paymentIntentId: string; amountCents: number };
+type RefundPart = {
+  invoiceId: string;
+  paymentIntentId: string;
+  amountCents: number;
+  /** What refunds of this same kind already on the payment intent come to (#3: a repeat). */
+  sameKindCents: number;
+};
+
+/** An invoice paid without a payment intent (out of band): owed, but not refundable to a card. */
+type HandPart = { invoiceId: string; amountCents: number };
+
+/** A refund, invoice by invoice: the parts that go back to the card, and those to settle by hand. */
+type RefundPlan = { parts: RefundPart[]; byHand: HandPart[] };
 
 type InvoiceLineLike = {
   amount?: number | null;
@@ -2660,8 +2681,11 @@ function feesOn(lines: InvoiceLineLike[]): number {
 
 /**
  * One invoice's part of a refund of `kind`: `wantedCents`, capped by what
- * the payment has left, or null when nothing is left or the invoice was not
- * paid through a payment intent.
+ * the payment has left, added to the plan; nothing when nothing is left. An
+ * invoice paid without a payment intent (marked paid out of band) has no
+ * card to refund to: its part, capped by what it was paid and by its fees,
+ * goes on the plan's `byHand` list, so the preview shows the operator what
+ * to settle by hand rather than quietly owing less.
  *
  * The refunds counted against it are those of another kind on its payment
  * intent that have not failed or been cancelled. A refund of the same kind
@@ -2686,27 +2710,67 @@ async function cappedPart(
   kind: RefundKind,
   wantedCents: number,
   invoiceFeeCents: number,
-): Promise<RefundPart | null> {
-  if (wantedCents <= 0) return null;
+  plan: RefundPlan,
+): Promise<void> {
+  if (wantedCents <= 0) return;
   const paymentIntentId = await paymentIntentOf(stripe, invoice.id);
-  if (!paymentIntentId) return null;
+  if (!paymentIntentId) {
+    const amountCents = Math.min(wantedCents, invoice.amount_paid ?? 0, invoiceFeeCents);
+    if (amountCents > 0) plan.byHand.push({ invoiceId: invoice.id, amountCents });
+    return;
+  }
   const refunds = (await stripe.refunds.list(
     { payment_intent: paymentIntentId, limit: 100 },
     WORKER_STRIPE_OPTIONS,
   )) as unknown as { data?: RefundOnRecord[] };
-  const elsewhere = (refunds.data ?? []).filter(
-    (refund) =>
-      refund.status !== "failed" &&
-      refund.status !== "canceled" &&
-      refund.metadata?.hd_kind !== kind,
+  const standing = (refunds.data ?? []).filter(
+    (refund) => refund.status !== "failed" && refund.status !== "canceled",
   );
+  const elsewhere = standing.filter((refund) => refund.metadata?.hd_kind !== kind);
   const sum = (list: RefundOnRecord[]) =>
     list.reduce((total, refund) => total + (refund.amount ?? 0), 0);
   const chargeLeft = (invoice.amount_paid ?? 0) - sum(elsewhere);
   const feesLeft =
     invoiceFeeCents - sum(elsewhere.filter((refund) => Boolean(refund.metadata?.hd_kind)));
   const amountCents = Math.min(wantedCents, chargeLeft, feesLeft);
-  return amountCents > 0 ? { invoiceId: invoice.id, paymentIntentId, amountCents } : null;
+  if (amountCents <= 0) return;
+  plan.parts.push({
+    invoiceId: invoice.id,
+    paymentIntentId,
+    amountCents,
+    sameKindCents: sum(standing.filter((refund) => refund.metadata?.hd_kind === kind)),
+  });
+}
+
+/** Every part already has its full refund of this kind: confirming again would only record it twice. */
+function alreadyRefunded(plan: RefundPlan): boolean {
+  return plan.parts.length > 0 && plan.parts.every((part) => part.sameKindCents >= part.amountCents);
+}
+
+/**
+ * The day a refund of this kind was last recorded for the billing clinic
+ * (commitRefund's billing note, `refund_<kind>`), or null.
+ */
+async function refundRecordedOn(tx: TenantTx, kind: RefundKind): Promise<string | null> {
+  const result = await tx.db.execute<{ at: Date | string | null }>(
+    sql`select max(created_at) as at from billing_transitions
+         where clinic_id = ${tx.clinicId} and reason = ${`refund_${kind}`}`,
+  );
+  const at = result.rows[0]?.at;
+  return at ? isoDay(new Date(at)) : null;
+}
+
+function alreadyRefundedMessage(on: string): string {
+  return `Already refunded on ${on}: every payment this refund covers already has it, and confirming again would only record it a second time.`;
+}
+
+/** The out-of-band part of a plan, for the operator to settle by hand, or undefined when there is none. */
+function settleByHandOf(plan: RefundPlan): SettleByHand | undefined {
+  if (plan.byHand.length === 0) return undefined;
+  return {
+    amountCents: plan.byHand.reduce((sum, part) => sum + part.amountCents, 0),
+    invoiceIds: plan.byHand.map((part) => part.invoiceId),
+  };
 }
 
 /**
@@ -2734,10 +2798,11 @@ async function planRefund(
   kind: RefundKind,
   start: Date,
   ending: AgreementEnding | null = null,
-): Promise<RefundPart[]> {
+): Promise<RefundPlan> {
+  const plan: RefundPlan = { parts: [], byHand: [] };
   if (kind === "agreement_terminated") {
-    if (!ending) return [];
-    return terminationRefund(stripe, row, ending.terminatedAt);
+    if (ending) await terminationRefund(stripe, row, ending.terminatedAt, plan);
+    return plan;
   }
   if (kind === "guarantee") {
     const invoiceId = row.firstPlanInvoiceId as string;
@@ -2752,12 +2817,11 @@ async function planRefund(
       .reduce((sum, line) => sum + netAmount(line), 0);
     const monthCents =
       row.billingInterval === "year" ? Math.floor(packageCents / 12) : packageCents;
-    const part = await cappedPart(stripe, invoice, kind, monthCents, feesOn(lines));
-    return part ? [part] : [];
+    await cappedPart(stripe, invoice, kind, monthCents, feesOn(lines), plan);
+    return plan;
   }
 
   const period = await firstPlanPeriod(stripe, row, start);
-  const parts: RefundPart[] = [];
   let startingAfter: string | undefined;
   for (let page = 0; page < 5; page += 1) {
     const list = (await stripe.invoices.list(
@@ -2782,13 +2846,12 @@ async function planRefund(
           );
         })
         .reduce((sum, line) => sum + netAmount(line), 0);
-      const part = await cappedPart(stripe, invoice, kind, feeCents, feesOn(lines));
-      if (part) parts.push(part);
+      await cappedPart(stripe, invoice, kind, feeCents, feesOn(lines), plan);
     }
     if (!list.has_more || data.length === 0) break;
     startingAfter = data[data.length - 1]!.id;
   }
-  return parts;
+  return plan;
 }
 
 /** The start of the UTC day after the one `at` falls on, in Unix seconds. */
@@ -2834,9 +2897,9 @@ async function terminationRefund(
   stripe: Stripe,
   row: Entitlements,
   terminatedAt: Date,
-): Promise<RefundPart[]> {
+  plan: RefundPlan,
+): Promise<void> {
   const fromSec = dayAfterSeconds(terminatedAt);
-  const parts: RefundPart[] = [];
   let startingAfter: string | undefined;
   for (let page = 0; page < 10; page += 1) {
     const list = (await stripe.invoices.list(
@@ -2852,21 +2915,27 @@ async function terminationRefund(
     for (const invoice of data) {
       const lines = await subscriptionFeeLines(stripe, invoice.id);
       const unused = lines.reduce((sum, line) => sum + unusedShare(line, fromSec), 0);
-      const part = await cappedPart(stripe, invoice, "agreement_terminated", unused, feesOn(lines));
-      if (part) parts.push(part);
+      await cappedPart(stripe, invoice, "agreement_terminated", unused, feesOn(lines), plan);
     }
     if (!list.has_more || data.length === 0) break;
     startingAfter = data[data.length - 1]!.id;
   }
-  return parts;
 }
 
 const REFUND_READ_ACTOR: ActorContext = { type: "service", serviceName: "refund-preview" };
 
-function nothingPaidMessage(kind: RefundKind): string {
+function nothingPaidMessage(kind: RefundKind, byHand?: SettleByHand): string {
+  if (byHand) {
+    return `Nothing here can go back to a card: ${dollars(byHand.amountCents)} was paid outside Stripe's card payments (invoices ${byHand.invoiceIds.join(", ")}). Settle it by hand.`;
+  }
   return kind === "agreement_terminated"
     ? "Nothing was paid for time after the agreement ended that could be refunded to the card."
     : "Nothing was paid for the first period that could be refunded to the card.";
+}
+
+/** Cents as dollars, for an operator's message: "$1,234.50". */
+function dollars(cents: number): string {
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**
@@ -2890,16 +2959,24 @@ export async function previewRefund(
   const stripe = stripeFor(options);
   if (!stripe) return { status: "not_available", message: NOT_AVAILABLE };
   try {
-    const parts = await planRefund(
+    const plan = await planRefund(
       stripe,
       group.row as Entitlements,
       input.kind,
       eligible.start,
       ending,
     );
-    const amountCents = parts.reduce((sum, part) => sum + part.amountCents, 0);
+    const amountCents = plan.parts.reduce((sum, part) => sum + part.amountCents, 0);
+    const settleByHand = settleByHandOf(plan);
     if (amountCents <= 0) {
-      return { status: "refused", message: nothingPaidMessage(input.kind) };
+      return { status: "refused", message: nothingPaidMessage(input.kind, settleByHand) };
+    }
+    if (alreadyRefunded(plan)) {
+      const recordedOn = await withTenant(
+        { clinicId: group.billingClinicId, actor: REFUND_READ_ACTOR },
+        (tx) => refundRecordedOn(tx, input.kind),
+      );
+      if (recordedOn) return { status: "refused", message: alreadyRefundedMessage(recordedOn) };
     }
     return {
       status: "ok",
@@ -2908,6 +2985,7 @@ export async function previewRefund(
       cancelsPlan: input.kind !== "guarantee",
       planStartedOn: isoDay(eligible.start),
       windowEndsOn: isoDay(eligible.windowEnd),
+      ...(settleByHand ? { settleByHand } : {}),
     };
   } catch (error) {
     log.warn("refund preview unavailable", {
@@ -2978,16 +3056,26 @@ export async function commitRefund(
     if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner))) {
       return { ok: false as const, status: "busy" as const, message: BUSY };
     }
-    return { ...eligible, row: row as Entitlements, ending };
+    const recordedOn = await refundRecordedOn(tx, input.kind);
+    return { ...eligible, row: row as Entitlements, ending, recordedOn };
   });
   if (!claim.ok) return { status: claim.status, message: claim.message };
 
   let releaseOnExit = true;
   try {
-    const parts = await planRefund(stripe, claim.row, input.kind, claim.start, claim.ending);
+    const plan = await planRefund(stripe, claim.row, input.kind, claim.start, claim.ending);
+    const parts = plan.parts;
     const amountCents = parts.reduce((sum, part) => sum + part.amountCents, 0);
     if (amountCents <= 0) {
-      return { status: "refused", message: nothingPaidMessage(input.kind) };
+      return { status: "refused", message: nothingPaidMessage(input.kind, settleByHandOf(plan)) };
+    }
+    // Every part refunded and the refund recorded: a second confirmation
+    // would reuse the refunds but write a second billing note and audit row
+    // with the amount, reading as two refunds. Every part refunded and
+    // nothing recorded is a commit that died after Stripe: it goes on, and
+    // records the refund once.
+    if (claim.recordedOn && alreadyRefunded(plan)) {
+      return { status: "refused", message: alreadyRefundedMessage(claim.recordedOn) };
     }
     if (amountCents !== input.confirmAmountCents) {
       return {

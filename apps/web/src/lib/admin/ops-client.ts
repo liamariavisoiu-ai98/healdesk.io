@@ -3221,8 +3221,22 @@ export type RefundPreviewOutcome =
       cancelsPlan: boolean;
       planStartedOn: string | null;
       windowEndsOn: string | null;
+      /**
+       * Invoices the refund covers that were paid without a card payment
+       * (marked paid out of band): not in `amountCents`, for the operator to
+       * settle by hand. Null when there are none.
+       */
+      settleByHand: { amountCents: number; invoiceIds: string[] } | null;
     }
   | { status: "refused"; message: string };
+
+/** A Stripe invoice id, shown to the operator to look up. */
+function invoiceId(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^in_[A-Za-z0-9_]{1,64}$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  return value;
+}
 
 /** What a refund would pay back. A read: Stripe is asked, nothing is written but the audit row. */
 export function previewRefund(
@@ -3245,8 +3259,22 @@ export function previewRefund(
       cancelsPlan: bool(data.cancelsPlan, "previewRefund.cancelsPlan"),
       planStartedOn: optionalDate(data.planStartedOn, "previewRefund.planStartedOn"),
       windowEndsOn: optionalDate(data.windowEndsOn, "previewRefund.windowEndsOn"),
+      settleByHand: readSettleByHand(data.settleByHand),
     };
   });
+}
+
+function readSettleByHand(
+  value: unknown,
+): { amountCents: number; invoiceIds: string[] } | null {
+  if (value === null || value === undefined) return null;
+  const data = object(value, "previewRefund.settleByHand");
+  return {
+    amountCents: count(data.amountCents, "previewRefund.settleByHand.amountCents"),
+    invoiceIds: list(data.invoiceIds, "previewRefund.settleByHand.invoiceIds")
+      .slice(0, 50)
+      .map((entry) => invoiceId(entry, "previewRefund.settleByHand.invoiceIds")),
+  };
 }
 
 export type RefundOutcome =

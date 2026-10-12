@@ -15,6 +15,7 @@ import { clinics, clinicSettingsHistory, type DepositUncollectable } from "@/db/
 import type { ActorContext } from "@/lib/audit";
 import { agreementInEffect } from "@/lib/agreements/in-effect";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
+import { DIRECT_LINE_NEEDED_WHILE_LIVE, voiceIsLive } from "@/lib/billing/settings";
 import {
   connectedMetaPlatforms,
   META_PLATFORM_NAMES,
@@ -360,11 +361,15 @@ async function write(
       const raw = typeof value === "string" ? value.trim() : "";
       const current = state.settings.directLineE164;
       if (!raw) {
+        // Never removed once set, and while phone is live, said in phone's
+        // words (DIRECT_LINE_NEEDED_WHILE_LIVE, as the ops path says it).
         throw new Refusal(
           key,
-          current
-            ? "Your direct line can be changed but not removed: calls need somewhere to go whenever AYA can't answer."
-            : "Enter a number that reaches your team.",
+          (await voiceIsLive(tx))
+            ? DIRECT_LINE_NEEDED_WHILE_LIVE
+            : current
+              ? "Your direct line can be changed but not removed: calls need somewhere to go whenever AYA can't answer."
+              : "Enter a number that reaches your team.",
         );
       }
       // A number that can't be read is refused before any step-up is asked

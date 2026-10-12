@@ -589,6 +589,34 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       ).toMatchObject({ changed: false });
     });
 
+    test("the direct line can't be cleared while phone is live, and can while it isn't", async () => {
+      // CLAUDE.md, "Failure": every degradation path ends at the direct
+      // line, so a live phone line keeps one.
+      const live = await seedClinic("ob-line-live");
+      await seedChannels(live.clinicId, [{ channel: "voice", liveAt: NOW }]);
+      await run("setClinicSettings", { clinicId: live.clinicId, directLineE164: "+1 415 555 0178" });
+      for (const cleared of [null, ""]) {
+        expect(
+          await run("setClinicSettings", { clinicId: live.clinicId, directLineE164: cleared }),
+        ).toEqual({
+          status: "error",
+          message: expect.stringMatching(/^Phone is live, so the direct line can be changed but not removed/),
+        });
+      }
+      // Changed, it goes through.
+      expect(
+        await run("setClinicSettings", { clinicId: live.clinicId, directLineE164: "+1 415 555 0179" }),
+      ).toMatchObject({ status: "updated", changed: true });
+
+      // Phone bought but not live: the operator may still clear it.
+      const waiting = await seedClinic("ob-line-waiting");
+      await seedChannels(waiting.clinicId, [{ channel: "voice", liveAt: null }]);
+      await run("setClinicSettings", { clinicId: waiting.clinicId, directLineE164: "+1 415 555 0180" });
+      expect(
+        await run("setClinicSettings", { clinicId: waiting.clinicId, directLineE164: null }),
+      ).toMatchObject({ status: "updated", changed: true });
+    });
+
     test("refused: nothing to change, a pause end that is not a date, an end without a pause, the published number", async () => {
       const c = await seedClinic("ob-settings-bad");
       expect(await run("setClinicSettings", { clinicId: c.clinicId })).toMatchObject({

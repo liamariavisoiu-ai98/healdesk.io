@@ -354,7 +354,8 @@ any with no agreement. **At the release of 1.3.0, switch `retention-purge` on** 
 ops console (Jobs), so the clinics still on 1.2.1, whose agreement promises ninety days
 too, are purged as well, and check that the next 03 UTC run's note no longer begins
 "Switched off". A sync run (phase two) holds a clinic's purge only while it is younger
-than six hours, so a crashed one cannot hold it for good. `baa_acceptances` has its own six-year floor.
+than six hours, so a crashed one cannot hold it for good, and the purge runs again at
+09 UTC, so a clinic whose 02 UTC sync held it at 03 is purged the same day. `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
 set it to the minimum and screenshot it. Deleting one person on request is the care
 page's "Delete a person" ("Deletion requests", below). Set the host's snapshot

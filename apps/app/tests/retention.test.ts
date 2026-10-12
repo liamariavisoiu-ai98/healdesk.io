@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { eraseContact, purgeClinic, purgeIsPromised } from "@/lib/retention/purge";
 import { JOB_RETENTION_PURGE, getJob, setJobEnabled } from "@/lib/scheduler/jobs";
 import { runRetentionPurgeJob, sweepRetention } from "@/lib/scheduler/retention-purge";
+import { runTick } from "@/lib/scheduler/tick";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -322,6 +323,39 @@ describeDb("retention purge", () => {
     );
     expect(result.skipped).toBeNull();
     expect(await count(c.clinicId, "conversations")).toBe(0);
+  });
+
+  test("a clinic held at 03 by the night's sync is purged at 09 the same day, not never", async () => {
+    // The nightly sync starts at 02 and holds a clinic's purge for six hours,
+    // and the purge ran only at 03: a clinic whose sync was slow or crashed
+    // every night was never purged.
+    const c = await seedClinic("purge-held-0902");
+    const night = new Date("2026-09-13T02:00:00Z");
+    await seedConversation(c.clinicId, { startedAt: new Date(night.getTime() - 200 * DAY) });
+    await inTenant(c.clinicId, async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into provider_connections
+           (clinic_id, provider, status, ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version)
+         values ($1, 'mindbody', 'active', 'x', 'x', 'x', 'x', 'v1', 1) returning id`,
+        [c.clinicId],
+      );
+      await client.query(
+        `insert into sync_runs (clinic_id, connection_id, resource, status, started_at)
+         values ($1, $2, 'appointments', 'running', $3)`,
+        [c.clinicId, rows[0]!.id, night],
+      );
+    });
+    await setJobEnabled(JOB_RETENTION_PURGE, true, c.staffUserId);
+    try {
+      const at03 = await runTick(new Date("2026-09-13T03:00:00Z"));
+      expect(at03.find((o) => o.job === "retention-purge")?.status).toBe("ok");
+      expect(await count(c.clinicId, "conversations")).toBe(1);
+      const at09 = await runTick(new Date("2026-09-13T09:00:00Z"));
+      expect(at09.find((o) => o.job === "retention-purge")?.status).toBe("ok");
+      expect(await count(c.clinicId, "conversations")).toBe(0);
+    } finally {
+      await setJobEnabled(JOB_RETENTION_PURGE, false, c.staffUserId);
+    }
   });
 
   test("the job ships off; off, it purges every clinic on BAA 1.3.0 or later or the DPA, and on, every clinic", async () => {

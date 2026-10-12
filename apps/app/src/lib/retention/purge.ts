@@ -146,7 +146,9 @@ export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
  * A sync run started longer ago than this is a crashed one, not one in
  * flight: sync_runs is append-only by grant (0015), so a run that died
  * leaves its row "running" for good, and without a bound it would hold the
- * purge off that clinic forever.
+ * purge off that clinic forever. The nightly sync starts at 02 and the purge
+ * at 03, so a held clinic would be skipped every night; the purge runs again
+ * at 09 (lib/scheduler/tick.ts), when a hold from 02 has run out.
  */
 export const SYNC_HOLDS_PURGE_HOURS = 6;
 

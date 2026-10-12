@@ -330,15 +330,71 @@ export type GuardContext = {
   publishedTimes?: readonly number[];
   /** The clinic's own street address: public, and allowed to contain a treatment word ("Peel Street"). */
   address?: string | null;
+  /**
+   * The person's own message, when the reply answers one: a reply may not
+   * say its content words back (echoOf), the C19 re-audit's B4.
+   */
+  inbound?: string;
+  /** The clinic's public facts besides its name and address (notes, escalation hours): words it may say. */
+  ownFacts?: string;
 };
 
-export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address">): GuardContext {
+export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> & Partial<Pick<FrontDoorFacts, "notes" | "escalationHours">>): GuardContext {
+  const ownFacts = [facts.notes, facts.escalationHours].filter((f): f is string => Boolean(f)).join(" ");
   return {
     clinicName: facts.clinicName,
     serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name),
     publishedTimes: facts.publishedTimes ?? [],
     ...(facts.address ? { address: facts.address } : {}),
+    ...(ownFacts ? { ownFacts } : {}),
   };
+}
+
+/**
+ * Words a reply may share with the person's message: function words, the
+ * front door's own vocabulary (calling, booking, prices, parking, finding
+ * the clinic), and words for times and days. Anything else of four letters
+ * or more that the person wrote, and that isn't one of the clinic's own
+ * facts, is theirs: a reply that says it back may be naming their
+ * condition, their treatment or their reason ("your chemo", "your diabetes
+ * questions"), which no list of conditions is ever complete enough to catch.
+ */
+const ECHO_ALLOWED = new Set(
+  `about above after again also always another anyone anything anytime around away back been before being below best better between both bring call called calling calls came cancel cant card cash change check clinic clinics close closed closes come comes coming contact cost costs could didnt does doesnt doing done dont down each early either else email even ever every everything evening evenings fine first free from front full give glad good great have having hear hello help here hers hiya hold hope hour hours howdy info information into just keep kind know last late later like line link list little live location located long look looking lot lots made make many maybe mean message messages might mind more morning mornings most much must name near nearby need needed never next nice none number numbers offer offered offers okay once only open opened opening opens other ours over parking pass people phone please plus possible pretty price prices pricing quick quickly quite rather ready really reply right same say says send sent should since some someone something soon sorry sounds speak start started still such sure take talk team tell than thank thanks that thats their them then there these they thing things think this those though through time times today together tomorrow tonight took tried trying under until upon used using very visit wait want wanted wants week weekday weekdays weekend weekends well went were what whats when where whether which while will wish with within without wondering work works would yeah year years your youre yours address appointment appointments book booked booking bookings building cards consultation consultations deposit deposits directions doctor doctors entrance floor garage hello lobby office online practice practices receptionist service services staff street suite website weekly monday mondays tuesday tuesdays wednesday wednesdays thursday thursdays friday fridays saturday saturdays sunday sundays january february march april june july august september october november december afternoon afternoons night nights lunch lunchtime noon midday month months daily available availability asap whenever anytime client clients patient patients customer customers private insurance payment payments`.split(
+    " ",
+  ),
+);
+
+/** A word in its comparable form: lower case, accents off, a plural "s" off. */
+function echoForm(word: string): string {
+  const plain = word.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase();
+  return plain.length > 4 && plain.endsWith("s") && !plain.endsWith("ss") ? plain.slice(0, -1) : plain;
+}
+
+function wordsIn(text: string): string[] {
+  return text.match(/[\p{L}][\p{L}'’]*/gu) ?? [];
+}
+
+/**
+ * Whether the reply says back a content word of the person's message (the
+ * C19 re-audit's B4): four letters or more, not in ECHO_ALLOWED, and not a
+ * word of the clinic's own name, address or public facts.
+ */
+function echoOf(reply: string, context: GuardContext): boolean {
+  if (!context.inbound) return false;
+  const own = new Set(
+    [context.clinicName, context.address, context.ownFacts]
+      .flatMap((text) => wordsIn(text ?? ""))
+      .map(echoForm),
+  );
+  const theirs = new Set(
+    wordsIn(context.inbound)
+      .filter((word) => word.length >= 4)
+      .map(echoForm)
+      .filter((word) => !ECHO_ALLOWED.has(word) && !ECHO_ALLOWED.has(`${word}s`) && !own.has(word)),
+  );
+  if (theirs.size === 0) return false;
+  return wordsIn(reply).some((word) => theirs.has(echoForm(word)));
 }
 
 /**
@@ -405,6 +461,8 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
   if (namesMetaTreatment(withoutOwnWords(reply, context))) return { ok: false, reason: "a treatment name" };
   // No appointment details (appointmentDetail).
+  // Last of the word checks, so a named condition or treatment keeps its own reason.
+  if (echoOf(flat, context)) return { ok: false, reason: "an echo of the message" };
   // On the reply without the clinic's own address, which is public and may
   // carry an ordinal or a number ("120 5th Avenue").
   const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
@@ -1068,7 +1126,7 @@ export async function answerFrontDoor(
   } else {
     try {
       const parsed = parseModelReply(await input.responder(buildFrontDoorPrompt(facts), input.text));
-      const verdict = guardReply(parsed.reply, guardContextFor(facts));
+      const verdict = guardReply(parsed.reply, { ...guardContextFor(facts), inbound: input.text });
       answer = verdict.ok
         ? { text: parsed.reply, source: "model", guard: null, screened: null, booking: "none", greeted: false }
         : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false };

@@ -408,3 +408,42 @@ describe("the reply guard: who is writing", () => {
     expect(guardReply(reply, { ...CLINIC, clinicName: "Glow Clinic" })).toEqual({ ok: true });
   });
 });
+
+describe("the reply guard: the person's own words", () => {
+  // The C19 re-audit's B4: a reply saying back what the person wrote can
+  // name their condition or reason, which no list is complete enough to
+  // catch. A content word of theirs, four letters or more, may not come
+  // back unless it is everyday, a time word or one of the clinic's facts.
+  const context = {
+    ...CLINIC,
+    clinicName: "Glow Clinic",
+    address: "1200 Peel Street, Suite 4",
+    ownFacts: "Free parking behind the building. Wheelchair access at the side door.",
+  };
+
+  test.each([
+    ["I'm on chemo, can I still come in?", "Please call the practice about your chemo."],
+    ["I have diabetes, is that ok?", "Happy to help with your diabetes questions by phone."],
+    ["Waiting on my biopsy results", "We can help after your biopsy, call the practice."],
+    ["My psoriasis is flaring", "Sorry, flaring skin needs a call to the practice."],
+    ["Do you see people with eczema?", "Call the practice about eczema."],
+  ])("refuses an echo: %j then %j", (inbound, reply) => {
+    expect(guardReply(reply, { ...context, inbound })).toMatchObject({ ok: false });
+  });
+
+  test.each([
+    ["Is there parking nearby?", "Yes, there's free parking behind the building."],
+    ["Where are you located?", "We're at 1200 Peel Street, Suite 4."],
+    ["What are your hours on Saturday?", "Saturday hours are 10am to 2pm."],
+    ["How much does it cost?", "Prices start from $450. Call the practice to book."],
+    ["Do you take new clients?", "Yes, new clients are welcome. Call the practice to book."],
+    ["Is there wheelchair access?", "Yes, there's wheelchair access at the side door."],
+    ["Hello! Can I book an appointment?", "Call the practice to book an appointment."],
+    [
+      "Can I message you about something?",
+      "Of course. For anything personal, please call the practice.",
+    ],
+  ])("passes an ordinary reply: %j then %j", (inbound, reply) => {
+    expect(guardReply(reply, { ...context, inbound })).toEqual({ ok: true });
+  });
+});

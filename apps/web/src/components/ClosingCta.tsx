@@ -1,4 +1,5 @@
 import { BuyButton } from "@/components/BuyModal";
+import { ClosingAya } from "@/components/ClosingAya";
 import { site } from "@/lib/site";
 
 /**
@@ -18,29 +19,20 @@ import { site } from "@/lib/site";
  * from the top of a rounded stage with a hairline edge (`own-stage`), so the
  * two places on the page that ask the visitor to act look alike.
  *
- * Behind that light, AYA herself (the owner's photograph of 12 October
- * 2026), pointing with her thumb at what the band says. From 1024px she
- * stands at its right, the photo as tall as the band and fading into it on
+ * Behind that light, AYA herself (the owner's clip of 12 October 2026,
+ * which replaced the photograph of the same pose that evening: ClosingAya),
+ * raising her thumb and pointing at what the band says. From 1024px she
+ * stands at its right, as tall as the band and fading into it on
  * her left, and the words are on the left where she points; below 1024px
  * she is a band across the top and the words are under her. The peach is
- * laid over the photo as well as under it, so she sits in the same light.
- * The photo is decoration: the band says everything in words.
+ * laid over her as well as under her, so she sits in the same light.
+ * She is decoration: the band says everything in words.
  */
 export function ClosingCta() {
   return (
     <section aria-labelledby="closing-heading" className="page-section">
       <div className="own-stage closing relative isolate overflow-hidden rounded-lg border border-black/[0.06]">
-        <img
-          src="/brand/aya-final-cta.webp"
-          srcSet="/brand/aya-final-cta-960.webp 960w, /brand/aya-final-cta.webp 1672w"
-          sizes="(min-width: 1024px) 940px, 100vw"
-          alt=""
-          width={1672}
-          height={941}
-          loading="lazy"
-          decoding="async"
-          className="closing__photo"
-        />
+        <ClosingAya className="closing__photo" />
         <span aria-hidden className="closing__light" />
         <div data-reveal="stagger" className="closing__body">
           <p className="eyebrow-tag">Ready when you are</p>

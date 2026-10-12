@@ -3453,6 +3453,39 @@
   background: radial-gradient(120% 85% at 50% 0%, #ffe9db 0%, #fdf4ee 48%, #fbf9f7 100%);
 }
 
+/* The address bar, until the visitor touches it (OwnBranding.tsx): Safari's
+   blue focus ring breathing round it, and a caret after the example it is
+   typing for itself, in the accent colour macOS gives a caret. */
+.own-address[data-pulse] {
+  animation: own-pulse 2.6s var(--ease-in-out) infinite;
+}
+
+@keyframes own-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0px rgb(0 113 227 / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(0 113 227 / 0.3);
+  }
+}
+
+.own-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 17px;
+  margin-left: 1px;
+  border-radius: 9999px;
+  background: #0071e3;
+  animation: own-caret 1.05s steps(1) infinite;
+}
+
+@keyframes own-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 /* What is in the window changes by rising into place, a short way. */
 .own-rise {
   animation: own-rise var(--duration-slow) var(--ease-out) both;

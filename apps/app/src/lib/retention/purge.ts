@@ -90,8 +90,10 @@ import type { TenantTx } from "@/lib/tenant";
  *     (WEBHOOK_PAYLOAD_RETENTION_DAYS) or the record clock if that is
  *     shorter; never processed (its signature failed, it named no call, or
  *     every attempt to read it failed), the record clock, the period of the
- *     conversation it would have become. Until BAA 1.3.0's release gate 9
- *     (PT-28) a payload never processed was never deleted;
+ *     conversation it would have become; either way never past the
+ *     transcript clock, since a call's payload carries its transcript.
+ *     Until BAA 1.3.0's release gate 9 (PT-28) a payload never processed was
+ *     never deleted;
  *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS).
  *
  * A backup copy of anything deleted here expires with the host's backups,
@@ -458,8 +460,15 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   //    processed one at thirty days, or the record clock when the clinic
   //    has shortened it below that, so no raw copy outlives the record it
   //    became. One never processed at the record clock: the period of the
-  //    conversation it would have been (BAA 1.3.0 release gate 9).
-  const processedBefore = daysAgo(now, Math.min(WEBHOOK_PAYLOAD_RETENTION_DAYS, clinic.recordDays));
+  //    conversation it would have been (BAA 1.3.0 release gate 9). And
+  //    neither past the transcript clock: a voice payload carries the whole
+  //    transcript, so a practice that keeps transcripts seven days must not
+  //    keep their raw copy thirty (second review, 12 October 2026).
+  const processedBefore = daysAgo(
+    now,
+    Math.min(WEBHOOK_PAYLOAD_RETENTION_DAYS, clinic.recordDays, transcriptDays),
+  );
+  const unprocessedBefore = daysAgo(now, Math.min(clinic.recordDays, transcriptDays));
   const payloads = await tx.db
     .delete(webhookEvents)
     .where(
@@ -467,7 +476,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         eq(webhookEvents.clinicId, tx.clinicId),
         or(
           and(sql`${webhookEvents.processedAt} is not null`, lt(webhookEvents.receivedAt, processedBefore)),
-          and(sql`${webhookEvents.processedAt} is null`, lt(webhookEvents.receivedAt, recordBefore)),
+          and(sql`${webhookEvents.processedAt} is null`, lt(webhookEvents.receivedAt, unprocessedBefore)),
         ),
       ),
     )

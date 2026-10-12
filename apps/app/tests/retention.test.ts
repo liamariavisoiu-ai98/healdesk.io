@@ -171,6 +171,47 @@ describeDb("retention purge", () => {
     expect(await transcriptKept("transcripts-longer", 90, 7)).toBe(false);
   });
 
+  test("a shorter transcript clock takes the raw payloads that carry transcripts with it", async () => {
+    // A voice payload carries the whole transcript. With the portal at seven
+    // days, the reference went at day seven but the processed raw copy
+    // stayed to day thirty (second review, 12 October 2026).
+    const at = (clinicId: string, deliveryId: string, daysOld: number, processed: boolean) =>
+      inTenant(clinicId, (client) =>
+        client.query(
+          `insert into webhook_events
+             (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
+           values ($1, 'synthflow', $2, true, '{"transcript":"user: I want botox"}', $3, $4)`,
+          [
+            clinicId,
+            deliveryId,
+            processed ? new Date(now.getTime() - daysOld * DAY) : null,
+            new Date(now.getTime() - daysOld * DAY),
+          ],
+        ),
+      );
+    const left = async (clinicId: string) => {
+      await withTenant({ clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, now));
+      return inTenant(clinicId, async (client) =>
+        (
+          await client.query<{ delivery_id: string }>(`select delivery_id from webhook_events order by delivery_id`)
+        ).rows.map((r) => r.delivery_id),
+      );
+    };
+    const seven = await seedClinic("payloads-transcripts-7");
+    await inTenant(seven.clinicId, (client) =>
+      client.query(`insert into clinic_settings (clinic_id, transcript_retention_days) values ($1, 7)`, [seven.clinicId]),
+    );
+    await at(seven.clinicId, "done-8", 8, true);
+    await at(seven.clinicId, "never-8", 8, false);
+    await at(seven.clinicId, "done-3", 3, true);
+    expect(await left(seven.clinicId)).toEqual(["done-3"]);
+    // At ninety, the same payloads keep their own periods.
+    const ninety = await seedClinic("payloads-transcripts-90");
+    await at(ninety.clinicId, "done-8", 8, true);
+    await at(ninety.clinicId, "never-8", 8, false);
+    expect(await left(ninety.clinicId)).toEqual(["done-8", "never-8"]);
+  });
+
   test("the per-clinic window is honoured", async () => {
     const c = await seedClinic("purgeShort");
     await getMigratorPool().query(

@@ -449,7 +449,7 @@ export function ActivityChart({
   }
 
   return (
-    <figure className="border-line rounded-[20px] border bg-white p-5 sm:p-6">
+    <figure className="border-line rounded-md border bg-white p-5 sm:p-6">
       <figcaption className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h3 className="font-display text-[22.8px] leading-tight font-medium">
           Commits per day
@@ -727,7 +727,7 @@ function Tooltip({ bar, announce }: { bar: Bar; announce: boolean }) {
   return (
     <div
       aria-live={announce ? "polite" : "off"}
-      className="bg-ink text-paper absolute z-10 rounded-xl px-3 py-2 shadow-[0_12px_28px_-14px_rgb(36_22_15_/_0.7)]"
+      className="bg-ink text-paper absolute z-10 rounded-sm px-3 py-2 shadow-md"
       style={{
         left: `${left}%`,
         top: `${top}%`,
@@ -784,7 +784,7 @@ function CoverageNote({ model }: { model: Model }) {
     <p className="text-muted mt-3 text-[15px] leading-snug font-medium">
       <span
         aria-hidden="true"
-        className="mr-2 inline-block h-2.5 w-2.5 translate-y-[1px] rounded-[3px] border"
+        className="mr-2 inline-block h-2.5 w-2.5 translate-y-[1px] rounded-sm border"
         style={{
           borderColor: "var(--color-line-strong)",
           backgroundImage:
@@ -808,7 +808,7 @@ function EmptyState({
   coveredFromLabel: string | null;
 }) {
   return (
-    <p className="border-line text-muted mt-5 rounded-2xl border border-dashed px-4 py-10 text-center text-[16.8px] font-semibold">
+    <p className="border-line text-muted mt-5 rounded-md border border-dashed px-4 py-10 text-center text-[16.8px] font-semibold">
       {!ok
         ? // A failed read sends no days at all, which is the same empty array a
           // window with nothing in it would send. Only `ok` tells them apart,

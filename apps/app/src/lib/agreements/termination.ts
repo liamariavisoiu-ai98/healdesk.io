@@ -25,7 +25,7 @@ import { agreementInEffectFor } from "./in-effect";
  *   - the assistant stops at once: the answer gate refuses with
  *     `no_agreement` (lib/billing/answering.ts), and the database refuses new
  *     patient rows for a production clinic (app_clinic_accepts_phi,
- *     drizzle/0063). Neither needs this function: both read the agreements
+ *     drizzle/0065). Neither needs this function: both read the agreements
  *     themselves;
  *   - every location starts offboarding, its service ended at the
  *     termination (the database clamps a date more than a week back, and ops

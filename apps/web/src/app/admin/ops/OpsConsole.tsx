@@ -103,7 +103,7 @@ export function OpsConsole({
       </p>
 
       {blocked.length > 0 ? (
-        <p className="border-red/30 bg-red/[0.06] mt-6 rounded-xl border px-4 py-3 text-sm font-semibold">
+        <p className="border-red/30 bg-red/[0.06] mt-6 rounded-sm border px-4 py-3 text-sm font-semibold">
           {blocked.length} {blocked.length === 1 ? "clinic is" : "clinics are"}{" "}
           blocked from handling patient data. See below.
         </p>
@@ -170,7 +170,7 @@ function JobCard({
   const [pending, startTransition] = useTransition();
 
   return (
-    <div className="border-line rounded-2xl border bg-white p-5">
+    <div className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
@@ -352,7 +352,7 @@ function ClinicCard({
   return (
     /* A div, not a link. There is no per-clinic patient-level page to open
        here: this console renders configuration only. */
-    <div className="border-line rounded-2xl border bg-white p-5">
+    <div className="border-line rounded-md border bg-white p-5">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-semibold">{clinic.name}</span>
         <Tag>{clinic.specialty}</Tag>
@@ -495,7 +495,7 @@ function ConnectLinkControl({
           type="email"
           autoComplete="off"
           placeholder="frontdesk@clinic.com"
-          className="border-line focus:border-orange mt-1.5 w-full rounded-lg border bg-white px-3 py-2.5 text-sm"
+          className="border-line focus:border-orange mt-1.5 w-full rounded-sm border bg-white px-3 py-2.5 text-sm"
         />
       </label>
 
@@ -539,7 +539,7 @@ function IssuedPanel({
   const [copied, setCopied] = useState(false);
 
   return (
-    <div className="border-orange/40 bg-orange/[0.06] mt-4 rounded-xl border p-4">
+    <div className="border-orange/40 bg-orange/[0.06] mt-4 rounded-sm border p-4">
       <p className="text-sm font-bold">
         Copy this now, it cannot be shown again.
       </p>
@@ -548,7 +548,7 @@ function IssuedPanel({
         retrieve it once this panel is closed. If it is lost, issue another.
       </p>
 
-      <div className="border-line mt-3 flex items-start gap-2 rounded-lg border bg-white px-3 py-2">
+      <div className="border-line mt-3 flex items-start gap-2 rounded-sm border bg-white px-3 py-2">
         {/* Selectable and wrapped rather than truncated: the clipboard API is
             absent on insecure origins, and this is the last chance to read it. */}
         <code className="min-w-0 flex-1 text-xs break-all select-all">
@@ -637,7 +637,7 @@ function Failure({ failure, what }: { failure: OpsFailure; what: string }) {
   return (
     <div
       role="status"
-      className="border-red/30 bg-red/[0.06] mt-4 rounded-2xl border p-5"
+      className="border-red/30 bg-red/[0.06] mt-4 rounded-md border p-5"
     >
       <p className="text-sm font-bold">Could not load {what}.</p>
       <p className="mt-1 max-w-[62ch] text-sm">{failure.message}</p>
@@ -655,7 +655,7 @@ function Failure({ failure, what }: { failure: OpsFailure; what: string }) {
 
 function Empty({ children }: { children: React.ReactNode }) {
   return (
-    <p className="border-line text-muted mt-4 rounded-2xl border bg-white p-5 text-sm">
+    <p className="border-line text-muted mt-4 rounded-md border bg-white p-5 text-sm">
       {children}
     </p>
   );

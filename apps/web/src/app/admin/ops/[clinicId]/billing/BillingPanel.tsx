@@ -152,7 +152,7 @@ function Said({ note }: { note: Note }) {
 const BUTTON =
   "border-line-strong rounded-full border px-3 py-1 text-xs font-bold disabled:opacity-50";
 const PRIMARY = "rounded-full bg-black px-4 py-2 text-xs font-bold text-white disabled:opacity-50";
-const INPUT = "border-line mt-1 rounded-lg border px-3 py-2";
+const INPUT = "border-line mt-1 rounded-sm border px-3 py-2";
 
 export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions: Actions }) {
   if (!view.ok) {
@@ -312,7 +312,7 @@ export function BillingPanel({ view, actions }: { view: OpsResult<View>; actions
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-line mt-8 rounded-2xl border bg-white p-5">
+    <section className="border-line mt-8 rounded-md border bg-white p-5">
       <h2 className="text-[13.2px] font-bold tracking-[0.06em] uppercase">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
@@ -363,7 +363,7 @@ function Attention({ view }: { view: View }) {
   }
   if (items.length === 0) return null;
   return (
-    <div role="status" className="border-red/30 bg-red/[0.06] mt-6 rounded-2xl border p-5 text-sm">
+    <div role="status" className="border-red/30 bg-red/[0.06] mt-6 rounded-md border p-5 text-sm">
       <p className="font-bold">Needs attention</p>
       <ul className="mt-2 list-disc pl-5">
         {items.map((item) => (
@@ -806,7 +806,7 @@ function Connect({
         approve healdesk. The link works for 15 minutes and is shown once.
       </p>
       {issued ? (
-        <div className="border-line mt-3 rounded-xl border p-3">
+        <div className="border-line mt-3 rounded-sm border p-3">
           <a href={issued.url} target="_blank" rel="noreferrer" className="break-all underline">
             {issued.url}
           </a>
@@ -1029,7 +1029,7 @@ function Refund({
       <Said note={preview.note} />
       {shown ? (
         <form
-          className="border-line grid gap-3 rounded-xl border p-4"
+          className="border-line grid gap-3 rounded-sm border p-4"
           onSubmit={(event) => {
             event.preventDefault();
             if (!matches) return;
@@ -1133,7 +1133,7 @@ function RequestRow({
         : `pending, next attempt ${request.nextAttemptAt}`;
   return (
     <li
-      className={`border-line rounded-xl border px-4 py-2 text-sm ${request.isStuck ? "border-red/40" : ""}`}
+      className={`border-line rounded-sm border px-4 py-2 text-sm ${request.isStuck ? "border-red/40" : ""}`}
     >
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-semibold">
@@ -1279,7 +1279,7 @@ function OverageRow({
 }) {
   const { pending, note, call } = useCall();
   return (
-    <li className="border-line rounded-xl border px-4 py-2 text-sm">
+    <li className="border-line rounded-sm border px-4 py-2 text-sm">
       <span className="font-semibold">
         {row.windowStartOn} → {row.windowEndOn}
       </span>
@@ -1350,7 +1350,7 @@ function EventRow({
 }) {
   const { pending, note, call } = useCall();
   return (
-    <li className="border-line rounded-xl border px-4 py-2 text-sm">
+    <li className="border-line rounded-sm border px-4 py-2 text-sm">
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-semibold">{event.type}</span>
         <span className="text-muted text-xs">

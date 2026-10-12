@@ -120,7 +120,7 @@ export function LeaveReview() {
             strokeWidth="2.6"
             strokeLinecap="round"
             strokeLinejoin="round"
-            className="size-[13px] transition-transform duration-200 ease-out group-hover:translate-x-1"
+            className="size-[13px] transition-transform duration-fast ease-out group-hover:translate-x-1"
           >
             <path d="m9 6 6 6-6 6" />
           </svg>
@@ -361,7 +361,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           onClick={onClose}
-          className="bg-brand-gradient shadow-brand mt-7 rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-transform duration-200 hover:-translate-y-px"
+          className="bg-brand-gradient shadow-sm mt-7 rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px"
         >
           Close
         </button>
@@ -416,7 +416,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
                 viewBox="0 0 24 24"
                 aria-hidden
                 className={[
-                  "size-8 transition-[fill,transform] duration-150 ease-out",
+                  "size-8 transition-[fill,transform] duration-fast ease-out",
                   "peer-focus-visible:outline-orange peer-focus-visible:rounded-sm peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2",
                   n <= shown ? "fill-sun" : "fill-line-strong",
                   n <= hovered ? "scale-110" : "scale-100",
@@ -545,14 +545,14 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
                 onChange={(event) => setBody(event.target.value)}
                 placeholder="What changed at your front desk?"
                 aria-invalid={errorField === "body" || undefined}
-                className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full resize-y rounded-xl border px-4 py-3 text-[17.4px] leading-[1.55] outline-none transition-colors"
+                className="border-line focus:border-orange text-ink placeholder:text-muted mt-2 w-full resize-y rounded-sm border px-4 py-3 text-[17.4px] leading-[1.55] outline-none transition-colors"
               />
               <p className="text-muted mt-1.5 text-right text-[14.4px] font-medium tabular-nums">
                 {body.length} / {MAX_REVIEW_CHARS}
               </p>
             </div>
 
-            <div className="border-line mt-4 flex items-center gap-4 rounded-xl border border-dashed p-4">
+            <div className="border-line mt-4 flex items-center gap-4 rounded-sm border border-dashed p-4">
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
@@ -668,7 +668,7 @@ function ReviewForm({ onClose }: { onClose: () => void }) {
         <button
           type="submit"
           disabled={status === "sending"}
-          className="bg-brand-gradient shadow-brand flex-1 rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+          className="bg-brand-gradient shadow-sm flex-1 rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
         >
           {status === "sending"
             ? "Sending…"
@@ -743,7 +743,7 @@ function Field({
         {...(onValue ? { value: value ?? "", onChange: (e) => onValue(e.target.value) } : {})}
         aria-invalid={invalid || undefined}
         className={[
-          "text-ink placeholder:text-muted mt-2 w-full rounded-xl border px-4 py-3",
+          "text-ink placeholder:text-muted mt-2 w-full rounded-sm border px-4 py-3",
           "text-[17.4px] outline-none transition-colors focus:border-orange",
           invalid ? "border-red-deep" : "border-line",
         ].join(" ")}

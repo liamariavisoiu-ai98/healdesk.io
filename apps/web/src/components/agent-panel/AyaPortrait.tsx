@@ -90,14 +90,14 @@ export function AyaPortrait({
       {/* The halo: her colour while she speaks, cool while she listens. */}
       <span
         aria-hidden
-        className="aya-halo absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-150"
+        className="aya-halo absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-fast"
         style={{ transform: `scale(${swell})` }}
       />
       <span aria-hidden className="aya-ripple absolute inset-[14px] rounded-full" />
       <span aria-hidden className="aya-ripple aya-ripple--late absolute inset-[14px] rounded-full" />
 
       <div
-        className="aya-breathe relative overflow-hidden rounded-full bg-white shadow-[0_8px_30px_-8px_rgb(23_42_58/0.35)] ring-4 ring-white"
+        className="aya-breathe relative overflow-hidden rounded-full bg-white shadow-md ring-4 ring-white"
         style={{ width: size, height: size }}
       >
         {CLIP ? (
@@ -128,7 +128,7 @@ export function AyaPortrait({
               alt={i === REST ? "AYA, the AI assistant" : ""}
               aria-hidden={i !== REST}
               onError={() => setFallback(true)}
-              className="absolute inset-0 size-full object-cover transition-opacity duration-[900ms] ease-in-out"
+              className="absolute inset-0 size-full object-cover transition-opacity duration-slower ease-in-out"
               style={{ objectPosition: "50% 30%", opacity: frame === i ? 1 : 0 }}
             />
           ))

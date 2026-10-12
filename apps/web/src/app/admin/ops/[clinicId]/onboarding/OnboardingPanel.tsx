@@ -110,13 +110,13 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       <Section title="Phone line">
         <PhoneForm view={v} onSave={actions.savePhone} />
         {v.forwarding ? (
-          <div className="border-line mt-5 rounded-xl border p-4 text-sm">
+          <div className="border-line mt-5 rounded-sm border p-4 text-sm">
             <p className="font-semibold">What the clinic dials</p>
             <ol className="mt-2 grid gap-2">
               {v.forwarding.steps.map((s, i) => (
                 <li key={i}>
                   {s.label}
-                  {s.dial ? <code className="ml-2 rounded bg-black/5 px-1.5 py-0.5">{s.dial}</code> : null}
+                  {s.dial ? <code className="ml-2 rounded-sm bg-black/5 px-1.5 py-0.5">{s.dial}</code> : null}
                 </li>
               ))}
             </ol>
@@ -125,7 +125,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
               {v.forwarding.undo.map((s, i) => (
                 <li key={i}>
                   {s.label}
-                  {s.dial ? <code className="ml-2 rounded bg-black/5 px-1.5 py-0.5">{s.dial}</code> : null}
+                  {s.dial ? <code className="ml-2 rounded-sm bg-black/5 px-1.5 py-0.5">{s.dial}</code> : null}
                 </li>
               ))}
             </ul>
@@ -201,7 +201,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-line mt-8 rounded-2xl border bg-white p-5">
+    <section className="border-line mt-8 rounded-md border bg-white p-5">
       <h2 className="text-[13.2px] font-bold tracking-[0.06em] uppercase">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
@@ -212,7 +212,7 @@ function StepRow({ step, actions }: { step: OnboardingView["steps"][number]; act
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
   return (
-    <li className="border-line flex flex-wrap items-start gap-3 rounded-xl border px-4 py-3">
+    <li className="border-line flex flex-wrap items-start gap-3 rounded-sm border px-4 py-3">
       <span className={step.completedAt ? "text-done" : "text-muted"} aria-hidden>
         {step.completedAt ? "✓" : "○"}
       </span>
@@ -272,7 +272,7 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
     >
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Line type</span>
-        <select name="phoneSystemType" defaultValue={view.clinic.phoneSystemType} className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+        <select name="phoneSystemType" defaultValue={view.clinic.phoneSystemType} className="border-line mt-1 w-full rounded-sm border px-3 py-2">
           <option value="landline">Landline / toll-free</option>
           <option value="voip">Cloud phone system (VoIP)</option>
           <option value="unknown">Unknown</option>
@@ -280,7 +280,7 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
       </label>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Carrier</span>
-        <select name="carrier" defaultValue={view.clinic.carrier ?? ""} className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+        <select name="carrier" defaultValue={view.clinic.carrier ?? ""} className="border-line mt-1 w-full rounded-sm border px-3 py-2">
           <option value="">—</option>
           {CARRIERS.map(([id, name]) => (
             <option key={id} value={id}>{name}</option>
@@ -289,7 +289,7 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
       </label>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Call routing</span>
-        <select name="callRouting" defaultValue={view.clinic.callRouting} className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+        <select name="callRouting" defaultValue={view.clinic.callRouting} className="border-line mt-1 w-full rounded-sm border px-3 py-2">
           <option value="conditional">Practice answers first; AYA takes what they miss</option>
           <option value="always">AYA answers everything</option>
         </select>
@@ -299,11 +299,11 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
       </label>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Synthflow number (E.164)</span>
-        <input name="synthflowNumberE164" defaultValue={view.clinic.synthflowNumberE164 ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        <input name="synthflowNumberE164" defaultValue={view.clinic.synthflowNumberE164 ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
       </label>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">The clinic&rsquo;s own published number (E.164)</span>
-        <input name="publishedPhoneE164" defaultValue={view.clinic.publishedPhoneE164 ?? ""} placeholder="+14155550199" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        <input name="publishedPhoneE164" defaultValue={view.clinic.publishedPhoneE164 ?? ""} placeholder="+14155550199" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         <span className="text-muted block text-xs">The forwarding test checks that a forwarded call does not arrive carrying this number.</span>
       </label>
       <div className="sm:col-span-2 flex items-center gap-3">
@@ -366,17 +366,17 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
       >
         <label className="text-sm">
           <span className="text-muted block text-xs font-bold uppercase">Greeting</span>
-          <textarea name="greeting" defaultValue={agent?.greeting ?? ""} rows={3} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <textarea name="greeting" defaultValue={agent?.greeting ?? ""} rows={3} className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
         <div>
           <span className="text-muted block text-xs font-bold uppercase">Services and price ranges (dollars and cents; blank = offer a consult instead of a price)</span>
           <div className="mt-1 grid gap-2">
             {services.map((s, i) => (
               <div key={i} className="grid grid-cols-[1fr_90px_90px_80px_auto] items-center gap-2 text-sm">
-                <input value={s.name} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder="Service" className="border-line rounded-lg border px-2 py-1.5" />
-                <input value={s.priceFromUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceFromUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="from $" inputMode="decimal" className="border-line rounded-lg border px-2 py-1.5" />
-                <input value={s.priceToUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceToUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="to $" inputMode="decimal" className="border-line rounded-lg border px-2 py-1.5" />
-                <input value={s.durationMinutes ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, durationMinutes: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="min" inputMode="numeric" className="border-line rounded-lg border px-2 py-1.5" />
+                <input value={s.name} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder="Service" className="border-line rounded-sm border px-2 py-1.5" />
+                <input value={s.priceFromUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceFromUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="from $" inputMode="decimal" className="border-line rounded-sm border px-2 py-1.5" />
+                <input value={s.priceToUsd ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, priceToUsd: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="to $" inputMode="decimal" className="border-line rounded-sm border px-2 py-1.5" />
+                <input value={s.durationMinutes ?? ""} onChange={(e) => setServices(services.map((x, j) => (j === i ? { ...x, durationMinutes: e.target.value ? Number(e.target.value) : null } : x)))} placeholder="min" inputMode="numeric" className="border-line rounded-sm border px-2 py-1.5" />
                 <button type="button" onClick={() => setServices(services.filter((_, j) => j !== i))} className="text-muted text-xs underline">remove</button>
                 {serviceDetail(s) ? <span className="text-muted col-span-full text-xs">{serviceDetail(s)}</span> : null}
               </div>
@@ -387,14 +387,14 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <span className="text-muted block text-xs font-bold uppercase">Escalation number (E.164)</span>
-            <input name="escalationPhone" defaultValue={agent?.escalationPhone ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+            <input name="escalationPhone" defaultValue={agent?.escalationPhone ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
           </label>
           <label className="text-sm">
             <span className="text-muted block text-xs font-bold uppercase">When a human answers that line</span>
-            <input name="escalationHours" defaultValue={agent?.escalationHours ?? ""} placeholder="Weekdays 9–5" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+            <input name="escalationHours" defaultValue={agent?.escalationHours ?? ""} placeholder="Weekdays 9–5" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
           </label>
         </div>
-        <div className="border-line rounded-xl border p-3 text-sm">
+        <div className="border-line rounded-sm border p-3 text-sm">
           <label className="flex items-center gap-2 font-semibold">
             <input
               type="checkbox"
@@ -413,7 +413,7 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
                   value={deposit.amountUsd ?? ""}
                   inputMode="numeric"
                   onChange={(e) => setDeposit({ ...deposit, amountUsd: e.target.value ? Number(e.target.value) : null })}
-                  className="border-line mt-1 w-full rounded-lg border px-3 py-2"
+                  className="border-line mt-1 w-full rounded-sm border px-3 py-2"
                 />
               </label>
               <label>
@@ -421,7 +421,7 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
                 <select
                   value={deposit.collection}
                   onChange={(e) => setDeposit({ ...deposit, collection: e.target.value as DepositPolicy["collection"] })}
-                  className="border-line mt-1 w-full rounded-lg border px-3 py-2"
+                  className="border-line mt-1 w-full rounded-sm border px-3 py-2"
                 >
                   <option value="front_desk">The front desk calls to collect it</option>
                   <option value="stripe_connect" disabled={!view.stripeConnect.accountId}>
@@ -438,7 +438,7 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
         </div>
         <label className="text-sm">
           <span className="text-muted block text-xs font-bold uppercase">Anything else the agent may say (parking, new-patient policy)</span>
-          <textarea name="notes" defaultValue={agent?.notes ?? ""} rows={2} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <textarea name="notes" defaultValue={agent?.notes ?? ""} rows={2} className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
         <div className="flex flex-wrap items-center gap-3">
           <button type="submit" disabled={pending} className="bg-ink rounded-full px-4 py-2 text-sm font-bold text-white">Save script</button>
@@ -469,7 +469,7 @@ function ApproveForm({ agent, onApprove }: { agent: OnboardingView["agent"]; onA
     >
       <label className="min-w-[220px] flex-1 text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Who at the clinic approved this version, and how</span>
-        <input name="approvedBy" placeholder="Dr Chen, read back on the call 14 Sep" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        <input name="approvedBy" placeholder="Dr Chen, read back on the call 14 Sep" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
       </label>
       <button type="submit" disabled={pending || Boolean(agent.approvedAt)} className="border-line-strong rounded-full border px-4 py-2 text-sm font-bold">
         {agent.approvedAt ? `Approved by ${agent.approvedByLabel ?? "—"}` : "Record approval"}
@@ -525,7 +525,7 @@ function ForwardingTest({ view, onStart }: { view: OnboardingView; onStart: Acti
   const ft = view.forwardingTest;
   const passed = view.steps.find((s) => s.id === "test_call_passed")?.completedAt;
   return (
-    <div className="border-line mt-5 rounded-xl border p-4 text-sm">
+    <div className="border-line mt-5 rounded-sm border p-4 text-sm">
       <p className="font-semibold">Prove the forwarding</p>
       <p className="text-muted mt-1 text-xs">
         Start a five-minute window, then ring the clinic&rsquo;s published number from any other phone and let it ring out (or
@@ -587,7 +587,7 @@ function MetaFrontDoor({
       </p>
       <ul className="mt-3 grid gap-2">
         {m.channels.map((c) => (
-          <li key={`${c.platform}-${c.externalId}`} className="border-line rounded-xl border px-3 py-2">
+          <li key={`${c.platform}-${c.externalId}`} className="border-line rounded-sm border px-3 py-2">
             <span className="font-semibold">{c.platform}</span> · id {c.externalId}{c.label ? ` · ${c.label}` : ""} · {c.status}
           </li>
         ))}
@@ -624,7 +624,7 @@ function MetaFrontDoor({
       >
         <label>
           <span className="text-muted block text-xs font-bold uppercase">Platform</span>
-          <select name="platform" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+          <select name="platform" className="border-line mt-1 w-full rounded-sm border px-3 py-2">
             <option value="messenger">Messenger (Facebook page)</option>
             <option value="instagram">Instagram DMs</option>
             <option value="whatsapp">WhatsApp (Cloud API)</option>
@@ -632,15 +632,15 @@ function MetaFrontDoor({
         </label>
         <label>
           <span className="text-muted block text-xs font-bold uppercase">Page id / IG account id / WhatsApp phone number id</span>
-          <input name="externalId" required inputMode="numeric" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <input name="externalId" required inputMode="numeric" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
         <label className="sm:col-span-2">
           <span className="text-muted block text-xs font-bold uppercase">Access token (sealed at rest; never shown again)</span>
-          <input name="accessToken" type="password" required autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <input name="accessToken" type="password" required autoComplete="off" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
         <label>
           <span className="text-muted block text-xs font-bold uppercase">Label (optional)</span>
-          <input name="label" maxLength={120} placeholder="Main page" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <input name="label" maxLength={120} placeholder="Main page" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
         <div className="flex items-end">
           <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Attach channel</button>
@@ -785,10 +785,10 @@ function RequirementsCard({ view, onSave, onResend }: { view: OnboardingView; on
       >
         <label className="min-w-[220px] flex-1">
           <span className="text-muted block text-xs font-bold uppercase">Resend the setup link to (optional)</span>
-          <input name="to" type="email" placeholder="frontdesk@practice.example" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <input name="to" type="email" placeholder="frontdesk@practice.example" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
         <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Resend setup link</button>
-        {link ? <code className="w-full break-all rounded bg-black/5 px-2 py-1 text-xs">{link}</code> : null}
+        {link ? <code className="w-full break-all rounded-sm bg-black/5 px-2 py-1 text-xs">{link}</code> : null}
       </form>
     </div>
   );
@@ -966,7 +966,7 @@ function TimezoneCard({ view, onConfirmTimezone }: { view: OnboardingView; onCon
       >
         <label className="min-w-[220px]">
           <span className="text-muted block text-xs font-bold uppercase">Time zone (IANA)</span>
-          <input name="timezone" defaultValue={view.timezone} placeholder="America/New_York" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <input name="timezone" defaultValue={view.timezone} placeholder="America/New_York" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
           <span className="text-muted block text-xs">
             {view.timezoneConfirmedAt ? `Confirmed ${whenLabel(view.timezoneConfirmedAt)}.` : "Not yet confirmed with the clinic — the provisioning default."}
           </span>
@@ -1105,11 +1105,11 @@ function CalendarCard({
           ) : null}
         </div>
       ) : null}
-      {demoLink ? <code className="mt-2 block break-all rounded bg-black/5 px-2 py-1 text-xs">{demoLink}</code> : null}
+      {demoLink ? <code className="mt-2 block break-all rounded-sm bg-black/5 px-2 py-1 text-xs">{demoLink}</code> : null}
       <p className="mt-4 font-semibold">Calendar writes needing attention: {attention.length}</p>
       <ul className="mt-2 grid gap-2">
         {view.calendarWrites.map((w) => (
-          <li key={w.appointmentId} className="border-line flex flex-wrap items-center gap-3 rounded-xl border px-3 py-2 text-xs">
+          <li key={w.appointmentId} className="border-line flex flex-wrap items-center gap-3 rounded-sm border px-3 py-2 text-xs">
             <span className={w.status === "written" ? "text-done" : w.status === "failed" ? "text-red-deep" : "text-muted"}>{w.status}</span>
             <span>{w.slotAt.slice(0, 16).replace("T", " ")} UTC</span>
             <span className="text-muted">{w.requestChannel}</span>

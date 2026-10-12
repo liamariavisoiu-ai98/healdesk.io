@@ -203,7 +203,7 @@ describeDb("the booking hand-off, end to end", () => {
   async function liveClinic(label: string, externalId = PAGE_ID, platform: MetaPlatform = "messenger", opts: { agreement?: boolean } = {}) {
     const c = await seedClinic(label);
     // Live under an agreement in effect, as go-live leaves a clinic: without
-    // one the answer gate and the database refuse it (drizzle/0063).
+    // one the answer gate and the database refuse it (drizzle/0065).
     if (opts.agreement !== false) await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     // A production clinic answers only with a billing row and a live channel

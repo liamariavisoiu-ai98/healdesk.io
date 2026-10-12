@@ -147,13 +147,13 @@ export default async function DemosPage() {
       </p>
 
       {!configured ? (
-        <p className="bg-tint-peach mt-6 rounded-2xl px-4 py-3 text-[15px] font-medium">
+        <p className="bg-tint-peach mt-6 rounded-md px-4 py-3 text-[15px] font-medium">
           The marketing Sheet is not configured, so demos have nowhere to live. Set <code className="font-mono">MARKETING_SHEET_ID</code> and{" "}
           <code className="font-mono">GOOGLE_SERVICE_ACCOUNT_JSON</code>.
         </p>
       ) : null}
       {missing.length > 0 ? (
-        <div className="bg-tint-butter mt-6 rounded-2xl px-4 py-3 text-[14.4px] font-medium">
+        <div className="bg-tint-butter mt-6 rounded-md px-4 py-3 text-[14.4px] font-medium">
           <p className="font-semibold">Not set on this deployment:</p>
           <ul className="mt-1 list-disc pl-5">
             {missing.map((m) => (
@@ -176,7 +176,7 @@ export default async function DemosPage() {
           const status = statusOf(session);
           const profile = profileOf(session);
           return (
-            <li key={session.id} className="border-line rounded-2xl border bg-white px-4 py-4 sm:px-5">
+            <li key={session.id} className="border-line rounded-md border bg-white px-4 py-4 sm:px-5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="text-[16.8px] font-semibold">{displayName(session)}</span>
                 <span className={`rounded-full px-2.5 py-0.5 text-[12.6px] font-bold ${status.tone}`}>{status.label}</span>

@@ -146,7 +146,7 @@ describeDb("database audit (0031)", () => {
     // offboarding and record-clock columns (0054), the client number every
     // sealed credential is labelled with (migration A, 0057), the export's
     // delivery, which the destruction floor reads (0058), and the
-    // organisation, which the agreement gate reads (0063).
+    // organisation, which the agreement gate reads (0065).
     expect(locked).toEqual([
       "agreement_kind",
       "baa_signed_at",
@@ -595,7 +595,8 @@ describeDb("database audit (0031)", () => {
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
     // In the catalogue's own (C collation) order. 0057 added the slot holds
     // (a time tied to a call and a contact) and the named providers with
-    // their services (whose patient someone is, beside a booking).
+    // their services (whose patient someone is, beside a booking); 0064 the
+    // amendments Practice directs to a request or a conversation.
     const expected = [
       "appointments",
       "booking_requests",
@@ -607,6 +608,7 @@ describeDb("database audit (0031)", () => {
       "conversations",
       "deposit_payments",
       "meta_booking_drafts",
+      "record_amendments",
       "slot_holds",
       "suppressions",
       "transactions",

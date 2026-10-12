@@ -31,16 +31,18 @@ import {
  * have no customer logos we are allowed to show, and a strip of them would be a
  * second fabricated claim sitting next to the first.
  *
- * ## Why the body is on the back of the card
+ * ## The quote is on the card (owner, 12 October 2026)
  *
- * A card five across is about 210px wide, which is a portrait, not a paragraph.
- * So the front carries the rating, the headline and the person, and the quote
- * lives on the reverse. The consequence is that the HEADLINE is now the whole
- * pitch for a scanner: a card whose headline does not stand on its own is a
- * card nobody turns over. src/lib/reviews.ts is written to that constraint.
+ * A card five across is about 210px wide, so for a while the front carried
+ * only the rating, the headline and the person, and the quote lived on the
+ * reverse, a hover or a tap away. Face up that was a tall card with an empty
+ * middle, so the quote is now on the face, under the headline, and the cards
+ * a page holds stretch to the tallest. The headline is still the pitch for a
+ * scanner: src/lib/reviews.ts is written to that, and caps the quote's length.
  *
- * The flip itself is in globals.css, along with the three things about it that
- * are not stylistic.
+ * Every reviewer has the same avatar, their initials, rather than a photograph
+ * for some and initials for the rest. On a phone, where a page is one card,
+ * the row of fifteen dots is a thin bar that fills as the pages go by.
  *
  * ## Why the page count is measured rather than assumed
  *
@@ -56,7 +58,7 @@ import {
  *
  * ## What is borrowed from the specialties section
  *
- * The centred eyebrow over its gradient hairline, the 24px corner, and the dot
+ * The centred eyebrow over its gradient hairline, the panel corner, and the dot
  * row, which the niche deck already uses to mean "here is where you are". The
  * "leave a review" banner takes the circle-flood interaction whole, because
  * like a niche card it is a button that opens something.
@@ -177,105 +179,62 @@ function initials(name: string): string {
   return (first + last).toUpperCase();
 }
 
-function Portrait({ review, size }: { review: Review; size: number }) {
-  const box = { width: size, height: size };
-
-  return review.photo ? (
-    <img
-      src={`/reviews/${review.photo}.jpg`}
-      alt=""
-      style={box}
-      loading="lazy"
-      decoding="async"
-      className="ring-line shrink-0 rounded-full object-cover ring-1"
-    />
-  ) : (
+/**
+ * One avatar for every reviewer: their initials on a soft tint (owner, 12
+ * October 2026). It used to be a photograph for some and initials for the
+ * rest, which read as two kinds of reviewer.
+ */
+function Monogram({ review, size }: { review: Review; size: number }) {
+  return (
     <span
       aria-hidden
-      style={box}
-      className="bg-paper-2 text-muted ring-line grid shrink-0 place-items-center rounded-full text-[15px] font-bold ring-1"
+      style={{ width: size, height: size }}
+      className="bg-tint-peach text-ink grid shrink-0 place-items-center rounded-full text-[14.5px] font-semibold tracking-[0.02em]"
     >
       {initials(review.name)}
     </span>
   );
 }
 
+/**
+ * A review, all of it on one face (owner, 12 October 2026).
+ *
+ * Until then the card was a flip: the headline, the stars and the reviewer
+ * face up, and the quote on the back, a hover or a tap away. Face up it was a
+ * tall card with an empty middle, and most visitors never turned one over.
+ * Now the quote is the middle: stars, the headline, the review itself, and
+ * the reviewer at the foot. The cards on a page stretch to the tallest, so a
+ * row stays even (src/lib/reviews.test.ts caps how long a quote may be).
+ */
 function ReviewCard({ review, column }: { review: Review; column: number }) {
   const reduce = useReducedMotion() ?? false;
-  /** Touch only. A pointer uses :hover and never sets this. */
-  const [flipped, setFlipped] = useState(false);
 
   return (
     <motion.div
       variants={reduce ? undefined : CARD}
       transition={{ ...REVEAL, delay: column * STAGGER }}
-      className="w-full basis-full sm:basis-[calc((100%-36px)/3)] lg:basis-[calc((100%-72px)/5)] shrink-0 grow-0"
+      className="flex w-full shrink-0 grow-0 basis-full sm:basis-[calc((100%-36px)/3)] lg:basis-[calc((100%-72px)/5)]"
     >
-      {/*
-        A button, not a div, and the reason is the flip. On a pointer the quote
-        is a hover away; on a phone there is no hover at all, so without
-        something to press the back of the card is unreachable and a third of
-        the section's copy is invisible to half its visitors. Tab and Enter get
-        there the same way.
-      */}
-      <button
-        type="button"
-        aria-expanded={flipped}
-        onClick={() => setFlipped((on) => !on)}
-        data-flipped={flipped}
-        className="review-flip block h-[340px] w-full cursor-pointer text-left sm:h-[350px] lg:h-[424px]"
-      >
-        <span className="review-flip__inner block">
-          <span className="review-flip__face flex flex-col rounded-[24px] p-5 sm:p-6">
-            {/*
-              Title first, rating immediately under it, and the spare height
-              falls between that pair and the person at the bottom. Quoted,
-              because the headline is the reviewer's line rather than ours, and
-              the marks are the only thing on the front saying so.
-            */}
-            <span className="font-display block text-[20.4px] leading-[1.22] font-medium tracking-[-0.02em]">
-              &ldquo;{review.headline}&rdquo;
-            </span>
+      <figure className="review-card flex min-h-[300px] w-full flex-col rounded-lg p-5 sm:p-6">
+        <Stars rating={review.rating} size={15} />
 
-            <Stars rating={review.rating} size={15} className="mt-3" />
+        {/* Quoted, because the headline is the reviewer's line rather than ours. */}
+        <p className="font-display mt-3 text-[20.4px] leading-[1.22] font-normal tracking-[-0.02em]">
+          &ldquo;{review.headline}&rdquo;
+        </p>
 
-            <span className="mt-auto flex items-center gap-3 pt-6">
-              <Portrait review={review} size={40} />
-              <span className="min-w-0">
-                <span className="block text-[16.2px] leading-tight font-bold">
-                  {review.name}
-                </span>
-                <span className="text-muted mt-0.5 block text-[14.4px] leading-snug font-medium">
-                  {attribution(review)}
-                </span>
-              </span>
-            </span>
+        <blockquote className="text-muted mt-3 text-[15.6px] leading-[1.55] font-medium lg:text-[14.8px] lg:leading-[1.5]">
+          <p>{review.body}</p>
+        </blockquote>
+
+        <figcaption className="mt-auto flex items-center gap-3 pt-6">
+          <Monogram review={review} size={40} />
+          <span className="min-w-0">
+            <span className="block text-[16.2px] leading-tight font-semibold">{review.name}</span>
+            <span className="text-muted mt-0.5 block text-[14.4px] leading-snug font-medium">{attribution(review)}</span>
           </span>
-
-          {/*
-            The back is the quote and nothing else.
-
-            It carried a portrait and a name until the browser was asked how
-            tall it actually was: nine of the fifteen were clipping their last
-            line or two behind a face the front of the card had already shown.
-            Repeating the attribution cost about 80px of a 288px box to say
-            something the reader had just read, so it went, and every quote
-            fits. src/lib/reviews.test.ts caps the length that made it tight.
-          */}
-          <span className="review-flip__face review-flip__face--back bg-ink flex flex-col justify-center rounded-[24px] p-5 text-white sm:p-6">
-            <span
-              aria-hidden
-              className="text-orange font-display mb-1 block text-[36px] leading-[0.5]"
-            >
-              &ldquo;
-            </span>
-
-            <span className="block text-[15px] leading-[1.5] font-medium text-white/90 sm:text-[15.6px]">
-              {review.body}
-            </span>
-          </span>
-        </span>
-      </button>
+        </figcaption>
+      </figure>
     </motion.div>
   );
 }
@@ -572,7 +531,7 @@ export function Reviews({
         {/* Above the rating on purpose: it has to be read before the 4.9
             is, not found after it. Body size and ink, not a muted caption. */}
         {examples && (
-          <p className="border-line text-ink mx-auto -mt-2 mb-10 inline-block max-w-full rounded-[6px] border bg-white px-4 py-2 text-[15.6px] font-semibold">
+          <p className="border-line text-ink mx-auto -mt-2 mb-10 inline-block max-w-full rounded-sm border bg-white px-4 py-2 text-[15.6px] font-semibold">
             {EXAMPLE_NOTICE}
           </p>
         )}
@@ -642,6 +601,20 @@ export function Reviews({
           }
         />
 
+        {/* A dot a page from 640px. On a phone, a page is one card and the
+            dots were fifteen of them in a row, so there it is a thin bar
+            filling as you go (owner, 12 October 2026), named by where you are. */}
+        <span
+          role="img"
+          aria-label={`Review ${page + 1} of ${pageCount}`}
+          className="bg-line relative mx-2 block h-[3px] w-40 overflow-hidden rounded-full sm:hidden"
+        >
+          <span
+            className="bg-red absolute inset-y-0 left-0 rounded-full transition-[width] duration-slow ease-out"
+            style={{ width: `${((page + 1) / pageCount) * 100}%` }}
+          />
+        </span>
+
         {Array.from({ length: pageCount }, (_, i) => (
           <button
             key={i}
@@ -650,7 +623,7 @@ export function Reviews({
             aria-label={`Reviews ${i * perPage + 1} to ${Math.min((i + 1) * perPage, reviews.length)}`}
             aria-current={i === page}
             className={[
-              "h-2 rounded-full transition-all duration-300",
+              "hidden h-2 rounded-full transition-all duration-base sm:inline-block",
               i === page ? "bg-red w-6" : "bg-line-strong hover:bg-muted w-2",
             ].join(" ")}
           />

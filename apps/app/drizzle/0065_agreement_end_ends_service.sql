@@ -210,9 +210,9 @@ END;
 $$;--> statement-breakpoint
 
 COMMENT ON FUNCTION app_baa_acceptance_transition_guard() IS
-  'Binding is one-way; terminated_at, copy_sent_at and copy_document_sha256 are write-once, and termination_reason is written only with terminated_at, once (0063). Enforced for every role including the owner, because these are the transitions that move a retention clock, decide a refund, or move a contract between practices.';--> statement-breakpoint
+  'Binding is one-way; terminated_at, copy_sent_at and copy_document_sha256 are write-once, and termination_reason is written only with terminated_at, once (0065). Enforced for every role including the owner, because these are the transitions that move a retention clock, decide a refund, or move a contract between practices.';--> statement-breakpoint
 COMMENT ON COLUMN baa_acceptances.termination_reason IS
-  'Who ended the agreement and why: AGREEMENT_TERMINATION_REASONS in @healdesk/catalog. Recorded with terminated_at by the console, once; clause 17 of BAA 1.3.0 refunds only practice_healdesk_breach and practice_subcontractor_objection. Null while in effect, and on endings recorded before 0063 or by app_supersede_agreement().';--> statement-breakpoint
+  'Who ended the agreement and why: AGREEMENT_TERMINATION_REASONS in @healdesk/catalog. Recorded with terminated_at by the console, once; clause 17 of BAA 1.3.0 refunds only practice_healdesk_breach and practice_subcontractor_objection. Null while in effect, and on endings recorded before 0065 or by app_supersede_agreement().';--> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION app_clinic_accepts_phi(target_clinic uuid)
 RETURNS boolean
@@ -336,11 +336,11 @@ REVOKE ALL ON FUNCTION app_organization_clinics(text) FROM PUBLIC;--> statement-
 GRANT EXECUTE ON FUNCTION app_organization_clinics(text) TO healdesk_app;--> statement-breakpoint
 
 COMMENT ON FUNCTION app_clinic_accepts_phi(uuid) IS
-  'May a new patient row be written for this clinic: a synthetic clinic, or a production clinic with baa_signed_at, an agreement in effect for its organisation (app_agreement_in_effect), where its kind is recorded one app_agreement_kind_sufficient() accepts, and no offboarding started. Enforced on INSERT by the trigger app_enforce_baa_gate (0004, 0063).';--> statement-breakpoint
+  'May a new patient row be written for this clinic: a synthetic clinic, or a production clinic with baa_signed_at, an agreement in effect for its organisation (app_agreement_in_effect), where its kind is recorded one app_agreement_kind_sufficient() accepts, and no offboarding started. Enforced on INSERT by the trigger app_enforce_baa_gate (0004, 0065).';--> statement-breakpoint
 COMMENT ON FUNCTION app_clinic_phi_update_permitted(uuid) IS
-  'May a patient row already held be changed: app_clinic_accepts_phi(), or, once the clinic is offboarding, the same rule without the agreement in effect, so destruction''s cascades and the purge still run after a termination. Enforced on UPDATE by app_enforce_baa_gate (0063).';--> statement-breakpoint
+  'May a patient row already held be changed: app_clinic_accepts_phi(), or, once the clinic is offboarding, the same rule without the agreement in effect, so destruction''s cascades and the purge still run after a termination. Enforced on UPDATE by app_enforce_baa_gate (0065).';--> statement-breakpoint
 COMMENT ON FUNCTION app_organization_clinics(text) IS
-  'The locations of one organisation, with their billing clinic (NULL when a location points at a billing clinic outside the organisation) and offboarding dates: what a recorded termination offboards and cancels (0063). Ids and dates only.';
+  'The locations of one organisation, with their billing clinic (NULL when a location points at a billing clinic outside the organisation) and offboarding dates: what a recorded termination offboards and cancels (0065). Ids and dates only.';
 --> statement-breakpoint
 
 -- -----------------------------------------------------------------------------

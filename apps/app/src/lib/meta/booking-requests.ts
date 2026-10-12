@@ -34,6 +34,7 @@ import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { listClinics } from "@/lib/ops/clinics";
+import { amendmentCount } from "@/lib/patient-rights/amendments";
 import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -679,6 +680,16 @@ export type ResolvedBookingRequest = {
   heldFor: Date | null;
   /** §G.1: whether a Meta line could still reach them; null for a phone request. */
   metaWindowOpen: boolean | null;
+  /**
+   * How many amendments the practice has directed to this request
+   * (record_amendments, lib/patient-rights/amendments.ts): a count, never
+   * their words. BAA 1.3.0's clause 14(b) has every later use of the
+   * request carry them, but this view opens with the emailed token alone,
+   * no passkey, and the plan has /booking/<token> show no patient fields,
+   * so it says that the request was amended and where the words are, and
+   * nothing they say (review of 12 October 2026).
+   */
+  amendmentCount: number;
 };
 
 /**
@@ -735,6 +746,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
     }
     tx.audit.record({ action: "read", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "opened", status: row.status } });
 
+    const amended = await amendmentCount(tx, { kind: "booking_request", id: row.id });
     const [held] = await tx.db
       .select({ startsAt: slotHolds.startsAt })
       .from(slotHolds)
@@ -768,6 +780,7 @@ export async function resolveBookingRequest(token: string, request?: RequestCont
       calendarWrite: row.calendarWriteStatus ? { status: row.calendarWriteStatus, error: row.calendarWriteError ?? null, attempts: row.calendarWriteAttempts ?? 0 } : null,
       heldFor: held?.startsAt ?? null,
       metaWindowOpen: row.channel === "meta" ? row.lastInboundAt !== null && row.lastInboundAt.getTime() + META_WINDOW_MS > Date.now() : null,
+      amendmentCount: amended,
     };
   });
   if (!resolved) return null;

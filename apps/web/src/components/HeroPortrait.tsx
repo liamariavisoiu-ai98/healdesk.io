@@ -15,8 +15,8 @@ import {
   type HeroLogo,
   type LogoGroup,
   type Orbit,
-  type ShowcaseLine,
 } from "@/lib/integrations";
+import { HeroScene } from "@/components/HeroScenes";
 import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
@@ -35,10 +35,11 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  *
  * ## Three orbits, and the chips that fan out (the owner's pick, 9 October)
  *
- * Three concentric circles ring her head, one per group (the owner asked on
- * 12 October 2026 for true circles; they were ovals): Messages & Calls
- * (website chat, Instagram, Messenger, WhatsApp and her phone line) down the
- * wall on her left, Bookings on the right, Payments low on the right. Each
+ * Three concentric circles ring her head (the owner asked on 12 October 2026
+ * for true circles; they were ovals): Messages & Calls (website chat,
+ * Instagram, Messenger, WhatsApp and her phone line) down the wall on her
+ * left; on the right the inner circle carries Bookings (Google Calendar) and,
+ * after it, the calendars synced with Google; Payments is low on the right. Each
  * circle is drawn whole and faint, so three rings read as three rings, with
  * its group's stretch lit from a chip with its title, and as the page opens
  * the logos fan out of their chip along the circle to their places,
@@ -50,8 +51,10 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  *
  * Cal.com, Calendly and HighLevel are there as calendars that read Google's,
  * never as ones she writes into: v1 writes bookings to the clinic's Google
- * Calendar and nothing else, so their cards say a slot was blocked, and
- * Google Calendar's that a consultation was booked (docs/v1-product-spec.md,
+ * Calendar and nothing else. Since 12 October 2026 (owner) they are their own
+ * group under a "Synced with Google" chip rather than part of Bookings, and
+ * their cards say the slot came from Google and was blocked, while Google
+ * Calendar's says a consultation was booked (docs/v1-product-spec.md,
  * "Where bookings are written"). Stripe is the gateway a clinic connects to
  * take deposits in chat.
  *
@@ -141,13 +144,17 @@ function useResting(target: RefObject<HTMLElement | null>) {
 const LOGO_PX = 0.05 * PHOTO.width;
 
 /** Seconds for one drift along the orbit and back, by orbit: the outer ones slower. */
-const ORBIT_TIME: Record<LogoGroup, number> = { messages: 12, bookings: 16, payments: 20 };
+const ORBIT_TIME: Record<LogoGroup, number> = { messages: 12, bookings: 16, synced: 16, payments: 20 };
 /** How far each way along its orbit a logo drifts, in degrees. */
 const DRIFT_DEGREES = 3;
-/** How long each card shows while a chip plays its group's in turn. */
-const CARD_MS = 1600;
+/**
+ * How long each card shows while a chip plays its group's in turn: long
+ * enough for its scene (HeroScenes.tsx) to play through, about two seconds,
+ * and be read. They were 1.6s and 2.6s while a card was two lines of text.
+ */
+const CARD_MS = 3200;
 /** Between the cards the hero plays on its own, once the logos have fanned out. */
-const AUTOPLAY_MS = 2600;
+const AUTOPLAY_MS = 3600;
 const FIRST_CARD_MS = 2400;
 /** How long after a visitor lets go of a logo or a chip the cards stay theirs. */
 const RESUME_MS = 4000;
@@ -191,32 +198,6 @@ function arcPath(orbit: Orbit) {
   return { from, to, d: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} A ${orbit.r} ${orbit.r} 0 ${large} ${sweep} ${to.x.toFixed(1)} ${to.y.toFixed(1)}` };
 }
 
-function Mark({ mark }: { mark: ShowcaseLine["mark"] }) {
-  if (mark === "received") {
-    return (
-      <svg viewBox="0 0 16 12" className="portrait__tick portrait__tick--grey" aria-hidden>
-        <path d="M2 6.4l3.3 3.3L13.6 2" />
-      </svg>
-    );
-  }
-  if (mark === "replied") {
-    return (
-      <svg viewBox="0 0 20 12" className="portrait__tick portrait__tick--blue" aria-hidden>
-        <path d="M1.5 6.4l3.3 3.3L13 1.6M8.6 9.4l.3.3L17.2 1.6" />
-      </svg>
-    );
-  }
-  if (mark === "paid") {
-    return (
-      <svg viewBox="0 0 20 20" className="portrait__tick portrait__tick--paid" aria-hidden>
-        <circle cx="10" cy="10" r="8.5" />
-        <path d="M6 10.4l2.6 2.6L14.2 7.4" />
-      </svg>
-    );
-  }
-  return null;
-}
-
 const capital = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 
 export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
@@ -232,6 +213,14 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
   /** The card the hero is playing on its own. */
   const [auto, setAuto] = useState<string | null>(null);
   const busy = useRef(false);
+  /**
+   * Whether the logo pressed was already showing its card when the press
+   * began. A tap focuses the button before its click arrives, and focus opens
+   * the card, so a click that toggled on what it found would close the card
+   * the same tap had just opened: on Android nothing ever showed. Read at
+   * pointer-down, before focus moves.
+   */
+  const wasShown = useRef(false);
   const holdUntil = useRef(0);
 
   useEffect(() => {
@@ -339,11 +328,15 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
               );
             })}
           </defs>
-          {ORBITS.map((orbit) => {
+          {ORBITS.map((orbit, i) => {
             const { d } = arcPath(orbit);
+            // A circle two groups share is drawn once, with the first.
+            const ring = ORBITS.findIndex((o) => o.r === orbit.r) === i;
             return (
               <g key={orbit.group} className="portrait__orbit" data-group={orbit.group}>
-                <circle cx={ORBIT_CENTRE.x} cy={ORBIT_CENTRE.y} r={orbit.r} className="portrait__ring" vectorEffect="non-scaling-stroke" />
+                {ring ? (
+                  <circle cx={ORBIT_CENTRE.x} cy={ORBIT_CENTRE.y} r={orbit.r} pathLength={1} className="portrait__ring" vectorEffect="non-scaling-stroke" />
+                ) : null}
                 <path d={d} pathLength={1} className="portrait__orbit-shade" vectorEffect="non-scaling-stroke" />
                 <path d={d} pathLength={1} className="portrait__orbit-line" stroke={`url(#orbit-fade-${orbit.group})`} vectorEffect="non-scaling-stroke" />
               </g>
@@ -356,7 +349,19 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
             const orbit = ORBITS.find((o) => o.group === logo.group)!;
             const isShown = shown === logo.name;
             return (
-              <li key={logo.name} className="portrait__node" data-group={logo.group} data-shown={isShown || undefined} style={motion(logo, orbit, i)}>
+              <li
+                key={logo.name}
+                className="portrait__node"
+                data-group={logo.group}
+                data-shown={isShown || undefined}
+                // Where its card opens: above, for the logo nearest the
+                // photo's right edge; and below 1280px, inwards for every
+                // logo on her right, where a card opening outwards would
+                // leave the screen.
+                data-card={logo.card}
+                data-side={logo.at.x > 50 ? "right" : "left"}
+                style={motion(logo, orbit, i)}
+              >
                 <span className="portrait__fan">
                   <span className="portrait__spread">
                     <span className="portrait__drift">
@@ -366,22 +371,24 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
                         aria-label={showcaseText(logo)}
                         onPointerEnter={(event) => hover(event, logo.name)}
                         onPointerLeave={(event) => hover(event, null)}
+                        onPointerDown={() => {
+                          wasShown.current = shown === logo.name;
+                        }}
                         onFocus={() => setShown(logo.name)}
                         onBlur={() => setShown((current) => (current === logo.name ? null : current))}
-                        onClick={() => setShown((current) => (current === logo.name ? null : logo.name))}
+                        onClick={(event) => {
+                          // A keyboard's Enter has no pointer-down: it toggles.
+                          const was = event.detail === 0 ? shown === logo.name : wasShown.current;
+                          setShown(was ? null : logo.name);
+                        }}
                       >
                         <img src={logo.src} alt="" width={192} height={192} decoding="async" draggable={false} className="portrait__logo" />
                       </button>
                     </span>
                     {/* Said by the button's own name; drawn here for the eye. */}
-                    <span className="portrait__card" aria-hidden>
+                    <span className="portrait__card" data-scene={logo.scene} aria-hidden>
                       <span className="portrait__card-name">{capital(logo.name)}</span>
-                      {logo.showcase.map((line, n) => (
-                        <span key={line.text} className="portrait__card-line" style={{ ["--n" as string]: n }}>
-                          {line.text}
-                          <Mark mark={line.mark} />
-                        </span>
-                      ))}
+                      <HeroScene logo={logo} />
                     </span>
                   </span>
                 </span>

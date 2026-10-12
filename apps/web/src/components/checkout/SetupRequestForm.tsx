@@ -164,7 +164,7 @@ export function SetupRequestForm({
       onClose={onClose}
     >
       {notice ? (
-        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-xl border px-4 py-3 text-[15.6px] font-semibold">
+        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
           {LINK_NOTICES[notice]}
         </p>
       ) : null}
@@ -220,7 +220,7 @@ export function SetupRequestForm({
 
         <fieldset
           className={[
-            "rounded-2xl border bg-white p-5",
+            "rounded-md border bg-white p-5",
             errorField === "channels" ? "border-red" : "border-line",
           ].join(" ")}
         >
@@ -235,7 +235,7 @@ export function SetupRequestForm({
                 <label
                   key={channel.id}
                   className={[
-                    "flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-3 transition-colors",
+                    "flex cursor-pointer items-center gap-3 rounded-sm border px-4 py-3 transition-colors",
                     checked ? "border-red bg-red/[0.04]" : "border-line hover:border-line-strong",
                   ].join(" ")}
                 >
@@ -319,7 +319,7 @@ function TextField({
         disabled={disabled}
         aria-invalid={invalid || undefined}
         className={[
-          "text-ink placeholder:text-muted mt-2 w-full rounded-xl border bg-white px-4 py-3 text-[19.2px] outline-none transition-colors disabled:opacity-50",
+          "text-ink placeholder:text-muted mt-2 w-full rounded-sm border bg-white px-4 py-3 text-[19.2px] outline-none transition-colors disabled:opacity-50",
           invalid ? "border-red" : "border-line focus:border-orange",
         ].join(" ")}
       />

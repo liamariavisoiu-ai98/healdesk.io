@@ -424,9 +424,10 @@ export const clinics = pgTable(
      *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
-     * clock: a suppression is a "stop", or the record of an erasure, and
-     * has to outlast the rows it stopped. They go with the rest of the
-     * clinic's data when it is destroyed at offboarding (lib/offboarding,
+     * clock: a suppression is a "stop", and has to outlast the rows it
+     * stopped. They go with the person when the person is erased
+     * (lib/patient-rights/erasure.ts), and with the rest of the clinic's
+     * data when it is destroyed at offboarding (lib/offboarding,
      * drizzle/0058). The purge job (lib/retention/purge.ts) is the only
      * reader of the two clocks.
      *
@@ -793,7 +794,7 @@ export const providerConnections = pgTable(
       .on(t.provider, t.accountRef)
       .where(sql`${t.accountRef} is not null and ${t.status} <> 'revoked'`),
     // One clinic per Meta Page, Instagram account or WhatsApp number while
-    // its connection is not revoked (drizzle/0063): with two, the webhook
+    // its connection is not revoked (drizzle/0065): with two, the webhook
     // routed every message to the older clinic, whose staff and records
     // then held another practice's patients. A revoked row frees the asset.
     // On the asset's id alone, across the three Meta providers: the router
@@ -972,6 +973,9 @@ export const conversations = pgTable(
     // Clinic-first: under RLS every query carries clinic_id, so a lookup by FK
     // alone would index-scan then re-filter. That's the common path, not the rare one.
     index("conversations_contact_idx").on(t.clinicId, t.contactId),
+    // The target of record_amendments' (clinic_id, conversation_id) key, which
+    // is what keeps an amendment on a record of its own clinic (drizzle/0064).
+    unique("conversations_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -1119,6 +1123,9 @@ export const appointments = pgTable(
     uniqueIndex("appointments_external_idx")
       .on(t.clinicId, t.externalSource, t.externalAppointmentId)
       .where(sql`${t.externalAppointmentId} is not null`),
+    // The target of record_amendments' (clinic_id, appointment_id) key, which
+    // is what keeps an amendment on a record of its own clinic (drizzle/0064).
+    unique("appointments_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -1666,6 +1673,9 @@ export const bookingRequests = pgTable(
       .where(sql`${t.vendorCallId} is not null`),
     // The thread a Meta request lives on, for the window check.
     index("booking_requests_thread_idx").on(t.clinicId, t.platform, t.senderId),
+    // The target of record_amendments' (clinic_id, booking_request_id) key,
+    // which is what keeps an amendment on a record of its own clinic (0064).
+    unique("booking_requests_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -1917,9 +1927,9 @@ export const baaAcceptances = pgTable(
      * @healdesk/catalog, recorded with `terminatedAt` by the console's
      * termination (BAA 1.3.0 clause 17 ¶3 refunds only two of them). Null
      * while the agreement is in effect, and on an ending recorded before
-     * drizzle/0063 or by app_supersede_agreement(), which replaces an
+     * drizzle/0065 or by app_supersede_agreement(), which replaces an
      * agreement rather than ending the Services. Write-once, and only in the
-     * write that records the termination (the transition guard, 0063).
+     * write that records the termination (the transition guard, 0065).
      */
     terminationReason: text("termination_reason").$type<AgreementTerminationReason>(),
 
@@ -2314,10 +2324,17 @@ export const consentRecords = pgTable(
  *
  *   - `channel` is NULLABLE, and null means EVERY channel. Someone who says
  *     "stop calling me" has not invited a text instead.
- *   - Nothing here is deleted while the clinic is a customer. Re-consent
- *     creates a new consent record; it does not erase the record of them
- *     having asked us to stop. Destruction at offboarding takes the clinic's
- *     suppressions with the rest of its data (lib/offboarding).
+ *   - Re-consent creates a new consent record; it does not erase the record
+ *     of them having asked us to stop. The runtime role cannot delete a row
+ *     (0010). Two things do: the person's own erasure, which takes their
+ *     number from here with everything else (app_erase_contact_evidence,
+ *     lib/patient-rights/erasure.ts), and destruction at offboarding, which
+ *     takes the clinic's (lib/offboarding).
+ *
+ * An erasure no longer writes a row here. It kept the number "so the request
+ * itself is honoured" until 8 October 2026 (BAA 1.3.0 release gate 6); v1
+ * contacts no one first, so there is no outbound list for a number to stay
+ * on, and the request is recorded in erasure_requests without it.
  */
 export const suppressions = pgTable(
   "suppressions",
@@ -2379,6 +2396,229 @@ export const contactAttempts = pgTable(
       t.phone,
       t.attemptedAt,
     ),
+  ],
+);
+
+/** The operator's record that a subcontractor deleted what it held about the person. */
+export type ErasureVendorStamp = { at: string; by: string; how: string };
+
+/**
+ * Who asked for a deletion, an amendment or a correction: a closed set, so
+ * nothing typed is stored with the record or in its audit row, both of which
+ * outlive the person (erasure_requests_requested_by_check,
+ * record_amendments_requested_by_check). Only the practice asks; the other
+ * two say whose request it passed on.
+ */
+export const PATIENT_REQUESTERS = [
+  "practice",
+  "person_via_practice",
+  "representative_via_practice",
+] as const;
+export type PatientRequester = (typeof PATIENT_REQUESTERS)[number];
+
+/**
+ * A person's deletion request, recorded without the person (BAA 1.3.0 clause
+ * 4(c): "only a record of the request, for no longer than it needs one to make
+ * sure the information stays deleted"; the DPA's item c; release gate 6).
+ *
+ * Who asked, from a closed set (PATIENT_REQUESTERS), when the request
+ * reached healdesk and the deadline it set, when the deletion ran, the counts
+ * it deleted, and the operator's stamp for each subcontractor step
+ * (ERASURE_VENDOR_STEPS in lib/patient-rights/erasure.ts). No telephone
+ * number, no email address, no name, and nothing typed.
+ *
+ * `restore_refs` is the one thing that points at the person: keyed references
+ * (lib/identifier-ref.ts) to the numbers, addresses and messaging threads the
+ * deletion found, kept only so `reapplyErasures` can delete the person again
+ * from a database restored to a point before the deletion. Nothing else reads
+ * them, and nothing reads this table for a contact decision. They are emptied
+ * BACKUP_RETENTION_DAYS after the deletion, when the last backup that could
+ * bring the person back has expired, and the row goes then too unless a
+ * subcontractor step is still outstanding, in which case it stays, holding
+ * nothing about the person, until the operator stamps it. The hourly expiry
+ * does both (expireErasureRecords, through app_expire_erasure_records), by
+ * the database's clock: the runtime role can neither empty the references
+ * nor delete a row, and a guard refuses an early emptying from any role. It
+ * runs in the worker, which a restore keeps stopped, so a restore in
+ * progress keeps the references it needs.
+ * `erased_at` is the database's clock at the insert (a trigger), so the
+ * expiry cannot be put off by the writer. Destruction deletes the clinic's
+ * rows with the rest of its data.
+ */
+export const erasureRequests = pgTable(
+  "erasure_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /**
+     * Who asked, as one of PATIENT_REQUESTERS (lib/patient-rights/requesters.ts):
+     * the practice, the person through the practice, or a legal
+     * representative through the practice. A closed set, so nothing typed is
+     * stored: a name typed here would outlive the deletion it records.
+     */
+    requestedBy: text("requested_by").$type<PatientRequester>().notNull(),
+    /** When the request reached healdesk: the deadline runs from here. */
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    /** Ten business days after receivedAt: the deletion here and every subcontractor step are due by then. */
+    dueBy: timestamp("due_by", { withTimezone: true }).notNull(),
+    /** When the deletion ran, by the database's clock (erasure_requests_stamp). */
+    erasedAt: timestamp("erased_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /** What the deletion removed, table by table: counts only. */
+    deleted: jsonb("deleted").$type<Record<string, number>>().notNull().default({}),
+    /** Keyed references to what the deletion found, for a restore only; emptied at expiry. */
+    restoreRefs: text("restore_refs")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** Each subcontractor step the operator has stamped, by step id. */
+    vendorSteps: jsonb("vendor_steps")
+      .$type<Record<string, ErasureVendorStamp>>()
+      .notNull()
+      .default({}),
+  },
+  (t) => [
+    index("erasure_requests_clinic_idx").on(t.clinicId, t.erasedAt),
+    check(
+      "erasure_requests_requested_by_check",
+      sql`${t.requestedBy} in ('practice', 'person_via_practice', 'representative_via_practice')`,
+    ),
+    check("erasure_requests_received_check", sql`${t.receivedAt} <= ${t.erasedAt}`),
+    check("erasure_requests_due_check", sql`${t.dueBy} > ${t.receivedAt}`),
+    // No bound on how many: a deletion records every reference it found, and
+    // a cap the survey could exceed would roll the deletion back with it,
+    // every time, past the ten business days (review of 12 October 2026).
+    check("erasure_requests_refs_check", sql`array_position(${t.restoreRefs}, null) is null`),
+    check(
+      "erasure_requests_vendor_steps_check",
+      sql`jsonb_typeof(${t.vendorSteps}) = 'object' and (${t.vendorSteps} - 'retell') = '{}'::jsonb`,
+    ),
+  ],
+);
+
+/**
+ * What an amendment is appended to: a record healdesk does not rewrite on
+ * Practice's word. A booking request and a conversation must stay as they
+ * were made. An appointment is the booking as the calendar and the desk
+ * hold it, which a sync or a reschedule may move, so a correction of its
+ * service, practitioner or time is appended beside it rather than written
+ * over what the calendar says.
+ */
+export const AMENDMENT_TARGET_KINDS = ["booking_request", "conversation", "appointment"] as const;
+export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
+
+/**
+ * An amendment Practice directed to a record that must stay as it was made
+ * (BAA 1.3.0 clause 14(b), 45 CFR 164.526(c)(1); the DPA's Clients' requests
+ * clause; release gate 8, PT-17). A booking request's facts never change (the
+ * no-rewrite trigger, 0039 and 0041), a conversation is the record of what
+ * was said, and an appointment is the booking as the clinic's calendar holds
+ * it, so none is edited on Practice's word: the amendment is appended beside
+ * it and linked to it, and every later use and export of the record carries
+ * it (lib/patient-rights/amendments.ts).
+ *
+ * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
+ * BAA gate. Each target is a foreign key that carries clinic_id with the
+ * record's id, so an amendment can only point at a record of its own clinic.
+ * Append-only (drizzle/0064): the runtime role may INSERT and SELECT, no role
+ * may UPDATE, `recorded_at` is the database's clock at the insert, and the
+ * foreign keys have no delete action, so an amendment leaves only with the
+ * record it amends, inside the functions that delete that record (erasure,
+ * the purge, destruction).
+ */
+export const recordAmendments = pgTable(
+  "record_amendments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    targetKind: text("target_kind").$type<AmendmentTargetKind>().notNull(),
+    /** Set exactly when target_kind is 'booking_request'. */
+    bookingRequestId: uuid("booking_request_id"),
+    /** Set exactly when target_kind is 'conversation'. */
+    conversationId: uuid("conversation_id"),
+    /** Set exactly when target_kind is 'appointment'. */
+    appointmentId: uuid("appointment_id"),
+    /** The amendment as Practice directed it. PHI. Never logged, audited or echoed back. */
+    amendment: text("amendment").notNull(),
+    /**
+     * Who asked, as one of PATIENT_REQUESTERS: chosen, never typed, so no
+     * name outlives the person in this row or its audit row.
+     */
+    requestedBy: text("requested_by").$type<PatientRequester>().notNull(),
+    /** When Practice directed it; never after recorded_at. */
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
+    /** Who appended it: the operator's address, or (M5) the portal member. */
+    recordedBy: text("recorded_by").notNull(),
+    /** When it was appended, by the database's clock (record_amendments_guard). */
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index("record_amendments_request_idx")
+      .on(t.clinicId, t.bookingRequestId)
+      .where(sql`${t.bookingRequestId} is not null`),
+    index("record_amendments_conversation_idx")
+      .on(t.clinicId, t.conversationId)
+      .where(sql`${t.conversationId} is not null`),
+    index("record_amendments_appointment_idx")
+      .on(t.clinicId, t.appointmentId)
+      .where(sql`${t.appointmentId} is not null`),
+    // Composite, so an amendment cannot point at another clinic's record, and
+    // no delete action, so a record cannot go while an amendment of it stays.
+    foreignKey({
+      name: "record_amendments_booking_request_fk",
+      columns: [t.clinicId, t.bookingRequestId],
+      foreignColumns: [bookingRequests.clinicId, bookingRequests.id],
+    }),
+    foreignKey({
+      name: "record_amendments_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }),
+    foreignKey({
+      name: "record_amendments_appointment_fk",
+      columns: [t.clinicId, t.appointmentId],
+      foreignColumns: [appointments.clinicId, appointments.id],
+    }),
+    check(
+      "record_amendments_target_kind_check",
+      sql`${t.targetKind} in ('booking_request', 'conversation', 'appointment')`,
+    ),
+    check(
+      "record_amendments_target_check",
+      sql`(${t.targetKind} = 'booking_request' and ${t.bookingRequestId} is not null and ${t.conversationId} is null and ${t.appointmentId} is null)
+        or (${t.targetKind} = 'conversation' and ${t.conversationId} is not null and ${t.bookingRequestId} is null and ${t.appointmentId} is null)
+        or (${t.targetKind} = 'appointment' and ${t.appointmentId} is not null and ${t.bookingRequestId} is null and ${t.conversationId} is null)`,
+    ),
+    check(
+      "record_amendments_amendment_check",
+      sql`char_length(btrim(${t.amendment})) between 1 and 4000`,
+    ),
+    // No telephone number or email address in the words: an amendment can sit
+    // on someone else's record, where a person's deletion would never find
+    // it (lib/patient-rights/amendments.ts, AMENDMENT_IDENTIFIER_PATTERNS,
+    // which the writer applies first). A record's id and an ISO date and time
+    // are taken out before the digits are counted.
+    check(
+      "record_amendments_identifier_check",
+      sql`regexp_replace(regexp_replace(${t.amendment}, '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '', 'g'), '[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?', '', 'g') !~ '[0-9]([ ().-]{0,2}[0-9]){9,}'
+        and ${t.amendment} !~ '[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]{2,}'`,
+    ),
+    check(
+      "record_amendments_requested_by_check",
+      sql`${t.requestedBy} in ('practice', 'person_via_practice', 'representative_via_practice')`,
+    ),
+    check(
+      "record_amendments_recorded_by_check",
+      sql`char_length(btrim(${t.recordedBy})) between 1 and 320`,
+    ),
+    check("record_amendments_requested_check", sql`${t.requestedAt} <= ${t.recordedAt}`),
   ],
 );
 
@@ -4997,4 +5237,6 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_provider_services",
   "clinic_setup_screens",
   "clinic_settings_history",
+  "erasure_requests",
+  "record_amendments",
 ] as const;

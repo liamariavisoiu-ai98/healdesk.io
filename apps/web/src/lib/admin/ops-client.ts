@@ -180,6 +180,12 @@ type OperatorOp =
   | "startOffboarding"
   | "markExportDelivered"
   | "markVoiceVendorDataDeleted"
+  // Deletion on request (BAA 1.3.0 release gate 6): the subcontractor step's
+  // stamp, ids and a closed outcome. The deletion itself, and amendments and
+  // corrections (release gate 8), carry a patient's identifiers or words, so
+  // they are not operations here: they run in apps/app's shell
+  // (lib/admin/patient-rights.ts names the scripts), never through apps/web.
+  | "markErasureVendorDeleted"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -2402,6 +2408,35 @@ export type CareView = {
       how: string | null;
     } | null;
   };
+  /**
+   * The clinic's deletion requests (apps/app lib/patient-rights/erasure.ts),
+   * newest first: who asked (one of three, as a label), the dates as "YYYY-MM-DD HH:MM
+   * UTC", the counts, and each subcontractor step, outstanding until stamped.
+   * Nothing here names the person: apps/app sends no number, address or
+   * reference to one.
+   */
+  /** How many amendments and contact corrections the practice has directed: counts only. */
+  patientRights: { amendments: number; corrections: number };
+  deletionRequests: {
+    id: string;
+    /** One of REQUESTER_LABELS (lib/admin/patient-rights.ts); the reader refuses anything else. */
+    requestedBy: (typeof REQUESTER_LABELS)[number];
+    receivedAt: string;
+    dueBy: string;
+    erasedAt: string;
+    /** Rows deleted, summed across the tables the deletion reached. */
+    rows: number;
+    /** When the restore references are emptied, or null once they have been. */
+    restoreRecordUntil: string | null;
+    steps: {
+      id: "retell";
+      label: string;
+      stampedAt: string | null;
+      stampedBy: string | null;
+      /** One of ERASURE_STEP_OUTCOMES' labels, never typed text; the reader refuses anything else. */
+      how: (typeof ERASURE_STEP_OUTCOMES)[ErasureStepOutcome] | null;
+    }[];
+  }[];
   recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
   deliveries: {
     kind: string;
@@ -2430,6 +2465,11 @@ export type CareView = {
 // Defined in lib/admin/incident-classes.ts so client components never import
 // a value from this server-only module; re-exported here for server callers.
 export { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
+import {
+  ERASURE_STEP_OUTCOMES,
+  REQUESTER_LABELS,
+  type ErasureStepOutcome,
+} from "@/lib/admin/patient-rights";
 
 function readCareView(value: unknown): CareView {
   const data = object(value, "getClinicCare");
@@ -2453,6 +2493,33 @@ function readCareView(value: unknown): CareView {
       destruction: readDestruction(clinic.destruction),
       voiceVendorDeletion: readVoiceVendorDeletion(clinic.voiceVendorDeletion),
     },
+    patientRights: readPatientRights(data.patientRights),
+    deletionRequests: list(data.deletionRequests ?? [], "care.deletionRequests").map((entry) => {
+      const d = object(entry, "care.deletionRequest");
+      const deleted = object(d.deleted, "care.deletionRequest.deleted");
+      return {
+        id: id(d.id, "care.deletionRequest.id"),
+        requestedBy: literal(d.requestedBy, REQUESTER_LABELS, "care.deletionRequest.requestedBy"),
+        receivedAt: instant(d.receivedAt, "care.deletionRequest.receivedAt").at,
+        dueBy: instant(d.dueBy, "care.deletionRequest.dueBy").at,
+        erasedAt: instant(d.erasedAt, "care.deletionRequest.erasedAt").at,
+        rows: Object.entries(deleted).reduce((sum, [key, n]) => sum + count(n, `care.deletionRequest.deleted.${key}`), 0),
+        restoreRecordUntil: optionalInstant(d.restoreRecordUntil, "care.deletionRequest.restoreRecordUntil")?.on ?? null,
+        steps: list(d.steps, "care.deletionRequest.steps").map((value) => {
+          const step = object(value, "care.deletionRequest.step");
+          return {
+            id: literal(step.id, ["retell"] as const, "care.deletionRequest.step.id"),
+            label: text(step.label, "care.deletionRequest.step.label"),
+            stampedAt: optionalInstant(step.stampedAt, "care.deletionRequest.step.stampedAt")?.at ?? null,
+            stampedBy: optionalText(step.stampedBy, "care.deletionRequest.step.stampedBy"),
+            how:
+              step.how === null || step.how === undefined
+                ? null
+                : literal(step.how, Object.values(ERASURE_STEP_OUTCOMES), "care.deletionRequest.step.how"),
+          };
+        }),
+      };
+    }),
     recipients: list(data.recipients, "care.recipients").map((entry) => {
       const r = object(entry, "care.recipient");
       return {
@@ -2490,6 +2557,15 @@ function readCareView(value: unknown): CareView {
         openedBy: text(i.openedBy, "care.incident.openedBy"),
       };
     }),
+  };
+}
+
+function readPatientRights(value: unknown): CareView["patientRights"] {
+  if (value === null || value === undefined) return { amendments: 0, corrections: 0 };
+  const p = object(value, "care.patientRights");
+  return {
+    amendments: count(p.amendments, "care.patientRights.amendments"),
+    corrections: count(p.corrections, "care.patientRights.corrections"),
   };
 }
 
@@ -2552,6 +2628,21 @@ export function markExportDelivered(clinicId: string, how: string) {
 export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
   return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
 }
+
+/**
+ * The operator's record that a subcontractor deleted what it held about a
+ * person: the request's id, the step and a closed outcome, nothing typed.
+ * The deletion itself runs in apps/app's shell, never here.
+ */
+export function markErasureVendorDeleted(
+  clinicId: string,
+  erasureId: string,
+  step: "retell",
+  how: ErasureStepOutcome,
+) {
+  return careWrite("markErasureVendorDeleted", { clinicId, erasureId, step, how });
+}
+
 
 export type OpenIncidentOutcome =
   | { status: "opened"; id: string; notifyBy: string; ftcNotifyBy: string | null }

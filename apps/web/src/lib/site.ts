@@ -83,7 +83,10 @@ export const site = {
    */
   announcement: {
     tag: "New",
-    text: "AYA now answers Instagram, Messenger and WhatsApp too.",
+    // One line, as a pill (owner, 12 October 2026). `cta` is no longer
+    // printed: the whole pill is the way in, and `cta` is what its name says
+    // it does.
+    text: "Now on Instagram, Messenger and WhatsApp",
     cta: "Get AYA",
   },
 

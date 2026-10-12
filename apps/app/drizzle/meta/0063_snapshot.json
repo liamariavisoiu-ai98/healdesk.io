@@ -1,5 +1,5 @@
 {
-  "id": "865cf2fc-c9e0-43d6-a023-b235ce72d888",
+  "id": "77787033-deda-4708-a4d2-7ccd922993a4",
   "prevId": "59b9e2a9-5867-4b18-a562-7611a18424bb",
   "version": "7",
   "dialect": "postgresql",
@@ -919,12 +919,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "termination_reason": {
-          "name": "termination_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "copy_sent_at": {
           "name": "copy_sent_at",
           "type": "timestamp with time zone",
@@ -1053,10 +1047,6 @@
         "baa_acceptances_terminated_after_accepted": {
           "name": "baa_acceptances_terminated_after_accepted",
           "value": "\"baa_acceptances\".\"terminated_at\" is null or \"baa_acceptances\".\"terminated_at\" >= \"baa_acceptances\".\"accepted_at\""
-        },
-        "baa_acceptances_termination_reason_check": {
-          "name": "baa_acceptances_termination_reason_check",
-          "value": "\"baa_acceptances\".\"termination_reason\" is null or (\"baa_acceptances\".\"terminated_at\" is not null and \"baa_acceptances\".\"termination_reason\" in ('practice_healdesk_breach', 'practice_subcontractor_objection', 'healdesk_practice_breach', 'change_in_law', 'services_ended'))"
         },
         "baa_acceptances_copy_evidence_complete": {
           "name": "baa_acceptances_copy_evidence_complete",
@@ -5658,6 +5648,135 @@
       },
       "isRLSEnabled": false
     },
+    "public.erasure_requests": {
+      "name": "erasure_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_by": {
+          "name": "due_by",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "erased_at": {
+          "name": "erased_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "restore_refs": {
+          "name": "restore_refs",
+          "type": "text[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::text[]"
+        },
+        "vendor_steps": {
+          "name": "vendor_steps",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        }
+      },
+      "indexes": {
+        "erasure_requests_clinic_idx": {
+          "name": "erasure_requests_clinic_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "erased_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "erasure_requests_clinic_id_clinics_id_fk": {
+          "name": "erasure_requests_clinic_id_clinics_id_fk",
+          "tableFrom": "erasure_requests",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "erasure_requests_requested_by_check": {
+          "name": "erasure_requests_requested_by_check",
+          "value": "\"erasure_requests\".\"requested_by\" in ('practice', 'person_via_practice', 'representative_via_practice')"
+        },
+        "erasure_requests_received_check": {
+          "name": "erasure_requests_received_check",
+          "value": "\"erasure_requests\".\"received_at\" <= \"erasure_requests\".\"erased_at\""
+        },
+        "erasure_requests_due_check": {
+          "name": "erasure_requests_due_check",
+          "value": "\"erasure_requests\".\"due_by\" > \"erasure_requests\".\"received_at\""
+        },
+        "erasure_requests_refs_check": {
+          "name": "erasure_requests_refs_check",
+          "value": "array_position(\"erasure_requests\".\"restore_refs\", null) is null"
+        },
+        "erasure_requests_vendor_steps_check": {
+          "name": "erasure_requests_vendor_steps_check",
+          "value": "jsonb_typeof(\"erasure_requests\".\"vendor_steps\") = 'object' and (\"erasure_requests\".\"vendor_steps\" - 'retell') = '{}'::jsonb"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.factor_lockouts": {
       "name": "factor_lockouts",
       "schema": "",
@@ -6685,22 +6804,6 @@
           ],
           "isUnique": true,
           "where": "\"provider_connections\".\"account_ref\" is not null and \"provider_connections\".\"status\" <> 'revoked'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "provider_connections_meta_asset_live_idx": {
-          "name": "provider_connections_meta_asset_live_idx",
-          "columns": [
-            {
-              "expression": "(\"metadata\" ->> 'externalId')",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"provider_connections\".\"provider\" like 'meta-%' and \"provider_connections\".\"status\" <> 'revoked'",
           "concurrently": false,
           "method": "btree",
           "with": {}

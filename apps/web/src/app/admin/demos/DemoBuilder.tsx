@@ -26,7 +26,7 @@ const NICHES = [
 ] as const;
 
 const field =
-  "border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-xl border bg-white px-3.5 py-2.5 text-[16px] outline-none transition-colors";
+  "border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-sm border bg-white px-3.5 py-2.5 text-[16px] outline-none transition-colors";
 
 export function DemoBuilder() {
   const [state, action, pending] = useActionState<CreateDemoState, FormData>(createDemoAction, { status: "idle" });
@@ -38,7 +38,7 @@ export function DemoBuilder() {
   const invalid = (name: string) => state.status === "error" && state.field === name;
 
   return (
-    <div className="border-line rounded-3xl border bg-white p-5 sm:p-6">
+    <div className="border-line rounded-lg border bg-white p-5 sm:p-6">
       <form action={action} className="grid gap-4 sm:grid-cols-2">
         <label className="sm:col-span-2">
           <span className="text-[14.4px] font-semibold">Clinic website</span>
@@ -92,7 +92,7 @@ export function DemoBuilder() {
           <button
             type="submit"
             disabled={pending}
-            className="bg-brand-gradient shadow-brand rounded-xl px-6 py-3 text-[16px] font-bold text-white transition-all duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+            className="bg-brand-gradient shadow-sm rounded-sm px-6 py-3 text-[16px] font-bold text-white transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           >
             {pending ? "Creating…" : "Build the demo"}
           </button>
@@ -105,18 +105,18 @@ export function DemoBuilder() {
       </form>
 
       {state.status === "created" ? (
-        <div className="bg-tint-mint mt-5 rounded-2xl px-4 py-4">
+        <div className="bg-tint-mint mt-5 rounded-md px-4 py-4">
           <p className="text-[15px] font-semibold">
             {state.clinicName}&rsquo;s demo is building. This link works now and fills in within a minute or two:
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            <code className="min-w-0 flex-1 truncate rounded-lg bg-white px-3 py-2 font-mono text-[14px]">{state.url}</code>
+            <code className="min-w-0 flex-1 truncate rounded-sm bg-white px-3 py-2 font-mono text-[14px]">{state.url}</code>
             <button
               type="button"
               onClick={() => {
                 void navigator.clipboard.writeText(state.url).then(() => setCopiedFor(state));
               }}
-              className="border-line hover:border-line-strong rounded-lg border bg-white px-3 py-2 text-[14.4px] font-bold"
+              className="border-line hover:border-line-strong rounded-sm border bg-white px-3 py-2 text-[14.4px] font-bold"
             >
               {copied ? "Copied" : "Copy link"}
             </button>
@@ -124,7 +124,7 @@ export function DemoBuilder() {
               href={state.url}
               target="_blank"
               rel="noreferrer"
-              className="border-line hover:border-line-strong rounded-lg border bg-white px-3 py-2 text-[14.4px] font-bold"
+              className="border-line hover:border-line-strong rounded-sm border bg-white px-3 py-2 text-[14.4px] font-bold"
             >
               Open
             </a>

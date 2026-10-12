@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 10b6feef5a2218d8c3fe625b9f3cb5bff3b2f40744a5ce03179d7c5ce79662de).
+(SHA-256 ff3e7acf0f37364ab85a352008fbbc1632e41f2f584514f5fde2fb6b4d9b3b3b).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -368,6 +368,18 @@ EFFECTIVE 6 October 2026
   assistant and, on a call, that the call is transcribed; Practice cannot
   switch that statement off or edit it out. No call audio is kept at all.
 
+  healdesk keeps each conversation, with its transcript, for 90 days after it
+  took place, and each appointment record for 90 days after the appointment's
+  time. It keeps each booking request for 90 days after the latest of when it
+  was made, the time it was confirmed for and its appointment's time. A
+  client's contact details are kept while any conversation, appointment record
+  or booking request of theirs is kept, and in any case until 90 days after
+  the last time those details were recorded or changed. Practice may shorten
+  the period for transcripts in its portal. A backup copy of anything healdesk
+  deletes expires within 35 days of the deletion. The clause headed "Term,
+  termination, and what happens to the information" governs what is held after
+  the Services end.
+
   healdesk discloses Client Information only to: Practice itself; healdesk's
   subcontractors, under the Subcontractors clause; the systems Practice
   connects and controls, which are its calendar, as the Google Calendar clause
@@ -474,9 +486,13 @@ EFFECTIVE 6 October 2026
   corrects its own copy. Where a record must stay as it was made, such as a
   booking request or the record of a conversation, healdesk appends the
   correction to it and links the two. Every later use and export of that
-  record then carries the correction. The telephone number of a client whose
-  information is deleted is kept only as the record that the deletion was
-  asked for.
+  record then carries the correction. When a client's information is deleted,
+  healdesk keeps a record of the request that holds no telephone number, email
+  address or name. For the 35 days in which a backup could still bring the
+  information back, the record also holds one-way keyed references to the
+  client's numbers, addresses and messaging accounts, and healdesk keeps
+  Practice's own message asking for the deletion, both used only to delete the
+  information again if a backup is restored; then both are removed.
 
   If a client makes such a request, or any other request about their
   information, to healdesk itself rather than to Practice, healdesk will not
@@ -527,12 +543,21 @@ EFFECTIVE 6 October 2026
   the rest of this clause. A business associate agreement that replaces this
   agreement under the clause on Practice's status ends it too: the Client
   Information healdesk then holds is governed by that agreement from its
-  effective date, and nothing is destroyed because of the replacement.
+  effective date, the Services go on under it, and nothing is destroyed
+  because of the replacement.
 
-  Terminating this agreement under the Subcontractors clause is without
-  penalty to Practice: the Services end on the same day, no Fees accrue for
-  any time after that day, and healdesk refunds any Fees Practice has paid for
-  that time.
+  Terminating this agreement, however it is terminated, ends the Services on
+  the same day, and no Fees accrue for any time after that day. Where Practice
+  terminates because healdesk has violated a material term of this agreement,
+  or under the Subcontractors clause, healdesk refunds the Fees Practice has
+  paid for the time after that day: the prorated unused part of the
+  subscription period Practice has paid for. The refund never includes a fee
+  for setting up the Services or usage above the allowance already billed, and
+  there is nothing to refund if Practice's subscription has not started under
+  the Terms. Where healdesk terminates because Practice has materially
+  breached this agreement, or this agreement ends in any other way, nothing is
+  refunded. Terminating under the Subcontractors clause is therefore without
+  penalty to Practice.
 
   When the Services end, the assistant stops answering for Practice, and
   healdesk uses Client Information only to pass forwarded calls through to
@@ -549,12 +574,11 @@ EFFECTIVE 6 October 2026
   Destruction deletes the conversations, bookings, booking requests and
   contact details healdesk holds for Practice, and the credentials Practice
   connected through healdesk. After it, healdesk holds no Client Information
-  for Practice except the telephone number of any client who asked to have
-  their information deleted, kept only as the record of that request. Copies
-  in encrypted database backups are deleted as those backups expire. healdesk
-  will also have its subcontractors delete what they hold for Practice, except
-  what the Subcontractors clause says Anthropic may keep. What is in systems
-  Practice controls, such as its calendar, is Practice's own.
+  for Practice. Copies in encrypted database backups are deleted as those
+  backups expire. healdesk will also have its subcontractors delete what they
+  hold for Practice, except what the Subcontractors clause says Anthropic may
+  keep. What is in systems Practice controls, such as its calendar, is
+  Practice's own.
 
   Where destroying any Client Information is not feasible, healdesk will say
   why in writing, keep protecting it under this agreement for as long as it
@@ -698,6 +722,18 @@ veterinary practice or pet spa"):
   channel its opening line says that it is an AI assistant and, on a call,
   that the call is transcribed; Practice cannot switch that statement off or
   edit it out. No call audio is kept at all.
+
+  healdesk keeps each conversation, with its transcript, for 90 days after it
+  took place, and each appointment record for 90 days after the appointment's
+  time. It keeps each booking request for 90 days after the latest of when it
+  was made, the time it was confirmed for and its appointment's time. A
+  client's contact details are kept while any conversation, appointment record
+  or booking request of theirs is kept, and in any case until 90 days after
+  the last time those details were recorded or changed. Practice may shorten
+  the period for transcripts in its portal. A backup copy of anything healdesk
+  deletes expires within 35 days of the deletion. The clause headed "Term,
+  termination, and what happens to the information" governs what is held after
+  the Services end.
 
   healdesk discloses Client Information only to: Practice itself; healdesk's
   subcontractors, under the Subcontractors clause; the systems Practice

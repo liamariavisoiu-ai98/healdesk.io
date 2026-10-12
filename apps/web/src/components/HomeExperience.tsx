@@ -4,7 +4,6 @@ import { useCallback } from "react";
 
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { ChatDemo } from "@/components/ChatDemo";
-import { HealdeskSoul } from "@/components/HealdeskSoul";
 import { NicheCarousel } from "@/components/NicheCarousel";
 import { Outcomes } from "@/components/Outcomes";
 import { OwnBranding } from "@/components/OwnBranding";
@@ -63,11 +62,11 @@ export function HomeExperience() {
             every channel by name, bookings and payment links. Payment links
             are claimed for chat only, because voice cannot send one in v1;
             on a call she books and flags the deposit (docs/v1-product-spec.md). */}
-        <div className="mx-auto mb-8 max-w-[760px] text-center sm:mb-10">
+        <div data-reveal="stagger" className="mx-auto mb-8 max-w-[760px] text-center sm:mb-10">
           <p className="eyebrow-tag">
             {site.agent} 3.0 · Meet your smart assistant
           </p>
-          <h2 className="font-display text-ink mt-5 text-[clamp(36px,4.8vw,66px)] leading-[1.02] font-normal tracking-[-0.03em] text-balance">
+          <h2 className="heading-section text-ink mx-auto mt-5">
             One assistant, every channel, 24/7
           </h2>
           <p className="text-muted mx-auto mt-4 max-w-[60ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
@@ -83,13 +82,17 @@ export function HomeExperience() {
             to the cards' widest content, which ran the chat card past a 320px
             screen in Firefox and into the page's margin in Chrome. */}
         <div
+          data-reveal="stagger"
           className="grid grid-cols-1 gap-5 lg:grid-cols-2"
           style={{ ["--clinic" as string]: "var(--color-red)", ["--clinic-ink" as string]: "#ffffff" }}
         >
-          <AgentPanel label="AI voice agent" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
+          {/* No mark in the cards' top rows (owner, 12 October 2026): the
+              soul sat there as a blurred orange orb, which at 36px read as a
+              rendering fault. The label stands alone; AYA is in the cards. */}
+          <AgentPanel label="AI voice agent" name={site.agent} logoUrl={null} mark={false}>
             <VoiceDemo />
           </AgentPanel>
-          <AgentPanel label="Website chat & Meta DMs" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
+          <AgentPanel label="Website chat & Meta DMs" name={site.agent} logoUrl={null} mark={false}>
             <ChatDemo />
           </AgentPanel>
         </div>

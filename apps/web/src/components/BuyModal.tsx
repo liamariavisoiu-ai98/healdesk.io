@@ -313,7 +313,7 @@ export function BuyButton({
       : "border-line-strong text-ink hover:border-ink border-[1.5px] bg-white";
 
   const classes = [
-    "inline-flex items-center justify-center gap-2 rounded-[6px] font-semibold transition-colors duration-200",
+    "inline-flex items-center justify-center gap-2 rounded-sm font-semibold transition-colors duration-fast",
     size,
     styles,
     className,

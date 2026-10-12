@@ -130,14 +130,17 @@ export function GetInTouch({ className = "" }: { className?: string }) {
       <a
         href={site.meeting.url}
         aria-haspopup="dialog"
-        aria-label={site.meeting.label}
         onClick={(event) => {
           // A modified click (new tab, new window) keeps the plain link.
           if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
           event.preventDefault();
           open();
         }}
-        className={`border-line-strong text-ink hover:border-ink inline-flex size-11 shrink-0 items-center justify-center rounded-[6px] border-[1.5px] bg-white text-sm font-semibold whitespace-nowrap transition-colors duration-200 min-[480px]:w-auto min-[480px]:px-5 ${className}`}
+        // Below 480px there is no room for the words beside the logo and
+        // "Get AYA", so it was a calendar icon alone, which nobody could read
+        // as "Get in touch" (owner, 12 October 2026). It now says so under
+        // the icon, small; the full label takes over from 480px.
+        className={`border-line-strong text-ink hover:border-ink inline-flex h-11 shrink-0 flex-col items-center justify-center gap-0.5 rounded-sm border-[1.5px] bg-white px-2 text-sm font-semibold whitespace-nowrap transition-colors duration-fast min-[480px]:flex-row min-[480px]:gap-2 min-[480px]:px-5 ${className}`}
       >
         <svg
           viewBox="0 0 24 24"
@@ -147,7 +150,7 @@ export function GetInTouch({ className = "" }: { className?: string }) {
           strokeLinecap="round"
           strokeLinejoin="round"
           aria-hidden
-          className="size-5 min-[480px]:hidden"
+          className="size-[17px] min-[480px]:hidden"
         >
           <path d="M8 2v4" />
           <path d="M16 2v4" />
@@ -160,6 +163,9 @@ export function GetInTouch({ className = "" }: { className?: string }) {
           <path d="M12 18h.01" />
           <path d="M16 18h.01" />
         </svg>
+        {/* Its name is whichever label shows, so what is read out is what is
+            on screen. */}
+        <span className="text-[10.5px] leading-none min-[480px]:hidden">Contact</span>
         <span className="hidden min-[480px]:inline">{site.meeting.label}</span>
       </a>
 

@@ -203,7 +203,7 @@ export function SignInForm() {
 
   if (stage === "recovered") {
     return (
-      <div className="border-line mt-8 rounded-2xl border bg-white p-5">
+      <div className="border-line mt-8 rounded-md border bg-white p-5">
         <p className="text-[18px] font-semibold">
           You signed in with a recovery code.
         </p>
@@ -216,7 +216,7 @@ export function SignInForm() {
           type="button"
           autoFocus
           onClick={toAdmin}
-          className="bg-brand-gradient shadow-brand mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-200 hover:-translate-y-0.5"
+          className="bg-brand-gradient shadow-sm mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5"
         >
           Continue
         </button>
@@ -298,7 +298,7 @@ export function SignInForm() {
           setCode("");
           setError(null);
         }}
-        className="text-muted hover:text-ink mt-2 rounded text-[15.6px] font-semibold underline underline-offset-2 transition-colors"
+        className="text-muted hover:text-ink mt-2 rounded-sm text-[15.6px] font-semibold underline underline-offset-2 transition-colors"
       >
         {useRecovery
           ? "Use my authenticator app instead"
@@ -308,7 +308,7 @@ export function SignInForm() {
       <button
         type="submit"
         disabled={submitting || email.trim().length === 0 || password.length === 0}
-        className="bg-brand-gradient shadow-brand mt-5 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-200 hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+        className="bg-brand-gradient shadow-sm mt-5 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
       >
         {submitting ? "Checking…" : "Enter"}
       </button>
@@ -340,7 +340,7 @@ export function SignInForm() {
  */
 function field(invalid: boolean): string {
   return [
-    "text-ink placeholder:text-muted mt-2 w-full rounded-xl border bg-white px-4 py-3 text-[19.2px] transition-colors",
+    "text-ink placeholder:text-muted mt-2 w-full rounded-sm border bg-white px-4 py-3 text-[19.2px] transition-colors",
     invalid ? "border-red" : "border-line focus:border-orange",
   ].join(" ");
 }

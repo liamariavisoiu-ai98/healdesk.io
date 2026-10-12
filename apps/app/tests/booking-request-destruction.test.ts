@@ -383,7 +383,6 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       appointmentsDeleted: 1,
       conversationsDeleted: 1,
       draftsDeleted: 1,
-      suppressed: true,
     });
 
     const left = await inTenant(c.clinicId, async (client) => ({
@@ -408,7 +407,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       appointments: [neighbour.appointmentId],
       contacts: [neighbour.contactId],
       drafts: [neighbour.phone],
-      suppressed: [target.phone],
+      // No copy of the number is kept as the record of the request (gate 6).
+      suppressed: [],
     });
     expect(await counts(elsewhere.clinicId)).toEqual(ONE_PERSON);
   });
@@ -429,7 +429,6 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       contactsMatched: 1,
       bookingRequestsDeleted: 3,
       draftsDeleted: 1,
-      suppressed: true,
     });
     expect(await counts(c.clinicId)).toEqual(NOTHING);
   });
@@ -648,6 +647,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       appointments_deleted: 0,
       conversations_deleted: 0,
       contacts_deleted: 0,
+      amendments_deleted: 0,
     });
 
     // The purge: never ahead of the clinic's own record clock, and inside it
@@ -719,6 +719,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       appointments_deleted: 1,
       conversations_deleted: 1,
       contacts_deleted: 1,
+      amendments_deleted: 0,
     });
     expect(after.left).toEqual({
       contacts: 0,
@@ -732,7 +733,11 @@ describeDb("booking requests at destruction, erasure and purge", () => {
 
     // And no other function takes a request ahead of its person: the only
     // definers that delete booking requests are these three, each bound to
-    // state the runtime role cannot write.
+    // state the runtime role cannot write. Gate 6's first version added a
+    // fourth, app_erase_thread_requests, which took every request a
+    // messaging thread had sent, whoever each named: erasing a child took the
+    // requests their parent had made for themselves. It is gone (drizzle/0063),
+    // and a person's deletion reaches only the requests that name them.
     const { rows } = await getMigratorPool().query<{ proname: string }>(
       `select p.proname
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace

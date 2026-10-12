@@ -133,9 +133,11 @@ import { withTenant } from "@/lib/tenant";
  *
  * ## What goes, and what stays
  *
- * Every patient row, the keyed hashes of who messaged the clinic, its closed
- * days, its connections, and its suppressions, consent records and contact
- * attempts. Those three were kept until BAA 1.3.0's release gate 7 as the
+ * Every patient row, the amendments Practice directed to them
+ * (record_amendments), the keyed hashes of who messaged the clinic, its
+ * closed days, its connections, the records of its deletion requests
+ * (erasure_requests), and its suppressions, consent records and contact
+ * attempts. Those last three were kept until BAA 1.3.0's release gate 7 as the
  * TCPA evidence that an outbound contact was lawful; v1 contacts no one
  * first, so there is nothing for them to evidence, and every agreement's
  * return-or-destroy clause reaches them (1.3.0's Term clause keeps only the
@@ -475,8 +477,10 @@ export type DestructionResult = { clinicId: string; deleted: Record<string, numb
 /**
  * Every patient row for one clinic, booking requests and slot holds
  * included, the hashes of who messaged it, its closed days, its setup
- * progress, its providers, and its suppressions, consent records and contact
- * attempts, gone. Audit, agreements, calendar elections and billing stay.
+ * progress, its providers, its suppressions, consent records and contact
+ * attempts, the records of its deletion requests, and the amendments
+ * Practice directed, gone. Audit, agreements, calendar elections and billing
+ * stay.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -490,6 +494,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
+  // The amendments Practice directed (drizzle/0064), before the requests and
+  // conversations they amend: neither can go while one remains, and the app
+  // role cannot delete one, so app_destroy_record_amendments() deletes every
+  // one of this tenant's, on the requests' own floor.
+  const amendments = await tx.db.execute<{ n: number }>(sql`select app_destroy_record_amendments(${c}::uuid) as n`);
+  deleted.record_amendments = amendments.rows[0]?.n ?? 0;
   // Booking requests before the appointments: a confirmed request must keep
   // its appointment (CHECK, 0039) and cannot be rewritten (trigger, 0041), so
   // its appointment cannot go while it stands, and waiting for the contact's
@@ -508,6 +518,14 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
+  // The records of the clinic's deletion requests (drizzle/0063): dates,
+  // counts and keyed references to the people deleted, kept to delete them
+  // again after a restore. A restore after this re-runs the destruction,
+  // which takes those people with everyone else, so no record of them needs
+  // to outlast it. The app role cannot delete one (the record's clock is the
+  // database's), so app_destroy_erasure_requests() does, on the same floor.
+  const erasures = await tx.db.execute<{ n: number }>(sql`select app_destroy_erasure_requests(${c}::uuid) as n`);
+  deleted.erasure_requests = erasures.rows[0]?.n ?? 0;
   // sync_runs and connection_links are append-only by grant (0015, 0024):
   // operational history with no patient in it, kept as the record of what
   // ran. The credentials go with the connection row below.

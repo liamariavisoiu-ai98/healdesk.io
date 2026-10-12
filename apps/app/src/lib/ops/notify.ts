@@ -120,6 +120,11 @@ export const OPS_EVENTS = [
   // calendar days), once per incident, by the hourly incident-deadlines job
   // (lib/scheduler/incident-deadlines.ts).
   "incident_notice_overdue",
+  // The nightly retention purge (lib/scheduler/retention-purge.ts): a clinic
+  // whose purge threw (`phase` clinic, with its id), or a run that could not
+  // purge at all (`phase` run). A purge that fails silently keeps records
+  // past the periods the agreements state.
+  "retention_purge_failed",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

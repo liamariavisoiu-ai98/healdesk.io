@@ -315,6 +315,8 @@ export function ChatDemo() {
       aiNotice={`Messages are answered by ${site.agent}, an AI assistant.`}
       error={error}
       composer={emailAsk}
+      // White, with AYA's mark on red (owner, 12 October 2026).
+      headerTone="light"
       // The line under the field that said this is a demo for clinic staff,
       // and not to type patient information, went at the owner's request on
       // 12 October 2026. Privacy section 2 still says it.

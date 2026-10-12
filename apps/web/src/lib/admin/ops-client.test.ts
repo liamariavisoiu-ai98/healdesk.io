@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 /**
@@ -947,6 +950,117 @@ describe("the booking card reads the derived mode, and switches only Auto-confir
   test("the direct-booking switch is gone from the client", () => {
     expect(opsClient).not.toHaveProperty("setBookingMode");
     expect(opsClient).not.toHaveProperty("DIRECT_BOOKING_GATES");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Patient rights: nothing of a patient goes up, and nothing typed comes back
+// -----------------------------------------------------------------------------
+
+describe("the care page's patient-rights operations carry no patient data (review of 12 October 2026)", () => {
+  const ERASURE = "5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a";
+
+  function careReply(deletionRequest: Record<string, unknown>) {
+    return {
+      data: {
+        clinic: {
+          id: CLINIC,
+          slug: "care-clinic",
+          name: "Care Clinic",
+          dataClassification: "synthetic",
+          isCoveredEntity: true,
+          wentLiveAt: null,
+          offboardingStartedAt: null,
+          exportDeliveredAt: null,
+          destroyAfter: null,
+          destroyedAt: null,
+          destruction: null,
+          voiceVendorDeletion: null,
+        },
+        patientRights: { amendments: 2, corrections: 1 },
+        deletionRequests: [
+          {
+            id: ERASURE,
+            requestedBy: "The person, through the practice",
+            receivedAt: "2026-10-05T09:00:00.000Z",
+            dueBy: "2026-10-19T09:00:00.000Z",
+            erasedAt: "2026-10-05T10:00:00.000Z",
+            deleted: { contacts: 1, conversations: 2 },
+            restoreRecordUntil: "2026-11-09T10:00:00.000Z",
+            steps: [
+              {
+                id: "retell",
+                label: "Retell (the voice vendor): delete the person's calls and transcripts in Retell's console",
+                stampedAt: "2026-10-06T10:00:00.000Z",
+                stampedBy: "ops@healdesk.test",
+                how: "Deleted in the vendor's console",
+              },
+            ],
+            ...deletionRequest,
+          },
+        ],
+        recipients: [],
+        deliveries: [],
+        incidents: [],
+      },
+    };
+  }
+
+  test("the deletion, amendments and corrections are gone from the client: they run in apps/app's shell", () => {
+    for (const name of ["erasePerson", "amendRecord", "amendContact", "ERASURE_REQUESTERS"]) {
+      expect(opsClient, name).not.toHaveProperty(name);
+    }
+    // And no operation by those names can be sent at all.
+    const source = readFileSync(fileURLToPath(new URL("./ops-client.ts", import.meta.url)), "utf8");
+    expect(source).not.toMatch(/"(erasePerson|amendRecord|amendContact)"/);
+  });
+
+  test("a step's stamp sends exactly the clinic, the request, the step and a closed outcome", async () => {
+    reply({ data: { status: "updated" } });
+    expect(await opsClient.markErasureVendorDeleted(CLINIC, ERASURE, "retell", "nothing_held")).toEqual({
+      ok: true,
+      data: { status: "updated" },
+    });
+    // A field added here, or a typed outcome, fails this: the function takes
+    // ids and the closed set, nothing a number or words could ride in.
+    expect(opsClient.markErasureVendorDeleted.length).toBe(4);
+    expect(sent).toEqual([
+      {
+        op: "markErasureVendorDeleted",
+        args: { clinicId: CLINIC, erasureId: ERASURE, step: "retell", how: "nothing_held" },
+      },
+    ]);
+  });
+
+  test("the care view is read with who asked and each outcome from the closed sets, and refused with anything typed", async () => {
+    reply(careReply({}));
+    const read = await opsClient.fetchClinicCare(CLINIC);
+    expect(read.ok).toBe(true);
+    if (read.ok) {
+      expect(read.data.patientRights).toEqual({ amendments: 2, corrections: 1 });
+      expect(read.data.deletionRequests[0]).toMatchObject({
+        requestedBy: "The person, through the practice",
+        rows: 3,
+      });
+    }
+    for (const typed of [
+      { requestedBy: "Jane Doe's mother, by telephone" },
+      {
+        steps: [
+          {
+            id: "retell",
+            label: "Retell",
+            stampedAt: "2026-10-06T10:00:00.000Z",
+            stampedBy: "ops@healdesk.test",
+            how: "deleted Jane's two calls",
+          },
+        ],
+      },
+    ]) {
+      reply(careReply(typed));
+      const refused = await opsClient.fetchClinicCare(CLINIC);
+      expect(refused.ok, JSON.stringify(typed)).toBe(false);
+    }
   });
 });
 

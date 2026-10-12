@@ -3453,6 +3453,81 @@
   background: radial-gradient(120% 85% at 50% 0%, #ffe9db 0%, #fdf4ee 48%, #fbf9f7 100%);
 }
 
+/* The closing band (ClosingCta.tsx): AYA behind the own-branding stage's
+   peach light, pointing at the words. Below 1024px she is a band across the
+   top, fading into the stage at its foot, with the words centred under her;
+   from 1024px she stands at the right, the photo as tall as the band and
+   fading into it on her left, and the words are on the left. The light is
+   laid over her too, softer than the stage's own, so she sits in it. */
+.closing__photo {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -2;
+  width: 100%;
+  height: clamp(250px, 62vw, 380px);
+  object-fit: cover;
+  object-position: 74% 18%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 98%);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent 98%);
+}
+
+.closing__light {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 85% at 50% 0%, rgb(255 233 219 / 0.55) 0%, rgb(253 244 238 / 0.22) 48%, rgb(251 249 247 / 0) 100%);
+  pointer-events: none;
+}
+
+.closing__body {
+  padding: calc(clamp(250px, 62vw, 380px) - 12px) 24px 56px;
+  text-align: center;
+}
+
+.closing__body .heading-section,
+.closing__line {
+  margin-inline: auto;
+}
+
+.closing__line {
+  max-width: 52ch;
+}
+
+.closing__buttons {
+  margin-inline: auto;
+}
+
+@media (min-width: 640px) {
+  .closing__body {
+    padding-inline: 48px;
+    padding-bottom: 80px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .closing__photo {
+    inset: 0 0 0 auto;
+    width: auto;
+    height: 100%;
+    aspect-ratio: 1672 / 941;
+    object-position: 100% 30%;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 34%);
+    mask-image: linear-gradient(to right, transparent, #000 34%);
+  }
+
+  .closing__body {
+    max-width: min(560px, 50%);
+    padding: 88px 0 88px 64px;
+    text-align: left;
+  }
+
+  .closing__body .heading-section,
+  .closing__line,
+  .closing__buttons {
+    margin-inline: 0;
+  }
+}
+
 /* The address bar, until the visitor touches it (OwnBranding.tsx): Safari's
    blue focus ring breathing round it, and a caret after the example it is
    typing for itself, in the accent colour macOS gives a caret. */

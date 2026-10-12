@@ -397,7 +397,9 @@ describeDb("the setup wizard", () => {
           userId: clinic.userId,
           actor: SERVICE,
         });
-        return buildTracker(state!).stages.find((stage) => stage.id === "answers")!.detail;
+        const calendar = { status: "not_connected", accessRemovedAt: null } as const;
+        return buildTracker(state!, calendar).stages.find((stage) => stage.id === "answers")!
+          .detail;
       };
       expect(await answers()).toContain("a check of your prices");
       await skipSetupScreen(contextOf(clinic), "services");

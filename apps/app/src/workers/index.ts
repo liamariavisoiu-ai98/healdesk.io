@@ -6,6 +6,7 @@ import { runBillingNoticesJob } from "@/lib/email/outbox";
 import {
   getBoss,
   QUEUE_BILLING_MINUTE,
+  QUEUE_CALENDAR_WATCH,
   QUEUE_NOTICES,
   QUEUE_PROCESS_WEBHOOK,
   QUEUE_RECONCILE_CLINIC,
@@ -17,6 +18,11 @@ import {
   type ReconcileClinicPayload,
   type SyncConnectionPayload,
 } from "@/lib/queue/boss";
+import {
+  CALENDAR_WATCH_CRON,
+  CALENDAR_WATCH_RETRY_LIMIT,
+  runCalendarWatchJob,
+} from "@/lib/scheduler/calendar-watch";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -165,6 +171,30 @@ async function main(): Promise<void> {
     // and pg-boss records the run; the next minute's starts afresh either way.
     if (failures.length > 0) throw new Error(failures.join("; "));
   });
+
+  // The calendar watch (owner decision 5): every five minutes, one forced
+  // token refresh and one free/busy probe per Google Calendar connection,
+  // behind the calendar-watch job row's switch, which ships off
+  // (lib/scheduler/calendar-watch.ts). Not on the hourly tick: a location
+  // whose Google access was removed must take requests within one cycle.
+  // Guarded like billing-minute: where `queue:install` has not been re-run
+  // since this queue arrived, the log names the fix and the rest of the
+  // worker starts; after the install, restart the worker, since clocks are
+  // registered only here. A failed run throws so pg-boss records it, but is
+  // never retried at once: a re-run forces every refresh again and counts
+  // another miss for each connection Google was slow for, so one blip could
+  // degrade a connection inside one cycle. The next fire is the retry.
+  // runJob's ten-minute lock keeps two runs from overlapping.
+  await startGuardedClock(
+    boss,
+    QUEUE_CALENDAR_WATCH,
+    CALENDAR_WATCH_CRON,
+    async () => {
+      const outcome = await runCalendarWatchJob();
+      if (outcome.status === "failed") throw new Error(`calendar-watch: ${outcome.note}`);
+    },
+    { retryLimit: CALENDAR_WATCH_RETRY_LIMIT },
+  );
 
   // No outbound clock. The call-back dialer of 23 September 2026 was removed
   // (v1 is inbound only): nothing in this process asks a vendor to dial.

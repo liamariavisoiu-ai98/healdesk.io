@@ -980,6 +980,7 @@ describeDb("connecting a Google Calendar", () => {
         checked: 1,
         disconnected: 1,
         failed: 0,
+        failedClinicIds: [],
       });
       expect(await connectionRow(clinic.clinicId)).toMatchObject({
         status: "revoked",
@@ -989,6 +990,7 @@ describeDb("connecting a Google Calendar", () => {
         checked: 1,
         disconnected: 0,
         failed: 0,
+        failedClinicIds: [],
       });
     },
     SLOW,

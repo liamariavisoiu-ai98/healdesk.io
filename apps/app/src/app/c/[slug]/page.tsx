@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { getBillingSummary } from "@/lib/billing/summary";
 import { setupLastDay } from "@/lib/clinic/setup-window";
+import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { requirePortal } from "@/lib/portal/access";
 import { needsAttention } from "@/lib/portal/attention";
 import { portalDay } from "@/lib/portal/format";
@@ -56,7 +57,10 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
     actor: page.actorContext,
   });
   const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts });
-  const tracker = buildTracker(state);
+  const tracker = buildTracker(
+    state,
+    await getCalendarConnection(portal.clinicId, { actor: page.actorContext }),
+  );
   const finished = wizardFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);

@@ -1,6 +1,17 @@
-import { CHANNEL_NAMES, CHANNELS, NEVER_SAY_DEFAULTS } from "@healdesk/catalog";
+import {
+  CHANNEL_NAMES,
+  CHANNELS,
+  manualBookingNotice,
+  NEVER_SAY_DEFAULTS,
+} from "@healdesk/catalog";
 import { afterEach, describe, expect, test } from "vitest";
 
+import {
+  BOOKING_MODE_REASON_CODES,
+  decideBookingMode,
+  effectiveOf,
+  type BookingModeReasonCode,
+} from "@/lib/booking/mode";
 import type { ChannelState } from "@/lib/channels/state";
 import {
   moveSetupDeadline,
@@ -10,7 +21,8 @@ import {
 } from "@/lib/clinic/setup-window";
 import { copyProblems } from "@/lib/email/lint";
 import { validateAgentConfig } from "@/lib/onboarding/agent-config";
-import { calendarStep, providersAvailable, rightNowLine } from "@/lib/setup/calendar";
+import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+import { autoConfirmView, rightNowLine } from "@/lib/setup/calendar";
 import {
   actionLine,
   channelNextStep,
@@ -411,12 +423,77 @@ describe("Help", () => {
   });
 });
 
-describe("the calendar seam", () => {
-  test("without the calendar backend, bookings arrive as requests and named providers wait", async () => {
-    const step = await calendarStep("0c1d2e3f-0000-4000-8000-000000000000");
-    expect(step).toEqual({ kind: "requests_only" });
-    expect(providersAvailable(step)).toBe(false);
-    expect(rightNowLine(step)).toBe("Right now: your team confirms each booking AYA takes.");
+describe("Auto-confirm's Right now line", () => {
+  // Every reason the booking mode can give, worded by the mode itself: a
+  // location with everything still to do, under terms not yet recorded.
+  const everything = decideBookingMode({
+    killSwitchOn: false,
+    autoConfirm: false,
+    terms: {
+      kind: "needs_election",
+      reason: "legacy_agreement",
+      allowsWrite: false,
+      agreementId: "00000000-0000-4000-8000-000000000002",
+      agreementVersion: "1.2.1",
+      electionId: null,
+      demo: false,
+    },
+    googleConfigured: false,
+    connection: null,
+    openingHoursKnown: false,
+    timezoneConfirmed: false,
+    offboarding: false,
+    production: false,
+    demo: false,
+    agentApproved: false,
+  });
+  const order = (code: BookingModeReasonCode) => BOOKING_MODE_REASON_CODES.indexOf(code);
+  /** The mode once everything before `code` is put right. */
+  const first = (code: BookingModeReasonCode) =>
+    effectiveOf({
+      mode: "manual",
+      reasons: everything.reasons.filter((reason) => order(reason.code) >= order(code)),
+    });
+
+  test("it is the booking mode's first reason, after what that means for a booking unless the reason says so itself", () => {
+    expect(rightNowLine({ mode: "direct", reason: null, reasons: [] })).toBe(
+      "Right now: AYA books straight into your calendar.",
+    );
+    expect(rightNowLine(effectiveOf(everything))).toBe(
+      "Right now: your team confirms each booking AYA takes. This location's calendar terms aren't in place yet.",
+    );
+    expect(rightNowLine(first("timezone_unconfirmed"))).toBe(
+      "Right now: your team confirms each booking AYA takes. Your time zone hasn't been confirmed.",
+    );
+    expect(rightNowLine(first("kill_switch_off"))).toBe(
+      "Right now: your team confirms each booking AYA takes. healdesk hasn't switched on live booking yet.",
+    );
+    // These two say it themselves.
+    expect(rightNowLine(first("auto_confirm_off"))).toBe(
+      "Right now: Auto-confirm is off, so your assistant takes each booking as a request for your staff to confirm.",
+    );
+    const mindbody = manualBookingNotice("mindbody");
+    expect(
+      rightNowLine(
+        effectiveOf({
+          mode: "manual",
+          reasons: [{ code: "manual_booking_system", sentence: mindbody }],
+        }),
+      ),
+    ).toBe(`Right now: ${mindbody}`);
+  });
+
+  test("the switch as saved, and what saving another booking system would make it", () => {
+    const view = autoConfirmView(
+      { bookingSystem: "google_calendar", autoConfirmBookings: false },
+      effectiveOf(everything),
+    );
+    expect(view.on).toBe(false);
+    // The saved system keeps the clinic's own switch; another follows its sync.
+    expect(view.onceSaved.google_calendar).toBe(false);
+    expect(view.onceSaved.calendly).toBe(true);
+    expect(view.onceSaved.mindbody).toBe(false);
+    expect(view.rightNow).toBe(rightNowLine(effectiveOf(everything)));
   });
 });
 
@@ -470,9 +547,26 @@ function setupState(overrides: Partial<SetupState> = {}): SetupState {
   };
 }
 
+const NOT_CONNECTED: CalendarConnectionView = { status: "not_connected", accessRemovedAt: null };
+
+function connection(
+  status: "active" | "degraded" | "error" | "pending",
+): Exclude<CalendarConnectionView, { status: "not_connected" }> {
+  return {
+    status,
+    account: { email: "bookings@glow.test", kind: "workspace", domain: "glow.test" },
+    calendar: { id: "primary", primary: true },
+    connectedAt: at.toISOString(),
+    lastVerifiedAt: at,
+    brokenAt: status === "error" ? at : null,
+    lastError: status === "error" ? "calendar_not_found" : null,
+    disclosureCurrent: true,
+  };
+}
+
 describe("the build tracker", () => {
   test("each stage's done-rule reads the data, and the preview stays locked while the engine is not built", () => {
-    const fresh = buildTracker(setupState());
+    const fresh = buildTracker(setupState(), NOT_CONNECTED);
     expect(fresh.stages.map((s) => [s.id, s.state])).toEqual([
       ["agreement", "done"],
       ["payment", "done"],
@@ -518,7 +612,7 @@ describe("the build tracker", () => {
       progress: new Map([["services", { outcome: "done", at }]]),
     });
     expect(answersMissing(answered)).toEqual([]);
-    const tracker = buildTracker(answered);
+    const tracker = buildTracker(answered, NOT_CONNECTED);
     expect(tracker.stages.find((s) => s.id === "website")!.state).toBe("done");
     expect(tracker.stages.find((s) => s.id === "answers")!.state).toBe("done");
     expect(tracker.left).toEqual(["Assistant built", "Practice questions passed"]);
@@ -534,10 +628,39 @@ describe("the build tracker", () => {
     expect(joinWords(["a"])).toBe("a");
   });
 
-  test("the calendar never blocks the preview", () => {
-    const calendar = buildTracker(setupState()).stages.find((s) => s.id === "calendar")!;
-    expect(calendar.blocks).toBe(false);
-    expect(calendar.detail).toBe("Bookings arrive as requests your team confirms.");
+  test("the calendar stage follows the connection, and never blocks the preview", () => {
+    const stage = (view: CalendarConnectionView) =>
+      buildTracker(setupState(), view).stages.find((s) => s.id === "calendar")!;
+    expect(stage(NOT_CONNECTED)).toEqual({
+      id: "calendar",
+      label: "Calendar",
+      state: "info",
+      detail: "Bookings arrive as requests your team confirms.",
+      blocks: false,
+    });
+    for (const healthy of ["active", "degraded"] as const) {
+      expect(stage(connection(healthy))).toEqual({
+        id: "calendar",
+        label: "Calendar connected",
+        state: "done",
+        detail: "Connected as bookings@glow.test.",
+        blocks: false,
+      });
+    }
+    expect(stage(connection("error"))).toMatchObject({
+      state: "info",
+      detail:
+        "Your calendar connection stopped working, so bookings arrive as requests your team confirms until you reconnect it.",
+      blocks: false,
+    });
+    expect(stage(connection("pending")).state).toBe("info");
+    expect(
+      stage({ ...connection("active"), account: { email: null, kind: null, domain: null } }).detail,
+    ).toBe("Your Google Calendar is connected.");
+    // Connected or not, what is left is the same.
+    expect(buildTracker(setupState(), connection("active")).left).toEqual(
+      buildTracker(setupState(), NOT_CONNECTED).left,
+    );
   });
 });
 

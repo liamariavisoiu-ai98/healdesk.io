@@ -66,11 +66,14 @@ const CLINIC_ID = "0c1d2e3f-0000-4000-8000-000000000000";
 const TOKEN = "kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx";
 
 const SAVED: Record<string, string | undefined> = {};
-const ENV = ["BETTER_AUTH_URL", "HEALDESK_APP_URL", "NODE_ENV"] as const;
+const ENV = ["BETTER_AUTH_URL", "BETTER_AUTH_SECRET", "HEALDESK_APP_URL", "NODE_ENV"] as const;
 
 beforeEach(() => {
   for (const key of ENV) SAVED[key] = process.env[key];
   process.env.BETTER_AUTH_URL = ORIGIN;
+  // A stop link is signed with a key derived from this secret, and the
+  // snapshots carry the link: pinned, so CI's own secret cannot change them.
+  process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-tests";
   delete process.env.HEALDESK_APP_URL;
 });
 

@@ -13,34 +13,28 @@ import { site } from "@/lib/site";
  *
  * The same two buttons as the hero, the same size, the red one first: "Get
  * AYA" opens the purchase flow in place, "Try AYA for free" goes back up to
- * the demo cards (#aya). Ink, because it is the one dark band on a light page
- * and should read as the end of it, with a soft warm glow in the corner where
- * the hero's own warmth was.
+ * the demo cards (#aya). It stands on the same ground as "See it in your own
+ * branding" (owner, 12 October 2026: it was an ink band): the peach light
+ * from the top of a rounded stage with a hairline edge (`own-stage`), so the
+ * two places on the page that ask the visitor to act look alike.
  */
 export function ClosingCta() {
   return (
     <section aria-labelledby="closing-heading" className="mb-24 sm:mb-28">
       <div
         data-reveal="stagger"
-        className="bg-ink relative isolate overflow-hidden rounded-lg px-6 py-14 text-center text-white sm:px-12 sm:py-20"
+        className="own-stage rounded-lg border border-black/[0.06] px-6 py-14 text-center sm:px-12 sm:py-20"
       >
-        <span
-          aria-hidden
-          className="absolute inset-0 -z-10 bg-[radial-gradient(60%_80%_at_85%_0%,rgb(255_118_30/0.28),transparent_70%),radial-gradient(50%_70%_at_10%_110%,rgb(230_38_39/0.22),transparent_70%)]"
-        />
-        <p className="text-[13px] font-semibold tracking-[0.12em] text-white/60 uppercase">Ready when you are</p>
-        <h2 id="closing-heading" className="heading-section mx-auto mt-4">
+        <p className="text-muted text-[13px] font-semibold tracking-[0.12em] uppercase">Ready when you are</p>
+        <h2 id="closing-heading" className="heading-section text-ink mx-auto mt-4">
           Let {site.agent} take the next call.
         </h2>
-        <p className="mx-auto mt-5 max-w-[52ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium text-white/75">
+        <p className="text-muted mx-auto mt-5 max-w-[52ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
           Talk to her first, free. When you are ready, she answers on the channels you choose.
         </p>
         <div className="mx-auto mt-9 grid w-full max-w-[480px] grid-cols-1 gap-3 sm:grid-cols-2">
           <BuyButton size="h-[54px] px-6 text-base" className="w-full whitespace-nowrap" />
-          <a
-            href={site.cta.secondary.href}
-            className="inline-flex h-[54px] w-full items-center justify-center rounded-sm border-[1.5px] border-white/40 px-6 text-base font-semibold whitespace-nowrap text-white transition-colors duration-fast hover:border-white hover:bg-white hover:text-ink"
-          >
+          <a href={site.cta.secondary.href} className="btn-ink h-[54px] w-full px-6 text-base whitespace-nowrap">
             {site.cta.secondary.label}
           </a>
         </div>

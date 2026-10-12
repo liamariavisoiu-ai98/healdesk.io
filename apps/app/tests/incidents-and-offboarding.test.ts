@@ -210,7 +210,7 @@ describeDb("incidents, exports and offboarding", () => {
     });
 
     const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportPatient(tx, { phone: "+15550100777", requestedBy: "operator" }),
+      exportPatient(tx, { phone: "+15550100777", requestedBy: "practice" }),
     );
     expect(bundle.contacts.map((r) => r.id)).toEqual([contactId]);
     expect(bundle.conversations.map((r) => r.id)).toEqual([conversationId]);
@@ -220,12 +220,12 @@ describeDb("incidents, exports and offboarding", () => {
 
     // The export itself is an access, and the next accounting shows it.
     const second = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportPatient(tx, { phone: "+15550100777", requestedBy: "operator" }),
+      exportPatient(tx, { phone: "+15550100777", requestedBy: "practice" }),
     );
     expect(second.accountingOfDisclosures.filter((a) => a.action === "export").length).toBeGreaterThanOrEqual(1);
 
     await expect(
-      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { requestedBy: "operator" })),
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { requestedBy: "practice" })),
     ).rejects.toThrow(/phone number or an email/);
   });
 

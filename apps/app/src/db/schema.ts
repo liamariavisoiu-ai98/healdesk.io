@@ -794,7 +794,7 @@ export const providerConnections = pgTable(
       .on(t.provider, t.accountRef)
       .where(sql`${t.accountRef} is not null and ${t.status} <> 'revoked'`),
     // One clinic per Meta Page, Instagram account or WhatsApp number while
-    // its connection is not revoked (drizzle/0065): with two, the webhook
+    // its connection is not revoked (drizzle/0066): with two, the webhook
     // routed every message to the older clinic, whose staff and records
     // then held another practice's patients. A revoked row frees the asset.
     // On the asset's id alone, across the three Meta providers: the router
@@ -1927,9 +1927,9 @@ export const baaAcceptances = pgTable(
      * @healdesk/catalog, recorded with `terminatedAt` by the console's
      * termination (BAA 1.3.0 clause 17 ¶3 refunds only two of them). Null
      * while the agreement is in effect, and on an ending recorded before
-     * drizzle/0065 or by app_supersede_agreement(), which replaces an
+     * drizzle/0066 or by app_supersede_agreement(), which replaces an
      * agreement rather than ending the Services. Write-once, and only in the
-     * write that records the termination (the transition guard, 0065).
+     * write that records the termination (the transition guard, 0066).
      */
     terminationReason: text("termination_reason").$type<AgreementTerminationReason>(),
 

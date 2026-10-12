@@ -877,7 +877,7 @@ export async function signAgreement(
 
   // Raw SQL naming only the columns it writes: the runtime role may insert
   // no organization_id, bound_at, terminated_at or termination_reason
-  // (column-scoped INSERT, drizzle/0065), and Drizzle's insert names every
+  // (column-scoped INSERT, drizzle/0066), and Drizzle's insert names every
   // column, even the ones it leaves at their defaults. A signature is
   // unbound until provisioning binds it through app_bind_agreement().
   //

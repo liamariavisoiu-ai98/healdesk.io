@@ -1,9 +1,10 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { assertNoPhi } from "../src/lib/audit";
+import { describeError } from "../src/lib/log";
 import { exportClinic, exportPatient, type PatientBundle } from "../src/lib/patient-rights/export";
 import { exportTarget, storeBundle } from "../src/lib/patient-rights/export-store";
+import { isPatientRequester, PATIENT_REQUESTERS } from "../src/lib/patient-rights/requesters";
 import { withTenant } from "../src/lib/tenant";
 
 /**
@@ -18,19 +19,19 @@ import { withTenant } from "../src/lib/tenant";
  * names (docs/incident-response.md, "Patient rights requests"). Nothing
  * about the patient is printed; only counts.
  *
- *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --phone +15551234567 --requested-by "practice manager, ticket 41"
- *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --email someone@example.com --requested-by "..."
- *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --all --requested-by "offboarding, notice of 1 September 2026"
+ *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --phone +15551234567 --requested-by person_via_practice
+ *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --email someone@example.com --requested-by practice
+ *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --all --requested-by practice
  *
- * The audit row refuses anything shaped like an email address or a phone
- * number in --requested-by, and a date written in digits reads as one: write
- * dates in words.
+ * --requested-by is one of PATIENT_REQUESTERS (practice, person_via_practice,
+ * representative_via_practice), chosen, never typed: the audit row outlives
+ * the person. A whole clinic's bundle is always the practice's.
  *
  * Optional: --out <dir> (default ./exports). The file is written 0600 and
  * named by clinic id and time, never by the patient.
  *
  * On the AWS host it runs as the one-off patient-export task
- * (infra/aws/scripts/run-task.sh patient-export <clinic id> "<who asked>"),
+ * (infra/aws/scripts/run-task.sh patient-export <clinic id>),
  * whose disk goes with it, so the bundle goes to the export bucket instead
  * (lib/patient-rights/export-store.ts). The task takes its inputs from the
  * environment, never the command line: HEALDESK_EXPORT_CLINIC_ID and
@@ -63,23 +64,38 @@ async function main(): Promise<void> {
   const bucket = process.env.HEALDESK_EXPORT_BUCKET;
 
   if (!clinicId || !UUID.test(clinicId)) throw new Error("--clinic <uuid> is required.");
-  if (!requestedBy) throw new Error("--requested-by <who asked, and the ticket> is required; it goes in the audit row.");
+  if (!requestedBy)
+    throw new Error(
+      `--requested-by <${PATIENT_REQUESTERS.join("|")}> is required; it goes in the audit row.`,
+    );
   if (!all && !phone && !email) throw new Error("Give --phone, --email, or --all.");
   if (all && (phone || email)) throw new Error("--all is the whole clinic; drop --phone/--email.");
-  if (phone && !/^\+\d{7,15}$/.test(phone)) throw new Error("--phone must be E.164, e.g. +15551234567.");
-  if (requestedBy.length > 200) throw new Error("Keep who asked to 200 characters.");
-  // It goes in the audit row, and on AWS through a recorded override.
-  assertNoPhi({ requestedBy }, "requested-by");
-  const target = bucket ? exportTarget(clinicId, bucket, process.env.HEALDESK_EXPORT_KEY ?? "") : null;
+  if (phone && !/^\+\d{7,15}$/.test(phone))
+    throw new Error("--phone must be E.164, e.g. +15551234567.");
+  if (!isPatientRequester(requestedBy)) {
+    throw new Error(
+      `--requested-by is one of ${PATIENT_REQUESTERS.join(", ")}: chosen, never typed.`,
+    );
+  }
+  if (all && requestedBy !== "practice")
+    throw new Error("A whole clinic's bundle is the practice's: --requested-by practice.");
+  const target = bucket
+    ? exportTarget(clinicId, bucket, process.env.HEALDESK_EXPORT_KEY ?? "")
+    : null;
   if (bucket && !all) throw new Error("The export bucket takes whole-clinic bundles only.");
 
-  const actor = { type: "service", serviceName: `patient-export:${process.env.USER ?? "operator"}` } as const;
+  const actor = {
+    type: "service",
+    serviceName: `patient-export:${process.env.USER ?? "operator"}`,
+  } as const;
   // To the bucket, the upload happens inside the export's transaction: if it
   // fails, the export's audit row rolls back with it, so nothing records a
   // bundle that was never stored (the care page checks for one before it
   // takes a handover).
   const bundle: PatientBundle = await withTenant({ clinicId, actor }, async (tx) => {
-    const produced = all ? await exportClinic(tx, requestedBy) : await exportPatient(tx, { phone, email, requestedBy });
+    const produced = all
+      ? await exportClinic(tx, requestedBy)
+      : await exportPatient(tx, { phone, email, requestedBy });
     if (target) await storeBundle(target, JSON.stringify(produced, null, 2));
     return produced;
   });
@@ -100,13 +116,17 @@ async function main(): Promise<void> {
       `[healdesk] bundle written: ${file}`,
       `  contacts ${bundle.contacts.length}, conversations ${bundle.conversations.length}, appointments ${bundle.appointments.length},`,
       `  transactions ${bundle.transactions.length}, consent records ${bundle.consentRecords.length}, suppressions ${bundle.suppressions.length},`,
-      `  contact attempts ${bundle.contactAttempts.length}, audit rows ${bundle.accountingOfDisclosures.length}`,
-      all ? "  Next: hand it over, then mark the export delivered in the ops console." : "  Next: hand it to the clinic by the channel in docs/incident-response.md.",
+      `  contact attempts ${bundle.contactAttempts.length}, deposits ${bundle.depositPayments.length}, audit rows ${bundle.accountingOfDisclosures.length}`,
+      all
+        ? "  Next: hand it over, then mark the export delivered in the ops console."
+        : "  Next: hand it to the clinic by the channel in docs/incident-response.md.",
     ].join("\n"),
   );
 }
 
+// describeError, not error.message: a failed query's message carries its
+// parameters, and a per-patient export's are a phone number or an email.
 main().catch((error: unknown) => {
-  console.error(`[healdesk] patient export failed: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(`[healdesk] patient export failed: ${describeError(error)}`);
   process.exit(1);
 });

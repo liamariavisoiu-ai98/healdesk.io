@@ -424,10 +424,10 @@ async function alertsFor(event: string, clinicId: string) {
 const notDue = { code: "23514", message: expect.stringMatching(/not due for destruction/) };
 
 /**
- * Each of the six functions that refuse a clinic that is not due, called as
- * the runtime role: the five deletes (the calendar's providers since 0057,
- * the records of deletion requests since 0063, the amendments since 0064)
- * and the destroyed stamp.
+ * Each of the seven functions that refuse a clinic that is not due, called as
+ * the runtime role: the six deletes (the calendar's providers since 0057,
+ * the records of deletion requests since 0063, the amendments since 0064,
+ * the deposits since 0065) and the destroyed stamp.
  */
 const GUARDED = [
   `select app_destroy_booking_requests($1::uuid)`,
@@ -435,6 +435,7 @@ const GUARDED = [
   `select app_destroy_clinic_providers($1::uuid)`,
   `select app_destroy_erasure_requests($1::uuid)`,
   `select app_destroy_record_amendments($1::uuid)`,
+  `select * from app_destroy_deposit_payments($1::uuid)`,
   `select app_mark_clinic_destroyed($1::uuid)`,
 ];
 
@@ -458,6 +459,8 @@ const DAY_COUNTING_FUNCTIONS = [
   "app_destroy_erasure_requests(uuid)",
   // 0064: the amendments' delete at destruction, and at the purge.
   "app_destroy_record_amendments(uuid)",
+  // 0065: the deposits' delete at destruction.
+  "app_destroy_deposit_payments(uuid)",
   "app_purge_amended_appointments(timestamptz)",
   "app_purge_amended_conversations(timestamptz)",
 ];

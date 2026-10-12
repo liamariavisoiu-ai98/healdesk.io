@@ -15,7 +15,7 @@ import { bindAgreementInEffect, seedClinic } from "./setup/factories";
 
 /**
  * The patient-data gate reads a clinic's organisation and whether that
- * organisation has an agreement in effect (drizzle/0065). The runtime role
+ * organisation has an agreement in effect (drizzle/0066). The runtime role
  * must not be able to write either input, or it could reopen the gate a
  * termination closed (the review's R1, proved in exploit1.sql): it may not
  * insert an agreement already bound or terminated, move a clinic to another

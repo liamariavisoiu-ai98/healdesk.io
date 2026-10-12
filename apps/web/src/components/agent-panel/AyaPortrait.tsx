@@ -51,10 +51,18 @@ export function AyaPortrait({
   size = 132,
   level = 0,
   state = "idle",
+  aura = "halo",
 }: {
   size?: number;
   level?: number;
   state?: CallVisualState;
+  /**
+   * What surrounds her: `halo`, a disc in the clinic's colour (the
+   * personalised demo, in the clinic's brand), or `soul`, the soul's own
+   * living aura, gold and orange, turning and breathing (healdesk's own card
+   * on the homepage, owner, 12 October 2026: the halo read as a pink ring).
+   */
+  aura?: "halo" | "soul";
 }) {
   const [frame, setFrame] = useState(REST);
   const [fallback, setFallback] = useState(false);
@@ -87,12 +95,21 @@ export function AyaPortrait({
       data-state={state}
       style={{ width: size + 28, height: size + 28 }}
     >
-      {/* The halo: her colour while she speaks, cool while she listens. */}
-      <span
-        aria-hidden
-        className="aya-halo absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-fast"
-        style={{ transform: `scale(${swell})` }}
-      />
+      {aura === "soul" ? (
+        /* The soul's aura (HealdeskSoul, globals.css "The soul"), round her:
+           breathing, faster while the call connects and while she talks,
+           and swelling with her voice. */
+        <span aria-hidden className="aya-aura absolute inset-0 transition-transform duration-fast" style={{ transform: `scale(${swell})` }}>
+          <span className="soul__aura" />
+        </span>
+      ) : (
+        /* The halo: her colour while she speaks, cool while she listens. */
+        <span
+          aria-hidden
+          className="aya-halo absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-fast"
+          style={{ transform: `scale(${swell})` }}
+        />
+      )}
       <span aria-hidden className="aya-ripple absolute inset-[14px] rounded-full" />
       <span aria-hidden className="aya-ripple aya-ripple--late absolute inset-[14px] rounded-full" />
 

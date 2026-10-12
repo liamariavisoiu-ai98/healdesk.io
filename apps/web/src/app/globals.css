@@ -1139,11 +1139,12 @@
    would leave the hero a tenth short. `--nav-h` is the navbar's height in the
    zoomed page, measured; change it with the navbar.
 
-   The photo is the hero's background, composed as the owner supplied it:
-   as wide as the hero, never shifted, cut at the bottom on a screen wider
-   than it is and fading into the page on one taller, so neither her face nor
-   a logo is ever what is lost. The copy sits at the bottom left, on the
-   veil.
+   The photo is composed as the owner supplied it, never cropped, so neither
+   her face nor a logo is ever what is lost. Since 12 October 2026 it is no
+   wider than keeps every logo inside the content column, centred, with the
+   copy under it rather than over her ("Inside the column, from 1280px"),
+   its sides and its foot fading into the page. The copy sits at the bottom
+   left, on the veil.
 
    Between 1024px and 1280px the copy's box would reach the logos on her left,
    so the hero keeps the stacked layout below.
@@ -1201,7 +1202,7 @@
    * The entrance, as the page opens (owner, 12 October 2026): the photo
    * settles, the full rings draw in round her, then each group's lit stretch,
    * the chips appear at their heads and the logos fan out of them, and last
-   * the cue pill draws in. Each beat's start is here, so the order reads in
+   * the cue's arrowhead draws in. Each beat's start is here, so the order reads in
    * one place; the copy is not part of it (it comes up on the cursor).
    */
   --entrance-rings: 300ms;
@@ -1254,13 +1255,12 @@
     overflow: hidden;
   }
 
-  /* Always the hero's full width, never wider: a logo sits as near as 3.7%
-     of the photo to its edge, and a cover crop on a screen taller than the
-     photo (1440×1000, 1280×1024) cut the outer ones off. On a wider screen
-     the photo runs past the hero's foot, where the veil and the copy are; on
-     a taller one it ends above it and fades into the page. No transform: it
-     would make the photo its own stacking context, and the logos inside it
-     could not then rise above the veil. */
+  /* Never a cover crop: a logo sits as near as 3.7% of the photo to its
+     edge, and a crop on a screen taller than the photo (1440×1000,
+     1280×1024) cut the outer ones off. Its width and its place are set in
+     "Inside the column, from 1280px" below. No transform: it would make the
+     photo its own stacking context, and the logos inside it could not then
+     rise above the veil. */
   .hero__frame .portrait {
     position: absolute;
     top: 0;
@@ -1307,8 +1307,8 @@
 }
 
 /* The cue: the copy is down until the cursor comes to the bottom third, and
-   nothing else on the hero says so. A small pill at the foot, until the first
-   time it comes up. */
+   nothing else on the hero says so. An arrowhead at the foot, pointing down,
+   until the first time it comes up. */
 .hero__cue {
   display: none;
 }
@@ -1382,75 +1382,72 @@
   .hero__cue {
     position: absolute;
     left: 50%;
-    bottom: 26px;
+    bottom: 22px;
     z-index: 6;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 14px 9px 18px;
-    border: 1px solid rgb(255 255 255 / 0.9);
-    border-radius: 9999px;
-    background: rgb(255 255 255 / 0.82);
-    -webkit-backdrop-filter: blur(14px) saturate(1.4);
-    backdrop-filter: blur(14px) saturate(1.4);
-    box-shadow: var(--shadow-md);
+    display: grid;
+    width: 64px;
+    height: 48px;
+    place-items: center;
     color: var(--color-ink);
-    font-size: 13.5px;
-    font-weight: 650;
-    white-space: nowrap;
     pointer-events: none;
     translate: -50% 0;
     opacity: 0;
-    transition: opacity var(--duration-base) var(--ease-standard);
-  }
-
-  /* The last beat of the entrance (see "The entrance" below): once the logos
-     have fanned out, the pill draws in from its middle, and its words follow.
-     It stays until the copy first comes up, then fades. */
-  .hero__cue[data-show] {
-    opacity: 1;
-    animation: hero-cue-draw var(--duration-slow) var(--ease-out) var(--entrance-cue) both;
+    transition: opacity var(--duration-slow) var(--ease-standard);
   }
 
   .hero__cue svg {
-    width: 16px;
-    height: 16px;
+    width: 34px;
+    height: 19px;
+    overflow: visible;
+    /* A white halo, so it reads over the photo's foot as well as the page. */
+    filter: drop-shadow(0 1px 2px rgb(255 255 255 / 0.9)) drop-shadow(0 2px 8px rgb(23 42 58 / 0.18));
+  }
+
+  .hero__cue path {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 0;
+  }
+
+  /* The last beat of the entrance (see "The entrance" above): once the logos
+     have fanned out the arrowhead draws outwards from its point, then jumps,
+     slowly: down, a small settle, back up, and a long rest at the top. It
+     stays until the copy first comes up, then fades. */
+  .hero__cue[data-show] {
+    opacity: 1;
+  }
+
+  .hero__cue[data-show] path {
+    animation: hero-cue-draw var(--duration-slower) var(--ease-out) var(--entrance-cue) both;
   }
 
   .hero__cue[data-show] svg {
-    animation:
-      hero-cue-words var(--duration-slow) var(--ease-standard) calc(var(--entrance-cue) + 180ms) both,
-      hero-cue 1.6s var(--ease-in-out) calc(var(--entrance-cue) + 700ms) infinite;
+    animation: hero-cue-jump 2.6s var(--ease-in-out) calc(var(--entrance-cue) + 900ms) infinite;
   }
 }
 
-/* The pill's words are a text node, which no selector reaches, so the pill's
-   own colour brings them in; the arrow is `currentColor` and comes with it. */
 @keyframes hero-cue-draw {
   from {
-    opacity: 0;
-    clip-path: inset(0 50% 0 50% round 9999px);
-    color: transparent;
+    stroke-dashoffset: 1;
   }
-  60% {
+}
+
+@keyframes hero-cue-jump {
+  0%,
+  100% {
+    transform: translateY(0);
     opacity: 1;
-    color: transparent;
   }
-  to {
-    clip-path: inset(0 0 0 0 round 9999px);
+  38% {
+    transform: translateY(11px);
+    opacity: 0.72;
   }
-}
-
-@keyframes hero-cue-words {
-  from {
-    opacity: 0;
-    translate: 0 4px;
+  52% {
+    transform: translateY(7px);
+    opacity: 0.86;
   }
-}
-
-@keyframes hero-cue {
-  50% {
-    transform: translateY(3px);
+  70% {
+    transform: translateY(0);
+    opacity: 1;
   }
 }
 
@@ -1803,6 +1800,96 @@
   }
 }
 
+/* --- Inside the column, from 1280px ---------------------------------------
+   The owner's, 12 October 2026, after trying it as `?orbits=contained`. On a
+   screen wider than the 1240px column the logos ran out to the screen's
+   edges while the navbar and the copy stayed inside it. Now the photo, and
+   the orbits on it, is no wider than keeps every logo and chip inside the
+   column, centred, its sides fading into the page, and no taller than leaves
+   room under it for the copy on one screen: the hero is the photo and the
+   copy, at most the screen, and the copy sits under her rather than over her.
+   Drawing the orbits in towards her instead put the logos on her face: they
+   are placed against the photo (integrations.test.ts), so the photo comes
+   with them.
+
+   It is all here, so it is right on the first paint (the preview measured it
+   after the page's script ran, and the hero jumped):
+   - 1166px is the widest photo whose outermost logo and chip stay inside
+     the column's 1128px, its 1240 less 56px of padding a side, as measured;
+   - `--copy-h` is the copy's box under it, the announcement, two lines of
+     headline and the buttons: 354 to 365px from 1280 to 2560px wide. It
+     comes up over the photo's last 18%, the foot that fades into the page,
+     where no logo on her left is: on a laptop's short screen that is a fifth
+     more photo, and the chips, which do not shrink with it, stay clear of
+     the logos;
+   - 640px is the least it narrows to, on a screen too short for both.
+
+   Each layer drifts after the cursor by its own few pixels, and the photo a
+   little the other way (`--mx`, `--my`, from -1 to 1, set by HeroPortrait),
+   so the hero has depth rather than pop-ups. Centred by `left`, not a
+   transform: a transform on .portrait would trap the logos under the veil
+   (see "Laid out, from 1280px"). */
+@media (min-width: 1280px) {
+  .hero {
+    --copy-h: 365px;
+    --portrait-w: clamp(640px, (var(--hero-h) - var(--copy-h)) * 1672 / 941 / 0.82, 1166px);
+    min-height: min(var(--hero-h), var(--portrait-w) * 941 / 1672 * 0.82 + var(--copy-h));
+  }
+
+  .hero__frame .portrait {
+    --mx: 0;
+    --my: 0;
+    left: calc((100% - var(--portrait-w)) / 2);
+    width: var(--portrait-w);
+  }
+
+  .hero__frame .portrait__photo {
+    -webkit-mask-image:
+      linear-gradient(to bottom, #000 82%, transparent),
+      linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+    -webkit-mask-composite: source-in;
+    mask-image:
+      linear-gradient(to bottom, #000 82%, transparent),
+      linear-gradient(to right, transparent, #000 7%, #000 93%, transparent);
+    mask-composite: intersect;
+  }
+
+  .portrait__logos,
+  .portrait__chips,
+  .portrait__orbits,
+  .portrait__photo {
+    transition: translate var(--duration-slower) var(--ease-out);
+  }
+
+  .portrait__logos {
+    translate: calc(var(--mx) * 12px) calc(var(--my) * 9px);
+  }
+
+  /* A translated box is the containing block of what is positioned inside
+     it, so the chips' layer has to be the photo's size for their percentages
+     to stay shares of the photo. */
+  .portrait__chips {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    pointer-events: none;
+    translate: calc(var(--mx) * 8px) calc(var(--my) * 6px);
+  }
+
+  .portrait__chips .portrait__chip {
+    pointer-events: auto;
+  }
+
+  .portrait__orbits {
+    translate: calc(var(--mx) * 5px) calc(var(--my) * 4px);
+  }
+
+  .portrait__photo {
+    translate: calc(var(--mx) * -4px) calc(var(--my) * -3px);
+  }
+
+}
+
 /* --- The cards ---------------------------------------------------------- */
 
 .portrait__card {
@@ -1813,7 +1900,6 @@
   width: 228px;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-radius: var(--radius-md);
   background: rgb(255 255 255 / 0.96);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
@@ -1821,25 +1907,44 @@
   color: var(--color-ink);
   font-size: 12.5px;
   line-height: 1.3;
+  /* Closed: a small oval bubble at the logo's side, which it goes back to
+     quickly. */
   opacity: 0;
   pointer-events: none;
-  transform: translate(var(--card-from), -50%) scale(0.96);
+  border-radius: 50%;
+  transform: translate(var(--card-from), -50%) scale(0.32);
   transition:
     opacity var(--duration-base) var(--ease-standard),
-    transform var(--duration-slow) var(--ease-out);
+    transform var(--duration-base) var(--ease-in-out),
+    border-radius var(--duration-base) var(--ease-in-out);
 }
 
 /* Out to the right: the logos on her left open over her hair, the ones on her
    right over the wall beyond them, and none over her face. */
 .portrait__card {
   left: calc(100% + 12px);
-  --card-from: -6px;
+  --card-from: -10px;
   transform-origin: left center;
 }
 
+/* Open: it blows up out of the logo like a bubble, on the spring that
+   overshoots a hair and settles, its corners easing from round to the card's
+   own, and what it says comes in a beat after (owner, 12 October 2026: the
+   cards appeared at once). */
 .portrait__node[data-shown] .portrait__card {
   opacity: 1;
+  border-radius: var(--radius-md);
   transform: translate(0, -50%);
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-spring),
+    border-radius var(--duration-slow) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .portrait__node[data-shown] .portrait__card-head {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 90ms both;
+  }
 }
 
 /* Stripe's sits at the photo's right edge, level with the phone line on the
@@ -1851,7 +1956,7 @@
     bottom: calc(100% + 12px);
     left: auto;
     right: 0;
-    transform: translate(0, 6px) scale(0.96);
+    transform: translate(0, 10px) scale(0.32);
     transform-origin: 100% 100%;
   }
 
@@ -1871,7 +1976,7 @@
   .portrait__node[data-side="right"] .portrait__card {
     left: auto;
     right: calc(100% + 8px);
-    --card-from: 6px;
+    --card-from: 10px;
     transform-origin: right center;
   }
 }
@@ -2150,14 +2255,19 @@
 }
 
 /* The phone line: a live call */
+/* In iOS voicemail's colours (owner, 12 October 2026): its light grey
+   ground and hairline, the time in its secondary grey, and the voice drawn
+   as its bars, blue where they have played and grey ahead, the blue moving
+   along as the call runs. */
 .sc-call__live {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 11px;
   border-radius: 9999px;
-  background: var(--color-ink);
-  color: #fff;
+  background: #f2f2f7;
+  box-shadow: 0 0 0 0.5px rgb(60 60 67 / 0.16);
+  color: rgb(60 60 67 / 0.8);
 }
 
 .sc-call__dot {
@@ -2165,7 +2275,7 @@
   width: 7px;
   height: 7px;
   border-radius: 9999px;
-  background: #34c759;
+  background: #007aff;
 }
 
 /* The timer counts on its own: an integer property animated, printed by a
@@ -2198,7 +2308,7 @@
   flex: 1;
   height: 100%;
   border-radius: 9999px;
-  background: rgb(255 255 255 / 0.85);
+  background: #007aff;
   scale: 1 0.3;
 }
 
@@ -2373,6 +2483,30 @@
     animation-delay: 180ms;
   }
 
+  /* Then the price, confirmed from the clinic's own list (owner, 12 October
+     2026), and the booking a beat later than in the other scenes. */
+  .portrait__node[data-shown] .sc-web .sc-row--price {
+    animation: sc-in var(--duration-slow) var(--ease-spring) 1050ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--price .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 1180ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--price .sc-check path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-slow) var(--ease-out) 1180ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--2 {
+    animation-delay: 1850ms;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--2 .sc-type,
+  .portrait__node[data-shown] .sc-web .sc-row--2 .sc-check path {
+    animation-delay: 2000ms;
+  }
+
   /* After hours: the tag fades in with the card, its moon rising into it. */
   .portrait__node[data-shown] .portrait__after {
     animation: sc-fade var(--duration-base) var(--ease-standard) 60ms both;
@@ -2453,7 +2587,9 @@
   }
 
   .portrait__node[data-shown] .sc-call__wave i {
-    animation: sc-wave 520ms var(--ease-in-out) calc(var(--b) * -73ms) infinite alternate;
+    animation:
+      sc-wave 520ms var(--ease-in-out) calc(var(--b) * -73ms) infinite alternate,
+      sc-played var(--duration-base) var(--ease-standard) calc(200ms + var(--b) * 90ms) both;
   }
 
   .portrait__node[data-shown] .sc-call__wave i:nth-child(3n) {
@@ -2644,6 +2780,12 @@
   }
   to {
     --sc-sec: 42;
+  }
+}
+
+@keyframes sc-played {
+  from {
+    background-color: #c7c7cc;
   }
 }
 
@@ -2864,14 +3006,16 @@
    a flat solid one; both are rectangles with a small radius, not pills.
    ============================================================================= */
 
+/* The small title over a section's heading (owner, 12 October 2026: at 13px,
+   drawn at 90%, they read too small). */
 @utility eyebrow-tag {
   display: inline-block;
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 16.5px;
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.005em;
   line-height: 1;
-  padding: 7px 9px;
+  padding: 8px 13px;
   border-radius: var(--radius-sm);
   color: var(--color-ink);
   background: var(--color-tint-peach);
@@ -2884,8 +3028,10 @@
  * the 760px that heading sits in; a centred section adds `mx-auto`. Colour is
  * inherited, so the same heading works on the dark bands.
  */
+/* As wide as what is under it, so a heading is one line wherever the column
+   has room for it (owner, 12 October 2026: they broke at 760px). */
 @utility heading-section {
-  max-width: 760px;
+  max-width: none;
   font-family: var(--font-display);
   font-size: clamp(36px, 4.8vw, 66px);
   font-weight: 400;
@@ -2983,6 +3129,93 @@
    typing dots that grow into the answer (ChatSkins). The global
    reduced-motion rule above stills all of it; the states still change. */
 
+/* --- Buttons whose word turns into an icon -------------------------------
+   The voice card's "Talk now" and the website chat's "Send" (owner, 12
+   October 2026): under the pointer, or with keyboard focus, the word blurs
+   away and an icon springs into its place, a phone that rings once or a
+   paper plane that flies in; when the pointer leaves they change back. The
+   two share the button's one cell, so it keeps the word's width, and the
+   word stays in the page as the button's name. */
+.morph-btn {
+  display: inline-grid;
+  place-items: center;
+}
+
+.morph-btn > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-spring),
+    filter var(--duration-base) var(--ease-standard);
+}
+
+.morph-btn__icon {
+  display: grid;
+  opacity: 0;
+  filter: blur(3px);
+  transform: scale(0.4) rotate(-30deg);
+}
+
+.morph-btn__icon svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.morph-btn__icon--fly {
+  transform: translate(-10px, 8px) scale(0.5) rotate(-12deg);
+}
+
+@media (hover: hover) {
+  .morph-btn:hover .morph-btn__label {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(0.7);
+  }
+
+  .morph-btn:hover .morph-btn__icon {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+.morph-btn:focus-visible:not(:disabled) .morph-btn__label {
+  opacity: 0;
+  filter: blur(4px);
+  transform: scale(0.7);
+}
+
+.morph-btn:focus-visible:not(:disabled) .morph-btn__icon {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+
+/* The phone rings once it is there. */
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .morph-btn:hover .morph-btn__icon--ring svg {
+    animation: morph-ring var(--duration-slower) var(--ease-in-out) var(--duration-base) both;
+  }
+}
+
+@keyframes morph-ring {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  15%,
+  45% {
+    transform: rotate(-14deg);
+  }
+  30%,
+  60% {
+    transform: rotate(14deg);
+  }
+  75% {
+    transform: rotate(-6deg);
+  }
+}
+
 /* --- M2: the call on her face ------------------------------------------- */
 
 .aya-breathe {
@@ -2997,6 +3230,24 @@
   50% {
     transform: scale(1.012) translateY(-0.5px);
   }
+}
+
+/* The soul's aura round her, on healdesk's own card: the same three layers
+   the soul has, larger, reaching well past her face so the part outside it
+   is the living edge. */
+.aya-aura {
+  --soul-beat: 3500ms;
+  --soul-aura: -34%;
+  --soul-aura-blur: 22px;
+  pointer-events: none;
+}
+
+.aya-portrait[data-state="connecting"] .aya-aura {
+  --soul-beat: 1400ms;
+}
+
+.aya-portrait[data-state="speaking"] .aya-aura {
+  --soul-beat: 1900ms;
 }
 
 .aya-halo {
@@ -3202,6 +3453,114 @@
   background: radial-gradient(120% 85% at 50% 0%, #ffe9db 0%, #fdf4ee 48%, #fbf9f7 100%);
 }
 
+/* The closing band (ClosingCta.tsx): AYA behind the own-branding stage's
+   peach light, pointing at the words. Below 1024px she is a band across the
+   top, fading into the stage at its foot, with the words centred under her;
+   from 1024px she stands at the right, the photo as tall as the band and
+   fading into it on her left, and the words are on the left. The light is
+   laid over her too, softer than the stage's own, so she sits in it. */
+.closing__photo {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: -2;
+  width: 100%;
+  height: clamp(250px, 62vw, 380px);
+  object-fit: cover;
+  object-position: 74% 18%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 62%, transparent 98%);
+  mask-image: linear-gradient(to bottom, #000 62%, transparent 98%);
+}
+
+.closing__light {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(120% 85% at 50% 0%, rgb(255 233 219 / 0.55) 0%, rgb(253 244 238 / 0.22) 48%, rgb(251 249 247 / 0) 100%);
+  pointer-events: none;
+}
+
+.closing__body {
+  padding: calc(clamp(250px, 62vw, 380px) - 12px) 24px 56px;
+  text-align: center;
+}
+
+.closing__body .heading-section,
+.closing__line {
+  margin-inline: auto;
+}
+
+.closing__line {
+  max-width: 52ch;
+}
+
+.closing__buttons {
+  margin-inline: auto;
+}
+
+@media (min-width: 640px) {
+  .closing__body {
+    padding-inline: 48px;
+    padding-bottom: 80px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .closing__photo {
+    inset: 0 0 0 auto;
+    width: auto;
+    height: 100%;
+    aspect-ratio: 1672 / 941;
+    object-position: 100% 30%;
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 34%);
+    mask-image: linear-gradient(to right, transparent, #000 34%);
+  }
+
+  .closing__body {
+    max-width: min(560px, 50%);
+    padding: 88px 0 88px 64px;
+    text-align: left;
+  }
+
+  .closing__body .heading-section,
+  .closing__line,
+  .closing__buttons {
+    margin-inline: 0;
+  }
+}
+
+/* The address bar, until the visitor touches it (OwnBranding.tsx): Safari's
+   blue focus ring breathing round it, and a caret after the example it is
+   typing for itself, in the accent colour macOS gives a caret. */
+.own-address[data-pulse] {
+  animation: own-pulse 2.6s var(--ease-in-out) infinite;
+}
+
+@keyframes own-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0px rgb(0 113 227 / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgb(0 113 227 / 0.3);
+  }
+}
+
+.own-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 17px;
+  margin-left: 1px;
+  border-radius: 9999px;
+  background: #0071e3;
+  animation: own-caret 1.05s steps(1) infinite;
+}
+
+@keyframes own-caret {
+  50% {
+    opacity: 0;
+  }
+}
+
 /* What is in the window changes by rising into place, a short way. */
 .own-rise {
   animation: own-rise var(--duration-slow) var(--ease-out) both;
@@ -3245,16 +3604,18 @@
 
    ## Arriving
 
-   On a desktop the screen wakes as it scrolls into view (the wallpaper comes
-   up from dark, the date and clock rise into place) and the notifications
-   drop in one after another on the spring, a beat after it. Below 1024px each
-   drops onto the top of the stack as its step of the track is reached, on the
-   same spring, and the ones under it move down.
+   As iOS brings them: from below, out of a soft blur, on one long smooth
+   deceleration with no bounce (owner, 12 October 2026: they dropped from
+   above on a spring). On a desktop the screen wakes as it scrolls into view
+   (the wallpaper comes up from dark, the date and clock rise into place) and
+   the notifications rise into the wall one after another, oldest first, a
+   beat after it. Below 1024px each rises in at the foot of the stack as its
+   step of the track is reached, and the older ones move up.
 
    ## The stack, below 1024px
 
-   Each notification is placed by its place from the top (`--pos`, from
-   Outcomes.tsx; -1 is one not arrived yet, waiting above the top) and by how
+   Each notification is placed by its place from the newest (`--pos`, from
+   Outcomes.tsx; -1 is one not arrived yet, waiting under the foot) and by how
    many fit one under another (`--fit`, measured there). Those past the last
    that fits tuck under it, smaller and fainter, two deep, as iOS stacks older
    ones. Every notification is the same height here, three lines of body at
@@ -3536,18 +3897,23 @@
     opacity: 0;
   }
 
-  /* The arrival: armed below the fold, then in one after another, the first
-     a beat after the screen has woken. */
+  /* The arrival: armed below the fold, then in one after another as iOS
+     brings them, from below (owner, 12 October 2026: they dropped from
+     above, on a bouncing spring). Each rises out of a soft blur into its
+     place on one long, unhurried deceleration, oldest first, so the wall
+     fills from its foot to "now" at the top; the first a beat after the
+     screen has woken. `--n` is its place in the order they happened. */
   .month[data-state="armed"] .notification {
     opacity: 0;
-    transform: translateY(-96px) scale(0.92);
+    transform: translateY(44px) scale(0.96);
+    filter: blur(8px);
   }
 
   .month[data-state="in"] .notification {
     animation:
-      notification-drop var(--duration-slower) var(--ease-spring) both,
-      notification-fade var(--duration-base) var(--ease-out) both;
-    animation-delay: calc(550ms + var(--i) * 400ms);
+      notification-rise calc(var(--duration-slower) * 1.15) var(--ease-out) both,
+      notification-fade var(--duration-slow) var(--ease-standard) both;
+    animation-delay: calc(600ms + var(--n) * 300ms);
   }
 }
 
@@ -3557,9 +3923,10 @@
   }
 }
 
-@keyframes notification-drop {
+@keyframes notification-rise {
   from {
-    transform: translateY(-96px) scale(0.92);
+    transform: translateY(44px) scale(0.96);
+    filter: blur(8px);
   }
 }
 
@@ -3618,30 +3985,38 @@
     margin-bottom: 14px;
   }
 
+  /* Stacked from the foot of the screen up, as iOS keeps them: the newest
+     at the bottom, the older ones moved up a place each time one arrives,
+     and those past the last that fits tucked behind the top one. `--y` is
+     how far up from the foot. */
   .month[data-live] .lockscreen__note {
     /* How far past the last that fits: 0 for one that fits. */
     --over: max(0, var(--pos) - var(--fit) + 1);
     --y: calc(min(var(--pos), var(--fit) - 1) * (var(--note-h) + var(--note-gap)) + min(var(--over), 2) * 10px);
     --k: calc(1 - min(var(--over), 2) * 0.05);
     --o: clamp(0, 1 - var(--over) * 0.35, 1);
+    --b: 0px;
     position: absolute;
     inset-inline: 0;
-    top: 0;
+    bottom: 0;
     z-index: calc(20 - var(--pos));
     height: var(--note-h);
     opacity: var(--o);
-    transform: translateY(var(--y)) scale(var(--k));
+    filter: blur(var(--b));
+    transform: translateY(calc(-1 * var(--y))) scale(var(--k));
     transform-origin: 50% 0;
     transition:
-      transform var(--duration-slow) var(--ease-spring),
-      opacity var(--duration-base) var(--ease-standard);
+      transform calc(var(--duration-slower) * 1.1) var(--ease-out),
+      opacity var(--duration-slow) var(--ease-standard),
+      filter var(--duration-slow) var(--ease-standard);
   }
 
-  /* Not arrived: waiting just above the top, to drop into place. */
+  /* Not arrived: waiting under the foot, faint and soft, to rise into place. */
   .month[data-live] .lockscreen__note[data-pos="-1"] {
-    --y: calc(var(--note-h) * -0.5);
-    --k: 0.94;
+    --y: calc(var(--note-h) * -0.6);
+    --k: 0.96;
     --o: 0;
+    --b: 8px;
     pointer-events: none;
   }
 

@@ -462,7 +462,7 @@ describeDb("delivery", () => {
           // The welcome email's backstop: a sweep, not a switched job, because
           // the welcome it retries goes unswitched at every provisioning.
           "welcome-email",
-          // Missed incident deadlines (drizzle/0065), hourly behind its switch.
+          // Missed incident deadlines (drizzle/0066), hourly behind its switch.
           "incident-deadlines",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no

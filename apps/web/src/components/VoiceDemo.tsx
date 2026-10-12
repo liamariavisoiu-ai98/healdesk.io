@@ -30,7 +30,8 @@ export function VoiceDemo() {
   return (
     <VoiceCard
       name={site.agent}
-      portraitLabel={`${site.agent} · ${site.name}’s AI assistant`}
+      idleTitle={false}
+      aura="soul"
       callRoute="/api/voice-demo/retell"
       demoLine={site.demoLine.e164}
       ringNote="One demo call, because you asked. For your clinic she only answers: she never dials a patient."

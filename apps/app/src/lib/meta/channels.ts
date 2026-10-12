@@ -70,7 +70,7 @@ export class MetaAssetTakenError extends Error {
   }
 }
 
-/** The unique index that keeps one Meta asset on one clinic (drizzle/0065). */
+/** The unique index that keeps one Meta asset on one clinic (drizzle/0066). */
 function isAssetTaken(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; current && depth < 5; depth += 1) {
@@ -87,7 +87,7 @@ function isAssetTaken(error: unknown): boolean {
  *
  * One asset, one clinic: a Page, Instagram account or WhatsApp number another
  * clinic holds (not revoked) is refused by the database's unique index
- * (drizzle/0065), and the refusal is a MetaAssetTakenError in plain words.
+ * (drizzle/0066), and the refusal is a MetaAssetTakenError in plain words.
  * Two clinics on one asset would have had every message routed to the older
  * one: another practice's patients in its records.
  *

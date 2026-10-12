@@ -146,7 +146,7 @@ describeDb("database audit (0031)", () => {
     // offboarding and record-clock columns (0054), the client number every
     // sealed credential is labelled with (migration A, 0057), the export's
     // delivery, which the destruction floor reads (0058), and the
-    // organisation, which the agreement gate reads (0065).
+    // organisation, which the agreement gate reads (0066).
     expect(locked).toEqual([
       "agreement_kind",
       "baa_signed_at",

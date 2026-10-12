@@ -28,7 +28,7 @@ export function NicheCarousel({
   return (
     <section id="specialties" className="scroll-mt-24 py-20 sm:py-24">
       {/* Centred to sit over the deck, which is centred too. */}
-      <div data-reveal="stagger" className="mx-auto max-w-[760px] text-center">
+      <div data-reveal="stagger" className="mx-auto text-center">
         <p className="eyebrow-tag">
           Where you can trust us
         </p>

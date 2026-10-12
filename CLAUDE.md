@@ -219,8 +219,10 @@ checkov, cfn-lint and actionlint.
   runs either from a terminal. Two more are registered by every deploy and run
   only by hand: `destroy-due` (the worker's container running
   `scripts/destroy-due.ts`), after a restore (`docs/handover.md`,
-  "Restoring"); and `patient-export`, a leaving clinic's return bundle, put
-  in the export bucket (`infra/aws/exports.tf`) by its own task role.
+  "Restoring"); `patient-export`, a leaving clinic's return bundle, put in
+  the export bucket (`infra/aws/exports.tf`) by its own task role; and the
+  patient-rights scripts `erase-person` and `amend-contact`, by contact id
+  only, since the host has no shell and no stdin.
 - **CI checks the Terraform, not the image.** The `infra` job in `ci.yml` runs
   `terraform fmt`, `init -lockfile=readonly`, `validate` and `test`. No CI job
   builds or runs the image; `deploy-app.yml` is the first thing that does, at

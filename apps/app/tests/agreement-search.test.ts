@@ -225,7 +225,7 @@ async function seed(row: SeedRow): Promise<string> {
 
   // As the migrator: the corpus holds terminated agreements and delivered
   // copies, which the runtime role may not insert (its INSERT is
-  // column-scoped since drizzle/0065; termination and the copy's record are
+  // column-scoped since drizzle/0066; termination and the copy's record are
   // written by their own paths). Timestamps are bound as text and cast, so
   // microsecond precision survives; a JavaScript Date would truncate it.
   const { rows } = await getMigratorPool().query<{ id: string }>(

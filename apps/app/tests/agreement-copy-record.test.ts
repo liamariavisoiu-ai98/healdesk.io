@@ -98,7 +98,7 @@ const PREPARED = prepareBaa(currentBaaTemplate(), VARS);
 
 /**
  * A signed acceptance, written the way signAgreement writes one: unbound, and
- * naming only the columns the runtime role may insert (drizzle/0065 keeps the
+ * naming only the columns the runtime role may insert (drizzle/0066 keeps the
  * organisation, binding and termination columns behind their definers).
  */
 async function seedAcceptance(): Promise<string> {

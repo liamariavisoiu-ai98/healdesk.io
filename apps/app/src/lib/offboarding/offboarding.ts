@@ -478,9 +478,9 @@ export type DestructionResult = { clinicId: string; deleted: Record<string, numb
  * Every patient row for one clinic, booking requests and slot holds
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
- * attempts, the records of its deletion requests, and the amendments
- * Practice directed, gone. Audit, agreements, calendar elections and billing
- * stay.
+ * attempts, the records of its deletion requests, the amendments Practice
+ * directed, and its deposits, gone. Audit, agreements, calendar elections and
+ * billing stay.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -494,6 +494,19 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
+  // Deposits (drizzle/0065), before the appointments they were taken for: each
+  // carries the Stripe session that finds the patient in the clinic's Stripe
+  // account, and BAA 1.3.0's clause 17 lets only two records survive. The app
+  // role has no DELETE on them (0043), so app_destroy_deposit_payments()
+  // deletes the tenant's, with the Connect webhook rows resolved to it, on the
+  // same floor. The return bundle carried them first.
+  const deposits = await tx.db.execute<{ deposit_payments_deleted: number; connect_events_deleted: number }>(
+    sql`select * from app_destroy_deposit_payments(${c}::uuid)`,
+  );
+  deleted.deposit_payments = deposits.rows[0]?.deposit_payments_deleted ?? 0;
+  // Not a clinic table (the ledger has no clinic_id, so the stamp does not
+  // check it): its count goes in the audit row below, not in `deleted`.
+  const connectEvents = deposits.rows[0]?.connect_events_deleted ?? 0;
   // The amendments Practice directed (drizzle/0064), before the requests and
   // conversations they amend: neither can go while one remains, and the app
   // role cannot delete one, so app_destroy_record_amendments() deletes every
@@ -573,7 +586,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
     resourceType: "clinic_destruction",
     resourceId: c,
     resultCount: total,
-    metadata: Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])),
+    metadata: { ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])), stripe_connect_events: connectEvents },
   });
   return { clinicId: c, deleted };
 }

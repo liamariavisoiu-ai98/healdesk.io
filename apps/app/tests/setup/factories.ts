@@ -76,7 +76,7 @@ export async function seedClinic(label: string): Promise<SeededClinic> {
  * A bound agreement in effect for the clinic's organisation, as provisioning
  * leaves one, when it has none: a production clinic takes patient rows and
  * answers only while one is (app_clinic_accepts_phi and the answer gate,
- * drizzle/0065). Version 1.2.1 by default, accepted a month ago. Returns the
+ * drizzle/0066). Version 1.2.1 by default, accepted a month ago. Returns the
  * agreement in effect.
  */
 export async function bindAgreementInEffect(

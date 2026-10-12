@@ -11,6 +11,7 @@ import { and, eq, lt, sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import { clinics, googleOauthStates, providerConnections } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
+import { sweepDeskWrites, type DeskSweepResult } from "@/lib/booking/calendar";
 import {
   calendarBreakOf,
   claimBreakageAlertWithin,
@@ -56,7 +57,11 @@ import { JOB_CALENDAR_WATCH, runJob, type JobOutcome } from "./jobs";
  *      about.
  *   4. The alert pass: a breakage the clinic has not been told about is
  *      claimed and told, once (claimBreakageAlertWithin).
- *   5. Google OAuth states older than a day are purged.
+ *   5. The desk sweep (sweepDeskWrites, lib/booking/calendar.ts): staff
+ *      confirmations whose Google write never settled are tried again,
+ *      reading Google back first. It never throws; a location it could not
+ *      read counts as a failure of the run, so ops hears of it.
+ *   6. Google OAuth states older than a day are purged.
  *
  * What an answer does to the connection. Its health is stored and the
  * booking mode is derived from it (plan §9.3), so whatever moves it out of
@@ -117,8 +122,8 @@ import { JOB_CALENDAR_WATCH, runJob, type JobOutcome } from "./jobs";
  * inside the ten-minute lock. A run that leaves connections unprobed counts
  * them, tells ops, and probes them first next time (`launchOrder`).
  *
- * C12 and C13 add their sweeps here (unconfirmed desk writes, holds, owed
- * desk notices; plan §9.2 step 5).
+ * C13 adds its sweeps beside the desk sweep (holds, owed desk notices; plan
+ * §9.2 step 5).
  *
  * Deferred, not built: plan §9.2 step 5's one-off "reconnect to accept the
  * updated notice" email to a clinic whose connection was accepted under a
@@ -182,6 +187,8 @@ export type CalendarWatchSummary = {
   failed: number;
   /** Breakages the alert pass told. */
   alerted: number;
+  /** The desk sweep's own counts; its `errors` are also counted in `failed`. */
+  desk: DeskSweepResult;
   oauthStatesPurged: number;
 };
 
@@ -223,6 +230,7 @@ export async function watchCalendars(
     skipped: 0,
     failed: 0,
     alerted: 0,
+    desk: { attempted: 0, written: 0, failed: 0, unknown: 0, errors: 0 },
     oauthStatesPurged: 0,
   };
   const changes: Changes = {
@@ -252,6 +260,11 @@ export async function watchCalendars(
     for (const row of rows) {
       if (row.brokenAt !== null && row.brokenAlertedAt === null) await alertUntold(row, run);
     }
+
+    // After the probes and the alert pass, so a connection this run found
+    // broken is already marked, and its desk writes fail rather than retry.
+    summary.desk = await sweepDeskWrites({ now });
+    summary.failed += summary.desk.errors;
 
     summary.oauthStatesPurged = await purgeOAuthStates(now);
   } catch (error) {
@@ -744,10 +757,19 @@ async function report(summary: CalendarWatchSummary, changes: Changes): Promise<
     events.push({ event: "calendar_watch_incomplete", metadata: { skipped: summary.skipped } });
   }
   // Every run, changed or not (see the module comment).
-  const { sweep, runId: jobId, ...counts } = summary;
+  const { sweep, desk, runId: jobId, ...counts } = summary;
   events.push({
     event: "calendar_watch",
-    metadata: { ...counts, disconnected: sweep.disconnected, sweepFailed: sweep.failed, jobId },
+    metadata: {
+      ...counts,
+      disconnected: sweep.disconnected,
+      sweepFailed: sweep.failed,
+      deskSwept: desk.attempted,
+      deskWritten: desk.written,
+      deskFailed: desk.failed,
+      deskUnknown: desk.unknown,
+      jobId,
+    },
   });
   for (const { event, metadata } of events) {
     try {
@@ -777,6 +799,14 @@ function noteOf(s: CalendarWatchSummary): string {
   ];
   if (s.skipped) parts.push(`${s.skipped} skipped, out of time`);
   if (s.failed) parts.push(`${s.failed} failed`);
-  parts.push(`${s.alerted} breakage(s) told`, `${s.oauthStatesPurged} OAuth state(s) purged`);
+  parts.push(`${s.alerted} breakage(s) told`);
+  if (s.desk.attempted || s.desk.errors) {
+    parts.push(
+      `desk writes swept ${s.desk.attempted}: ${s.desk.written} written, ` +
+        `${s.desk.unknown} still unknown, ${s.desk.failed} failed` +
+        (s.desk.errors ? `, ${s.desk.errors} location(s) unreadable` : ""),
+    );
+  }
+  parts.push(`${s.oauthStatesPurged} OAuth state(s) purged`);
   return `${parts.join("; ")}. Run ${s.runId}.`;
 }

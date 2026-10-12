@@ -1405,7 +1405,9 @@ async function activeProviders(tx: TenantTx): Promise<ProviderView[]> {
     })
     .from(clinicProviders)
     .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)))
-    .orderBy(clinicProviders.createdAt, clinicProviders.id);
+    // Providers saved together share created_at: by name among them, so the
+    // portal lists them the same way every time.
+    .orderBy(clinicProviders.createdAt, clinicProviders.displayName, clinicProviders.id);
   if (rows.length === 0) return [];
   const mapped = await tx.db
     .select({

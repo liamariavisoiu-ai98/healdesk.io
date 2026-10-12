@@ -1,6 +1,6 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
-import { clinicSettings, clinics, type DepositUncollectable } from "@/db/schema";
+import { clinicChannels, clinicSettings, clinics, type DepositUncollectable } from "@/db/schema";
 import { isPaused } from "@/lib/channels/state";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -115,6 +115,24 @@ export type ClinicSettingsPatch = Partial<{
   /** E.164, or null to clear. Spaces, dashes, dots and brackets are stripped first. */
   directLineE164: string | null;
 }>;
+
+/** Why the direct line can't be cleared while phone is live: said in Settings and to an operator. */
+export const DIRECT_LINE_NEEDED_WHILE_LIVE =
+  "Phone is live, so the direct line can be changed but not removed: every call AYA can't answer goes there. Set another number, or take phone off first.";
+
+/**
+ * Whether this clinic's phone channel is live (clinic_channels.live_at set
+ * for voice): from then on every degradation path ends at its direct line,
+ * so the line can be changed but never cleared.
+ */
+export async function voiceIsLive(tx: TenantTx): Promise<boolean> {
+  const [row] = await tx.db
+    .select({ liveAt: clinicChannels.liveAt })
+    .from(clinicChannels)
+    .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.channel, "voice")))
+    .limit(1);
+  return Boolean(row?.liveAt);
+}
 
 /** A refused edit, worded for the person who made it. `field` names the input. */
 export class ClinicSettingsError extends Error {
@@ -330,6 +348,11 @@ export async function updateClinicSettings(
       throw new ClinicSettingsError("directLineE164", "Enter the direct line as a phone number.");
     }
     if (raw === null || raw.trim() === "") {
+      // Every call AYA can't answer goes to the direct line, so a live phone
+      // line keeps one (CLAUDE.md, "Failure"): change it, never clear it.
+      if (await voiceIsLive(tx)) {
+        throw new ClinicSettingsError("directLineE164", DIRECT_LINE_NEEDED_WHILE_LIVE);
+      }
       wanted.directLine = null;
     } else {
       const line = normaliseE164(raw);

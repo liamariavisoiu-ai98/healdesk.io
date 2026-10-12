@@ -2525,15 +2525,15 @@ export type AmendRecordOutcome =
   | { status: "refused"; message: string };
 
 /**
- * Append the practice's amendment to a booking request or a conversation
- * (docs/handover.md, "Amendments"). The words travel in the signed body to
+ * Append the practice's amendment to a booking request, a conversation or an
+ * appointment (docs/handover.md, "Amendments"). The words travel in the signed body to
  * apps/app and nowhere else; the reply is the amendment's id and when it was
  * appended.
  */
 export function amendRecord(
   clinicId: string,
   input: {
-    targetKind: "booking_request" | "conversation";
+    targetKind: "booking_request" | "conversation" | "appointment";
     targetId: string;
     amendment: string;
     requestedBy: string;
@@ -2554,13 +2554,21 @@ export function amendRecord(
 export type AmendContactOutcome = { status: "corrected" } | { status: "refused"; message: string };
 
 /**
- * Correct a contact's name, number or address in place, on the practice's
- * direction. The corrected details travel in the signed body to apps/app and
+ * Correct a contact's name, number or address in place, or clear one, on the
+ * practice's direction. The corrected details travel in the signed body to apps/app and
  * nowhere else; the reply says only that it was done.
  */
 export function amendContact(
   clinicId: string,
-  input: { contactId: string; fullName?: string; phone?: string; email?: string; requestedBy: string },
+  input: {
+    contactId: string;
+    fullName?: string;
+    phone?: string;
+    email?: string;
+    /** Fields to clear, by name: the only way to clear one, so a blank field never wipes it. */
+    clear?: ("fullName" | "phone" | "email")[];
+    requestedBy: string;
+  },
 ): Promise<OpsResult<AmendContactOutcome>> {
   return callOps("amendContact", "write", { clinicId, ...input }, (value) => {
     const data = object(value, "amendContact");

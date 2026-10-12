@@ -4,14 +4,16 @@ CREATE TABLE "record_amendments" (
 	"target_kind" text NOT NULL,
 	"booking_request_id" uuid,
 	"conversation_id" uuid,
+	"appointment_id" uuid,
 	"amendment" text NOT NULL,
 	"requested_by" text NOT NULL,
 	"requested_at" timestamp with time zone NOT NULL,
 	"recorded_by" text NOT NULL,
 	"recorded_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
-	CONSTRAINT "record_amendments_target_kind_check" CHECK ("record_amendments"."target_kind" in ('booking_request', 'conversation')),
-	CONSTRAINT "record_amendments_target_check" CHECK (("record_amendments"."target_kind" = 'booking_request' and "record_amendments"."booking_request_id" is not null and "record_amendments"."conversation_id" is null)
-        or ("record_amendments"."target_kind" = 'conversation' and "record_amendments"."conversation_id" is not null and "record_amendments"."booking_request_id" is null)),
+	CONSTRAINT "record_amendments_target_kind_check" CHECK ("record_amendments"."target_kind" in ('booking_request', 'conversation', 'appointment')),
+	CONSTRAINT "record_amendments_target_check" CHECK (("record_amendments"."target_kind" = 'booking_request' and "record_amendments"."booking_request_id" is not null and "record_amendments"."conversation_id" is null and "record_amendments"."appointment_id" is null)
+        or ("record_amendments"."target_kind" = 'conversation' and "record_amendments"."conversation_id" is not null and "record_amendments"."booking_request_id" is null and "record_amendments"."appointment_id" is null)
+        or ("record_amendments"."target_kind" = 'appointment' and "record_amendments"."appointment_id" is not null and "record_amendments"."booking_request_id" is null and "record_amendments"."conversation_id" is null)),
 	CONSTRAINT "record_amendments_amendment_check" CHECK (char_length(btrim("record_amendments"."amendment")) between 1 and 4000),
 	CONSTRAINT "record_amendments_requested_by_check" CHECK (char_length(btrim("record_amendments"."requested_by")) between 2 and 200),
 	CONSTRAINT "record_amendments_recorded_by_check" CHECK (char_length(btrim("record_amendments"."recorded_by")) between 1 and 320),
@@ -20,11 +22,14 @@ CREATE TABLE "record_amendments" (
 --> statement-breakpoint
 ALTER TABLE "booking_requests" ADD CONSTRAINT "booking_requests_clinic_id_unique" UNIQUE("clinic_id","id");--> statement-breakpoint
 ALTER TABLE "conversations" ADD CONSTRAINT "conversations_clinic_id_unique" UNIQUE("clinic_id","id");--> statement-breakpoint
+ALTER TABLE "appointments" ADD CONSTRAINT "appointments_clinic_id_unique" UNIQUE("clinic_id","id");--> statement-breakpoint
 ALTER TABLE "record_amendments" ADD CONSTRAINT "record_amendments_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "record_amendments" ADD CONSTRAINT "record_amendments_booking_request_fk" FOREIGN KEY ("clinic_id","booking_request_id") REFERENCES "public"."booking_requests"("clinic_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "record_amendments" ADD CONSTRAINT "record_amendments_conversation_fk" FOREIGN KEY ("clinic_id","conversation_id") REFERENCES "public"."conversations"("clinic_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "record_amendments" ADD CONSTRAINT "record_amendments_appointment_fk" FOREIGN KEY ("clinic_id","appointment_id") REFERENCES "public"."appointments"("clinic_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "record_amendments_request_idx" ON "record_amendments" USING btree ("clinic_id","booking_request_id") WHERE "record_amendments"."booking_request_id" is not null;--> statement-breakpoint
 CREATE INDEX "record_amendments_conversation_idx" ON "record_amendments" USING btree ("clinic_id","conversation_id") WHERE "record_amendments"."conversation_id" is not null;--> statement-breakpoint
+CREATE INDEX "record_amendments_appointment_idx" ON "record_amendments" USING btree ("clinic_id","appointment_id") WHERE "record_amendments"."appointment_id" is not null;--> statement-breakpoint
 
 -- =============================================================================
 -- The amendment record (BAA 1.3.0 release gate 8; PT-17). The statements
@@ -45,8 +50,8 @@ CREATE INDEX "record_amendments_conversation_idx" ON "record_amendments" USING b
 -- What changes:
 --
 --   * record_amendments holds each amendment: the record it amends (a booking
---     request or a conversation, by target_kind and exactly one of two
---     foreign keys), Practice's words, who asked by role or ticket, when
+--     request, a conversation or an appointment, by target_kind and exactly
+--     one of three foreign keys), Practice's words, who asked by role or ticket, when
 --     Practice directed it, who appended it, and when, by the database's
 --     clock. Each foreign key carries clinic_id with the record's id, against
 --     a (clinic_id, id) key on the record's table, so an amendment can point
@@ -63,17 +68,19 @@ CREATE INDEX "record_amendments_conversation_idx" ON "record_amendments" USING b
 --       - erasure: app_erase_contacts() takes the amendments of the people's
 --         own requests and conversations before them;
 --       - the purge: app_purge_booking_requests() takes those of the requests
---         it deletes, and app_purge_amended_conversations() takes each
---         amended conversation past the record clock together with its
+--         it deletes, and app_purge_amended_appointments() and
+--         app_purge_amended_conversations() take each amended appointment
+--         and conversation past the record clock together with its
 --         amendments;
 --       - destruction: app_destroy_record_amendments() takes every one of the
 --         clinic's, once it is due, and app_mark_clinic_destroyed() requires
 --         the table empty.
 --
 -- What the runtime role can do that it could not, said plainly: delete an
--- amended conversation past the clinic's record clock in force (the floor
--- app_purge_booking_requests() already applies, by the database's clock),
--- with its amendments, and every amendment of a clinic due for destruction.
+-- amended appointment or conversation past the clinic's record clock in
+-- force (the floor app_purge_booking_requests() already applies, by the
+-- database's clock), with its amendments, and every amendment of a clinic
+-- due for destruction.
 -- Nothing else. And it can no longer write a conversation's started_at.
 --
 -- Each function keeps every guarantee it had. app_erase_contacts() still
@@ -85,12 +92,12 @@ CREATE INDEX "record_amendments_conversation_idx" ON "record_amendments" USING b
 -- table added, keeping every table it checked, its UTC pin and its pinned
 -- search_path.
 --
--- drizzle-kit wrote the two unique keys after the foreign keys that need them;
+-- drizzle-kit wrote the three unique keys after the foreign keys that need them;
 -- they are moved ahead of them above, unchanged, or the foreign keys would
 -- find no key to reference.
 --
--- Safe to apply in place: a new table, two unique keys on columns that are
--- already unique (each table's id), two new functions, three redefinitions
+-- Safe to apply in place: a new table, three unique keys on columns that are
+-- already unique (each table's id), three new functions, three redefinitions
 -- and a narrower UPDATE grant on conversations (no started_at), which nothing
 -- in the application used. apps/app has only ever held synthetic and seed data
 -- (CLAUDE.md, "Until BAA coverage is in place").
@@ -141,8 +148,9 @@ CREATE TRIGGER record_amendments_guard
 -- Erasure: the people's amendments go with them
 -- -----------------------------------------------------------------------------
 -- 0054's definition, the last before this one, with the amendments of the
--- people's own requests and of the conversations it deletes (theirs, and the
--- ones that produced their appointments) deleted first, and counted. Only the
+-- people's own requests, of their appointments and of the conversations it
+-- deletes (theirs, and the ones that produced their appointments) deleted
+-- first, and counted. Only the
 -- people's own requests still: an amendment of someone else's request stays
 -- with it. And all of it or none of it still: anything else referring to
 -- them fails the call, and the amendments it deleted come back with the rest.
@@ -190,6 +198,7 @@ BEGIN
                                       FROM booking_requests r
                                      WHERE r.clinic_id = tenant
                                        AND r.contact_id = ANY (people))
+          OR ra.appointment_id = ANY (bookings)
           OR ra.conversation_id IN (SELECT v.id
                                       FROM conversations v
                                      WHERE v.clinic_id = tenant
@@ -276,6 +285,75 @@ BEGIN
   RETURN gone;
 END
 $$;--> statement-breakpoint
+
+-- An amended appointment goes only here, with its amendments, in one call,
+-- as an amended conversation does below and for the same reason: the runtime
+-- role may delete an appointment (purgeClinic) but not an amendment, and it
+-- can write an appointment's scheduled_for (a sync and a reschedule move
+-- it), so an amendment purged on its own, floored on that time, could be
+-- stripped from a booking still ahead. Here the two leave together, under
+-- app_purge_booking_requests()'s floor, and never an appointment a booking
+-- request still holds (it waits for the night the request goes). A payment
+-- matched to one loses the link, and its reconciliation exceptions go, as
+-- purgeClinic does for the rest; a slot hold or a deposit link loses it by
+-- its own foreign key (SET NULL).
+CREATE OR REPLACE FUNCTION app_purge_amended_appointments(record_before timestamptz)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  allowed timestamptz;
+  doomed uuid[];
+  gone integer;
+BEGIN
+  IF tenant IS NULL THEN
+    RAISE EXCEPTION 'app_purge_amended_appointments: no tenant; a purge runs inside the clinic''s own transaction'
+      USING ERRCODE = '42501';
+  END IF;
+
+  allowed := app_record_cutoff();
+  IF record_before IS NULL OR record_before > allowed THEN
+    RAISE EXCEPTION 'app_purge_amended_appointments: % is later than clinic %''s record clock allows (%); refusing.',
+      record_before, tenant, allowed
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT coalesce(array_agg(a.id), '{}')
+    INTO doomed
+    FROM appointments a
+   WHERE a.clinic_id = tenant
+     AND a.scheduled_for < record_before
+     AND EXISTS (SELECT 1 FROM record_amendments ra
+                  WHERE ra.clinic_id = tenant AND ra.appointment_id = a.id)
+     AND NOT EXISTS (SELECT 1 FROM booking_requests r
+                      WHERE r.clinic_id = tenant AND r.appointment_id = a.id);
+
+  DELETE FROM record_amendments ra
+   WHERE ra.clinic_id = tenant
+     AND ra.appointment_id = ANY (doomed);
+
+  DELETE FROM reconciliation_exceptions x
+   WHERE x.clinic_id = tenant
+     AND x.appointment_id = ANY (doomed);
+  UPDATE transactions t
+     SET appointment_id = NULL
+   WHERE t.clinic_id = tenant
+     AND t.appointment_id = ANY (doomed);
+
+  DELETE FROM appointments a
+   WHERE a.clinic_id = tenant
+     AND a.id = ANY (doomed);
+  GET DIAGNOSTICS gone = ROW_COUNT;
+  RETURN gone;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_purge_amended_appointments(timestamptz) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_purge_amended_appointments(timestamptz) TO healdesk_app;--> statement-breakpoint
 
 -- An amended conversation goes only here, with its amendments, in one call.
 -- The runtime role may delete a conversation (purgeClinic,
@@ -469,11 +547,13 @@ $$;--> statement-breakpoint
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE record_amendments IS
-  'An amendment Practice directed to a record that must stay as it was made (BAA 1.3.0 clause 14(b)): a booking request or a conversation, by target_kind and exactly one foreign key, which carries clinic_id so the record is the same clinic''s. Practice''s words (PHI), who asked by role or ticket, when Practice directed it, who appended it, and recorded_at by the database''s clock. Append-only: the runtime role may INSERT and SELECT; no role may UPDATE. Leaves only with the record it amends, through app_erase_contacts, app_purge_booking_requests, app_purge_amended_conversations and app_destroy_record_amendments. Every export carries it beside the record.';--> statement-breakpoint
+  'An amendment Practice directed to a record healdesk does not rewrite on its word (BAA 1.3.0 clause 14(b)): a booking request, a conversation or an appointment, by target_kind and exactly one foreign key, which carries clinic_id so the record is the same clinic''s. Practice''s words (PHI), who asked by role or ticket, when Practice directed it, who appended it, and recorded_at by the database''s clock. Append-only: the runtime role may INSERT and SELECT; no role may UPDATE. Leaves only with the record it amends, through app_erase_contacts, app_purge_booking_requests, app_purge_amended_appointments, app_purge_amended_conversations and app_destroy_record_amendments. Every export carries it beside the record.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contacts(uuid[]) IS
-  'Erases people inside the tenant (app.clinic_id), for eraseContact: the amendments of their own booking requests and of the conversations it deletes, their own booking requests, their appointments, their conversations and the ones that produced their appointments, then the contact rows, in one call, so a request leaves only with the person it names. Fails with nothing removed if anything else still refers to them, another person''s request on one of their appointments included; their transactions go first. Returns the five counts; contacts outside the tenant match nothing.';--> statement-breakpoint
+  'Erases people inside the tenant (app.clinic_id), for eraseContact: the amendments of their own booking requests, of their appointments and of the conversations it deletes, their own booking requests, their appointments, their conversations and the ones that produced their appointments, then the contact rows, in one call, so a request leaves only with the person it names. Fails with nothing removed if anything else still refers to them, another person''s request on one of their appointments included; their transactions go first. Returns the five counts; contacts outside the tenant match nothing.';--> statement-breakpoint
 COMMENT ON FUNCTION app_purge_booking_requests(timestamptz) IS
   'Deletes the tenant''s booking requests every date of which is before record_before: created_at, confirmed_for, and its appointment''s scheduled_for when it produced one, with their amendments. Refuses a cutoff later than app_record_cutoff(), the record clock in force by the database''s clock, with no grace. For purgeClinic, before the appointments past the same cutoff go. Returns the count of requests.';--> statement-breakpoint
+COMMENT ON FUNCTION app_purge_amended_appointments(timestamptz) IS
+  'Deletes the tenant''s amended appointments scheduled before record_before, and held by no booking request, together with their amendments, for purgeClinic, which deletes the rest itself; an amendment never goes while its appointment stays. Refuses a cutoff later than app_record_cutoff(). Returns the count of appointments.';--> statement-breakpoint
 COMMENT ON FUNCTION app_purge_amended_conversations(timestamptz) IS
   'Deletes the tenant''s amended conversations that started before record_before together with their amendments, for purgeClinic, which deletes the rest itself; an amendment never goes while its conversation stays. Refuses a cutoff later than app_record_cutoff(). Returns the count of conversations.';--> statement-breakpoint
 COMMENT ON FUNCTION app_destroy_record_amendments(uuid) IS
@@ -521,7 +601,7 @@ BEGIN
 
   IF EXISTS (SELECT 1 FROM pg_constraint k
               WHERE k.conrelid = 'record_amendments'::regclass AND k.contype = 'f'
-                AND k.confrelid IN ('booking_requests'::regclass, 'conversations'::regclass)
+                AND k.confrelid IN ('booking_requests'::regclass, 'conversations'::regclass, 'appointments'::regclass)
                 AND (k.confdeltype <> 'a' OR cardinality(k.conkey) <> 2)) THEN
     RAISE EXCEPTION 'record_amendments'' foreign keys to its records must carry clinic_id and have no delete action.';
   END IF;
@@ -530,6 +610,7 @@ BEGIN
     FROM pg_proc p
    WHERE p.oid IN ('app_erase_contacts(uuid[])'::regprocedure,
                    'app_purge_booking_requests(timestamptz)'::regprocedure,
+                   'app_purge_amended_appointments(timestamptz)'::regprocedure,
                    'app_purge_amended_conversations(timestamptz)'::regprocedure,
                    'app_destroy_record_amendments(uuid)'::regprocedure,
                    'app_mark_clinic_destroyed(uuid)'::regprocedure)
@@ -543,6 +624,7 @@ BEGIN
     FROM pg_proc p
    WHERE p.oid IN ('app_erase_contacts(uuid[])'::regprocedure,
                    'app_purge_booking_requests(timestamptz)'::regprocedure,
+                   'app_purge_amended_appointments(timestamptz)'::regprocedure,
                    'app_purge_amended_conversations(timestamptz)'::regprocedure,
                    'app_destroy_record_amendments(uuid)'::regprocedure,
                    'app_mark_clinic_destroyed(uuid)'::regprocedure,
@@ -555,6 +637,7 @@ BEGIN
   SELECT string_agg(p.proname, ', ') INTO offending
     FROM pg_proc p
    WHERE p.oid IN ('app_purge_booking_requests(timestamptz)'::regprocedure,
+                   'app_purge_amended_appointments(timestamptz)'::regprocedure,
                    'app_purge_amended_conversations(timestamptz)'::regprocedure,
                    'app_destroy_record_amendments(uuid)'::regprocedure,
                    'app_mark_clinic_destroyed(uuid)'::regprocedure)

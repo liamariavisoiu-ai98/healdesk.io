@@ -3791,8 +3791,9 @@ function pastMoment(value: string | undefined): Date | undefined | { error: stri
 
 /**
  * Append Practice's amendment to a booking request or a conversation that
- * must stay as it was made (BAA 1.3.0 clause 14(b); docs/handover.md,
- * "Amendments"). The operator names the record by the id the patient's
+ * must stay as it was made, or to an appointment, whose service,
+ * practitioner or time the calendar holds (BAA 1.3.0 clause 14(b);
+ * docs/handover.md, "Amendments"). The operator names the record by the id the patient's
  * export gives it. The amendment's words are read from the signed request
  * and stored in record_amendments only: no log line, audit row or reply
  * carries them, and the reply is the amendment's id and when it was
@@ -3804,7 +3805,7 @@ async function opAmendRecord(args: Record<string, unknown>, operator: Operator):
   if (clinic.destroyedAt) return amend.error("This clinic's data has already been destroyed.");
   const kind = stringArg(args, "targetKind", 40);
   if (!kind || !(AMENDMENT_TARGET_KINDS as readonly string[]).includes(kind)) {
-    return amend.error("Which kind of record: a booking request or a conversation?");
+    return amend.error("Which kind of record: a booking request, a conversation or an appointment?");
   }
   const targetId = stringArg(args, "targetId");
   if (!targetId || !UUID_SHAPED.test(targetId)) {
@@ -3832,7 +3833,7 @@ async function opAmendRecord(args: Record<string, unknown>, operator: Operator):
       }),
   );
   if (outcome.status === "not_found") {
-    return amend.error(`No such ${kind === "booking_request" ? "booking request" : "conversation"} at this clinic.`);
+    return amend.error(`No such ${kind === "booking_request" ? "booking request" : kind} at this clinic.`);
   }
   await audit(operator, "record_amended", { clinicSlug: clinic.slug, amendmentId: outcome.id, targetKind: kind });
   return ok({
@@ -3849,10 +3850,11 @@ const correct = {
 };
 
 /**
- * Correct a contact's name, number or address in place, on Practice's
- * direction (BAA 1.3.0 clause 14(b): "Where the record can be changed,
- * healdesk corrects its own copy"; `amendContact` in
- * lib/patient-rights/export.ts). The operator names the contact by the id the
+ * Correct a contact's name, number or address in place, or clear one, on
+ * Practice's direction (BAA 1.3.0 clause 14(b): "Where the record can be
+ * changed, healdesk corrects its own copy"; `amendContact` in
+ * lib/patient-rights/export.ts). A field is cleared only when `clear` names
+ * it: an empty value is dropped, never written. The operator names the contact by the id the
  * patient's export gives it. The corrected details are read from the signed
  * request and written to the contact only; the audit row says which fields
  * changed and who asked, and the reply says only that it was done.
@@ -3865,7 +3867,7 @@ async function opAmendContact(args: Record<string, unknown>, operator: Operator)
   if (!contactId || !UUID_SHAPED.test(contactId)) {
     return correct.error("Which contact? Give its id from the patient's export.");
   }
-  const changes: { fullName?: string; phone?: string; email?: string } = {};
+  const changes: { fullName?: string | null; phone?: string | null; email?: string | null } = {};
   const fullName = rawText(args, "fullName");
   if (fullName !== undefined) {
     if (fullName.length > 200) return correct.error("A name is at most 200 characters.");
@@ -3885,8 +3887,26 @@ async function opAmendContact(args: Record<string, unknown>, operator: Operator)
     if (email.length > MAX_EMAIL_LENGTH || !EMAIL_SHAPED.test(email)) return correct.error("That is not an email address.");
     changes.email = email;
   }
+  // A field the practice says is wrong and has no replacement for is
+  // cleared by name, never by sending it empty: an empty value is dropped
+  // above, so a blank form field can never wipe one by accident.
+  const clear = args.clear;
+  if (clear !== undefined) {
+    if (!Array.isArray(clear)) return correct.error("Say which fields to clear.");
+    const clearable = ["fullName", "phone", "email"] as const;
+    for (const value of clear as unknown[]) {
+      const field = clearable.find((name) => name === value);
+      if (!field) {
+        return correct.error("Only the name, the telephone number or the email address can be cleared.");
+      }
+      if (changes[field] !== undefined && changes[field] !== null) {
+        return correct.error("A field is either corrected or cleared, not both.");
+      }
+      changes[field] = null;
+    }
+  }
   if (Object.keys(changes).length === 0) {
-    return correct.error("Give the corrected name, telephone number or email address.");
+    return correct.error("Give the corrected name, telephone number or email address, or say which to clear.");
   }
   const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
   if (typeof requestedBy !== "string") return correct.error(requestedBy.error);

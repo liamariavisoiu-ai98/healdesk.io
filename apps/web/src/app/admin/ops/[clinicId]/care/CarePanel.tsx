@@ -35,7 +35,7 @@ type Actions = {
   }) => Promise<OpsResult<ErasePersonOutcome>>;
   markErasureVendorDeleted: (erasureId: string, step: string, how: string) => Promise<OpsResult<CareOutcome>>;
   amendRecord: (input: {
-    targetKind: "booking_request" | "conversation";
+    targetKind: "booking_request" | "conversation" | "appointment";
     targetId: string;
     amendment: string;
     requestedBy: string;
@@ -46,6 +46,8 @@ type Actions = {
     fullName?: string;
     phone?: string;
     email?: string;
+    /** Fields the practice says to clear, by name: an empty value is never sent. */
+    clear?: ("fullName" | "phone" | "email")[];
     requestedBy: string;
   }) => Promise<OpsResult<AmendContactOutcome>>;
 };
@@ -316,9 +318,10 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
 
 /**
  * The practice's amendments (docs/handover.md, "Amendments"). A booking
- * request or a conversation must stay as it was made, so the amendment is
- * appended beside it and every later export carries it; a contact's name,
- * number or address is corrected in place. The record is named by the id the
+ * request or a conversation must stay as it was made, and an appointment is
+ * the booking as the calendar holds it, so the amendment is appended beside
+ * it and every later export carries it; a contact's name, number or address
+ * is corrected in place, or cleared when the practice names it. The record is named by the id the
  * patient's export gives it. What is typed here is sent once in the signed
  * request and kept nowhere on this side; the forms clear when it is done.
  */
@@ -344,7 +347,7 @@ function Amendments({ actions }: { actions: Actions }) {
             setProblem(null);
             setDone(null);
             const result = await actions.amendRecord({
-              targetKind: field(f, "targetKind") === "conversation" ? "conversation" : "booking_request",
+              targetKind: (["conversation", "appointment"] as const).find((k) => k === field(f, "targetKind")) ?? "booking_request",
               targetId: field(f, "targetId"),
               amendment: field(f, "amendment"),
               requestedBy: field(f, "requestedBy"),
@@ -360,13 +363,14 @@ function Amendments({ actions }: { actions: Actions }) {
         }}
         className="mt-4 grid gap-3"
       >
-        <p className="text-xs font-bold uppercase">Append an amendment to a booking request or a conversation</p>
+        <p className="text-xs font-bold uppercase">Append an amendment to a booking request, a conversation or an appointment</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <span className="text-muted block text-xs font-bold uppercase">Record</span>
             <select name="targetKind" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
               <option value="booking_request">Booking request</option>
               <option value="conversation">Conversation</option>
+              <option value="appointment">Appointment (its service, practitioner or time)</option>
             </select>
           </label>
           <label className="text-sm">
@@ -406,6 +410,7 @@ function Amendments({ actions }: { actions: Actions }) {
           const fullName = field(f, "fullName");
           const phone = field(f, "phone");
           const email = field(f, "email");
+          const clear = (["fullName", "phone", "email"] as const).filter((name) => f.get(`clear_${name}`) === "on");
           start(async () => {
             setProblem(null);
             setDone(null);
@@ -414,6 +419,7 @@ function Amendments({ actions }: { actions: Actions }) {
               ...(fullName ? { fullName } : {}),
               ...(phone ? { phone } : {}),
               ...(email ? { email } : {}),
+              ...(clear.length ? { clear } : {}),
               requestedBy: field(f, "requestedBy"),
             });
             const message = describe(result);
@@ -426,7 +432,7 @@ function Amendments({ actions }: { actions: Actions }) {
         }}
         className="mt-6 grid gap-3"
       >
-        <p className="text-xs font-bold uppercase">Correct a contact</p>
+        <p className="text-xs font-bold uppercase">Correct or clear a contact&rsquo;s details</p>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="text-sm">
             <span className="text-muted block text-xs font-bold uppercase">Contact id, from the export</span>
@@ -448,6 +454,12 @@ function Amendments({ actions }: { actions: Actions }) {
             <span className="text-muted block text-xs font-bold uppercase">Corrected email address</span>
             <input name="email" type="email" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
           </label>
+          <fieldset className="text-sm sm:col-span-2">
+            <legend className="text-muted text-xs font-bold uppercase">Or clear, where the practice says it is wrong and gives nothing in its place</legend>
+            <label className="mr-4"><input type="checkbox" name="clear_fullName" /> the name</label>
+            <label className="mr-4"><input type="checkbox" name="clear_phone" /> the telephone number</label>
+            <label><input type="checkbox" name="clear_email" /> the email address</label>
+          </fieldset>
         </div>
         <div>
           <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">

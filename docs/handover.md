@@ -476,20 +476,26 @@ BAA 1.3.0's clause 14(b) and the DPA's Clients' requests clause: healdesk incorp
 amendment the practice directs. Where the record can be changed, we correct our own
 copy; where a record must stay as it was made, a booking request or the record of a
 conversation, we append the amendment to it and link the two, and every later use and
-export of that record carries it.
+export of that record carries it. An appointment takes an appended amendment too: it is
+the booking as the practice's calendar holds it, which a sync or a reschedule moves, so
+a correction of its service, practitioner or time is appended beside it, never written
+over the calendar's.
 
 1. **Who may direct one.** The practice, from its notice address, verified as for a
    deletion request. A patient who asks us directly is passed to the practice within
    five business days (docs/incident-response.md, "Patient rights requests").
 2. **Find the record.** Produce the patient's export (`npm run patient-export`) and read
-   the id of the contact, booking request or conversation the practice means. Ask the
+   the id of the contact, booking request, appointment or conversation the practice
+   means. Ask the
    practice, never the patient, when it is not clear which.
 3. **Record it.** `/admin/ops/<clinic>/care` → "Amendments":
    - "Correct a contact" for a name, number or address: it changes the contact row in
      place (`amendContact`), and the audit row says which fields changed and who asked,
-     not what they said;
-   - "Append an amendment" for a booking request or a conversation: the practice's
-     words, who asked by role or ticket, and when it asked. It is written to
+     not what they said. Where the practice says a detail is wrong and gives nothing in
+     its place, tick "clear" for it: only a field named that way is cleared, and an
+     empty box changes nothing;
+   - "Append an amendment" for a booking request, a conversation or an appointment:
+     the practice's words, who asked by role or ticket, and when it asked. It is written to
      `record_amendments` (`amendRecord`, `apps/app/src/lib/patient-rights/amendments.ts`)
      and never changed afterwards; a later correction is another amendment beside it.
    Both go through the signed ops envelope. apps/web keeps nothing typed; the reply is an

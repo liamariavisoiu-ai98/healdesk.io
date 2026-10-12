@@ -119,7 +119,7 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
   // these actions to apps/app in the signed request and are kept nowhere on
   // this side.
   async function amendRecord(input: {
-    targetKind: "booking_request" | "conversation";
+    targetKind: "booking_request" | "conversation" | "appointment";
     targetId: string;
     amendment: string;
     requestedBy: string;
@@ -133,6 +133,8 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
     fullName?: string;
     phone?: string;
     email?: string;
+    /** Fields the practice says to clear, by name: an empty value is never sent. */
+    clear?: ("fullName" | "phone" | "email")[];
     requestedBy: string;
   }) {
     "use server";

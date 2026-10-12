@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 
 import {
+  appointments,
   bookingRequests,
   conversations,
   recordAmendments,
@@ -14,11 +15,15 @@ import type { TenantTx } from "@/lib/tenant";
  * BAA 1.3.0's clause 14(b), and the DPA's Clients' requests clause in its own
  * words: healdesk incorporates any amendment Practice directs. Where the
  * record can be changed, healdesk corrects its own copy (`amendContact` in
- * ./export.ts, for a contact's name, number or address). Where a record must
- * stay as it was made, such as a booking request or the record of a
- * conversation, healdesk appends the amendment to it and links the two, as
- * 45 CFR 164.526(c)(1) provides, and every later use and export of that
- * record then carries the amendment. Release gate 8 (PT-17) is this file and
+ * ./export.ts, for a contact's name, number or address, each of which can
+ * also be cleared). Where a record must stay as it was made, such as a
+ * booking request or the record of a conversation, healdesk appends the
+ * amendment to it and links the two, as 45 CFR 164.526(c)(1) provides, and
+ * every later use and export of that record then carries the amendment. An
+ * appointment takes an amendment too: it is the booking as the clinic's
+ * calendar holds it, which a sync or a reschedule may move, so a correction
+ * of its service, practitioner or time is appended beside it rather than
+ * written over the calendar's. Release gate 8 (PT-17) is this file and
  * `record_amendments` (drizzle/0060).
  *
  * A booking request's facts never change (the no-rewrite trigger, 0039 and
@@ -68,9 +73,27 @@ export type AppendAmendmentInput = {
 export type AppendAmendmentOutcome =
   { status: "appended"; id: string; recordedAt: Date } | { status: "not_found" };
 
+function tableOf(kind: AmendmentTargetKind) {
+  if (kind === "booking_request") return bookingRequests;
+  if (kind === "appointment") return appointments;
+  return conversations;
+}
+
+function columnOf(kind: AmendmentTargetKind) {
+  if (kind === "booking_request") return recordAmendments.bookingRequestId;
+  if (kind === "appointment") return recordAmendments.appointmentId;
+  return recordAmendments.conversationId;
+}
+
+function targetIdOf(kind: AmendmentTargetKind, row: RecordAmendment): string | null {
+  if (kind === "booking_request") return row.bookingRequestId;
+  if (kind === "appointment") return row.appointmentId;
+  return row.conversationId;
+}
+
 /** Whether the record exists inside this tenant. RLS hides every other clinic's. */
 async function targetExists(tx: TenantTx, target: AmendmentTarget): Promise<boolean> {
-  const table = target.kind === "booking_request" ? bookingRequests : conversations;
+  const table = tableOf(target.kind);
   const [row] = await tx.db
     .select({ id: table.id })
     .from(table)
@@ -105,6 +128,7 @@ export async function appendAmendment(
       targetKind: input.target.kind,
       bookingRequestId: input.target.kind === "booking_request" ? input.target.id : null,
       conversationId: input.target.kind === "conversation" ? input.target.id : null,
+      appointmentId: input.target.kind === "appointment" ? input.target.id : null,
       amendment,
       requestedBy: input.requestedBy,
       requestedAt,
@@ -139,10 +163,7 @@ export async function amendmentsFor(
 ): Promise<Map<string, RecordAmendment[]>> {
   const out = new Map<string, RecordAmendment[]>();
   if (ids.length === 0) return out;
-  const column =
-    kind === "booking_request"
-      ? recordAmendments.bookingRequestId
-      : recordAmendments.conversationId;
+  const column = columnOf(kind);
   const rows = await tx.db
     .select()
     .from(recordAmendments)
@@ -155,7 +176,7 @@ export async function amendmentsFor(
     )
     .orderBy(asc(recordAmendments.recordedAt), asc(recordAmendments.id));
   for (const row of rows) {
-    const id = (kind === "booking_request" ? row.bookingRequestId : row.conversationId)!;
+    const id = targetIdOf(kind, row)!;
     const list = out.get(id) ?? [];
     list.push(row);
     out.set(id, list);

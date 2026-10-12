@@ -543,9 +543,13 @@ its trigger.
 - [ ] Gap 2 resolved, or the text changed to match. (Gaps 3 and 5 are
       resolved.)
 - [x] Corrections have code behind them (gap 22): gate 8's amendment record,
-      appended to and linked with the booking request or conversation it
-      corrects and carried by both exports and the desk's view; an operator
-      path for `amendContact` (12 October 2026).
+      appended to and linked with the booking request, conversation or
+      appointment it corrects and carried by both exports and the desk's
+      view; an operator path for `amendContact`, which can also clear a
+      field the practice names (12 October 2026). An appointment takes an
+      appended correction rather than a rewrite, because it is the booking as
+      the practice's calendar holds it; counsel may want "such as a booking
+      request or the record of a conversation" to name it.
 - [ ] The portal (M5) shows each correction beside every request or
       conversation it shows or exports, and counsel gives a view of an
       appended correction under the state privacy laws (gap 22).

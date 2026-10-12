@@ -1098,6 +1098,9 @@ export const appointments = pgTable(
     uniqueIndex("appointments_external_idx")
       .on(t.clinicId, t.externalSource, t.externalAppointmentId)
       .where(sql`${t.externalAppointmentId} is not null`),
+    // The target of record_amendments' (clinic_id, appointment_id) key, which
+    // is what keeps an amendment on a record of its own clinic (drizzle/0060).
+    unique("appointments_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -2433,18 +2436,26 @@ export const erasureRequests = pgTable(
   ],
 );
 
-/** What an amendment is appended to: a record that must stay as it was made. */
-export const AMENDMENT_TARGET_KINDS = ["booking_request", "conversation"] as const;
+/**
+ * What an amendment is appended to: a record healdesk does not rewrite on
+ * Practice's word. A booking request and a conversation must stay as they
+ * were made. An appointment is the booking as the calendar and the desk
+ * hold it, which a sync or a reschedule may move, so a correction of its
+ * service, practitioner or time is appended beside it rather than written
+ * over what the calendar says.
+ */
+export const AMENDMENT_TARGET_KINDS = ["booking_request", "conversation", "appointment"] as const;
 export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
 
 /**
  * An amendment Practice directed to a record that must stay as it was made
  * (BAA 1.3.0 clause 14(b), 45 CFR 164.526(c)(1); the DPA's Clients' requests
  * clause; release gate 8, PT-17). A booking request's facts never change (the
- * no-rewrite trigger, 0039 and 0041) and a conversation is the record of what
- * was said, so neither is edited: the amendment is appended beside it and
- * linked to it, and every later use and export of the record carries it
- * (lib/patient-rights/amendments.ts).
+ * no-rewrite trigger, 0039 and 0041), a conversation is the record of what
+ * was said, and an appointment is the booking as the clinic's calendar holds
+ * it, so none is edited on Practice's word: the amendment is appended beside
+ * it and linked to it, and every later use and export of the record carries
+ * it (lib/patient-rights/amendments.ts).
  *
  * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
  * BAA gate. Each target is a foreign key that carries clinic_id with the
@@ -2467,6 +2478,8 @@ export const recordAmendments = pgTable(
     bookingRequestId: uuid("booking_request_id"),
     /** Set exactly when target_kind is 'conversation'. */
     conversationId: uuid("conversation_id"),
+    /** Set exactly when target_kind is 'appointment'. */
+    appointmentId: uuid("appointment_id"),
     /** The amendment as Practice directed it. PHI. Never logged, audited or echoed back. */
     amendment: text("amendment").notNull(),
     /** Who asked, by role or ticket ("the practice, ticket 1182"); never the patient. */
@@ -2487,6 +2500,9 @@ export const recordAmendments = pgTable(
     index("record_amendments_conversation_idx")
       .on(t.clinicId, t.conversationId)
       .where(sql`${t.conversationId} is not null`),
+    index("record_amendments_appointment_idx")
+      .on(t.clinicId, t.appointmentId)
+      .where(sql`${t.appointmentId} is not null`),
     // Composite, so an amendment cannot point at another clinic's record, and
     // no delete action, so a record cannot go while an amendment of it stays.
     foreignKey({
@@ -2499,14 +2515,20 @@ export const recordAmendments = pgTable(
       columns: [t.clinicId, t.conversationId],
       foreignColumns: [conversations.clinicId, conversations.id],
     }),
+    foreignKey({
+      name: "record_amendments_appointment_fk",
+      columns: [t.clinicId, t.appointmentId],
+      foreignColumns: [appointments.clinicId, appointments.id],
+    }),
     check(
       "record_amendments_target_kind_check",
-      sql`${t.targetKind} in ('booking_request', 'conversation')`,
+      sql`${t.targetKind} in ('booking_request', 'conversation', 'appointment')`,
     ),
     check(
       "record_amendments_target_check",
-      sql`(${t.targetKind} = 'booking_request' and ${t.bookingRequestId} is not null and ${t.conversationId} is null)
-        or (${t.targetKind} = 'conversation' and ${t.conversationId} is not null and ${t.bookingRequestId} is null)`,
+      sql`(${t.targetKind} = 'booking_request' and ${t.bookingRequestId} is not null and ${t.conversationId} is null and ${t.appointmentId} is null)
+        or (${t.targetKind} = 'conversation' and ${t.conversationId} is not null and ${t.bookingRequestId} is null and ${t.appointmentId} is null)
+        or (${t.targetKind} = 'appointment' and ${t.appointmentId} is not null and ${t.bookingRequestId} is null and ${t.conversationId} is null)`,
     ),
     check(
       "record_amendments_amendment_check",

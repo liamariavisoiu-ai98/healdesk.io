@@ -29,7 +29,7 @@ import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendment
  * Its own audit row is written for the export itself: producing a bundle is
  * an access, and the next accounting request must show this one.
  *
- * Each booking request and conversation carries its amendments beside it
+ * Each booking request, appointment and conversation carries its amendments beside it
  * (`amendments`, oldest first; lib/patient-rights/amendments.ts), as BAA
  * 1.3.0's clause 14(b) promises: "Every later use and export of that record
  * then carries the amendment." So does the whole clinic's bundle. The
@@ -46,7 +46,7 @@ export type PatientBundle = {
   producedAt: string;
   contacts: (typeof contacts.$inferSelect)[];
   conversations: Amended<typeof conversations.$inferSelect>[];
-  appointments: (typeof appointments.$inferSelect)[];
+  appointments: Amended<typeof appointments.$inferSelect>[];
   transactions: (typeof transactions.$inferSelect)[];
   consentRecords: (typeof consentRecords.$inferSelect)[];
   suppressions: (typeof suppressions.$inferSelect)[];
@@ -102,6 +102,7 @@ export async function exportPatient(
     : [];
   const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((c) => c.id));
   const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
+  const appointmentAmendments = await amendmentsFor(tx, "appointment", appts.map((a) => a.id));
 
   const everyId = [
     ...ids,
@@ -110,7 +111,13 @@ export async function exportPatient(
     ...txns.map((t) => t.id),
     ...consents.map((c) => c.id),
     ...bookings.map((b) => b.id),
-    ...[...conversationAmendments.values(), ...bookingAmendments.values()].flat().map((a) => a.id),
+    ...[
+      ...conversationAmendments.values(),
+      ...bookingAmendments.values(),
+      ...appointmentAmendments.values(),
+    ]
+      .flat()
+      .map((a) => a.id),
   ];
   const accounting = everyId.length
     ? await tx.db
@@ -139,7 +146,7 @@ export async function exportPatient(
     producedAt: new Date().toISOString(),
     contacts: found,
     conversations: withAmendments(convos, conversationAmendments),
-    appointments: appts,
+    appointments: withAmendments(appts, appointmentAmendments),
     transactions: txns,
     consentRecords: consents,
     suppressions: supp,
@@ -214,6 +221,7 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
   const bookings = (await tx.db.select().from(bookingRequests).where(eq(bookingRequests.clinicId, c))).map(withoutDigest);
   const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((v) => v.id));
   const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
+  const appointmentAmendments = await amendmentsFor(tx, "appointment", appts.map((a) => a.id));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
 
   const rows = found.length + convos.length + appts.length + txns.length + consents.length;
@@ -229,7 +237,7 @@ export async function exportClinic(tx: TenantTx, requestedBy: string): Promise<P
     producedAt: new Date().toISOString(),
     contacts: found,
     conversations: withAmendments(convos, conversationAmendments),
-    appointments: appts,
+    appointments: withAmendments(appts, appointmentAmendments),
     transactions: txns,
     consentRecords: consents,
     suppressions: supp,

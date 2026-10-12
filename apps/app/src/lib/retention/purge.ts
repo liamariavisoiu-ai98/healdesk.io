@@ -63,7 +63,8 @@ import type { TenantTx } from "@/lib/tenant";
  * clinic's next Meta message runs, and a messaging thread (chat_threads)
  * once its last message is past the record clock. An amendment Practice
  * directed (record_amendments, lib/patient-rights/amendments.ts) goes the
- * night the booking request or conversation it amends goes, and never before.
+ * night the booking request, appointment or conversation it amends goes, in
+ * the same call, and never before.
  *
  * ## The periods, as BAA 1.3.0's clause 11 states them
  *
@@ -78,8 +79,8 @@ import type { TenantTx } from "@/lib/tenant";
  *   - a contact: while any of those of theirs is kept, and in any case the
  *     record clock after it was last written;
  *   - a messaging thread: the record clock after its last message;
- *   - an amendment Practice directed: with the request or conversation it
- *     amends, and never before;
+ *   - an amendment Practice directed: with the request, appointment or
+ *     conversation it amends, and never before;
  *   - a vendor payload (webhook_events), the raw copy of a call or a
  *     booking: once processed, thirty days after it arrived
  *     (WEBHOOK_PAYLOAD_RETENTION_DAYS) or the record clock if that is
@@ -322,12 +323,30 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
       .update(transactions)
       .set({ appointmentId: null })
       .where(and(eq(transactions.clinicId, tx.clinicId), inArray(transactions.appointmentId, appointmentIds)));
+    // An amended appointment is left to the definer below, which takes it
+    // with its amendments: the runtime role cannot delete an amendment, and
+    // the foreign key keeps it from deleting what one amends.
     const gone = await tx.db
       .delete(appointments)
-      .where(and(eq(appointments.clinicId, tx.clinicId), inArray(appointments.id, appointmentIds)))
+      .where(
+        and(
+          eq(appointments.clinicId, tx.clinicId),
+          inArray(appointments.id, appointmentIds),
+          sql`not exists (select 1 from ${recordAmendments} ra where ra.appointment_id = ${appointments.id})`,
+        ),
+      )
       .returning({ id: appointments.id });
     result.appointmentsDeleted = gone.length;
   }
+  // An amended appointment goes with its amendments, in one call, at the
+  // earlier of this job's cutoff and the database's own, as the booking
+  // requests above (app_purge_amended_appointments, drizzle/0060). Its time
+  // is one the runtime role and a sync can move, so an amendment never goes
+  // on its own: only with the appointment it amends.
+  const amendedAppointments = await tx.db.execute<{ n: number }>(
+    sql`select app_purge_amended_appointments(least(${recordBefore}::timestamptz, app_record_cutoff())) as n`,
+  );
+  result.appointmentsDeleted += amendedAppointments.rows[0]?.n ?? 0;
 
   // An amended conversation goes with its amendments, in one call: the
   // runtime role may delete a conversation but not an amendment, and no

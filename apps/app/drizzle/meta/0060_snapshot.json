@@ -521,7 +521,16 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
+      "uniqueConstraints": {
+        "appointments_clinic_id_unique": {
+          "name": "appointments_clinic_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "clinic_id",
+            "id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {
         "appointments_duration_check": {
@@ -7088,6 +7097,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "appointment_id": {
+          "name": "appointment_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "amendment": {
           "name": "amendment",
           "type": "text",
@@ -7164,6 +7179,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "record_amendments_appointment_idx": {
+          "name": "record_amendments_appointment_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "appointment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"record_amendments\".\"appointment_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -7209,6 +7246,21 @@
           ],
           "onDelete": "no action",
           "onUpdate": "no action"
+        },
+        "record_amendments_appointment_fk": {
+          "name": "record_amendments_appointment_fk",
+          "tableFrom": "record_amendments",
+          "tableTo": "appointments",
+          "columnsFrom": [
+            "clinic_id",
+            "appointment_id"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -7217,11 +7269,11 @@
       "checkConstraints": {
         "record_amendments_target_kind_check": {
           "name": "record_amendments_target_kind_check",
-          "value": "\"record_amendments\".\"target_kind\" in ('booking_request', 'conversation')"
+          "value": "\"record_amendments\".\"target_kind\" in ('booking_request', 'conversation', 'appointment')"
         },
         "record_amendments_target_check": {
           "name": "record_amendments_target_check",
-          "value": "(\"record_amendments\".\"target_kind\" = 'booking_request' and \"record_amendments\".\"booking_request_id\" is not null and \"record_amendments\".\"conversation_id\" is null)\n        or (\"record_amendments\".\"target_kind\" = 'conversation' and \"record_amendments\".\"conversation_id\" is not null and \"record_amendments\".\"booking_request_id\" is null)"
+          "value": "(\"record_amendments\".\"target_kind\" = 'booking_request' and \"record_amendments\".\"booking_request_id\" is not null and \"record_amendments\".\"conversation_id\" is null and \"record_amendments\".\"appointment_id\" is null)\n        or (\"record_amendments\".\"target_kind\" = 'conversation' and \"record_amendments\".\"conversation_id\" is not null and \"record_amendments\".\"booking_request_id\" is null and \"record_amendments\".\"appointment_id\" is null)\n        or (\"record_amendments\".\"target_kind\" = 'appointment' and \"record_amendments\".\"appointment_id\" is not null and \"record_amendments\".\"booking_request_id\" is null and \"record_amendments\".\"conversation_id\" is null)"
         },
         "record_amendments_amendment_check": {
           "name": "record_amendments_amendment_check",

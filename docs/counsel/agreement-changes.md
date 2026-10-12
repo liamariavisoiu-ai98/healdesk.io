@@ -1543,6 +1543,19 @@ these is closed, by code, a page, a signed paper or a host setting, and
      column, `created_at`, was already out of its reach.
    - docs/handover.md has the "Amendments" runbook, and
      `docs/incident-response.md` points to it.
+   - Appointments, and clearing a field (review of 12 October 2026). Only a
+     contact could be corrected, and the amendment record took only booking
+     requests and conversations, so an appointment's service, practitioner
+     or time could be neither corrected nor amended. An appointment is now a
+     target too (`record_amendments.appointment_id`, by the same
+     clinic-carrying key), carried by both exports, and it leaves with the
+     same paths as the others: erasure (`app_erase_contacts`), the purge
+     (the new `app_purge_amended_appointments`, which takes the appointment
+     and its amendments together, since its time is one the runtime role and
+     a sync can move), and destruction. It is appended rather than written
+     over, because the appointment is the booking as the practice's calendar
+     holds it. `amendContact` can now clear a name, number or address, but
+     only one named in `clear`; an empty value is still dropped.
    - Left: nothing in v1 shows a conversation's record to anyone but the
      operator's export yet; the portal's transcript view (M5) must show the
      conversation's amendments beside it.

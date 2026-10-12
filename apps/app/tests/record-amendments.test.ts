@@ -95,7 +95,7 @@ async function request(
 /** Append through the operator's path, as the console does, and return the amendment's id. */
 async function amendOp(
   clinicId: string,
-  targetKind: "booking_request" | "conversation",
+  targetKind: "booking_request" | "conversation" | "appointment",
   targetId: string,
   amendment: string,
 ): Promise<string> {
@@ -224,7 +224,7 @@ describeDb("the amendment record", () => {
         requestedBy: "the practice",
       },
       {
-        targetKind: "appointment",
+        targetKind: "contact",
         targetId: requestId,
         amendment: words,
         requestedBy: "the practice",
@@ -610,6 +610,128 @@ describeDb("the amendment record", () => {
     expect(await amendmentIds(c.clinicId)).toEqual([id, oldAmendment].sort());
   });
 
+  test("an appointment takes an amendment, every export carries it, and it leaves only with the appointment", async () => {
+    const c = await seedClinic("amend-appointment");
+    const contactId = await seedContact(c.clinicId, "+15550149001");
+    const fresh = await seedConversation(c.clinicId, {
+      startedAt: new Date(Date.now() - DAY),
+      booked: true,
+      contactId,
+    });
+    const old = await seedConversation(c.clinicId, {
+      startedAt: new Date(Date.now() - 120 * DAY),
+      booked: true,
+      contactId,
+    });
+    const onFresh = await amendOp(
+      c.clinicId,
+      "appointment",
+      fresh.appointmentId!,
+      "The treatment was a consultation, with Dr Okafor, at 10:30.",
+    );
+    const onOld = await amendOp(c.clinicId, "appointment", old.appointmentId!, "Moved a week later.");
+
+    // Both exports carry it beside the appointment.
+    const patient = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportPatient(tx, { phone: "+15550149001", requestedBy: "the practice" }),
+    );
+    expect(
+      Object.fromEntries(patient.appointments.map((a) => [a.id, a.amendments.map((x) => x.id)])),
+    ).toEqual({ [fresh.appointmentId!]: [onFresh], [old.appointmentId!]: [onOld] });
+    const clinic = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportClinic(tx, "the practice"),
+    );
+    expect(clinic.appointments.find((a) => a.id === fresh.appointmentId)!.amendments[0]!.amendment).toBe(
+      "The treatment was a consultation, with Dr Okafor, at 10:30.",
+    );
+
+    // The runtime role cannot delete it around its amendment, even with its
+    // time moved back a year: the appointment and the amendment leave together
+    // or not at all.
+    await expect(
+      asApp(c.clinicId, (q) => q.query(`delete from appointments where id = $1`, [fresh.appointmentId])),
+    ).rejects.toMatchObject({ code: "23503" });
+
+    // The purge takes the old one with its amendment, and leaves the fresh one.
+    const purged = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx));
+    expect(purged.appointmentsDeleted).toBe(1);
+    expect(await amendmentIds(c.clinicId)).toEqual([onFresh]);
+    await expect(
+      asApp(c.clinicId, (q) => q.query(`select app_purge_amended_appointments(now())`)),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/record clock/) });
+
+    // An erasure takes it with the person's appointment.
+    const erased = data<ErasePersonOutcome>(
+      await runOperation(
+        "erasePerson",
+        { clinicId: c.clinicId, phone: "+15550149001", requestedBy: "the practice" },
+        OPERATOR,
+      ),
+    );
+    if (erased.status !== "erased") throw new Error("not erased");
+    expect(erased.deleted).toMatchObject({ appointments: 1, amendments: 1 });
+    expect(await amendmentIds(c.clinicId)).toEqual([]);
+  });
+
+  test("a contact's field is cleared only when the practice names it, never by an empty value", async () => {
+    const c = await seedClinic("amend-clear");
+    const contactId = await seedContact(c.clinicId, "+15550149101");
+    await inTenant(c.clinicId, (client) =>
+      client.query(`update contacts set email = 'wrong@example-patient.test', full_name = 'Sam' where id = $1`, [
+        contactId,
+      ]),
+    );
+    const read = () =>
+      inTenant(c.clinicId, async (client) =>
+        (
+          await client.query<{ email: string | null; full_name: string | null; phone: string | null }>(
+            `select email, full_name, phone from contacts where id = $1`,
+            [contactId],
+          )
+        ).rows[0],
+      );
+
+    // An empty value is dropped: nothing to change, and nothing changes.
+    const empty = data<{ status: string }>(
+      await runOperation(
+        "amendContact",
+        { clinicId: c.clinicId, contactId, email: "  ", requestedBy: "the practice" },
+        OPERATOR,
+      ),
+    );
+    expect(empty.status).toBe("error");
+    // Both at once is refused.
+    const both = data<{ status: string }>(
+      await runOperation(
+        "amendContact",
+        {
+          clinicId: c.clinicId,
+          contactId,
+          email: "right@example-patient.test",
+          clear: ["email"],
+          requestedBy: "the practice",
+        },
+        OPERATOR,
+      ),
+    );
+    expect(both.status).toBe("error");
+    expect(await read()).toEqual({
+      email: "wrong@example-patient.test",
+      full_name: "Sam",
+      phone: "+15550149101",
+    });
+
+    const cleared = data<{ status: string }>(
+      await runOperation(
+        "amendContact",
+        { clinicId: c.clinicId, contactId, clear: ["email", "fullName"], requestedBy: "the practice" },
+        OPERATOR,
+      ),
+    );
+    expect(cleared.status).toBe("corrected");
+    expect(await read()).toEqual({ email: null, full_name: null, phone: "+15550149101" });
+  });
+
   test("destruction takes every amendment, and the destruction is not recorded while one remains", async () => {
     const c = await seedClinic("amend-destroy");
     const contactId = await seedContact(c.clinicId, "+15550146001");
@@ -618,8 +740,14 @@ describeDb("the amendment record", () => {
       contactId,
     });
     const requestId = await request(c.clinicId, contactId, new Date(Date.now() - 40 * DAY));
+    const booked = await seedConversation(c.clinicId, {
+      startedAt: new Date(Date.now() - 40 * DAY),
+      booked: true,
+      contactId,
+    });
     await amendOp(c.clinicId, "conversation", call.conversationId, "x");
     await amendOp(c.clinicId, "booking_request", requestId, "y");
+    await amendOp(c.clinicId, "appointment", booked.appointmentId!, "z");
 
     // Not due: the definer refuses, for the runtime role as for anyone.
     await expect(
@@ -645,6 +773,9 @@ describeDb("the amendment record", () => {
       );
       await owner.query(
         `alter table record_amendments drop constraint record_amendments_conversation_fk`,
+      );
+      await owner.query(
+        `alter table record_amendments drop constraint record_amendments_appointment_fk`,
       );
       await owner.query(`select app_destroy_record_amendments($1::uuid)`, [c.clinicId]);
       await owner.query(`select app_destroy_booking_requests($1::uuid)`, [c.clinicId]);
@@ -676,9 +807,10 @@ describeDb("the amendment record", () => {
     const results = (await destroyDueClinics()).filter((r) => r.clinicId === c.clinicId);
     expect(results).toHaveLength(1);
     expect(results[0]!.deleted).toMatchObject({
-      record_amendments: 2,
+      record_amendments: 3,
       booking_requests: 1,
-      conversations: 1,
+      conversations: 2,
+      appointments: 1,
     });
     expect(await amendmentIds(c.clinicId)).toEqual([]);
   });

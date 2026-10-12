@@ -22,6 +22,11 @@ import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic"
 import { brokenLinks } from "./setup/portal-links";
 import { createStripeWorld, type StripeWorld } from "./setup/stripe-world";
 
+/** A plan name as a literal inside a pattern: the names come from the catalog, which renames them. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * Billing (plan Part F6), through its server actions with the sign-in stood
  * in, against a provisioned clinic and a simulated Stripe: the page says
@@ -144,7 +149,7 @@ describeDb("Billing", () => {
 
   test("before the start: the plan, its channels and location, when it starts, the switches together, a location's price, Stripe for the card, and the agreement", async () => {
     const html = await render();
-    expect(html).toContain("Web + Voice, billed monthly");
+    expect(html).toContain(`${getPlan("web-voice")!.name}, billed monthly`);
     expect(html).toContain("Website chat · Phone · one location");
     expect(html).toContain("Monthly billing ($897) starts the day AYA first answers a patient.");
     expect(html).toContain(
@@ -160,8 +165,10 @@ describeDb("Billing", () => {
     expect(switches).toContain("Auto-renew");
     expect(switches).toMatch(/Off means your plan won(&#x27;|’)t start/);
     // The current plan can't be chosen again; a location says its price.
-    expect(html).toMatch(/disabled=""[^>]*\/?>[\s\S]{0,400}Web \+ Voice · your plan/);
     const plan = getPlan("web-voice")!;
+    expect(html).toMatch(
+      new RegExp(`disabled=""[^>]*/?>[\\s\\S]{0,400}${escapeRegExp(plan.name)} · your plan`),
+    );
     expect(html).toContain(`plus a $${plan.setupFeeUsd.toLocaleString("en-US")} setup fee`);
     expect(html).toContain("Change the card");
     expect(html).toContain("See invoices");
@@ -281,12 +288,15 @@ describeDb("Billing", () => {
       expect(await previewPlanAction(portal.clinicSlug, "chat-web", "month")).toEqual({
         status: "refused",
         message: expect.stringMatching(
-          /^A change to Complete FrontDesk AI, billed monthly, is still being completed\./,
+          new RegExp(
+            `^A change to ${escapeRegExp(getPlan("complete")!.name)}, billed monthly, is still being completed\\.`,
+          ),
         ),
       });
       const html = await render();
-      const complete = html.slice(html.indexOf("Complete FrontDesk AI · being changed to") - 600);
-      expect(html).toContain("Complete FrontDesk AI · being changed to");
+      const beingChanged = `${getPlan("complete")!.name} · being changed to`;
+      const complete = html.slice(html.indexOf(beingChanged) - 600);
+      expect(html).toContain(beingChanged);
       expect(complete.slice(0, 600)).not.toMatch(/disabled=""[^<]*$/);
     } finally {
       await entitlements(

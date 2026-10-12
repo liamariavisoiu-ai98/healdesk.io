@@ -53,6 +53,28 @@ import type { TenantTx } from "@/lib/tenant";
 /** The longest amendment accepted, in characters: a paragraph, not a document. */
 export const AMENDMENT_MAX_LENGTH = 4000;
 
+/**
+ * What an amendment's words may never carry: a telephone number (ten digits
+ * or more, with up to two spaces, dots, dashes or brackets between digits)
+ * or an email address. An amendment can sit on someone else's record, a
+ * parent's request for a child, say, where a person's deletion never looks,
+ * so a number or an address written into one would outlive the deletion
+ * that promised none is left anywhere. A contact's details are corrected
+ * with `amendContact` instead. A record's id and an ISO date and time are
+ * taken out before the digits are counted. The database holds the same rule
+ * (record_amendments_identifier_check, drizzle/0060), in the same patterns.
+ */
+const RECORD_ID = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
+const ISO_MOMENT = /[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?/g;
+const NUMBER_LIKE = /[0-9]([ ().-]{0,2}[0-9]){9,}/;
+const ADDRESS_LIKE = /[^\s@]+@[^\s@]+[.][^\s@]{2,}/;
+
+/** Whether the words carry something shaped like a telephone number or an email address. */
+export function amendmentCarriesIdentifier(text: string): boolean {
+  if (ADDRESS_LIKE.test(text)) return true;
+  return NUMBER_LIKE.test(text.replace(RECORD_ID, "").replace(ISO_MOMENT, ""));
+}
+
 export type AmendmentTarget = { kind: AmendmentTargetKind; id: string };
 
 export type AppendAmendmentInput = {
@@ -115,6 +137,9 @@ export async function appendAmendment(
   if (!amendment) throw new Error("An amendment needs its text.");
   if (amendment.length > AMENDMENT_MAX_LENGTH) {
     throw new Error(`An amendment is at most ${AMENDMENT_MAX_LENGTH} characters.`);
+  }
+  if (amendmentCarriesIdentifier(amendment)) {
+    throw new Error("An amendment never carries a telephone number or an email address.");
   }
   if (!(await targetExists(tx, input.target))) return { status: "not_found" };
 

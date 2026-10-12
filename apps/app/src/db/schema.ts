@@ -2550,6 +2550,16 @@ export const recordAmendments = pgTable(
       "record_amendments_amendment_check",
       sql`char_length(btrim(${t.amendment})) between 1 and 4000`,
     ),
+    // No telephone number or email address in the words: an amendment can sit
+    // on someone else's record, where a person's deletion would never find
+    // it (lib/patient-rights/amendments.ts, AMENDMENT_IDENTIFIER_PATTERNS,
+    // which the writer applies first). A record's id and an ISO date and time
+    // are taken out before the digits are counted.
+    check(
+      "record_amendments_identifier_check",
+      sql`regexp_replace(regexp_replace(${t.amendment}, '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '', 'g'), '[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?', '', 'g') !~ '[0-9]([ ().-]{0,2}[0-9]){9,}'
+        and ${t.amendment} !~ '[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]{2,}'`,
+    ),
     check(
       "record_amendments_requested_by_check",
       sql`char_length(btrim(${t.requestedBy})) between 2 and 200`,

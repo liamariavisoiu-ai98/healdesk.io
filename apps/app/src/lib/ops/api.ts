@@ -99,7 +99,11 @@ import {
   type ErasureKept,
   type ErasureVendorStepId,
 } from "@/lib/patient-rights/erasure";
-import { AMENDMENT_MAX_LENGTH, appendAmendment } from "@/lib/patient-rights/amendments";
+import {
+  AMENDMENT_MAX_LENGTH,
+  amendmentCarriesIdentifier,
+  appendAmendment,
+} from "@/lib/patient-rights/amendments";
 import { amendContact } from "@/lib/patient-rights/export";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
@@ -3823,6 +3827,11 @@ async function opAmendRecord(args: Record<string, unknown>, operator: Operator):
   if (!text) return amend.error("Give the amendment as the practice directed it.");
   if (text.length > AMENDMENT_MAX_LENGTH) {
     return amend.error(`An amendment is at most ${AMENDMENT_MAX_LENGTH} characters.`);
+  }
+  if (amendmentCarriesIdentifier(text)) {
+    return amend.error(
+      "An amendment never carries a telephone number or an email address: it can sit on someone else's record, where a deletion would not find it. Correct a contact's number or address with \"Correct a contact\" instead.",
+    );
   }
   const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
   if (typeof requestedBy !== "string") return amend.error(requestedBy.error);

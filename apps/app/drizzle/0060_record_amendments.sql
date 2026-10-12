@@ -15,6 +15,8 @@ CREATE TABLE "record_amendments" (
         or ("record_amendments"."target_kind" = 'conversation' and "record_amendments"."conversation_id" is not null and "record_amendments"."booking_request_id" is null and "record_amendments"."appointment_id" is null)
         or ("record_amendments"."target_kind" = 'appointment' and "record_amendments"."appointment_id" is not null and "record_amendments"."booking_request_id" is null and "record_amendments"."conversation_id" is null)),
 	CONSTRAINT "record_amendments_amendment_check" CHECK (char_length(btrim("record_amendments"."amendment")) between 1 and 4000),
+	CONSTRAINT "record_amendments_identifier_check" CHECK (regexp_replace(regexp_replace("record_amendments"."amendment", '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '', 'g'), '[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?', '', 'g') !~ '[0-9]([ ().-]{0,2}[0-9]){9,}'
+        and "record_amendments"."amendment" !~ '[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]{2,}'),
 	CONSTRAINT "record_amendments_requested_by_check" CHECK (char_length(btrim("record_amendments"."requested_by")) between 2 and 200),
 	CONSTRAINT "record_amendments_recorded_by_check" CHECK (char_length(btrim("record_amendments"."recorded_by")) between 1 and 320),
 	CONSTRAINT "record_amendments_requested_check" CHECK ("record_amendments"."requested_at" <= "record_amendments"."recorded_at")

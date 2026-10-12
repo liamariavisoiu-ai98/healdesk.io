@@ -297,6 +297,50 @@ describeDb("the amendment record", () => {
     expect(lines.join("\n")).not.toMatch(/Rhys|example-patient/);
   });
 
+  test("an amendment's words never carry a telephone number or an email address, in the writer or the database", async () => {
+    // An amendment can sit on someone else's record, where a person's
+    // deletion never looks, so a number or address in it would outlive the
+    // deletion's promise that none is left.
+    const c = await seedClinic("amend-identifiers");
+    const contactId = await seedContact(c.clinicId, "+15550149301");
+    const requestId = await request(c.clinicId, contactId, new Date());
+    for (const words of [
+      "Her mother's number is 555 013 9302.",
+      "Call back on +1 (555) 013-9302.",
+      "Use 5550139302 instead.",
+      "Write to her at mum@example-patient.test.",
+    ]) {
+      const refused = data<AmendRecordOutcome>(
+        await runOperation(
+          "amendRecord",
+          { clinicId: c.clinicId, targetKind: "booking_request", targetId: requestId, amendment: words, requestedBy: "the practice" },
+          OPERATOR,
+        ),
+      );
+      expect(refused.status, words).toBe("error");
+      await expect(
+        asApp(c.clinicId, (q) =>
+          q.query(
+            `insert into record_amendments
+               (clinic_id, target_kind, booking_request_id, amendment, requested_by, requested_at, recorded_by)
+             values ($1, 'booking_request', $2, $3, 'the practice', now(), 'ops@healdesk.test')`,
+            [c.clinicId, requestId, words],
+          ),
+        ),
+        words,
+      ).rejects.toMatchObject({ code: "23514", constraint: "record_amendments_identifier_check" });
+    }
+    // A record's id, a date and time, a price and a short reference pass.
+    for (const words of [
+      `Same visit as ${requestId}.`,
+      "Moved to 2026-10-21 14:30, with Dr Okafor.",
+      "The deposit was $150.00, ticket 1182.",
+    ]) {
+      await amendOp(c.clinicId, "booking_request", requestId, words);
+    }
+    expect(await amendmentIds(c.clinicId)).toHaveLength(3);
+  });
+
   test("append-only: the runtime role may add and read an amendment, and no role may change or delete one", async () => {
     const c = await seedClinic("amend-append-only");
     const contactId = await seedContact(c.clinicId, "+15550141001");

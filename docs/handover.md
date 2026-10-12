@@ -509,7 +509,11 @@ over the calendar's.
      its place, tick "clear" for it: only a field named that way is cleared, and an
      empty box changes nothing;
    - "Append an amendment" for a booking request, a conversation or an appointment:
-     the practice's words, who asked by role or ticket, and when it asked. It is written to
+     the practice's words, who asked by role or ticket, and when it asked. The words
+     never carry a telephone number or an email address (the page and the database
+     refuse them): an amendment can sit on someone else's record, where deleting that
+     person would never find it. A number or an address is a contact's, corrected with
+     "Correct a contact". It is written to
      `record_amendments` (`amendRecord`, `apps/app/src/lib/patient-rights/amendments.ts`)
      and never changed afterwards; a later correction is another amendment beside it.
    Both go through the signed ops envelope. apps/web keeps nothing typed; the reply is an

@@ -1572,6 +1572,11 @@ these is closed, by code, a page, a signed paper or a host setting, and
      over, because the appointment is the booking as the practice's calendar
      holds it. `amendContact` can now clear a name, number or address, but
      only one named in `clear`; an empty value is still dropped.
+   - An amendment's words never carry a telephone number or an email
+     address, refused by the writer and by a CHECK
+     (`record_amendments_identifier_check`): an amendment on someone else's
+     record is never searched by a deletion, so one written there would
+     outlive the "no number left" promise (review of 12 October 2026).
    - Left: nothing in v1 shows a conversation's record to anyone but the
      operator's export yet; the portal's transcript view (M5) must show the
      conversation's amendments beside it.

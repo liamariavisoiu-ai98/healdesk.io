@@ -3387,16 +3387,18 @@
 
    ## Arriving
 
-   On a desktop the screen wakes as it scrolls into view (the wallpaper comes
-   up from dark, the date and clock rise into place) and the notifications
-   drop in one after another on the spring, a beat after it. Below 1024px each
-   drops onto the top of the stack as its step of the track is reached, on the
-   same spring, and the ones under it move down.
+   As iOS brings them: from below, out of a soft blur, on one long smooth
+   deceleration with no bounce (owner, 12 October 2026: they dropped from
+   above on a spring). On a desktop the screen wakes as it scrolls into view
+   (the wallpaper comes up from dark, the date and clock rise into place) and
+   the notifications rise into the wall one after another, oldest first, a
+   beat after it. Below 1024px each rises in at the foot of the stack as its
+   step of the track is reached, and the older ones move up.
 
    ## The stack, below 1024px
 
-   Each notification is placed by its place from the top (`--pos`, from
-   Outcomes.tsx; -1 is one not arrived yet, waiting above the top) and by how
+   Each notification is placed by its place from the newest (`--pos`, from
+   Outcomes.tsx; -1 is one not arrived yet, waiting under the foot) and by how
    many fit one under another (`--fit`, measured there). Those past the last
    that fits tuck under it, smaller and fainter, two deep, as iOS stacks older
    ones. Every notification is the same height here, three lines of body at
@@ -3678,18 +3680,23 @@
     opacity: 0;
   }
 
-  /* The arrival: armed below the fold, then in one after another, the first
-     a beat after the screen has woken. */
+  /* The arrival: armed below the fold, then in one after another as iOS
+     brings them, from below (owner, 12 October 2026: they dropped from
+     above, on a bouncing spring). Each rises out of a soft blur into its
+     place on one long, unhurried deceleration, oldest first, so the wall
+     fills from its foot to "now" at the top; the first a beat after the
+     screen has woken. `--n` is its place in the order they happened. */
   .month[data-state="armed"] .notification {
     opacity: 0;
-    transform: translateY(-96px) scale(0.92);
+    transform: translateY(44px) scale(0.96);
+    filter: blur(8px);
   }
 
   .month[data-state="in"] .notification {
     animation:
-      notification-drop var(--duration-slower) var(--ease-spring) both,
-      notification-fade var(--duration-base) var(--ease-out) both;
-    animation-delay: calc(550ms + var(--i) * 400ms);
+      notification-rise calc(var(--duration-slower) * 1.15) var(--ease-out) both,
+      notification-fade var(--duration-slow) var(--ease-standard) both;
+    animation-delay: calc(600ms + var(--n) * 300ms);
   }
 }
 
@@ -3699,9 +3706,10 @@
   }
 }
 
-@keyframes notification-drop {
+@keyframes notification-rise {
   from {
-    transform: translateY(-96px) scale(0.92);
+    transform: translateY(44px) scale(0.96);
+    filter: blur(8px);
   }
 }
 
@@ -3760,30 +3768,38 @@
     margin-bottom: 14px;
   }
 
+  /* Stacked from the foot of the screen up, as iOS keeps them: the newest
+     at the bottom, the older ones moved up a place each time one arrives,
+     and those past the last that fits tucked behind the top one. `--y` is
+     how far up from the foot. */
   .month[data-live] .lockscreen__note {
     /* How far past the last that fits: 0 for one that fits. */
     --over: max(0, var(--pos) - var(--fit) + 1);
     --y: calc(min(var(--pos), var(--fit) - 1) * (var(--note-h) + var(--note-gap)) + min(var(--over), 2) * 10px);
     --k: calc(1 - min(var(--over), 2) * 0.05);
     --o: clamp(0, 1 - var(--over) * 0.35, 1);
+    --b: 0px;
     position: absolute;
     inset-inline: 0;
-    top: 0;
+    bottom: 0;
     z-index: calc(20 - var(--pos));
     height: var(--note-h);
     opacity: var(--o);
-    transform: translateY(var(--y)) scale(var(--k));
+    filter: blur(var(--b));
+    transform: translateY(calc(-1 * var(--y))) scale(var(--k));
     transform-origin: 50% 0;
     transition:
-      transform var(--duration-slow) var(--ease-spring),
-      opacity var(--duration-base) var(--ease-standard);
+      transform calc(var(--duration-slower) * 1.1) var(--ease-out),
+      opacity var(--duration-slow) var(--ease-standard),
+      filter var(--duration-slow) var(--ease-standard);
   }
 
-  /* Not arrived: waiting just above the top, to drop into place. */
+  /* Not arrived: waiting under the foot, faint and soft, to rise into place. */
   .month[data-live] .lockscreen__note[data-pos="-1"] {
-    --y: calc(var(--note-h) * -0.5);
-    --k: 0.94;
+    --y: calc(var(--note-h) * -0.6);
+    --k: 0.96;
     --o: 0;
+    --b: 8px;
     pointer-events: none;
   }
 

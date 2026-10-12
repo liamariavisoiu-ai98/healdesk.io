@@ -30,8 +30,10 @@ import { REDUCED_MOTION } from "@/lib/use-media-query";
  * A lock screen as wide as the page, all eight notifications on it at once,
  * in three columns (two below 1100px): eight claims that belong together,
  * readable without a touch. When it scrolls into view the screen wakes (the
- * wallpaper comes up, the clock fades in) and the notifications drop in one
- * after another on the spring, newest first. They are visible by default and
+ * wallpaper comes up, the clock fades in) and the notifications rise into it
+ * one after another, as iOS brings them: from below, out of a soft blur,
+ * smoothly, oldest first, so "now" arrives last at the top. They are visible
+ * by default and
  * hidden only once the script has armed them, below the fold, so no script,
  * or a visitor who asks for less motion, simply has them.
  *
@@ -40,10 +42,10 @@ import { REDUCED_MOTION } from "@/lib/use-media-query";
  * The section is a tall track and the lock screen is pinned in it under the
  * navbar, edge to edge and as tall as what is left of the screen, so it reads
  * as the visitor's own phone rather than a picture of one. As the track is
- * scrolled, the notifications arrive one by one, oldest first, each dropping
- * onto the top of the stack on the spring and pushing the older ones down;
- * those that no longer fit tuck under the last one that does, as iOS stacks
- * them, and scrolling back takes them off again. How many fit is measured
+ * scrolled, the notifications arrive one by one, oldest first, each rising in
+ * at the foot of the stack, as on iOS, and pushing the older ones up; those
+ * that no longer fit tuck behind the top one, and scrolling back takes them
+ * off again. How many fit is measured
  * (`--fit`), because a small phone holds fewer than a tablet. Without script,
  * and with reduced motion, there is no track: the lock screen simply lists all
  * eight.
@@ -404,8 +406,9 @@ export function Outcomes() {
 
           <ol className="lockscreen__wall" aria-label="Notifications from healdesk in month one" inert={outcome ? true : undefined}>
             {OUTCOMES.map((o, j) => {
-              // Its place in the order they happened, the oldest first, and
-              // so its place in the stack from the top: the newest told is 0.
+              // Its place in the order they happened, the oldest first (`--n`,
+              // the wall's arrival order), and so its place in the stack from
+              // the newest: the newest told is 0.
               const i = OUTCOMES.length - 1 - j;
               const pos = i <= step ? step - i : -1;
               const tucked = live && pos >= fit;
@@ -415,7 +418,7 @@ export function Outcomes() {
                   className="lockscreen__note"
                   data-pos={live ? pos : undefined}
                   data-tucked={tucked || undefined}
-                  style={{ ["--i" as string]: j, ["--pos" as string]: pos }}
+                  style={{ ["--n" as string]: i, ["--pos" as string]: pos }}
                 >
                   <button
                     type="button"

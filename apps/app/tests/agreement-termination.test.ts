@@ -1083,9 +1083,11 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
 
   test("offboarding's destruction still runs for a terminated practice, through the cascades that rewrite rows it keeps", async () => {
     const practice = await seedPractice("term-destroy");
-    // A booked appointment with a paid deposit: the deposit is a money record
-    // destruction keeps, and deleting the appointment sets its appointment_id
-    // to null, an UPDATE the patient-data gate sees.
+    // A booked appointment with a paid deposit: rows the patient-data gate
+    // stands in front of, which destruction must still be able to remove
+    // once no agreement is in effect. Since drizzle/0065 the deposit goes
+    // with the rest (app_destroy_deposit_payments), handed over in the
+    // export first.
     const appointmentId = await inTenant(practice.locationId, async (c) => {
       const contact = (
         await c.query<{ id: string }>(
@@ -1135,7 +1137,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
           )
         ).rows,
     );
-    expect(deposits).toEqual([{ appointment_id: null }]);
+    expect(deposits).toEqual([]);
     const { rows } = await getMigratorPool().query<{ destroyed_at: Date | null }>(
       `select destroyed_at from clinics where id = $1`,
       [practice.locationId],

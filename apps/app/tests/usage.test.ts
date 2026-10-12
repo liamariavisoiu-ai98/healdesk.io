@@ -359,7 +359,7 @@ describeDb("recordUsage against the database", () => {
 
   test("a channel bought but not yet billed counts against the bought allowance, not 0 (BD5)", async () => {
     const c = await seedClinic("usage-bd5");
-    // Bought Web + Voice, billed as Web Chatbot while the phone was set up.
+    // Bought Web + Voice, billed as AYA Web Chat while the phone was set up.
     await seedEntitled(c.clinicId, {
       planId: "chat-web",
       boughtPlanId: "web-voice",

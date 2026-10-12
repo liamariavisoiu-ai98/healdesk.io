@@ -65,7 +65,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
   renewal_upcoming: {
     renewsOn: "2027-10-10",
     amountCents: 1_148_400,
-    planName: "Complete FrontDesk AI",
+    planName: "AYA Complete Frontdesk",
     locations: 1,
     noticeDays: 30,
   },
@@ -103,7 +103,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
   // Voice kept, so no forwarding facts ride along: the shape every plan
   // change has unless it drops voice.
   plan_changed: {
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     interval: "month",
     locations: 1,
     setupFeeDeltaCents: 50_000,
@@ -128,7 +128,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
     hasUncheckedLinks: true,
   },
   plan_started: {
-    planName: "Web Chatbot",
+    planName: "AYA Web Chat",
     boughtPlanId: "complete",
     channel: "web",
     amountCents: 39_700,
@@ -140,7 +140,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
   },
   price_stepped_up: {
     channel: "voice",
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     amountCents: 89_700,
     interval: "month",
     isInvoicedNow: false,
@@ -150,7 +150,7 @@ const FIXTURES: { [K in BillingNoticeKind]: NoticePayloads[K] } = {
   step_up_reminder: {
     channel: "voice",
     joinsOn: "2026-11-09",
-    planName: "Web + Voice",
+    planName: "AYA Web Chat + Voice",
     amountCents: 89_700,
     interval: "month",
     waitingOn: "forwarding",

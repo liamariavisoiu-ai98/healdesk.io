@@ -194,7 +194,7 @@ describeDb("a plan change in flight", () => {
   });
 
   test("a lost answer, then a fresh request once the lease has run out: the difference is charged once and the change applied", async () => {
-    // Bought and billed as Web Chatbot, moving to Web + Voice with voice not
+    // Bought and billed as AYA Web Chat, moving to Web + Voice with voice not
     // in service yet: the billed package stays, so the $500 difference goes
     // on a one-off invoice and a second update sets the marker.
     const seeded = await seedBilling("pc-adopt", { bought: "chat-web", inService: ["web"] });

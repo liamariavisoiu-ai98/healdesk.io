@@ -33,6 +33,7 @@ import {
   setAutoRenew,
   setClinicSettings,
   setDepositSettings,
+  setMetaPlatform,
   setOverageMode,
   toggleJob,
 } from "@/lib/admin/ops-client";
@@ -191,6 +192,7 @@ function onboardingWith(greeting: string, booking: unknown = BOOKING): unknown {
       stripeConnect: { accountId: null, connectedAt: null, authorizeUrl: null },
       meta: {
         enabled: false,
+        platforms: { instagram: true, messenger: false, whatsapp: true },
         channels: [],
         bookingRequests: { waiting: 0, accepted: 0, confirmed: 0, declined: 0 },
       },
@@ -462,7 +464,7 @@ describe("the billing panel's readers are strict", () => {
     expect(view.deposits.defaultAmountUsd).toBe(50.5);
     expect(view.flags.pendingLocation).toEqual({ locationNumber: 2, chargedOn: "2026-10-08" });
     expect(view.flags.pendingPlanChange).toEqual({
-      plan: { id: "web-voice", name: "Web + Voice" },
+      plan: { id: "web-voice", name: "AYA Web Chat + Voice" },
       interval: "year",
     });
   });
@@ -912,5 +914,40 @@ describe("the booking card reads the derived mode, and switches only Auto-confir
   test("the direct-booking switch is gone from the client", () => {
     expect(opsClient).not.toHaveProperty("setBookingMode");
     expect(opsClient).not.toHaveProperty("DIRECT_BOOKING_GATES");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The clinic's Instagram, Messenger and WhatsApp switches
+// -----------------------------------------------------------------------------
+
+describe("the Meta platform switches cross as three flags, and one op switches one", () => {
+  test("getOnboarding reads the three flags as booleans, and an older apps/app's missing ones as null", async () => {
+    reply(onboardingWith("Hi"));
+    const view = await fetchOnboarding(CLINIC);
+    if (!view.ok) throw new Error(view.message);
+    expect(view.data.meta.platforms).toEqual({ instagram: true, messenger: false, whatsapp: true });
+
+    const older = onboardingWith("Hi") as { data: { meta: Record<string, unknown> } };
+    delete older.data.meta.platforms;
+    reply(older);
+    const bare = await fetchOnboarding(CLINIC);
+    if (!bare.ok) throw new Error(bare.message);
+    expect(bare.data.meta.platforms).toBeNull();
+  });
+
+  test("a flag that is not a boolean is refused rather than shown as a switch", async () => {
+    const odd = onboardingWith("Hi") as { data: { meta: Record<string, unknown> } };
+    odd.data.meta.platforms = { instagram: "yes", messenger: false, whatsapp: true };
+    reply(odd);
+    expect(await fetchOnboarding(CLINIC)).toMatchObject({ ok: false });
+  });
+
+  test("setMetaPlatform sends the clinic, the platform and on or off, and nothing else", async () => {
+    reply({ data: { status: "updated" } });
+    expect(await setMetaPlatform(CLINIC, "whatsapp", false)).toMatchObject({ ok: true });
+    expect(sent).toEqual([
+      { op: "setMetaPlatform", args: { clinicId: CLINIC, platform: "whatsapp", enabled: false } },
+    ]);
   });
 });

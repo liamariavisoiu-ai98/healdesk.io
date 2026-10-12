@@ -15,11 +15,13 @@ import { requestDemo, runDemoBuild } from "@/lib/demo/build";
  *     "send_email"?: boolean }
  *
  * Only `clinic_name` and `website_url` are required. `send_email: true` mails
- * the link to `lead_email` once the build is ready.
+ * the link to `lead_email` once the handoff audit passes the demo.
  *
- * Answers 202 at once with the slug and the private link; the scrape and the
- * structuring run after the response (`after()`, inside `maxDuration`), and
- * the link opens on a "being prepared" screen until they finish. That keeps
+ * Answers 202 at once with the slug and the private link; the scrape, the
+ * structuring and the audit (lib/demo/audit.ts) run after the response
+ * (`after()`, inside `maxDuration`), and the link opens on a "being prepared"
+ * screen until the audit passes it, so forwarding the link at once is safe:
+ * a demo the audit holds never opens. That keeps
  * the caller inside the 30-second timeout most automation tools enforce.
  *
  * ## Access
@@ -93,7 +95,7 @@ export async function POST(request: Request): Promise<Response> {
       url,
       status: session.status,
       expires_at: session.expiresAt.toISOString(),
-      email: sendEmail ? "will be sent when the demo is ready" : "not requested",
+      email: sendEmail ? "will be sent once the demo passes its audit" : "not requested",
     },
     { status: 202 },
   );

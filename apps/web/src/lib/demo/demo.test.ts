@@ -6,9 +6,10 @@ import { __resetSheetSchemaForTests, DEMO_SESSIONS } from "@/lib/sheets/schema";
 
 import { demoSlugFromCookieHeader } from "./attribution";
 import { demoEmail } from "./build";
-import { buildClinicChatPrompt, CLINIC_VOICE_GENERAL_PROMPT, clinicVoiceVariables, demoModeLine } from "./clinic-prompts";
+import { buildClinicChatPrompt, CLINIC_VOICE_GENERAL_PROMPT, clinicVoiceVariables, demoModeLine, spokenName } from "./clinic-prompts";
+import { SLOANE_AGENT, SLOANE_PHONE_STYLE } from "./sloane-voice";
 import { isUsableProfile, normalizeProfile, profileToKnowledge, type ClinicProfile } from "./profile";
-import { assertPublicUrl, dominantColour, htmlToText, parseWebsiteUrl, prioritiseLinks, stripBoilerplate } from "./scrape";
+import { assertPublicUrl, dominantColour, htmlToText, parseWebsiteUrl, prioritiseLinks, scrapeBrandForTests, stripBoilerplate } from "./scrape";
 import {
   __resetDemoCacheForTests,
   createDemoSession,
@@ -139,6 +140,18 @@ describe("the scraper", () => {
     expect(out[3]!.text).toBe("Parking is free");
   });
 
+  it("takes the clinic's inline SVG logo over a review badge, and strips script from it", () => {
+    const html =
+      '<img src="/google-logo.png" width="16" alt="Google logo">' +
+      '<div class="site-logo"><a href="/"><svg viewBox="0 0 10 10" onload="x()"><script>evil()</script><title>Peachy</title><path d="M0 0h10v10z"/></svg></a></div>';
+    const logo = scrapeBrandForTests.logo(html, new URL("https://peachystudio.com/"));
+    expect(logo).toMatch(/^data:image\/svg\+xml;base64,/);
+    const svg = Buffer.from(logo!.split(",")[1]!, "base64").toString();
+    expect(svg).toContain("<title>Peachy</title>");
+    expect(svg).not.toMatch(/script|onload/);
+    expect(scrapeBrandForTests.logo('<img src="/google-logo.png" width="16" alt="Google logo">', new URL("https://x.com/"))).toBeNull();
+  });
+
   it("picks the colour somebody chose, not the greys", () => {
     expect(dominantColour("a{color:#333}b{color:#ffffff}c{background:#0a7cff}d{border-color:#0a7cff}")).toBe("#0a7cff");
     expect(dominantColour("a{color:#000}")).toBeNull();
@@ -192,6 +205,20 @@ describe("the demo register", () => {
     expect(again?.session.claimed).toBe(true);
   });
 
+  it("lets a built, unbought demo open the purchase, and nothing else", async () => {
+    const { demoInvitation } = await import("@/lib/setup-gate");
+    const demo = await createDemoSession({ clinicName: "Peachy", websiteUrl: "https://peachystudio.com/" });
+    const cookie = `a=1; hd_demo=${demo.slug}`;
+    expect(await demoInvitation(cookie)).toBeNull(); // still building
+    await updateDemoSession(demo.slug, { status: "ready" });
+    expect((await demoInvitation(cookie))?.slug).toBe(demo.slug);
+    await markDemoClaimed(demo.slug, "voice");
+    __resetDemoCacheForTests();
+    expect(await demoInvitation(cookie)).toBeNull(); // already bought
+    expect(await demoInvitation("hd_demo=peachy-zzzzzzzzzz")).toBeNull();
+    expect(await demoInvitation(null)).toBeNull();
+  });
+
   it("purges demos a month past expiry, and never a claimed one", async () => {
     const old = new Date("2026-08-01T00:00:00Z");
     const stale = await createDemoSession({ clinicName: "Stale", websiteUrl: "https://a.com/" }, old);
@@ -237,13 +264,28 @@ describe("what the demo says", () => {
   });
 
   it("opens every voice call with the AI and transcription disclosure", () => {
-    for (const mode of ["browser", "phone"] as const) {
+    for (const mode of ["browser", "inbound", "phone"] as const) {
       const opening = clinicVoiceVariables(PROFILE, mode, "Sam").opening_line!;
       expect(opening).toContain("AI assistant");
       expect(opening).toContain("transcribed");
     }
     expect(clinicVoiceVariables(PROFILE, "phone", "Sam").opening_line).toContain("You asked for this demo call");
     expect(clinicVoiceVariables(PROFILE, "browser").clinic_knowledge!.length).toBeLessThanOrEqual(6_000);
+  });
+
+  it("books on the phone as if live, and says it was a demo if asked", () => {
+    expect(CLINIC_VOICE_GENERAL_PROMPT).toContain("FOR THIS DEMO YOU HAVE FULL ACCESS TO THE CLINIC'S CALENDAR");
+    expect(CLINIC_VOICE_GENERAL_PROMPT).toContain("This is a demo, so nothing went into your real");
+    expect(CLINIC_VOICE_GENERAL_PROMPT).not.toContain("demo mode and don't have access");
+    // Trained and voiced as AYA is: Sloane's phone style and voice.
+    expect(CLINIC_VOICE_GENERAL_PROMPT).toContain(SLOANE_PHONE_STYLE);
+    expect(SLOANE_AGENT.voice_id).toBe("retell-Sloane");
+  });
+
+  it("says the clinic's name without trademark marks", () => {
+    expect(spokenName("Westlake Dermatology & Cosmetic Surgery®")).toBe("Westlake Dermatology & Cosmetic Surgery");
+    const opening = clinicVoiceVariables({ ...PROFILE, clinicName: "Glow™ Med Spa" }, "browser").opening_line!;
+    expect(opening).toContain("Thank you for calling Glow Med Spa.");
   });
 
   it("emails the link with the expiry date and a postal address", () => {
@@ -288,5 +330,126 @@ describe("the /demo security headers", () => {
     expect(everywhereElse["img-src"]).not.toContain("https:");
     expect(permissionsPolicy()).toBe(PERMISSIONS_POLICY);
     expect(PERMISSIONS_POLICY).toContain("microphone=()");
+  });
+});
+
+describe("opening hours, for reachable-now vs with AYA", () => {
+  it("reads the shapes clinic sites use", async () => {
+    const { parseDays, parseSpan, weeklyOpenHours } = await import("./opening-hours");
+    expect([...parseDays("Mon–Fri")!]).toEqual([0, 1, 2, 3, 4]);
+    expect([...parseDays("Sat & Sun")!]).toEqual([5, 6]);
+    expect(parseDays("Daily")!.size).toBe(7);
+    expect(parseSpan("9am–6pm")).toBe(9);
+    expect(parseSpan("9-5pm")).toBe(8);
+    expect(parseSpan("10:00 AM - 4:30 PM")).toBe(6.5);
+    expect(parseSpan("10-4")).toBe(6);
+    expect(parseSpan("Closed")).toBe(0);
+    expect(
+      weeklyOpenHours([
+        { days: "Mon–Fri", hours: "9am–6pm" },
+        { days: "Saturday", hours: "10am–4pm" },
+        { days: "Sunday", hours: "Closed" },
+      ]),
+    ).toEqual({ hours: 51, listed: true });
+  });
+
+  it("falls back to a stated assumption rather than a wrong total", async () => {
+    const { weeklyOpenHours, ASSUMED_WEEKLY_HOURS } = await import("./opening-hours");
+    expect(weeklyOpenHours([])).toEqual({ hours: ASSUMED_WEEKLY_HOURS, listed: false });
+    expect(weeklyOpenHours([{ days: "Mon–Fri", hours: "by arrangement with your stylist" }])).toEqual({
+      hours: ASSUMED_WEEKLY_HOURS,
+      listed: false,
+    });
+  });
+});
+
+describe("Google hours", () => {
+  it("takes only a listing on the clinic's own domain, and drops holiday notes", async () => {
+    const { pickListing } = await import("./google-hours");
+    const items = [
+      { title: "Peachy Bakery", website: "https://peachybakes.com", openingHours: [{ day: "Monday", hours: "6 AM to 2 PM" }] },
+      {
+        title: "Peachy West SoHo",
+        website: "https://www.peachystudio.com/pages/soho",
+        openingHours: [
+          { day: "Monday (Columbus Day)", hours: "9 AM to 7 PM" },
+          { day: "Saturday", hours: "9 AM to 5 PM" },
+        ],
+      },
+    ];
+    expect(pickListing(items, "https://peachystudio.com/")).toEqual({
+      place: "Peachy West SoHo",
+      hours: [
+        { days: "Monday", hours: "9 AM to 7 PM" },
+        { days: "Saturday", hours: "9 AM to 5 PM" },
+      ],
+    });
+    expect(pickListing(items.slice(0, 1), "https://peachystudio.com/")).toBeNull();
+  });
+
+  it("reads Google's hours as a weekly total", async () => {
+    const { weeklyOpenHours } = await import("./opening-hours");
+    const day = (d: string, h: string) => ({ days: d, hours: h });
+    expect(
+      weeklyOpenHours([
+        ...["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"].map((d) => day(d, "9 AM to 7 PM")),
+        day("Saturday", "9 AM to 5 PM"),
+        day("Sunday", "9 AM to 5 PM"),
+      ]),
+    ).toEqual({ hours: 66, listed: true });
+  });
+});
+
+describe("what each package could book", () => {
+  it("takes the middle whole-visit price from the site, skipping free, per-unit and subscription prices", async () => {
+    const { typicalVisit, priceFigure } = await import("./roi");
+    expect(priceFigure("$425 flat fee")).toBe(425);
+    expect(priceFigure("$1,125 (Save $150)")).toBe(1125);
+    expect(priceFigure("complimentary")).toBeNull();
+    const profile = normalizeProfile(
+      {
+        clinic_name: "Peachy",
+        services: [
+          { name: "Complimentary Consultation", price: "complimentary" },
+          { name: "Wrinkle Treatment", price: "$425 flat fee" },
+          { name: "Masseter Treatment", price: "$525 flat fee" },
+          { name: "Botox Facial", price: "$375 flat fee" },
+          { name: "Bundle", price: "$1,125" },
+          { name: "Retinoids", price: "$80 every 3 months" },
+          { name: "Botox by the unit", price: "$14/unit" },
+        ],
+      },
+      "Peachy",
+    );
+    expect(typicalVisit(profile, { valuePerBooking: 550, basis: "x" })).toEqual({
+      priceUsd: 425,
+      priceSource: "Wrinkle Treatment, from your website",
+    });
+    expect(typicalVisit(normalizeProfile({ clinic_name: "A" }, "A"), { valuePerBooking: 550, basis: "One visit" }).priceUsd).toBe(550);
+  });
+
+  it("counts only the enquiries a package answers, and does the arithmetic it shows", async () => {
+    const { coverage, estimate } = await import("./roi");
+    expect(coverage({ channels: { web: false, meta: false, voice: true } })).toEqual({ calls: 1, messages: 0 });
+    expect(coverage({ channels: { web: true, meta: false, voice: false } })).toEqual({ calls: 0, messages: 0.5 });
+    expect(coverage({ channels: { web: true, meta: true, voice: true } })).toEqual({ calls: 1, messages: 1 });
+    const inputs = {
+      priceUsd: 425,
+      priceSource: "",
+      missedCallsPerWeek: 8,
+      missedMessagesPerWeek: 4,
+      bookingRate: 0.35,
+      showRate: 0.85,
+      repeat: { visitsPerYear: 3, patient: "Botox and filler patient", why: "" },
+    };
+    // (8 + 4) × 4.33 × 0.35 × 0.85 = 15.46 patients; × $425 = $6,569 → $6,570.
+    expect(estimate({ channels: { web: true, meta: true, voice: true }, monthlyUsd: 1197 }, inputs)).toEqual({
+      patientsPerMonth: 15.5,
+      bookedValueUsd: 6570,
+      multiple: 5.5,
+      // 15.46 patients × ($425 × 3 visits) = $19,707 → $19,710.
+      yearValueUsd: 19710,
+    });
+    expect(estimate({ channels: { web: false, meta: false, voice: false }, monthlyUsd: 0 }, inputs).multiple).toBe(0);
   });
 });

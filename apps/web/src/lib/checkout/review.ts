@@ -28,9 +28,9 @@ export function audienceFor(specialty: SpecialtyId | null): "patient" | "client"
 }
 
 /** "Today: $997 setup fee", and what it pays for. */
-export function setupFeeToday(plan: Plan): { headline: string; covers: string } {
+export function setupFeeToday(plan: Plan, creditUsd = 0): { headline: string; covers: string } {
   return {
-    headline: `Today: ${usd.format(plan.setupFeeUsd)} setup fee`,
+    headline: `Today: ${usd.format(plan.setupFeeUsd - creditUsd)} setup fee`,
     covers: "It pays for building, configuring and testing your AYA, and it is never refunded.",
   };
 }
@@ -121,6 +121,6 @@ export function locationsLine(plan: Plan, interval: BillingInterval): string {
 }
 
 /** The button: the setup fee alone, which is all that is charged today. */
-export function payLabel(plan: Plan): string {
-  return `Pay ${usd.format(plan.setupFeeUsd)} and start setup`;
+export function payLabel(plan: Plan, creditUsd = 0): string {
+  return `Pay ${usd.format(plan.setupFeeUsd - creditUsd)} and start setup`;
 }

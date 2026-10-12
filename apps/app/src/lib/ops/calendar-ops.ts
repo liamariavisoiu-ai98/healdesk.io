@@ -156,7 +156,7 @@ export type SetAutoConfirmState =
  * address, as for a pause (lib/ops/billing.ts). The audit rows name the
  * operator.
  */
-const OPS_SWITCH_LABEL = "healdesk support";
+export const OPS_SWITCH_LABEL = "healdesk support";
 
 /**
  * Auto-confirm on or off, through the portal's own setAutoConfirm

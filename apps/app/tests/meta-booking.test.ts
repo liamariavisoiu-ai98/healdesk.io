@@ -488,6 +488,76 @@ describeDb("the booking hand-off, end to end", () => {
     expect(await decideBookingRequest(token2, "confirmed", { decidedByLabel: null, deskNote: null, confirmedFor: d1 }, sender)).toMatchObject({ outcome: "already-decided" });
   });
 
+  test("the follow-up and the reschedule line obey the practice's switches: front door off, platform off, paused or suspended, neither is sent", async () => {
+    // BAA 1.3.0 clause 16: the practice "may switch them off at any time".
+    const switches: [string, (clinicId: string) => Promise<unknown>, string][] = [
+      ["off", (clinicId) => withTenant({ clinicId, actor: ACTOR }, (tx) => setMetaFrontDoor(tx, false)), "front_door_off"],
+      [
+        "platform",
+        (clinicId) =>
+          inTenant(clinicId, (client) =>
+            client.query(
+              `insert into clinic_settings (clinic_id, messenger_enabled) values ($1, false)
+               on conflict (clinic_id) do update set messenger_enabled = false`,
+              [clinicId],
+            ),
+          ),
+        "platform_off",
+      ],
+      [
+        "paused",
+        (clinicId) =>
+          inTenant(clinicId, (client) =>
+            client.query(
+              `insert into clinic_settings (clinic_id, ai_paused_at) values ($1, now())
+               on conflict (clinic_id) do update set ai_paused_at = now(), ai_paused_until = null`,
+              [clinicId],
+            ),
+          ),
+        "ai_paused",
+      ],
+      [
+        "suspended",
+        (clinicId) =>
+          inTenant(clinicId, (client) =>
+            client.query(`update entitlements set status = 'suspended' where clinic_id = $1`, [clinicId]),
+          ),
+        "suspended",
+      ],
+    ];
+    let page = 0;
+    for (const [label, switchOff, reason] of switches) {
+      const externalId = `52345678901${String(page++).padStart(4, "0")}`;
+      const c = await liveClinic(`booking-switch-${label}`, externalId);
+      const accepted = await quickRequest("messenger", externalId, `switch-a-${label}`);
+      const rescheduled = await quickRequest("messenger", externalId, `switch-r-${label}`, { phone: "+14155550178" });
+      await switchOff(c.clinicId);
+      const before = sent.length;
+
+      expect(await decideBookingRequest(accepted, "accepted", { decidedByLabel: "Jo", deskNote: null }, sender), label).toEqual({
+        outcome: "decided",
+        followUp: "withheld",
+        appointmentId: null,
+        calendarWrite: null,
+      });
+      expect(
+        await decideBookingRequest(rescheduled, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() + 3 * DAY) }] }, sender),
+        label,
+      ).toMatchObject({ outcome: "decided", followUp: "withheld" });
+      // Nothing went out, and the drop is recorded as the adapter records one outside the window.
+      expect(sent.length, label).toBe(before);
+      const withheld = await inTenant(c.clinicId, (client) =>
+        client.query<{ metadata: Record<string, unknown> }>(
+          `select metadata from audit_log where resource_type = 'meta_front_door_reply' and metadata->>'outcome' = 'withheld' order by occurred_at`,
+        ),
+      );
+      expect(withheld.rows.map((r) => r.metadata), label).toEqual([
+        { platform: "messenger", outcome: "withheld", reason },
+        { platform: "messenger", outcome: "withheld", reason },
+      ]);
+    }
+  });
+
   test("a stop word on a thread is a message like any other: nothing is suppressed, because nothing is ever sent outside the conversation", async () => {
     const c = await liveClinic("booking-stop", "823456789012345");
     __setMetaRuntimeForTests(async () => json("Of course — call the practice whenever suits you.", { wants: false }), sender, transport);

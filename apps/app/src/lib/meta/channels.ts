@@ -5,6 +5,7 @@ import { bookingRequests, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { metaPlatformOn, syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -301,7 +302,8 @@ export type MetaSendOutcome =
 
 /**
  * Send free-form text on a thread, inside its window only. The only send
- * function this product has for Meta; outside the window it sends nothing.
+ * function this product has for Meta; outside the window it sends nothing,
+ * and for a clinic that has left (offboarding started) nothing at all.
  *
  * A caller replying to the message it just received passes `lastInboundAt`
  * (the instant is in its hand and the thread may hold no request yet);
@@ -326,6 +328,13 @@ export async function sendMetaReply(
     const reason = owner.withheld ?? (owner.enabled ? "platform_off" : "front_door_off");
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "withheld", reason } });
     return { status: "withheld", reason };
+  }
+  // A clinic that has left sends nothing more on its threads: not the desk's
+  // follow-up, not a reschedule line (lib/clinic/leaving.ts; the C19
+  // re-audit). Read with the clinic's row held, in the caller's transaction.
+  if (await clinicHasLeft(tx)) {
+    tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "withheld", reason: "clinic_left" } });
+    return { status: "withheld", reason: "clinic_left" };
   }
   const lastInbound = opts.lastInboundAt !== undefined ? opts.lastInboundAt : await metaThreadLastInbound(tx, owner.platform, recipientId);
   if (!lastInbound || lastInbound.getTime() + META_WINDOW_MS < now.getTime()) {

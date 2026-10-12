@@ -168,7 +168,9 @@ function Proposed({ req, query }: { req: ResolvedBookingRequest; query: Params }
         ? "They have also been told on the thread that you will go through some options by phone."
         : query.followup === "outside_window"
           ? "Their message thread's 24-hour window has closed, so nothing was sent there."
-          : null;
+          : query.followup === "withheld"
+            ? "Your Instagram, Messenger and WhatsApp replies are switched off or paused, so nothing was sent there."
+            : null;
   const lapses = req.rescheduleExpiresAt?.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
   return (
     <div className="mt-6 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
@@ -203,7 +205,9 @@ function Decided({ req, query }: { req: ResolvedBookingRequest; query: Params })
             ? "Their message thread's 24-hour window has closed, so nothing was sent there — please call them directly."
             : query.followup === "no-channel"
               ? "The channel this came from is no longer connected, so please call them directly."
-              : null;
+              : query.followup === "withheld"
+                ? "Your Instagram, Messenger and WhatsApp replies are switched off or paused, so nothing was sent there — please call them directly."
+                : null;
   // §B.4: the write's outcome, from the redirect just now or from the row on a later open.
   const calendarStatus = query.calendar && query.calendar !== "none" ? query.calendar : req.calendarWrite?.status ?? null;
   const calendarError = req.calendarWrite?.error ?? null;

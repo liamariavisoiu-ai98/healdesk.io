@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { clinics } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
-import { followUpLine, type BookingChannel } from "@/lib/meta/booking-requests";
+import { followUpLine, followUpOwnerFor, type BookingChannel } from "@/lib/meta/booking-requests";
 import { sendMetaReply, type MetaChannelOwner, type MetaSender } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import type { TenantTx } from "@/lib/tenant";
@@ -16,10 +16,11 @@ import type { TenantTx } from "@/lib/tenant";
  * also offered them on a consented call-back from the assistant; that path
  * was removed for v1.
  *
- * On a Meta thread, and only inside Meta's 24-hour window (which
- * sendMetaReply enforces), the person also gets one fixed line that names no
- * day, time or provider. The line says the practice will go through the
- * options by phone, which is what happens.
+ * On a Meta thread, and only inside Meta's 24-hour window and while the
+ * practice's switches let the assistant answer there (both enforced by
+ * sendMetaReply), the person also gets one fixed line that names no day,
+ * time or provider. The line says the practice will go through the options
+ * by phone, which is what happens.
  */
 export type RescheduleRequest = {
   id: string;
@@ -31,14 +32,17 @@ export type RescheduleRequest = {
 };
 
 export type RescheduleOutreach = {
-  /** The Meta line: sent, refused by the window, the thread gone, failed — or null for a phone request. */
-  meta: "sent" | "failed" | "outside_window" | "no-channel" | null;
+  /**
+   * The Meta line: sent, refused by the window, withheld by the practice's
+   * switches, the thread gone, failed — or null for a phone request.
+   */
+  meta: "sent" | "failed" | "outside_window" | "withheld" | "no-channel" | null;
 };
 
 export async function planRescheduleOutreach(
   tx: TenantTx,
   request: RescheduleRequest,
-  deps: { send?: MetaSender; now?: Date } = {},
+  deps: { send?: MetaSender; now?: Date; owner?: MetaChannelOwner | null } = {},
 ): Promise<RescheduleOutreach> {
   let meta: RescheduleOutreach["meta"] = null;
   if (request.channel === "meta") {
@@ -46,10 +50,13 @@ export async function planRescheduleOutreach(
       meta = "no-channel";
     } else {
       const [clinic] = await tx.db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-      const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: request.connectionId, platform: request.platform, enabled: true };
+      // The owner resolved through the practice's switches before the
+      // decision's transaction (resolveFollowUpOwner); none resolved, or one
+      // they refused, sends nothing.
+      const owner = followUpOwnerFor(tx.clinicId, request, deps.owner);
       try {
         const sent = await sendMetaReply(tx, owner, request.externalId, request.senderId, followUpLine(clinic?.name ?? "The practice", "rescheduling"), deps.send, { now: deps.now });
-        meta = sent.status === "sent" ? "sent" : "outside_window";
+        meta = sent.status === "sent" ? "sent" : sent.status === "withheld" ? "withheld" : "outside_window";
         if (sent.status === "sent") {
           tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: request.platform, source: "booking_follow_up" } });
         }

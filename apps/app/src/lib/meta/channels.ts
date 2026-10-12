@@ -2,8 +2,10 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { bookingRequests, clinics } from "@/db/schema";
+import type { ActorContext } from "@/lib/audit";
+import { assistantMayAnswer } from "@/lib/billing/answering";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
-import type { TenantTx } from "@/lib/tenant";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import type { MetaPlatform } from "./front-door";
 import { GRAPH_VERSION } from "./graph";
@@ -27,6 +29,15 @@ import { GRAPH_VERSION } from "./graph";
  * no HUMAN_AGENT send and no WhatsApp template: the out-of-window template
  * path of 23 September 2026 (§G.3) was removed, and nothing in this file can
  * reach a person who has not written in the last 24 hours.
+ *
+ * The second rule is the practice's switches (BAA 1.3.0 clause 16: Practice
+ * "may switch them off at any time"). A reply that answers the message just
+ * received is sent only after the webhook has found the front door on and
+ * the answer gate open. A reply sent later, on the desk's decision (the
+ * follow-up and the reschedule line), takes an owner resolved by
+ * `resolveFollowUpOwner` just before it, through the same two checks, and an
+ * owner they refused is never sent for: `sendMetaReply` drops it and records
+ * why, as it records a send outside the window.
  */
 export const META_PROVIDERS: Record<MetaPlatform, string> = {
   messenger: "meta-messenger",
@@ -83,7 +94,55 @@ export async function setMetaFrontDoor(tx: TenantTx, enabled: boolean): Promise<
   tx.audit.record({ action: "update", resourceType: "clinic_meta_front_door", resourceId: tx.clinicId, metadata: { enabled } });
 }
 
-export type MetaChannelOwner = { clinicId: string; connectionId: string; platform: MetaPlatform; enabled: boolean };
+export type MetaChannelOwner = {
+  clinicId: string;
+  connectionId: string;
+  platform: MetaPlatform;
+  /** The front door is on (and, for a follow-up, the answer gate is open): replies may go. */
+  enabled: boolean;
+  /** Why a follow-up owner is refused: `front_door_off`, or the answer gate's reason. */
+  withheld?: string;
+};
+
+/**
+ * The owner for a reply that does not answer the message just received: the
+ * desk's follow-up and the reschedule line. Resolved outside any transaction,
+ * because the answer gate opens its own (lib/billing/answering.ts, R1), just
+ * before the decision's transaction that sends it. Enabled only while the
+ * practice's Meta front door is on (`clinics.meta_front_door_enabled`, the
+ * switch the webhook obeys) and the answer gate would answer on Meta now: no
+ * pause, the channel bought, on and live, billing in good standing (not
+ * suspended or cancelled), and an agreement in effect. The follow-up belongs
+ * to a conversation already had, so it is not a new one for the allowance
+ * cap, and asking raises no allowance notice.
+ */
+export async function resolveFollowUpOwner(input: {
+  clinicId: string;
+  connectionId: string;
+  platform: MetaPlatform;
+  actor: ActorContext;
+  now?: Date;
+}): Promise<MetaChannelOwner> {
+  const base = { clinicId: input.clinicId, connectionId: input.connectionId, platform: input.platform };
+  const frontDoorOn = await withTenant({ clinicId: input.clinicId, actor: input.actor }, async (tx) => {
+    const [row] = await tx.db
+      .select({ enabled: clinics.metaFrontDoorEnabled })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    return row?.enabled === true;
+  });
+  if (!frontDoorOn) return { ...base, enabled: false, withheld: "front_door_off" };
+  const decision = await assistantMayAnswer({
+    clinicId: input.clinicId,
+    channel: "meta",
+    continuing: true,
+    now: input.now,
+    actor: input.actor,
+  });
+  if (decision.decision === "pass_through") return { ...base, enabled: false, withheld: decision.reason };
+  return { ...base, enabled: true };
+}
 
 /** Which clinic owns this page / account / number. Ids only; see 0036. */
 export async function resolveMetaChannel(externalId: string): Promise<MetaChannelOwner | null> {
@@ -154,7 +213,11 @@ export async function graphSend(input: Parameters<MetaSender>[0]): Promise<void>
   if (!response.ok) throw new Error(`Graph API ${response.status}`);
 }
 
-export type MetaSendOutcome = { status: "sent" } | { status: "outside_window" };
+export type MetaSendOutcome =
+  | { status: "sent" }
+  | { status: "outside_window" }
+  /** The owner was refused: the front door is off, or the answer gate would not answer. */
+  | { status: "withheld"; reason: string };
 
 /**
  * Send free-form text on a thread, inside its window only. The only send
@@ -177,6 +240,13 @@ export async function sendMetaReply(
   opts: { lastInboundAt?: Date | null; now?: Date } = {},
 ): Promise<MetaSendOutcome> {
   const now = opts.now ?? new Date();
+  // The practice's switches first: an owner refused is never sent for,
+  // whatever the caller asked (see the header).
+  if (!owner.enabled) {
+    const reason = owner.withheld ?? "front_door_off";
+    tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "withheld", reason } });
+    return { status: "withheld", reason };
+  }
   const lastInbound = opts.lastInboundAt !== undefined ? opts.lastInboundAt : await metaThreadLastInbound(tx, owner.platform, recipientId);
   if (!lastInbound || lastInbound.getTime() + META_WINDOW_MS < now.getTime()) {
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "outside_window" } });

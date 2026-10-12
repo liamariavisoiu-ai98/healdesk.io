@@ -161,6 +161,12 @@ export type AssistantMayAnswerInput = {
   channel: Channel;
   /** The call's or conversation's usage reference; it replaces `startsNew` (R1). */
   usage?: { source: UsageSource; sourceRef: string };
+  /**
+   * The interaction is one already had (the desk's Meta follow-up): it is
+   * not a new conversation for the allowance cap, and asking raises no
+   * allowance notice.
+   */
+  continuing?: boolean;
   now?: Date;
   actor: ActorContext;
 };
@@ -508,7 +514,7 @@ async function runGate(
     coverageMode: location.coverageMode,
     openNow: location.openNow,
     closedToday: location.closedToday,
-    startsNew: !billed.counted,
+    startsNew: input.continuing ? false : !billed.counted,
   };
   const decision = decideAnswer(facts);
 

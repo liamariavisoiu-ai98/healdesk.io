@@ -34,7 +34,7 @@ import { listClinics } from "@/lib/ops/clinics";
 import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { META_WINDOW_MS, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
+import { META_WINDOW_MS, resolveFollowUpOwner, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
 import { isTimeWindow } from "./time-window";
 import type { MetaPlatform } from "./front-door";
 
@@ -773,8 +773,13 @@ export type DecisionOutcome = {
     | "checking"
     /** The assistant's booking for this request reached the calendar after all, and stands. */
     | "already_in_calendar";
-  /** null when the channel has nothing to say on (a phone request: the desk calls). */
-  followUp: "sent" | "failed" | "no-channel" | "outside_window" | null;
+  /**
+   * null when the channel has nothing to say on (a phone request: the desk
+   * calls). `withheld`: the practice's Meta front door is off, or the answer
+   * gate would not answer there now (paused, suspended, no agreement), so
+   * nothing was sent.
+   */
+  followUp: "sent" | "failed" | "no-channel" | "outside_window" | "withheld" | null;
   appointmentId: string | null;
   /** §B.4: the calendar write's outcome once an appointment was created; null when nothing was confirmed. */
   calendarWrite: CalendarWriteOutcome | null;
@@ -834,6 +839,9 @@ type RequestFacts = {
   keyHold: { id: string; calendarId: string } | null;
   /** The services list, for the confirmed span's length and canonical name. */
   services: AgentService[];
+  /** A Meta request's channel connection, for its follow-up's owner; null for a phone request. */
+  metaConnectionId: string | null;
+  metaPlatform: MetaPlatform | null;
 };
 
 /** The facts the guard and the re-check need, read before the decision's own transaction. */
@@ -845,6 +853,8 @@ async function readRequestFacts(tx: TenantTx, hash: Buffer): Promise<RequestFact
       expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
       treatment: bookingRequests.treatment,
       collectedFields: bookingRequests.collectedFields,
+      metaConnectionId: bookingRequests.connectionId,
+      metaPlatform: bookingRequests.platform,
     })
     .from(bookingRequests)
     .where(eq(bookingRequests.tokenHash, hash))
@@ -969,11 +979,19 @@ export async function decideBookingRequest(
     }
   }
 
+  // The Meta follow-up's owner, through the practice's switches, outside any
+  // transaction (the answer gate opens its own): a front door switched off,
+  // a pause, a suspension or no agreement in effect withholds the line.
+  const followUpOwner =
+    facts.metaConnectionId && facts.metaPlatform
+      ? await resolveFollowUpOwner({ clinicId, connectionId: facts.metaConnectionId, platform: facts.metaPlatform, actor: LINK_ACTOR, now })
+      : null;
+
   // 3. The decision.
   let decided: DecisionOutcome;
   try {
     decided = await withTenant(actor, (tx) =>
-      decideWithin(tx, { hash, decision, input, proposed, from, now, service, deskCalendar, send }),
+      decideWithin(tx, { hash, decision, input, proposed, from, now, service, deskCalendar, send, followUpOwner }),
     );
   } catch (error) {
     if (codeOf(error) !== "23P01") throw error;
@@ -1179,7 +1197,23 @@ type DecideWithinInput = {
   service: { minutes: number; canonicalName: string | null };
   deskCalendar: { calendarId: string; providerId: string | null } | null;
   send?: MetaSender;
+  /** The Meta follow-up's owner, resolved through the switches before this transaction; null withholds it. */
+  followUpOwner: MetaChannelOwner | null;
 };
+
+/**
+ * The owner a follow-up on this request is sent as: the one resolved through
+ * the switches for this request's own connection, or, when none was resolved
+ * or it names another connection, a refused one, so nothing is sent.
+ */
+export function followUpOwnerFor(
+  clinicId: string,
+  row: { connectionId: string | null; platform: MetaPlatform | null },
+  resolved: MetaChannelOwner | null | undefined,
+): MetaChannelOwner {
+  if (resolved && resolved.connectionId === row.connectionId && resolved.platform === row.platform) return resolved;
+  return { clinicId, connectionId: row.connectionId ?? "", platform: row.platform ?? "messenger", enabled: false, withheld: "unresolved" };
+}
 
 /** Step 3 of the desk path: the decision itself, in the caller's transaction. */
 async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<DecisionOutcome> {
@@ -1320,17 +1354,19 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
   // §C.2: the desk goes through the alternatives by phone; on a Meta
   // thread, a fixed line says so, inside the window only.
   if (decision === "rescheduling") {
-    const outreach: RescheduleOutreach = await planRescheduleOutreach(tx, row, { send: d.send, now });
+    const outreach: RescheduleOutreach = await planRescheduleOutreach(tx, row, { send: d.send, now, owner: d.followUpOwner });
     return { outcome: "decided", followUp: outreach.meta, appointmentId: null, calendarWrite: null };
   }
 
   if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
   if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
-  const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true };
+  const owner = followUpOwnerFor(tx.clinicId, row, d.followUpOwner);
   try {
     // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
-    // message tag and no template, so the desk calls instead.
+    // message tag and no template, so the desk calls instead. Nor does it
+    // send for an owner the practice's switches refused.
     const sent = await sendMetaReply(tx, owner, row.externalId, row.senderId, followUpLine(clinic.clinicName, decision), d.send, { now });
+    if (sent.status === "withheld") return { outcome: "decided", followUp: "withheld", appointmentId, calendarWrite: null };
     if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null };
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: row.platform, source: "booking_follow_up" } });
     return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null };

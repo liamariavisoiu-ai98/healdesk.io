@@ -516,8 +516,8 @@ record of the request, no longer than we need it.
      overrides are recorded by CloudTrail ("Reaching the app's shell", below). **Nothing
      on AWS turns a number into a contact id yet**: the ops console does not show one,
      and the route, a deletion request the practice files in its portal behind step-up,
-     waits for M5. Until then a deletion on the AWS host needs a contact id from the
-     practice's own records;
+     waits for M5. A practice never sees our contact ids, so until then nothing on the
+     AWS host can supply one, and a deletion there waits for M5;
    - **on a development machine, against a development database:** the same as
      arguments (`--clinic`, `--contact`, `--requested-by`, `--received-at`,
      `--operator`), or, without `--contact`, the number and the address typed at the

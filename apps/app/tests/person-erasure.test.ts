@@ -1564,6 +1564,13 @@ describeDb("deletion on request", () => {
     expect(section).toMatch(/no real patient call may go through Synthflow/);
     const runTask = readFileSync(join(repo, "infra", "aws", "scripts", "run-task.sh"), "utf8");
     expect(runTask).not.toMatch(/contact's uuid \(the ops console shows it\)/);
+    // A practice never sees our contact ids, so no text may send an operator to
+    // "the practice's own records" for one (healdesk-io-58, 12 October 2026).
+    expect(runTask).toMatch(
+      /until the M5 portal nothing on AWS turns a number, an address or a name into one/,
+    );
+    expect(runTask).not.toMatch(/practice's own records/);
+    expect(handover.replace(/\s+/g, " ")).not.toMatch(/contact id from the practice's own records/);
     expect(handover.replace(/\s+/g, " ")).not.toMatch(/the ops console shows (it|a contact)/i);
     // And the jobs paragraph no longer says every job ships switched off:
     // heartbeat and incident-deadlines ship on, and two jobs widen.

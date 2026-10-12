@@ -22,7 +22,9 @@ import {
   type DestructionInput,
 } from "@/lib/offboarding/offboarding";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
+import { exportRuleIsPromised } from "@/lib/offboarding/offboarding";
 import { JOB_OFFBOARDING_DESTROY, setJobEnabled } from "@/lib/scheduler/jobs";
+import { runOffboardingDestroyJob } from "@/lib/scheduler/offboarding-destroy";
 import { runTick } from "@/lib/scheduler/tick";
 import { withTenant } from "@/lib/tenant";
 
@@ -463,6 +465,8 @@ const DAY_COUNTING_FUNCTIONS = [
   "app_destroy_deposit_payments(uuid)",
   "app_purge_amended_appointments(timestamptz)",
   "app_purge_amended_conversations(timestamptz)",
+  // 0067: the deposits' purge on the record clock.
+  "app_purge_deposit_payments(timestamptz)",
 ];
 
 async function offboard(
@@ -1053,6 +1057,62 @@ describeDb("the destruction clock in the database", () => {
       await setJobEnabled(JOB_OFFBOARDING_DESTROY, false, admin.staffUserId);
     }
   }, 180_000);
+
+  test("switched off, the job still destroys the clinics whose agreement states the export rule, and only them; on, every clinic", async () => {
+    // The calendar session's re-audit (C19, 12 October 2026): the job ran
+    // through runJob, so BAA 1.3.0's and the DPA's destruction deadlines, and
+    // the day-21 alert about an export owed, waited on a switch that ships
+    // off, and nothing told ops it was off.
+    const admin = await seedClinic("clock-widen-admin");
+    const destroyed = async (clinicId: string) => (await stamps(clinicId)).destroyed_at !== null;
+    const v130 = await offboard("clock-widen-next", "1.3.0");
+    const dpa = await offboard("clock-widen-dpa", "dpa/1.0.0");
+    const flat = await offboard("clock-widen-flat", "1.2.2");
+    await moveBack(v130.clinicId, 89 * 24 + 1);
+    await moveBack(dpa.clinicId, 89 * 24 + 1);
+    await moveBack(flat.clinicId, 29 * 24 + 1);
+
+    await setJobEnabled(JOB_OFFBOARDING_DESTROY, false, admin.staffUserId);
+    const off = await runOffboardingDestroyJob();
+    expect(off.status).toBe("ok");
+    expect(off.status === "ok" ? off.note : "").toMatch(
+      /^Switched off: only the clinics whose agreement states the export rule \(BAA 1\.3\.0, the DPA\)\./,
+    );
+    expect(await destroyed(v130.clinicId), "1.3.0").toBe(true);
+    expect(await destroyed(dpa.clinicId), "DPA").toBe(true);
+    expect(await destroyed(flat.clinicId), "1.2.2 waits for the switch").toBe(false);
+
+    await setJobEnabled(JOB_OFFBOARDING_DESTROY, true, admin.staffUserId);
+    try {
+      const on = await runOffboardingDestroyJob();
+      expect(on.status).toBe("ok");
+      expect(await destroyed(flat.clinicId), "1.2.2, switched on").toBe(true);
+    } finally {
+      await setJobEnabled(JOB_OFFBOARDING_DESTROY, false, admin.staffUserId);
+    }
+  }, 120_000);
+
+  test("which agreements promise the export rule is read from each version's own Term clause, and agrees with the map", () => {
+    for (const t of BAA_TEMPLATES) {
+      expect(exportRuleIsPromised(t.version), t.version).toBe(
+        DESTRUCTION_RULES.baa[t.version] === "export_or_ninety",
+      );
+    }
+    for (const t of DPA_TEMPLATES) {
+      const bare = t.version.slice(DPA_VERSION_PREFIX.length);
+      expect(exportRuleIsPromised(t.version), t.version).toBe(
+        DESTRUCTION_RULES.dpa[bare] === "export_or_ninety",
+      );
+    }
+    const promising = [...BAA_TEMPLATES, ...DPA_TEMPLATES]
+      .map((t) => t.version)
+      .filter((v) => exportRuleIsPromised(v))
+      .sort();
+    expect(promising).toEqual(["1.3.0", "dpa/1.0.0"]);
+    // No text, no promise: an unknown version waits for the switch.
+    expect(exportRuleIsPromised("9.9.9")).toBe(false);
+    expect(exportRuleIsPromised(null)).toBe(false);
+  });
 
   // ---------------------------------------------------------------------------
   // The caller's time zone (review of 7 October)

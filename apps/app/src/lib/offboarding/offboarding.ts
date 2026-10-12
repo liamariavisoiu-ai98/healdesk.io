@@ -20,6 +20,7 @@ import {
   transactions,
   webhookEvents,
 } from "@/db/schema";
+import { agreementStatesTheExportRule } from "@/lib/agreements/what-it-says";
 import { recordSecurityEvent } from "@/lib/audit";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
@@ -150,8 +151,12 @@ import { withTenant } from "@/lib/tenant";
  * agreement (its own six-year floor), and the billing history. That history
  * includes channel_events, kept like billing_notices: the plan start and
  * every step-up were charged from its rows, which hold no patient data.
- * Deposit rows are money records too and stay, without the appointment they
- * were taken for.
+ * Deposits do not stay: each carries the Checkout session that finds the
+ * payer in the clinic's own Stripe account, which is where the money record
+ * lives, so app_destroy_deposit_payments() deletes them and the Connect
+ * events resolved to the clinic (0065); the return bundle is the clinic's
+ * copy. A person's deletion takes theirs, and the record clock the rest
+ * (0067).
  *
  * Of the tables 0044 added, clinic_closures (the days the clinic was closed)
  * goes with the patient rows. clinic_channels is classed with it but cannot
@@ -592,18 +597,36 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
 }
 
 /**
+ * Whether the agreement a clinic's service ended under promises the export
+ * rule, read from that version's own Term clause (lib/agreements/what-it-says):
+ * BAA 1.3.0 and the DPA do. Such a clinic's destruction, and the day-21
+ * alert about its export, run whatever the job's switch says; the switch
+ * adds every other clinic (the calendar session's re-audit, C19, 12 October
+ * 2026: 1.3.0's deadlines depended on an owner switch that ships off, and
+ * nothing told ops it was off).
+ */
+export function exportRuleIsPromised(version: string | null): boolean {
+  return version !== null && agreementStatesTheExportRule(version);
+}
+
+/**
  * The job: every clinic whose plan says it is due, destroyed, and ops told
  * before a clinic on the thirty days loses an export nobody has recorded as
  * delivered. Runs every hour (tick.ts), and every run destroys every clinic
- * due, on either rule.
+ * due, on either rule. With `onlyPromised` (the job switched off), only the
+ * clinics whose agreement promises the export rule.
  */
-export async function destroyDueClinics(now: Date = new Date()): Promise<DestructionResult[]> {
+export async function destroyDueClinics(
+  now: Date = new Date(),
+  options: { onlyPromised?: boolean } = {},
+): Promise<DestructionResult[]> {
   const actor = { type: "service", serviceName: "offboarding-destroy" } as const;
   const results: DestructionResult[] = [];
   for (const clinic of await listClinics()) {
     if (clinic.destroyedAt) continue;
     const plan = destructionPlan(clinic);
     if (!plan) continue;
+    if (options.onlyPromised && !exportRuleIsPromised(plan.agreementVersion)) continue;
     if (plan.basis === "unknown_version") {
       log.error("destruction rule unknown for the agreement version; using the thirty days", {
         clinicId: clinic.id,

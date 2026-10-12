@@ -1,11 +1,4 @@
-import {
-  agreementKindOfVersion,
-  getBaaTemplate,
-  getDpaTemplate,
-  TRANSCRIPT_RETENTION_DAYS,
-  type BaaVariables,
-  type DpaVariables,
-} from "@healdesk/catalog";
+import { agreementStatesThePurge } from "@/lib/agreements/what-it-says";
 import { and, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 
 import {
@@ -189,65 +182,6 @@ export type PurgeResult = {
   /** Deposits whose appointment the record clock took (drizzle/0067). */
   depositsDeleted: number;
 };
-
-/**
- * The purge's periods, as an agreement has to state them to promise the
- * nightly purge: BAA 1.3.0's clause 11 and the DPA's "Minimum necessary"
- * clause (since 12 October 2026, docs/counsel/dpa.md gap 2) say each of
- * these, word for word, with TRANSCRIPT_RETENTION_DAYS. 1.2.2 and earlier say
- * only "keeps transcripts and conversation records for 90 days", which
- * promises no period for a booking request, an appointment or a contact.
- * Matched on the text with its line breaks folded, so the 78-column wrap
- * cannot hide one.
- */
-const PURGE_PERIODS: readonly string[] = [
-  `keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place`,
-  `each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time`,
-  `keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time`,
-  `contact details are kept while any conversation, appointment record or booking request of theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded or changed`,
-];
-
-/** Any practice: every clause body is pure and total, and what is read here is the same for all. */
-const SAMPLE_BAA: BaaVariables = {
-  specialty: "med-spa",
-  attributionMode: "estimated",
-  connectedPlatform: null,
-  isCoveredEntity: true,
-  outboundMessaging: false,
-  bookingSystem: "google_calendar",
-  calendarAccount: "workspace_baa",
-  clinicLegalName: "Practice",
-  signatoryName: "Signatory",
-  signatoryEmail: "signatory@practice.test",
-  effectiveDate: "2026-01-01",
-};
-const SAMPLE_DPA: DpaVariables = {
-  clinicLegalName: "Practice",
-  signatoryName: "Signatory",
-  signatoryEmail: "signatory@practice.test",
-  effectiveDate: "2026-01-01",
-  specialty: "med-spa",
-  bookingSystem: "google_calendar",
-  calendarAccount: "workspace_baa",
-};
-
-/**
- * Whether an agreement's own clauses state every one of the purge's periods,
- * read from the clauses a sample practice's copy contains (the retention
- * clause applies to every practice in both agreements).
- */
-export function agreementStatesThePurge(version: string): boolean {
-  const bodies =
-    agreementKindOfVersion(version) === "dpa"
-      ? (getDpaTemplate(version)?.clauses ?? [])
-          .filter((c) => c.appliesWhen(SAMPLE_DPA))
-          .map((c) => c.body(SAMPLE_DPA))
-      : (getBaaTemplate(version)?.clauses ?? [])
-          .filter((c) => c.appliesWhen(SAMPLE_BAA))
-          .map((c) => c.body(SAMPLE_BAA));
-  const text = bodies.join(" ").replace(/\s+/g, " ");
-  return PURGE_PERIODS.every((period) => text.includes(period));
-}
 
 const promised = new Map<string, boolean>();
 

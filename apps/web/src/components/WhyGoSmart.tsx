@@ -49,6 +49,18 @@ const currency = new Intl.NumberFormat("en-US", {
  * industry ranges from docs/icp-niches.md and the footnote says so.
  *
  *   revenue in play = call volume × leakage × booking rate × value per booking
+ *
+ * ## The calculator sits beside the heading (owner, 12 October 2026)
+ *
+ * From 1024px the copy is the left column and the calculator the right, both
+ * starting at the top. Until then the heading sat alone over an empty right
+ * half and the calculator began below the fold, so the page opened on a
+ * promise with nothing to touch. Inside the right column there is no room
+ * for the calculator's own two columns, so AYA's questions and her answer
+ * stack there as they always have on a phone, and the copy holds its place
+ * (sticky) while the visitor works down them. The columns are the ones the
+ * section under it uses (WhyWaitExperience), so the two right-hand panels
+ * share an edge. Below 1024px nothing moved.
  */
 export function WhyGoSmart({
   specialty,
@@ -85,8 +97,11 @@ export function WhyGoSmart({
   }, [callsPerWeek, missedPercent, recoveryShare, specialty]);
 
   return (
-    <section id="why" className="scroll-mt-24 py-20 sm:py-28">
-      <div data-reveal="stagger" className="max-w-[760px]">
+    <section
+      id="why"
+      className="scroll-mt-24 py-20 sm:py-28 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:items-start lg:gap-x-14"
+    >
+      <div data-reveal="stagger" className="max-w-[760px] lg:sticky lg:top-28">
         <p className="eyebrow-tag">Why go smart?</p>
         <h2 className="heading-section mt-5">
           The calls you never hear about are the ones{" "}
@@ -98,9 +113,12 @@ export function WhyGoSmart({
         </p>
       </div>
 
-      <div className="border-line mt-11 grid gap-0 overflow-hidden rounded-lg border bg-white lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+      {/* Stacked at every width: beside the copy from 1024px, its half of
+          the page is too narrow for the questions and the answer side by
+          side (see "The calculator sits beside the heading" above). */}
+      <div className="border-line mt-11 grid gap-0 overflow-hidden rounded-lg border bg-white lg:mt-0">
         {/* ── The conversation ─────────────────────────────────────────── */}
-        <div className="border-line flex flex-col gap-8 border-b p-7 sm:p-10 lg:border-r lg:border-b-0">
+        <div className="border-line flex flex-col gap-8 border-b p-7 sm:p-10">
           <p className="text-muted flex items-center gap-2 text-xs font-bold tracking-[0.14em] uppercase">
             <span aria-hidden className="bg-brand-gradient size-2 rounded-full" />
             {site.agent} asks

@@ -41,10 +41,16 @@ export function optionalSwitchOf(kind: EmailKind): NoticeSwitch | null {
 
 /**
  * Whether it carries the one-click way to stop it (List-Unsubscribe and the
- * footer link): every optional kind and every commercial one.
+ * footer link): every optional kind and every commercial one, and O11, whose
+ * reader is someone the clinic named and may want no more of them.
  */
 export function carriesUnsubscribe(kind: EmailKind): boolean {
-  return optionalSwitchOf(kind) !== null || classOf(kind) === "commercial";
+  return optionalSwitchOf(kind) !== null || classOf(kind) === "commercial" || toSomeoneNamed(kind);
+}
+
+/** Sent to someone the clinic names rather than to the clinic's own address (O11). */
+export function toSomeoneNamed(kind: string): boolean {
+  return isDirectKind(kind) && DIRECT_KIND_REGISTRY[kind].toSomeoneNamed;
 }
 
 /**

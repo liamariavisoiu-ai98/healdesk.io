@@ -1,5 +1,5 @@
 {
-  "id": "933bc101-1aef-4f08-982f-e1465a0f2fd1",
+  "id": "41cd36f1-c57f-4b94-9b8d-842e897ee89a",
   "prevId": "72783ffd-4e38-44ca-aacd-d96e56c6a808",
   "version": "7",
   "dialect": "postgresql",
@@ -370,12 +370,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "calendar_id": {
-          "name": "calendar_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -545,10 +539,6 @@
         "appointments_calendar_event_key_check": {
           "name": "appointments_calendar_event_key_check",
           "value": "\"appointments\".\"calendar_event_key\" is null or \"appointments\".\"calendar_event_key\" ~ '^(hold:)?[0-9a-f-]{36}$'"
-        },
-        "appointments_calendar_id_check": {
-          "name": "appointments_calendar_id_check",
-          "value": "\"appointments\".\"calendar_id\" is null or (char_length(\"appointments\".\"calendar_id\") between 1 and 255 and \"appointments\".\"calendar_id\" !~ '[[:space:][:cntrl:]]')"
         }
       },
       "isRLSEnabled": false
@@ -1306,7 +1296,7 @@
       "checkConstraints": {
         "billing_notices_kind_check": {
           "name": "billing_notices_kind_check",
-          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected')"
+          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready')"
         }
       },
       "isRLSEnabled": false
@@ -7051,7 +7041,7 @@
       "checkConstraints": {
         "report_deliveries_kind_check": {
           "name": "report_deliveries_kind_check",
-          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'welcome')"
+          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'welcome', 'steps_sent')"
         },
         "report_deliveries_delivery_status_check": {
           "name": "report_deliveries_delivery_status_check",
@@ -7604,12 +7594,6 @@
           "notNull": true,
           "default": "'held'"
         },
-        "calendar_id": {
-          "name": "calendar_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -7920,10 +7904,6 @@
         "slot_holds_check_attempts_check": {
           "name": "slot_holds_check_attempts_check",
           "value": "\"slot_holds\".\"check_attempts\" >= 0"
-        },
-        "slot_holds_calendar_id_check": {
-          "name": "slot_holds_calendar_id_check",
-          "value": "char_length(\"slot_holds\".\"calendar_id\") between 1 and 255 and \"slot_holds\".\"calendar_id\" !~ '[[:space:][:cntrl:]]'"
         },
         "slot_holds_outcome_reason_check": {
           "name": "slot_holds_outcome_reason_check",

@@ -1,6 +1,7 @@
 import { headers } from "next/headers";
 
 import type { RequestContext } from "@/lib/audit";
+import { clientIp } from "@/lib/client-ip";
 
 /**
  * Who is at the other end of an anonymous connect request, as far as we can
@@ -17,18 +18,17 @@ import type { RequestContext } from "@/lib/audit";
  * Next's request store into that module would trade a testable library for one
  * that can only run inside a route.
  *
- * ⚠️ Both values are attacker-influenced text, and the first hop of a
- * forwarded-for chain is whatever the client typed. They are recorded as a
- * trace, never trusted as an identity — the token is the only thing that
- * authenticates here. `normaliseIp()` in links.ts is what stops a strange
- * header reaching the `inet` column and refusing a clinic's credential.
+ * ⚠️ Both values are a trace, never an identity — the token is the only thing
+ * that authenticates here. The address is the one our load balancer saw
+ * (lib/client-ip.ts), not the first forwarded-for entry, which the client
+ * writes; the user agent is whatever the client sent. `normaliseIp()` in
+ * links.ts still stands between the address and the `inet` column.
  */
 export async function connectRequestContext(): Promise<RequestContext> {
   const incoming = await headers();
-  const forwarded = incoming.get("x-forwarded-for")?.split(",")[0]?.trim();
 
   return {
-    ipAddress: forwarded || incoming.get("x-real-ip") || undefined,
+    ipAddress: clientIp(incoming),
     userAgent: incoming.get("user-agent") ?? undefined,
   };
 }

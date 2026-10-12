@@ -36,7 +36,7 @@ import { inTenant, seedGoogleConnection } from "./setup/factories";
 
 /**
  * The desk path against Google (plan §7.10-7.12, C12) and migration B
- * (drizzle/0059): staff confirming a request on a location whose calendar
+ * (drizzle/0060): staff confirming a request on a location whose calendar
  * terms let healdesk write, with the assistant's own holds in the way or
  * not, Google busy or not, and the write that follows. Every Google call
  * goes to the in-memory fake.
@@ -1088,7 +1088,7 @@ describeDb("the desk path and the Google write (C12)", () => {
     SLOW,
   );
 
-  /* ------------------------------------------------ migration B (0059) */
+  /* ------------------------------------------------ migration B (0060) */
 
   test(
     "holds key on the clinic and the calendar; a booking naming no calendar blocks them all; a hold's calendar never moves",

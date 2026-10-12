@@ -46,7 +46,7 @@ import { calendarTermsFor, type CalendarTermsInEffect } from "./terms";
  * location's Google connection when it is healthy, of the account kind the
  * terms name, accepted under a notice still compatible, and the location is
  * not leaving (writableConnection); the database says the same before any
- * write may start (app_appointment_write_guard, drizzle/0059). The
+ * write may start (app_appointment_write_guard, drizzle/0060). The
  * assistant's own bookings are the engine's (lib/booking/engine.ts, C13),
  * through a hold, never through here.
  *
@@ -292,7 +292,7 @@ export async function writeToCalendar(
   try {
     step = await withTenant({ clinicId, actor }, (tx) => claim(tx, appointmentId, allowed));
   } catch (error) {
-    // The write guard (drizzle/0059) refused the claim: the terms or the
+    // The write guard (drizzle/0060) refused the claim: the terms or the
     // connection changed between our read and the claim, and nothing was
     // written. The terms allowed writing a moment ago, so this is the
     // no-healthy-calendar case: staff add it by hand, and it is never
@@ -677,7 +677,7 @@ function sameSpan(
   return event.startsAt.getTime() === p.scheduledFor.getTime() && event.endsAt.getTime() === end;
 }
 
-/** The write guard's refusal of a claim (drizzle/0059, app_appointment_write_guard). */
+/** The write guard's refusal of a claim (drizzle/0060, app_appointment_write_guard). */
 const WRITE_PERMITTED = "appointments_write_permitted";
 
 function codeOf(error: unknown): string | undefined {

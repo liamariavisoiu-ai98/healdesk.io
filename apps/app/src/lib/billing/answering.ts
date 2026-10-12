@@ -1,6 +1,7 @@
-import type { Channel } from "@healdesk/catalog";
+import { COVERAGE_MODES, type Channel } from "@healdesk/catalog";
 import { and, eq } from "drizzle-orm";
 
+import type { Transaction } from "@/db";
 import {
   clinicChannels,
   clinics,
@@ -50,8 +51,8 @@ export type { Channel };
 /**
  * How a clinic's calls reach us (BD23): every call, the calls staff miss plus
  * everything after hours (the default), or after hours only. Read from
- * `clinics.call_routing` until the funnel's `clinic_settings.coverage_mode`
- * lands, by `coverageModeOf`, the one accessor that switches.
+ * `clinic_settings.coverage_mode`, the single source (plan Part F2), by
+ * `coverageModeOf`, the one accessor every billing reader goes through.
  */
 export type CoverageMode = "all_calls" | "overflow_after_hours" | "after_hours_only";
 
@@ -164,17 +165,22 @@ export function meterForChannel(channel: Channel): UsageMeter {
 }
 
 /**
- * The clinic's voice coverage mode (BD23). Today `clinics.call_routing`:
- * `always` forwards every call (All calls), `conditional` forwards the calls
- * staff miss and, with after-hours forwarding, everything outside hours
- * (Overflow and after hours, the default). No stored value can say After
- * hours only yet, so `outside_coverage` cannot fire until the funnel's
- * `clinic_settings.coverage_mode` lands and this accessor, the only reader,
- * switches to it. An unknown value is the default mode.
+ * The clinic's voice coverage mode (BD23): `clinic_settings.coverage_mode`,
+ * the single source the wizard and Settings write, which is the only column
+ * that can say After hours only. A clinic with no settings row yet falls back
+ * to what `clinics.call_routing` means: `always` forwards every call (All
+ * calls), `conditional` forwards the calls staff miss and, with after-hours
+ * forwarding, everything outside hours (Overflow and after hours, the
+ * default). An unknown value is the default mode.
  */
-export function coverageModeOf(clinic: {
-  readonly callRouting: string | null | undefined;
-}): CoverageMode {
+export function coverageModeOf(
+  clinic: { readonly callRouting: string | null | undefined },
+  settings?: { readonly coverageMode: string | null | undefined } | null,
+): CoverageMode {
+  const stored = settings?.coverageMode;
+  if (stored && (COVERAGE_MODES as readonly string[]).includes(stored)) {
+    return stored as CoverageMode;
+  }
   switch (clinic.callRouting) {
     case "always":
       return "all_calls";
@@ -183,6 +189,24 @@ export function coverageModeOf(clinic: {
     default:
       return "overflow_after_hours";
   }
+}
+
+/**
+ * `coverageModeOf` for the clinic `tx` is scoped to, reading its settings
+ * row in the caller's transaction: for the billing emails that print the
+ * steps for undoing call forwarding (R31).
+ */
+export async function readCoverageMode(
+  db: Transaction,
+  clinicId: string,
+  clinic: { readonly callRouting: string | null | undefined },
+): Promise<CoverageMode> {
+  const [settings] = await db
+    .select({ coverageMode: clinicSettings.coverageMode })
+    .from(clinicSettings)
+    .where(eq(clinicSettings.clinicId, clinicId))
+    .limit(1);
+  return coverageModeOf(clinic, settings ?? null);
 }
 
 function passThrough(
@@ -364,12 +388,13 @@ async function runGate(
         pausedAt: clinicSettings.aiPausedAt,
         pausedUntil: clinicSettings.aiPausedUntil,
         directLine: clinicSettings.directLineE164,
+        coverageMode: clinicSettings.coverageMode,
       })
       .from(clinicSettings)
       .where(eq(clinicSettings.clinicId, tx.clinicId))
       .limit(1);
 
-    const coverageMode = coverageModeOf(clinic);
+    const coverageMode = coverageModeOf(clinic, settings ?? null);
     const openNow = channel === "voice" ? openAt(clinic.openingHours, now, clinic.timezone) : null;
     // A closure day matters only where it could change the answer: an After
     // hours only clinic whose weekly hours say it is open now.

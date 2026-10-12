@@ -7,12 +7,14 @@ import { directBookingAllowed } from "@/lib/booking/mode";
 import { metaChannelGreeting } from "@/lib/compliance/disclosure";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
+  cleanAlternatives,
   cleanBookingFields,
   decideBookingRequest,
   expireLapsedRequests,
   followUpLine,
   requestReceivedLine,
   resolveBookingRequest,
+  windowIsClean,
 } from "@/lib/meta/booking-requests";
 import { collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
@@ -75,6 +77,29 @@ describe("what the model may hand over", () => {
       alternativeWindows: ["Friday after 2"],
     });
     expect(cleanBookingFields(null)).toEqual({ firstName: null, phone: null, preferredWindow: null, alternativeWindows: [] });
+  });
+
+  test("a Meta name or window naming an everyday skin or hair condition is refused, and a voice request's alternatives are screened as before", () => {
+    // Letters and spaces pass the name's own check, so the catalog's screen reads it too.
+    expect(cleanBookingFields({ first_name: "Maria with acne", phone: "(415) 555-0134", window: "Friday after 2" }).firstName).toBeNull();
+    expect(cleanBookingFields({ first_name: "Mary Ann", phone: "(415) 555-0134", window: "Friday after 2" }).firstName).toBe("Mary Ann");
+    expect(cleanBookingFields({ first_name: "Scarlett", phone: "(415) 555-0134", window: "Friday after 2" }).firstName).toBe("Scarlett");
+    // Words the window matcher never listed: only the catalog's everyday
+    // conditions, which a Meta request counts, refuse them.
+    expect(cleanBookingFields({ first_name: "Maria", phone: "(415) 555-0134", window: "Tuesday, once this breakout clears", alt_windows: ["Thursday after 4, unless my cold sore is back", "Friday after 2"] })).toEqual({
+      firstName: "Maria",
+      phone: "+14155550134",
+      preferredWindow: null,
+      alternativeWindows: ["Friday after 2"],
+    });
+    expect(windowIsClean("Tuesday, once this breakout clears", { conditions: true })).toBe(false);
+    // A voice request's alternatives come from a call the BAA covers: the
+    // default screen, unchanged.
+    expect(windowIsClean("Tuesday, once this breakout clears")).toBe(true);
+    expect(cleanAlternatives(["Tuesday, once this breakout clears", "Friday after 2"], [])).toEqual(["Tuesday, once this breakout clears", "Friday after 2"]);
+    expect(cleanAlternatives(["Tuesday, once this breakout clears", "Friday after 2"], [], { conditions: true })).toEqual(["Friday after 2"]);
+    // What the window matcher refused before, it still refuses on either channel.
+    expect(windowIsClean("Tuesday, for my rosacea flare-up")).toBe(false);
   });
 
   test("every fixed line passes the guard, service names and promotions included, hands off to the phone and names no time", () => {
@@ -216,8 +241,11 @@ describeDb("the booking hand-off, end to end", () => {
 
     // Message 2: the number, but the model's reply acknowledges a condition
     // — the guard replaces it with the fixed ask, in the catalogue's words.
+    // The message names no condition itself: one that did would be handed
+    // off before the model, and its number kept nowhere
+    // (tests/meta-screen-and-greeting.test.ts).
     __setMetaRuntimeForTests(async () => json("Sorry to hear about your acne! And when suits you?", { phone: "415-555-0134" }), sender, transport);
-    res = await post(inbound("415-555-0134 — it's for my acne"));
+    res = await post(inbound("415-555-0134 — it's about my skin"));
     expect(sent[1]!.text).toMatch(/a day or time that works best/);
     expect(sent[1]!.text).not.toMatch(/acne/);
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows).toHaveLength(0);

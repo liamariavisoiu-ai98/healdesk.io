@@ -259,18 +259,7 @@ function checkValue(
       }
       return;
     case "deviceName":
-      // What staff called one of their own devices ("Front desk Mac"), O3's
-      // one free-text field: the user_factors CHECK's rules, and nothing that
-      // could be an address, a link or a number someone could call.
-      if (
-        typeof value !== "string" ||
-        value.length === 0 ||
-        value.length > 60 ||
-        // eslint-disable-next-line no-control-regex
-        /[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069@]|:\/\/|\d{7,}/.test(value)
-      ) {
-        fail("must be a device's name.");
-      }
+      if (!isAllowedDeviceName(value)) fail("must be a device's name.");
       return;
     case "masked":
       if (typeof value !== "string" || value.length > 120 || !/[*•]{2,}/.test(value)) {
@@ -290,6 +279,25 @@ function checkValue(
       if (typeof value !== "boolean") fail("must be true or false.");
       return;
   }
+}
+
+/**
+ * What staff called one of their own devices ("Front desk Mac"), the one
+ * free-text field O3 and O4 carry: the user_factors CHECK's rules, and
+ * nothing that could be an address, a link or a number someone could call.
+ * The device's own name may break the last three (a label is only checked
+ * for what the database can hold), so a writer that queues one asks here
+ * first and leaves the name out rather than have the sender refuse the email
+ * for good.
+ */
+export function isAllowedDeviceName(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= 60 &&
+    // eslint-disable-next-line no-control-regex
+    !/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069@]|:\/\/|\d{7,}/.test(value)
+  );
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

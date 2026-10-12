@@ -55,12 +55,21 @@ export const QUEUE_NOTICES = "notices";
  * never billed. The hourly tick runs both as a backstop.
  */
 export const QUEUE_BILLING_MINUTE = "billing-minute";
+/**
+ * The calendar watch's five-minute clock (lib/scheduler/calendar-watch.ts,
+ * owner decision 5). A queue of its own rather than the hourly tick, because
+ * a location whose Google access was removed must take booking requests
+ * within one five-minute cycle, not within the hour.
+ */
+export const QUEUE_CALENDAR_WATCH = "calendar-watch";
 
 /**
  * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
  * work a queue that was never created — `npm run queue:install` must be
  * re-run per environment when this list grows (it grew `billing-minute` with
- * the Stripe build of 6 October 2026). The 23 September 2026
+ * the Stripe build of 6 October 2026, and `calendar-watch` with the calendar
+ * build of 8 October 2026), and the worker restarted after it, because the
+ * worker registers its clocks only at start-up. The 23 September 2026
  * `callback-dialer` queue was removed with the call-back (v1 places no
  * calls); where it was installed, it is simply never worked.
  */
@@ -71,6 +80,7 @@ export const QUEUES = [
   QUEUE_TICK,
   QUEUE_NOTICES,
   QUEUE_BILLING_MINUTE,
+  QUEUE_CALENDAR_WATCH,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];
@@ -160,26 +170,31 @@ export type ClockBoss = {
  * pg-boss's `schedule()` throws "Queue … not found" for a queue that
  * `npm run queue:install` never created, and a throw out of the worker's
  * start-up takes the whole process down with it, the hourly tick included.
- * A clock added after an environment was installed (`billing-minute`) must
- * therefore fail on its own: the tick still runs its work hourly as the
- * backstop, and the log names the fix. Each fire is one empty job; pg-boss
+ * A clock added after an environment was installed (`billing-minute`,
+ * `calendar-watch`) must therefore fail on its own: the rest of the worker
+ * runs, and the log names the fix, which is the install and then a restart,
+ * since this runs only at start-up. Each fire is one empty job; pg-boss
  * hands the handler an array, which a clock ignores.
+ *
+ * `retryLimit` is how often pg-boss re-runs a fire whose handler threw, at
+ * once (its default is twice). A clock whose next fire is the retry passes 0.
  */
 export async function startGuardedClock(
   boss: ClockBoss,
   queue: QueueName,
   cron: string,
   handler: () => Promise<void>,
+  options: { retryLimit?: number } = {},
 ): Promise<boolean> {
   try {
-    await boss.schedule(queue, cron, {}, { tz: "UTC" });
+    await boss.schedule(queue, cron, {}, { tz: "UTC", ...options });
     await boss.work(queue, { batchSize: 1 }, async () => {
       await handler();
     });
     return true;
   } catch (error) {
     log.error(
-      "queue clock not running: run `npm run queue:install` as the migrator",
+      "queue clock not running: run `npm run queue:install` as the migrator, then restart the worker",
       {
         job: queue,
         error: describeError(error),

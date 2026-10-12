@@ -63,7 +63,7 @@ export type HoldPlaced =
  * `superseded`); mark the location's lapsed `held` holds expired; delete
  * spent holds older than a day; insert. The database refuses the insert
  * (23P01) when another holder's live hold or a healdesk booking overlaps it
- * on the same calendar (app_slot_hold_guard, drizzle/0059), which rolls the
+ * on the same calendar (app_slot_hold_guard, drizzle/0060), which rolls the
  * whole transaction back: the caller answers `slot_taken` (placeHold does).
  *
  * The audit row carries the hold's id, the call reference and the length:

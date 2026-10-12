@@ -1,0 +1,194 @@
+import { US_TIME_ZONES } from "@healdesk/catalog";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
+
+import { clinicLocalDate } from "@/lib/clinic/closures";
+import { requirePortal } from "@/lib/portal/access";
+import { depositShown, readClinicDefaultDeposit } from "@/lib/portal/knowledge";
+import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
+import { loadPortalPage, shellProps } from "@/lib/portal/page";
+import { formatPhone } from "@/lib/setup/help";
+import { serviceInputOf } from "@/lib/setup/knowledge";
+
+import type { HoursInitial } from "../editors";
+import { FeedbackProvider } from "../feedback";
+import { PortalShell } from "../PortalShell";
+
+import {
+  HoursForm,
+  NeverSayForm,
+  PoliciesForm,
+  PracticeForm,
+  PricesForm,
+  PromotionsForm,
+  QuickAnswersForm,
+  Section,
+} from "./KnowledgeForms";
+
+export const metadata: Metadata = { title: "Knowledge · healdesk", referrer: "no-referrer" };
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Knowledge (plan Part F3; spec, "Knowledge: quick edits, no re-scrape
+ * needed"): what AYA may say about the practice. The practice and its
+ * policies; prices, with how each is priced, its length and its deposit;
+ * promotions, under "AYA mentions these", which is Settings' switch; quick
+ * answers; the never-say list, editable, with the clinical defaults one tap
+ * away; and the hours with the days the practice is closed.
+ *
+ * Every text is screened before it is stored and a refusal names the phrase
+ * (lib/portal/knowledge.ts). Nothing here is about a patient, so no step-up.
+ * "Changes on your website", the drift list, joins in M7.
+ */
+export default async function KnowledgePage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  const portal = await requirePortal(slug);
+  const now = new Date();
+  const page = await loadPortalPage(portal, now);
+  if (!page) notFound();
+  const shell = shellProps(portal, page, "knowledge");
+  const { clinic, knowledge, settings, closures } = page.state;
+
+  if (clinic.offboardingStartedAt) {
+    return (
+      <PortalShell {...shell}>
+        <h1 className="text-2xl font-semibold">Knowledge</h1>
+        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
+          This account has closed, so there is nothing left to change.
+        </p>
+      </PortalShell>
+    );
+  }
+
+  const settingsHref = isBuiltSection("settings")
+    ? `${sectionPath(portal.clinicSlug, "settings")}#how-aya-talks`
+    : null;
+  const promotionsSold = page.state.channels.some(
+    (c) => c.channel === "voice" || c.channel === "web",
+  );
+  const clinicDefaultDeposit = await readClinicDefaultDeposit(
+    portal.clinicId,
+    page.actorContext,
+  );
+
+  return (
+    <PortalShell {...shell}>
+      <h1 className="text-2xl font-semibold">Knowledge</h1>
+      <p className="text-muted mt-2">
+        What AYA may say about your practice. Each part saves on its own, and AYA uses it at once.
+        Leave out anything medical: AYA passes those questions to your team.
+      </p>
+      <FeedbackProvider>
+        <div className="mt-6 grid gap-6">
+          <Section id="practice" title="Your practice">
+            <PracticeForm
+              slug={portal.clinicSlug}
+              initial={{
+                name: clinic.name,
+                address: clinic.address ?? "",
+                phone: clinic.publishedPhoneE164 ? formatPhone(clinic.publishedPhoneE164) : "",
+                website: clinic.website ?? "",
+                timezone: clinic.timezone,
+              }}
+              zones={US_TIME_ZONES}
+            />
+          </Section>
+
+          <Section
+            id="policies"
+            title="Policies"
+            intro="Cancellations, late arrivals, payment: one per line, in your own words."
+          >
+            <PoliciesForm slug={portal.clinicSlug} initial={knowledge.policies} />
+          </Section>
+
+          <Section
+            id="prices"
+            title="Prices"
+            intro="AYA quotes only these prices; anything else becomes an offer to book a consultation. A deposit here is asked for when Take deposits is on in Settings."
+          >
+            <PricesForm
+              slug={portal.clinicSlug}
+              initial={knowledge.services.map((service) => {
+                const input = serviceInputOf(service);
+                return {
+                  name: input.name,
+                  priceKind: input.priceKind,
+                  price: input.price === null ? "" : String(input.price),
+                  maxPrice: input.maxPrice === null ? "" : String(input.maxPrice),
+                  unit: input.unit ?? "",
+                  duration: input.durationMinutes === null ? "" : String(input.durationMinutes),
+                  deposit: depositShown(input.depositUsd, clinicDefaultDeposit),
+                  depositUsd: input.depositUsd ?? null,
+                };
+              })}
+            />
+          </Section>
+
+          <Section
+            id="promotions"
+            title="Promotions"
+            intro={
+              <>
+                {promotionsSold ? (
+                  <>
+                    AYA mentions these: {settings.mentionPromotions ? "On" : "Off"}
+                    {settingsHref ? (
+                      <>
+                        {" · "}
+                        <a href={settingsHref} className="text-ink font-semibold underline">
+                          change
+                        </a>
+                      </>
+                    ) : null}
+                    . On phone and website chat only.
+                  </>
+                ) : (
+                  "AYA mentions promotions on phone and website chat only, so these wait until you have one of them."
+                )}
+              </>
+            }
+          >
+            <PromotionsForm slug={portal.clinicSlug} initial={knowledge.promotions ?? ""} />
+          </Section>
+
+          <Section
+            id="quick-answers"
+            title="Quick answers"
+            intro="Questions and your answers, for temporary things like parking during building work."
+          >
+            <QuickAnswersForm
+              slug={portal.clinicSlug}
+              initial={knowledge.quickAnswers.map((a) => ({
+                question: a.question,
+                answer: a.answer,
+              }))}
+            />
+          </Section>
+
+          <Section
+            id="never-say"
+            title="Never say"
+            intro="Phrases AYA must never use. It starts with the clinical defaults; add your own. The protections themselves stay in AYA, whatever this list holds."
+          >
+            <NeverSayForm slug={portal.clinicSlug} initial={knowledge.neverSay} />
+          </Section>
+
+          <Section
+            id="hours"
+            title="Hours"
+            intro="AYA tells people when you're open, and with phone these decide when calls reach her."
+          >
+            <HoursForm
+              slug={portal.clinicSlug}
+              initial={(clinic.openingHours as unknown as HoursInitial | null) ?? null}
+              closures={closures.map((c) => ({ closedOn: c.closedOn, label: c.label ?? "" }))}
+              today={clinicLocalDate(now, clinic.timezone)}
+            />
+          </Section>
+        </div>
+      </FeedbackProvider>
+    </PortalShell>
+  );
+}

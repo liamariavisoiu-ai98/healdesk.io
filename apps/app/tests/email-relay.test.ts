@@ -191,6 +191,20 @@ describeDb("the emailEvent relay", () => {
     expect(await alerts("clinic_address_bounced")).toHaveLength(0);
   });
 
+  test("a bounce from someone the clinic sent its steps on to is recorded, and ops is not told the clinic's address bounced", async () => {
+    const c = await seedClinic("relay-steps");
+    const row = await ledgerRow(c.clinicId, "steps_sent", "2026-10-06:1");
+    await relay({
+      type: "bounced",
+      at: "2026-10-06T15:00:00Z",
+      clinic: c.clinicId,
+      delivery: row,
+      kind: "steps_sent",
+    });
+    expect((await delivery(c.clinicId, row)).delivery_status).toBe("bounced");
+    expect(await alerts("clinic_address_bounced")).toEqual([]);
+  });
+
   test("another clinic's tag cannot reach this clinic's row", async () => {
     const mine = await seedClinic("relay-mine");
     const other = await seedClinic("relay-other");

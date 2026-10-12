@@ -2,11 +2,10 @@
 
 import { redirect } from "next/navigation";
 
-import { disconnect, getCalendarConnection } from "@/lib/connections/google-calendar";
+import { disconnect } from "@/lib/connections/google-calendar";
 import { startGoogleConnect } from "@/lib/connections/google-oauth";
 import { describeError, log } from "@/lib/log";
 import { requirePortal } from "@/lib/portal/access";
-import { portalActor } from "@/lib/portal/actor";
 import { requireStepUp } from "@/lib/portal/step-up";
 import { noticeForRefusal, type CalendarNotice } from "@/lib/setup/calendar";
 
@@ -20,26 +19,21 @@ import { requestMeta } from "../request-meta";
  * or back to the step with `?calendar=` naming what happened, a word from a
  * closed set (lib/setup/calendar.ts).
  *
- * Connecting the first time needs no step-up: the step-up rule covers where
- * calls and money go, and a value set for the first time never needs one
- * (plan Part D4). Once a calendar is connected, a reconnect may put the
- * bookings in another Google account and a disconnect takes the calendar
- * away (after which anyone with the inbox could connect one again), so both
- * ask for the passkey step-up, as Settings → Calendar's change does (plan
- * Part F2) and as the direct line's change does here.
+ * Signing in asks for no step-up, first time or again: the step-up rule
+ * covers where calls and money go, and a reconnect of the same account
+ * changes neither. Replacing the connected account with another does need
+ * one (the portal plan's "step-up to change"), and only Google's answer
+ * says which account came back, so the calendar session's callback asks for
+ * it there: without a passkey step-up live on the session that returns,
+ * another account ends `different_account` (C18). The step tells the clinic
+ * to confirm it's them first. Disconnect asks for the step-up here, because
+ * after it anyone with the inbox could connect another account as a first
+ * connection, which would get round the callback's check.
  */
 
 export async function connectCalendar(form: FormData): Promise<void> {
   const portal = await requirePortal(String(form.get("slug") ?? ""));
   const setup = `/c/${portal.clinicSlug}/setup`;
-  const actor = await portalActor(portal);
-  const current = await getCalendarConnection(portal.clinicId, {
-    actor: { type: "user", userId: portal.userId, label: actor.label },
-  });
-  if (current.status !== "not_connected") {
-    await requireStepUp(portal, "sensitive_change", { returnTo: `${setup}?s=calendar` });
-  }
-
   const ticked = form.get("disclosure") === "accepted";
   const version = form.get("disclosureVersion");
   let destination: string;

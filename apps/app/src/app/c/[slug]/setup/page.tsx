@@ -79,9 +79,11 @@ export const dynamic = "force-dynamic";
  *
  * Anyone using the clinic's sign-in can continue setup; nothing here shows a
  * patient, so no step-up is asked for, except to change the direct line once
- * it is set (actions.ts) and to reconnect or disconnect a connected calendar
- * (calendar-actions.ts). Google's sign-in comes back to this page with only
- * `?calendar=<outcome>`, which opens the calendar step and says what happened.
+ * it is set (actions.ts), to disconnect a connected calendar
+ * (calendar-actions.ts), and to put the bookings in another Google account,
+ * which the calendar session's callback checks. Google's sign-in comes back
+ * to this page with only `?calendar=<outcome>`, which opens the calendar
+ * step and says what happened.
  */
 export default async function SetupPage({
   params,
@@ -141,6 +143,7 @@ export default async function SetupPage({
           backHref,
           home,
           actor: who,
+          steppedUp: actor.steppedUp,
           notice: screen === "calendar" ? notice : null,
         })}
       </section>
@@ -238,6 +241,8 @@ type Nav = {
   backHref: string | null;
   home: string;
   actor: ActorContext;
+  /** Whether a passkey step-up is live on this session. */
+  steppedUp: boolean;
   /** What Google's return, or a calendar button, said happened: the calendar step only. */
   notice: CalendarNotice | null;
 };
@@ -408,7 +413,15 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
     }
 
     case "calendar":
-      return <CalendarStep state={state} common={common} notice={nav.notice} actor={nav.actor} />;
+      return (
+        <CalendarStep
+          state={state}
+          common={common}
+          notice={nav.notice}
+          actor={nav.actor}
+          steppedUp={nav.steppedUp}
+        />
+      );
 
     case "providers":
       return <ProvidersStep state={state} common={common} actor={nav.actor} />;
@@ -445,11 +458,13 @@ async function CalendarStep({
   common,
   notice,
   actor,
+  steppedUp,
 }: {
   state: SetupState;
   common: { slug: string; backHref: string | null; skipCost: string };
   notice: CalendarNotice | null;
   actor: ActorContext;
+  steppedUp: boolean;
 }) {
   const [step, autoConfirm] = await Promise.all([
     calendarStep({ id: state.clinic.id, name: state.clinic.name }, { actor }),
@@ -463,6 +478,7 @@ async function CalendarStep({
       bookingSystem={state.settings.bookingSystem}
       autoConfirm={autoConfirm}
       timeZone={state.clinic.timezone}
+      steppedUp={steppedUp}
       actions={{ connect: connectCalendar, disconnect: disconnectCalendar }}
     />
   );

@@ -148,7 +148,7 @@ const NOTICE_WORDS: Record<Exclude<CalendarNotice, "mismatch">, string> = {
   probe:
     "healdesk couldn't check that calendar's free and busy times with Google, or the account isn't the calendar's owner, so nothing was stored. Try again in a few minutes.",
   different_account:
-    "You signed in with a different Google account from the one already connected, so nothing changed.",
+    "You signed in with a different Google account from the one connected, so nothing changed. To move your bookings to that account, confirm it's you with Face ID or your screen lock first (under Reconnect), then sign in with it again.",
   election_needed:
     "That Google account is a different kind of account, or in another Workspace organisation, from the one connected now. Switching to it means updating your calendar terms first, so nothing changed. Write to hello@healdesk.io and we'll help.",
   account_in_use:

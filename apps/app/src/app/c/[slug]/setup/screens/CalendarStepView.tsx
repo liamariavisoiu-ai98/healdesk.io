@@ -1,6 +1,7 @@
 import { BOOKING_SYSTEMS, bookingSyncFor, manualBookingNotice } from "@healdesk/catalog";
 
 import { connectedOn } from "@/lib/connections/calendar-links";
+import { stepUpPath } from "@/lib/portal/step-up";
 import {
   calendarNoticeWords,
   calendarStateOf,
@@ -32,6 +33,8 @@ export function CalendarStepView(props: {
   autoConfirm: AutoConfirmView;
   /** The clinic's time zone, for the day the calendar was connected. */
   timeZone: string;
+  /** Whether a passkey step-up is live on this session (portalActor). */
+  steppedUp: boolean;
   actions: CalendarConnectActions;
 }) {
   const { step } = props;
@@ -57,6 +60,8 @@ export function CalendarStepView(props: {
                 ? null
                 : connectedOn(step.connection.connectedAt, props.timeZone)
             }
+            steppedUp={props.steppedUp}
+            stepUpHref={stepUpPath(props.slug, `/c/${props.slug}/setup?s=calendar`)}
             actions={props.actions}
           />
         ) : null

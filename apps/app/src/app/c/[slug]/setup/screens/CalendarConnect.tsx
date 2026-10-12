@@ -20,9 +20,12 @@ import type { CalendarStep } from "@/lib/setup/calendar";
  *
  * Connected, it says which account and since when, offers Reconnect and
  * Disconnect, and opens the reconnect at once when the connection has
- * stopped working or was made under a notice that has since changed. A pure
- * function of its props, with the two server actions passed in, so tests
- * render it directly.
+ * stopped working or was made under a notice that has since changed. A
+ * reconnect with the same account needs nothing more; another account needs
+ * a passkey step-up live when Google sends the browser back (the calendar
+ * session's callback, C18), so the reconnect says so and links the step-up
+ * until one is live. A pure function of its props, with the two server
+ * actions passed in, so tests render it directly.
  */
 
 export type CalendarConnectActions = {
@@ -37,6 +40,10 @@ export function CalendarConnect(props: {
   step: GoogleStep;
   /** The day the connection was made, on the clinic's own calendar, or null. */
   connectedOn: string | null;
+  /** Whether a passkey step-up is live on this session, so another account may take over. */
+  steppedUp: boolean;
+  /** The step-up, coming back to this step. */
+  stepUpHref: string;
   actions: CalendarConnectActions;
 }) {
   const { connection, account, disclosure } = props.step;
@@ -65,10 +72,21 @@ export function CalendarConnect(props: {
   const reconnectNow = broken || !connection.disclosureCurrent;
   const reconnect = (
     <div className="grid gap-4">
-      <p className="text-sm">
-        Reconnecting asks for Face ID or your screen lock first, because it can change the Google
-        account your bookings go into.
-      </p>
+      {props.steppedUp ? (
+        <p className="text-sm">
+          Sign in with the same Google account to reconnect it. You&rsquo;ve confirmed it&rsquo;s
+          you, so you can also sign in with another account to move your bookings there.
+        </p>
+      ) : (
+        <p className="text-sm">
+          Sign in with the same Google account to reconnect it. To move your bookings to another
+          Google account,{" "}
+          <a href={props.stepUpHref} className="font-semibold underline">
+            confirm it&rsquo;s you
+          </a>{" "}
+          with Face ID or your screen lock first, then sign in with that account.
+        </p>
+      )}
       {signIn}
     </div>
   );

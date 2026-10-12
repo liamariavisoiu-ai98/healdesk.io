@@ -266,6 +266,7 @@ function stepText(
   step: CalendarStep,
   notice: CalendarNotice | null = null,
   autoConfirm: AutoConfirmView = NOT_CONNECTED_LINE,
+  steppedUp = false,
 ): string {
   return decode(
     renderToStaticMarkup(
@@ -278,6 +279,7 @@ function stepText(
         bookingSystem: SAVED.bookingSystem,
         autoConfirm,
         timeZone: "America/New_York",
+        steppedUp,
         actions: NO_ACTIONS,
       }),
     ),
@@ -390,7 +392,17 @@ describeDb("setup step 3 on the calendar functions", () => {
   });
 
   /** Sign in with Google from the step, through Google, and back: the callback's answer. */
-  async function connectThroughStep(clinic: Clinic, account: Account) {
+  /**
+   * Sign in with Google from the step, through Google, and back: the
+   * callback's answer. The browser that comes back is the clinic's own
+   * session; `steppedUp` stands in for a passkey step-up live on it, as the
+   * calendar session's own tests do (tests/calendar-portal.test.ts).
+   */
+  async function connectThroughStep(
+    clinic: Clinic,
+    account: Account,
+    { steppedUp = false }: { steppedUp?: boolean } = {},
+  ) {
     signedInAs(clinic);
     const authUrl = await redirected(() => connectCalendar(connectForm(clinic.slug)));
     const cookie = mocks.cookies.at(-1)!;
@@ -398,7 +410,18 @@ describeDb("setup step 3 on the calendar functions", () => {
       code: string;
       state: string;
     };
-    return completeGoogleSignIn({ ...answer, error: null, cookie: cookie.value });
+    return completeGoogleSignIn(
+      { ...answer, error: null, cookie: cookie.value },
+      steppedUp
+        ? {
+            portalSession: async ({ userId }) => ({
+              userId,
+              label: "Front desk Mac",
+              steppedUp: true,
+            }),
+          }
+        : {},
+    );
   }
 
   test(
@@ -567,28 +590,37 @@ describeDb("setup step 3 on the calendar functions", () => {
   );
 
   test(
-    "once connected, reconnecting and disconnecting wait for the step-up; the disconnect erases the token, revokes the grant and names the device",
+    "once connected: the same account reconnects with no step-up, another account only with one live when Google sends the browser back, and Disconnect waits for it, erases the token, revokes the grant and names the device",
     async () => {
       const clinic = await provisioned("wc-change");
       expect((await connectThroughStep(clinic, WORKSPACE)).outcome).toBe("connected");
       const stepUp = `/c/${clinic.slug}/step-up?next=${encodeURIComponent(`/c/${clinic.slug}/setup?s=calendar`)}`;
 
-      mocks.cookies.length = 0;
-      expect(await redirected(() => connectCalendar(connectForm(clinic.slug)))).toBe(stepUp);
-      expect(mocks.cookies).toEqual([]);
-      expect(await oauthStates(clinic.clinicId)).toHaveLength(1);
+      // The same account again, as after a broken connection: straight to
+      // Google and back, with no step-up anywhere.
+      expect(await connectThroughStep(clinic, WORKSPACE)).toEqual({
+        outcome: "connected",
+        redirectPath: `/c/${clinic.slug}/setup?calendar=connected`,
+      });
 
-      // Stepped up, the same button goes to Google, and another account of
-      // the same organisation may take over, as the owner's change.
-      mocks.steppedUp = true;
-      const authUrl = await redirected(() => connectCalendar(connectForm(clinic.slug)));
-      const answer = google.authorize(authUrl, { sub: COLLEAGUE.sub }) as {
-        code: string;
-        state: string;
-      };
-      expect(
-        await completeGoogleSignIn({ ...answer, error: null, cookie: mocks.cookies.at(-1)!.value }),
-      ).toEqual({
+      // Another account, with no step-up live on the session that comes
+      // back: the callback keeps the connected one, and the step says how to
+      // move the bookings.
+      expect(await connectThroughStep(clinic, COLLEAGUE)).toEqual({
+        outcome: "different_account",
+        redirectPath: `/c/${clinic.slug}/setup?calendar=different_account`,
+      });
+      expect(await getCalendarConnection(clinic.clinicId)).toMatchObject({
+        status: "active",
+        account: { email: WORKSPACE.email },
+      });
+      expect(calendarNoticeWords("different_account", "workspace_baa").text).toContain(
+        "confirm it's you with Face ID or your screen lock first",
+      );
+
+      // With one live, another account of the same organisation takes over,
+      // as the owner's change.
+      expect(await connectThroughStep(clinic, COLLEAGUE, { steppedUp: true })).toEqual({
         outcome: "connected",
         redirectPath: `/c/${clinic.slug}/setup?calendar=connected`,
       });
@@ -965,6 +997,20 @@ describe("step 3 in words", () => {
     const personal = stepText(notConnected("personal"));
     expect(personal).toContain("A personal Google account (@gmail.com)");
     expect(personal).not.toContain("Manage third-party app access");
+  });
+
+  test("the reconnect needs nothing for the same account, and links the step-up before another account until one is live", () => {
+    const connected: CalendarStep = { ...notConnected(), connection: connectedView("active") };
+    const page = stepText(connected);
+    expect(page).toContain("Sign in with the same Google account to reconnect it.");
+    expect(page).toContain(
+      `<a href="/c/glow/step-up?next=${encodeURIComponent("/c/glow/setup?s=calendar")}" class="font-semibold underline">confirm it’s you</a>`,
+    );
+    const live = stepText(connected, null, NOT_CONNECTED_LINE, true);
+    expect(live).toContain(
+      "You’ve confirmed it’s you, so you can also sign in with another account",
+    );
+    expect(live).not.toContain("/c/glow/step-up");
   });
 
   test("a broken connection opens the reconnect at once", () => {

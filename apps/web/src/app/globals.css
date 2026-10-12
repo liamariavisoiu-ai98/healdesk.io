@@ -4011,6 +4011,58 @@
   color: transparent;
 }
 
+/* The Weather widget under the clock (Outcomes.tsx, "The weather"): white
+   on the wallpaper, as the date and the clock are, with no plate behind it,
+   as iOS draws a rectangular widget. */
+.lockscreen__weather {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 10px;
+  margin: 10px auto 0;
+  color: rgb(255 255 255 / 0.94);
+  text-align: left;
+}
+
+.lockscreen__weather-sky {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.lockscreen__weather-text {
+  display: grid;
+  gap: 1px;
+}
+
+.lockscreen__weather-place {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+}
+
+.lockscreen__weather-here {
+  width: 11px;
+  height: 11px;
+}
+
+.lockscreen__weather-now {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.lockscreen__weather-range {
+  opacity: 0.78;
+}
+
 .lockscreen__wall {
   --note-gap: 8px;
   --note-h: 106px;
@@ -4193,6 +4245,7 @@
 
   .lockscreen__date,
   .lockscreen__time,
+  .lockscreen__weather,
   .lockscreen__foot {
     transition:
       opacity var(--duration-slower) var(--ease-standard) 200ms,
@@ -4205,7 +4258,8 @@
   }
 
   .month[data-state="armed"] .lockscreen__date,
-  .month[data-state="armed"] .lockscreen__time {
+  .month[data-state="armed"] .lockscreen__time,
+  .month[data-state="armed"] .lockscreen__weather {
     opacity: 0;
     transform: translateY(12px) scale(0.98);
   }

@@ -102,6 +102,8 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "matched",
   "exceptions",
   "deleted",
+  // What a deletion kept because it is someone else's (lib/patient-rights/erasure.ts): a count.
+  "kept",
   "attempts",
   "failures",
   "processed",

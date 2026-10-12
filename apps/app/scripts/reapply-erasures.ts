@@ -26,6 +26,8 @@ async function main(): Promise<void> {
     count: result.requests,
     matched: result.reapplied,
     deleted: result.rows,
+    // Threads the restored data shows shared: kept, as the deletion keeps them.
+    kept: result.keptSharedThreads,
     failures: result.failures,
   });
   process.exit(result.failures > 0 ? 1 : 0);

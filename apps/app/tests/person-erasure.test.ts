@@ -1188,6 +1188,45 @@ describeDb("deletion on request", () => {
     });
   });
 
+  test("after a restore, a thread the restored data shows shared is kept, whatever the record names, and counted", async () => {
+    // The verifier's case: the deletion took the person's own thread and kept
+    // its reference; the backup restored shows the same thread also booking
+    // for someone else. Re-applying deleted it by the stored reference.
+    const c = await seedClinic("erase-reapply-shared");
+    const at = new Date(Date.now() - 3 * DAY);
+    const p = await seedContact(c.clinicId, "+15550136201");
+    const q = await seedContact(c.clinicId, "+15550136202");
+    const x = { platform: "instagram", senderId: "ig_x_1362" } as const;
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(`update contacts set created_at = $1`, [at]);
+      await request(client, c.clinicId, p, x, at);
+      await thread(client, c.clinicId, "instagram", "ig_x_1362", at);
+    });
+    const erased = await erase({ clinicId: c.clinicId, phone: "+15550136201", requestedBy: "practice" });
+    if (erased.status !== "erased") throw new Error("not erased");
+    expect(erased.deleted.chatThreads).toBe(1);
+
+    const xThread = identifierRef("chat_party", c.clinicId, "instagram:ig_x_1362");
+    let qRequest = "";
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(
+        `insert into contacts (id, clinic_id, phone, created_at, updated_at) values ($1, $2, '+15550136201', $3, $3)`,
+        [p, c.clinicId, at],
+      );
+      await request(client, c.clinicId, p, x, at);
+      qRequest = await request(client, c.clinicId, q, x, at);
+      await thread(client, c.clinicId, "instagram", "ig_x_1362", at);
+    });
+    const result = await reapplyErasures();
+    expect(result.failures).toBe(0);
+    expect(result.keptSharedThreads).toBeGreaterThanOrEqual(1);
+    await inTenant(c.clinicId, async (client) => {
+      expect((await client.query(`select 1 from booking_requests where id = $1`, [qRequest])).rows).toHaveLength(1);
+      expect((await client.query(`select 1 from chat_threads where party_ref = $1`, [xThread])).rows).toHaveLength(1);
+      expect((await client.query(`select 1 from contacts where id = $1`, [p])).rows).toEqual([]);
+    });
+  });
+
   test("nothing reads the record to decide whether to contact anyone", () => {
     // The table and its model are touched in two places: the schema, and the
     // erase path that writes, expires and re-applies it. Destruction deletes

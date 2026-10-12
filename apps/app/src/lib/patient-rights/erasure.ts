@@ -231,6 +231,8 @@ type Survey = {
   emails: string[];
   /** The person's own threads: everything each sent names them. */
   threads: string[];
+  /** Threads that also sent for someone else, or hold a draft naming no one: kept. */
+  sharedThreads: string[];
   kept: ErasureKept;
   callIds: string[];
 };
@@ -334,7 +336,7 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
       );
     for (const d of drafts) threads.add(`${d.platform}:${d.senderId}`);
   }
-  const { own, kept } = await ownThreads(tx, [...threads], new Set(contactIds), phones, before);
+  const { own, shared, kept } = await ownThreads(tx, [...threads], new Set(contactIds), phones, before);
 
   // Their calls, and the calls that produced their appointments: the two
   // kinds app_erase_contacts deletes, read first so their raw payloads can go
@@ -371,7 +373,15 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
         .filter((id): id is string => Boolean(id))
     : [];
 
-  return { contactIds, phones: [...phones], emails: [...emails], threads: own, kept, callIds };
+  return {
+    contactIds,
+    phones: [...phones],
+    emails: [...emails],
+    threads: own,
+    sharedThreads: shared,
+    kept,
+    callIds,
+  };
 }
 
 /**
@@ -387,9 +397,9 @@ async function ownThreads(
   contactIds: ReadonlySet<string>,
   phones: ReadonlySet<string>,
   before: Date,
-): Promise<{ own: string[]; kept: ErasureKept }> {
+): Promise<{ own: string[]; shared: string[]; kept: ErasureKept }> {
   const kept: ErasureKept = { sharedThreads: 0, requests: 0, drafts: 0 };
-  if (candidates.length === 0) return { own: [], kept };
+  if (candidates.length === 0) return { own: [], shared: [], kept };
   const forOthers = new Map<string, { requests: number; drafts: number }>();
   const tally = (thread: string) => {
     const entry = forOthers.get(thread) ?? { requests: 0, drafts: 0 };
@@ -446,7 +456,11 @@ async function ownThreads(
     kept.requests += entry.requests;
     kept.drafts += entry.drafts;
   }
-  return { own: candidates.filter((t) => !forOthers.has(t)), kept };
+  return {
+    own: candidates.filter((t) => !forOthers.has(t)),
+    shared: candidates.filter((t) => forOthers.has(t)),
+    kept,
+  };
 }
 
 /** A regular expression's special characters, escaped, for a literal inside a POSIX pattern. */
@@ -646,7 +660,15 @@ async function eraseSurveyed(
   }
 
   // Their own threads, by the keyed reference the table holds.
-  const refs = [...new Set([...partyRefs(tx.clinicId, s.threads), ...extraPartyRefs])];
+  // After a restore, the record's own thread references come too: a thread
+  // the restored data no longer shows anything on is still the person's.
+  // But one the restored data shows shared (it also booked for someone
+  // else) is kept, whatever the record holds: the same rule as the deletion
+  // itself (second review, 12 October 2026).
+  const shared = new Set(partyRefs(tx.clinicId, s.sharedThreads));
+  const refs = [
+    ...new Set([...partyRefs(tx.clinicId, s.threads), ...extraPartyRefs]),
+  ].filter((ref) => !shared.has(ref));
   if (refs.length) {
     const threads = await tx.db
       .delete(chatThreads)
@@ -1015,7 +1037,14 @@ async function recover(tx: TenantTx, refs: ReadonlySet<string>, before: Date): P
   };
 }
 
-export type ReapplyResult = { requests: number; reapplied: number; rows: number; failures: number };
+export type ReapplyResult = {
+  requests: number;
+  reapplied: number;
+  rows: number;
+  /** Threads the restored data shows shared, kept though a record named them: counts only. */
+  keptSharedThreads: number;
+  failures: number;
+};
 
 /**
  * After a restore (docs/handover.md, "Restoring"; npm run reapply-erasures):
@@ -1026,7 +1055,7 @@ export type ReapplyResult = { requests: number; reapplied: number; rows: number;
  * reopen over it.
  */
 export async function reapplyErasures(): Promise<ReapplyResult> {
-  const out: ReapplyResult = { requests: 0, reapplied: 0, rows: 0, failures: 0 };
+  const out: ReapplyResult = { requests: 0, reapplied: 0, rows: 0, keptSharedThreads: 0, failures: 0 };
   for (const clinic of await listClinics()) {
     if (clinic.destroyedAt) continue;
     try {
@@ -1047,6 +1076,7 @@ export async function reapplyErasures(): Promise<ReapplyResult> {
           .orderBy(asc(erasureRequests.erasedAt));
         let reapplied = 0;
         let rows = 0;
+        let keptSharedThreads = 0;
         for (const record of records) {
           const refs = new Set(record.restoreRefs);
           const asked = await recover(tx, refs, record.erasedAt);
@@ -1060,6 +1090,7 @@ export async function reapplyErasures(): Promise<ReapplyResult> {
             record.restoreRefs,
           );
           const total = totalErased(counts);
+          keptSharedThreads += s.kept.sharedThreads;
           if (total > 0) {
             reapplied += 1;
             rows += total;
@@ -1068,15 +1099,16 @@ export async function reapplyErasures(): Promise<ReapplyResult> {
               resourceType: "person_erasure_reapplied",
               resourceId: record.id,
               resultCount: total,
-              metadata: { ...counts },
+              metadata: { ...counts, keptSharedThreads: s.kept.sharedThreads },
             });
           }
         }
-        return { requests: records.length, reapplied, rows };
+        return { requests: records.length, reapplied, rows, keptSharedThreads };
       });
       out.requests += result.requests;
       out.reapplied += result.reapplied;
       out.rows += result.rows;
+      out.keptSharedThreads += result.keptSharedThreads;
     } catch (error) {
       out.failures += 1;
       log.error("erasure re-application failed", {

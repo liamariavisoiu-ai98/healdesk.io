@@ -155,12 +155,54 @@ describe("the reply guard: appointment details", () => {
       ok: false,
       reason: "an appointment time",
     });
-    // "from" and "until" make a sentence about the hours, as "open" does.
-    expect(guardReply("The front desk is in from 9.", CLINIC)).toEqual({ ok: true });
-    expect(guardReply("The front desk is in from 3.", CLINIC)).toEqual({
+    // The clinic must be what is open: "the front desk is open" is its
+    // hours, "the front desk is in" is not (the C19 re-audit's B3).
+    expect(guardReply("The front desk is open from 9.", CLINIC)).toEqual({ ok: true });
+    expect(guardReply("The front desk is in from 9.", CLINIC)).toEqual({
       ok: false,
       reason: "an appointment time",
     });
+  });
+
+  // The C19 re-audit's B3: an hours word in a sentence that isn't the
+  // clinic's hours, and day and time forms the guard didn't read.
+  test.each([
+    "Your visit can be Tuesday from 9am.",
+    "We have availability Tuesday from 9am.",
+    "There's availability on the 14th from 9am.",
+    "We have Tuesday open.",
+    "Thanks, noted: 2 in the afternoon.",
+    "Thanks, noted: two in the afternoon.",
+    "Thanks, noted: the afternoon of the third.",
+    "Noted: the first, in the morning.",
+    "2 in the afternoon",
+    "the afternoon of the third",
+    "We have you for Tuesday.",
+    "We have Tuesday morning free.",
+    "Tuesday looks clear from 9am.",
+    "I can pass along that you'd like Tuesday afternoon.",
+    "Got it, mornings.",
+    "We'll be open Tuesday from 9am if you'd like to come then.",
+    "Thanks, I've noted 2.",
+    "Thanks, I've noted your time of 2.",
+  ])("refuses, from the re-audit: %j", (reply) => {
+    const verdict = guardReply(reply, CLINIC);
+    expect(verdict.ok, reply).toBe(false);
+    expect(verdict.ok ? null : verdict.reason).toMatch(
+      /^(an appointment (time|date|day)|a booking confirmation)$/,
+    );
+  });
+
+  test.each([
+    "We're open Tuesday from 9am.",
+    "We are open until 5pm today.",
+    "Our hours are 9am to 5pm on weekdays.",
+    "The clinic opens at 9am on Saturdays and closes at 2pm.",
+    "We close at 5pm on Fridays.",
+    "Thank you! We're open Monday to Friday, 9am to 5pm.",
+    "Good morning! Call the practice to book.",
+  ])("passes, the clinic's hours: %j", (reply) => {
+    expect(guardReply(reply, CLINIC)).toEqual({ ok: true });
   });
 
   // The verification of 3a6de11: phrasings the sentence rules let through.
@@ -334,5 +376,74 @@ describe("the reply guard: treatment names off the menu", () => {
         clinicName: "Glow Laser Studio",
       }),
     ).toEqual({ ok: false, reason: "a treatment name" });
+  });
+});
+
+describe("the reply guard: who is writing", () => {
+  // The C19 re-audit: after the channel's line says an AI assistant is
+  // writing, the model introduced a person. Refused, whatever the greeting.
+  test.each([
+    "Hi, it's Sarah from Glow Clinic!",
+    "Hi, it's Sarah from Glow Clinic! We're open 9 to 5.",
+    "I'm Sarah, a member of the team.",
+    "My name is Sarah and I can help.",
+    "Sarah here, happy to help.",
+    "Hi, this is the front desk at Glow Clinic.",
+    "I'm the receptionist here.",
+    "I'm on the team at Glow Clinic.",
+  ])("refuses: %j", (reply) => {
+    expect(guardReply(reply, { ...CLINIC, clinicName: "Glow Clinic" })).toEqual({
+      ok: false,
+      reason: "a human claim",
+    });
+  });
+
+  test.each([
+    "I'm happy to help with that.",
+    "I'm afraid I can't say here; call the practice.",
+    "This is Glow Clinic's messaging line. Call the practice to book.",
+    "It's best to call the practice to book.",
+    "Our team will call you to confirm.",
+  ])("passes: %j", (reply) => {
+    expect(guardReply(reply, { ...CLINIC, clinicName: "Glow Clinic" })).toEqual({ ok: true });
+  });
+});
+
+describe("the reply guard: the person's own words", () => {
+  // The C19 re-audit's B4: a reply saying back what the person wrote can
+  // name their condition or reason, which no list is complete enough to
+  // catch. A content word of theirs, four letters or more, may not come
+  // back unless it is everyday, a time word or one of the clinic's facts.
+  const context = {
+    ...CLINIC,
+    clinicName: "Glow Clinic",
+    address: "1200 Peel Street, Suite 4",
+    ownFacts: "Free parking behind the building. Wheelchair access at the side door.",
+  };
+
+  test.each([
+    ["I'm on chemo, can I still come in?", "Please call the practice about your chemo."],
+    ["I have diabetes, is that ok?", "Happy to help with your diabetes questions by phone."],
+    ["Waiting on my biopsy results", "We can help after your biopsy, call the practice."],
+    ["My psoriasis is flaring", "Sorry, flaring skin needs a call to the practice."],
+    ["Do you see people with eczema?", "Call the practice about eczema."],
+  ])("refuses an echo: %j then %j", (inbound, reply) => {
+    expect(guardReply(reply, { ...context, inbound })).toMatchObject({ ok: false });
+  });
+
+  test.each([
+    ["Is there parking nearby?", "Yes, there's free parking behind the building."],
+    ["Where are you located?", "We're at 1200 Peel Street, Suite 4."],
+    ["What are your hours on Saturday?", "Saturday hours are 10am to 2pm."],
+    ["How much does it cost?", "Prices start from $450. Call the practice to book."],
+    ["Do you take new clients?", "Yes, new clients are welcome. Call the practice to book."],
+    ["Is there wheelchair access?", "Yes, there's wheelchair access at the side door."],
+    ["Hello! Can I book an appointment?", "Call the practice to book an appointment."],
+    [
+      "Can I message you about something?",
+      "Of course. For anything personal, please call the practice.",
+    ],
+  ])("passes an ordinary reply: %j then %j", (inbound, reply) => {
+    expect(guardReply(reply, { ...context, inbound })).toEqual({ ok: true });
   });
 });

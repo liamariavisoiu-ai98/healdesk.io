@@ -374,7 +374,7 @@ export function Outcomes() {
   const timeOf = (o: Outcome) => clock?.notes[o.id] ?? o.time;
 
   return (
-    <section id="outcomes" aria-labelledby="outcomes-heading" className="scroll-mt-24 pt-16 sm:pt-24">
+    <section id="outcomes" aria-labelledby="outcomes-heading" className="page-section page-section--band scroll-mt-24">
       {/* Centred header, the specialties section's own. */}
       <div data-reveal="stagger" className="mx-auto text-center">
         <p className="eyebrow-tag">What changes in month one</p>
@@ -446,12 +446,19 @@ export function Outcomes() {
 
           {/* The foot of a lock screen: the flashlight, the camera, the home
               bar, and on a phone, where iOS says "Swipe up to open", how to
-              open one of these. */}
+              open one of these. The two glyphs are iOS's own shapes, filled,
+              as the lock screen draws them (SF Symbols' flashlight.off.fill
+              and camera.fill, owner, 12 October 2026): redrawn here, because
+              Apple licenses the symbol files for apps on its platforms only. */}
           <div aria-hidden className="lockscreen__foot">
             <span className="lockscreen__button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-                <path d="M8 2.5h8v4l-2 3v12h-4v-12l-2-3z" />
-                <path d="M12 12.5v2.5" strokeLinecap="round" />
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                {/* The lens cap, then the head narrowing into the handle, with its round switch cut out. */}
+                <path d="M8.35 1.75h7.3a1.6 1.6 0 0 1 1.6 1.6v.85a.75.75 0 0 1-.75.75H7.5a.75.75 0 0 1-.75-.75v-.85a1.6 1.6 0 0 1 1.6-1.6Z" />
+                <path
+                  fillRule="evenodd"
+                  d="M7.05 6.15h9.9c.5 0 .82.53.59.97l-1.74 3.3a1.9 1.9 0 0 0-.22.89v8.84a2.1 2.1 0 0 1-2.1 2.1h-2.96a2.1 2.1 0 0 1-2.1-2.1v-8.84c0-.31-.08-.62-.22-.89L6.46 7.12a.66.66 0 0 1 .59-.97ZM12 12.6a1.55 1.55 0 1 0 0 3.1 1.55 1.55 0 0 0 0-3.1Z"
+                />
               </svg>
             </span>
             <span className="lockscreen__middle">
@@ -459,9 +466,12 @@ export function Outcomes() {
               <span className="lockscreen__home" />
             </span>
             <span className="lockscreen__button">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
-                <path d="M3.5 8h3.5l2-2.5h6l2 2.5h3.5v11h-17z" />
-                <circle cx="12" cy="13" r="3.6" />
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                {/* The body with its hump, the lens ring cut out of it, the glass inside the ring. */}
+                <path
+                  fillRule="evenodd"
+                  d="M9.7 3.9h4.6c.66 0 1.27.33 1.64.88l.86 1.27h2.1A3.1 3.1 0 0 1 22 9.15v8.6a3.1 3.1 0 0 1-3.1 3.1H5.1A3.1 3.1 0 0 1 2 17.75v-8.6a3.1 3.1 0 0 1 3.1-3.1h2.1l.86-1.27c.37-.55.98-.88 1.64-.88ZM12 8.75a4.65 4.65 0 1 0 0 9.3 4.65 4.65 0 0 0 0-9.3Zm0 1.55a3.1 3.1 0 1 1 0 6.2 3.1 3.1 0 0 1 0-6.2Z"
+                />
               </svg>
             </span>
           </div>

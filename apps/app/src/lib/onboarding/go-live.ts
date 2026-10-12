@@ -8,9 +8,10 @@ import {
 } from "@healdesk/catalog";
 
 import { unsafeDb } from "@/db";
-import { recordSecurityEvent } from "@/lib/audit";
+import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
 import { env } from "@/lib/env";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
+import { withTenant } from "@/lib/tenant";
 
 /**
  * Go-live: the flip from synthetic to production.
@@ -25,7 +26,30 @@ import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 
 export type GoLiveCheck = { ok: true } | { ok: false; missing: string[] };
 
-export function goLivePreconditions(clinic: ClinicOverview): GoLiveCheck {
+/** Whether the clinic bought phone, and its direct line: what phone needs before it can go live. */
+export type VoiceLine = { voiceBought: boolean; directLine: string | null };
+
+const GO_LIVE_ACTOR: ActorContext = { type: "service", serviceName: "go-live" };
+
+/** The clinic's phone purchase and direct line, read in its own tenant. */
+export async function readVoiceLine(clinicId: string): Promise<VoiceLine> {
+  return withTenant({ clinicId, actor: GO_LIVE_ACTOR }, async (tx) => {
+    const result = await tx.db.execute<{ voice: boolean; line: string | null }>(
+      sql`select exists (select 1 from clinic_channels
+                          where clinic_id = ${clinicId}::uuid and channel = 'voice') as voice,
+                 (select direct_line_e164 from clinic_settings
+                   where clinic_id = ${clinicId}::uuid) as line`,
+    );
+    const row = result.rows[0];
+    return { voiceBought: row?.voice === true, directLine: row?.line ?? null };
+  });
+}
+
+/** Phone without a direct line: every call AYA can't answer has nowhere to go. */
+export const NO_DIRECT_LINE =
+  "Phone has no direct line on file. Every call AYA can't answer goes there, so phone can't go live without one.";
+
+export function goLivePreconditions(clinic: ClinicOverview, voice?: VoiceLine): GoLiveCheck {
   // TODO(plan Part J "Go-live", with app_mark_clinic_production): ask whether
   // the agreement covers the clinic (agreementKindSufficient in
   // lib/agreements/kind.ts, over clinics.regulatory_regime and
@@ -49,6 +73,10 @@ export function goLivePreconditions(clinic: ClinicOverview): GoLiveCheck {
   if (!clinic.openingHoursPresent) missing.push("Opening hours are not on file.");
   if (!clinic.callRoutingConfirmedAt) missing.push("Call routing has not been confirmed.");
   if (!clinic.agentApprovedAt) missing.push("The agent script has not been approved.");
+  // CLAUDE.md, "Failure": every degradation path ends with calls forwarding
+  // to a direct clinic line. The wizard lets the line be skipped, and says
+  // phone can't go live without it; this is where that holds.
+  if (voice?.voiceBought && !voice.directLine) missing.push(NO_DIRECT_LINE);
   // Phase two: a booking-system connection is required only for verified
   // attribution, which v1 does not offer, so in v1 go-live never waits on it.
   const open: OnboardingStep[] = openRequiredSteps(clinic.onboarding, {
@@ -72,7 +100,7 @@ export async function goLive(
   if (clinic.dataClassification === "production") {
     return { status: "refused", reason: "Already in production.", missing: [] };
   }
-  const check = goLivePreconditions(clinic);
+  const check = goLivePreconditions(clinic, await readVoiceLine(clinicId));
   if (!check.ok) return { status: "refused", reason: "Not ready.", missing: check.missing };
 
   try {

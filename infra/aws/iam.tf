@@ -351,14 +351,15 @@ resource "aws_iam_role" "github_deploy" {
 
 locals {
   task_families = {
-    web            = "${local.name}-web"
-    worker         = "${local.name}-worker"
-    migrate        = "${local.name}-migrate"
-    db_bootstrap   = "${local.name}-db-bootstrap"
-    destroy_due    = "${local.name}-destroy-due"
-    patient_export = local.export_task_family
-    erase_person   = "${local.name}-erase-person"
-    amend_contact  = "${local.name}-amend-contact"
+    web              = "${local.name}-web"
+    worker           = "${local.name}-worker"
+    migrate          = "${local.name}-migrate"
+    db_bootstrap     = "${local.name}-db-bootstrap"
+    destroy_due      = "${local.name}-destroy-due"
+    patient_export   = local.export_task_family
+    erase_person     = "${local.name}-erase-person"
+    amend_contact    = "${local.name}-amend-contact"
+    reapply_erasures = "${local.name}-reapply-erasures"
   }
 
   task_definition_arn_prefix = "arn:aws:ecs:${var.region}:${local.account_id}:task-definition"

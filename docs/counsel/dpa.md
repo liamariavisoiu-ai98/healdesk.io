@@ -399,7 +399,7 @@ Added on 7 October 2026, read at origin/main c926414:
     plan's "Data Agreement" definition (A6) is what makes them read for a DPA
     practice; until it lands, Terms § 7's "destroy … when and as the Business
     Associate Agreement says" points a DPA practice at the wrong document.
-    LEGAL_VERSION 2026-10-12.1 defines it in Terms § 1 and uses it where the
+    LEGAL_VERSION 2026-10-12.2 defines it in Terms § 1 and uses it where the
     agreement ends (§§ 4, 7, 13, 14 and 15); the other sentences still name
     the BAA.
 11. **Go-live refuses every DPA practice today.** Main's 0048 made

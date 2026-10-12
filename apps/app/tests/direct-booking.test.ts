@@ -312,6 +312,7 @@ describeDb("the voice tools", () => {
       clinic_phone_spoken: "four one five — five five five — oh one nine nine",
       answer_mode: "assistant",
       transfer_number: null,
+      closed_line: null,
     });
 
     // The demo clinic's context is its booking mode, read fresh: live, so direct.

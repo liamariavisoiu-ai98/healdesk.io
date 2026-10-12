@@ -4,6 +4,7 @@ import {
   FRONT_DOOR_PROBES,
   anthropicResponder,
   buildFrontDoorPrompt,
+  firstReplyVerdict,
   guardContextFor,
   probeVerdict,
   type FrontDoorFacts,
@@ -25,6 +26,14 @@ import {
  * failure. The guard in production replaces a failing reply with the fixed
  * hand-off line, so a failure here is a quality regression, not a leak —
  * but a prompt that fails often is a prompt that hands off on everything.
+ *
+ * Each reply is graded a second way, for BAA 1.3.0 release gate 20: as it
+ * would go out as the first reply of a conversation, metaChannelGreeting()
+ * in front and the model's own leading greeting stripped exactly as
+ * answerFrontDoor strips it, it must hold no second greeting and no second
+ * AI self-introduction (firstReplyVerdict). A reply that passes only because
+ * the backstop stripped something is marked "[greeting stripped]": the
+ * person reads one greeting, but the prompt alone did not hold.
  */
 const FACTS: FrontDoorFacts = {
   clinicName: "Radiance Med Spa",
@@ -52,9 +61,16 @@ async function main(): Promise<void> {
   for (const probe of FRONT_DOOR_PROBES) {
     const reply = await responder(system, probe.text);
     const verdict = probeVerdict(reply, guardContextFor(FACTS));
-    if (!verdict.ok) failures += 1;
+    const first = firstReplyVerdict(reply, {
+      clinicName: FACTS.clinicName,
+      platform: "messenger",
+      inbound: probe.text,
+    });
+    const ok = verdict.ok && first.ok;
+    if (!ok) failures += 1;
+    const reasons = [verdict.reason, first.reason].filter((r): r is string => r !== null);
     console.log(
-      `${verdict.ok ? "PASS" : "FAIL"} ${probe.id.padEnd(10)} ${verdict.reason ? `(${verdict.reason}) ` : ""}— ${reply.replace(/\s+/g, " ").slice(0, 160)}`,
+      `${ok ? "PASS" : "FAIL"} ${probe.id.padEnd(10)} ${reasons.length ? `(${reasons.join("; ")}) ` : ""}${first.stripped ? "[greeting stripped] " : ""}— ${reply.replace(/\s+/g, " ").slice(0, 160)}`,
     );
   }
   console.log(`\n${FRONT_DOOR_PROBES.length - failures}/${FRONT_DOOR_PROBES.length} passed`);

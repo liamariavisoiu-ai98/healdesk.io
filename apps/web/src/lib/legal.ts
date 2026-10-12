@@ -27,7 +27,7 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-12.1";
+export const LEGAL_VERSION = "2026-10-12.2";
 export const LEGAL_LAST_UPDATED = "12 October 2026";
 
 export const ENTITY = {

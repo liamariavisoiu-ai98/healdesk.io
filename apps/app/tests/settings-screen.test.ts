@@ -308,6 +308,29 @@ describeDb("Settings", () => {
       ok: false,
       message: expect.stringMatching(/can be changed but not removed/),
     });
+    // With phone live the refusal says why in phone's words, as the
+    // operator's path does (DIRECT_LINE_NEEDED_WHILE_LIVE).
+    const wasLive = await inTenant(
+      portal.clinicId,
+      async (c) =>
+        (
+          await c.query<{ live_at: Date | null }>(
+            `select live_at from clinic_channels where channel = 'voice'`,
+          )
+        ).rows[0]!.live_at,
+    );
+    await inTenant(portal.clinicId, (c) =>
+      c.query(`update clinic_channels set live_at = now() where channel = 'voice'`),
+    );
+    expect(await save("direct_line", "")).toMatchObject({
+      ok: false,
+      message: expect.stringMatching(
+        /^Phone is live, so the direct line can be changed but not removed/,
+      ),
+    });
+    await inTenant(portal.clinicId, (c) =>
+      c.query(`update clinic_channels set live_at = $1 where channel = 'voice'`, [wasLive]),
+    );
 
     steppedUp = true;
     expect(await save("direct_line", "(512) 555-0188")).toEqual({

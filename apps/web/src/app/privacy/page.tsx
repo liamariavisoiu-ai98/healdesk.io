@@ -66,7 +66,7 @@ export const metadata: Metadata = {
  * homepage's "See it in your own branding" (api/own-demo), and the number a
  * personalised demo's "Call us" keeps, which shipped without a line here.
  *
- * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
+ * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.2, for BAA 1.3.0
  * (release gate 12, agreement-changes.md § 12.14):
  *   - section 14 is the public commitment 1.3.0's clause headed "healdesk's
  *     own use, and de-identified statistics" says healdesk makes "at
@@ -114,7 +114,7 @@ export default function PrivacyPage() {
         {/* Adopted 3 Oct 2026 by the owner without external counsel review.
             The scope sentence for sections 11 to 13, which Google's and Meta's
             app reviews read. Section 14 added 12 Oct 2026 (LEGAL_VERSION
-            2026-10-12.1). */}
+            2026-10-12.2). */}
         <p>
           Sections 11 and 12 also describe what the product does with data it receives from Google
           and from Meta when a clinic connects its Google Calendar, its Facebook Page, its Instagram
@@ -163,6 +163,8 @@ export default function PrivacyPage() {
             it is a demonstration for clinic staff, not a patient channel.
           </li>
           <li>
+            {/* LEGAL_VERSION 2026-10-12.1: quotes the shorter consent wording
+                (CALL_CONSENT 2026-10-12.1, lib/consent.ts says what changed). */}
             <strong>Your phone number, if you ask {site.agent} to call you.</strong> Only when you
             tick a separate box reading: <em>"{CALL_CONSENT.text}"</em>. {CALL_CONSENT.note} The
             call is placed by our voice provider, on a separate agent from the product&apos;s own
@@ -517,7 +519,7 @@ export default function PrivacyPage() {
           verbatim in substance. It describes the v1 calendar connection in
           docs/v1-product-spec.md ("Where bookings are written"); every
           sentence must be true before the first clinic connects. Revised 12
-          Oct 2026 (LEGAL_VERSION 2026-10-12.1) to BAA 1.3.0's clause headed
+          Oct 2026 (LEGAL_VERSION 2026-10-12.2) to BAA 1.3.0's clause headed
           "Google Calendar", which every calendar clause and election shares
           in these respects. */}
       <Section id="google" title="11. Google Calendar data (clinics that connect a calendar)">
@@ -656,7 +658,7 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      {/* Added 12 Oct 2026 (LEGAL_VERSION 2026-10-12.1). BAA 1.3.0's clause
+      {/* Added 12 Oct 2026 (LEGAL_VERSION 2026-10-12.2). BAA 1.3.0's clause
           headed "healdesk's own use, and de-identified statistics" says
           healdesk "commits publicly, at healdesk.io/privacy, to keep and use
           that information only in de-identified form and not to try to

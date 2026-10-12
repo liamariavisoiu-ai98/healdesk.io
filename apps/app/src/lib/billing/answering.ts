@@ -78,6 +78,26 @@ export type PassThroughReason =
   | "allowance_cap";
 
 /**
+ * The refusals that mean the Services are not in effect at all: no agreement
+ * (BAA 1.3.0 clause 17 ¶3, terminating it "ends the Services on the same
+ * day"), or a subscription that has ended, before its plan started or after
+ * (clause 1: the Services end when the subscription does). A refused voice
+ * call with no direct line otherwise falls back to the assistant's safe
+ * script (R25), because the agreement still covers it; after one of these
+ * nothing may process the caller at all, so the runtime closes the call with
+ * a fixed line instead (voice/tools.ts, answer_mode "closed").
+ */
+export const SERVICES_ENDED_REASONS: readonly PassThroughReason[] = [
+  "no_agreement",
+  "canceled",
+  "cancel_before_start",
+];
+
+export function servicesEnded(reason: PassThroughReason): boolean {
+  return SERVICES_ENDED_REASONS.includes(reason);
+}
+
+/**
  * Where a passed-through interaction goes: voice to the clinic's direct line
  * (which may not be set: the runtime must still never leave a dead line),
  * website chat to the contact form, Meta to no reply at all.
@@ -566,9 +586,12 @@ const VOICE_GATE_ACTOR: ActorContext = { type: "service", serviceName: "voice-ga
  * runtime then answers anyway, with the fixed safe script (the tools'
  * `answer_mode: "assistant"` with `booking_mode: "desk_confirms"`: take the
  * caller's request for the front desk, book nothing), because a patient
- * calling a clinic must always reach someone (CLAUDE.md, "Failure"). That is
- * a configuration gap only a person can close, so ops hears of it here,
- * once an hour per clinic and reason (R25).
+ * calling a clinic must always reach someone (CLAUDE.md, "Failure"); except
+ * when the Services have ended (servicesEnded: no agreement, or the
+ * subscription over), when nothing may process the caller and the call is
+ * closed with a fixed line (`answer_mode: "closed"`). Either is a
+ * configuration gap only a person can close, so ops hears of it here, once
+ * an hour per clinic and reason (R25).
  */
 export async function voiceAnswerDecision(clinicId: string, now?: Date): Promise<AnswerDecision> {
   const { decision, isKnownClinic } = await runGate({

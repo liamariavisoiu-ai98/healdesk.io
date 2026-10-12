@@ -106,7 +106,7 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  * Complete Frontdesk), which section 3's table reads from the catalog: that
  * branch numbered them 2026-10-07.3 on its own line, which never went out.
  *
- * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
+ * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.2, for BAA 1.3.0
  * (release gate 14, docs/counsel/agreement-changes.md § 12.14):
  *   - section 1 defines the "Data Agreement": the Business Associate
  *     Agreement, or the data protection agreement a Practice signs in its

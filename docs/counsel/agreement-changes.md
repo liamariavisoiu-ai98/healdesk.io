@@ -1692,10 +1692,10 @@ these is closed, by code, a page, a signed paper or a host setting, and
     the same day, with the refund clause 17 gives (HRC-07, SUB-03); §9 and
     §14 may say "consistently with" for "in the same way" (ICD-16).
 
-Gates 12 and 14 are written in LEGAL_VERSION 2026-10-12.1, which replaces
-2026-10-09.1; gate 13 is retired. The owner decided on 12 October 2026 for
-the direction of 9 October (cc7d209 and 2acc070, on main through PR #6,
-f002e3f): breaches and incidents are reported "without unreasonable delay
+Gates 12 and 14 are written in LEGAL_VERSION 2026-10-12.2, which replaces
+2026-10-12.1 (main's consent wording, 8eb9b24); gate 13 is retired. The
+owner decided on 12 October 2026 for the direction of 9 October (cc7d209 and
+2acc070, on main through PR #6, f002e3f): breaches and incidents are reported "without unreasonable delay
 and in no case later than 60 calendar days after discovery", and the 24
 hours apps/app's incident deadline keeps is an internal operating target
 that no public page promises; `/subprocessors` is retired, the list given to

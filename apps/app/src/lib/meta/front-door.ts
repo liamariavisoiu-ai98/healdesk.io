@@ -86,6 +86,14 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * reply opens with it: a repeated warning costs a sentence, a missing one
  * breaks the promise.
  *
+ * The greeting is the only one a reply carries (BAA 1.3.0 gate 20). The
+ * prompt tells the model never to greet, introduce itself or say what it is
+ * unless asked, and where the greeting goes in front of the model's own text,
+ * a bare salutation or a self-introduction leading that text comes off first
+ * (stripOwnGreeting), so a first reply never reads "Hi! I'm an AI assistant
+ * for … Hi there! …". A fixed line goes in as written, and so does every
+ * later reply.
+ *
  * It asks no consent question and no opt-in, and sends nothing once the
  * conversation is over: v1 is inbound only, so the call-back consent and the
  * WhatsApp template opt-in of 23 September 2026 (§D.2, §G.2) were removed.
@@ -209,7 +217,10 @@ export function requiredMetaFieldsLine(requirements: readonly BookingField[]): s
  * The system prompt. The practice's menu is in it so the model can tell what
  * the person asked about, but no service name is a fact it may state: it
  * says "that" and gives the price (the one Meta rule, (2) and (5)), and the
- * guard refuses a reply that names one anyway.
+ * guard refuses a reply that names one anyway. It asks for no greeting: the
+ * model sees one message and cannot tell a first reply from a later one, and
+ * answerFrontDoor opens the first with metaChannelGreeting() (gate 20;
+ * stripOwnGreeting takes off a greeting the model writes anyway).
  */
 export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
   const menu = facts.services.length
@@ -229,7 +240,7 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     `You are the messaging assistant for ${facts.clinicName}, a healthcare practice. You are answering a direct message on a social platform that is NOT a secure channel for health information.`,
     "",
     "You may ONLY do these things:",
-    "1. Greet the person warmly and briefly.",
+    '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
     "2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.",
     `3. Move the person to a secure channel to discuss anything personal: the phone${facts.phone ? ` (${facts.phone})` : ""}${facts.websiteHint ? ` or the website (${facts.websiteHint})` : ""}.`,
     `4. If the person wants to book, take a BOOKING REQUEST for the practice to confirm by phone. Ask only for: their first name, a phone number the practice can call, a preferred day or time, and — once you have that — up to two other times that could also work. ${requiredMetaFieldsLine(facts.requirements)}. Ask for whichever are still missing, one message at a time. Never ask why they are visiting or which treatment they want, and never repeat their phone number back.`,
@@ -280,6 +291,13 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(you should|you can|you shouldn't|you can't|don't|avoid|stop taking|take (an? )?(ibuprofen|tylenol|antihistamine))\b/i, label: "guidance" },
   { pattern: /\b(side effects?|downtime|recovery (time|takes)|contraindicat|dosage|units of)\b/i, label: "clinical detail" },
   { pattern: /\bI('m| am) (a )?(human|person|real person)\b/i, label: "a human claim" },
+  // A person speaking for the clinic, after the line that says an AI
+  // assistant is: "I'm Sarah, a member of the team", "this is the front desk",
+  // "I'm the receptionist" (the C19 re-audit). A name is matched where one
+  // introduces the speaker ("Hi, it's Sarah from Glow Clinic!") in
+  // personaIntroduction, below.
+  { pattern: /\b(?:this is|it['’]s|you['’]ve reached|you're speaking (?:to|with)) (?:the )?(?:front desk|reception|receptionist|office manager)\b/i, label: "a human claim" },
+  { pattern: /\bI(?:['’]m| am) (?:(?:a|the|one of the|part of the|a member of(?: the)?|on the|with the|from the) )?(?:team member|member of staff|staff member|front desk|reception(?:ist)?|nurse|coordinator|office manager|team|staff)\b/i, label: "a human claim" },
   { pattern: /\b(you're|you are|it's|it is|that's) (all )?(booked|confirmed|in the diary|scheduled)\b/i, label: "a booking confirmation" },
   { pattern: /\b(you're|you are) all set\b/i, label: "a booking confirmation" },
   // A confirmation with no "you're" or "it's" in it: "your appointment on
@@ -312,15 +330,71 @@ export type GuardContext = {
   publishedTimes?: readonly number[];
   /** The clinic's own street address: public, and allowed to contain a treatment word ("Peel Street"). */
   address?: string | null;
+  /**
+   * The person's own message, when the reply answers one: a reply may not
+   * say its content words back (echoOf), the C19 re-audit's B4.
+   */
+  inbound?: string;
+  /** The clinic's public facts besides its name and address (notes, escalation hours): words it may say. */
+  ownFacts?: string;
 };
 
-export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address">): GuardContext {
+export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes" | "address"> & Partial<Pick<FrontDoorFacts, "notes" | "escalationHours">>): GuardContext {
+  const ownFacts = [facts.notes, facts.escalationHours].filter((f): f is string => Boolean(f)).join(" ");
   return {
     clinicName: facts.clinicName,
     serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name),
     publishedTimes: facts.publishedTimes ?? [],
     ...(facts.address ? { address: facts.address } : {}),
+    ...(ownFacts ? { ownFacts } : {}),
   };
+}
+
+/**
+ * Words a reply may share with the person's message: function words, the
+ * front door's own vocabulary (calling, booking, prices, parking, finding
+ * the clinic), and words for times and days. Anything else of four letters
+ * or more that the person wrote, and that isn't one of the clinic's own
+ * facts, is theirs: a reply that says it back may be naming their
+ * condition, their treatment or their reason ("your chemo", "your diabetes
+ * questions"), which no list of conditions is ever complete enough to catch.
+ */
+const ECHO_ALLOWED = new Set(
+  `about above after again also always another anyone anything anytime around away back been before being below best better between both bring call called calling calls came cancel cant card cash change check clinic clinics close closed closes come comes coming contact cost costs could didnt does doesnt doing done dont down each early either else email even ever every everything evening evenings fine first free from front full give glad good great have having hear hello help here hers hiya hold hope hour hours howdy info information into just keep kind know last late later like line link list little live location located long look looking lot lots made make many maybe mean message messages might mind more morning mornings most much must name near nearby need needed never next nice none number numbers offer offered offers okay once only open opened opening opens other ours over parking pass people phone please plus possible pretty price prices pricing quick quickly quite rather ready really reply right same say says send sent should since some someone something soon sorry sounds speak start started still such sure take talk team tell than thank thanks that thats their them then there these they thing things think this those though through time times today together tomorrow tonight took tried trying under until upon used using very visit wait want wanted wants week weekday weekdays weekend weekends well went were what whats when where whether which while will wish with within without wondering work works would yeah year years your youre yours address appointment appointments book booked booking bookings building cards consultation consultations deposit deposits directions doctor doctors entrance floor garage hello lobby office online practice practices receptionist service services staff street suite website weekly monday mondays tuesday tuesdays wednesday wednesdays thursday thursdays friday fridays saturday saturdays sunday sundays january february march april june july august september october november december afternoon afternoons night nights lunch lunchtime noon midday month months daily available availability asap whenever anytime client clients patient patients customer customers private insurance payment payments`.split(
+    " ",
+  ),
+);
+
+/** A word in its comparable form: lower case, accents off, a plural "s" off. */
+function echoForm(word: string): string {
+  const plain = word.normalize("NFKD").replace(/\p{M}+/gu, "").toLowerCase();
+  return plain.length > 4 && plain.endsWith("s") && !plain.endsWith("ss") ? plain.slice(0, -1) : plain;
+}
+
+function wordsIn(text: string): string[] {
+  return text.match(/[\p{L}][\p{L}'’]*/gu) ?? [];
+}
+
+/**
+ * Whether the reply says back a content word of the person's message (the
+ * C19 re-audit's B4): four letters or more, not in ECHO_ALLOWED, and not a
+ * word of the clinic's own name, address or public facts.
+ */
+function echoOf(reply: string, context: GuardContext): boolean {
+  if (!context.inbound) return false;
+  const own = new Set(
+    [context.clinicName, context.address, context.ownFacts]
+      .flatMap((text) => wordsIn(text ?? ""))
+      .map(echoForm),
+  );
+  const theirs = new Set(
+    wordsIn(context.inbound)
+      .filter((word) => word.length >= 4)
+      .map(echoForm)
+      .filter((word) => !ECHO_ALLOWED.has(word) && !ECHO_ALLOWED.has(`${word}s`) && !own.has(word)),
+  );
+  if (theirs.size === 0) return false;
+  return wordsIn(reply).some((word) => theirs.has(echoForm(word)));
 }
 
 /**
@@ -377,6 +451,7 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const flat = reply.replace(/\s*[\r\n]+\s*/g, " ");
   const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
+  if (personaIntroduction(flat, context.clinicName)) return { ok: false, reason: "a human claim" };
   // A condition named in a reply is refused even where no acknowledgement
   // above catches it ("Yes, we treat rosacea"), as the screen refuses it inbound.
   const clinical = findClinicalContent({ reply }, { conditions: true });
@@ -386,10 +461,43 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
   if (namesMetaTreatment(withoutOwnWords(reply, context))) return { ok: false, reason: "a treatment name" };
   // No appointment details (appointmentDetail).
+  // Last of the word checks, so a named condition or treatment keeps its own reason.
+  if (echoOf(flat, context)) return { ok: false, reason: "an echo of the message" };
   // On the reply without the clinic's own address, which is public and may
   // carry an ordinal or a number ("120 5th Avenue").
   const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
   return reason ? { ok: false, reason } : { ok: true };
+}
+
+/** Capitalised words that follow "it's" or "I'm" without being anyone's name. */
+const NOT_A_NAME = new Set([
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "january", "february", "march", "april", "may", "june", "july", "august", "september",
+  "october", "november", "december", "sorry", "happy", "glad", "afraid", "here", "not",
+  "just", "an", "a", "the", "ai", "automated", "your", "our", "open", "closed", "free",
+]);
+
+/**
+ * A speaker introducing themselves by a person's name: "Hi, it's Sarah from
+ * Glow Clinic!", "I'm Sarah", "my name is Sarah", "Sarah here". The channel's
+ * line has already said an AI assistant is writing; a named person after it
+ * says otherwise. The clinic's own name is not a person's ("This is Glow
+ * Clinic").
+ */
+function personaIntroduction(reply: string, clinicName: string | undefined): boolean {
+  const clinicFirst = (clinicName ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  const patterns = [
+    /\b(?:[Mm]y name['’]?s|[Mm]y name is|I['’]m|I am|[Ii]t['’]s|[Tt]his is)\s+([A-Z][a-z]+)(?=\s*(?:[,!.—–-]|$|\s+(?:from|at|with|here|of|on|and)\b))/g,
+    /(?:^|[.!?]\s+|,\s+)([A-Z][a-z]+)\s+here\b/g,
+  ];
+  for (const pattern of patterns) {
+    for (const m of reply.matchAll(pattern)) {
+      const word = m[1]!.toLowerCase();
+      if (NOT_A_NAME.has(word) || word === clinicFirst) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -410,11 +518,16 @@ function appointmentDetail(reply: string, published: readonly number[]): string 
   const allowed = new Set(published);
   for (const sentence of sentencesOf(reply)) {
     const date = DATE_IN_REPLY.some((pattern) => pattern.test(sentence));
-    const day = WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence);
+    const day =
+      WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence) || PART_OF_DAY.test(sentence);
     const times = clockTimes(sentence);
     if (!date && !day && times.length === 0) continue;
     const named = date ? "an appointment date" : day ? "an appointment day" : "an appointment time";
-    if (booking || !HOURS_CUE.test(sentence)) return named;
+    // The sentence must be the clinic's hours: its subject the clinic ("we're
+    // open", "our hours", "the clinic opens"), and nobody in it but the
+    // clinic ("your visit can be Tuesday", "we have you down for Tuesday").
+    if (booking || !CLINIC_HOURS.some((pattern) => pattern.test(sentence))) return named;
+    if (YOU.test(sentence.replace(/\bthank you\b/gi, " "))) return named;
     // "The 22nd is open", "Tuesday is free": a day or a time on offer, not
     // the clinic's hours, unless the clinic is what is open.
     if (AVAILABLE.test(sentence) && !CLINIC_IS_OPEN.test(sentence)) return named;
@@ -433,6 +546,26 @@ function sentencesOf(reply: string): string[] {
 /** A day of the week, by name or a long abbreviation. "Sat", "Sun" and "Wed" are words too often to count. */
 const WEEKDAY = /\b(mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|tues|weds|thurs)\b/i;
 
+/** A part of the day, on its own ("Got it, mornings."), but not a greeting ("Good morning"). */
+const PART_OF_DAY = /(?<!\bgood )\b(mornings?|afternoons?|evenings?|nights?|lunchtime)\b/i;
+
+/** The person, in a sentence that names a day or a time: whose appointment it would be. */
+const YOU = /\b(you|your|you['’](?:re|ll|ve|d))\b/i;
+
+/**
+ * A sentence whose subject is the clinic and its hours: "we're open", "we
+ * open at 9", "we close", "the clinic opens", "the front desk is open",
+ * "our hours", "Saturday hours", "opening times", "Hours:", "a late
+ * opening". Nothing else may name a day or a time.
+ */
+const CLINIC_HOURS: readonly RegExp[] = [
+  /\b(?:we|we['’]re|we are|we['’]ll be|we will be|(?:the|our) (?:practice|clinic|office|surgery|studio|spa|front desk|reception|doors?)(?: is| are|['’]s| will be)?|reception(?: is|['’]s)?)\s+(?:also |still |usually |normally |only |now |then )?(?:open|opens|opened|close|closes|closed|closing|shut)\b/i,
+  /\b(?:our|the (?:practice|clinic|office)['’]?s?|(?:mon|tues|wednes|thurs|fri|satur|sun)days?|weekday|weekend|business) (?:opening )?(?:hours|times)\b/i,
+  /\bopening (?:hours|times)\b/i,
+  /^\s*hours\s*:/i,
+  /\b(?:a|our) late opening\b/i,
+];
+
 /** A day named by its distance from today. */
 const RELATIVE_DAY =
   /\b(today|tonight|tomorrow|tmrw|(this|next) (week|weekend|month)|this (morning|afternoon|evening)|later today)\b/i;
@@ -444,7 +577,7 @@ const RELATIVE_DAY =
  * a day or a time.
  */
 const BOOKING_CUE =
-  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|seeing you|expect you|expecting you|schedule|scheduled|slots?|an opening|openings|appointments?|fit you in|squeeze you in|come in|come by|pop in)\b/i;
+  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|seeing you|expect you|expecting you|schedule|scheduled|slots?|an opening|openings|appointments?|fit you in|squeeze you in|come in|come by|pop in|visits?|visiting|availability|available|note|noted|noting|pass (?:on|along))\b/i;
 
 /**
  * "Call the practice to book", "to make an appointment": the hand-off every
@@ -461,8 +594,6 @@ const AVAILABLE = /\b(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|free|avai
 const CLINIC_IS_OPEN =
   /\b(we|it|reception|(the|our)\s+(practice|clinic|office|surgery|studio|spa|front desk|reception|doors?))\s*(is|are|'s|'re)\s+(still\s+|now\s+|also\s+)?(open|available)\b/i;
 
-/** Words that make a sentence about the clinic's opening hours ("a late opening on Thursdays until 8pm"). */
-const HOURS_CUE = /\b(open|opens|opened|opening|close|closes|closed|closing|hours|until|till|from)\b/i;
 
 const MONTH =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
@@ -499,6 +630,10 @@ const DATE_IN_REPLY: readonly RegExp[] = [
   new RegExp(`\\b${MONTH_WORDS}\\s+(?:the\\s+)?${DAY_WORD}\\b`, "i"),
   new RegExp(`\\b${DAY_WORD}\\s+(?:of\\s+)?${MONTH_WORDS}`, "i"),
   new RegExp(`\\bthe\\s+${HIGH_ORDINAL}\\b`, "i"),
+  // A low ordinal is a date beside a part of the day: "the afternoon of the
+  // third", "the first, in the morning", "the 3rd, afternoon".
+  new RegExp(`\\b(?:morning|afternoon|evening|night) of the\\s+(?:${UNIT_ORDINAL}|\\d{1,2}(?:st|nd|rd|th)?)\\b`, "i"),
+  new RegExp(`\\bthe\\s+(?:${UNIT_ORDINAL}|\\d{1,2}(?:st|nd|rd|th))\\b,?\\s+(?:in the\\s+)?(?:morning|afternoon|evening)\\b`, "i"),
 ];
 
 const HOUR_WORDS: Readonly<Record<string, number>> = {
@@ -638,9 +773,14 @@ function clockTimes(reply: string): number[][] {
     const minutes = minutesOf(m[2]!);
     if (minutes !== null) found.push(readings(HOUR_WORDS[m[1]!]!, minutes, undefined));
   }
+  // "2 in the afternoon", "nine in the morning".
+  for (const m of text.matchAll(new RegExp(`\\b(\\d{1,2}|${CLOCK_HOUR_WORD.slice(1, -1)})(?:\\s+o'?clock)?\\s+in the (morning|afternoon|evening)\\b`, "g"))) {
+    const hour = hourOf(m[1]!);
+    if (hour !== null) found.push(readings(hour, 0, m[2] === "morning" ? "am" : "pm"));
+  }
   // A bare hour led into by a word for a time. Digits only: "one" is "speak
   // to one of our team" far more often than it is an hour.
-  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)(?!h\b)/g;
+  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or|for|noted|time of)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)(?!h\b)/g;
   for (const m of text.matchAll(lead)) {
     const after = text.slice(m.index! + m[0].length);
     if (NOT_AN_HOUR.test(after) || /^\s*o'?clock/.test(after) || STREET_AFTER.test(after)) continue;
@@ -706,6 +846,78 @@ function withoutPhrase(text: string, phrase: string): string {
   let out = ` ${words(text)} `;
   while (out.includes(needle)) out = out.replace(needle, " ");
   return out;
+}
+
+/** One of the five salutations the backstop strips, as a whole word. */
+const SALUTATION = String.raw`(?:(?:[Hh]i|[Hh]ello)(?:\s+there)?|[Hh]ey)(?![\p{L}\p{N}'’-])`;
+/** A word of the name a salutation may carry: capitalised, two letters or more, never a title such as "Dr", whose full stop ends no sentence. */
+const NAME_WORD = String.raw`(?!(?:Dr|Mr|Mrs|Ms|Mx|Prof|Sr|Jr|St)\b)\p{Lu}[\p{L}'’-]+`;
+/** Where a bare salutation ends: "!" or "." (one or more) before a space or the end, or nothing more on its line. */
+const OWN_SENTENCE_END = String.raw`(?:[.!]+(?=\s|$)|,?(?=[ \t]*(?:\n|$)))`;
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Rule 2 of stripOwnGreeting: a sentence that does nothing but introduce the assistant. */
+function selfIntroduction(clinicName: string): string {
+  const clinic = clinicName.trim().split(/\s+/).filter(Boolean).map(escapeRegExp).join(String.raw`\s+`);
+  const whose = clinic ? String.raw`(?:an?|the|your|${clinic}['’]s?)` : String.raw`(?:an?|the|your)`;
+  const kind = String.raw`(?:(?:AI|AI-powered|[Aa]utomated|[Vv]irtual|[Dd]igital|[Mm]essaging|[Cc]hat)\s+)*`;
+  const place = clinic ? String.raw`(?:${clinic}|the\s+(?:practice|clinic))` : String.raw`the\s+(?:practice|clinic)`;
+  const forWhom = String.raw`(?:\s+here)?(?:\s+(?:for|at|with|from)\s+${place})?`;
+  const notHuman = String.raw`(?:,?\s+(?:and\s+)?not\s+a\s+(?:real\s+)?(?:person|human))?`;
+  return String.raw`(?:I['’]m|I\s+am)\s+${whose}\s+${kind}[Aa]ssistant${forWhom}${notHuman}(?:[.!]+(?=\s|$)|$)`;
+}
+
+/**
+ * The backstop for BAA 1.3.0 release gate 20 (docs/counsel/agreement-changes.md
+ * §12.14). A first reply opens with metaChannelGreeting(), so a greeting the
+ * model writes as well says hello twice, and sometimes says twice that it is
+ * an AI assistant. The prompt asks for none; this takes off the one a model
+ * writes anyway. It runs on the model's text only, and only where the
+ * greeting goes in front of it (openWithGreeting).
+ *
+ * The rule, at the very start of the text and nowhere else:
+ *
+ *   1. A bare salutation comes off: "Hi", "Hello", "Hey", "Hi there" or
+ *      "Hello there" (capital or small h), with or without a name of one or
+ *      two capitalised words, that is a sentence of its own: it ends in "!"
+ *      or "." (one or more) and then a space or the end, or nothing more is
+ *      on its line. "Hi! We're open until 6" loses "Hi!". A salutation that
+ *      runs on into its sentence is not bare, so "Hey, that's…" and "Hi,
+ *      we're open…" keep every word, and so does "Highlights…", which holds
+ *      no salutation at all.
+ *   2. Then, or on its own, a self-introduction comes off: a sentence of
+ *      "I'm" or "I am"; "a", "an", "the", "your" or the clinic's possessive;
+ *      any of "AI", "AI-powered", "automated", "virtual", "digital",
+ *      "messaging" and "chat"; "assistant"; optionally "here" and "for",
+ *      "at", "with" or "from" the clinic or the practice; optionally "not a
+ *      (real) person" or "human"; and its end. A salutation run straight
+ *      into one ("Hi, I'm the AI assistant for …") comes off with it. A
+ *      sentence that says anything more ("I'm an AI assistant, so I can't
+ *      …") is kept whole.
+ *
+ * Only whole sentences come off, so what is left starts where the model
+ * started its next one, and may be nothing.
+ */
+export function stripOwnGreeting(text: string, clinicName: string): string {
+  const intro = selfIntroduction(clinicName);
+  const leading = new RegExp(
+    String.raw`^\s*(?:${SALUTATION}(?:,?\s+${NAME_WORD}(?:\s+${NAME_WORD})?)?(?:${OWN_SENTENCE_END}|\s*[,—–-]?(?=\s*${intro}))\s*)?(?:${intro}\s*)?`,
+    "u",
+  );
+  const match = leading.exec(text);
+  return match && match[0].trim() ? text.slice(match[0].length) : text;
+}
+
+/**
+ * The text of a reply that carries the greeting: metaChannelGreeting(), then
+ * the reply. The model's text loses a greeting of its own first
+ * (stripOwnGreeting), and a reply that was nothing else becomes the greeting
+ * alone. A fixed line goes in as written.
+ */
+export function openWithGreeting(greeting: string, reply: { text: string; source: FrontDoorAnswer["source"] }, clinicName: string): string {
+  const body = reply.source === "model" ? stripOwnGreeting(reply.text, clinicName) : reply.text;
+  return body ? `${greeting} ${body}` : greeting;
 }
 
 /** The model's structured answer. Anything that is not the expected JSON is read as a plain reply. */
@@ -914,7 +1126,7 @@ export async function answerFrontDoor(
   } else {
     try {
       const parsed = parseModelReply(await input.responder(buildFrontDoorPrompt(facts), input.text));
-      const verdict = guardReply(parsed.reply, guardContextFor(facts));
+      const verdict = guardReply(parsed.reply, { ...guardContextFor(facts), inbound: input.text });
       answer = verdict.ok
         ? { text: parsed.reply, source: "model", guard: null, screened: null, booking: "none", greeted: false }
         : { text: fallback, source: "handoff", guard: verdict.reason, screened: null, booking: "none", greeted: false };
@@ -955,7 +1167,11 @@ export async function answerFrontDoor(
       // The desk is emailed by the caller, after this transaction commits
       // (FrontDoorAnswer.deskNotice), never from inside it.
       deskNotice = created;
-      answer = { text: requestReceivedLine(facts.clinicName, merged.firstName), source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
+      // The name goes back only through the reply guard; refused, the line
+      // goes without it.
+      const named = requestReceivedLine(facts.clinicName, merged.firstName);
+      const received = guardReply(named, guardContextFor(facts)).ok ? named : requestReceivedLine(facts.clinicName, null);
+      answer = { text: received, source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
     } else {
       answer = {
         ...answer,
@@ -968,12 +1184,13 @@ export async function answerFrontDoor(
   }
 
   // The first reply of the conversation opens with the greeting, in front of
-  // whatever passed the guard or replaced it. The record waits for the send:
-  // the caller writes it only once the reply has gone out.
+  // whatever passed the guard or replaced it, and is the only greeting in it:
+  // the model's text loses one of its own (gate 20). The record waits for the
+  // send: the caller writes it only once the reply has gone out.
   let greetingToRecord: MetaConversation | null = null;
   if (!conversation || conversation.greet) {
     const greeting = metaChannelGreeting({ clinicName: facts.clinicName, channel: DISCLOSURE_CHANNEL[input.platform] });
-    answer = { ...answer, text: `${greeting} ${answer.text}`, greeted: true };
+    answer = { ...answer, text: openWithGreeting(greeting, answer, facts.clinicName), greeted: true };
     greetingToRecord = conversation;
   }
 
@@ -1032,4 +1249,43 @@ export function probeVerdict(raw: string, context: GuardContext = {}): { ok: boo
   if (!guard.ok) return { ok: false, reason: guard.reason };
   const handsOff = /\b(call|phone|website|book online|a person|the practice|the team|front desk)\b/i.test(reply);
   return handsOff ? { ok: true, reason: null } : { ok: false, reason: "no hand-off" };
+}
+
+/** A reply's sentences, for the counts below: split after ".", "!" or "?" and at line breaks. */
+function lineSentencesOf(text: string): string[] {
+  return text.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
+}
+
+/** A sentence that opens with a greeting: any salutation, not only the five the backstop strips. */
+const OPENS_WITH_GREETING = /^[^\p{L}\p{N}]*(?:hi|hiya|hello|hey|howdy|greetings|good\s+(?:morning|afternoon|evening)|welcome)(?![\p{L}\p{N}])/iu;
+/** A sentence in which the assistant says it is an AI, an automated or virtual assistant, or a bot. */
+const SAYS_IT_IS_AI = /\b(?:AI|automated|virtual|digital|messaging|chat)[\s-]+(?:assistant|bot)\b|\bchatbot\b|\b(?:I['’]m|I\s+am)\s+(?:(?:just|only)\s+)?(?:an?\s+|the\s+|your\s+)?(?:AI|bot|robot|assistant)\b|\bas\s+an\s+AI\b/iu;
+/** A message asking what it is talking to, which the prompt answers ("If asked, say you are an automated assistant"). */
+const ASKS_WHAT_IT_IS = /\b(?:real\s+person|a\s+person|human|bot|robot|AI|automated|machine)\b/i;
+
+/**
+ * The QA gate's check for BAA 1.3.0 release gate 20: the reply as
+ * answerFrontDoor sends it as the first of a conversation (openWithGreeting)
+ * holds no greeting and no AI self-introduction besides the channel's own.
+ * Any salutation opening a sentence counts, not only the five the backstop
+ * strips, and so does any sentence saying it is an AI, automated or virtual
+ * assistant or a bot, as the prompt's rule 1 forbids, except in reply to a
+ * person who asked what they are talking to: the prompt tells the model to
+ * say so then, and an answer is not an introduction. `stripped` says the
+ * backstop took a greeting off the model's text: the reply passes, but the
+ * prompt alone did not hold.
+ */
+export function firstReplyVerdict(
+  raw: string,
+  input: { clinicName: string; platform: MetaPlatform; inbound: string },
+): { ok: boolean; reason: string | null; sent: string; stripped: boolean } {
+  const { reply } = parseModelReply(raw);
+  const greeting = metaChannelGreeting({ clinicName: input.clinicName, channel: DISCLOSURE_CHANNEL[input.platform] });
+  const sent = openWithGreeting(greeting, { text: reply, source: "model" }, input.clinicName);
+  const stripped = stripOwnGreeting(reply, input.clinicName) !== reply;
+  const more = (pattern: RegExp) =>
+    lineSentencesOf(sent).filter((s) => pattern.test(s)).length > lineSentencesOf(greeting).filter((s) => pattern.test(s)).length;
+  if (more(OPENS_WITH_GREETING)) return { ok: false, reason: "a second greeting", sent, stripped };
+  if (!ASKS_WHAT_IT_IS.test(input.inbound) && more(SAYS_IT_IS_AI)) return { ok: false, reason: "a second AI self-introduction", sent, stripped };
+  return { ok: true, reason: null, sent, stripped };
 }

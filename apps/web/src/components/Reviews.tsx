@@ -193,11 +193,14 @@ function Stars({
     >
       {[1, 2, 3, 4, 5].map((n) => {
         // How much of this star is lit: 4.9 lights the fifth to nine tenths,
-        // so its right point is grey (owner, 12 October 2026).
+        // so its right point is grey (owner, 12 October 2026). The grey is a
+        // shade deeper than the page's strong hairline (0.34 of the ink, not
+        // 0.25), at the owner's request the same day: beside the gold it was
+        // too faint to see.
         const lit = Math.max(0, Math.min(1, rating - (n - 1)));
         const edge = litEdge(lit);
         return (
-          <svg key={n} viewBox="0 0 24 24" width={size} height={size} aria-hidden className="fill-line-strong">
+          <svg key={n} viewBox="0 0 24 24" width={size} height={size} aria-hidden className="fill-[rgb(23_42_58/0.34)]">
             <path d={STAR} />
             {lit > 0 ? (
               <svg width={edge} height={24} viewBox={`0 0 ${edge} 24`} className="fill-sun">
@@ -228,10 +231,11 @@ function initials(name: string): string {
 
 /**
  * The reviewer's face: their own photograph where they uploaded one, and
- * their initials on a soft tint where they did not, in the same circle and
- * the same hairline ring, so the two read as one kind of avatar. The owner
- * asked on 12 October 2026 for one avatar style and, the same day, for the
- * faces back: initials alone lost the people.
+ * their initials on white where they did not (owner, 12 October 2026: it was
+ * a peach tint), in the same circle and the same hairline ring, so the two
+ * read as one kind of avatar. The owner asked on 12 October 2026 for one
+ * avatar style and, the same day, for the faces back: initials alone lost
+ * the people.
  */
 function Portrait({ review, size }: { review: Review; size: number }) {
   const box = { width: size, height: size };
@@ -250,7 +254,7 @@ function Portrait({ review, size }: { review: Review; size: number }) {
     <span
       aria-hidden
       style={box}
-      className="bg-tint-peach text-ink ring-line grid shrink-0 place-items-center rounded-full text-[14.5px] font-semibold tracking-[0.02em] ring-1"
+      className="text-ink ring-line grid shrink-0 place-items-center rounded-full bg-white text-[14.5px] font-semibold tracking-[0.02em] ring-1"
     >
       {initials(review.name)}
     </span>
@@ -396,9 +400,9 @@ function RatingHeader({ summary }: { summary: ReviewSummary }) {
       /*
         Bottom-aligned, not centred.
 
-        The three columns are different heights and each has its own natural
-        baseline: the caption's last line, the one-star row, and the invite.
-        Centred, all three floated at different offsets, which is the kind of
+        The two columns are different heights and each has its own natural
+        baseline: the invite under the score, and the one-star row. Centred,
+        they floated at different offsets, which is the kind of
         near-alignment that reads as a mistake rather than as a choice. Sat on
         a common bottom edge they read as one band.
       */
@@ -420,14 +424,12 @@ function RatingHeader({ summary }: { summary: ReviewSummary }) {
           size={20}
           className="mt-4 justify-center sm:justify-start"
         />
-        {/* Two lines, one fact each, and both counts are computed rather than
-            typed. See summarize() in src/lib/reviews.ts: publishing a review
-            moves them both without anyone remembering to. */}
-        <p className="text-muted mt-4 text-[16.8px] leading-[1.55] font-medium">
-          Helped {summary.total} clinics who have rated us.
-          <br />
-          {summary.written} have shared their experience as well.
-        </p>
+        {/* The ask, under the score, where the two counts were ("Helped 286
+            clinics who have rated us…", removed by the owner on 12 October
+            2026). It was a third column after the bars. */}
+        <div className="mt-6">
+          <LeaveReview />
+        </div>
       </div>
 
       <div className="mx-auto space-y-2 sm:mx-0">
@@ -440,12 +442,6 @@ function RatingHeader({ summary }: { summary: ReviewSummary }) {
             index={index}
           />
         ))}
-      </div>
-
-      {/* Third in the row, after the score and the bars. Last on purpose: the
-          two things to its left are the argument, and this is the ask. */}
-      <div className="w-full sm:w-auto">
-        <LeaveReview />
       </div>
     </motion.div>
   );
@@ -582,7 +578,7 @@ export function Reviews({
   );
 
   return (
-    <section id="reviews" className="scroll-mt-24 py-20 sm:py-24">
+    <section id="reviews" className="page-section page-section--band scroll-mt-24">
       <div className="text-center">
         <div className="mb-9">
           <p className="eyebrow-tag">What clinics say</p>
@@ -695,7 +691,7 @@ export function Reviews({
       </div>
 
       <p className="text-muted mt-7 text-center text-[15.6px] font-medium">
-        Showing {reviews.length} of {summary.written} written reviews.
+        Browse through {reviews.length} of our latest reviews.
       </p>
     </section>
   );

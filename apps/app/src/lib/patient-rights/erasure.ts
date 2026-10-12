@@ -54,7 +54,7 @@ import { REQUESTER_LABELS, type PatientRequester } from "./requesters";
  *     Whoever wrote on such a thread may not be the person: a parent books
  *     for a child from the parent's own Instagram. So a thread is the
  *     person's own only when everything it sent names them (each request
- *     their contact, each draft their number or none). A thread that also
+ *     their contact, each draft their number). A thread that also
  *     booked for someone else is not theirs to delete: what it sent for
  *     others stays, with its drafts and its chat_threads row, and the result
  *     counts what was kept (`kept`), never naming anyone;
@@ -377,8 +377,9 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
 /**
  * Which of the candidate threads are the person's own: those every request
  * of which names one of their contacts, and whose draft, if any, carries one
- * of their numbers or none. The rest sent something for someone else, so
- * they are kept, and counted with what they sent for others.
+ * of their numbers. The rest sent something for someone else, or hold a
+ * draft naming no one yet, so they are kept, and counted with what they sent
+ * for others.
  */
 async function ownThreads(
   tx: TenantTx,
@@ -426,8 +427,13 @@ async function ownThreads(
         lte(metaBookingDrafts.updatedAt, before),
       ),
     );
+  // A draft that does not carry one of their numbers names someone else, or
+  // no one yet: a parent part-way through booking a sibling, the first name
+  // given and no number. Either way the thread is not theirs alone (second
+  // review, 12 October 2026: a numberless draft used to count as theirs, and
+  // the parent's thread went with it).
   for (const d of drafts) {
-    if (d.phone && !phones.has(d.phone)) tally(`${d.platform}:${d.senderId}`);
+    if (!(d.phone && phones.has(d.phone))) tally(`${d.platform}:${d.senderId}`);
   }
   // A shared thread keeps its draft unless the draft carries the person's
   // number (eraseContact takes that one wherever it is).

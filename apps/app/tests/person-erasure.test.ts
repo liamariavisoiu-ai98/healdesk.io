@@ -248,7 +248,7 @@ async function seedEverywhere(clinicId: string, digits: string, at: Date): Promi
       at,
     );
     await draft(client, clinicId, "messenger", `psid_${digits}`, phone, at);
-    await draft(client, clinicId, "instagram", `ig_${digits}`, null, at);
+    await draft(client, clinicId, "instagram", `ig_${digits}`, phone, at);
     await thread(client, clinicId, "whatsapp", `1${digits}`, at);
     await thread(client, clinicId, "instagram", `ig_${digits}`, at);
     await thread(client, clinicId, "messenger", `psid_${digits}`, at);
@@ -586,6 +586,40 @@ describeDb("deletion on request", () => {
     expect(await left()).toEqual(expected);
   });
 
+  test("a thread holding a draft that names no one yet is not the person's alone, and stays", async () => {
+    // The verifier's case: the parent's thread booked once, for the child P,
+    // and the parent has since started a booking for a sibling, first name
+    // given, no number yet. Erasing P took the parent's thread and draft.
+    const c = await seedClinic("erase-numberless-draft");
+    const at = new Date(Date.now() - 2 * DAY);
+    const child = await seedContact(c.clinicId, "+15550136101");
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(`update contacts set created_at = $1`, [at]);
+      await request(client, c.clinicId, child, { platform: "instagram", senderId: "ig_mom_1361" }, at);
+      await thread(client, c.clinicId, "instagram", "ig_mom_1361", at);
+      await client.query(
+        `insert into meta_booking_drafts (clinic_id, platform, sender_id, external_id, first_name, phone, preferred_window, updated_at)
+         values ($1, 'instagram', 'ig_mom_1361', 'page_1', 'Sibling', null, 'Friday 3pm', now() - interval '1 minute')`,
+        [c.clinicId],
+      );
+    });
+    const outcome = await erase({ clinicId: c.clinicId, phone: "+15550136101", requestedBy: "practice" });
+    if (outcome.status !== "erased") throw new Error("not erased");
+    expect(outcome.deleted).toMatchObject({ bookingRequests: 1, chatThreads: 0, drafts: 0 });
+    expect(outcome.kept).toEqual({ sharedThreads: 1, requests: 0, drafts: 1 });
+    const momThread = identifierRef("chat_party", c.clinicId, "instagram:ig_mom_1361");
+    await inTenant(c.clinicId, async (client) => {
+      expect((await client.query(`select 1 from meta_booking_drafts where sender_id = 'ig_mom_1361'`)).rows).toHaveLength(1);
+      expect((await client.query(`select 1 from chat_threads where party_ref = $1`, [momThread])).rows).toHaveLength(1);
+      const refs = (
+        await client.query<{ n: number }>(`select count(*)::int as n from erasure_requests where $1 = any(restore_refs)`, [
+          momThread,
+        ])
+      ).rows[0]!.n;
+      expect(refs).toBe(0);
+    });
+  });
+
   test("a thread that sent only for the person is theirs: it goes with what it sent, and its reference is kept for a restore", async () => {
     const c = await seedClinic("erase-own-thread");
     const at = new Date(Date.now() - 2 * DAY);
@@ -596,7 +630,7 @@ describeDb("deletion on request", () => {
       const first = await request(client, c.clinicId, person, own, at);
       const second = await request(client, c.clinicId, person, own, at);
       await thread(client, c.clinicId, "instagram", "ig_own_136", at);
-      await draft(client, c.clinicId, "instagram", "ig_own_136", null, at);
+      await draft(client, c.clinicId, "instagram", "ig_own_136", "+15550136001", at);
       return [first, second];
     });
     const outcome = await erase({ clinicId: c.clinicId, phone: "+15550136001", requestedBy: "practice" });
@@ -1097,7 +1131,7 @@ describeDb("deletion on request", () => {
          values ($1, $2, '+15550134001', 'p5550134001@example-patient.test', $3, $3) returning id`,
         [seeded.contactId, c.clinicId, at],
       );
-      await draft(client, c.clinicId, "instagram", "ig_5550134001", null, at);
+      await draft(client, c.clinicId, "instagram", "ig_5550134001", "+15550134001", at);
       await thread(client, c.clinicId, "whatsapp", "15550134001", at);
       await payload(
         client,

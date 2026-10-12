@@ -41,6 +41,7 @@ import { withTenant } from "@/lib/tenant";
 
 import { appliesWhen } from "./applies";
 import {
+  nightlyPurgeRuns,
   retentionLine,
   retentionShortenedLine,
   SETTING_CHANNELS,
@@ -145,6 +146,8 @@ export type SettingsView = {
    */
   records: {
     retentionDays: number;
+    /** Whether the nightly purge runs for this clinic (nightlyPurgeRuns): the card promises a removal only then. */
+    purgeRuns: boolean;
     options: { id: string; label: string; line: string; confirm: string | null }[];
   };
 };
@@ -181,6 +184,7 @@ export async function readSettingsView(input: {
       carrier: phone?.carrier ?? null,
       phoneSystem: phone?.phoneSystem ?? null,
       meta,
+      purgeRuns: await nightlyPurgeRuns(tx),
     };
   });
   const summary = await getBillingSummary(state.clinic.id, { now });
@@ -313,7 +317,8 @@ export async function readSettingsView(input: {
     },
     records: {
       retentionDays: settings.transcriptRetentionDays,
-      options: recordsOptions(),
+      purgeRuns: tenant.purgeRuns,
+      options: recordsOptions(tenant.purgeRuns),
     },
   };
 }
@@ -325,13 +330,13 @@ export async function readSettingsView(input: {
  * what is saved then (retentionChoice), since the clinic can lengthen and
  * shorten again without reloading (the branch review's R9).
  */
-export function recordsOptions(): SettingsView["records"]["options"] {
+export function recordsOptions(purgeRuns: boolean): SettingsView["records"]["options"] {
   const longest = Math.max(...TRANSCRIPT_RETENTION_DAYS_OPTIONS);
   return TRANSCRIPT_RETENTION_DAYS_OPTIONS.map((days) => ({
     id: String(days),
     label: `${days} days`,
     line: days === longest ? "The longest your agreement allows." : retentionLine(days),
-    confirm: days < longest ? retentionShortenedLine(days) : null,
+    confirm: days < longest ? retentionShortenedLine(days, purgeRuns) : null,
   }));
 }
 

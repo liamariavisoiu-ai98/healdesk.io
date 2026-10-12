@@ -140,7 +140,11 @@ export function RecordsCard({ view }: { view: SettingsView }) {
         slug={view.slug}
         settingKey="transcript_retention"
         legend="Keep transcripts for"
-        line={`Shortening it deletes older transcripts at the next nightly clean-up, for good. ${SENSITIVE_HINT}`}
+        line={`${
+          records.purgeRuns
+            ? "Shortening it removes older transcripts from your records at the next nightly clean-up."
+            : "Shortening it applies once healdesk's nightly clean-up is on for your account; until then, nothing is removed."
+        } ${SENSITIVE_HINT}`}
         options={records.options}
         initial={String(records.retentionDays)}
       />

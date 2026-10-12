@@ -358,8 +358,8 @@ export function ChecklistSetting(props: {
 
 /**
  * Records: 90, 30 or 7 days. A longer choice saves at once. A shorter one
- * first says what it does and when ("Transcripts older than 7 days are
- * deleted tonight. This can't be undone."), and saves only once confirmed;
+ * first says what it does and when (retentionShortenedLine: tonight only
+ * where the nightly purge runs for the clinic), and saves only once confirmed;
  * the server then asks for a step-up as for any sensitive change (plan Part
  * D4), and the toast links to it.
  */

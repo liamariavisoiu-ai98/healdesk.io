@@ -447,9 +447,12 @@ describeDb("Settings", () => {
 
     // With one: stored, its history kept, and the clinic told, in days.
     steppedUp = true;
+    // This clinic is on BAA 1.2.2, which the nightly clean-up waits for its
+    // switch on, and the switch is off: nothing is promised for tonight.
     expect(await save("transcript_retention", 7)).toEqual({
       ok: true,
-      toast: "Transcripts older than 7 days are deleted tonight. This can't be undone.",
+      toast:
+        "Transcripts older than 7 days will be removed from your records once healdesk's nightly clean-up is on for your account. Until then, nothing is removed.",
     });
     expect(await stored()).toBe(7);
     expect(await history()).toEqual([
@@ -461,6 +464,7 @@ describeDb("Settings", () => {
       field: "transcript_retention_days",
       beforeDays: 90,
       afterDays: 7,
+      willPurgeTonight: false,
       deviceName: "Front desk Mac",
       settingsUrl: expect.stringMatching(new RegExp(`/c/${portal.clinicSlug}/settings#records$`)),
     });
@@ -470,7 +474,8 @@ describeDb("Settings", () => {
     steppedUp = false;
     expect(await save("transcript_retention", 30)).toEqual({
       ok: true,
-      toast: "Transcripts are kept for 30 days, then deleted. Nothing already deleted comes back.",
+      toast:
+        "Transcripts are kept for 30 days, then removed from your records. Nothing already removed comes back.",
     });
     expect(await stored()).toBe(30);
     expect((await history()).map((h) => [h.before_value, h.after_value])).toEqual([
@@ -490,6 +495,100 @@ describeDb("Settings", () => {
     expect(html).toContain('id="records"');
     expect(html.indexOf('id="channels"')).toBeLessThan(html.indexOf('id="records"'));
     expect(html.indexOf('id="records"')).toBeLessThan(html.indexOf('id="how-aya-talks"'));
+    expect(html).toContain("applies once healdesk&#x27;s nightly clean-up is on for your account");
+    expect(html).not.toContain("nightly clean-up, for good");
+  });
+
+  test("the Records card promises a removal tonight only where the nightly purge runs for the clinic (R3)", async () => {
+    const { renderSettingChanged } = await import("@/lib/email/templates/setting_changed");
+    const { default: SettingsPage } = await import("@/app/c/[slug]/settings/page");
+    const card = async () =>
+      renderToStaticMarkup(
+        await SettingsPage({
+          params: Promise.resolve({ slug: portal.clinicSlug }),
+          searchParams: Promise.resolve({}),
+        }),
+      );
+    const lastNotice = async () =>
+      (
+        await inTenant(
+          portal.clinicId,
+          async (c) =>
+            (
+              await c.query<{ payload: Record<string, unknown> }>(
+                `select payload from billing_notices
+                  where kind = 'setting_changed' and payload->>'field' = 'transcript_retention_days'
+                  order by created_at desc limit 1`,
+              )
+            ).rows,
+        )
+      )[0]!.payload;
+    const tonight =
+      "Tonight healdesk removes transcripts older than 7 days from your records, with the raw call and message data behind them. Lengthening it again won't bring them back.";
+    const setJob = (on: boolean) =>
+      sql(`update scheduled_jobs set enabled = $1 where name = 'retention-purge'`, [on]);
+    const reset = async () => {
+      steppedUp = false;
+      await save("transcript_retention", 90);
+      steppedUp = true;
+    };
+
+    try {
+      // The switch on: every clinic is purged nightly, this one included.
+      await setJob(true);
+      await reset();
+      expect(await card()).toContain(
+        "Shortening it removes older transcripts from your records at the next nightly clean-up.",
+      );
+      expect(await save("transcript_retention", 7)).toEqual({ ok: true, toast: tonight });
+      expect(await lastNotice()).toMatchObject({ afterDays: 7, willPurgeTonight: true });
+
+      // The switch off, and the clinic on BAA 1.3.0, which states the
+      // purge's periods: purged nightly whatever the switch says.
+      await setJob(false);
+      await reset();
+      const rows = await sql<{ organization_id: string }>(
+        `select organization_id from clinics where id = $1`,
+        [portal.clinicId],
+      );
+      await sql(
+        `insert into baa_acceptances
+           (organization_id, document_version, document_hash, rendered_text, variables, assent_label,
+            accepted_by_name, accepted_by_email, accepted_at, bound_at)
+         values ($1, '1.3.0', repeat('f', 64), 'AGREEMENT (test)', '{}'::jsonb, 'I agree', 'Alex Chen',
+                 'alex@settings.test', now(), now())`,
+        [rows[0]!.organization_id],
+      );
+      expect(await save("transcript_retention", 7)).toEqual({ ok: true, toast: tonight });
+      expect(await card()).toContain("at the next nightly clean-up.");
+    } finally {
+      await setJob(false);
+    }
+
+    // The email says the same thing the toast did, each way.
+    const email = (willPurgeTonight: boolean) =>
+      renderSettingChanged(
+        {
+          field: "transcript_retention_days",
+          beforeMasked: null,
+          afterMasked: null,
+          beforeDays: 90,
+          afterDays: 7,
+          willPurgeTonight,
+          changedAt: "2026-10-12T14:32:00Z",
+          settingsUrl: "https://app.healdesk.test/c/x/settings#records",
+        },
+        {
+          clinicName: "Radiance",
+          audience: "patients",
+          reason: "You get this because you run Radiance's account.",
+          raisedAt: new Date("2026-10-12T14:32:00Z"),
+          timeZone: "America/New_York",
+        },
+      ).text;
+    expect(email(true)).toMatch(/Each night healdesk removes transcripts older than this/);
+    expect(email(false)).toMatch(/once healdesk's nightly clean-up is on for your account/);
+    expect(email(false)).not.toMatch(/Each night|can't be brought back/);
   });
 
   test("deposits: Take deposits waits for a connected account and an amount; each switch changes what AYA does with a booking that needs one", async () => {

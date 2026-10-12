@@ -13,6 +13,7 @@ import { and, desc, eq } from "drizzle-orm";
 
 import { clinics, clinicSettingsHistory, type DepositUncollectable } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { agreementInEffect } from "@/lib/agreements/in-effect";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
 import {
   connectedMetaPlatforms,
@@ -22,6 +23,8 @@ import {
 import { ChannelSwitchError, setChannelEnabled } from "@/lib/channels/switch";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { notifySettingChanged } from "@/lib/notices/setting-changed";
+import { purgeIsPromised } from "@/lib/retention/purge";
+import { getJob, JOB_RETENTION_PURGE } from "@/lib/scheduler/jobs";
 import { formatPhone } from "@/lib/setup/help";
 import {
   saveDirectLine,
@@ -430,7 +433,8 @@ async function write(
       // The history row is saveSetupSettings' (clinic_settings_history keeps
       // every change of this field); the email is for a shortening only.
       await save({ transcriptRetentionDays: days });
-      if (!shortening) return `${retentionLine(days)} Nothing already deleted comes back.`;
+      if (!shortening) return `${retentionLine(days)} Nothing already removed comes back.`;
+      const purgeRuns = await nightlyPurgeRuns(tx);
       const [history] = await tx.db
         .select({ id: clinicSettingsHistory.id })
         .from(clinicSettingsHistory)
@@ -448,12 +452,13 @@ async function write(
           before: null,
           after: null,
           days: { before: current, after: days },
+          purgeRuns,
           historyId: history.id,
           actorLabel: label,
           at: now,
         });
       }
-      return retentionShortenedLine(days);
+      return retentionShortenedLine(days, purgeRuns);
     }
 
     case "transfer_number": {
@@ -481,16 +486,37 @@ function isRetentionDays(value: unknown): value is TranscriptRetentionDays {
 
 /** What a kept period means, in the clinic's words. */
 export function retentionLine(days: number): string {
-  return `Transcripts are kept for ${days} days, then deleted.`;
+  return `Transcripts are kept for ${days} days, then removed from your records.`;
 }
 
 /**
  * What shortening it does, and when: said before it is confirmed (the
- * Records card) and again in the toast. The nightly purge deletes what is
- * older, and nothing deleted comes back.
+ * Records card), again in the toast and in the email (O4). Only what the
+ * nightly purge does (lib/retention/purge.ts): it removes a transcript older
+ * than the period from the clinic's records, and the raw call and message
+ * data behind it (processed payloads, idle message threads) by the same
+ * period; and nothing removed is put back. "Tonight" only when the purge
+ * runs for this clinic (nightlyPurgeRuns); otherwise the change waits for
+ * the nightly clean-up to be switched on, and says so (the branch review's
+ * R3).
  */
-export function retentionShortenedLine(days: number): string {
-  return `Transcripts older than ${days} days are deleted tonight. This can't be undone.`;
+export function retentionShortenedLine(days: number, purgeRuns: boolean): string {
+  return purgeRuns
+    ? `Tonight healdesk removes transcripts older than ${days} days from your records, with the raw call and message data behind them. Lengthening it again won't bring them back.`
+    : `Transcripts older than ${days} days will be removed from your records once healdesk's nightly clean-up is on for your account. Until then, nothing is removed.`;
+}
+
+/**
+ * Whether the nightly clean-up purges this clinic
+ * (lib/scheduler/retention-purge.ts): its agreement in effect states the
+ * purge's periods (purgeIsPromised: BAA 1.3.0 and the DPA), or the
+ * retention-purge switch is on, which adds every clinic. 1.2.2 and earlier
+ * wait for the switch, which ships off.
+ */
+export async function nightlyPurgeRuns(tx: TenantTx): Promise<boolean> {
+  const agreement = await agreementInEffect(tx);
+  if (purgeIsPromised(agreement?.documentVersion ?? null)) return true;
+  return (await getJob(JOB_RETENTION_PURGE))?.enabled === true;
 }
 
 function requireBoolean(value: unknown, field: string): boolean {

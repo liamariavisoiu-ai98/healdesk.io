@@ -43,6 +43,8 @@ export async function notifySettingChanged(
     after: string | null;
     /** A number of days kept (transcript retention) rather than a number to call. */
     days?: { before: number; after: number };
+    /** For transcript retention: whether the nightly purge runs for this clinic (nightlyPurgeRuns). */
+    purgeRuns?: boolean;
     /** The clinic_settings_history row the change wrote. */
     historyId: string;
     actorLabel: string;
@@ -87,6 +89,7 @@ export async function notifySettingChanged(
           beforeMasked: maskPhone(change.before),
           afterMasked: maskPhone(change.after),
           ...(change.days ? { beforeDays: change.days.before, afterDays: change.days.after } : {}),
+          ...(change.purgeRuns !== undefined ? { willPurgeTonight: change.purgeRuns } : {}),
           changedAt: change.at.toISOString(),
           ...(deviceName ? { deviceName } : {}),
           settingsUrl: publicUrl(`/c/${clinic.slug}/settings#${card}`),

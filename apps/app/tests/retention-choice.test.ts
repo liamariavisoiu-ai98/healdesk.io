@@ -12,13 +12,13 @@ import { retentionChoice } from "@/lib/portal/retention-choice";
  * dialog, and nothing saved.
  */
 describe("the Records card's choice", () => {
-  const options = recordsOptions();
+  const options = recordsOptions(true);
 
   test("every choice that can shorten carries its sentence, whatever is saved when the page loads", () => {
     expect(options.map((option) => [option.id, option.confirm])).toEqual([
       ["90", null],
-      ["30", retentionShortenedLine(30)],
-      ["7", retentionShortenedLine(7)],
+      ["30", retentionShortenedLine(30, true)],
+      ["7", retentionShortenedLine(7, true)],
     ]);
   });
 
@@ -26,7 +26,7 @@ describe("the Records card's choice", () => {
     expect(retentionChoice("30", "90", options)).toEqual({ kind: "save" });
     expect(retentionChoice("90", "30", options)).toEqual({
       kind: "confirm",
-      sentence: retentionShortenedLine(30),
+      sentence: retentionShortenedLine(30, true),
     });
   });
 
@@ -35,7 +35,7 @@ describe("the Records card's choice", () => {
     expect(retentionChoice("7", "30", options)).toEqual({ kind: "save" });
     expect(retentionChoice("30", "7", options)).toEqual({
       kind: "confirm",
-      sentence: retentionShortenedLine(7),
+      sentence: retentionShortenedLine(7, true),
     });
   });
 

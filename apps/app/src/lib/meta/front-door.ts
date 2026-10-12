@@ -1,4 +1,4 @@
-import { findClinicalContent, findUrgentContent, metaEligible, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
+import { findClinicalContent, findUrgentContent, metaEligible, namesMetaTreatment, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
 import { eq } from "drizzle-orm";
 
@@ -6,6 +6,7 @@ import { agentConfigs, clinics } from "@/db/schema";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
 import { describeError, log } from "@/lib/log";
+import { parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import type { TenantTx } from "@/lib/tenant";
@@ -134,6 +135,12 @@ export type FrontDoorFacts = {
   requirements: BookingField[];
   /** The rest of the set — asked by the practice on the phone, never here. */
   deferredRequirements: BookingField[];
+  /**
+   * The clinic's own opening and closing times, minutes after local
+   * midnight, from its weekly hours: the only clock times a reply may name
+   * (the guard). Absent or empty, a reply may name none.
+   */
+  publishedTimes?: readonly number[];
 };
 
 export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">): string {
@@ -268,6 +275,9 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(side effects?|downtime|recovery (time|takes)|contraindicat|dosage|units of)\b/i, label: "clinical detail" },
   { pattern: /\bI('m| am) (a )?(human|person|real person)\b/i, label: "a human claim" },
   { pattern: /\b(you're|you are|it's|it is|that's) (all )?(booked|confirmed|in the diary|scheduled)\b/i, label: "a booking confirmation" },
+  { pattern: /\b(you're|you are) all set\b/i, label: "a booking confirmation" },
+  // A day agreed to, with or without a time: "Tuesday works", "Friday is fine".
+  { pattern: /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)s?\b[^.?!]{0,24}\b(works|would work|is fine|is perfect|is great|is good|is available|is free|is open for you)\b/i, label: "an appointment day" },
   { pattern: /\b(we|I)('ll| will) (text|sms|message you a link)\b/i, label: "a text promise" },
   // WhatsApp's policy bars promoting medical and healthcare products, and the
   // line between a treatment and a product is not one to test in a DM.
@@ -286,10 +296,16 @@ export type GuardContext = {
   serviceNames?: readonly string[];
   /** The clinic's own name: public, and allowed to contain a service's ("Botox Bar"). */
   clinicName?: string;
+  /** The clinic's opening and closing times, minutes after midnight: the only clock times a reply may name. */
+  publishedTimes?: readonly number[];
 };
 
-export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames">): GuardContext {
-  return { clinicName: facts.clinicName, serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name) };
+export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "services" | "serviceNames" | "publishedTimes">): GuardContext {
+  return {
+    clinicName: facts.clinicName,
+    serviceNames: facts.serviceNames ?? facts.services.map((s) => s.name),
+    publishedTimes: facts.publishedTimes ?? [],
+  };
 }
 
 /** Deterministic: a reply that trips any line is not sent. */
@@ -303,7 +319,113 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const clinical = findClinicalContent({ reply }, { conditions: true });
   if (clinical.length) return { ok: false, reason: clinical[0]!.label };
   if (namesATreatment(reply, context)) return { ok: false, reason: "a treatment name" };
+  // The catalogue's treatment vocabulary, for every clinic, with or without
+  // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
+  const own = context.clinicName ? withoutPhrase(reply, context.clinicName) : reply;
+  if (namesMetaTreatment(own)) return { ok: false, reason: "a treatment name" };
+  // No appointment details: a calendar date never, and a clock time only
+  // when it is one of the clinic's own opening or closing times.
+  if (DATE_IN_REPLY.some((pattern) => pattern.test(reply))) return { ok: false, reason: "an appointment date" };
+  if (!clockTimesArePublished(reply, context.publishedTimes ?? [])) return { ok: false, reason: "an appointment time" };
   return { ok: true };
+}
+
+const MONTH =
+  "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
+
+/** A calendar date: "Oct 21", "21st of October", "10/21", "2026-10-21", "the 22nd". "24/7" is not one. */
+const DATE_IN_REPLY: readonly RegExp[] = [
+  new RegExp(`\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`, "i"),
+  new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH}`, "i"),
+  /\b(?!24\/7\b)\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/,
+  /\b\d{4}-\d{1,2}-\d{1,2}\b/,
+  /\b\d{1,2}(?:st|nd|rd|th)\b/i,
+];
+
+const HOUR_WORDS: Readonly<Record<string, number>> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+};
+
+/** Every reading of an hour and minute: the 24-hour one when it can only be that, else morning and afternoon. */
+function readings(hour: number, minute: number, meridiem: string | undefined): number[] {
+  if (hour > 24 || minute > 59) return [];
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return [];
+    const pm = meridiem.startsWith("p");
+    return [((hour % 12) + (pm ? 12 : 0)) * 60 + minute];
+  }
+  if (hour > 12) return [hour * 60 + minute];
+  if (hour === 0) return [minute];
+  return [(hour % 12) * 60 + minute, ((hour % 12) + 12) * 60 + minute];
+}
+
+/** What follows a number that makes it a count, a price or a length rather than an hour. */
+const NOT_AN_HOUR = /^\s*(%|percent|\$|dollars?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|units?|ml|mg|sessions?|treatments?|visits?|times|people|patients|areas?|syringes?|vials?|st|nd|rd|th)\b/i;
+
+/**
+ * Every clock time a reply names, each as its possible readings in minutes
+ * after midnight. A number counts as an hour when a meridiem, a colon or
+ * "o'clock" marks it, or when a word for a time leads into it ("at 2",
+ * "from 9", "9 to 5", "until noon"), unless what follows makes it a count
+ * ("2 weeks", "30 minutes") or a dollar sign leads it.
+ */
+function clockTimes(reply: string): number[][] {
+  const found: number[][] = [];
+  const text = reply.toLowerCase();
+  for (const m of text.matchAll(/(?<![$\d.,])(\d{1,2}):(\d{2})(?:\s*([ap])\.?m\b\.?)?/g)) {
+    found.push(readings(Number(m[1]), Number(m[2]), m[3]));
+  }
+  for (const m of text.matchAll(/(?<![$\d.,:])(\d{1,2})(?:\.(\d{2}))?\s*([ap])\.?m\b\.?/g)) {
+    found.push(readings(Number(m[1]), Number(m[2] ?? 0), m[3]));
+  }
+  for (const m of text.matchAll(/\b(noon|midday|midnight)\b/g)) found.push([m[1] === "midnight" ? 0 : 720]);
+  for (const m of text.matchAll(/\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*o'?clock\b/g)) {
+    found.push(readings(HOUR_WORDS[m[1]!] ?? Number(m[1]), 0, undefined));
+  }
+  // A bare hour led into by a word for a time. Digits only: "one" is "speak
+  // to one of our team" far more often than it is an hour.
+  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)/g;
+  for (const m of text.matchAll(lead)) {
+    const after = text.slice(m.index! + m[0].length);
+    if (NOT_AN_HOUR.test(after) || /^\s*o'?clock/.test(after)) continue;
+    // "and 2" or "or 3" is a count as often as a time: an hour only after "between".
+    if (/^(and|or)\b/.test(m[0]) && !/\bbetween\b[^.?!]*$/.test(text.slice(0, m.index!))) continue;
+    found.push(readings(Number(m[1]), 0, undefined));
+  }
+  // Either end of a range of hours: "9-5", "9 to 5", "10 until 4".
+  for (const m of text.matchAll(/(?<![$\d.,:])(\d{1,2})\s*(?:-|–|—|\s(?:to|until|till)\s)\s*(\d{1,2})\b(?![:.]?\d)/g)) {
+    const after = text.slice(m.index! + m[0].length);
+    if (NOT_AN_HOUR.test(after) || /^\s*[ap]\.?m\b/.test(after)) continue;
+    found.push(readings(Number(m[1]), 0, undefined), readings(Number(m[2]), 0, undefined));
+  }
+  return found;
+}
+
+/** True when every clock time in the reply could be one of the clinic's own opening or closing times. */
+function clockTimesArePublished(reply: string, published: readonly number[]): boolean {
+  const allowed = new Set(published);
+  return clockTimes(reply).every((candidates) => candidates.some((minutes) => allowed.has(minutes)));
+}
+
+/** Every opening and closing time in the clinic's weekly hours, minutes after local midnight. */
+export function publishedTimesOf(hours: unknown): number[] {
+  if (!hours) return [];
+  let parsed: OpeningHours;
+  try {
+    parsed = parseOpeningHours(hours);
+  } catch {
+    return [];
+  }
+  const times = new Set<number>();
+  for (const ranges of Object.values(parsed)) {
+    for (const range of ranges) {
+      for (const hhmm of range) {
+        const [h, m] = hhmm.split(":").map(Number);
+        if (Number.isInteger(h) && Number.isInteger(m)) times.add(h! * 60 + m!);
+      }
+    }
+  }
+  return [...times];
 }
 
 /**
@@ -413,6 +535,7 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
       enabled: clinics.metaFrontDoorEnabled,
       specialty: clinics.specialty,
       bookingRequirements: clinics.bookingRequirements,
+      openingHours: clinics.openingHours,
     })
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
@@ -438,6 +561,7 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     escalationHours: agent?.approvedAt ? agent.escalationHours : null,
     requirements: metaEligible(resolved),
     deferredRequirements: resolved.filter((f) => !f.metaEligible),
+    publishedTimes: publishedTimesOf(clinic.openingHours),
   };
 }
 

@@ -43,5 +43,6 @@ export * from "./specialties";
 export * from "./subprocessor-notice";
 export * from "./time-zones";
 export * from "./treatment-names";
+export * from "./treatment-vocabulary";
 export * from "./urgent-content";
 export * from "./welcome";

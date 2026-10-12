@@ -36,8 +36,9 @@ const PAGE_ID = "123456789012345";
 const SERVICES = ["Botox", "Lip filler", "Laser hair removal"];
 
 describe("the guard", () => {
-  test("lets a public answer through", () => {
-    expect(guardReply("We're open Monday to Friday 9 to 5 and Saturday mornings. To book, call the practice at +1 415 555 0199 — a person can help with the rest.")).toEqual({ ok: true });
+  test("lets a public answer through, its hours among the clinic's own opening and closing times", () => {
+    // 9:00 and 17:00, the clinic's published hours (FrontDoorFacts.publishedTimes).
+    expect(guardReply("We're open Monday to Friday 9 to 5 and Saturday mornings. To book, call the practice at +1 415 555 0199 — a person can help with the rest.", { publishedTimes: [540, 1020] })).toEqual({ ok: true });
   });
 
   test("refuses an acknowledgement, a time, a provider, insurance, guidance, and a human claim", () => {
@@ -87,8 +88,8 @@ describe("the guard", () => {
     expect(guardReply("Thanks for messaging Botox Bar! Call the practice to book.", bar)).toEqual({ ok: true });
     expect(guardReply("Botox Bar offers Botox — call the practice to book.", bar)).toEqual({ ok: false, reason: "a treatment name" });
     // The names come from the facts: every configured service, approved or not.
-    expect(guardContextFor({ clinicName: "Radiance", services: [], serviceNames: ["Lip filler"] })).toEqual({ clinicName: "Radiance", serviceNames: ["Lip filler"] });
-    expect(guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }] })).toEqual({ clinicName: "Radiance", serviceNames: ["Botox"] });
+    expect(guardContextFor({ clinicName: "Radiance", services: [], serviceNames: ["Lip filler"] })).toEqual({ clinicName: "Radiance", serviceNames: ["Lip filler"], publishedTimes: [] });
+    expect(guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }], publishedTimes: [540] })).toEqual({ clinicName: "Radiance", serviceNames: ["Botox"], publishedTimes: [540] });
   });
 
   test("refuses a reply that names an everyday skin or hair condition, acknowledged or not", () => {

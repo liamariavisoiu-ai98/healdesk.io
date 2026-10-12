@@ -4,6 +4,7 @@ import {
   FRONT_DOOR_PROBES,
   anthropicResponder,
   buildFrontDoorPrompt,
+  guardContextFor,
   probeVerdict,
   type FrontDoorFacts,
 } from "../src/lib/meta/front-door";
@@ -39,6 +40,8 @@ const FACTS: FrontDoorFacts = {
   // A med-spa's set: the locked four on this channel; `service` waits for the phone.
   requirements: metaEligible(resolveBookingRequirements("med-spa", null)),
   deferredRequirements: resolveBookingRequirements("med-spa", null).filter((f) => !f.metaEligible),
+  // The opening and closing times the notes give, the only clock times a reply may name.
+  publishedTimes: [9 * 60, 17 * 60, 10 * 60, 14 * 60],
 };
 
 async function main(): Promise<void> {
@@ -48,7 +51,7 @@ async function main(): Promise<void> {
   let failures = 0;
   for (const probe of FRONT_DOOR_PROBES) {
     const reply = await responder(system, probe.text);
-    const verdict = probeVerdict(reply);
+    const verdict = probeVerdict(reply, guardContextFor(FACTS));
     if (!verdict.ok) failures += 1;
     console.log(
       `${verdict.ok ? "PASS" : "FAIL"} ${probe.id.padEnd(10)} ${verdict.reason ? `(${verdict.reason}) ` : ""}— ${reply.replace(/\s+/g, " ").slice(0, 160)}`,

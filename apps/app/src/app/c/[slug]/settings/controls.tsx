@@ -2,6 +2,8 @@
 
 import { useCallback, useId, useState, type ReactNode } from "react";
 
+import { retentionChoice } from "@/lib/portal/retention-choice";
+
 import { useAnnounce } from "../feedback";
 
 import { saveSettingAction, type SettingActionResult } from "./actions";
@@ -371,7 +373,9 @@ export function RetentionSetting(props: {
 }) {
   const save = useSave(props.slug);
   const [value, setValue] = useState(props.initial);
-  const [pending, setPending] = useState<string | null>(null);
+  // The choice waiting to be confirmed, with its sentence, taken when it was picked.
+  const [asking, setAsking] = useState<{ id: string; sentence: string } | null>(null);
+  const pending = asking?.id ?? null;
   const [busy, setBusy] = useState(false);
   const name = useId();
   const lineId = useId();
@@ -380,28 +384,30 @@ export function RetentionSetting(props: {
   async function commit(next: string) {
     const before = value;
     setValue(next);
-    setPending(null);
+    setAsking(null);
     setBusy(true);
     const result = await save(props.settingKey, Number(next));
     if (!result.ok) setValue(before);
     setBusy(false);
   }
 
+  // Decided at the click, against what is saved now (retentionChoice). The
+  // sentence comes from the server (retentionShortenedLine), so the page and
+  // the toast say the same thing.
   function choose(next: string) {
-    if (next === value) return;
-    const shorter = Number(next) < Number(value);
-    if (shorter) {
-      setPending(next);
+    const choice = retentionChoice(value, next, props.options);
+    if (choice.kind === "none") {
+      setAsking(null);
+      return;
+    }
+    if (choice.kind === "confirm") {
+      setAsking({ id: next, sentence: choice.sentence });
       return;
     }
     void commit(next);
   }
 
-  // The sentence comes from the server (retentionShortenedLine), so the page
-  // and the toast say the same thing.
-  const confirmText = pending
-    ? (props.options.find((o) => o.id === pending)?.confirm ?? null)
-    : null;
+  const confirmText = asking?.sentence ?? null;
 
   return (
     <fieldset className="grid gap-2 py-3" aria-describedby={props.line ? lineId : undefined}>
@@ -457,7 +463,7 @@ export function RetentionSetting(props: {
             <button
               type="button"
               disabled={busy}
-              onClick={() => setPending(null)}
+              onClick={() => setAsking(null)}
               className="border-line min-h-11 rounded-full border px-4 text-sm font-semibold"
             >
               Cancel

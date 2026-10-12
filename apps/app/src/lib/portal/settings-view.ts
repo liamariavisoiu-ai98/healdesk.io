@@ -140,7 +140,8 @@ export type SettingsView = {
   /**
    * Records (BAA 1.3.0 clause 11: "Practice may shorten these periods in its
    * portal"): how long transcripts are kept, 90, 30 or 7 days, and for each
-   * shorter choice the sentence the clinic confirms before it is saved.
+   * choice that can shorten it the sentence the clinic confirms before it is
+   * saved (recordsOptions).
    */
   records: {
     retentionDays: number;
@@ -312,14 +313,26 @@ export async function readSettingsView(input: {
     },
     records: {
       retentionDays: settings.transcriptRetentionDays,
-      options: TRANSCRIPT_RETENTION_DAYS_OPTIONS.map((days) => ({
-        id: String(days),
-        label: `${days} days`,
-        line: days === 90 ? "The longest your agreement allows." : retentionLine(days),
-        confirm: days < settings.transcriptRetentionDays ? retentionShortenedLine(days) : null,
-      })),
+      options: recordsOptions(),
     },
   };
+}
+
+/**
+ * The Records card's choices. Every choice but the longest carries the
+ * sentence to confirm before shortening to it, whatever is saved when the
+ * page loads: whether a pick shortens is decided when it is picked, against
+ * what is saved then (retentionChoice), since the clinic can lengthen and
+ * shorten again without reloading (the branch review's R9).
+ */
+export function recordsOptions(): SettingsView["records"]["options"] {
+  const longest = Math.max(...TRANSCRIPT_RETENTION_DAYS_OPTIONS);
+  return TRANSCRIPT_RETENTION_DAYS_OPTIONS.map((days) => ({
+    id: String(days),
+    label: `${days} days`,
+    line: days === longest ? "The longest your agreement allows." : retentionLine(days),
+    confirm: days < longest ? retentionShortenedLine(days) : null,
+  }));
 }
 
 /** Each channel switch's one line: what Off does (spec, "Every switch in the portal"). */

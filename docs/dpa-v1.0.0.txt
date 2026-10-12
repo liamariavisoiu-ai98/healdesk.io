@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 595f69fb02a7b7b50da681c13d394414a5977d09eb66226e78752b0c6a7a9ec7).
+(SHA-256 ff3e7acf0f37364ab85a352008fbbc1632e41f2f584514f5fde2fb6b4d9b3b3b).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -543,12 +543,21 @@ EFFECTIVE 6 October 2026
   the rest of this clause. A business associate agreement that replaces this
   agreement under the clause on Practice's status ends it too: the Client
   Information healdesk then holds is governed by that agreement from its
-  effective date, and nothing is destroyed because of the replacement.
+  effective date, the Services go on under it, and nothing is destroyed
+  because of the replacement.
 
-  Terminating this agreement under the Subcontractors clause is without
-  penalty to Practice: the Services end on the same day, no Fees accrue for
-  any time after that day, and healdesk refunds any Fees Practice has paid for
-  that time.
+  Terminating this agreement, however it is terminated, ends the Services on
+  the same day, and no Fees accrue for any time after that day. Where Practice
+  terminates because healdesk has violated a material term of this agreement,
+  or under the Subcontractors clause, healdesk refunds the Fees Practice has
+  paid for the time after that day: the prorated unused part of the
+  subscription period Practice has paid for. The refund never includes a fee
+  for setting up the Services or usage above the allowance already billed, and
+  there is nothing to refund if Practice's subscription has not started under
+  the Terms. Where healdesk terminates because Practice has materially
+  breached this agreement, or this agreement ends in any other way, nothing is
+  refunded. Terminating under the Subcontractors clause is therefore without
+  penalty to Practice.
 
   When the Services end, the assistant stops answering for Practice, and
   healdesk uses Client Information only to pass forwarded calls through to

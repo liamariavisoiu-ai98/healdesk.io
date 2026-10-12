@@ -935,14 +935,25 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * "within thirty days", which that clock keeps only when the export has
    * been delivered by then (agreement-changes.md § 12.11, item 8).
    *
-   * "Without penalty", which the shared notice of a new subcontractor
-   * promises (subprocessor-notice.ts), has the effect BAA 1.3.0's Term clause
-   * gives it (§12.14, HRC-07, SUB-03): the Services end the same day, no Fees
-   * accrue after it, and Fees paid for later time are refunded, a refund the
-   * Liability clause does not limit and Practice's indemnity does not reach.
-   * 1.3.0 also refunds a termination for healdesk's violation; this clause's
-   * termination for a material breach is left as it was, and is flagged for
-   * the owner. After destruction nothing of a client is left: since gates 6
+   * Ending it, and the refund, are the owner's rule of 12 October 2026, which
+   * BAA 1.3.0's Term clause (third paragraph) and the Terms (§ 15, from
+   * LEGAL_VERSION 2026-10-12.1) state too (dpa.md, gap 17): every termination
+   * ends the Services and stops the Fees the same day; a refund only where
+   * Practice terminates for healdesk's violation of a material term or under
+   * the Subcontractors clause, and only of the prorated unused part of the
+   * paid subscription period, never the setup fee or overage already billed,
+   * and nothing before the plan starts; any other ending refunds nothing.
+   * This document names no plan, price or fee (dpa.test.ts), so it says "a
+   * fee for setting up the Services" and "subscription", and leaves the
+   * annual plan's "rest of the year" to Terms § 15; the prorated unused part
+   * of the period paid for is the same thing.
+   * That is the effect "without penalty", which the shared notice of a new
+   * subcontractor promises (subprocessor-notice.ts), has here, as in 1.3.0
+   * (§12.14, HRC-07, SUB-03), and the Liability clause does not limit the
+   * refund nor Practice's indemnity reach it. Until then this clause refunded
+   * only a termination under the Subcontractors clause. A business associate
+   * agreement replacing this one is not a termination: the Services go on
+   * under it. After destruction nothing of a client is left: since gates 6
    * and 7 a deletion keeps no telephone number, and destruction deletes the
    * suppressions and the records of deletion requests with the rest
    * (destroyClinicData, apps/app drizzle/0058 and 0063), so the exception for
@@ -962,13 +973,22 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `ends this agreement, subject to the rest of this clause. A business associate ` +
           `agreement that replaces this agreement under the clause on Practice's status ends it ` +
           `too: the Client Information healdesk then holds is governed by that agreement from its ` +
-          `effective date, and nothing is destroyed because of the replacement.`,
+          `effective date, the Services go on under it, and nothing is destroyed because of the ` +
+          `replacement.`,
       ) +
       "\n\n" +
       wrap(
-        `Terminating this agreement under the Subcontractors clause is without penalty to ` +
-          `Practice: the Services end on the same day, no Fees accrue for any time after that ` +
-          `day, and healdesk refunds any Fees Practice has paid for that time.`,
+        `Terminating this agreement, however it is terminated, ends the Services on the same ` +
+          `day, and no Fees accrue for any time after that day. Where Practice terminates because ` +
+          `healdesk has violated a material term of this agreement, or under the Subcontractors ` +
+          `clause, healdesk refunds the Fees Practice has paid for the time after that day: the ` +
+          `prorated unused part of the subscription period Practice has paid for. The refund ` +
+          `never includes a fee for setting up the Services or usage above the allowance already ` +
+          `billed, and there is nothing to refund if Practice's subscription has not started under ` +
+          `the Terms. Where healdesk terminates because Practice has ` +
+          `materially breached this agreement, or this agreement ends in any other way, nothing ` +
+          `is refunded. Terminating under the Subcontractors clause is therefore without penalty ` +
+          `to Practice.`,
       ) +
       "\n\n" +
       wrap(

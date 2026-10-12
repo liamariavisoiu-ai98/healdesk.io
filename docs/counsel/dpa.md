@@ -25,7 +25,8 @@
 > the shared clause; and a correction the record cannot take appended and
 > linked, as BAA 1.3.0's is (PT-17). On 12 October 2026 the two sentences
 > that kept a deleted client's telephone number changed with the code (BAA
-> 1.3.0 release gates 6 and 7; gap 15). Counsel's approval covered the
+> 1.3.0 release gates 6 and 7; gap 15), and the Term clause took the
+> owner's refund rule of that day (gap 17). Counsel's approval covered the
 > clauses as they stood on 6 October, not these edits, which the owner reads
 > in `docs/dpa-v1.0.0.txt` before the release.
 
@@ -126,7 +127,7 @@ destruction, and adds the processor terms state law asks for.
 | 14 | Confidentiality | New; a veterinary paragraph |
 | 15 | Not authorised | 1.2.1's four prohibitions; Meta "is not healdesk's subcontractor and is not bound by this agreement" |
 | 16 | Assistance and audit | The records-to-HHS clause, made general; reconciled with clause 5: the state privacy laws' help is clause 5's, every other law's stays here |
-| 17 | Term | Written from the offboarding clock in the code (§ 4), not 1.2.1's "within thirty days"; terminating under the Subcontractors clause is "without penalty": the Services end that day, no Fees after, a refund of Fees paid for later time |
+| 17 | Term | Written from the offboarding clock in the code (§ 4), not 1.2.1's "within thirty days"; every termination ends the Services and the Fees that day, and Practice's termination for healdesk's violation of a material term or under the Subcontractors clause ("without penalty") refunds the prorated unused part of the paid period, never a setup fee or usage already billed; any other ending refunds nothing (owner, 12 October 2026; gap 17) |
 | 18 | Liability | 1.2.1's allocation and Terms §§ 13–14, in state-law terms; the Term clause's refund outside the exclusion and the indemnity, as 1.3.0's |
 | 19 | Notices and law | 1.2.1's, without HIPAA; Delaware; healdesk's notice email is hello@healdesk.io, as in BAA 1.2.2 (owner, 9 October 2026); the notice address is the practice's one address; an accepted calendar election is part of the entire agreement |
 
@@ -166,7 +167,7 @@ Added on 7 October 2026, read at origin/main c926414:
 | "in its reply to the client, tell them that healdesk cannot act on it" (13) | v1 is inbound only: no code path contacts a person after a conversation ends (CLAUDE.md, "Product rules"), so the reply is the one moment to say it; passing the request on is an operator's step | the product rules in the root CLAUDE.md |
 | "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | The operator's deletion script in apps/app's own shell (`npm run ops:erase-person`; never apps/web, since 12 October 2026) runs `eraseContact` and also deletes the client's raw payloads (`webhook_events`), the drafts and `chat_threads` of their own messaging threads (a thread that also booked for someone else keeps what it sent for others, counted in the reply), and their suppressions, consent records and contact attempts, in one transaction; it records the request with its ten-business-day deadline and shows each subcontractor step (Retell's, done in its console) outstanding until the operator records it. Backups age out at the host's 35 days (gate 18) | `apps/app/src/lib/patient-rights/erasure.ts`; `apps/app/src/lib/ops/patient-entry.ts`; agreement-changes.md § 12.14, gate 6 |
 | "It will correct that information as Practice directs"; "Where the record can be changed, healdesk corrects its own copy"; where it "must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the correction to it and links the two"; "Every later use and export of that record then carries the correction" (13) | Since 12 October 2026: the operator's scripts in apps/app's own shell (never apps/web) correct a contact in place (`npm run ops:amend-contact`, recording which fields changed) and append a correction to a booking request, a conversation or an appointment (`npm run ops:amend-record`) in `record_amendments`, append-only, linked by a foreign key that keeps it on a record of the same clinic, and removed only with that record (erasure, the purge, destruction). `exportPatient` and `exportClinic` carry each beside its record, and the desk's view of a booking request says how many there are (never their words: it opens without a passkey). A booking request still never changes in place (0039's trigger) | `apps/app/src/lib/patient-rights/amendments.ts`, `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0064_record_amendments.sql`, pinned by `apps/app/tests/record-amendments.test.ts`; agreement-changes.md § 12.14, gate 8 |
-| Terminating under the Subcontractors clause: "the Services end on the same day, no Fees accrue … and healdesk refunds" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
+| Terminating "ends the Services on the same day, and no Fees accrue"; on Practice's termination for healdesk's violation or under the Subcontractors clause, "healdesk refunds … the prorated unused part of the subscription period" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
 | "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0` exists as text, unreleased. Nothing can record an election of either kind: the election rows and their writer are plan C6 and C7, not on main | `packages/catalog/src/dpa-calendar-election.ts`; docs/design/google-calendar-2026-10-05.md |
 
 ## 5. Choices made in drafting
@@ -265,7 +266,8 @@ Added on 7 October 2026, read at origin/main c926414:
     these terms … say otherwise" cannot take it back). 1.3.0 also refunds a
     termination for healdesk's violation; the DPA's termination for a
     material breach was left as it was, a commercial term for the owner
-    (§ 6, gap 17).
+    (§ 6, gap 17), until the owner's rule of 12 October 2026 gave the DPA the
+    same refund.
 12. **The 24-hour rule is 1.3.0's, in this document's words**: no 45 CFR
     citations, "the law that applies" for the law-enforcement delay (Cal.
     Civ. Code 1798.82(c) provides one), and a client, not a patient, as the
@@ -446,12 +448,31 @@ Added on 7 October 2026, read at origin/main c926414:
     with the shared clause, and its precedence sentence governs where they
     touch. Reconcile them in the same way if counsel prefers one statement
     throughout.
-17. **The refund on a termination for healdesk's breach.** BAA 1.3.0 refunds
-    a termination for healdesk's violation as well as one on objection
-    (HRC-07, an owner flag). The DPA now refunds the objection, which "without
-    penalty" promises, and leaves its termination for a material breach
-    without a refund term. Recommended for the owner: the same refund, which
-    would also say that terminating for breach ends the Services that day.
+17. **The refund on a termination for healdesk's breach: resolved** (12
+    October 2026). BAA 1.3.0 refunds a termination for healdesk's violation
+    as well as one on objection (HRC-07, an owner flag); the DPA refunded
+    only the objection, which "without penalty" promises, and left its
+    termination for a material breach without a refund term. The owner
+    decided the rule on 12 October 2026, for the BAA and the DPA alike, and
+    Terms § 15 states it for a DPA practice from LEGAL_VERSION 2026-10-12.1.
+    The Term clause's second paragraph now says it, in 1.3.0's words where
+    they fit: terminating the agreement, however it is terminated, ends the
+    Services that day and no Fees accrue after it; where Practice terminates
+    because healdesk has violated a material term, or under the
+    Subcontractors clause, healdesk refunds the Fees paid for the time after
+    that day, the prorated unused part of the subscription period paid for;
+    never a fee for setting up the Services or usage above the allowance
+    already billed, and nothing if the subscription has not started under
+    the Terms; healdesk's termination for Practice's breach, and any other
+    ending, refunds nothing. Terminating under the Subcontractors clause is
+    "therefore without penalty", the effect the shared notice promises. The
+    DPA names no plan, price or fee (`dpa.test.ts` holds it to that), so the
+    annual plan's "rest of the year" stays in Terms § 15 and the setup fee is
+    "a fee for setting up the Services"; a replacing business associate
+    agreement is not a termination, and the first paragraph now says the
+    Services go on under it. `docs/dpa-v1.0.0.txt` and the DPA's eight
+    golden hashes were regenerated; no BAA hash moved. Nothing automates the
+    refund yet (the table in § 4).
 18. **"Services" and "Fees" are left to the Terms, which define neither**
     (ICD-19, ICD-32 for the BAA). The Term clause's refund and the new
     precedence over the Terms read the words as the Terms use them; BAA
@@ -607,8 +628,9 @@ its trigger.
 - [x] Gates 6 and 7 land, and the telephone-number sentences in clauses 13
       and 17 change with them (gap 15, 12 October 2026).
 - [ ] Gate 5 lands (gap 21).
-- [ ] The owner decides the refund on a termination for healdesk's breach,
-      and the definitions of "Services" and "Fees" (gaps 17, 18).
+- [x] The owner decides the refund on a termination for healdesk's breach
+      (gap 17, 12 October 2026), and the Term clause states it.
+- [ ] The owner decides the definitions of "Services" and "Fees" (gap 18).
 - [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,
       11, 12, 14 and 19, Privacy § 12 and `/data-deletion` name only the BAA
       today, and a vet's clients are called patients.

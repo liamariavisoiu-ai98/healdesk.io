@@ -1947,8 +1947,9 @@ The ten 1.3.0 hashes moved, as § 12.12 lists, and so did the DPA's eight
 
 The DPA's eight moved again with gates 6, 8 and 9 (12 October 2026), whose
 clause 13 and 17 sentences and term-time retention paragraph were drafted
-before 1.2.2 and merged after it: the DPA 1.0.0 sample is now
-`595f69fb02a7b7b50da681c13d394414a5977d09eb66226e78752b0c6a7a9ec7`. No BAA
+before 1.2.2 and merged after it, and with the owner's refund rule of the
+same day in its Term clause (dpa.md, gap 17): the DPA 1.0.0 sample is now
+`ff3e7acf0f37364ab85a352008fbbc1632e41f2f584514f5fde2fb6b4d9b3b3b`. No BAA
 hash moved with them.
 
 ### 13.5 What the change costs, for the owner

@@ -34,7 +34,7 @@ describe("the reply guard: appointment details", () => {
     "We're open Monday to Friday 9 to 5, Thursdays until 7:30pm, and Saturday 10am to 2pm.",
     "We open at 9am and close at 5pm on weekdays.",
     "Our hours are 9:00-17:00 on weekdays, 10-2 on Saturdays.",
-    "The front desk is in from 9 until 5. Call the practice to book.",
+    "The front desk is open from 9 until 5. Call the practice to book.",
     "Saturdays we're open until 2pm.",
     "We're here 24/7 on the website, and a person picks up the phone in opening hours.",
     "Speak to one of our team: call the practice to book.",
@@ -74,6 +74,88 @@ describe("the reply guard: appointment details", () => {
       reason: "an appointment day",
     });
     expect(guardReply("Another time: 3pm.", CLINIC)).toEqual({
+      ok: false,
+      reason: "an appointment time",
+    });
+  });
+
+  // The branch review's probe (R2): each of these passed the guard before.
+  test.each([
+    // The opening-hours exception, in a sentence that books.
+    "Great, Tuesday at 9am it is.",
+    "Perfect, we'll pencil you in for Thursday at 9.",
+    "We have an opening tomorrow at 9.",
+    "The team can fit you in at 9 on Thursday.",
+    // Word-form and 24-hour times and dates.
+    "How about half past two on Tuesday?",
+    "We have a slot at quarter to three on Friday.",
+    "We can do two thirty Tuesday.",
+    "We have a slot at 14h on Friday.",
+    "We have a slot at 1430 on Friday.",
+    "We'll see you on October twenty first.",
+    "See you 21.10.",
+    "half past two",
+    "quarter to three",
+    "at 14h",
+    "at 1430",
+    "October twenty first",
+    "21.10",
+    "Your appointment is confirmed for the twenty-first.",
+    // A confirmation with no "you're" or "it's" in it.
+    "Your appointment on Tuesday is confirmed.",
+    "Your consultation is booked for next Tuesday afternoon.",
+    "You're booked in for next Tuesday afternoon.",
+    "We have you down for Tuesday afternoon.",
+    "We've reserved Tuesday afternoon for you.",
+    // And the rest of the probe's appointment lines.
+    "We'll see you Tuesday at 9am.",
+    "See you on Tuesday at 9am!",
+    "Your appointment is Tuesday at 5pm.",
+    "Tuesday morning works.",
+    "We can do 2pm Tuesday.",
+    "We'll see you on the 21st.",
+    "See you on 21 October.",
+    "Our team will see you Tuesday.",
+    "We'll call you back tomorrow at 9am.",
+    "We're open for you Tuesday at 9am, so come in then.",
+  ])("refuses, from the review's probe: %s", (reply) => {
+    const verdict = guardReply(reply, CLINIC);
+    expect(verdict.ok, reply).toBe(false);
+    expect(verdict.ok ? null : verdict.reason).toMatch(
+      /^(an appointment (time|date|day)|a booking confirmation)$/,
+    );
+  });
+
+  test.each([
+    "We're open Monday to Friday, 9am to 5pm.",
+    "We're open 9-5 on weekdays.",
+    "We are open until 5 today.",
+    "Saturdays we close at 2pm.",
+    "We're closed on Sundays.",
+    "Thanks! The practice will call you to confirm a time.",
+    "Got it. The practice will call to confirm; what day suits you best?",
+    "We'll pass your request to the team, and they'll call you to confirm.",
+    "It takes about 45 minutes, and the practice will call you to confirm.",
+    // The hand-off is not a booking word.
+    "We're open weekdays 9 to 5 — call the practice to book.",
+    "We open at 9am; call us to book.",
+  ])("passes, from the review's probe: %s", (reply) => {
+    expect(guardReply(reply, CLINIC)).toEqual({ ok: true });
+  });
+
+  test("a published time passes only in a sentence about opening hours with no booking word", () => {
+    // 9am is the clinic's own opening time: about the hours, it passes; in
+    // a sentence that books, or one that isn't about the hours, it doesn't.
+    expect(guardReply("We open at 9am on Tuesday.", CLINIC)).toEqual({ ok: true });
+    expect(guardReply("Tuesday at 9am it is.", CLINIC)).toEqual({
+      ok: false,
+      reason: "an appointment day",
+    });
+    expect(guardReply("We're open at 9am, so your appointment can be then.", CLINIC)).toEqual({
+      ok: false,
+      reason: "an appointment time",
+    });
+    expect(guardReply("The front desk is in from 9.", CLINIC)).toEqual({
       ok: false,
       reason: "an appointment time",
     });

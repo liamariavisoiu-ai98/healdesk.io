@@ -279,6 +279,12 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
   { pattern: /\bI('m| am) (a )?(human|person|real person)\b/i, label: "a human claim" },
   { pattern: /\b(you're|you are|it's|it is|that's) (all )?(booked|confirmed|in the diary|scheduled)\b/i, label: "a booking confirmation" },
   { pattern: /\b(you're|you are) all set\b/i, label: "a booking confirmation" },
+  // A confirmation with no "you're" or "it's" in it: "your appointment on
+  // Tuesday is confirmed", "is booked for next Tuesday", "we have you down
+  // for", "we've reserved Tuesday for you", "we'll pencil you in".
+  { pattern: /\b(is|are|was|were|been|be) (now |all )?(booked|confirmed|reserved|scheduled|pencil(l)?ed in|locked in|set for)\b/i, label: "a booking confirmation" },
+  { pattern: /\b(have|has|got|put|pencil(l)?ed|pencil|book(ed)?|squeeze[sd]?|fit|fitted) you (down|in)\b/i, label: "a booking confirmation" },
+  { pattern: /\b(we|I)('ve| have| will|'ll)? (reserved|booked|scheduled|held|saved|blocked out) (you|your|a|the|that|this|it|monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)\b/i, label: "a booking confirmation" },
   // A day agreed to, with or without a time: "Tuesday works", "Friday is fine".
   { pattern: /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|tomorrow|today)s?\b[^.?!]{0,24}\b(works|would work|is fine|is perfect|is great|is good|is available|is free|is open for you)\b/i, label: "an appointment day" },
   { pattern: /\b(we|I)('ll| will) (text|sms|message you a link)\b/i, label: "a text promise" },
@@ -326,23 +332,105 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
   const own = context.clinicName ? withoutPhrase(reply, context.clinicName) : reply;
   if (namesMetaTreatment(own)) return { ok: false, reason: "a treatment name" };
-  // No appointment details: a calendar date never, and a clock time only
-  // when it is one of the clinic's own opening or closing times.
+  // No appointment details: a calendar date never, and a day or a clock
+  // time only as the clinic's own opening hours (appointmentIn).
   if (DATE_IN_REPLY.some((pattern) => pattern.test(reply))) return { ok: false, reason: "an appointment date" };
-  if (!clockTimesArePublished(reply, context.publishedTimes ?? [])) return { ok: false, reason: "an appointment time" };
+  for (const sentence of sentencesOf(reply)) {
+    const reason = appointmentIn(sentence, context.publishedTimes ?? []);
+    if (reason) return { ok: false, reason };
+  }
   return { ok: true };
+}
+
+/** A reply's sentences: split after . ! ? or ; and at line breaks. "9.30", "$4.50" and "21.10" stay whole. */
+function sentencesOf(reply: string): string[] {
+  return reply.split(/(?<=[.!?;])\s+|\n+/).filter((sentence) => sentence.trim() !== "");
+}
+
+/** A day of the week, by name or a long abbreviation. "Sat", "Sun" and "Wed" are words too often to count. */
+const WEEKDAY = /\b(mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|tues|weds|thurs)\b/i;
+
+/** A day named by its distance from today. */
+const RELATIVE_DAY =
+  /\b(today|tonight|tomorrow|tmrw|(this|next) (week|weekend|month)|this (morning|afternoon|evening)|later today)\b/i;
+
+/**
+ * Words that make a sentence about an appointment: the booking verbs, and
+ * "an opening" (but not "opening hours"), "see you", "fit you in".
+ */
+const BOOKING_CUE =
+  /\b(book|books|booked|booking|confirm|confirms|confirmed|confirmation|reserve|reserves|reserved|reservation|pencil|pencils|pencil(l)?ed|down for|see you|schedule|scheduled|slots?|openings?(?! (hours|times))|appointments?|fit you in|squeeze you in|come in|pop in|for you)\b/i;
+
+/**
+ * "Call the practice to book", "to make an appointment": the hand-off every
+ * reply ends with, which confirms nothing, so it doesn't count as a booking
+ * word ("We're open weekdays 9 to 5, call the practice to book").
+ */
+const TO_BOOK =
+  /\bto (book|schedule|make (an |a )?(appointment|booking)s?|arrange (an |a )?(appointment|booking)s?)\b|\bbook(ing)? (by phone|online|on the website)\b/gi;
+
+/** Words that make a sentence about the clinic's opening hours. */
+const HOURS_CUE = /\b(open|opens|opened|opening (hours|times)|close|closes|closed|closing|hours)\b/i;
+
+/**
+ * Why one sentence names an appointment, or null when it doesn't:
+ *
+ *   - a day (a weekday or a day named from today) beside a booking word
+ *     ("your appointment on Tuesday is confirmed", "we have an opening
+ *     tomorrow");
+ *   - a clock time beside a booking word, or beside a day outside a
+ *     sentence about opening hours ("Great, Tuesday at 9am it is");
+ *   - any clock time outside a sentence about opening hours, and in one,
+ *     any time that is not one of the clinic's own opening or closing times.
+ *
+ * A sentence about opening hours has "open", "close" or "hours" in it and no
+ * booking word ("call the practice to book" is the hand-off, not one). "We're
+ * open Monday to Friday, 9am to 5pm" passes when 9am and 5pm are the
+ * clinic's own; "we have an opening tomorrow at 9" does not.
+ */
+function appointmentIn(sentence: string, published: readonly number[]): string | null {
+  const day = WEEKDAY.test(sentence) || RELATIVE_DAY.test(sentence);
+  const booking = BOOKING_CUE.test(sentence.replace(TO_BOOK, " "));
+  const times = clockTimes(sentence);
+  if (booking && day) return "an appointment day";
+  if (times.length === 0) return null;
+  if (booking) return "an appointment time";
+  if (!HOURS_CUE.test(sentence)) return day ? "an appointment day" : "an appointment time";
+  const allowed = new Set(published);
+  return times.every((candidates) => candidates.some((minutes) => allowed.has(minutes)))
+    ? null
+    : "an appointment time";
 }
 
 const MONTH =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
 
-/** A calendar date: "Oct 21", "21st of October", "10/21", "2026-10-21", "the 22nd". "24/7" is not one. */
+/** A month by name, for the word-form dates: "may" and "march" are verbs too often to lead one. */
+const MONTH_WORDS =
+  "(?:january|february|april|june|july|august|september|october|november|december|jan|feb|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
+
+const UNIT_WORD = "(?:one|two|three|four|five|six|seven|eight|nine)";
+const UNIT_ORDINAL = "(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)";
+/** A day of the month as an ordinal word, from the tenth up: "the first" is far more often "the first visit". */
+const HIGH_ORDINAL = `(?:tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth|(?:twenty|thirty)[- ]?${UNIT_ORDINAL})`;
+/** Any day of the month in words: an ordinal, or a cardinal ("October twenty one"). */
+const DAY_WORD = `(?:${UNIT_ORDINAL}|${HIGH_ORDINAL}|(?:twenty|thirty)[- ]?${UNIT_WORD}|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty)`;
+
+/**
+ * A calendar date: "Oct 21", "21st of October", "10/21", "21.10.2026",
+ * "2026-10-21", "the 22nd", "October twenty first", "the twenty-first".
+ * "24/7" is not one.
+ */
 const DATE_IN_REPLY: readonly RegExp[] = [
   new RegExp(`\\b${MONTH}\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`, "i"),
   new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)?\\s+(?:of\\s+)?${MONTH}`, "i"),
   /\b(?!24\/7\b)\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/,
+  /(?<![$\d.,])\d{1,2}\.\d{1,2}\.\d{2,4}\b/,
   /\b\d{4}-\d{1,2}-\d{1,2}\b/,
   /\b\d{1,2}(?:st|nd|rd|th)\b/i,
+  new RegExp(`\\b${MONTH_WORDS}\\s+(?:the\\s+)?${DAY_WORD}\\b`, "i"),
+  new RegExp(`\\b${DAY_WORD}\\s+(?:of\\s+)?${MONTH_WORDS}`, "i"),
+  new RegExp(`\\bthe\\s+${HIGH_ORDINAL}\\b`, "i"),
 ];
 
 const HOUR_WORDS: Readonly<Record<string, number>> = {
@@ -361,6 +449,38 @@ function readings(hour: number, minute: number, meridiem: string | undefined): n
   if (hour === 0) return [minute];
   return [(hour % 12) * 60 + minute, ((hour % 12) + 12) * 60 + minute];
 }
+
+const CLOCK_HOUR_WORD = "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)";
+const CLOCK_HOUR = "(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\\d{1,2})";
+
+const MINUTE_WORDS: Readonly<Record<string, number>> = {
+  half: 30, quarter: 15, five: 5, ten: 10, twenty: 20, "twenty-five": 25,
+};
+
+function hourOf(word: string): number | null {
+  const hour = HOUR_WORDS[word] ?? Number(word);
+  return Number.isInteger(hour) && hour >= 1 && hour <= 12 ? hour : null;
+}
+
+const UNITS: Readonly<Record<string, number>> = {
+  one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+};
+const TENS: Readonly<Record<string, number>> = { twenty: 20, thirty: 30, forty: 40, fifty: 50 };
+
+/** "oh five", "fifteen", "thirty", "forty-five" as minutes past the hour. */
+function minutesOf(words: string): number | null {
+  const [first, second] = words.split(/[- ]+/);
+  if (first === "oh") return second ? (UNITS[second] ?? null) : null;
+  if (first === "ten") return 10;
+  if (first === "fifteen") return 15;
+  const tens = TENS[first!];
+  if (tens === undefined) return null;
+  return tens + (second ? (UNITS[second] ?? 0) : 0);
+}
+
+/** A number that starts a street address: "at 1200 Peel Street", "at 12 Laser Lane". */
+const STREET_AFTER =
+  /^\s+(?:[\p{L}'.-]+\s+){0,3}(street|st|avenue|ave|road|rd|boulevard|blvd|lane|ln|drive|dr|way|place|pl|court|ct|square|sq|parkway|pkwy|highway|hwy|suite|ste|unit|floor|building|plaza|terrace|crescent)\b/iu;
 
 /** What follows a number that makes it a count, a price or a length rather than an hour. */
 const NOT_AN_HOUR = /^\s*(%|percent|\$|dollars?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|units?|ml|mg|sessions?|treatments?|visits?|times|people|patients|areas?|syringes?|vials?|st|nd|rd|th)\b/i;
@@ -385,12 +505,47 @@ function clockTimes(reply: string): number[][] {
   for (const m of text.matchAll(/\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s*o'?clock\b/g)) {
     found.push(readings(HOUR_WORDS[m[1]!] ?? Number(m[1]), 0, undefined));
   }
+  // "9.30", "21.10": an hour and two-digit minutes after a dot, never after
+  // a currency sign ("$4.50"). Followed by am or pm, the pattern above has it.
+  for (const m of text.matchAll(/(?<![$£€\d.,])(\d{1,2})\.(\d{2})(?!\.?\d)(?!\s*[ap]\.?m\b)/g)) {
+    if (NOT_AN_HOUR.test(text.slice(m.index! + m[0].length))) continue;
+    found.push(readings(Number(m[1]), Number(m[2]), undefined));
+  }
+  // The 24-hour forms: "14h", "14h30", and four digits after a word for a
+  // time ("at 1430", "from 0900"), unless they start a street address.
+  for (const m of text.matchAll(/(?<![$£€\d.,:])([01]?\d|2[0-3])h([0-5]\d)?\b/g)) {
+    found.push([Number(m[1]) * 60 + Number(m[2] ?? 0)]);
+  }
+  for (const m of text.matchAll(/\b(?:at|from|until|till|til|to|by|after|before|around)\s+([01]\d|2[0-3])([0-5]\d)\b/g)) {
+    const after = text.slice(m.index! + m[0].length);
+    if (NOT_AN_HOUR.test(after) || STREET_AFTER.test(after)) continue;
+    found.push([Number(m[1]) * 60 + Number(m[2])]);
+  }
+  // Word forms: "half past two", "quarter to three", "ten past 9", "half
+  // two", "two thirty", "nine fifteen".
+  for (const m of text.matchAll(new RegExp(`\\b(half|quarter|five|ten|twenty(?:[- ]five)?)\\s+(past|after|to|till|before)\\s+${CLOCK_HOUR}\\b`, "g"))) {
+    const offset = MINUTE_WORDS[m[1]!.replace(/[- ]/, "-")] ?? 0;
+    const hour = hourOf(m[3]!);
+    if (hour === null || NOT_AN_HOUR.test(text.slice(m.index! + m[0].length))) continue;
+    found.push(
+      /^(past|after)$/.test(m[2]!)
+        ? readings(hour, offset, undefined)
+        : readings(hour === 1 ? 12 : hour - 1, 60 - offset, undefined),
+    );
+  }
+  for (const m of text.matchAll(new RegExp(`\\bhalf\\s+${CLOCK_HOUR_WORD}\\b`, "g"))) {
+    found.push(readings(HOUR_WORDS[m[1]!]!, 30, undefined));
+  }
+  for (const m of text.matchAll(new RegExp(`\\b${CLOCK_HOUR_WORD}\\s+(oh[- ]?${UNIT_WORD}|ten|fifteen|twenty(?:[- ]${UNIT_WORD})?|thirty(?:[- ]${UNIT_WORD})?|forty(?:[- ]${UNIT_WORD})?|fifty(?:[- ]${UNIT_WORD})?)\\b`, "g"))) {
+    const minutes = minutesOf(m[2]!);
+    if (minutes !== null) found.push(readings(HOUR_WORDS[m[1]!]!, minutes, undefined));
+  }
   // A bare hour led into by a word for a time. Digits only: "one" is "speak
   // to one of our team" far more often than it is an hour.
-  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)/g;
+  const lead = /\b(?:at|from|until|till|til|to|by|after|before|around|between|and|or)\s+(\d{1,2})\b(?![:.]?\d)(?!\s*[ap]\.?m\b)(?!h\b)/g;
   for (const m of text.matchAll(lead)) {
     const after = text.slice(m.index! + m[0].length);
-    if (NOT_AN_HOUR.test(after) || /^\s*o'?clock/.test(after)) continue;
+    if (NOT_AN_HOUR.test(after) || /^\s*o'?clock/.test(after) || STREET_AFTER.test(after)) continue;
     // "and 2" or "or 3" is a count as often as a time: an hour only after "between".
     if (/^(and|or)\b/.test(m[0]) && !/\bbetween\b[^.?!]*$/.test(text.slice(0, m.index!))) continue;
     found.push(readings(Number(m[1]), 0, undefined));
@@ -402,12 +557,6 @@ function clockTimes(reply: string): number[][] {
     found.push(readings(Number(m[1]), 0, undefined), readings(Number(m[2]), 0, undefined));
   }
   return found;
-}
-
-/** True when every clock time in the reply could be one of the clinic's own opening or closing times. */
-function clockTimesArePublished(reply: string, published: readonly number[]): boolean {
-  const allowed = new Set(published);
-  return clockTimes(reply).every((candidates) => candidates.some((minutes) => allowed.has(minutes)));
 }
 
 /** Every opening and closing time in the clinic's weekly hours, minutes after local midnight. */

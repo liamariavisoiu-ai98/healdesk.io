@@ -147,3 +147,32 @@ describe("the commitments BAA 1.3.0 points at", () => {
     expect(text).not.toContain("within 24 hours of discovery");
   });
 });
+
+/**
+ * Section 12, no more strongly than BAA 1.3.0's clauses 11 and 16 as the
+ * owner softened them on 12 October 2026. It used to say the conversation was
+ * kept for 90 days, where 1.3.0 keeps no message from these channels, and
+ * that clinical content was "detected when a message arrives and is not
+ * stored", which no word list can promise.
+ */
+describe("the Meta channels are described as the agreement describes them", () => {
+  const text = pageText();
+
+  test("no message kept; only the booking details, filtered and in fixed form", () => {
+    expect(text).toContain(
+      "We do not keep the messages a person sends, or a summary of one. From these channels we keep only what a booking needs, for the clinic that received it: a first name and a telephone number, each checked by automated filters designed to keep clinical content out, the times the person prefers, only in a fixed day-and-time form, and the identifier Meta attaches to the conversation.",
+    );
+  });
+
+  test("instructed, filtered, replaced, and not every wording", () => {
+    expect(text).toContain(
+      "The assistant is instructed not to repeat clinical content, name a treatment or confirm appointment details there, and to move anything clinical to a call or the clinic's own secure route. Each reply the language model writes there is checked by automated filters designed to keep those out, and a reply the filters refuse is replaced by a fixed one. No filter catches every wording, so clinics should not invite clinical information on these channels, and you should not send it there.",
+    );
+  });
+
+  test("and nothing stronger", () => {
+    expect(text).not.toMatch(
+      /detected when a message arrives|caught on arrival|caught when it arrives|clinical content[^.]*is not stored|never name a treatment|keeps none|repeats none|confirms no appointment details|not kept at all|keeps them non-clinical|The conversation is kept for the clinic|every later use/i,
+    );
+  });
+});

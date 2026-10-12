@@ -1727,6 +1727,16 @@ is the Terms' annex, "How we protect data".
   since Stripe's portal has cancellation off. The code that ends the
   subscription and refunds on termination (blocker 1 of the C19 audit, refund
   kind `agreement_terminated`) is another branch's.
+- Meta, on the same version: `/privacy` §§ 5 and 12, Terms § 9 and the
+  Terms' annex say no more than clauses 11 and 16 as the owner softened them
+  on 12 October 2026 (no message or summary kept; the assistant instructed;
+  replies checked by filters designed to keep clinical content out, a refused
+  reply replaced by a fixed one; no filter catches every wording). "Caught on
+  arrival", "not stored", "replies never name a treatment" and the 90-day
+  Meta conversation are gone. `/privacy` § 12 also names Meta's identifier
+  for the conversation, which the code keeps (`booking_requests.sender_id`)
+  and clause 4 lists, though clause 11's "keeps only the details in (a)" does
+  not.
 
 **Paper and settings**
 

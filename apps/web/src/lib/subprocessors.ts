@@ -190,13 +190,13 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     name: "Meta (Instagram, Messenger, WhatsApp)",
     category: "messaging-platform",
     purpose: "Carries the messages patients send to a clinic's Instagram account, Facebook Page and WhatsApp number, and the assistant's replies",
-    data: "The patient's own messages and the identifiers Meta attaches to them (on WhatsApp, their phone number). Clinical content is caught when it arrives and not stored, and replies carry no treatment names",
+    data: "The patient's own messages and the identifiers Meta attaches to them (on WhatsApp, their phone number). healdesk keeps none of the messages; each is checked for clinical content before the model sees it, and each reply by automated filters designed to keep clinical content and treatment names out, which no filter does for every wording",
     region: "Meta's own infrastructure; not region-pinned",
     handlesPhi: false,
     baa: {
       state: "none-by-design",
       because:
-        "Meta signs no BAA for any messaging product. These channels are kept free of clinical content: anything clinical is moved to a call or the clinic's own secure route.",
+        "Meta signs no BAA for any messaging product. The assistant is instructed to keep clinical content off these channels and to move anything clinical to a call or the clinic's own secure route.",
     },
     scope: "product",
   },

@@ -324,7 +324,9 @@ describeDb("Settings", () => {
     );
     expect(await save("direct_line", "")).toMatchObject({
       ok: false,
-      message: expect.stringMatching(/^Phone is live, so the direct line can be changed but not removed/),
+      message: expect.stringMatching(
+        /^Phone is live, so the direct line can be changed but not removed/,
+      ),
     });
     await inTenant(portal.clinicId, (c) =>
       c.query(`update clinic_channels set live_at = $1 where channel = 'voice'`, [wasLive]),

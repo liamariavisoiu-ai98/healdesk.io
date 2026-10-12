@@ -594,24 +594,35 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       // line, so a live phone line keeps one.
       const live = await seedClinic("ob-line-live");
       await seedChannels(live.clinicId, [{ channel: "voice", liveAt: NOW }]);
-      await run("setClinicSettings", { clinicId: live.clinicId, directLineE164: "+1 415 555 0178" });
+      await run("setClinicSettings", {
+        clinicId: live.clinicId,
+        directLineE164: "+1 415 555 0178",
+      });
       for (const cleared of [null, ""]) {
         expect(
           await run("setClinicSettings", { clinicId: live.clinicId, directLineE164: cleared }),
         ).toEqual({
           status: "error",
-          message: expect.stringMatching(/^Phone is live, so the direct line can be changed but not removed/),
+          message: expect.stringMatching(
+            /^Phone is live, so the direct line can be changed but not removed/,
+          ),
         });
       }
       // Changed, it goes through.
       expect(
-        await run("setClinicSettings", { clinicId: live.clinicId, directLineE164: "+1 415 555 0179" }),
+        await run("setClinicSettings", {
+          clinicId: live.clinicId,
+          directLineE164: "+1 415 555 0179",
+        }),
       ).toMatchObject({ status: "updated", changed: true });
 
       // Phone bought but not live: the operator may still clear it.
       const waiting = await seedClinic("ob-line-waiting");
       await seedChannels(waiting.clinicId, [{ channel: "voice", liveAt: null }]);
-      await run("setClinicSettings", { clinicId: waiting.clinicId, directLineE164: "+1 415 555 0180" });
+      await run("setClinicSettings", {
+        clinicId: waiting.clinicId,
+        directLineE164: "+1 415 555 0180",
+      });
       expect(
         await run("setClinicSettings", { clinicId: waiting.clinicId, directLineE164: null }),
       ).toMatchObject({ status: "updated", changed: true });

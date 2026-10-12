@@ -1,0 +1,378 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  healdesk bootstrap: the Terraform state bucket and its key, the GitHub OIDC
+  provider, and the role Terraform runs as from GitHub Actions. Launched once,
+  by hand, in us-east-1.
+
+# =============================================================================
+# README
+#
+# What this is. The part of the AWS host that Terraform cannot create for
+# itself: somewhere to keep its state, a key to encrypt that state, and a role
+# GitHub Actions can assume without a stored access key. Everything else lives
+# in infra/aws/*.tf and is applied by .github/workflows/infra.yml.
+#
+# Launch it once, as the account administrator, from AWS CloudShell in
+# us-east-1 (the account and region designated under the AWS BAA):
+#
+#   1. Check that the state bucket's name is free. This must fail with
+#      "An error occurred (404) when calling the HeadBucket operation: Not
+#      Found". Anything else means a bucket of that name already exists (an
+#      earlier bootstrap, in this account or another), and the stack would
+#      fail on it:
+#        aws s3api head-bucket --bucket healdesk-terraform-state-865780386982
+#   2. Upload this file (Actions -> Upload file), then:
+#        aws cloudformation deploy --region us-east-1 \
+#          --stack-name healdesk-bootstrap --template-file bootstrap.yaml \
+#          --capabilities CAPABILITY_NAMED_IAM
+#      Keep every parameter's default: they name the GitHub owner, the
+#      repository and the one person who may run Terraform, by numeric id.
+#   3. Read the outputs and set them as GitHub repository variables (gh
+#      variable set; none of them is sensitive): StateBucketName as
+#      TF_STATE_BUCKET, StateKmsKeyArn as TF_STATE_KMS_KEY_ARN, TerraformRoleArn
+#      as AWS_TERRAFORM_ROLE_ARN.
+#        aws cloudformation describe-stacks --region us-east-1 \
+#          --stack-name healdesk-bootstrap --query 'Stacks[0].Outputs' --output table
+#   4. Before the first infra.yml run, paste the Cloudflare API token into
+#      Parameter Store, from the same CloudShell:
+#        bash put-external-secrets.sh CLOUDFLARE_API_TOKEN
+#      (infra/aws/scripts/). It creates /healdesk/production/ci/
+#      CLOUDFLARE_API_TOKEN under this stack's key, and infra.yml reads it
+#      after assuming the role below. It is never a GitHub secret, which every
+#      branch's workflows could read.
+#
+# If IAM -> Identity providers already lists token.actions.githubusercontent.com
+# (aws iam list-open-id-connect-providers), add
+# --parameter-overrides CreateGitHubOidcProvider=false to step 2: an account
+# holds one provider per URL, and the stack would otherwise fail on the
+# duplicate. The role trusts the provider by its ARN either way.
+#
+# If the launch fails, CloudFormation rolls it back and leaves the stack in
+# ROLLBACK_COMPLETE, which deploy cannot update ("is in ROLLBACK_COMPLETE state
+# and can not be updated"). Read the reason, fix it, delete the stack, and run
+# step 2 again:
+#   aws cloudformation describe-stack-events --region us-east-1 \
+#     --stack-name healdesk-bootstrap --output table \
+#     --query "StackEvents[?ResourceStatus=='CREATE_FAILED'].[LogicalResourceId,ResourceStatusReason]"
+#   aws cloudformation delete-stack --region us-east-1 --stack-name healdesk-bootstrap
+#   aws cloudformation wait stack-delete-complete --region us-east-1 --stack-name healdesk-bootstrap
+# A launch that rolls back keeps nothing (RetainExceptOnCreate below): the empty
+# bucket is deleted, so its name is free for the next attempt, and the key is
+# scheduled for deletion.
+#
+# The stack refuses to launch anywhere but us-east-1 in account 865780386982
+# (the Rules below), so a mistake there creates nothing.
+#
+# Once the stack exists, deleting it removes the role and the provider but
+# keeps the bucket and its key: the state in them is the only record of what
+# Terraform created, and without the key it cannot be read.
+#
+# The state holds no PHI and, by design, no secret value: Terraform writes
+# each Parameter Store placeholder through a write-only argument and never
+# reads a value back, and the real values are written inside AWS
+# (infra/aws/ssm.tf). Treat it as sensitive all the same: it maps the whole
+# account, and a careless change could put a value back into it. That is why
+# the bucket takes no public access, answers only over TLS, encrypts with a key
+# of its own, and why only the account's administrators can read it: the role
+# below and the owner's own administrator login.
+# =============================================================================
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: GitHub repository and person allowed to run Terraform
+        Parameters:
+          - GitHubOwner
+          - GitHubOwnerId
+          - GitHubRepo
+          - GitHubRepoId
+          - GitHubActorId
+      - Label:
+          default: Existing resources
+        Parameters:
+          - CreateGitHubOidcProvider
+    ParameterLabels:
+      GitHubOwner:
+        default: GitHub owner (user or organisation) name
+      GitHubOwnerId:
+        default: GitHub owner numeric id
+      GitHubRepo:
+        default: GitHub repository name
+      GitHubRepoId:
+        default: GitHub repository numeric id
+      GitHubActorId:
+        default: Numeric id of the GitHub user who may start infra.yml
+      CreateGitHubOidcProvider:
+        default: Create the GitHub OIDC provider
+
+Parameters:
+  GitHubOwner:
+    Type: String
+    Default: liamariavisoiu-ai98
+    AllowedPattern: "^[A-Za-z0-9][A-Za-z0-9-]{0,38}$"
+    Description: The account that owns the repository.
+  GitHubOwnerId:
+    Type: String
+    Default: "262780224"
+    AllowedPattern: "^[0-9]+$"
+    Description: >-
+      The owner's numeric id. GitHub puts it in the token's subject for
+      repositories created after 15 July 2026, so a renamed or re-registered
+      account of the same name cannot match.
+  GitHubRepo:
+    Type: String
+    Default: healdesk.io
+    AllowedPattern: "^[A-Za-z0-9._-]{1,100}$"
+    Description: The repository name.
+  GitHubRepoId:
+    Type: String
+    Default: "1326499636"
+    AllowedPattern: "^[0-9]+$"
+    Description: The repository's numeric id, also part of the token's subject.
+  GitHubActorId:
+    Type: String
+    Default: "262780224"
+    AllowedPattern: "^[0-9]+$"
+    Description: >-
+      The numeric id of the one GitHub user whose runs may assume the role
+      (the token's actor_id): the owner, the same number as GitHubOwnerId
+      while the repository belongs to that user. Ids never change or move to
+      another account, unlike user names.
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: >-
+      false only if the account already has the provider for
+      token.actions.githubusercontent.com.
+
+# Checked before anything is created. Terraform's backend, its provider and
+# both workflows all expect this account and region, and nothing else is
+# covered by the AWS BAA (docs/policies/aws-hipaa-account.md).
+Rules:
+  DesignatedAccountAndRegion:
+    Assertions:
+      - Assert: !Equals [!Ref "AWS::Region", us-east-1]
+        AssertDescription: >-
+          Launch this stack in us-east-1 (N. Virginia), the region designated
+          under the AWS BAA. CloudShell's region is the console's: switch it
+          in the top bar.
+      - Assert: !Equals [!Ref "AWS::AccountId", "865780386982"]
+        AssertDescription: >-
+          Launch this stack in account 865780386982, the account designated
+          under the AWS BAA.
+
+Conditions:
+  CreateOidcProvider: !Equals [!Ref CreateGitHubOidcProvider, "true"]
+
+Resources:
+  # Its own key rather than the product key (alias/healdesk-production, made
+  # by Terraform): the state has to be readable before Terraform has created
+  # anything, and the product key must never be replaced, so it cannot also be
+  # what a bootstrap does or undoes.
+  #
+  # Kept when the stack is deleted or the key replaced, but not when the
+  # launch that created it rolls back (RetainExceptOnCreate): a failed first
+  # launch must not strand the bucket's name or an orphaned key.
+  StateKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: healdesk Terraform state (S3 SSE-KMS). Holds no PHI.
+      EnableKeyRotation: true
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyUsage: ENCRYPT_DECRYPT
+      MultiRegion: false
+      PendingWindowInDays: 30
+      # The account administers the key through IAM, and nothing grants it to
+      # anything but administrators: the Terraform role (AdministratorAccess)
+      # and the owner's administrator login can use it, and S3 uses it on their
+      # behalf. So does Parameter Store for the one parameter encrypted with
+      # it, the Cloudflare token infra.yml reads (README step 4): the ECS roles
+      # Terraform creates are given the product key alone, so no task can
+      # decrypt that token even if a policy let it fetch the parameter.
+      # Nothing outside the account can use the key.
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AccountAdministersThroughIam
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+      Tags:
+        - Key: Project
+          Value: healdesk
+        - Key: Purpose
+          Value: terraform-state
+
+  StateKeyAlias:
+    Type: AWS::KMS::Alias
+    Properties:
+      AliasName: alias/healdesk-terraform-state
+      TargetKeyId: !Ref StateKey
+
+  # Same policies as the key, for the same reason: kept for good once the
+  # stack exists, removed by a launch that rolls back (the bucket is empty
+  # then, so CloudFormation can delete it and its name is free again).
+  StateBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: RetainExceptOnCreate
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "healdesk-terraform-state-${AWS::AccountId}"
+      # Every write keeps the version before it, so a bad apply or a
+      # corrupted state can be rolled back by restoring the previous object.
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+              KMSMasterKeyID: !GetAtt StateKey.Arn
+            BucketKeyEnabled: true
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      LifecycleConfiguration:
+        Rules:
+          # Ninety days of superseded state is long enough to notice a bad
+          # apply and restore the version before it, and short enough that
+          # old versions do not pile up for ever. The lock files Terraform
+          # creates and deletes on every run (use_lockfile) leave delete
+          # markers, cleared once their versions expire.
+          - Id: expire-superseded-state
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 90
+            ExpiredObjectDeleteMarker: true
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Project
+          Value: healdesk
+        - Key: Purpose
+          Value: terraform-state
+
+  StateBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref StateBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub "${StateBucket.Arn}/*"
+            Condition:
+              Bool:
+                aws:SecureTransport: "false"
+          - Sid: DenyTlsOlderThan12
+            Effect: Deny
+            Principal: "*"
+            Action: "s3:*"
+            Resource:
+              - !GetAtt StateBucket.Arn
+              - !Sub "${StateBucket.Arn}/*"
+            Condition:
+              NumericLessThan:
+                s3:TlsVersion: "1.2"
+
+  # No thumbprint: for GitHub's issuer IAM verifies the certificate against its
+  # own library of trusted root CAs and ignores any thumbprint given.
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Project
+          Value: healdesk
+
+  # The role infra.yml assumes. It holds AdministratorAccess because Terraform
+  # creates IAM roles and policies (the task and execution roles, the deploy
+  # role) along with everything else, and a role that can write IAM policies
+  # can grant itself anything: a narrower list would be longer without being
+  # safer. What limits it is who can assume it, and that is decided here, by
+  # AWS, not by a check in a workflow file that a branch can edit. A GitHub
+  # OIDC token is accepted only when every condition holds:
+  #
+  #   - sub is this repository's immutable subject for the main branch (owner
+  #     and repository by numeric id, the form GitHub issues for repositories
+  #     created after 15 July 2026). A job only gets a :ref: subject when it
+  #     names no GitHub environment; one that names an environment gets
+  #     :environment:<name> and never matches, so no environment, and none of
+  #     its settings, is part of this control;
+  #   - ref is refs/heads/main: a pushed branch, a pull request, a fork, or a
+  #     dispatch with --ref <branch> cannot match;
+  #   - actor_id is the owner's numeric GitHub id: the run was started by that
+  #     one person. A re-run keeps its original actor, but replays only that
+  #     run's own commit and inputs.
+  #
+  # What it cannot stop is code that reaches main, or anyone acting as the
+  # owner: the owner's own GitHub login and every session or tool that pushes
+  # or dispatches with it. On GitHub Free a private repository's main cannot
+  # be protected, so those credentials are the remaining boundary; GitHub
+  # Pro's branch protection on main is the next step.
+  #
+  # infra.yml asks for 90-minute sessions, as long as its job may run, so an
+  # apply never outlives its credentials: an expired session mid-apply would
+  # leave the state lock behind and lose the last moments of state. 7200
+  # leaves room to lengthen both without relaunching this stack.
+  TerraformRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: healdesk-github-terraform
+      Description: >-
+        Terraform from GitHub Actions (infra.yml): the main branch of the
+        healdesk repository, run by its owner, only.
+      MaxSessionDuration: 7200
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: GitHubMainBranchRunByTheOwnerOnly
+            Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com"
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub "repo:${GitHubOwner}@${GitHubOwnerId}/${GitHubRepo}@${GitHubRepoId}:ref:refs/heads/main"
+                token.actions.githubusercontent.com:ref: refs/heads/main
+                token.actions.githubusercontent.com:actor_id: !Ref GitHubActorId
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AdministratorAccess"
+      Tags:
+        - Key: Project
+          Value: healdesk
+
+Outputs:
+  StateBucketName:
+    Description: GitHub variable TF_STATE_BUCKET (the S3 backend's bucket).
+    Value: !Ref StateBucket
+  StateKmsKeyArn:
+    Description: GitHub variable TF_STATE_KMS_KEY_ARN (the S3 backend's kms_key_id).
+    Value: !GetAtt StateKey.Arn
+  TerraformRoleArn:
+    Description: GitHub variable AWS_TERRAFORM_ROLE_ARN (assumed by infra.yml).
+    Value: !GetAtt TerraformRole.Arn

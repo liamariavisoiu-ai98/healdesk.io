@@ -136,23 +136,34 @@ scoping, not paperwork (see "Product rules the code enforces").
 
 ### `apps/app` is portable but NOT currently deployable
 
-Audited 2026-09-12; re-checked against the code 2026-09-30. The rules above all
-pass — no `@vercel/*`, no edge, plain Node. What is left is in the build and in
-the missing voice process, and none of it is caught by CI: no CI job builds or
-runs the image.
+Audited 2026-09-12; re-checked against the code 2026-09-30; the AWS host was
+written on 2026-10-07 and reworked after its review on 2026-10-12. The rules
+above all pass — no `@vercel/*`, no edge, plain Node. The host is code in
+`infra/aws`, for account `865780386982` in `us-east-1`: Terraform for ECS on
+Fargate behind one load balancer, RDS for PostgreSQL 17, one KMS key, SSM
+Parameter Store, CloudTrail, Config, GuardDuty, WAF and alarms; a
+CloudFormation bootstrap stack; and two workflows, `infra.yml` (plan, apply)
+and `deploy-app.yml` (build, migrate, roll, restart, roll back).
+`infra/aws/README.md` is the runbook. **Nothing is applied**: no AWS resource
+exists until the owner launches the bootstrap stack and runs `infra.yml`, and
+the image has never run on AWS. What has been checked is local: `terraform
+validate`, `terraform test` (22 runs against mocked providers), tflint,
+checkov, cfn-lint and actionlint.
 
 - **`next build` still needs a `DATABASE_URL`; the image supplies a
   placeholder.** `src/db/index.ts:33` calls `env.databaseUrl()` at module
   scope, `required()` throws when `NODE_ENV === "production"`, which is what
   `next build` sets, and Next imports every route module while collecting page
-  data. `apps/app/Dockerfile` (build stage, L40-48) sets build-only
+  data. `apps/app/Dockerfile` (build stage, L58-61) sets build-only
   placeholders for `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL` and
   `HEALDESK_PROVISION_SECRET`, so the image no longer needs a real database URL
   at build time. A bare `next build` outside Docker still fails without one;
   CI passes only because `DATABASE_URL` sits in the job-level env. The build
-  stage sets `NODE_ENV=production` itself (L54): it inherits `development`
+  stage sets `NODE_ENV=production` itself (L67): it inherits `development`
   from the deps stage, under which `next build` fails prerendering
   `/_global-error`, so until 6 October 2026 the image did not build at all.
+  Production's database TLS check stands aside while `NEXT_PHASE` says the
+  process is `next build`, so the placeholder needs no `sslmode`.
 - **The AWS SDKs load in a production build; fixed 6 October 2026.** They
   used to be optional, installed nowhere, and imported through a `const`
   specifier; Turbopack folded the constant and inlined
@@ -172,32 +183,56 @@ runs the image.
   no Dockerfile change: `npm ci` runs before `next build`, and the runtime stage
   copies the workspace `node_modules`. `tests/aws-sdk-clients.test.ts` pins
   all three; re-check the chunks after a Next upgrade.
-- **Static assets are in the image; the host is described but not built.**
-  `.next/static` is still not part of Next's standalone output, but the
-  Dockerfile (L70-71) copies it beside `server.js`. Since 7 October 2026 the
-  AWS host is Terraform in `infra/aws` (RDS with 35-day backups, ECS on
-  Fargate, the load balancer, KMS, S3, CloudTrail, SES, Config), with its
-  runbook in `infra/aws/README.md`. It is validated and tested against a
-  mocked provider, and has never been applied. The image now carries the RDS
-  CA bundle (`NODE_EXTRA_CA_CERTS`), without which production's certificate
-  check refuses every RDS connection, and `scripts/provision-roles.sql` runs
-  as RDS's master user, which is not a superuser.
+- **Static assets are in the image, and so is everything the AWS host needs
+  from it; the host is defined but not applied.** `.next/static` is still not
+  part of Next's standalone output, but the Dockerfile (L117) copies it beside
+  `server.js`. The image carries the Amazon RDS us-east-1 CA bundle at
+  `/etc/ssl/rds/us-east-1-bundle.pem`, fetched against a pinned checksum, with
+  `NODE_EXTRA_CA_CERTS` pointing at it (L105-107); both database URLs carry
+  `sslmode=verify-full&sslrootcert=<that file>`, and production refuses a
+  `DATABASE_URL` without `verify-full` (`tests/database-url-tls.test.ts`). Its
+  entrypoint, `apps/app/docker-entrypoint.sh` (L112), unsets every variable
+  whose value is exactly `__unset__`: ECS refuses to start a task whose
+  parameter is missing and a parameter cannot be empty, so Terraform creates
+  every SSM parameter holding that placeholder, and a feature still waiting
+  for its secret stays off. No secret value is in Terraform's state: the
+  db-bootstrap task generates the six internal ones inside AWS and never
+  replaces one that is set, and the owner pastes the external ones in AWS
+  CloudShell with `infra/aws/scripts/put-external-secrets.sh`.
+  `scripts/provision-roles.sql` runs as RDS's master user, which is not a
+  superuser, from the `infra/aws/images/db-admin` image, which sends the server
+  SCRAM verifiers rather than passwords.
 - **The worker, migrations and queue install ship in the image as separate
-  commands.** The Dockerfile (L73-82) copies the whole workspace
-  `node_modules` (`tsx` is a runtime dependency; `drizzle-kit` is there only
-  because the deps stage installs dev dependencies), `src/`, `drizzle/`,
-  `drizzle.config.ts` and `scripts/`.
-  The default command, `node apps/app/server.js`, is the web tier only; the
-  worker is `npm run worker -w @healdesk/app`; migrations and `queue:install`
-  run once as the migrator from an operator's shell or a CI job, never at boot.
+  commands, each its own task definition, none at boot.** The Dockerfile
+  (L120-132) copies the whole workspace `node_modules` (`tsx` is a runtime
+  dependency; `drizzle-kit` is there only because the deps stage installs dev
+  dependencies), `src/`, `drizzle/`, `drizzle.config.ts`, `scripts/` and
+  `tsconfig.base.json`, without which tsx loses the `@/` paths. The default
+  command, `node apps/app/server.js`, is the web service, behind the
+  `tls-proxy` sidecar that re-encrypts the load balancer's traffic to the task.
+  The worker service runs `node --import tsx src/workers/index.ts` in
+  `/repo/apps/app`, so node gets ECS's SIGTERM itself; `npm run worker` is
+  still the local command. Migrations and `queue:install` run as the migrator
+  in a one-off task before every rollout, and the two roles are created by
+  another; `deploy-app.yml` starts both, and `infra/aws/scripts/run-task.sh`
+  runs either from a terminal. A third, `destroy-due` (the worker's container
+  running `scripts/destroy-due.ts`), is registered by every deploy and run
+  only by hand, after a restore (`docs/handover.md`, "Restoring").
+- **CI checks the Terraform, not the image.** The `infra` job in `ci.yml` runs
+  `terraform fmt`, `init -lockfile=readonly`, `validate` and `test`. No CI job
+  builds or runs the image; `deploy-app.yml` is the first thing that does, at
+  deploy time.
 - **There is no process for the voice agent.** Next route handlers cannot
   accept WebSocket upgrades, and Retell holds a WebSocket open for the whole
   call, so the Retell custom-LLM endpoint needs its own long-lived Node
-  process: a third command in the image and a row in the Deployment table
-  below. Nothing in `apps/app` implements it yet; `src/lib/voice/` still
-  ingests Synthflow webhook payloads.
+  process: a third service from the image, with its own target group, and a
+  row in the Deployment table below. Nothing in `apps/app` implements it yet;
+  `src/lib/voice/` still ingests Synthflow webhook payloads. `infra/aws/ecs.tf`
+  ends with a disabled placeholder listing what the service will need.
 
-Fix these before promising a deploy date for `apps/app`.
+What stands between this and a first deploy is the owner's part of the first
+run in `infra/aws/README.md`. The voice process stands between it and the
+voice product, and the BAA chain above between it and any real patient.
 
 ---
 
@@ -379,16 +414,17 @@ not by restoring that code.
 | Workspace | Target | Root directory | PHI |
 | --- | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` | No |
-| `apps/app` | Vercel project #2 → BAA host (AWS, `us-east-1`) | `apps/app` | **Yes** |
-| `apps/app` worker | Same BAA host, separate process | `apps/app` | **Yes** |
-| `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same BAA host, separate long-lived process | `apps/app` | **Yes** |
+| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`, not yet applied | `apps/app` | **Yes** |
+| `apps/app` worker | Same cluster, its own service `healdesk-production-worker` | `apps/app` | **Yes** |
+| `apps/app` migrations and role creation | One-off tasks `healdesk-production-migrate` and `healdesk-production-db-bootstrap`, run by `deploy-app.yml` | `apps/app` | **Yes** |
+| `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same cluster, a separate long-lived service; not built (a disabled placeholder in `infra/aws/ecs.tf`) | `apps/app` | **Yes** |
 | `packages/leadgen` | Not deployed | — | No |
 
 The BAA host is the AWS account designated under the AWS BAA, in `us-east-1`
-(`docs/policies/aws-hipaa-account.md`). The database is either AWS RDS under
-that agreement or Neon on its Scale plan under Neon's own BAA — the spec
-recommends one of the two, and neither is chosen or provisioned yet. Vercel is a
-BAA host only on Enterprise.
+(`docs/policies/aws-hipaa-account.md`). The database is Amazon RDS for
+PostgreSQL 17 under that agreement, the owner's choice of 7 October 2026 over
+Neon, defined in `infra/aws/rds.tf` and not provisioned yet. Vercel is a BAA
+host only on Enterprise.
 
 The voice endpoint cannot be a route handler or a serverless function. Retell
 opens a WebSocket to it at the start of every call and keeps it open until the
@@ -401,12 +437,21 @@ Two environment variables decide origins and are easy to confuse:
 
 - `HEALDESK_APP_URL` (set on `apps/web`) — the **internal** address used to
   reach `apps/app`. Never browser-visible. A wrong-but-present value is worse
-  than unset: the guards pass and honest 503s become 502s.
+  than unset: the guards pass and honest 503s become 502s. On AWS it is
+  `https://app-internal.healdesk.io` (Terraform's `internal_url` output), on
+  Vercel's Production, and on Preview only while the host holds Stripe test
+  keys. The load balancer serves only the signed routes on that host and
+  answers 404 to them on the public one, so a value naming `app.healdesk.io`
+  gets 404s, which the Stripe relay treats as final and drops the event.
+  Terraform sets the same value on `apps/app`'s own tasks, where
+  `lib/email/lint.ts` refuses any mailed link to it.
 - `BETTER_AUTH_URL` (set on `apps/app`) — the **public** origin used to build
   every clinic-facing link: today's connect and booking links, and in v1 the
   magic sign-in links, the wizard-resume link in the welcome email and portal
   URLs. It falls back to `http://localhost:3001` rather than throwing, so
-  leaving it unset silently mails dead links.
+  leaving it unset silently mails dead links. On AWS Terraform sets it to
+  `https://app.healdesk.io`; it is also the passkey relying party and the host
+  every vendor redirect is registered on, so it is effectively permanent.
 
 `NEXT_PUBLIC_SITE_URL` is inlined at build time and must be present in
 Vercel's **Build** environment. `lib/billing.ts` falls back to

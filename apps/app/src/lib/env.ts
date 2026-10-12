@@ -28,6 +28,75 @@ function optional(name: string): string | undefined {
 }
 
 /**
+ * What `next build` sets NEXT_PHASE to before it imports every route module to
+ * collect page data (node_modules/next/dist/build/index.js). Nothing connects
+ * during a build, and the image builds under NODE_ENV=production with a
+ * placeholder URL (apps/app/Dockerfile) and CI with sslmode=disable, so the
+ * TLS check below waits for a process that will actually connect.
+ */
+const NEXT_PRODUCTION_BUILD_PHASE = "phase-production-build";
+
+/**
+ * Refuse, in production, a database URL that does not ask for a verified TLS
+ * connection. The error names the variable and never its value, which holds a
+ * password.
+ *
+ * The URL is the only place TLS is decided for every client in the process:
+ * node-postgres lets the URL's parameters override a client's own `ssl`
+ * option, and pg-boss passes nothing else. So without `sslmode` the Drizzle
+ * pool asks for TLS while pg-boss connects in plaintext, which RDS refuses
+ * (rds.force_ssl=1) and a database that does not force TLS accepts.
+ * `sslmode=no-verify` keeps TLS and switches certificate checks off, silently
+ * overriding the pool's rejectUnauthorized. `require`, `prefer` and
+ * `verify-ca` verify under pg 8 only with a deprecation warning, and lose the
+ * certificate or host-name check under libpq semantics (`uselibpqcompat=true`,
+ * and the pg 9 default). Only verify-full means the same thing to every
+ * client and every version. pg keeps the last of a repeated parameter, so
+ * every `sslmode` in the URL has to say it, not just the first.
+ *
+ * The check has to read the URL exactly as pg does, or it checks something
+ * else. pg-connection-string parses with the same WHATWG URL parser, but
+ * first re-encodes any URL holding a space or a `%` that does not start an
+ * escape (PG_REWRITES_FIRST), and the re-encoding changes what an escape in
+ * the query means: beside an unencoded space in the password,
+ * `ssl%6Dode=verify-full` reads as sslmode here and as nothing at all to pg.
+ * So a URL pg would rewrite is refused, like one the parser cannot read,
+ * rather than guessed at.
+ */
+function requireVerifiedTls(name: string, url: string): string {
+  if (process.env.NODE_ENV !== "production") return url;
+  if (process.env.NEXT_PHASE === NEXT_PRODUCTION_BUILD_PHASE) return url;
+
+  const modes = sslModes(url);
+  if (modes === undefined) {
+    throw new Error(
+      `${name} could not be read as a URL. Percent-encode the password: postgresql://user:password@host:5432/db?sslmode=verify-full.`,
+    );
+  }
+
+  if (modes.length === 0 || modes.some((mode) => mode !== "verify-full")) {
+    throw new Error(
+      `${name} must carry sslmode=verify-full in production, so that every database client verifies the server's certificate and host name. Add sslmode=verify-full (and sslrootcert=<path to the CA bundle> when the server's CA is not a public one), and no other sslmode.`,
+    );
+  }
+
+  return url;
+}
+
+/** pg-connection-string's own test for a URL it re-encodes before parsing it. */
+const PG_REWRITES_FIRST = / |%[^a-f0-9]|%[a-f0-9][^a-f0-9]/i;
+
+/** Every sslmode the URL carries, as pg will read them, or undefined when that cannot be known. */
+function sslModes(url: string): string[] | undefined {
+  if (PG_REWRITES_FIRST.test(url)) return undefined;
+  try {
+    return new URL(url).searchParams.getAll("sslmode");
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * The identifier-reference key outside production. Fixed, so a test or a
  * local run computes the same references every time with no setup, and
  * public, because nothing outside production may hold a real identifier.
@@ -38,11 +107,15 @@ const DEVELOPMENT_IDENTIFIER_REF_KEY = "healdesk-development-identifier-ref-key-
 const IDENTIFIER_REF_KEY_MIN_LENGTH = 32;
 
 export const env = {
-  /** Runtime connection. MUST be a role WITHOUT BYPASSRLS — see docs/hipaa-compliance.md. */
+  /**
+   * Runtime connection. MUST be a role WITHOUT BYPASSRLS — see docs/hipaa-compliance.md.
+   * In production it must also ask for verified TLS (requireVerifiedTls above):
+   * the web tier's pool and the worker's pg-boss both connect through here.
+   */
   databaseUrl: () =>
-    required(
+    requireVerifiedTls(
       "DATABASE_URL",
-      "The runtime role must not have BYPASSRLS or own the tables.",
+      required("DATABASE_URL", "The runtime role must not have BYPASSRLS or own the tables."),
     ),
 
   /**

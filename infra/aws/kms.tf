@@ -1,37 +1,61 @@
-# One customer-managed key for everything (owner, 5 October 2026): sealed
-# clinic credentials, RDS storage, the transcript bucket, log groups, the
-# trail and the secrets.
+# One customer-managed, single-region, symmetric key: the credential vault's
+# key-encryption key (HEALDESK_KMS_KEY_ID) and the key behind RDS storage, the
+# RDS master secret, Performance Insights, the SSM parameters, ECR, every log
+# group and the CloudTrail trail.
 #
-# The key policy delegates to IAM through the account's own statement and
-# names the task role nowhere (docs/design/google-calendar-2026-10-05.md §5):
-# KMS allows a call that either the key policy or an IAM policy allows, so a
-# key-policy grant to the role would make the conditions in iam.tf moot. The
-# service principals below are the services that encrypt under their own
-# names; RDS and Secrets Manager use grants made by whoever creates them.
+# Never replace it. The app sends this exact ARN as the KeyId on every Decrypt
+# (lib/crypto/kms.ts), so a credential sealed under it cannot be opened under
+# any other key, and rewrap() cannot bridge two keys. Automatic rotation keeps
+# the ARN and the old key material, which is why it is the only rotation used.
+# prevent_destroy makes any plan that would replace or delete it fail.
 
-data "aws_caller_identity" "current" {}
+resource "aws_kms_key" "main" {
+  description              = "${local.name}: credential vault, RDS, SSM, ECR, logs and CloudTrail"
+  key_usage                = "ENCRYPT_DECRYPT"
+  customer_master_key_spec = "SYMMETRIC_DEFAULT"
+  multi_region             = false
+  enable_key_rotation      = true
+  deletion_window_in_days  = 30
+  policy                   = data.aws_iam_policy_document.kms.json
 
-locals {
-  log_group_prefix = "/healdesk/apps-app"
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
+resource "aws_kms_alias" "main" {
+  name          = "alias/${local.name}"
+  target_key_id = aws_kms_key.main.key_id
+}
+
+# The key policy names only what IAM cannot express. Everyone else (the ECS
+# roles, the Terraform role that creates RDS, SSM and ECR resources under the
+# key) is authorised by IAM through the account-root statement, with
+# kms:ViaService conditions where a service uses the key on a role's behalf.
+# It names the app's task role in no statement of its own, and must never:
+# KMS allows a call that either the key policy or an IAM policy allows, so a
+# statement naming the role without the lock-label conditions (the console's
+# default "key users" one, say) would make those conditions in iam.tf moot
+# (docs/design/google-calendar-2026-10-05.md section 5).
 data "aws_iam_policy_document" "kms" {
   statement {
-    sid       = "AccountDelegatesToIam"
+    sid       = "AccountRootDelegatesToIam"
     actions   = ["kms:*"]
     resources = ["*"]
 
     principals {
       type        = "AWS"
-      identifiers = ["arn:aws:iam::${var.account_id}:root"]
+      identifiers = ["arn:aws:iam::${local.account_id}:root"]
     }
   }
 
+  # CloudWatch Logs encrypts each log group with the key itself, as a service
+  # principal, and only for this account's log groups in this region.
   statement {
-    sid = "CloudWatchLogsForOurLogGroups"
+    sid = "CloudWatchLogsForThisAccountsLogGroups"
     actions = [
-      "kms:Encrypt",
-      "kms:Decrypt",
+      "kms:Encrypt*",
+      "kms:Decrypt*",
       "kms:ReEncrypt*",
       "kms:GenerateDataKey*",
       "kms:Describe*",
@@ -46,12 +70,15 @@ data "aws_iam_policy_document" "kms" {
     condition {
       test     = "ArnLike"
       variable = "kms:EncryptionContext:aws:logs:arn"
-      values   = ["arn:aws:logs:${var.region}:${var.account_id}:log-group:${local.log_group_prefix}/*"]
+      values   = ["arn:aws:logs:${var.region}:${local.account_id}:log-group:*"]
     }
   }
 
+  # CloudTrail encrypts log and digest files for this trail only. The trail
+  # bucket deliberately has no S3 Bucket Key, which would also require
+  # granting CloudTrail kms:Decrypt.
   statement {
-    sid       = "CloudTrailEncryptsItsLogs"
+    sid       = "CloudTrailEncryptsThisTrail"
     actions   = ["kms:GenerateDataKey*"]
     resources = ["*"]
 
@@ -61,15 +88,15 @@ data "aws_iam_policy_document" "kms" {
     }
 
     condition {
-      test     = "StringLike"
-      variable = "kms:EncryptionContext:aws:cloudtrail:arn"
-      values   = ["arn:aws:cloudtrail:*:${var.account_id}:trail/*"]
+      test     = "StringEquals"
+      variable = "aws:SourceArn"
+      values   = [local.trail_arn]
     }
 
     condition {
-      test     = "StringEquals"
-      variable = "aws:SourceArn"
-      values   = ["arn:aws:cloudtrail:${var.region}:${var.account_id}:trail/${var.name}"]
+      test     = "StringLike"
+      variable = "kms:EncryptionContext:aws:cloudtrail:arn"
+      values   = ["arn:aws:cloudtrail:*:${local.account_id}:trail/*"]
     }
   }
 
@@ -82,21 +109,15 @@ data "aws_iam_policy_document" "kms" {
       type        = "Service"
       identifiers = ["cloudtrail.amazonaws.com"]
     }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceArn"
+      values   = [local.trail_arn]
+    }
   }
-}
 
-resource "aws_kms_key" "main" {
-  description             = "healdesk apps/app: sealed credentials, RDS, transcripts, logs, trail, secrets"
-  key_usage               = "ENCRYPT_DECRYPT"
-  multi_region            = false
-  enable_key_rotation     = true
-  deletion_window_in_days = 30
-  policy                  = data.aws_iam_policy_document.kms.json
-}
-
-# For people and the console. The app takes the full key ARN and refuses an
-# alias (lib/crypto/kms.ts).
-resource "aws_kms_alias" "main" {
-  name          = "alias/${var.name}"
-  target_key_id = aws_kms_key.main.key_id
+  #checkov:skip=CKV_AWS_109:This is a key policy, where "*" as the resource means this key and nothing else; kms:* for the account root is AWS's default statement that hands control to IAM, so no principal gains anything an IAM policy does not grant.
+  #checkov:skip=CKV_AWS_111:Same reason: a key policy's "*" resource is the key itself, and the root statement only delegates to IAM.
+  #checkov:skip=CKV_AWS_356:Same reason: in a key policy the resource is written "*", which AWS defines as the key the policy is attached to (its ARN does not exist until the key does).
 }

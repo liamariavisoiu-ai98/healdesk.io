@@ -236,9 +236,9 @@ every item stays unproven until the owner's first `infra.yml` apply and first de
   `scripts/destroy-due.ts` (`infra/aws/scripts/run-task.sh destroy-due`). **Open:** putting a
   restored copy in production's place (the runbook's "Restoring production" gives the order and
   what is known, not a rehearsed procedure); step 2's dates go back through the CloudShell VPC
-  environment as the migrator; and offboarding's return bundle has nowhere to be written on this
-  host, since a task's disk goes with the task, so it needs a design before the first clinic
-  leaves. **Half built:** the alarm on any transaction open
+  environment as the migrator. **Built:** offboarding's return bundle on this host, as the one-off
+  `patient-export` task, which puts it in the export bucket (`infra/aws/exports.tf`;
+  `infra/aws/scripts/run-task.sh patient-export <clinic id> "<who asked>"`). **Half built:** the alarm on any transaction open
   longer than five minutes, because one held open is the way left around the record clock's day
   and offboarding's thirty days (see "Retention and offboarding"). The alarm
   `healdesk-production-rds-idle-in-transaction` fires when a session has sat idle inside a
@@ -431,7 +431,9 @@ The destruction steps, in order:
 1. Switch the clinic's voice agent off at the vendor and send it the forwarding-removal
    codes, so its calls fall through to its own line.
 2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
-   <id> --all --requested-by "…"`, hand it over, and record the handover on the care
+   <id> --all --requested-by "…"` (on the AWS host: `bash run-task.sh patient-export
+   <clinic id> "<who asked>"` in CloudShell, which stores it in the export bucket; write any
+   date in "who asked" in words), hand it over, and record the handover on the care
    page. Producing it records nothing: the care page refuses the record until a bundle
    has been produced since offboarding started, and the stamp is the database's, at the
    moment of the record (`app_mark_export_delivered()`).

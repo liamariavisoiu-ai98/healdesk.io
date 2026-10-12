@@ -215,9 +215,11 @@ checkov, cfn-lint and actionlint.
   still the local command. Migrations and `queue:install` run as the migrator
   in a one-off task before every rollout, and the two roles are created by
   another; `deploy-app.yml` starts both, and `infra/aws/scripts/run-task.sh`
-  runs either from a terminal. A third, `destroy-due` (the worker's container
-  running `scripts/destroy-due.ts`), is registered by every deploy and run
-  only by hand, after a restore (`docs/handover.md`, "Restoring").
+  runs either from a terminal. Two more are registered by every deploy and run
+  only by hand: `destroy-due` (the worker's container running
+  `scripts/destroy-due.ts`), after a restore (`docs/handover.md`,
+  "Restoring"); and `patient-export`, a leaving clinic's return bundle, put
+  in the export bucket (`infra/aws/exports.tf`) by its own task role.
 - **CI checks the Terraform, not the image.** The `infra` job in `ci.yml` runs
   `terraform fmt`, `init -lockfile=readonly`, `validate` and `test`. No CI job
   builds or runs the image; `deploy-app.yml` is the first thing that does, at

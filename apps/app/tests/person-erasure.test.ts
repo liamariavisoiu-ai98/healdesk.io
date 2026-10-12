@@ -798,21 +798,59 @@ describeDb("deletion on request", () => {
     ).rejects.toMatchObject({ code: "42501" });
     expect(await evidenceLeft()).toBe(3);
 
-    // A request recorded in the same transaction: the deletion runs, up to
-    // the record's own time.
-    const deleted = await asApp(c.clinicId, async (q) => {
+    // A record the runtime role writes itself, in the same transaction, for a
+    // number someone on file still carries: refused. Evidence goes only after
+    // its person's contacts have (second review: it could write a record and
+    // delete anyone's stop).
+    const carried = await seedContact(c.clinicId, "+15550137003");
+    await inTenant(c.clinicId, (client) => evidence(client, c.clinicId, "+15550137003", hourAgo));
+    await expect(
+      asApp(c.clinicId, async (q) => {
+        const { rows } = await q.query<{ id: string }>(
+          `insert into erasure_requests (clinic_id, requested_by, received_at, due_by)
+           values ($1, 'practice', now(), now() + interval '14 days') returning id`,
+          [c.clinicId],
+        );
+        return q.query(`select * from app_erase_contact_evidence($1::uuid, array['+15550137003']::text[])`, [
+          rows[0]!.id,
+        ]);
+      }),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/still carries/) });
+    expect(carried).toBeTruthy();
+
+    // A request recorded in the same transaction, for a number no one on
+    // file carries: the deletion runs, up to the record's own time, and
+    // leaves an audit row naming the request and the counts.
+    const { deleted, audit } = await asApp(c.clinicId, async (q) => {
       const { rows } = await q.query<{ id: string }>(
         `insert into erasure_requests (clinic_id, requested_by, received_at, due_by)
          values ($1, 'practice', now(), now() + interval '14 days') returning id`,
         [c.clinicId],
       );
-      return (await q.query(eraseEvidence, [rows[0]!.id])).rows[0];
+      const deleted = (await q.query(eraseEvidence, [rows[0]!.id])).rows[0];
+      const audit = (
+        await q.query<{ resource_id: string; result_count: number; metadata: Record<string, unknown> }>(
+          `select resource_id, result_count, metadata from audit_log where resource_type = 'person_erasure_evidence'`,
+        )
+      ).rows;
+      return { deleted, audit: audit.map((a) => ({ ...a, id: rows[0]!.id })) };
     });
     expect(deleted).toEqual({
       suppressions_deleted: 1,
       consent_records_deleted: 1,
       contact_attempts_deleted: 1,
     });
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.resource_id).toBe(audit[0]!.id);
+    expect(audit[0]!.result_count).toBe(3);
+    expect(audit[0]!.metadata).toMatchObject({
+      erasureId: audit[0]!.id,
+      path: "erasure",
+      suppressions: 1,
+      consentRecords: 1,
+      contactAttempts: 1,
+    });
+    expect(JSON.stringify(audit[0]!.metadata)).not.toMatch(/555/);
 
     // And the record's counts are written in that transaction and no other.
     await expect(
@@ -1068,18 +1106,19 @@ describeDb("deletion on request", () => {
       ).rows.map((r) => r.id);
       expect(ids).toEqual([later]);
       expect(ids).not.toContain(restored);
-      for (const table of [
-        "meta_booking_drafts",
-        "suppressions",
-        "consent_records",
-        "contact_attempts",
-      ]) {
-        const n = (
+      const left = async (table: string) =>
+        (
           await client.query<{ n: number }>(
             `select count(*)::int as n from ${table} t where t::text like '%5550134001%'`,
           )
         ).rows[0]!.n;
-        expect(n, table).toBe(0);
+      expect(await left("meta_booking_drafts")).toBe(0);
+      // The person is on file again, under the contact they gave afterwards,
+      // so the stop, consent and attempt the restore brought back stay with
+      // that number: evidence goes only once no contact carries it (the
+      // definer refuses otherwise).
+      for (const table of ["suppressions", "consent_records", "contact_attempts"]) {
+        expect(await left(table), table).toBe(1);
       }
       const threads = await client.query(`select 1 from chat_threads where party_ref = $1`, [
         identifierRef("chat_party", c.clinicId, "whatsapp:15550134001"),

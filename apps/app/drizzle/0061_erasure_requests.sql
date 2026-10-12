@@ -299,6 +299,24 @@ GRANT EXECUTE ON FUNCTION app_destroy_erasure_requests(uuid) TO healdesk_app;-->
 -- version took a bare cutoff no later than the call, which passing now()
 -- satisfied: with no deletion request at all, the runtime role deleted any
 -- number's "stop", which 0058 had kept from it.
+--
+-- Tied to the person, too (second review, 12 October 2026). The record
+-- cannot be tied to the numbers in the database (its references are keyed
+-- with a key only the application holds), so the runtime role could still
+-- write a record and delete any number's stop, or use any record holding
+-- references to do it for 35 days. Now:
+--   * a number that any contact of the clinic still carries is refused:
+--     evidence goes only after its person's contacts have gone, so a stop
+--     stays while anyone it belongs to is still on file;
+--   * outside the transaction that wrote the record, only a record still
+--     holding its restore references (the reapply path after a restore)
+--     will do;
+--   * every call that deletes anything writes an audit row (actor `system`,
+--     resource person_erasure_evidence, the record's id) with the counts and
+--     the path, so a deletion of evidence is never silent.
+-- What still bounds the restore path: the 35 days the references are kept,
+-- only what was recorded before the deletion ran, only numbers no contact
+-- carries, and the audit row each call leaves.
 CREATE OR REPLACE FUNCTION app_erase_contact_evidence(
   erasure uuid,
   target_phones text[],
@@ -315,14 +333,15 @@ DECLARE
   tenant uuid := app_current_clinic_id();
   phones text[] := coalesce(target_phones, '{}');
   recorded_before timestamptz;
+  same_transaction boolean;
 BEGIN
   IF tenant IS NULL THEN
     RAISE EXCEPTION 'app_erase_contact_evidence: no tenant; an erasure runs inside the clinic''s own transaction'
       USING ERRCODE = '42501';
   END IF;
 
-  SELECT er.erased_at
-    INTO recorded_before
+  SELECT er.erased_at, er.erased_at >= now()
+    INTO recorded_before, same_transaction
     FROM erasure_requests er
    WHERE er.clinic_id = tenant
      AND er.id = erasure
@@ -331,6 +350,11 @@ BEGIN
     RAISE EXCEPTION 'app_erase_contact_evidence: no deletion request % written in this transaction, or holding its restore references, at clinic %', erasure, tenant
       USING ERRCODE = '42501',
             HINT = 'erasePerson records the request before it deletes; reapplyErasures uses a record whose references have not expired.';
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM contacts c WHERE c.clinic_id = tenant AND c.phone = ANY (phones)) THEN
+    RAISE EXCEPTION 'app_erase_contact_evidence: a contact of clinic % still carries one of these numbers; its evidence goes only after its contacts have', tenant
+      USING ERRCODE = 'check_violation';
   END IF;
 
   DELETE FROM suppressions s
@@ -342,6 +366,17 @@ BEGIN
   DELETE FROM contact_attempts a
    WHERE a.clinic_id = tenant AND a.phone = ANY (phones) AND a.attempted_at <= recorded_before;
   GET DIAGNOSTICS contact_attempts_deleted = ROW_COUNT;
+
+  IF suppressions_deleted + consent_records_deleted + contact_attempts_deleted > 0 THEN
+    INSERT INTO audit_log (clinic_id, actor_type, actor_label, action, resource_type, resource_id, result_count, metadata)
+    VALUES (tenant, 'system', 'app_erase_contact_evidence', 'delete', 'person_erasure_evidence', erasure::text,
+            suppressions_deleted + consent_records_deleted + contact_attempts_deleted,
+            jsonb_build_object('erasureId', erasure,
+                               'path', CASE WHEN same_transaction THEN 'erasure' ELSE 'restore' END,
+                               'suppressions', suppressions_deleted,
+                               'consentRecords', consent_records_deleted,
+                               'contactAttempts', contact_attempts_deleted));
+  END IF;
 END
 $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_erase_contact_evidence(uuid, text[]) FROM PUBLIC;--> statement-breakpoint
@@ -423,7 +458,7 @@ COMMENT ON FUNCTION app_expire_erasure_records() IS
 COMMENT ON FUNCTION app_destroy_erasure_requests(uuid) IS
   'Deletes every record of a deletion request at the tenant''s own clinic, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contact_evidence(uuid, text[]) IS
-  'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
+  'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. Refuses a number any contact of the clinic still carries, and writes an audit row (person_erasure_evidence) for every call that deletes anything. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
   'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, the setup screens, slot holds, providers and provider services 0056 and 0057 added, and the records of deletion requests (0061). Returns destroyed_at.';--> statement-breakpoint
 COMMENT ON TABLE suppressions IS

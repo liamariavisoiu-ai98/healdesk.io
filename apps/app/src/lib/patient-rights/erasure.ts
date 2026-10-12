@@ -637,14 +637,28 @@ async function eraseSurveyed(
   }
 
   // Their suppressions, consent records and contact attempts, last, so no
-  // number of theirs is left anywhere.
-  if (s.phones.length) {
+  // number of theirs is left anywhere: only for numbers no contact still
+  // carries, as the definer requires. A contact recorded after the deletion
+  // (the person came back, then a restore brought the old rows) keeps its
+  // number's evidence: it is someone on file again.
+  const carried = s.phones.length
+    ? new Set(
+        (
+          await tx.db
+            .select({ phone: contacts.phone })
+            .from(contacts)
+            .where(and(eq(contacts.clinicId, tx.clinicId), inArray(contacts.phone, s.phones)))
+        ).map((r) => r.phone),
+      )
+    : new Set<string | null>();
+  const evidencePhones = s.phones.filter((p) => !carried.has(p));
+  if (evidencePhones.length) {
     const result = await tx.db.execute<{
       suppressions_deleted: number;
       consent_records_deleted: number;
       contact_attempts_deleted: number;
     }>(
-      sql`select * from app_erase_contact_evidence(${erasureId}::uuid, ${textArray(s.phones)})`,
+      sql`select * from app_erase_contact_evidence(${erasureId}::uuid, ${textArray(evidencePhones)})`,
     );
     const row = result.rows[0];
     counts.suppressions = row?.suppressions_deleted ?? 0;

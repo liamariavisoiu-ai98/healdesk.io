@@ -1391,7 +1391,15 @@ these is closed, by code, a page, a signed paper or a host setting, and
      have not expired, and only what was recorded before it; the first
      version took a bare cutoff that `now()` satisfied, so the runtime role
      could delete any number's "stop" with no request at all, against 0058,
-     until the review of 12 October 2026). No telephone number of theirs is left, in
+     until the review of 12 October 2026). The second review found that a
+     record the runtime role wrote itself, or any record still holding its
+     references, still let it delete any number's stop; the function now
+     refuses a number any contact of the clinic still carries, so evidence
+     goes only after its person's contacts have, and every call that
+     deletes anything writes an audit row naming the request, the path and
+     the counts. What still bounds the restore path: the 35 days, what was
+     recorded before the deletion, numbers no one on file carries, and that
+     row. No telephone number of theirs is left, in
      any table (the test reads every table with a `clinic_id`, and the
      security events, for it).
    - A booking request goes only with the person it names

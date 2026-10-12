@@ -10,7 +10,7 @@ import {
   type Operator,
 } from "@/lib/ops/api";
 import { destroyDueClinics, startOffboarding } from "@/lib/offboarding/offboarding";
-import { exportClinic, exportPatient } from "@/lib/patient-rights/export";
+import { amendContact, exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { purgeClinic } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
 
@@ -102,7 +102,7 @@ async function amendOp(
   const outcome = data<AmendRecordOutcome>(
     await runOperation(
       "amendRecord",
-      { clinicId, targetKind, targetId, amendment, requestedBy: "the practice, ticket 2201" },
+      { clinicId, targetKind, targetId, amendment, requestedBy: "practice" },
       OPERATOR,
     ),
   );
@@ -155,7 +155,7 @@ describeDb("the amendment record", () => {
         targetKind: "booking_request",
         targetId: requestId,
         amendment: words,
-        requestedBy: "the practice, ticket 2201",
+        requestedBy: "practice",
         requestedAt: "2026-10-05T09:00:00Z",
       },
       OPERATOR,
@@ -191,7 +191,7 @@ describeDb("the amendment record", () => {
       booking_request_id: requestId,
       conversation_id: null,
       amendment: words,
-      requested_by: "the practice, ticket 2201",
+      requested_by: "practice",
       recorded_by: "ops@healdesk.test",
     });
     expect(rows[0]!.requested_at.toISOString()).toBe("2026-10-05T09:00:00.000Z");
@@ -221,25 +221,25 @@ describeDb("the amendment record", () => {
         targetKind: "booking_request",
         targetId: requestId,
         amendment: "  ",
-        requestedBy: "the practice",
+        requestedBy: "practice",
       },
       {
         targetKind: "contact",
         targetId: requestId,
         amendment: words,
-        requestedBy: "the practice",
+        requestedBy: "practice",
       },
       {
         targetKind: "conversation",
         targetId: randomUUID(),
         amendment: words,
-        requestedBy: "the practice",
+        requestedBy: "practice",
       },
       {
         targetKind: "conversation",
         targetId: conversationId,
         amendment: "x".repeat(4001),
-        requestedBy: "the practice",
+        requestedBy: "practice",
       },
     ]) {
       const refused = data<AmendRecordOutcome>(
@@ -271,7 +271,7 @@ describeDb("the amendment record", () => {
             contactId,
             fullName: "Rhys Morgan",
             email: "rhys@example-patient.test",
-            requestedBy: "the practice",
+            requestedBy: "practice",
           },
           OPERATOR,
         ),
@@ -313,7 +313,7 @@ describeDb("the amendment record", () => {
       const refused = data<AmendRecordOutcome>(
         await runOperation(
           "amendRecord",
-          { clinicId: c.clinicId, targetKind: "booking_request", targetId: requestId, amendment: words, requestedBy: "the practice" },
+          { clinicId: c.clinicId, targetKind: "booking_request", targetId: requestId, amendment: words, requestedBy: "practice" },
           OPERATOR,
         ),
       );
@@ -323,7 +323,7 @@ describeDb("the amendment record", () => {
           q.query(
             `insert into record_amendments
                (clinic_id, target_kind, booking_request_id, amendment, requested_by, requested_at, recorded_by)
-             values ($1, 'booking_request', $2, $3, 'the practice', now(), 'ops@healdesk.test')`,
+             values ($1, 'booking_request', $2, $3, 'practice', now(), 'ops@healdesk.test')`,
             [c.clinicId, requestId, words],
           ),
         ),
@@ -341,6 +341,66 @@ describeDb("the amendment record", () => {
     expect(await amendmentIds(c.clinicId)).toHaveLength(3);
   });
 
+  test("who asked for an amendment or a correction is chosen, never typed, so no name outlives the person in the audit log", async () => {
+    // The first version took who asked as free text, screened only for
+    // numbers and addresses: "Jane Doe's mother, by telephone" went into the
+    // append-only audit log and stayed there after Jane's deletion.
+    const c = await seedClinic("amend-who-asked");
+    const jane = await seedContact(c.clinicId, "+15550149401");
+    const { conversationId } = await seedConversation(c.clinicId, {
+      startedAt: new Date(Date.now() - DAY),
+      contactId: jane,
+    });
+    const typed = "Jane Doe's mother, by telephone";
+    const corrected = data<{ status: string }>(
+      await runOperation(
+        "amendContact",
+        { clinicId: c.clinicId, contactId: jane, fullName: "Jane Q Doe", requestedBy: typed },
+        OPERATOR,
+      ),
+    );
+    expect(corrected.status).toBe("error");
+    const amended = data<AmendRecordOutcome>(
+      await runOperation(
+        "amendRecord",
+        { clinicId: c.clinicId, targetKind: "conversation", targetId: conversationId, amendment: "Lip filler, not botox.", requestedBy: typed },
+        OPERATOR,
+      ),
+    );
+    expect(amended.status).toBe("error");
+    // The library refuses it too, and so does the database.
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        amendContact(tx, jane, { fullName: "Jane Q Doe" }, typed as never),
+      ),
+    ).rejects.toThrow(/closed set/);
+    await expect(
+      asApp(c.clinicId, (q) =>
+        q.query(
+          `insert into record_amendments
+             (clinic_id, target_kind, conversation_id, amendment, requested_by, requested_at, recorded_by)
+           values ($1, 'conversation', $2, 'Lip filler, not botox.', $3, now(), 'ops@healdesk.test')`,
+          [c.clinicId, conversationId, typed],
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "23514", constraint: "record_amendments_requested_by_check" });
+
+    // Chosen: accepted, and the audit rows carry the choice, never a name.
+    data(
+      await runOperation(
+        "amendContact",
+        { clinicId: c.clinicId, contactId: jane, fullName: "Jane Q Doe", requestedBy: "representative_via_practice" },
+        OPERATOR,
+      ),
+    );
+    await amendOp(c.clinicId, "conversation", conversationId, "Lip filler, not botox.");
+    const { rows } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from audit_log where clinic_id = $1 and metadata::text ilike '%doe%'`,
+      [c.clinicId],
+    );
+    expect(rows[0]!.n).toBe(0);
+  });
+
   test("append-only: the runtime role may add and read an amendment, and no role may change or delete one", async () => {
     const c = await seedClinic("amend-append-only");
     const contactId = await seedContact(c.clinicId, "+15550141001");
@@ -351,7 +411,7 @@ describeDb("the amendment record", () => {
       const { rows } = await q.query<{ id: string; recorded_at: Date }>(
         `insert into record_amendments
            (clinic_id, target_kind, booking_request_id, amendment, requested_by, requested_at, recorded_by, recorded_at)
-         values ($1, 'booking_request', $2, 'Second amendment.', 'the practice', now(), 'ops@healdesk.test',
+         values ($1, 'booking_request', $2, 'Second amendment.', 'practice', now(), 'ops@healdesk.test',
                  now() + interval '400 days')
          returning id, recorded_at`,
         [c.clinicId, requestId],
@@ -423,7 +483,7 @@ describeDb("the amendment record", () => {
             targetKind: kind,
             targetId: id,
             amendment: "x",
-            requestedBy: "the practice",
+            requestedBy: "practice",
           },
           OPERATOR,
         ),
@@ -435,7 +495,7 @@ describeDb("the amendment record", () => {
     // foreign key carries the clinic, so it finds no such record.
     const insert = `insert into record_amendments
         (clinic_id, target_kind, booking_request_id, amendment, requested_by, requested_at, recorded_by)
-      values ($1, 'booking_request', $2, 'x', 'the practice', now(), 'ops@healdesk.test')`;
+      values ($1, 'booking_request', $2, 'x', 'practice', now(), 'ops@healdesk.test')`;
     await expect(
       asApp(a.clinicId, (q) => q.query(insert, [a.clinicId, theirs])),
     ).rejects.toMatchObject({
@@ -458,7 +518,7 @@ describeDb("the amendment record", () => {
         q.query(
           `insert into record_amendments
              (clinic_id, target_kind, booking_request_id, conversation_id, amendment, requested_by, requested_at, recorded_by)
-           values ($1, 'conversation', $2, $3, 'x', 'the practice', now(), 'ops@healdesk.test')`,
+           values ($1, 'conversation', $2, $3, 'x', 'practice', now(), 'ops@healdesk.test')`,
           [b.clinicId, theirs, theirCall.conversationId],
         ),
       ),
@@ -787,7 +847,7 @@ describeDb("the amendment record", () => {
     const empty = data<{ status: string }>(
       await runOperation(
         "amendContact",
-        { clinicId: c.clinicId, contactId, email: "  ", requestedBy: "the practice" },
+        { clinicId: c.clinicId, contactId, email: "  ", requestedBy: "practice" },
         OPERATOR,
       ),
     );
@@ -801,7 +861,7 @@ describeDb("the amendment record", () => {
           contactId,
           email: "right@example-patient.test",
           clear: ["email"],
-          requestedBy: "the practice",
+          requestedBy: "practice",
         },
         OPERATOR,
       ),
@@ -816,7 +876,7 @@ describeDb("the amendment record", () => {
     const cleared = data<{ status: string }>(
       await runOperation(
         "amendContact",
-        { clinicId: c.clinicId, contactId, clear: ["email", "fullName"], requestedBy: "the practice" },
+        { clinicId: c.clinicId, contactId, clear: ["email", "fullName"], requestedBy: "practice" },
         OPERATOR,
       ),
     );
@@ -877,7 +937,7 @@ describeDb("the amendment record", () => {
       await owner.query(
         `insert into record_amendments
            (clinic_id, target_kind, booking_request_id, amendment, requested_by, requested_at, recorded_by)
-         values ($1, 'booking_request', $2, 'orphan', 'the practice', now(), 'ops@healdesk.test')`,
+         values ($1, 'booking_request', $2, 'orphan', 'practice', now(), 'ops@healdesk.test')`,
         [c.clinicId, randomUUID()],
       );
       await owner.query("savepoint refused");

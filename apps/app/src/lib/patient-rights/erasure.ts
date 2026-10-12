@@ -9,12 +9,10 @@ import {
   contactAttempts,
   contacts,
   conversations,
-  ERASURE_REQUESTERS,
   erasureRequests,
   metaBookingDrafts,
   suppressions,
   webhookEvents,
-  type ErasureRequester,
   type ErasureVendorStamp,
 } from "@/db/schema";
 import { identifierRef } from "@/lib/identifier-ref";
@@ -24,6 +22,8 @@ import { listClinics } from "@/lib/ops/clinics";
 import { eraseContact, type ErasureResult } from "@/lib/retention/purge";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
+
+import { REQUESTER_LABELS, type PatientRequester } from "./requesters";
 
 /**
  * Deletion on request: one person, everywhere healdesk holds them, and a
@@ -98,7 +98,7 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  *
  * ## The record, and how long it lasts
  *
- * One `erasure_requests` row: who asked (one of ERASURE_REQUESTERS), when the request
+ * One `erasure_requests` row: who asked (one of PATIENT_REQUESTERS), when the request
  * arrived, the deadline ten business days on, when the deletion ran (the
  * database's clock), the counts, and a stamp for each subcontractor step
  * (ERASURE_VENDOR_STEPS) the operator does in the vendor's console, since
@@ -125,22 +125,6 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  * The `person data erased` log line, written outside the database, names
  * each request; docs/handover.md says how the records are carried over.
  */
-
-/**
- * Who asked, as the record keeps it: one of three, chosen, never typed, so a
- * name can never be stored with the record of a deletion or its audit row.
- * Only the practice can ask (docs/handover.md, "Deletion requests"); the
- * other two say whose request the practice passed on.
- */
-export const ERASURE_REQUESTER_LABELS: Record<ErasureRequester, string> = {
-  practice: "The practice",
-  person_via_practice: "The person, through the practice",
-  representative_via_practice: "A legal representative, through the practice",
-};
-
-export function isErasureRequester(value: unknown): value is ErasureRequester {
-  return (ERASURE_REQUESTERS as readonly unknown[]).includes(value);
-}
 
 /** The deadline: ten business days after the request reached healdesk (clause 4(c); SL-06). */
 export const ERASURE_DEADLINE_BUSINESS_DAYS = 10;
@@ -665,7 +649,7 @@ export type ErasePersonInput = {
   /** Lower-cased. */
   email?: string;
   /** Who asked: one of the closed set, never typed. */
-  requestedBy: ErasureRequester;
+  requestedBy: PatientRequester;
   /**
    * When the request reached healdesk: the deadline runs from it. Omitted,
    * now; a moment later than the database's clock (an operator's clock a
@@ -769,7 +753,7 @@ export async function erasePerson(
 
 export type ErasureRequestView = {
   id: string;
-  /** Who asked, as the console says it (ERASURE_REQUESTER_LABELS). */
+  /** Who asked, as the console says it (REQUESTER_LABELS). */
   requestedBy: string;
   receivedAt: Date;
   dueBy: Date;
@@ -798,7 +782,7 @@ export async function listErasureRequests(tx: TenantTx): Promise<ErasureRequestV
     .orderBy(sql`${erasureRequests.erasedAt} desc`);
   return rows.map((r) => ({
     id: r.id,
-    requestedBy: ERASURE_REQUESTER_LABELS[r.requestedBy] ?? r.requestedBy,
+    requestedBy: REQUESTER_LABELS[r.requestedBy] ?? r.requestedBy,
     receivedAt: r.receivedAt,
     dueBy: r.dueBy,
     erasedAt: r.erasedAt,

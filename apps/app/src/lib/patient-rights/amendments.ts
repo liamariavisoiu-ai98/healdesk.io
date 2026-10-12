@@ -9,6 +9,8 @@ import {
 } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
 
+import { isPatientRequester, type PatientRequester } from "./requesters";
+
 /**
  * Amendments to the records that must stay as they were made.
  *
@@ -81,8 +83,8 @@ export type AppendAmendmentInput = {
   target: AmendmentTarget;
   /** The amendment as Practice directed it. */
   amendment: string;
-  /** Who asked, by role or ticket ("the practice, ticket 1182"); never the patient. */
-  requestedBy: string;
+  /** Who asked: one of PATIENT_REQUESTERS, chosen, never typed. */
+  requestedBy: PatientRequester;
   /**
    * When Practice directed it. Omitted, now; a moment later than the
    * database's clock counts as now.
@@ -140,6 +142,9 @@ export async function appendAmendment(
   }
   if (amendmentCarriesIdentifier(amendment)) {
     throw new Error("An amendment never carries a telephone number or an email address.");
+  }
+  if (!isPatientRequester(input.requestedBy)) {
+    throw new Error("Who asked is one of the closed set (PATIENT_REQUESTERS), never typed.");
   }
   if (!(await targetExists(tx, input.target))) return { status: "not_found" };
 

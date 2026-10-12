@@ -17,7 +17,7 @@ CREATE TABLE "record_amendments" (
 	CONSTRAINT "record_amendments_amendment_check" CHECK (char_length(btrim("record_amendments"."amendment")) between 1 and 4000),
 	CONSTRAINT "record_amendments_identifier_check" CHECK (regexp_replace(regexp_replace("record_amendments"."amendment", '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', '', 'g'), '[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?', '', 'g') !~ '[0-9]([ ().-]{0,2}[0-9]){9,}'
         and "record_amendments"."amendment" !~ '[^[:space:]@]+@[^[:space:]@]+[.][^[:space:]@]{2,}'),
-	CONSTRAINT "record_amendments_requested_by_check" CHECK (char_length(btrim("record_amendments"."requested_by")) between 2 and 200),
+	CONSTRAINT "record_amendments_requested_by_check" CHECK ("record_amendments"."requested_by" in ('practice', 'person_via_practice', 'representative_via_practice')),
 	CONSTRAINT "record_amendments_recorded_by_check" CHECK (char_length(btrim("record_amendments"."recorded_by")) between 1 and 320),
 	CONSTRAINT "record_amendments_requested_check" CHECK ("record_amendments"."requested_at" <= "record_amendments"."recorded_at")
 );
@@ -53,7 +53,9 @@ CREATE INDEX "record_amendments_appointment_idx" ON "record_amendments" USING bt
 --
 --   * record_amendments holds each amendment: the record it amends (a booking
 --     request, a conversation or an appointment, by target_kind and exactly
---     one of three foreign keys), Practice's words, who asked by role or ticket, when
+--     one of three foreign keys), Practice's words, who asked (one of three,
+--     chosen, never typed: a typed one carried a name into the audit log
+--     past the person's deletion, review of 12 October 2026), when
 --     Practice directed it, who appended it, and when, by the database's
 --     clock. Each foreign key carries clinic_id with the record's id, against
 --     a (clinic_id, id) key on the record's table, so an amendment can point
@@ -555,7 +557,7 @@ $$;--> statement-breakpoint
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE record_amendments IS
-  'An amendment Practice directed to a record healdesk does not rewrite on its word (BAA 1.3.0 clause 14(b)): a booking request, a conversation or an appointment, by target_kind and exactly one foreign key, which carries clinic_id so the record is the same clinic''s. Practice''s words (PHI), who asked by role or ticket, when Practice directed it, who appended it, and recorded_at by the database''s clock. Append-only: the runtime role may INSERT and SELECT; no role may UPDATE. Leaves only with the record it amends, through app_erase_contacts, app_purge_booking_requests, app_purge_amended_appointments, app_purge_amended_conversations and app_destroy_record_amendments. Every export carries it beside the record.';--> statement-breakpoint
+  'An amendment Practice directed to a record healdesk does not rewrite on its word (BAA 1.3.0 clause 14(b)): a booking request, a conversation or an appointment, by target_kind and exactly one foreign key, which carries clinic_id so the record is the same clinic''s. Practice''s words (PHI), who asked (one of three, never typed), when Practice directed it, who appended it, and recorded_at by the database''s clock. Append-only: the runtime role may INSERT and SELECT; no role may UPDATE. Leaves only with the record it amends, through app_erase_contacts, app_purge_booking_requests, app_purge_amended_appointments, app_purge_amended_conversations and app_destroy_record_amendments. Every export carries it beside the record.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contacts(uuid[]) IS
   'Erases people inside the tenant (app.clinic_id), for eraseContact: the amendments of their own booking requests, of their appointments and of the conversations it deletes, their own booking requests, their appointments, their conversations and the ones that produced their appointments, then the contact rows, in one call, so a request leaves only with the person it names. Fails with nothing removed if anything else still refers to them, another person''s request on one of their appointments included; their transactions go first. Returns the five counts; contacts outside the tenant match nothing.';--> statement-breakpoint
 COMMENT ON FUNCTION app_purge_booking_requests(timestamptz) IS

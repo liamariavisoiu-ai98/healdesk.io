@@ -2374,20 +2374,26 @@ export const contactAttempts = pgTable(
 /** The operator's record that a subcontractor deleted what it held about the person. */
 export type ErasureVendorStamp = { at: string; by: string; how: string };
 
-/** Who asked for a deletion: a closed set, so the record holds nothing typed (erasure_requests_requested_by_check). */
-export const ERASURE_REQUESTERS = [
+/**
+ * Who asked for a deletion, an amendment or a correction: a closed set, so
+ * nothing typed is stored with the record or in its audit row, both of which
+ * outlive the person (erasure_requests_requested_by_check,
+ * record_amendments_requested_by_check). Only the practice asks; the other
+ * two say whose request it passed on.
+ */
+export const PATIENT_REQUESTERS = [
   "practice",
   "person_via_practice",
   "representative_via_practice",
 ] as const;
-export type ErasureRequester = (typeof ERASURE_REQUESTERS)[number];
+export type PatientRequester = (typeof PATIENT_REQUESTERS)[number];
 
 /**
  * A person's deletion request, recorded without the person (BAA 1.3.0 clause
  * 4(c): "only a record of the request, for no longer than it needs one to make
  * sure the information stays deleted"; the DPA's item c; release gate 6).
  *
- * Who asked, from a closed set (ERASURE_REQUESTERS), when the request
+ * Who asked, from a closed set (PATIENT_REQUESTERS), when the request
  * reached healdesk and the deadline it set, when the deletion ran, the counts
  * it deleted, and the operator's stamp for each subcontractor step
  * (ERASURE_VENDOR_STEPS in lib/patient-rights/erasure.ts). No telephone
@@ -2419,12 +2425,12 @@ export const erasureRequests = pgTable(
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
     /**
-     * Who asked, as one of ERASURE_REQUESTERS (lib/patient-rights/erasure.ts):
+     * Who asked, as one of PATIENT_REQUESTERS (lib/patient-rights/requesters.ts):
      * the practice, the person through the practice, or a legal
      * representative through the practice. A closed set, so nothing typed is
      * stored: a name typed here would outlive the deletion it records.
      */
-    requestedBy: text("requested_by").$type<ErasureRequester>().notNull(),
+    requestedBy: text("requested_by").$type<PatientRequester>().notNull(),
     /** When the request reached healdesk: the deadline runs from here. */
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
     /** Ten business days after receivedAt: the deletion here and every subcontractor step are due by then. */
@@ -2511,8 +2517,11 @@ export const recordAmendments = pgTable(
     appointmentId: uuid("appointment_id"),
     /** The amendment as Practice directed it. PHI. Never logged, audited or echoed back. */
     amendment: text("amendment").notNull(),
-    /** Who asked, by role or ticket ("the practice, ticket 1182"); never the patient. */
-    requestedBy: text("requested_by").notNull(),
+    /**
+     * Who asked, as one of PATIENT_REQUESTERS: chosen, never typed, so no
+     * name outlives the person in this row or its audit row.
+     */
+    requestedBy: text("requested_by").$type<PatientRequester>().notNull(),
     /** When Practice directed it; never after recorded_at. */
     requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(),
     /** Who appended it: the operator's address, or (M5) the portal member. */
@@ -2575,7 +2584,7 @@ export const recordAmendments = pgTable(
     ),
     check(
       "record_amendments_requested_by_check",
-      sql`char_length(btrim(${t.requestedBy})) between 2 and 200`,
+      sql`${t.requestedBy} in ('practice', 'person_via_practice', 'representative_via_practice')`,
     ),
     check(
       "record_amendments_recorded_by_check",

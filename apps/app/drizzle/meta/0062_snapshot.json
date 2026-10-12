@@ -7295,7 +7295,7 @@
         },
         "record_amendments_requested_by_check": {
           "name": "record_amendments_requested_by_check",
-          "value": "char_length(btrim(\"record_amendments\".\"requested_by\")) between 2 and 200"
+          "value": "\"record_amendments\".\"requested_by\" in ('practice', 'person_via_practice', 'representative_via_practice')"
         },
         "record_amendments_recorded_by_check": {
           "name": "record_amendments_recorded_by_check",

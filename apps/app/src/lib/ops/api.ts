@@ -87,9 +87,7 @@ import {
 } from "@/lib/ops/calendar-ops";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import {
-  ERASURE_REQUESTER_LABELS,
   erasePerson,
-  isErasureRequester,
   isErasureVendorStep,
   listErasureRequests,
   stampErasureVendorStep,
@@ -104,6 +102,7 @@ import {
   appendAmendment,
 } from "@/lib/patient-rights/amendments";
 import { amendContact } from "@/lib/patient-rights/export";
+import { isPatientRequester, REQUESTER_LABELS, type PatientRequester } from "@/lib/patient-rights/requesters";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
@@ -3605,22 +3604,17 @@ const erase = {
   error: (message: string) => ok({ status: "error", message } satisfies ErasePersonOutcome),
 };
 
-/** Who asked, by role or ticket, scanned as an incident's summary is: a name, a number or an address refuses it. */
-function whoAsked(value: string | undefined): string | { error: string } {
-  if (!value || value.length < 2) {
-    return { error: "Say who asked, by role or ticket: \"the practice, ticket 1182\"." };
-  }
-  try {
-    assertNoPhi({ requestedBy: value }, "requestedBy");
-    return value;
-  } catch (error) {
-    if (error instanceof PhiInAuditError) {
-      return {
-        error: `"Who asked" looks like it carries patient details (${error.message}). Name the role or the ticket, never the person.`,
-      };
-    }
-    throw error;
-  }
+/**
+ * Who asked, chosen from the closed set (PATIENT_REQUESTERS), never typed:
+ * the record and its audit row outlive the person, so they hold nothing a
+ * person wrote. A typed "who asked" carried a name into the audit log
+ * (review of 12 October 2026).
+ */
+function chosenRequester(value: string | undefined): PatientRequester | { error: string } {
+  if (isPatientRequester(value)) return value;
+  return {
+    error: `Who asked? One of: ${Object.values(REQUESTER_LABELS).join("; ")}. Nothing typed is kept with the record.`,
+  };
 }
 
 /**
@@ -3649,12 +3643,8 @@ async function opErasePerson(args: Record<string, unknown>, operator: Operator):
   if (!phone && !email) return erase.error("Give the person's telephone number, their email address, or both.");
   // Who asked is chosen, never typed: the record and its audit row outlive
   // the deletion, so they hold nothing a person wrote.
-  const requestedBy = stringArg(args, "requestedBy", 40);
-  if (!isErasureRequester(requestedBy)) {
-    return erase.error(
-      `Who asked? One of: ${Object.values(ERASURE_REQUESTER_LABELS).join("; ")}. Nothing typed is kept with the record.`,
-    );
-  }
+  const requestedBy = chosenRequester(stringArg(args, "requestedBy", 40));
+  if (typeof requestedBy !== "string") return erase.error(requestedBy.error);
   const receivedRaw = stringArg(args, "receivedAt", 40);
   const receivedAt = receivedRaw ? new Date(receivedRaw) : undefined;
   if (receivedAt && (Number.isNaN(receivedAt.getTime()) || receivedAt.getTime() > Date.now() + 60_000)) {
@@ -3763,7 +3753,7 @@ async function opAmendRecord(args: Record<string, unknown>, operator: Operator):
       "An amendment never carries a telephone number or an email address: it can sit on someone else's record, where a deletion would not find it. Correct a contact's number or address with \"Correct a contact\" instead.",
     );
   }
-  const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
+  const requestedBy = chosenRequester(stringArg(args, "requestedBy", 40));
   if (typeof requestedBy !== "string") return amend.error(requestedBy.error);
   const requestedAt = pastMoment(stringArg(args, "requestedAt", 40));
   if (requestedAt && !(requestedAt instanceof Date)) return amend.error(requestedAt.error);
@@ -3861,7 +3851,7 @@ async function opAmendContact(args: Record<string, unknown>, operator: Operator)
   if (Object.keys(changes).length === 0) {
     return correct.error("Give the corrected name, telephone number or email address, or say which to clear.");
   }
-  const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
+  const requestedBy = chosenRequester(stringArg(args, "requestedBy", 40));
   if (typeof requestedBy !== "string") return correct.error(requestedBy.error);
 
   const found = await withTenant(

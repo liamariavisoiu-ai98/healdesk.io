@@ -1516,7 +1516,11 @@ these is closed, by code, a page, a signed paper or a host setting, and
    `tests/record-amendments.test.ts`):
    - `record_amendments` holds each amendment: the record it amends (a
      booking request or a conversation, by `target_kind` and exactly one
-     foreign key), Practice's words, who asked by role or ticket, when
+     foreign key), Practice's words, who asked (one of three, chosen, never
+     typed: the second review found a typed "Jane Doe's mother, by telephone"
+     in the append-only audit log after Jane's deletion, so amendments and
+     corrections now take the same closed set as deletions, held by
+     `record_amendments_requested_by_check`), when
      Practice directed it, who appended it, and when, stamped by the
      database. Each foreign key carries `clinic_id` with the record's id, so
      an amendment can only point at a record of its own clinic. Tenant RLS,

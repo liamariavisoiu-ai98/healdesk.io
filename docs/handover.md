@@ -567,7 +567,9 @@ over the calendar's.
      its place, tick "clear" for it: only a field named that way is cleared, and an
      empty box changes nothing;
    - "Append an amendment" for a booking request, a conversation or an appointment:
-     the practice's words, who asked by role or ticket, and when it asked. The words
+     the practice's words, who asked (one of three, chosen: the practice; the person,
+     through the practice; a legal representative, through the practice; never typed,
+     for a deletion, an amendment and a correction alike), and when it asked. The words
      never carry a telephone number or an email address (the page and the database
      refuse them): an amendment can sit on someone else's record, where deleting that
      person would never find it. A number or an address is a contact's, corrected with

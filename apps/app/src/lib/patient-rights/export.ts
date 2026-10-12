@@ -15,6 +15,7 @@ import {
 import type { TenantTx } from "@/lib/tenant";
 
 import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendments";
+import { isPatientRequester, type PatientRequester } from "./requesters";
 
 /**
  * The patient-rights export: everything held about one person, in one
@@ -184,8 +185,12 @@ export async function amendContact(
   tx: TenantTx,
   contactId: string,
   changes: { fullName?: string | null; phone?: string | null; email?: string | null },
-  requestedBy: string,
+  /** One of PATIENT_REQUESTERS: the audit row outlives the contact, so it holds nothing typed. */
+  requestedBy: PatientRequester,
 ): Promise<boolean> {
+  if (!isPatientRequester(requestedBy)) {
+    throw new Error("Who asked is one of the closed set (PATIENT_REQUESTERS), never typed.");
+  }
   const [before] = await tx.db
     .select({ id: contacts.id, fullName: contacts.fullName, phone: contacts.phone, email: contacts.email })
     .from(contacts)

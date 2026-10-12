@@ -41,10 +41,12 @@ import {
 } from "@/lib/email/templates/context";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
+import { stepsReason } from "@/lib/email/templates/steps_sent";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
 import {
   readUnsubscribeToken,
+  stepsStopUrl,
   unsubscribeHeaders,
   unsubscribeToken,
   unsubscribeUrl,
@@ -64,11 +66,14 @@ const CLINIC_ID = "0c1d2e3f-0000-4000-8000-000000000000";
 const TOKEN = "kP3vXq9TzR7wYb2NcL5mHs8JdF4gA6eU1oIiQ0yBtVx";
 
 const SAVED: Record<string, string | undefined> = {};
-const ENV = ["BETTER_AUTH_URL", "HEALDESK_APP_URL", "NODE_ENV"] as const;
+const ENV = ["BETTER_AUTH_URL", "BETTER_AUTH_SECRET", "HEALDESK_APP_URL", "NODE_ENV"] as const;
 
 beforeEach(() => {
   for (const key of ENV) SAVED[key] = process.env[key];
   process.env.BETTER_AUTH_URL = ORIGIN;
+  // A stop link is signed with a key derived from this secret, and the
+  // snapshots carry the link: pinned, so CI's own secret cannot change them.
+  process.env.BETTER_AUTH_SECRET = "test-secret-not-used-outside-tests";
   delete process.env.HEALDESK_APP_URL;
 });
 
@@ -79,6 +84,8 @@ afterEach(() => {
     else (process.env as Record<string, string>)[key] = value;
   }
 });
+
+const STEPS_DELIVERY_ID = "0b1c2d3e-4f50-4617-8899-aabbccddeeff";
 
 function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): TemplateContext {
   const scope = carriesUnsubscribe(kind) ? "commercial" : null;
@@ -97,8 +104,15 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
             ? ORDER_REASON
             : kind === "device_changed"
               ? ACCOUNT_REASON
-              : clinicReason("Radiance Med Spa"),
+              : kind === "steps_sent"
+                ? stepsReason("Radiance Med Spa")
+                : clinicReason("Radiance Med Spa"),
     ...(scope ? { unsubscribeUrl: unsubscribeUrl(CLINIC_ID, scope) } : {}),
+    // O11 goes to someone the clinic named, with the link that stops any more
+    // reaching that address, as lib/notices/steps-sent.ts sends it.
+    ...(kind === "steps_sent"
+      ? { unsubscribeUrl: stepsStopUrl(CLINIC_ID, STEPS_DELIVERY_ID) }
+      : {}),
     raisedAt: new Date("2026-10-06T14:32:00Z"),
     timeZone: "America/New_York",
   };
@@ -136,7 +150,7 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13, and the calendar's two", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -168,17 +182,26 @@ describe("the template registry", () => {
       "setup_closed",
       "calendar_stopped",
       "calendar_reconnected",
+      "setting_changed",
+      "channel_ready",
+      "steps_sent",
       "calendar_link",
       "calendar_election_recorded",
     ]);
   });
 
-  test("the ledger records exactly the direct kinds flagged for it: the welcome email", () => {
+  test("the ledger records exactly the direct kinds flagged for it: the welcome email and O11's sent-on steps", () => {
     const flagged = DIRECT_KINDS.filter((kind) => DIRECT_KIND_REGISTRY[kind].ledger);
     expect([...LEDGER_DIRECT_KINDS]).toEqual(flagged);
-    expect(flagged).toEqual(["welcome"]);
+    expect(flagged).toEqual(["welcome", "steps_sent"]);
     expect(isLinkEmail("welcome")).toBe(true);
     expect(locksOutClinic("welcome")).toBe(true);
+    // O11 goes to someone the clinic names, never to the clinic's address,
+    // so it carries no link into the portal and locks no one out.
+    expect(isLinkEmail("steps_sent")).toBe(false);
+    expect(locksOutClinic("steps_sent")).toBe(false);
+    // Its reader can stop any more reaching that address (Annex X5, O11).
+    expect(carriesUnsubscribe("steps_sent")).toBe(true);
   });
 
   test("every template's fixture passes the payload allowlist", () => {

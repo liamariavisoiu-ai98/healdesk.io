@@ -3,16 +3,18 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
-import { directBookingAllowed } from "@/lib/booking/mode";
+import { bookingModeFor } from "@/lib/booking/mode";
 import { metaChannelGreeting } from "@/lib/compliance/disclosure";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
+  cleanAlternatives,
   cleanBookingFields,
   decideBookingRequest,
   expireLapsedRequests,
   followUpLine,
   requestReceivedLine,
   resolveBookingRequest,
+  windowIsClean,
 } from "@/lib/meta/booking-requests";
 import { collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
@@ -75,6 +77,29 @@ describe("what the model may hand over", () => {
       alternativeWindows: ["Friday after 2"],
     });
     expect(cleanBookingFields(null)).toEqual({ firstName: null, phone: null, preferredWindow: null, alternativeWindows: [] });
+  });
+
+  test("a Meta name or window naming an everyday skin or hair condition is refused, and a voice request's alternatives are screened as before", () => {
+    // Letters and spaces pass the name's own check, so the catalog's screen reads it too.
+    expect(cleanBookingFields({ first_name: "Maria with acne", phone: "(415) 555-0134", window: "Friday after 2" }).firstName).toBeNull();
+    expect(cleanBookingFields({ first_name: "Mary Ann", phone: "(415) 555-0134", window: "Friday after 2" }).firstName).toBe("Mary Ann");
+    expect(cleanBookingFields({ first_name: "Scarlett", phone: "(415) 555-0134", window: "Friday after 2" }).firstName).toBe("Scarlett");
+    // Words the window matcher never listed: only the catalog's everyday
+    // conditions, which a Meta request counts, refuse them.
+    expect(cleanBookingFields({ first_name: "Maria", phone: "(415) 555-0134", window: "Tuesday, once this breakout clears", alt_windows: ["Thursday after 4, unless my cold sore is back", "Friday after 2"] })).toEqual({
+      firstName: "Maria",
+      phone: "+14155550134",
+      preferredWindow: null,
+      alternativeWindows: ["Friday after 2"],
+    });
+    expect(windowIsClean("Tuesday, once this breakout clears", { conditions: true })).toBe(false);
+    // A voice request's alternatives come from a call the BAA covers: the
+    // default screen, unchanged.
+    expect(windowIsClean("Tuesday, once this breakout clears")).toBe(true);
+    expect(cleanAlternatives(["Tuesday, once this breakout clears", "Friday after 2"], [])).toEqual(["Tuesday, once this breakout clears", "Friday after 2"]);
+    expect(cleanAlternatives(["Tuesday, once this breakout clears", "Friday after 2"], [], { conditions: true })).toEqual(["Friday after 2"]);
+    // What the window matcher refused before, it still refuses on either channel.
+    expect(windowIsClean("Tuesday, for my rosacea flare-up")).toBe(false);
   });
 
   test("every fixed line passes the guard, service names and promotions included, hands off to the phone and names no time", () => {
@@ -216,8 +241,11 @@ describeDb("the booking hand-off, end to end", () => {
 
     // Message 2: the number, but the model's reply acknowledges a condition
     // — the guard replaces it with the fixed ask, in the catalogue's words.
+    // The message names no condition itself: one that did would be handed
+    // off before the model, and its number kept nowhere
+    // (tests/meta-screen-and-greeting.test.ts).
     __setMetaRuntimeForTests(async () => json("Sorry to hear about your acne! And when suits you?", { phone: "415-555-0134" }), sender, transport);
-    res = await post(inbound("415-555-0134 — it's for my acne"));
+    res = await post(inbound("415-555-0134 — it's about my skin"));
     expect(sent[1]!.text).toMatch(/a day or time that works best/);
     expect(sent[1]!.text).not.toMatch(/acne/);
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows).toHaveLength(0);
@@ -311,6 +339,17 @@ describeDb("the booking hand-off, end to end", () => {
     await getMigratorPool().query(`alter table booking_requests enable trigger booking_requests_no_rewrite`);
     expect(await resolveBookingRequest(token)).toBeNull();
     expect(await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
+    // Both refusals are on the record: the second decision, and the decision on a dead link.
+    const refused = await inTenant(c.clinicId, (client) =>
+      client.query<{ reason: string; decision: string }>(
+        `select metadata->>'reason' as reason, metadata->>'decision' as decision from audit_log
+          where resource_type = 'booking_request' and action = 'update' and metadata->>'outcome' = 'rejected' order by occurred_at, id`,
+      ),
+    );
+    expect(refused.rows).toEqual([
+      { reason: "already-decided", decision: "declined" },
+      { reason: "invalid", decision: "accepted" },
+    ]);
   });
 
   test("one message with the three things creates the request at once; nothing else the person wrote survives, and no consent row is written", async () => {
@@ -414,6 +453,12 @@ describeDb("the booking hand-off, end to end", () => {
     const chosen = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
     expect(chosen).toMatchObject({ outcome: "decided", followUp: "sent", calendarWrite: "not-connected" });
     expect(chosen.appointmentId).not.toBeNull();
+    // No calendar terms here: the booking occupies no calendar time (booking_origin
+    // NULL, no calendar), is never written, and carries the request's own key.
+    const requestId = (await resolveBookingRequest(token))!.id;
+    expect((await inTenant(c.clinicId, (client) => client.query(`select booking_origin, calendar_id, calendar_event_key, calendar_write_status from appointments`))).rows).toEqual([
+      { booking_origin: null, calendar_id: null, calendar_event_key: requestId, calendar_write_status: "none" },
+    ]);
     expect(await resolveBookingRequest(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
     expect((await inTenant(c.clinicId, (client) => client.query<{ scheduled_for: Date }>(`select scheduled_for from appointments`))).rows.map((r) => new Date(r.scheduled_for).getTime())).toEqual([Math.floor(d3.getTime() / 1000) * 1000 + (d3.getTime() % 1000)]);
     expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });
@@ -438,18 +483,39 @@ describeDb("the booking hand-off, end to end", () => {
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from suppressions`))).rows).toHaveLength(0);
   });
 
-  test("direct booking names every closed gate (§E.1)", async () => {
-    const c = await liveClinic("booking-fields", "923456789012345");
-    const check = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => directBookingAllowed(tx));
-    expect(check.ok).toBe(false);
-    if (!check.ok) {
-      expect(check.reason).toBe("env_off");
-      expect(check.missing).toEqual([
-        expect.stringMatching(/HEALDESK_DIRECT_BOOKING_ENABLED/),
-        expect.stringMatching(/addendum has not been approved/),
-        expect.stringMatching(/not elected direct booking/),
-        expect.stringMatching(/No active, writable calendar connection/),
+  test("a live Meta clinic with no calendar terms takes requests, and its booking mode names every reason (plan §8)", async () => {
+    // The owner's kill switch and healdesk's Google client, both unset, as on any
+    // deployment before the owner switches them on.
+    const saved = {
+      killSwitch: process.env.HEALDESK_DIRECT_BOOKING_ENABLED,
+      googleId: process.env.GOOGLE_OAUTH_CLIENT_ID,
+      googleSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    };
+    delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+    delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    try {
+      const c = await liveClinic("booking-fields", "923456789012345");
+      const mode = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => bookingModeFor(tx));
+      expect(mode).toMatchObject({ mode: "manual", canOfferTimes: false });
+      // Live and approved, so neither of those is a reason; everything that
+      // stands between it and booking straight into a calendar is.
+      expect(mode.reasons.map((r) => r.code)).toEqual([
+        "no_agreement",
+        "google_not_configured",
+        "timezone_unconfirmed",
+        "opening_hours_unknown",
+        "kill_switch_off",
       ]);
+    } finally {
+      for (const [key, value] of [
+        ["HEALDESK_DIRECT_BOOKING_ENABLED", saved.killSwitch],
+        ["GOOGLE_OAUTH_CLIENT_ID", saved.googleId],
+        ["GOOGLE_OAUTH_CLIENT_SECRET", saved.googleSecret],
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 

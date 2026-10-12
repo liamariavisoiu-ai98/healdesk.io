@@ -80,3 +80,150 @@ describe("the claims screen, for a veterinary practice's service names", () => {
     expect(serviceNameScreen("vet" as never)).toBe("clinical");
   });
 });
+
+describe("the everyday skin and hair conditions, which only the Meta channels count", () => {
+  // What a person writes about their own skin or hair (owner, 7 October 2026).
+  test.each([
+    "I have bad acne, can you help?",
+    "do you treat rosacea?",
+    "my acne is so bad",
+    "acne scars",
+    "cystic acne for years",
+    "acne-prone skin",
+    "breakouts on my chin",
+    "I keep breaking out",
+    "I broke out after my last facial",
+    "pimples",
+    "zits",
+    "blackheads on my nose",
+    "whiteheads",
+    "a rosacea flare",
+    "ROSACEA",
+    "my rosacia is back",
+    "a flare-up",
+    "my skin flares up in winter",
+    "my eczema",
+    "my excema",
+    "exzema on my hands",
+    "contact dermatitis",
+    "psoriasis on my elbows",
+    "psorasis",
+    "psoriatic plaques",
+    "keratosis pilaris",
+    "folliculitis",
+    "melasma",
+    "chloasma",
+    "hyperpigmentation",
+    "hypopigmentation",
+    "pigmentation on my cheeks",
+    "vitiligo",
+    "a scar on my lip",
+    "scarring from surgery",
+    "I'm scarred from it",
+    "a keloid",
+    "pockmarks",
+    "hair loss",
+    "hairloss",
+    "alopecia",
+    "I'm going bald",
+    "balding at the crown",
+    "thinning hair",
+    "my hair is thinning",
+    "hair fall",
+    "my hair is falling out",
+    "losing my hair",
+    "a receding hairline",
+    "hirsutism",
+    "dandruff",
+    "hyperhidrosis",
+    "excessive sweating",
+    "cold sores",
+    "herpes",
+    "warts",
+    "a verruca",
+    "ingrown hairs",
+    "toenail fungus",
+  ])("%j names one, and only the conditions option reads it", (message) => {
+    expect(findClinicalContent({ message }, { conditions: true })).toEqual([
+      expect.objectContaining({ field: "message", label: "a skin or hair condition" }),
+    ]);
+    expect(findClinicalContent({ message })).toEqual([]);
+    expect(findClinicalContent({ message }, "clinical")).toEqual([]);
+    expect(findClinicalContent({ message }, { conditions: false })).toEqual([]);
+  });
+
+  // A front desk's questions, and the words that look like a condition and are
+  // not one: none of them is handed off on Meta.
+  test.each([
+    "What are your opening hours?",
+    "where do I park?",
+    "Is the consultation free?",
+    "how much are lip fillers?",
+    "How much is it per unit?",
+    "Filler $650/ml",
+    "Can you book me in for Botox on Tuesday at 2pm with Dr Chen?",
+    "I'd like to book. I'm Maria, 415-555-0134, any weekday morning works.",
+    "any weekday morning works, or Thursday after 4",
+    "Do you have a cancellation policy?",
+    "Do you use numbing cream?",
+    "Are you a real person?",
+    "please stop calling me",
+    // Whole words only.
+    "Any spots left on Saturday?",
+    "I'm scared of needles",
+    "Is Oscar in today?",
+    "Do you do scarless mole removal?",
+    "Does Stewart work Saturdays?",
+    "Do you do scalp micropigmentation?",
+    "What pigment do you use for lip blush?",
+    "Can I see the price breakdown?",
+    "Do I need a break between sessions?",
+    "No sweat, thanks!",
+    "I have a cold, should I move my appointment?",
+    // A surname, which is why only the plural is a condition.
+    "Can I book with Dr Whitehead?",
+    // Looks and treatments, not conditions: what a med spa's price questions are made of.
+    "Do you do laser hair removal?",
+    "How much is Botox for crow's feet?",
+    "How much for forehead wrinkles?",
+    "Do you do IPL for sun spots?",
+    "Do you do stretch mark treatments?",
+    "How much is skin tag removal?",
+    "Is the facial good for oily skin?",
+    "Do you do anything for redness?",
+    "Do you fix droopy eyelids?",
+    "my hair is going grey, do you do PRP?",
+  ])("%j does not", (message) => {
+    expect(findClinicalContent({ message }, { conditions: true })).toEqual([]);
+  });
+
+  test("a clinic's own service named for a condition passes every screen but Meta's", () => {
+    for (const name of ["Acne Facial", "Rosacea Laser", "Scar revision", "Hair loss PRP", "Melasma peel"]) {
+      expect(findClinicalContent({ name }), name).toEqual([]);
+      expect(findClinicalContent({ name }, "claims"), name).toEqual([]);
+      expect(findClinicalContent({ name }, { conditions: true }), name).toEqual([
+        expect.objectContaining({ label: "a skin or hair condition" }),
+      ]);
+    }
+  });
+
+  test("they come after the other patterns, so a field that trips one of those keeps its label", () => {
+    expect(findClinicalContent({ message: "Is it safe for my acne?" }, { conditions: true })).toEqual([
+      expect.objectContaining({ label: "a safety claim" }),
+    ]);
+    expect(findClinicalContent({ message: "My skin condition is rosacea" }, { conditions: true })).toEqual([
+      expect.objectContaining({ label: "a medical condition" }),
+    ]);
+    const [finding] = findClinicalContent({ message: "Hi there, I've had rosacea for years" }, { conditions: true });
+    expect(finding!.excerpt).toContain("rosacea");
+  });
+
+  test("the long form takes the screen as well, and the conditions count whatever it is", () => {
+    expect(findClinicalContent({ name: "Allergy testing" }, {})).toHaveLength(1);
+    expect(findClinicalContent({ name: "Allergy testing" }, { screen: "claims" })).toEqual([]);
+    expect(findClinicalContent({ name: "Allergy testing" }, { screen: "claims", conditions: true })).toEqual([]);
+    expect(findClinicalContent({ name: "Mange and dandruff bath" }, { screen: "claims", conditions: true })).toEqual([
+      expect.objectContaining({ label: "a skin or hair condition" }),
+    ]);
+  });
+});

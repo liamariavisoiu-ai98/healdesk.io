@@ -1,22 +1,47 @@
 @import "tailwindcss";
 
-/* Same tokens as the marketing site so the product doesn't feel like a
-   different company. Duplicated rather than extracted into a shared package —
-   two files is not yet a problem worth a build step. Promote to
-   packages/design-tokens when a third consumer appears. */
+/* healdesk.io's own tokens (plan Part F8: "the healdesk.io identity, with
+   tokens copied into apps/app"), so the portal does not feel like a different
+   company from the site a clinic bought on. Copied from apps/web's
+   globals.css rather than extracted into a shared package: two files is not
+   yet a problem worth a build step. Promote them to packages/design-tokens
+   when a third consumer appears, and change both together until then.
+
+   The type stays the system's: the site's faces would be a remote fetch at
+   build time and a set of font files in every response, and the portal is
+   read on a phone between patients, where the system face is already there. */
 
 @theme {
-  --color-red: #e23a2a;
-  --color-orange: #f47b1f;
-  --color-ink: #24160f;
-  --color-paper: #fbf4ea;
-  --color-paper-2: #f5e8d6;
-  --color-muted: #8b7a6c;
-  /* Success. 5.85:1 on --color-paper, so it carries body text, not just a
-     large heading. Deliberately a warm forest green rather than a clinical
-     mint: it has to sit beside the red/orange gradient without fighting it. */
+  /* The logo's red and orange: fills, borders and the gradient only. */
+  --color-red: #e62627;
+  --color-orange: #ff761e;
+  /* The logo red, darkened just enough to clear 4.5:1 as small text. */
+  --color-red-deep: #da191a;
+
+  /* Ground and ink: Deep Space Blue on a neutral near-white. */
+  --color-ink: #172a3a;
+  --color-paper: #fdfdfd;
+  --color-paper-2: #f1f1f1;
+  /* Deep Space Blue, lightened to 5.2:1 on the ground: readable body text. */
+  --color-muted: #5c6e7e;
+  --color-line: rgb(23 42 58 / 0.12);
+  --color-line-strong: rgb(23 42 58 / 0.25);
+
+  /* Success as TEXT ("Done ✓", "Saved"). The site's Light Green is a fill and
+     fails text contrast; this forest green is 6.3:1 on the ground. */
   --color-green: #2d6a4f;
-  --color-line: rgb(36 22 15 / 0.12);
+  /* Fills only, with ink on top: neither may carry small text. */
+  --color-mint: #87d68d;
+  --color-sun: #fac748;
+  --color-tint-mint: #e5f6dc;
+  --color-tint-butter: #fff3bf;
+  --color-tint-peach: #ffe9de;
+}
+
+/* The gradient, deep enough for white text on top of it (the site's
+   bg-brand-gradient-deep: white on #da191a is 5.08:1, on #b93a12 5.71:1). */
+@utility bg-brand-gradient-deep {
+  background-image: linear-gradient(105deg, var(--color-red-deep) 6%, #b93a12 94%);
 }
 
 @layer base {
@@ -24,6 +49,25 @@
     background-color: var(--color-paper);
     color: var(--color-ink);
     font-family: system-ui, sans-serif;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-orange);
+    outline-offset: 3px;
+  }
+}
+
+/* Reduced motion, respected everywhere: the portal's few transitions (a
+   switch's thumb, a toast) stop moving. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

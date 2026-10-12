@@ -86,9 +86,12 @@ jobs:
       # One run, machine-readable. The previous version ran the suite twice —
       # once for humans, once to grep the count out of coloured terminal output,
       # which failed because the ANSI escapes sit between "Tests" and the number.
-      # Parsing a reporter's prose was the mistake; vitest emits JSON.
+      # Parsing a reporter's prose was the mistake; vitest emits JSON. The dot
+      # reporter runs beside it so a failing test is named in the log: with the
+      # JSON reporter alone a red run said only "exit code 1", and the report
+      # that named the test stayed on the runner.
       - name: Test — apps/app
-        run: npm test -w @healdesk/app -- --reporter=json --outputFile=../../test-results.json
+        run: npm test -w @healdesk/app -- --reporter=dot --reporter=json --outputFile.json=../../test-results.json
 
       # The point of the whole job. The step above fails on any failing test;
       # this one fails when the database-backed suites SKIPPED — which is the
@@ -178,3 +181,44 @@ jobs:
             fi
           done
           exit "$failed"
+
+  # The Terraform for the product host (infra/aws) is applied only by hand,
+  # through infra.yml, so a formatting slip, a broken reference or a broken
+  # rule would otherwise surface for the first time in front of production.
+  # This needs no AWS credentials and no state: init without a backend only
+  # downloads the providers, validate checks the configuration against their
+  # schemas, and terraform test plans the whole module against mocked
+  # providers (infra/aws/tests), so the preconditions, the variable
+  # validations and the policies the tests assert are exercised without an
+  # account. It runs beside the test job, not after it.
+  infra:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+
+      - run: terraform fmt -check -recursive -diff
+
+      # readonly: exactly the provider builds .terraform.lock.hcl pins, checked
+      # against its hashes. A change that needs any other build fails here
+      # instead of quietly getting a newer one.
+      - run: terraform init -backend=false -input=false -lockfile=readonly
+
+      - run: terraform validate -no-color
+
+      # The module's two providers, aws and cloudflare, are both mocked in the
+      # suite, so nothing here can reach AWS or Cloudflare, and none of their
+      # credentials exist in this job to be reached with.
+      - run: terraform test -no-color

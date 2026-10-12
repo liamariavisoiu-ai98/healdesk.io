@@ -37,7 +37,7 @@ import {
 import { notifyOps } from "@/lib/ops/notify";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { coverageModeOf } from "./answering";
+import { readCoverageMode } from "./answering";
 import {
   applyBilledPlan,
   getEntitlements,
@@ -1836,7 +1836,7 @@ async function canceledPayload(
     channels: CHANNELS.filter((channel) => row.channelsEnabled[channel]),
     exportByOn: plan.exportByOn,
     destroyByOn: plan.destroyByOn,
-    ...forwardingFactsOf(clinic),
+    ...(await forwardingFactsOf(tx, clinic)),
   };
 }
 
@@ -1864,7 +1864,7 @@ export async function queueSuspendedNotice(
     kind: cause,
     hostedInvoiceUrl: emailLink(row?.openInvoiceUrl ?? null, "suspended"),
     amountDueCents: row?.openInvoiceAmountCents ?? null,
-    ...forwardingFactsOf(clinic),
+    ...(await forwardingFactsOf(tx, clinic)),
   });
 }
 
@@ -1877,16 +1877,19 @@ async function ownClinic(tx: TenantTx): Promise<typeof clinics.$inferSelect | un
  * How the clinic's calls reach us, as catalog ids (R31): the carrier, when it
  * was collected and is one the catalog knows (else null, and the template
  * keeps its "ask your carrier" branch), the phone system, and the coverage
- * mode through `coverageModeOf`, the one accessor the funnel switches to
- * `clinic_settings.coverage_mode` when that column lands. The billing
- * clinic's own line; a location's are not read from the billing tenant.
+ * mode through `readCoverageMode`, which reads `clinic_settings.coverage_mode`,
+ * the single source. The billing clinic's own line; a location's are not read
+ * from the billing tenant.
  */
-function forwardingFactsOf(clinic: typeof clinics.$inferSelect | undefined): ForwardingFacts {
+async function forwardingFactsOf(
+  tx: TenantTx,
+  clinic: typeof clinics.$inferSelect | undefined,
+): Promise<ForwardingFacts> {
   if (!clinic) return { carrier: null, phoneSystem: "unknown", routing: "overflow_after_hours" };
   return {
     carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
     phoneSystem: clinic.phoneSystemType,
-    routing: coverageModeOf(clinic),
+    routing: await readCoverageMode(tx.db, tx.clinicId, clinic),
   };
 }
 

@@ -46,16 +46,24 @@ describe("the notice kind registry", () => {
     for (const kind of BILLING_NOTICE_KINDS) {
       expect(NOTICE_KIND_REGISTRY[kind].owner, kind).not.toBe("plan");
     }
-    expect([...PLAN_NOTICE_KINDS].sort()).toEqual(
-      ["calendar_reconnected", "calendar_stopped", "setup_closed", "setup_reminder"],
-    );
+    expect([...PLAN_NOTICE_KINDS].sort()).toEqual([
+      "calendar_reconnected",
+      "calendar_stopped",
+      "channel_ready",
+      "setting_changed",
+      "setup_closed",
+      "setup_reminder",
+    ]);
     for (const kind of PLAN_NOTICE_KINDS) expect(NOTICE_KIND_REGISTRY[kind].owner, kind).toBe("plan");
   });
 
-  test("the setup reminder waits for daytime; the closure and the calendar emails go at any hour", () => {
+  test("the setup reminder and O10 wait for daytime; the closure, the calendar emails and O4 go at any hour", () => {
     expect(NOTICE_KIND_REGISTRY.setup_reminder).toMatchObject({ annex: "O7", quietHours: "daytime" });
     expect(NOTICE_KIND_REGISTRY.setup_closed.quietHours).toBe("any_hour");
     expect(NOTICE_KIND_REGISTRY.calendar_stopped).toMatchObject({ annex: "O13", quietHours: "any_hour" });
+    expect(NOTICE_KIND_REGISTRY.setting_changed).toMatchObject({ annex: "O4", quietHours: "any_hour" });
+    // O10 is a step to take, not an alert: it waits for the clinic's daytime.
+    expect(NOTICE_KIND_REGISTRY.channel_ready).toMatchObject({ annex: "O10", quietHours: "daytime" });
     for (const kind of PLAN_NOTICE_KINDS) {
       expect(NOTICE_KIND_REGISTRY[kind]).toMatchObject({
         class: "transactional",

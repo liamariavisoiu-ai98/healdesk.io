@@ -91,6 +91,26 @@ describe("the guard", () => {
     expect(guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }] })).toEqual({ clinicName: "Radiance", serviceNames: ["Botox"] });
   });
 
+  test("refuses a reply that names an everyday skin or hair condition, acknowledged or not", () => {
+    // Meta signs no BAA, so a reply there names no condition, even one the
+    // person wrote first and even without "your" in front of it.
+    for (const reply of [
+      "Yes, we treat rosacea — call the practice to book.",
+      "Acne responds well to what the practice offers; call to book.",
+      "Lots of people come to us about hair loss. Call the practice to book.",
+      "Breakouts are so common! The practice can help — call to book.",
+    ]) {
+      expect(guardReply(reply, { clinicName: "Radiance", serviceNames: SERVICES }), reply).toEqual({
+        ok: false,
+        reason: "a skin or hair condition",
+      });
+    }
+    // An acknowledgement is still named as one: the fixed patterns read first.
+    expect(guardReply("Sorry to hear about your acne! Call the practice to book.")).toEqual({ ok: false, reason: "an acknowledgement" });
+    // The price without the condition goes out.
+    expect(guardReply("Yes, the practice offers that: it's $150. Call the practice to book.", { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true });
+  });
+
   test("refuses promotional wording", () => {
     for (const reply of [
       "We have a 20% off special this month — call the practice to book.",
@@ -310,8 +330,11 @@ describeDb("the front door, end to end", () => {
     expect(sent[0]!.text).toMatch(/9 to 5/);
 
     // A reply that acknowledges a condition is replaced by the hand-off line.
+    // The message names none, so the screen lets it through to the model: one
+    // that did ("I have terrible acne") would never reach it
+    // (tests/meta-screen-and-greeting.test.ts).
     __setMetaRuntimeForTests(async () => "Sorry to hear about your acne! Dr Chen can see you Tuesday at 2pm.", sender);
-    res = await post(inbound("I have terrible acne, can you fix it?"));
+    res = await post(inbound("My skin has been awful lately, can you fix it?"));
     expect(await res.json()).toEqual({ received: true, answered: 1, skipped: 0 });
     expect(sent[1]!.text).toMatch(/isn't secure for health details/);
     expect(sent[1]!.text).not.toMatch(/acne|Chen|2pm/);
@@ -342,7 +365,7 @@ describeDb("the front door, end to end", () => {
     expect(stored.audit).toHaveLength(3);
     expect(stored.audit.map((a) => a.metadata.source)).toEqual(["model", "handoff", "handoff"]);
     expect(stored.audit[1]!.metadata.guarded).toBe("an acknowledgement");
-    expect(JSON.stringify(stored.audit)).not.toMatch(/acne|hours\?/);
+    expect(JSON.stringify(stored.audit)).not.toMatch(/acne|awful|hours\?/);
   });
 
   test("a reply naming one of the clinic's services is replaced by the hand-off line, approved or not; the price without the name goes out", async () => {

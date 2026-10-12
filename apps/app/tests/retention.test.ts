@@ -14,6 +14,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
+import { asApp, insertBookingRequest, insertHold } from "./setup/calendar-db";
 import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
 
 /**
@@ -195,6 +196,56 @@ describeDb("retention purge", () => {
     expect(rows.contacts.map((r) => r.phone)).toEqual(["+15550100002"]);
     expect(rows.suppressed).toEqual([{ phone: "+15550100001", reason: "erasure_request" }]);
     expect(await count(c.clinicId, "conversations")).toBe(1);
+  });
+
+  test("slot holds: spent ones go after a week, or sooner on a shorter record clock, before anything they name; a final hold whose contact or appointment goes is cleared, not refused; a live one stays", async () => {
+    // Holds run on the database clock, so this purge runs at the real now.
+    const at = new Date();
+    const c = await seedClinic("purgeHolds");
+    await getMigratorPool().query(`update clinics set retention_record_days = 1 where id = $1`, [c.clinicId]);
+    const gone = await seedContact(c.clinicId, "+15550100031");
+    const kept = await seedContact(c.clinicId, "+15550100032");
+    const later = (days: number) => new Date(at.getTime() + days * DAY);
+
+    const ids = await asApp(c.clinicId, async (client) => {
+      // A spent hold placed eight days ago: past the week.
+      const old = await insertHold(client, c.clinicId, { holder: "voice:old", startsAt: later(3), placedSecondsAgo: 8 * 86_400 });
+      // A hold released a moment ago, naming a contact the purge deletes.
+      const released = await insertHold(client, c.clinicId, { holder: "voice:released", startsAt: later(4), contactId: gone });
+      await client.query(`update slot_holds set status = 'released', outcome_reason = 'superseded', released_at = clock_timestamp() where id = $1`, [released]);
+      // A reservation that became a booking whose appointment the purge deletes.
+      const requestId = await insertBookingRequest(client, c.clinicId, kept);
+      const converted = await insertHold(client, c.clinicId, { holder: "voice:converted", startsAt: later(5), contactId: kept });
+      await client.query(
+        `update slot_holds set status = 'reserved', booking_request_id = $2, blocks_until = clock_timestamp() + interval '30 minutes' where id = $1`,
+        [converted, requestId],
+      );
+      const { rows } = await client.query<{ id: string }>(
+        `insert into appointments (clinic_id, contact_id, scheduled_for) values ($1, $2, $3) returning id`,
+        [c.clinicId, kept, new Date(at.getTime() - 10 * DAY)],
+      );
+      await client.query(`update slot_holds set status = 'converted', appointment_id = $2 where id = $1`, [converted, rows[0]!.id]);
+      // A live hold: never touched.
+      const live = await insertHold(client, c.clinicId, { holder: "voice:live", startsAt: later(6) });
+      await client.query(`update contacts set updated_at = $2 where id = $1`, [gone, new Date(at.getTime() - 30 * DAY)]);
+      return { old, released, converted, live };
+    });
+
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, at));
+    expect(result.slotHoldsDeleted).toBe(1);
+    expect(result.appointmentsDeleted).toBe(1);
+    expect(result.contactsDeleted).toBe(1);
+
+    const holds = await inTenant(c.clinicId, async (client) =>
+      (await client.query<{ id: string; status: string; contact_id: string | null; appointment_id: string | null }>(
+        `select id, status, contact_id, appointment_id from slot_holds`,
+      )).rows,
+    );
+    const byId = new Map(holds.map((h) => [h.id, h]));
+    expect(byId.has(ids.old)).toBe(false);
+    expect(byId.get(ids.released)).toMatchObject({ status: "released", contact_id: null });
+    expect(byId.get(ids.converted)).toMatchObject({ status: "converted", appointment_id: null, contact_id: kept });
+    expect(byId.get(ids.live)).toMatchObject({ status: "held" });
   });
 
   test("the job ships off, and when on it sweeps every clinic", async () => {

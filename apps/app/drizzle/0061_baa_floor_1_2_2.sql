@@ -48,7 +48,7 @@ AS $$
 $$;--> statement-breakpoint
 
 COMMENT ON FUNCTION app_baa_version_acceptable(text) IS
-  'True for the BAA versions a clinic may go live under: registered, approved for release, and no older than MIN_ACCEPTABLE_BAA_VERSION in @healdesk/catalog, which is 1.2.2 since 9 October 2026 (0059). Must equal isBaaVersionAcceptable() there (parity test in tests/database-audit.test.ts).';--> statement-breakpoint
+  'True for the BAA versions a clinic may go live under: registered, approved for release, and no older than MIN_ACCEPTABLE_BAA_VERSION in @healdesk/catalog, which is 1.2.2 since 9 October 2026 (0061). Must equal isBaaVersionAcceptable() there (parity test in tests/database-audit.test.ts).';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The thirty days, as the console and the comments name them

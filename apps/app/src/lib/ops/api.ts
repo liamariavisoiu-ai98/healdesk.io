@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { canWriteBookings, getAdapter, GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
+import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
 import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -34,7 +34,6 @@ import {
   BOOKING_FIELDS,
   cleanProfileText,
   CLINIC_PROFILE_LIMITS,
-  currentDirectBookingAddendum,
   EXCLUDED_FIELDS,
   findClinicalContent,
   forwardingInstructions,
@@ -98,8 +97,7 @@ import { sendConnectLink } from "@/lib/email/connect-link";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
-import { writableConnection, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
-import { directBookingAllowed } from "@/lib/booking/mode";
+import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import { isDemoClinic } from "@/lib/booking/terms";
 import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
 import {
@@ -332,14 +330,17 @@ const OPERATIONS = [
   // The Meta front door: a sealed token per platform, and the per-clinic switch.
   "attachMetaChannel",
   "setMetaFrontDoor",
-  // Booking hand-off and direct booking (design of 23 September 2026, §B.4,
-  // §E.6, §H.5). Configuration and write ledgers; never a patient. The
-  // call-back switch and the WhatsApp template name went with v1's
-  // inbound-only rule.
+  // Booking hand-off (design of 23 September 2026, §B.4, §H.5).
+  // Configuration and write ledgers; never a patient. The call-back switch
+  // and the WhatsApp template name went with v1's inbound-only rule, and the
+  // direct-booking switch with v1's derived booking mode (plan C17): a
+  // location books directly when its terms, its Google Calendar,
+  // Auto-confirm and the owner's kill switch all allow it
+  // (lib/booking/mode.ts), and Auto-confirm is the only one of those the
+  // console sets.
   "setBookingRequirements",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "setBookingMode",
   "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
@@ -418,7 +419,6 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "setBookingRequirements",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "setBookingMode",
   "issueSetupLink",
   // Mutating because it moves the appointment's calendar columns and may
   // create a booking in the clinic's calendar.
@@ -949,8 +949,6 @@ export async function runOperation(
       return opSetClinicTimezone(args, operator);
     case "setConnectionPhiBasis":
       return opSetConnectionPhiBasis(args, operator);
-    case "setBookingMode":
-      return opSetBookingMode(args, operator);
     case "issueSetupLink":
       return opIssueSetupLink(args, operator);
     case "retryCalendarWrite":
@@ -2585,34 +2583,21 @@ export type OnboardingView = {
     catalogue: { id: string; label: string; locked: boolean; phoneOnly: boolean }[];
     neverAsked: string[];
   };
-  /** §E.6: the mode, the election, and the six gates behind the switch (see lib/booking/mode.ts for what v1 changes). */
-  bookingMode: "desk_confirms" | "direct";
-  directBookingElectedAt: string | null;
-  directBookingWithdrawnAt: string | null;
-  directBooking: {
-    addendumVersion: string;
-    addendumApproved: boolean;
-    gates: { id: DirectBookingGate; ok: boolean }[];
-    /** The sentences directBookingAllowed() refuses on, verbatim. */
-    missing: string[];
-  };
   /** The clinic's zone and whether anyone confirmed it, or it is still the provisioning default. */
   timezoneConfirmedAt: string | null;
   timezone: string;
-  /** §B.3: the one connection healdesk may write into, and the basis recorded on it. */
-  calendarConnection: { connectionId: string; platform: string; phiBasis: PhiBasis | null; writable: boolean } | null;
   /** §B.4: every appointment with a calendar write attempted. No name, phone or service. */
   calendarWrites: CalendarWriteRow[];
   /**
    * Plan §10: the booking mode and every reason for it, Auto-confirm, the
-   * kill switch, the calendar terms and the Google Calendar connection. The
-   * older keys above (`bookingMode`, `directBooking*`, `calendarConnection`)
-   * stay until the console's cards move onto this one (plan C17).
+   * kill switch, the calendar terms and the Google Calendar connection, the
+   * only account of booking the console gets. The direct-booking addendum's
+   * keys (`bookingMode`, `directBooking*`) and the vendor connection's PHI
+   * basis (`calendarConnection`) went in plan C17: the mode is derived, and
+   * nothing they described decides it any more.
    */
   booking: BookingProjection;
 };
-
-export type DirectBookingGate = "env" | "addendum" | "election" | "calendar" | "production" | "agent";
 
 export type CalendarWriteRow = {
   appointmentId: string;
@@ -2652,7 +2637,7 @@ async function opGetOnboarding(
       return {
         agent: await getAgentConfig(tx),
         bookingRequests: await bookingRequestCounts(tx),
-        booking: await readBookingState(tx, clinic, connections),
+        booking: await readBookingState(tx),
         bookingView: await readBookingProjection(tx, clinic.timezone),
         metaChannels: connections
           .filter((c) => c.provider.startsWith("meta-"))
@@ -2740,13 +2725,8 @@ async function opGetOnboarding(
       catalogue: BOOKING_FIELDS.map((f) => ({ id: f.id, label: f.label, locked: f.locked, phoneOnly: !f.metaEligible })),
       neverAsked: [...EXCLUDED_FIELDS],
     },
-    bookingMode: clinic.bookingMode,
-    directBookingElectedAt: clinic.directBookingElectedAt?.toISOString() ?? null,
-    directBookingWithdrawnAt: clinic.directBookingWithdrawnAt?.toISOString() ?? null,
-    directBooking: booking.directBooking,
     timezoneConfirmedAt: clinic.timezoneConfirmedAt?.toISOString() ?? null,
     timezone: clinic.timezone,
-    calendarConnection: booking.calendarConnection,
     calendarWrites: booking.calendarWrites,
     booking: bookingView,
   };
@@ -2755,74 +2735,24 @@ async function opGetOnboarding(
 
 /**
  * The booking-side state of one clinic, read inside the tenant transaction
- * opGetOnboarding already opens (§A.14): the connection healdesk may write
- * into and its basis, the calendar-write ledger, and the six direct-booking
- * gates.
+ * opGetOnboarding already opens (§A.14): whether a setup link is out, and
+ * the calendar-write ledger. The booking mode and the calendar are
+ * readBookingProjection's (lib/ops/calendar-ops.ts).
  *
  * Nothing here is a patient. The calendar rows carry an appointment id, a
  * slot, a status and a short vendor status; tests/ops.test.ts asserts that
  * no `firstName` or `phone` key ever appears in this reply.
  */
-async function readBookingState(
-  tx: TenantTx,
-  clinic: Awaited<ReturnType<typeof listClinicOverviews>>[number],
-  connections: Awaited<ReturnType<typeof listConnections>>,
-) {
-  const writable = await writableConnection(tx);
-  // The connection healdesk COULD write into once a basis is recorded: the
-  // active connection whose registered adapter has the write side. Reported
-  // even when not yet writable, so the console can offer the basis select.
-  // Never the Google Calendar connection, although its adapter has the write
-  // side: what may reach it is the location's calendar terms, never a basis
-  // an operator records (setConnectionPhiBasis refuses one), so offering the
-  // select for it would offer a switch that cannot be thrown. Only the test
-  // fixture is left, so this is null for every real clinic.
-  const candidates = connections.filter((c) => {
-    if (c.status !== "active" || c.provider === GOOGLE_CALENDAR_PROVIDER) return false;
-    const adapter = getAdapter(c.provider);
-    return adapter !== undefined && canWriteBookings(adapter.capabilities);
-  });
-  const [candidate] = candidates.length
-    ? await tx.db
-        .select({ id: providerConnections.id, provider: providerConnections.provider, phiBasis: providerConnections.phiBasis })
-        .from(providerConnections)
-        .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.id, candidates[0]!.id)))
-        .limit(1)
-    : [];
-  const calendarConnection = writable
-    ? { connectionId: writable.connectionId, platform: writable.provider, phiBasis: writable.phiBasis, writable: true }
-    : candidate
-      ? { connectionId: candidate.id, platform: candidate.provider, phiBasis: candidate.phiBasis, writable: false }
-      : null;
-
+async function readBookingState(tx: TenantTx) {
   const [outstanding] = await tx.db
     .select({ id: connectionLinks.id })
     .from(connectionLinks)
     .where(and(eq(connectionLinks.purpose, "setup"), isNull(connectionLinks.usedAt), gt(connectionLinks.expiresAt, sql`now()`)))
     .limit(1);
 
-  const check = await directBookingAllowed(tx);
-  const addendum = currentDirectBookingAddendum();
-  const elected = clinic.directBookingElectedAt !== null && clinic.directBookingWithdrawnAt === null;
-  const gates: { id: DirectBookingGate; ok: boolean }[] = [
-    { id: "env", ok: env.directBookingEnabled() },
-    { id: "addendum", ok: addendum.approvedByCounsel },
-    { id: "election", ok: elected },
-    { id: "calendar", ok: writable !== null },
-    { id: "production", ok: clinic.dataClassification === "production" },
-    { id: "agent", ok: clinic.agentApprovedAt !== null },
-  ];
-
   return {
-    calendarConnection,
     setupLinkOutstanding: Boolean(outstanding),
     calendarWrites: await listCalendarWritesWithin(tx),
-    directBooking: {
-      addendumVersion: addendum.version,
-      addendumApproved: addendum.approvedByCounsel,
-      gates,
-      missing: check.ok ? [] : check.missing,
-    },
   };
 }
 
@@ -3835,85 +3765,6 @@ async function opSetConnectionPhiBasis(
   }
   const auditRecorded = await audit(operator, "connection_phi_basis_set", { clinicSlug: clinic.slug, provider: found.provider, phiBasis: basis });
   return ok({ status: "updated", auditRecorded } satisfies SwitchState);
-}
-
-export type BookingModeState =
-  | { status: "updated"; mode: "desk_confirms" | "direct"; auditRecorded: boolean }
-  | { status: "refused"; reason: string; missing: string[] }
-  | { status: "error"; message: string };
-
-class DirectBookingRefused extends Error {
-  constructor(readonly reason: string, readonly missing: string[]) {
-    super(reason);
-    this.name = "DirectBookingRefused";
-  }
-}
-
-/**
- * §E.6: the switch. "direct" is written and then judged by the same
- * directBookingAllowed() the voice tools call, inside the same transaction,
- * so a refusal rolls the write back and the operator reads the exact
- * sentences the route would refuse on. The election is checked first in
- * code because the row's CHECK would otherwise refuse with a constraint name.
- * "desk_confirms" also stamps the withdrawal, which is what "withdraw by
- * notice" means in the database: the election stays on the row as evidence,
- * and the CHECK makes "direct" unrepresentable again until a new one.
- */
-async function opSetBookingMode(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies BookingModeState);
-  const mode = stringArg(args, "mode", 16);
-  if (mode !== "direct" && mode !== "desk_confirms") {
-    return ok({ status: "error", message: "The mode is desk_confirms or direct." } satisfies BookingModeState);
-  }
-  const context = { clinicId: clinic.id, actor: actorFor(operator), request: operator.request };
-  if (mode === "desk_confirms") {
-    await withTenant(context, async (tx) => {
-      const now = new Date();
-      const withdraw = clinic.directBookingElectedAt !== null && clinic.directBookingWithdrawnAt === null;
-      await tx.db
-        .update(clinics)
-        .set({ bookingMode: "desk_confirms", ...(withdraw ? { directBookingWithdrawnAt: now } : {}), updatedAt: now })
-        .where(eq(clinics.id, tx.clinicId));
-      tx.audit.record({ action: "update", resourceType: "clinic_booking_mode", resourceId: tx.clinicId, metadata: { mode, withdrawn: withdraw } });
-    });
-    const auditRecorded = await audit(operator, "booking_mode_set", { clinicSlug: clinic.slug, mode });
-    return ok({ status: "updated", mode, auditRecorded } satisfies BookingModeState);
-  }
-
-  if (!currentDirectBookingAddendum().approvedByCounsel) {
-    return ok({
-      status: "refused",
-      reason: "addendum_not_approved",
-      missing: ["The direct-booking addendum has not been approved by counsel."],
-    } satisfies BookingModeState);
-  }
-  if (clinic.directBookingElectedAt === null || clinic.directBookingWithdrawnAt !== null) {
-    return ok({
-      status: "refused",
-      reason: "no_election",
-      missing: ["The practice has not accepted the direct-booking addendum on its setup link, or has withdrawn it. Issue a new setup link."],
-    } satisfies BookingModeState);
-  }
-  try {
-    await withTenant(context, async (tx) => {
-      const now = new Date();
-      await tx.db.update(clinics).set({ bookingMode: "direct", updatedAt: now }).where(eq(clinics.id, tx.clinicId));
-      const check = await directBookingAllowed(tx);
-      if (!check.ok) throw new DirectBookingRefused(check.reason, check.missing);
-      tx.audit.record({ action: "update", resourceType: "clinic_booking_mode", resourceId: tx.clinicId, metadata: { mode } });
-    });
-  } catch (error) {
-    if (error instanceof DirectBookingRefused) {
-      return ok({ status: "refused", reason: error.reason, missing: error.missing } satisfies BookingModeState);
-    }
-    throw error;
-  }
-  const auditRecorded = await audit(operator, "booking_mode_set", { clinicSlug: clinic.slug, mode });
-  return ok({ status: "updated", mode, auditRecorded } satisfies BookingModeState);
 }
 
 /** §H.2: resend (or issue for the first time) the setup link. Same shape and same care as the connect link. */

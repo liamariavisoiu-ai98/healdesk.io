@@ -294,7 +294,7 @@ describeDb("a plan change in flight", () => {
 
     await setLeaseUntil(seeded.clinicId, new Date(Date.now() - MINUTE));
     const asked = world.fake.calls.length;
-    const inProgress = /A change to Web \+ Voice, billed monthly, is still being completed/;
+    const inProgress = /A change to AYA Web Chat \+ Voice, billed monthly, is still being completed/;
     expect(
       await changePlan(change(seeded.clinicId, "req-b3", { planId: "complete" }), { now: NOW }),
     ).toEqual({ status: "refused", message: expect.stringMatching(inProgress) });

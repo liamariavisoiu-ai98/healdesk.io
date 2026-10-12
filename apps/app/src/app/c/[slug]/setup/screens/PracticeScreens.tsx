@@ -2,7 +2,19 @@
 
 import { useEffect, useId, useState } from "react";
 
+import {
+  emptyServiceRow,
+  HoursEditor,
+  servicesPayload,
+  ServicesEditor,
+  WEEKDAY_HOURS,
+  type ClosureRow,
+  type HoursInitial,
+  type ServiceRow,
+} from "../../editors";
 import { Choice, Field, ScreenShell } from "../ScreenShell";
+
+export type { HoursInitial, ServiceRow };
 
 /**
  * Step 1 · Your practice (plan Part E): 1.1 the basics, 1.2 hours and closed
@@ -185,19 +197,6 @@ export function BasicsScreen(
 // 1.2 Hours and closed days
 // -----------------------------------------------------------------------------
 
-const DAYS = [
-  ["mon", "Monday"],
-  ["tue", "Tuesday"],
-  ["wed", "Wednesday"],
-  ["thu", "Thursday"],
-  ["fri", "Friday"],
-  ["sat", "Saturday"],
-  ["sun", "Sunday"],
-] as const;
-type DayKey = (typeof DAYS)[number][0];
-type Range = [string, string];
-export type HoursInitial = Record<DayKey, Range[]>;
-
 export function HoursScreen(
   props: Common & {
     initial: HoursInitial | null;
@@ -206,21 +205,10 @@ export function HoursScreen(
     today: string;
   },
 ) {
-  const blank: HoursInitial = {
-    mon: [["09:00", "17:00"]],
-    tue: [["09:00", "17:00"]],
-    wed: [["09:00", "17:00"]],
-    thu: [["09:00", "17:00"]],
-    fri: [["09:00", "17:00"]],
-    sat: [],
-    sun: [],
-  };
-  const [hours, setHours] = useState<HoursInitial>(props.initial ?? blank);
-  const [closures, setClosures] = useState(
+  const [hours, setHours] = useState<HoursInitial>(props.initial ?? WEEKDAY_HOURS);
+  const [closures, setClosures] = useState<ClosureRow[]>(
     props.closures.map((c) => ({ closedOn: c.closedOn, label: c.label ?? "" })),
   );
-
-  const setDay = (day: DayKey, ranges: Range[]) => setHours((h) => ({ ...h, [day]: ranges }));
 
   return (
     <ScreenShell
@@ -242,138 +230,13 @@ export function HoursScreen(
       backHref={props.backHref}
       payload={() => ({ hours, closures: closures.filter((c) => c.closedOn) })}
     >
-      <div className="grid gap-3">
-        {DAYS.map(([day, label]) => {
-          const ranges = hours[day];
-          const open = ranges.length > 0;
-          return (
-            <fieldset key={day} className="border-line rounded-xl border bg-white px-4 py-3">
-              <legend className="sr-only">{label}</legend>
-              <div className="flex flex-wrap items-center gap-3">
-                <label className="flex min-h-11 w-36 items-center gap-2 font-semibold">
-                  <input
-                    type="checkbox"
-                    checked={open}
-                    onChange={(event) =>
-                      setDay(day, event.target.checked ? [["09:00", "17:00"]] : [])
-                    }
-                  />
-                  {label}
-                </label>
-                {open ? (
-                  ranges.map(([from, to], i) => (
-                    <span key={i} className="flex items-center gap-2">
-                      <input
-                        type="time"
-                        aria-label={`${label} opens`}
-                        value={from}
-                        onChange={(event) =>
-                          setDay(
-                            day,
-                            ranges.map((r, j) =>
-                              j === i ? [event.target.value, r[1]] : r,
-                            ) as Range[],
-                          )
-                        }
-                        className="border-line min-h-11 rounded-lg border px-2"
-                      />
-                      <span aria-hidden="true">to</span>
-                      <input
-                        type="time"
-                        aria-label={`${label} closes`}
-                        value={to}
-                        onChange={(event) =>
-                          setDay(
-                            day,
-                            ranges.map((r, j) =>
-                              j === i ? [r[0], event.target.value] : r,
-                            ) as Range[],
-                          )
-                        }
-                        className="border-line min-h-11 rounded-lg border px-2"
-                      />
-                    </span>
-                  ))
-                ) : (
-                  <span className="text-muted text-sm">Closed</span>
-                )}
-                {open && ranges.length === 1 ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDay(day, [
-                        [ranges[0]![0], "12:30"],
-                        ["13:30", ranges[0]![1]],
-                      ])
-                    }
-                    className="text-muted min-h-11 text-sm underline"
-                  >
-                    Add a break
-                  </button>
-                ) : open && ranges.length > 1 ? (
-                  <button
-                    type="button"
-                    onClick={() => setDay(day, [[ranges[0]![0], ranges.at(-1)![1]]])}
-                    className="text-muted min-h-11 text-sm underline"
-                  >
-                    No break
-                  </button>
-                ) : null}
-              </div>
-            </fieldset>
-          );
-        })}
-      </div>
-
-      <div className="grid gap-2">
-        <h2 className="text-sm font-semibold">Days you&rsquo;re closed</h2>
-        <p className="text-muted text-xs">
-          Holidays and training days. AYA tells callers, and phone treats them as after hours.
-        </p>
-        {closures.map((closure, i) => (
-          <div key={i} className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              aria-label="Closed on"
-              min={props.today}
-              value={closure.closedOn}
-              onChange={(event) =>
-                setClosures((list) =>
-                  list.map((c, j) => (j === i ? { ...c, closedOn: event.target.value } : c)),
-                )
-              }
-              className="border-line min-h-11 rounded-lg border bg-white px-2"
-            />
-            <input
-              type="text"
-              aria-label="What it's for"
-              placeholder="e.g. Thanksgiving"
-              maxLength={80}
-              value={closure.label}
-              onChange={(event) =>
-                setClosures((list) =>
-                  list.map((c, j) => (j === i ? { ...c, label: event.target.value } : c)),
-                )
-              }
-              className="border-line min-h-11 flex-1 rounded-lg border bg-white px-3"
-            />
-            <button
-              type="button"
-              onClick={() => setClosures((list) => list.filter((_, j) => j !== i))}
-              className="text-muted min-h-11 px-2 text-sm underline"
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button
-          type="button"
-          onClick={() => setClosures((list) => [...list, { closedOn: "", label: "" }])}
-          className="border-line min-h-11 w-fit rounded-full border px-4 py-2 text-sm font-semibold"
-        >
-          Add a closed day
-        </button>
-      </div>
+      <HoursEditor
+        hours={hours}
+        onHours={setHours}
+        closures={closures}
+        onClosures={setClosures}
+        today={props.today}
+      />
     </ScreenShell>
   );
 }
@@ -382,46 +245,12 @@ export function HoursScreen(
 // 1.3 Services and prices
 // -----------------------------------------------------------------------------
 
-export type ServiceRow = {
-  name: string;
-  priceKind: "exact" | "from" | "range" | "per_unit" | null;
-  price: string;
-  maxPrice: string;
-  unit: string;
-  duration: string;
-  depositUsd: number | null;
-};
-
-const PRICE_KINDS = [
-  ["exact", "Exact price"],
-  ["from", "From"],
-  ["range", "Range"],
-  ["per_unit", "Per unit"],
-  ["", "No price: offer a consultation"],
-] as const;
-
 export function ServicesScreen(
   props: Common & { initial: ServiceRow[]; dropped: number; readFromSite: boolean },
 ) {
   const [rows, setRows] = useState<ServiceRow[]>(
-    props.initial.length > 0
-      ? props.initial
-      : [
-          {
-            name: "",
-            priceKind: "exact",
-            price: "",
-            maxPrice: "",
-            unit: "",
-            duration: "",
-            depositUsd: null,
-          },
-        ],
+    props.initial.length > 0 ? props.initial : [emptyServiceRow()],
   );
-  const update = (i: number, patch: Partial<ServiceRow>) =>
-    setRows((list) => list.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const num = (value: string) =>
-    value.trim() === "" ? null : Number(value.replace(/[$,\s]/g, ""));
 
   return (
     <ScreenShell
@@ -446,130 +275,11 @@ export function ServicesScreen(
       }
       skipCost={props.skipCost}
       backHref={props.backHref}
-      payload={() => ({
-        services: rows
-          .filter((r) => r.name.trim() !== "")
-          .map((r) => ({
-            name: r.name,
-            priceKind: r.priceKind,
-            price: r.priceKind ? num(r.price) : null,
-            maxPrice: r.priceKind === "range" ? num(r.maxPrice) : null,
-            unit: r.priceKind === "per_unit" ? r.unit : null,
-            durationMinutes: r.duration.trim() === "" ? null : Number(r.duration),
-            depositUsd: r.depositUsd,
-          })),
-      })}
+      // The deposits are their own screen (2.4), so each row's stored deposit
+      // is carried through unchanged.
+      payload={() => ({ services: servicesPayload(rows, false) })}
     >
-      <div className="grid gap-3">
-        {rows.map((row, i) => (
-          <fieldset key={i} className="border-line grid gap-2 rounded-xl border bg-white px-4 py-3">
-            <legend className="sr-only">Service {i + 1}</legend>
-            <input
-              aria-label={`Service ${i + 1} name`}
-              placeholder="Service name"
-              value={row.name}
-              maxLength={120}
-              onChange={(event) => update(i, { name: event.target.value })}
-              className="border-line min-h-11 rounded-lg border px-3 font-semibold"
-            />
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                aria-label={`How service ${i + 1} is priced`}
-                value={row.priceKind ?? ""}
-                onChange={(event) =>
-                  update(i, { priceKind: (event.target.value || null) as ServiceRow["priceKind"] })
-                }
-                className="border-line min-h-11 rounded-lg border bg-white px-2"
-              >
-                {PRICE_KINDS.map(([id, label]) => (
-                  <option key={id} value={id}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-              {row.priceKind ? (
-                <span className="flex items-center gap-1">
-                  <span aria-hidden="true" className="text-muted">
-                    $
-                  </span>
-                  <input
-                    aria-label={`Service ${i + 1} price in dollars`}
-                    inputMode="decimal"
-                    value={row.price}
-                    onChange={(event) => update(i, { price: event.target.value })}
-                    className="border-line min-h-11 w-24 rounded-lg border px-2"
-                  />
-                </span>
-              ) : null}
-              {row.priceKind === "range" ? (
-                <span className="flex items-center gap-1">
-                  <span aria-hidden="true">to $</span>
-                  <input
-                    aria-label={`Service ${i + 1} top of the range in dollars`}
-                    inputMode="decimal"
-                    value={row.maxPrice}
-                    onChange={(event) => update(i, { maxPrice: event.target.value })}
-                    className="border-line min-h-11 w-24 rounded-lg border px-2"
-                  />
-                </span>
-              ) : null}
-              {row.priceKind === "per_unit" ? (
-                <span className="flex items-center gap-1">
-                  <span aria-hidden="true">per</span>
-                  <input
-                    aria-label={`Service ${i + 1} priced per`}
-                    placeholder="unit"
-                    value={row.unit}
-                    maxLength={40}
-                    onChange={(event) => update(i, { unit: event.target.value })}
-                    className="border-line min-h-11 w-28 rounded-lg border px-2"
-                  />
-                </span>
-              ) : null}
-              <span className="flex items-center gap-1">
-                <input
-                  aria-label={`Service ${i + 1} length in minutes`}
-                  inputMode="numeric"
-                  placeholder="Length"
-                  value={row.duration}
-                  onChange={(event) => update(i, { duration: event.target.value })}
-                  className="border-line min-h-11 w-20 rounded-lg border px-2"
-                />
-                <span aria-hidden="true" className="text-muted text-sm">
-                  min
-                </span>
-              </span>
-              <button
-                type="button"
-                onClick={() => setRows((list) => list.filter((_, j) => j !== i))}
-                className="text-muted min-h-11 px-2 text-sm underline"
-              >
-                Remove
-              </button>
-            </div>
-          </fieldset>
-        ))}
-        <button
-          type="button"
-          onClick={() =>
-            setRows((list) => [
-              ...list,
-              {
-                name: "",
-                priceKind: "exact",
-                price: "",
-                maxPrice: "",
-                unit: "",
-                duration: "",
-                depositUsd: null,
-              },
-            ])
-          }
-          className="border-line min-h-11 w-fit rounded-full border px-4 py-2 text-sm font-semibold"
-        >
-          Add a service
-        </button>
-      </div>
+      <ServicesEditor rows={rows} onRows={setRows} />
     </ScreenShell>
   );
 }

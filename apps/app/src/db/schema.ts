@@ -1064,6 +1064,15 @@ export const appointments = pgTable(
      * Written once (migration B).
      */
     calendarEventKey: text("calendar_event_key"),
+    /**
+     * The Google calendar a healdesk booking occupies and is written to: the
+     * location's own (its connection's metadata.calendarId, `primary` by
+     * default) or a named provider's (clinic_providers.calendar_id). The
+     * overlap guard keys on the clinic and this calendar; a healdesk booking
+     * with none occupies every calendar of its location. Written at insert
+     * and never changed (migration B).
+     */
+    calendarId: text("calendar_id"),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1085,6 +1094,10 @@ export const appointments = pgTable(
     check(
       "appointments_calendar_event_key_check",
       sql`${t.calendarEventKey} is null or ${t.calendarEventKey} ~ '^(hold:)?[0-9a-f-]{36}$'`,
+    ),
+    check(
+      "appointments_calendar_id_check",
+      sql`${t.calendarId} is null or (char_length(${t.calendarId}) between 1 and 255 and ${t.calendarId} !~ '[[:space:][:cntrl:]]')`,
     ),
     index("appointments_clinic_idx").on(t.clinicId, t.scheduledFor),
     index("appointments_confirmed_idx")
@@ -4694,6 +4707,15 @@ export const slotHolds = pgTable(
     /** starts_at + duration_minutes, stored for the overlap query (a CHECK keeps them equal). */
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: text("status").$type<SlotHoldStatus>().notNull().default("held"),
+    /**
+     * The Google calendar the time is held on: the location's own (its
+     * connection's metadata.calendarId, `primary` for the account's main
+     * calendar) or a named provider's. The overlap guard keys on the clinic
+     * and this calendar (addendum, named providers). No default: a hold that
+     * left it out would quietly key the guard on `primary`. Never changes
+     * (migration B).
+     */
+    calendarId: text("calendar_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`clock_timestamp()`),
@@ -4769,6 +4791,10 @@ export const slotHolds = pgTable(
       sql`${t.blocksUntil} is null or ${t.blocksUntil} <= ${t.createdAt} + interval '1450 minutes'`,
     ),
     check("slot_holds_check_attempts_check", sql`${t.checkAttempts} >= 0`),
+    check(
+      "slot_holds_calendar_id_check",
+      sql`char_length(${t.calendarId}) between 1 and 255 and ${t.calendarId} !~ '[[:space:][:cntrl:]]'`,
+    ),
     check(
       "slot_holds_outcome_reason_check",
       sql`${t.outcomeReason} is null or ${t.outcomeReason} ~ '^[a-z0-9_]{1,40}$'`,

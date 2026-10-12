@@ -32,7 +32,31 @@ import { log } from "@/lib/log";
  * against here and no separate "done" URL is needed. A dead link goes to
  * /booking/invalid for the same reason /connect does.
  */
-export type DecideFormState = { status: "idle" } | { status: "failed"; message: string };
+export type DecideFormState =
+  | { status: "idle" }
+  | { status: "failed"; message: string }
+  /**
+   * Google shows the time busy: the form offers "Confirm anyway" for exactly
+   * this time, carrying the desk's name and note so the audited confirmation
+   * keeps who made it and why.
+   */
+  | {
+      status: "busy";
+      message: string;
+      slotAt: string;
+      treatment: string | null;
+      name: string | null;
+      note: string | null;
+    };
+
+/** The desk path's refusals (plan §7.10), in the desk's words. */
+const CHECKING_LINE =
+  "We're still checking whether the assistant's booking reached your calendar — try again in a minute.";
+const LIVE_CALL_LINE =
+  "Someone is booking that time on a call right now. Pick another time, or try again in a minute.";
+const TAKEN_LINE = "Another booking made through healdesk already holds this time. Pick another time.";
+const BUSY_LINE =
+  "Your calendar shows that time as busy. Pick another time, or confirm it anyway if you know it is free.";
 
 const DECISIONS: readonly BookingDecision[] = ["accepted", "declined", "confirmed", "rescheduling"];
 const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/;
@@ -101,6 +125,7 @@ export async function decideRequest(_previous: DecideFormState, formData: FormDa
       confirmedFor,
       treatment: typeof treatment === "string" ? treatment : null,
       proposedSlots,
+      addAnyway: decision === "confirmed" && formData.get("addAnyway") === "1",
       request,
     });
   } catch (error) {
@@ -108,8 +133,24 @@ export async function decideRequest(_previous: DecideFormState, formData: FormDa
     return { status: "failed", message: "We couldn't save that. Please try again in a moment." };
   }
   if (outcome.outcome === "invalid") redirect("/booking/invalid", RedirectType.replace);
+  if (outcome.outcome === "checking") return { status: "failed", message: CHECKING_LINE };
+  if (outcome.outcome === "slot_taken") {
+    return { status: "failed", message: outcome.takenBy === "live_call" ? LIVE_CALL_LINE : TAKEN_LINE };
+  }
+  if (outcome.outcome === "calendar_busy" && confirmedFor) {
+    return {
+      status: "busy",
+      message: BUSY_LINE,
+      slotAt: confirmedFor.toISOString(),
+      treatment: typeof treatment === "string" ? treatment : null,
+      name: typeof name === "string" ? name : null,
+      note: typeof note === "string" ? note : null,
+    };
+  }
   // Decided, or decided a moment ago by a colleague: either way the page now
   // shows the outcome, the follow-up status and the calendar write with it.
+  // The assistant's own booking for this request reached the calendar after
+  // all: the page now shows it, booked.
   const params = new URLSearchParams({
     followup: outcome.followUp ?? "none",
     calendar: outcome.calendarWrite ?? "none",

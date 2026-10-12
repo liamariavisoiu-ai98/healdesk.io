@@ -190,15 +190,52 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The destruction clock started a week back and no further, so this practice's data is destroyed the days below later than its agreement counts from the end. Find out why the event was late, and tell the owner: only the database owner can bring the destruction forward.",
   },
-  // Raised once per breakage by markCalendarBroken. `code` is Google's
-  // answer as the adapter names it: invalid_grant, admin_policy_enforced and
-  // scope_lost mean the access itself was removed and the stored token has
-  // been erased; access_denied, insufficient_permissions and
-  // calendar_not_found mean the calendar refused it.
+  // Raised once per breakage by markCalendarBroken, and once per run by the
+  // calendar watch, counting the breakages it found or told; with exactly
+  // one, its ids and code come too, and the watch's carry its run id
+  // (`jobId`), which its log lines name each connection under. `code` is
+  // Google's answer as the adapter names it: invalid_grant,
+  // admin_policy_enforced and scope_lost mean the access itself was removed
+  // and the stored token has been erased; access_denied,
+  // insufficient_permissions and calendar_not_found mean the calendar
+  // refused it.
   calendar_broken: {
     title: "A clinic's Google Calendar stopped working",
     action:
-      "Google refused healdesk's access to a clinic's calendar, so that location now takes booking requests for its staff to confirm. Ask the clinic whether it removed the access on purpose; if not, it reconnects its calendar. Look the clinic up in the console.",
+      "Google refused healdesk's access to a clinic's calendar, or to each of the calendars counted below, so each location affected now takes booking requests for its staff to confirm. Ask the clinic whether it removed the access on purpose; if not, it reconnects its calendar. Look the clinic up in the console.",
+  },
+  // Raised once per run by the calendar watch, counting the connections
+  // that moved to degraded in it; with exactly one, its ids and the last
+  // transient code (timeout, network, rate_limited, a 5xx word) come too.
+  // Each run's alert carries its run id (`jobId`), so a second wave, or a
+  // connection that degrades again after recovering, is a new alert.
+  calendar_degraded: {
+    title: "Google Calendar checks are failing",
+    action:
+      "The calendar watch could not get an answer from Google for the connections counted below three times in a row, so those locations take booking requests for their staff to confirm until a check passes. A short Google outage needs nothing from you. If it lasts over an hour, check Google Workspace's status page and this deployment's outbound network, then look the connections up in the console.",
+  },
+  // Raised once per run by the calendar watch, counting the degraded
+  // connections whose check passed again (ids when there is one).
+  calendar_recovered: {
+    title: "Google Calendar checks are passing again",
+    action:
+      "Connections the calendar watch had moved to booking requests answered a check again, so those locations book into their calendars as their settings allow. Nothing to do: this closes the alert about failing checks.",
+  },
+  // Raised by a calendar watch run that stopped starting checks after four
+  // minutes; `count` is how many connections it left unchecked, which go
+  // first in the next run.
+  calendar_watch_incomplete: {
+    title: "The calendar watch ran out of time",
+    action:
+      "A run of the five-minute calendar watch stopped starting checks after four minutes and left the connections counted below unchecked; they go first in the next run. If this happens on most runs, Google is answering slowly or there are more connections than one run can check, and the watch needs more checks at once: raise it with whoever maintains apps/app.",
+  },
+  // Raised by a calendar watch run in which a step threw: a connection's
+  // check or its alert, the terms check for a location, or the run itself.
+  // `count` is how many; each is a log line with its ids.
+  calendar_watch_failed: {
+    title: "The calendar watch hit errors",
+    action:
+      "A run of the five-minute calendar watch could not finish the steps counted below. A location whose terms could not be checked is not checked with Google either, and stays as it was until a run gets through. Read the worker's error lines for the calendar watch, and the job's note in the console's job list; if every run fails, the database or this deployment's configuration is the likely cause.",
   },
   welcome_email_unsent: {
     title: "A welcome email has not reached a clinic",
@@ -206,11 +243,14 @@ const WORDING: Record<OpsEvent, Wording> = {
       "A clinic's welcome email, its order confirmation with the receipt and the Continue setup link, is still unsent an hour after its account was made, or setup moved on before it could go. Check Resend, then email the order details to the clinic's address by hand.",
   },
   // Raised by the connect flow when Google's token endpoint refuses
-  // healdesk's own client: every clinic's connect fails until it is fixed.
+  // healdesk's own client, and by the calendar watch, once per run, when its
+  // checks meet the same refusal (code oauth_client, also when apps/app has
+  // no client set) or Google says the Calendar API is disabled for the
+  // project (code api_disabled): every clinic is affected until it is fixed.
   google_oauth_client_rejected: {
     title: "Google refused healdesk's OAuth client",
     action:
-      "Google's token endpoint refused healdesk's own OAuth client while a clinic was connecting its calendar, so no clinic can connect one. Check the Calendar OAuth client in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store, then ask the clinic to try again.",
+      "Google refused healdesk's own OAuth client, or apps/app has none set (code oauth_client), or Google says the Calendar API is disabled in healdesk's Google Cloud project (code api_disabled). Until it is fixed no clinic can connect a calendar or keep one working, and the calendar watch moves each connection it checks to booking requests. Check the Calendar OAuth client and that the Google Calendar API is enabled in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store; a clinic whose connect failed can then try again.",
   },
 };
 

@@ -375,9 +375,10 @@ export type CalendarBrokenResult =
  * clinic or an election, and has no access left to lose: not_connected.
  *
  * Ops is told by markCalendarBroken, after commit; a caller that runs this
- * in a transaction of its own (the watch, C10) raises `calendar_broken`
- * itself once that transaction has committed, when `firstBreak` is true, and
- * revokes `grant` then too.
+ * in a transaction of its own (the watch, C10, which tells ops once per run
+ * about all its breakages) raises `calendar_broken` itself once that
+ * transaction has committed, when `firstBreak` is true, and revokes `grant`
+ * then too.
  */
 export async function markCalendarBrokenWithin(
   tx: TenantTx,
@@ -426,38 +427,12 @@ export async function markCalendarBrokenWithin(
   }
   const releasedHolds = await releaseLiveHolds(tx, "calendar_broken");
 
-  const [claimed] = await tx.db
-    .update(providerConnections)
-    .set({ brokenAlertedAt: sql`now()` })
-    .where(
-      and(
-        where,
-        isNotNull(providerConnections.brokenAt),
-        isNull(providerConnections.brokenAlertedAt),
-      ),
-    )
-    .returning({ brokenAt: providerConnections.brokenAt });
-  const firstBreak = claimed !== undefined;
-  if (claimed?.brokenAt) {
-    // One key per episode: a reconnect clears broken_at (C8), and the next
-    // breakage is a new episode with a new key.
-    await notifyCalendarState(tx.db, tx.clinicId, "stopped", {
-      dedupeKey: `calendar-stopped:${row.id}:${claimed.brokenAt.getTime()}`,
-    });
-    const [clinic] = await tx.db
-      .select({ organizationId: clinics.organizationId })
-      .from(clinics)
-      .where(eq(clinics.id, tx.clinicId))
-      .limit(1);
-    await recordSecurityEvent(tx.db, {
-      event: "calendar_broken",
-      actorLabel: input.actorLabel ?? "google-calendar",
-      organizationId: clinic?.organizationId ?? null,
-      ipAddress: input.request?.ipAddress ?? null,
-      userAgent: input.request?.userAgent ?? null,
-      metadata: { clinicId: tx.clinicId, connectionId: row.id, code: input.code },
-    });
-  }
+  const firstBreak = await claimBreakageAlertWithin(tx, {
+    connectionId: row.id,
+    code: input.code,
+    actorLabel: input.actorLabel ?? "google-calendar",
+    request: input.request,
+  });
 
   tx.audit.record({
     action: "update",
@@ -480,6 +455,58 @@ export async function markCalendarBrokenWithin(
     releasedHolds,
     grant,
   };
+}
+
+/**
+ * Claim the alert for the location's breakage, once per episode: set
+ * `broken_alerted_at` where `broken_at` is set and nobody has claimed it,
+ * and, in the caller's transaction, tell the clinic through the funnel's
+ * notifyCalendarState("stopped") and record the `calendar_broken` security
+ * event. True when this call claimed it; false when there is no breakage, or
+ * it was claimed already. Ops is the caller's, after commit.
+ *
+ * markCalendarBrokenWithin claims as it breaks; the calendar watch's alert
+ * pass (lib/scheduler/calendar-watch.ts, plan §9.2 step 4) claims a breakage
+ * nobody claimed. Both go through here, so one episode has one notice key,
+ * and the clinic is told once whichever path tells it.
+ */
+export async function claimBreakageAlertWithin(
+  tx: TenantTx,
+  input: { connectionId: string; code: string; actorLabel: string; request?: RequestContext },
+): Promise<boolean> {
+  const [claimed] = await tx.db
+    .update(providerConnections)
+    .set({ brokenAlertedAt: sql`now()` })
+    .where(
+      and(
+        eq(providerConnections.id, input.connectionId),
+        eq(providerConnections.clinicId, tx.clinicId),
+        isNotNull(providerConnections.brokenAt),
+        isNull(providerConnections.brokenAlertedAt),
+      ),
+    )
+    .returning({ brokenAt: providerConnections.brokenAt });
+  if (!claimed?.brokenAt) return false;
+
+  // One key per episode: a reconnect clears broken_at (C8), and the next
+  // breakage is a new episode with a new key.
+  await notifyCalendarState(tx.db, tx.clinicId, "stopped", {
+    dedupeKey: `calendar-stopped:${input.connectionId}:${claimed.brokenAt.getTime()}`,
+  });
+  const [clinic] = await tx.db
+    .select({ organizationId: clinics.organizationId })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  await recordSecurityEvent(tx.db, {
+    event: "calendar_broken",
+    actorLabel: input.actorLabel,
+    organizationId: clinic?.organizationId ?? null,
+    ipAddress: input.request?.ipAddress ?? null,
+    userAgent: input.request?.userAgent ?? null,
+    metadata: { clinicId: tx.clinicId, connectionId: input.connectionId, code: input.code },
+  });
+  return true;
 }
 
 const BROKEN_ACTOR: ActorContext = { type: "service", serviceName: "google-calendar" };
@@ -758,7 +785,16 @@ async function recordDisconnect(
 // The end of the terms (plan §4.12, §9.2 step 2)
 // -----------------------------------------------------------------------------
 
-export type CalendarSweepResult = { checked: number; disconnected: number; failed: number };
+export type CalendarSweepResult = {
+  checked: number;
+  disconnected: number;
+  failed: number;
+  /**
+   * The locations whose check threw, so nobody knows whether their terms
+   * still cover a calendar. The watch leaves their tokens sealed (C10).
+   */
+  failedClinicIds: string[];
+};
 
 /**
  * Disconnect every Google Calendar connection whose location may no longer
@@ -781,7 +817,12 @@ export async function sweepCalendarTerms(
   options: { actor?: ActorContext } = {},
 ): Promise<CalendarSweepResult> {
   const actor = options.actor ?? CALENDAR_ACTOR;
-  const result: CalendarSweepResult = { checked: 0, disconnected: 0, failed: 0 };
+  const result: CalendarSweepResult = {
+    checked: 0,
+    disconnected: 0,
+    failed: 0,
+    failedClinicIds: [],
+  };
   let targets: string[];
   try {
     targets = clinicIds ? [...new Set(clinicIds)] : await locationsWithLiveCalendars();
@@ -814,6 +855,7 @@ export async function sweepCalendarTerms(
       }
     } catch (error) {
       result.failed += 1;
+      result.failedClinicIds.push(clinicId);
       log.error("calendar terms sweep failed for a location", {
         clinicId,
         error: describeError(error),
@@ -957,7 +999,17 @@ export type CalendarTargetRefusal =
   | "unverified";
 
 export type CalendarTargetCheck =
-  { allowed: true; ownOrganization: boolean } | { allowed: false; reason: CalendarTargetRefusal };
+  | { allowed: true; ownOrganization: boolean }
+  | {
+      allowed: false;
+      reason: CalendarTargetRefusal;
+      /**
+       * For `unverified`: what Google answered, so a writer can tell a grant
+       * taken away (a break, which flips the location to manual booking)
+       * from a miss worth trying again.
+       */
+      error?: ConnectorError;
+    };
 
 /**
  * May healdesk book into this calendar, for these terms, on this
@@ -1000,7 +1052,7 @@ export async function confirmCalendarTarget(input: {
   const listed = await googleCalendarAdapter.listCalendars(input.context, {
     ownOrganizationOnly: covered,
   });
-  if (!listed.ok) return { allowed: false, reason: "unverified" };
+  if (!listed.ok) return { allowed: false, reason: "unverified", error: listed.error };
   if (!listed.value.some((calendar) => calendar.id === input.calendarId)) {
     return { allowed: false, reason: covered ? "outside_organisation" : "not_owned" };
   }
@@ -1353,7 +1405,9 @@ async function activeProviders(tx: TenantTx): Promise<ProviderView[]> {
     })
     .from(clinicProviders)
     .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)))
-    .orderBy(clinicProviders.createdAt, clinicProviders.id);
+    // Providers saved together share created_at: by name among them, so the
+    // portal lists them the same way every time.
+    .orderBy(clinicProviders.createdAt, clinicProviders.displayName, clinicProviders.id);
   if (rows.length === 0) return [];
   const mapped = await tx.db
     .select({

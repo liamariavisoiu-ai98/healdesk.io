@@ -2532,97 +2532,127 @@
 }
 
 /* =============================================================================
-   What changes in month one: an iOS lock screen (Outcomes.tsx)
+   What changes in month one: a phone (Outcomes.tsx)
    =============================================================================
-   The owner's pick of 9 October 2026, "Notification wall, but make it look
-   more like iOS". A blurred wallpaper with the date and a large clock, the
-   eight outcomes as notifications in iOS's frosted material, and the
-   flashlight, camera and home bar at the foot. Set in the platform's own
-   face where there is one (San Francisco on Apple devices), because a lock
-   screen in the site's serif reads as a picture of one, not as one.
+   A phone in portrait, pinned beside the eight items (owner, 12 October
+   2026), its lock screen collecting a notification for each item as it is
+   scrolled past. On a desktop the phone sits in the right-hand column, held
+   in the middle of the screen; below 1024px it is pinned at the top, and the
+   items rise into the space under it.
 
-   ## Arriving (12 October 2026)
+   ## The phone
 
-   The screen wakes (the wallpaper comes up from dark, the date and clock
-   rise into place) and the notifications drop in one after another on a
-   spring: a damped one, which overshoots by about four percent and settles,
-   written as a CSS `linear()` easing so it needs no script. It is the one
-   curve for the arrival, for the card opening, and for the browser's view
-   transition between them, so the three feel like one piece of glass.
+   Drawn as a phone: a dark body, its screen inset by the bezel, the island,
+   the date and the clock, the notifications, the flashlight, the camera and
+   the home bar. Its corners are the device's own shape, a share of its
+   width and height, not one of the page's three radii (globals.css,
+   "Shape"), as a pill is a shape. Set in the platform's face where there is
+   one (San Francisco on Apple devices), because a lock screen in the site's
+   faces reads as a picture of one, not as one.
 
-   ## Opening
+   Everything inside the screen is sized in shares of its width (`cqw`, the
+   screen being the container), drawn to a 300px-wide screen: so the same
+   phone is right at 200px on a small phone and at 330px on a desktop.
 
-   A press scales a notification down a little, as iOS does under a finger.
-   Opened, it is a large card over a dimmed, blurred screen. In a browser with
-   view transitions the notification itself grows into the card and its
-   thumbnail into the photograph (`notif` and `notif-photo`); elsewhere the
-   card pops in on the same spring. */
+   ## The stack
 
-:root {
-  --notif-spring: linear(0.0, 0.114 5%, 0.348 9%, 0.589 14%, 0.784 18%, 0.919 23%, 0.999 27%, 1.036 32%, 1.046 36%, 1.041 41%, 1.031 45%, 1.02 50%, 1.01 55%, 1.004 59%, 1.0 64%, 0.998 68%, 0.998 73%, 0.998 77%, 0.999 82%, 0.999 86%, 0.999 91%, 1.0 95%, 1.0);
+   Each notification is placed by `data-pos`, its place from the top of the
+   stack (Outcomes.tsx): 0 to 3 are shown one under another, 4 and 5 tuck
+   under the fourth, smaller and fainter, as iOS stacks older ones, and -1 is
+   one not told yet, waiting above the top, so it drops into place on the
+   spring when it is. The ones below move down on the same spring.
+   ============================================================================= */
+
+.month {
+  display: grid;
 }
 
-.lockscreen {
+/* Pinned under the navbar on a narrow screen, on the page's own ground, so
+   the items pass out of sight under it; a short fade below its foot. */
+.month__aside {
+  position: sticky;
+  top: 76px;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 12px;
+  background: var(--color-paper);
+}
+
+.month__aside::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 100%;
+  height: 32px;
+  background: linear-gradient(to bottom, var(--color-paper), rgb(253 253 253 / 0));
+  pointer-events: none;
+}
+
+.phone {
+  --phone-w: min(60vw, calc((100svh - 76px) * 0.58 * 9 / 19.5));
+  width: var(--phone-w);
+  aspect-ratio: 9 / 19.5;
+  container-type: inline-size;
+  padding: calc(var(--phone-w) * 0.034);
+  border-radius: 15.5% / 7.2%;
+  background: linear-gradient(160deg, #2a2c30, #0c0d0f 40%);
+  box-shadow: 0 0 0 1px rgb(23 42 58 / 0.18), var(--shadow-lg);
+}
+
+@media (min-width: 640px) {
+  .phone {
+    --phone-w: min(44vw, calc((100svh / 0.9 - 77px) * 0.6 * 9 / 19.5));
+  }
+}
+
+.phone__screen {
   position: relative;
   isolation: isolate;
-  /* Clip, not hidden: hidden makes this a scroll container, and the open
-     card's sticky stage would then stick to it instead of to the screen. */
-  overflow: hidden;
+  height: 100%;
   overflow: clip;
-  border-radius: 34px;
-  padding: clamp(28px, 4vw, 52px) clamp(14px, 3vw, 40px) 22px;
+  border-radius: 13% / 6%;
   color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
-  box-shadow: 0 30px 70px -40px rgb(23 42 58 / 0.6);
 }
 
-.lockscreen__wallpaper {
+.phone__wallpaper {
   position: absolute;
-  inset: -60px;
+  inset: -40px;
   z-index: -1;
   background:
-    linear-gradient(180deg, rgb(10 18 28 / 0.35), rgb(10 18 28 / 0.1) 40%, rgb(10 18 28 / 0.35)),
+    linear-gradient(180deg, rgb(10 18 28 / 0.35), rgb(10 18 28 / 0.08) 45%, rgb(10 18 28 / 0.4)),
     url("/outcomes/by-morning.webp") center / cover;
-  filter: blur(26px) saturate(1.35) brightness(0.72);
-  transition: filter 1200ms ease;
+  filter: blur(18px) saturate(1.35) brightness(0.74);
 }
 
-/* Asleep, until it scrolls into view. */
-.lockscreen[data-state="armed"] .lockscreen__wallpaper {
-  filter: blur(26px) saturate(1.1) brightness(0.28);
+.phone__island {
+  position: absolute;
+  top: 3.667cqw;
+  left: 50%;
+  width: 31%;
+  height: 9cqw;
+  border-radius: 9999px;
+  background: #000;
+  translate: -50% 0;
 }
 
-.lockscreen__date,
-.lockscreen__time,
-.lockscreen__foot {
-  transition:
-    opacity 800ms ease 200ms,
-    transform 1000ms cubic-bezier(0.2, 0.8, 0.2, 1) 200ms;
-}
-
-.lockscreen[data-state="armed"] .lockscreen__date,
-.lockscreen[data-state="armed"] .lockscreen__time {
-  opacity: 0;
-  transform: translateY(12px) scale(0.98);
-}
-
-.lockscreen[data-state="armed"] .lockscreen__foot {
-  opacity: 0;
-}
-
-.lockscreen__date {
+.phone__clock {
+  padding-top: 18.667cqw;
   text-align: center;
-  font-size: clamp(17px, 1.6vw, 21px);
+}
+
+.phone__date {
+  font-size: 5.167cqw;
   font-weight: 600;
   letter-spacing: 0.005em;
   opacity: 0.92;
 }
 
-.lockscreen__time {
-  margin-top: 2px;
-  text-align: center;
+.phone__time {
+  margin-top: 0.333cqw;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
-  font-size: clamp(76px, 9.5vw, 128px);
+  font-size: 26cqw;
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.035em;
@@ -2633,82 +2663,97 @@
   color: transparent;
 }
 
-.lockscreen__wall {
-  margin: clamp(24px, 3.4vw, 44px) auto 0;
+.phone__notes {
+  position: relative;
+  margin: 6.667cqw 2.667cqw 0;
   padding: 0;
-  max-width: 1080px;
+  height: calc(93.333cqw + 6cqw);
   list-style: none;
-  columns: 1;
-  column-gap: 12px;
   transition:
-    filter 500ms ease,
-    scale 600ms var(--notif-spring);
+    filter var(--duration-slow) var(--ease-standard),
+    scale var(--duration-slow) var(--ease-spring);
 }
 
-@media (min-width: 720px) {
-  .lockscreen__wall {
-    columns: 2;
-  }
+.phone__note {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  z-index: var(--z, 1);
+  height: 21.333cqw;
+  opacity: var(--o, 1);
+  transform: translateY(var(--y, 0px)) scale(var(--k, 1));
+  transform-origin: 50% 0;
+  transition:
+    transform var(--duration-slow) var(--ease-spring),
+    opacity var(--duration-base) var(--ease-standard);
 }
 
-@media (min-width: 1100px) {
-  .lockscreen__wall {
-    columns: 3;
-  }
+.phone__note[data-pos="-1"] {
+  --y: -9.333cqw;
+  --k: 0.94;
+  --o: 0;
+  pointer-events: none;
 }
 
-.lockscreen__wall > li {
-  break-inside: avoid;
-  margin-bottom: 12px;
+.phone__note[data-pos="0"] { --y: 0px; --z: 9; }
+.phone__note[data-pos="1"] { --y: 24cqw; --z: 8; }
+.phone__note[data-pos="2"] { --y: 48cqw; --z: 7; }
+.phone__note[data-pos="3"] { --y: 72cqw; --z: 6; }
+
+.phone__note[data-pos="4"],
+.phone__note[data-pos="5"],
+.phone__note[data-pos="6"],
+.phone__note[data-pos="7"] {
+  pointer-events: none;
 }
+
+.phone__note[data-pos="4"] { --y: 75cqw; --k: 0.93; --o: 0.7; --z: 5; }
+.phone__note[data-pos="5"] { --y: 77.667cqw; --k: 0.86; --o: 0.4; --z: 4; }
+.phone__note[data-pos="6"],
+.phone__note[data-pos="7"] { --y: 77.667cqw; --k: 0.86; --o: 0; --z: 3; }
 
 /* The screen behind an open card: soft, and a step further away. */
-.lockscreen[data-open] .lockscreen__wall {
-  filter: blur(8px) brightness(0.8);
+.month[data-open] .phone__notes {
+  filter: blur(6px) brightness(0.8);
   scale: 0.985;
 }
 
 .notification {
   display: grid;
   width: 100%;
-  grid-template-columns: 38px minmax(0, 1fr) 44px;
+  height: 100%;
+  grid-template-columns: 10.667cqw minmax(0, 1fr) 12cqw;
   align-items: start;
-  gap: 11px;
-  padding: 12px 12px 13px;
+  gap: 3cqw;
+  padding: 3.333cqw 3.333cqw;
   border: 0;
-  border-radius: 22px;
-  background: rgb(246 246 248 / 0.72);
-  -webkit-backdrop-filter: blur(28px) saturate(1.8);
-  backdrop-filter: blur(28px) saturate(1.8);
+  border-radius: var(--radius-md);
+  background: rgb(246 246 248 / 0.74);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
   color: #000;
   font: inherit;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 1px 1px rgb(0 0 0 / 0.04);
+  box-shadow: var(--shadow-sm);
   transition:
-    scale 220ms var(--notif-spring),
-    background-color 200ms ease;
+    scale var(--duration-fast) var(--ease-spring),
+    background-color var(--duration-fast) var(--ease-standard);
 }
 
 .notification:hover {
-  background: rgb(250 250 252 / 0.8);
+  background: rgb(250 250 252 / 0.84);
 }
 
 /* Under a finger, as iOS does: a little smaller, and back on a spring. */
 .notification:active {
   scale: 0.97;
-  transition-duration: 90ms;
-}
-
-.notification:focus-visible {
-  outline: 3px solid rgb(255 255 255 / 0.95);
-  outline-offset: 2px;
 }
 
 .notification__icon {
-  width: 38px;
-  height: 38px;
-  border-radius: 9px;
+  width: 10.667cqw;
+  height: 10.667cqw;
+  border-radius: var(--radius-sm);
   background: #fff;
   box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08);
 }
@@ -2721,110 +2766,212 @@
 .notification__head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 2cqw;
 }
 
 .notification__title {
   min-width: 0;
   flex: 1;
-  font-size: 15px;
+  overflow: hidden;
+  font-size: 4.333cqw;
   font-weight: 600;
   line-height: 1.25;
   letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .notification__time {
   flex: none;
   color: rgb(60 60 67 / 0.6);
-  font-size: 13px;
+  font-size: 3.667cqw;
 }
 
 .notification__body {
-  display: block;
-  margin-top: 2px;
-  color: rgb(0 0 0 / 0.88);
-  font-size: 15px;
+  display: -webkit-box;
+  margin-top: 0.333cqw;
+  overflow: hidden;
+  color: rgb(0 0 0 / 0.86);
+  font-size: 4.133cqw;
   line-height: 1.3;
   letter-spacing: -0.01em;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .notification__thumb {
-  width: 44px;
-  height: 44px;
-  margin-top: 1px;
-  border-radius: 8px;
+  width: 12cqw;
+  height: 12cqw;
+  border-radius: var(--radius-sm);
   object-fit: cover;
 }
 
-/* The arrival: armed below the fold, then in one after another, the first a
-   beat after the screen has woken. */
-.lockscreen[data-state="armed"] .notification {
-  opacity: 0;
-  transform: translateY(-96px) scale(0.92);
-}
-
-.lockscreen[data-state="in"] .notification {
-  animation:
-    notification-drop 820ms var(--notif-spring) both,
-    notification-fade 240ms ease-out both;
-  animation-delay: calc(550ms + var(--i) * 400ms);
-}
-
-@keyframes notification-drop {
-  from {
-    transform: translateY(-96px) scale(0.92);
-  }
-}
-
-@keyframes notification-fade {
-  from {
-    opacity: 0;
-  }
-}
-
-.lockscreen__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  max-width: 1080px;
-  margin: clamp(18px, 3vw, 36px) auto 0;
-  padding: 0 clamp(4px, 2vw, 24px);
-}
-
-.lockscreen__button {
+.phone__button {
+  position: absolute;
+  bottom: 10cqw;
   display: grid;
   place-items: center;
-  width: 50px;
-  height: 50px;
+  width: 14.667cqw;
+  height: 14.667cqw;
   border-radius: 9999px;
   background: rgb(255 255 255 / 0.16);
   -webkit-backdrop-filter: blur(20px);
   backdrop-filter: blur(20px);
 }
 
-.lockscreen__button svg {
-  width: 22px;
-  height: 22px;
+.phone__button:first-child {
+  left: 10cqw;
 }
 
-.lockscreen__home {
-  width: 136px;
-  height: 5px;
+.phone__button:last-child {
+  right: 10cqw;
+}
+
+.phone__button svg {
+  width: 6.667cqw;
+  height: 6.667cqw;
+}
+
+.phone__home {
+  position: absolute;
+  bottom: 2.667cqw;
+  left: 50%;
+  width: 36%;
+  height: 1.667cqw;
   border-radius: 9999px;
   background: rgb(255 255 255 / 0.85);
+  translate: -50% 0;
+}
+
+/* --- The items ------------------------------------------------------------- */
+
+.month__steps {
+  margin: 0;
+  padding: 0 0 18svh;
+  list-style: none;
+}
+
+/* On a narrow screen each item is as tall as the space under the pinned phone
+   (`--pinned` is the phone's foot, from Outcomes.tsx), its text in the middle
+   of it: the item being told is the one filling that space. */
+.month__step {
+  display: flex;
+  min-height: calc(100svh - var(--pinned, 55svh));
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 4px;
+  text-align: center;
+  transition: opacity var(--duration-slow) var(--ease-standard);
+}
+
+/* Only once the script is following the scroll: then the item being told is
+   at full ink and the rest step back. Without it all eight read alike. */
+.month[data-live] .month__step:not([data-now]) {
+  opacity: 0.32;
+}
+
+.month__when {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.month__title {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 2.7vw, 38px);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.month__line {
+  max-width: 44ch;
+  margin-top: 10px;
+  color: var(--color-muted);
+  font-size: clamp(16.5px, 1.3vw, 19px);
+  font-weight: 500;
+  line-height: 1.55;
+  text-wrap: pretty;
+}
+
+.month__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--color-red-deep);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.month__open svg {
+  width: 16px;
+  height: 16px;
+  transition: translate var(--duration-fast) var(--ease-out);
+}
+
+.month__open:hover svg {
+  translate: 3px 0;
+}
+
+@media (min-width: 1024px) {
+  .month {
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: clamp(40px, 7vw, 112px);
+    align-items: start;
+  }
+
+  /* Held in the middle of what is left of the screen under the navbar. */
+  .month__aside {
+    grid-column: 2;
+    grid-row: 1;
+    top: 77px;
+    height: calc(100svh / 0.9 - 77px);
+    align-items: center;
+    padding: 0;
+    background: none;
+  }
+
+  .month__aside::after {
+    content: none;
+  }
+
+  .phone {
+    --phone-w: min(340px, calc((100svh / 0.9 - 77px - 72px) * 9 / 19.5));
+  }
+
+  .month__steps {
+    grid-column: 1;
+    grid-row: 1;
+    padding: 14svh 0 24svh;
+  }
+
+  .month__step {
+    min-height: calc(100svh / 0.9 * 0.5);
+    align-items: flex-start;
+    justify-content: center;
+    padding: 32px 0;
+    text-align: left;
+  }
 }
 
 /* --- Opened --------------------------------------------------------------- */
 
-/* Inside the lock screen, over its wall: its scrim, its corners. */
+/* Over the page below 1024px, where the phone is too small to read it in. */
 .notice-layer {
-  position: absolute;
+  position: fixed;
   inset: 0;
-  z-index: 6;
-  background: rgb(8 14 22 / 0.38);
-  -webkit-backdrop-filter: blur(20px) saturate(1.25);
-  backdrop-filter: blur(20px) saturate(1.25);
-  animation: notice-scrim 420ms ease both;
+  z-index: 60;
+  background: rgb(8 14 22 / 0.42);
+  -webkit-backdrop-filter: blur(16px) saturate(1.25);
+  backdrop-filter: blur(16px) saturate(1.25);
+  animation: notice-scrim var(--duration-slow) var(--ease-standard) both;
 }
 
 @keyframes notice-scrim {
@@ -2833,45 +2980,58 @@
   }
 }
 
-/* The card is centred in what the visitor can see of the lock screen: under
-   the navbar (77px), and no taller than the screen. On a desktop the lock
-   screen is shorter than that and the card sits in its middle; on a phone it
-   is much taller, and the stage keeps the card in view as the page scrolls. */
 .notice-stage {
-  position: sticky;
-  top: 77px;
   display: grid;
-  height: min(100%, calc(100svh - 77px));
+  height: 100%;
   place-items: center;
   padding: 16px;
 }
 
-@media (min-width: 640px) {
-  /* Viewport units are drawn at 90% under the site's zoom. */
-  .notice-stage {
-    height: min(100%, calc(100svh / 0.9 - 77px));
-  }
-}
-
 .notice {
-  scroll-margin: 90px 0 16px;
   width: min(560px, 100%);
   max-height: 100%;
   overflow: auto;
   padding: 16px 16px 18px;
-  border-radius: 32px;
+  border-radius: var(--radius-lg);
   background: rgb(247 247 250 / 0.97);
   color: #000;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
-  box-shadow:
-    0 0 0 0.5px rgb(0 0 0 / 0.06),
-    0 40px 90px -30px rgb(0 0 0 / 0.65);
+  box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), var(--shadow-lg);
   overscroll-behavior: contain;
+}
+
+/* Inside the phone from 1024px: its own scrim, its own corners, its size. */
+@media (min-width: 1024px) {
+  .notice-layer {
+    position: absolute;
+    z-index: 6;
+    background: rgb(8 14 22 / 0.38);
+  }
+
+  .notice-stage {
+    padding: 3.333cqw;
+  }
+
+  .notice {
+    padding: 12px 12px 14px;
+  }
+
+  .notice .notice__title {
+    font-size: 19px;
+  }
+
+  .notice .notice__line {
+    font-size: 14.5px;
+  }
+
+  .notice .notice__detail {
+    font-size: 14px;
+  }
 }
 
 /* Where there are no view transitions, the card comes in on the spring itself. */
 .notice-layer[data-pop] .notice {
-  animation: notice-pop 560ms var(--notif-spring) both;
+  animation: notice-pop var(--duration-slow) var(--ease-spring) both;
 }
 
 @keyframes notice-pop {
@@ -2891,7 +3051,7 @@
 .notice__icon {
   width: 30px;
   height: 30px;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: #fff;
   box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.08);
 }
@@ -2914,7 +3074,7 @@
   display: block;
   width: 100%;
   aspect-ratio: 2 / 1;
-  border-radius: 22px;
+  border-radius: var(--radius-md);
   object-fit: cover;
   object-position: 50% 42%;
 }
@@ -2958,7 +3118,7 @@
   height: 46px;
   place-items: center;
   border: 0;
-  border-radius: 15px;
+  border-radius: var(--radius-md);
   background: rgb(120 120 128 / 0.16);
   color: #000;
   font: inherit;
@@ -2966,8 +3126,8 @@
   font-weight: 600;
   cursor: pointer;
   transition:
-    scale 200ms var(--notif-spring),
-    background-color 200ms ease;
+    scale var(--duration-fast) var(--ease-spring),
+    background-color var(--duration-fast) var(--ease-standard);
 }
 
 .notice__button:hover {
@@ -2994,17 +3154,19 @@
 
 /* --- The morph ------------------------------------------------------------ */
 
-/* Only the two named things animate; the page itself swaps at once. */
-::view-transition-old(root),
-::view-transition-new(root) {
+/* Only the two named things animate; the page itself swaps at once. Scoped
+   to the morph (Outcomes.tsx puts `notif-morph` on the root while it runs),
+   so going between pages still cross-fades ("Page transitions"). */
+:root.notif-morph::view-transition-old(root),
+:root.notif-morph::view-transition-new(root) {
   animation: none;
   mix-blend-mode: normal;
 }
 
 ::view-transition-group(notif),
 ::view-transition-group(notif-photo) {
-  animation-duration: 640ms;
-  animation-timing-function: var(--notif-spring);
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-spring);
 }
 
 ::view-transition-old(notif),
@@ -3021,11 +3183,11 @@
 /* The outgoing face goes quickly, the incoming one arrives a beat later: the
    two have different shapes, and a long cross-fade between them shows both. */
 ::view-transition-old(notif) {
-  animation: notif-face-out 200ms ease-out both;
+  animation: notif-face-out var(--duration-fast) var(--ease-out) both;
 }
 
 ::view-transition-new(notif) {
-  animation: notif-face-in 360ms ease-out 120ms both;
+  animation: notif-face-in var(--duration-base) var(--ease-out) 120ms both;
 }
 
 @keyframes notif-face-out {

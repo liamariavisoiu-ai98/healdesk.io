@@ -115,18 +115,45 @@ export type MessagingThreadRecord = Pick<
 >;
 
 /**
- * A raw payload for the bundle: decoded where it parses, and where the
- * decoded body can be written out again (the bundle is written as JSON, and
- * a body nested deeply enough parses but cannot be); its text otherwise.
+ * How deep a decoded payload may nest and still go into the bundle decoded.
+ * patient-export writes the bundle with JSON.stringify(bundle, null, 2),
+ * which recurses once per level and overflows the stack a few thousand
+ * levels down, with the bundle's own levels on top; a check that the body
+ * alone could be written out ran shallower than that, so a body about 6,900
+ * deep decoded here and failed the write (third review of C19, 12 October
+ * 2026). A real vendor body nests a dozen levels; anything past this one is
+ * not data to read, and goes in as its text.
+ */
+export const DECODED_PAYLOAD_MAX_DEPTH = 512;
+
+/** Whether a decoded JSON value nests no deeper than `max` arrays and objects. Iterative, so a deep value cannot overflow it. */
+function nestsWithin(value: unknown, max: number): boolean {
+  const stack: [unknown, number][] = [[value, 0]];
+  while (stack.length) {
+    const [node, depth] = stack.pop()!;
+    if (node === null || typeof node !== "object") continue;
+    if (depth + 1 > max) return false;
+    for (const child of Array.isArray(node) ? node : Object.values(node)) {
+      if (child !== null && typeof child === "object") stack.push([child, depth + 1]);
+    }
+  }
+  return true;
+}
+
+/**
+ * A raw payload for the bundle: decoded where it parses and nests no deeper
+ * than DECODED_PAYLOAD_MAX_DEPTH, its text otherwise (a body too deep to
+ * parse included), so the bundle can always be written out.
  */
 function payloadRecord(row: typeof webhookEvents.$inferSelect): RawPayloadRecord {
   let body: unknown = null;
   let text: string | null = row.rawPayload;
   try {
     const decoded: unknown = JSON.parse(row.rawPayload);
-    JSON.stringify(decoded);
-    body = decoded;
-    text = null;
+    if (nestsWithin(decoded, DECODED_PAYLOAD_MAX_DEPTH)) {
+      body = decoded;
+      text = null;
+    }
   } catch {
     body = null;
   }

@@ -15,7 +15,17 @@ import type { SetupState } from "./state";
  * urgent callers straight back to her.
  */
 
-type UrgentFacts = Pick<SetupState, "channels" | "settings" | "clinic">;
+/**
+ * What the urgent number is resolved from: the bought channels, the two
+ * numbers in the clinic's settings, and its main number. Structural, so the
+ * wizard passes its SetupState and the Meta front door the same facts read
+ * in its own transaction (lib/meta/front-door.ts).
+ */
+type UrgentFacts = {
+  channels: readonly Pick<SetupState["channels"][number], "channel">[];
+  settings: Pick<SetupState["settings"], "urgentHelpE164" | "directLineE164">;
+  clinic: Pick<SetupState["clinic"], "publishedPhoneE164">;
+};
 
 function hasPhone(state: UrgentFacts): boolean {
   return state.channels.some((c) => c.channel === "voice");

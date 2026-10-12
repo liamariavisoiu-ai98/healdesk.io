@@ -2,12 +2,13 @@ import { findClinicalContent, findUrgentContent, metaEligible, namesMetaTreatmen
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
 import { eq } from "drizzle-orm";
 
-import { agentConfigs, clinics } from "@/db/schema";
+import { agentConfigs, clinicChannels, clinics, clinicSettings } from "@/db/schema";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
 import { describeError, log } from "@/lib/log";
 import { parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { urgentHelpNumber } from "@/lib/setup/urgent";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -115,10 +116,12 @@ export type FrontDoorFacts = {
   /** The number to hand off to: the clinic's published line. */
   phone: string | null;
   /**
-   * The number the urgent line gives: the clinic's direct line, which
-   * reaches a person and never forwards back to us (clinic_settings). Absent
-   * or null, the urgent line gives `phone`. The urgent-help number the setup
-   * wizard asks for (plan step 2.5) is meant to take its place.
+   * The number the urgent line gives: the clinic's urgent-help number from
+   * the setup wizard (plan Part E, 2.5), or, left empty, its default as
+   * lib/setup/urgent.ts resolves it when read: the direct line, which reaches
+   * a person and never forwards back to us, for a practice with phone, and
+   * the main number for one without. Absent or null, the urgent line gives
+   * `phone`.
    */
   urgentPhone?: string | null;
   websiteHint: string | null;
@@ -548,10 +551,23 @@ export async function frontDoorFacts(tx: TenantTx): Promise<FrontDoorFacts | nul
     .limit(1);
   const resolved = resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements);
   const settings = await getClinicSettings(tx);
+  // The urgent-help number as the wizard resolves it (lib/setup/urgent.ts):
+  // the clinic's own, else the direct line with phone, the main number without.
+  const [urgent] = await tx.db
+    .select({ urgentHelpE164: clinicSettings.urgentHelpE164 })
+    .from(clinicSettings)
+    .where(eq(clinicSettings.clinicId, tx.clinicId))
+    .limit(1);
+  const bought = await tx.db.select({ channel: clinicChannels.channel }).from(clinicChannels).where(eq(clinicChannels.clinicId, tx.clinicId));
+  const urgentPhone = urgentHelpNumber({
+    channels: bought,
+    settings: { urgentHelpE164: urgent?.urgentHelpE164 ?? null, directLineE164: settings.directLineE164 },
+    clinic: { publishedPhoneE164: clinic.phone },
+  });
   return {
     clinicName: clinic.name,
     phone: clinic.phone,
-    urgentPhone: settings.directLineE164,
+    urgentPhone,
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.

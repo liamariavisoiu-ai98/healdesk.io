@@ -10,7 +10,13 @@ import { getBillingSummary } from "@/lib/billing/summary";
 import { optionalEmailAllowed } from "@/lib/email/stop";
 import { withTenant } from "@/lib/tenant";
 
-import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import {
+  closePools,
+  getMigratorPool,
+  hasTestDatabase,
+  runMigrations,
+  truncateAll,
+} from "./setup/db";
 import { inTenant } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 import { brokenLinks } from "./setup/portal-links";
@@ -288,6 +294,28 @@ describeDb("Billing", () => {
          pending_plan_change_interval = null`,
       );
     }
+  });
+
+  test("adding a location needs a step-up: without one nothing is charged and no location is made", async () => {
+    const { addLocationAction } = await actions();
+    expect(
+      await addLocationAction(portal.clinicSlug, {
+        requestId: "req-location-1",
+        name: "Glow Med Spa, Round Rock",
+      }),
+    ).toEqual({
+      ok: false,
+      message: expect.stringMatching(/needs Face ID or your screen lock/),
+      stepUpHref: `/c/${portal.clinicSlug}/step-up?next=${encodeURIComponent(`/c/${portal.clinicSlug}/billing`)}`,
+    });
+    expect(touched).not.toHaveBeenCalled();
+    // Nothing reached Stripe, and no clinic names this one as its billing clinic.
+    expect(world.fake.calls).toEqual([]);
+    const locations = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from clinics where billing_clinic_id = $1 and id <> $1`,
+      [clinic.clinicId],
+    );
+    expect(locations.rows).toEqual([{ n: 0 }]);
   });
 
   test("the card and the invoices open Stripe's own portal, made on the click", async () => {

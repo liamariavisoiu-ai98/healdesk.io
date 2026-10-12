@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
@@ -7,6 +7,7 @@ import { assistantMayAnswer } from "@/lib/billing/answering";
 import { depositDecision, readClinicDepositFacts } from "@/lib/billing/deposits";
 import { assertPayloadAllowed } from "@/lib/email/lint";
 import { optionalEmailAllowed } from "@/lib/email/stop";
+import { hashSessionToken } from "@/lib/factors/step-ups";
 import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
 import { SIGN_IN_ACTOR_LABEL } from "@/lib/portal/actor";
@@ -38,27 +39,44 @@ const grants: { clinicId: string; slug: string; name: string }[] = [];
 let steppedUp = false;
 let deviceLabel = "Front desk Mac";
 const touched = vi.fn();
+/**
+ * This browser's session token. Null, the step-up is stood in by `steppedUp`;
+ * set, the portal's own actor and step-up code run against step_ups.
+ */
+let sessionToken: string | null = null;
 
 vi.mock("@/lib/portal/access", () => ({
   requirePortal: async () => portal,
   portalGrants: async () => grants,
-  currentSessionToken: async () => null,
+  currentSessionToken: async () => sessionToken,
 }));
-vi.mock("@/lib/portal/actor", () => ({
-  SIGN_IN_ACTOR_LABEL: "the clinic's sign-in",
-  portalActor: async () =>
-    steppedUp
-      ? { label: deviceLabel, steppedUp: true }
-      : { label: "the clinic's sign-in", steppedUp: false },
-}));
-vi.mock("@/lib/portal/step-up", () => ({
-  sessionBinding: async () => ({ userId: portal.userId, sessionTokenHash: randomBytes(32) }),
-  stepUpPath: (slug: string, next: string) => `/c/${slug}/step-up?next=${encodeURIComponent(next)}`,
-  touchStepUp: async () => {
-    touched();
-    return null;
-  },
-}));
+vi.mock("@/lib/portal/actor", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/portal/actor")>();
+  return {
+    SIGN_IN_ACTOR_LABEL: actual.SIGN_IN_ACTOR_LABEL,
+    portalActor: async (ctx: Parameters<typeof actual.portalActor>[0]) => {
+      if (sessionToken) return actual.portalActor(ctx);
+      return steppedUp
+        ? { label: deviceLabel, steppedUp: true }
+        : { label: actual.SIGN_IN_ACTOR_LABEL, steppedUp: false };
+    },
+  };
+});
+vi.mock("@/lib/portal/step-up", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/portal/step-up")>();
+  return {
+    sessionBinding: async (ctx: Parameters<typeof actual.sessionBinding>[0]) =>
+      sessionToken
+        ? actual.sessionBinding(ctx)
+        : { userId: portal.userId, sessionTokenHash: randomBytes(32) },
+    stepUpPath: (slug: string, next: string) =>
+      `/c/${slug}/step-up?next=${encodeURIComponent(next)}`,
+    touchStepUp: async (ctx: Parameters<typeof actual.touchStepUp>[0]) => {
+      touched();
+      return sessionToken ? actual.touchStepUp(ctx) : null;
+    },
+  };
+});
 vi.mock("@/app/c/[slug]/request-meta", () => ({ requestMeta: async () => ({}) }));
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -133,6 +151,7 @@ describeDb("Settings", () => {
     use(complete);
     steppedUp = false;
     deviceLabel = "Front desk Mac";
+    sessionToken = null;
     touched.mockClear();
   });
 
@@ -585,5 +604,81 @@ describeDb("Settings", () => {
     expect(notice!.payload).not.toHaveProperty("deviceName");
     // What the sender checks before it renders: it passes, so the email goes.
     expect(() => assertPayloadAllowed(notice!.payload, "setting_changed")).not.toThrow();
+  });
+
+  test("disconnecting the payment account needs a step-up: without one it is refused and the account stays connected", async () => {
+    await sql(
+      `update clinics set stripe_connect_account_id = 'acct_1TestDeposit', stripe_connect_connected_at = now() where id = $1`,
+      [portal.clinicId],
+    );
+    const { disconnectPaymentsAction } = await import("@/app/c/[slug]/settings/actions");
+    expect(await disconnectPaymentsAction(portal.clinicSlug)).toEqual({
+      ok: false,
+      message: expect.stringMatching(/^Disconnecting your payment account needs Face ID/),
+      stepUpHref: `/c/${portal.clinicSlug}/step-up?next=${encodeURIComponent(`/c/${portal.clinicSlug}/settings`)}`,
+    });
+    expect(touched).not.toHaveBeenCalled();
+    expect(
+      await sql(`select stripe_connect_account_id from clinics where id = $1`, [portal.clinicId]),
+    ).toEqual([{ stripe_connect_account_id: "acct_1TestDeposit" }]);
+  });
+
+  test("a real step-up: only a live step_ups row on this session lets the direct line change, the change is named by its device, and it counts as activity", async () => {
+    // A passkey on the clinic's sign-in, as "Add this device" leaves it.
+    const factorId = randomUUID();
+    await sql(
+      `insert into user_factors (id, user_id, kind, device_label, credential_id, public_key, counter, transports, backed_up)
+       values ($1, $2, 'passkey', 'Back office PC', $3, $4, 0, '{internal}', true)`,
+      [factorId, portal.userId, randomBytes(16).toString("base64url"), randomBytes(77)],
+    );
+    sessionToken = randomBytes(24).toString("base64url");
+    const latest = async () =>
+      (
+        await inTenant(
+          portal.clinicId,
+          async (c) =>
+            (
+              await c.query<{ after_value: string; actor_label: string }>(
+                `select after_value, actor_label from clinic_settings_history
+                  where field = 'direct_line_e164' order by changed_at desc limit 1`,
+              )
+            ).rows,
+        )
+      )[0]!;
+    const before = await latest();
+
+    // No step-up on this session yet: refused, and nothing written.
+    expect(await save("direct_line", "(512) 555-0155")).toMatchObject({
+      ok: false,
+      stepUpHref: expect.any(String),
+    });
+    expect(await latest()).toEqual(before);
+
+    // The passkey ceremony's row, five minutes ago, on another session: not this one's.
+    const stepUpRow = async (token: string) =>
+      (
+        await sql<{ id: string }>(
+          `insert into step_ups (session_token_hash, user_id, factor_id, device_label, created_at, last_activity_at)
+           values ($1, $2, $3, 'Back office PC', now() - interval '5 minutes', now() - interval '5 minutes')
+           returning id`,
+          [hashSessionToken(token), portal.userId, factorId],
+        )
+      )[0]!.id;
+    await stepUpRow(randomBytes(24).toString("base64url"));
+    expect(await save("direct_line", "(512) 555-0155")).toMatchObject({ ok: false });
+
+    // This session's: the change goes through, under the device's name.
+    const id = await stepUpRow(sessionToken);
+    expect(await save("direct_line", "(512) 555-0155")).toMatchObject({ ok: true });
+    expect(await latest()).toEqual({ after_value: "+15125550155", actor_label: "Back office PC" });
+    const [row] = await sql<{ touched: boolean }>(
+      `select last_activity_at > created_at + interval '1 minute' as touched from step_ups where id = $1`,
+      [id],
+    );
+    expect(row).toEqual({ touched: true });
+
+    // Removing the device ends what it stepped up: the next change is refused.
+    await sql(`update user_factors set revoked_at = now() where id = $1`, [factorId]);
+    expect(await save("direct_line", "(512) 555-0144")).toMatchObject({ ok: false });
   });
 });

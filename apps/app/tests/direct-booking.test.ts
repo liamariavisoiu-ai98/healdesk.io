@@ -33,7 +33,7 @@ import { __resetVoiceToolLimitsForTests, callRefOf, depositLine, VOICE_TOOL_LIMI
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { freshGoogle, installGoogleEnv, restoreGoogleEnv } from "./setup/desk-calendar";
-import { inTenant, seedCalendarTerms, seedClinic, seedDemoClinic, seedEntitled, seedGoogleConnection } from "./setup/factories";
+import { inTenant, seedCalendarTerms, seedClinic, seedEntitled, seedGoogleConnection, seedLegacyDemoClinic } from "./setup/factories";
 
 /**
  * The Synthflow mid-call tool routes, a pre-Retell test harness (plan
@@ -236,7 +236,7 @@ describeDb("the voice tools", () => {
    * approved script. With the owner's switch on, its booking mode is live.
    */
   async function liveDemoClinic(label: string) {
-    const demo = await seedDemoClinic(label);
+    const demo = await seedLegacyDemoClinic(label);
     await getMigratorPool().query(
       `update clinics set timezone = $2, timezone_confirmed_at = now(), opening_hours = $3::jsonb where id = $1`,
       [demo.clinicId, TZ, HOURS],

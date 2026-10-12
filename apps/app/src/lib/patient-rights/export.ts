@@ -171,14 +171,13 @@ export async function exportPatient(
 /**
  * Amendment where the record can be changed: a real correction.
  *
- * BAA 1.3.0's clause 14(b): "Where the record can be changed, healdesk
- * corrects its own copy." A contact's name, number and address are that
- * kind of record, so the row changes, and the audit row says which fields
- * changed and who asked, never what they said: a "prior" that carried the
- * old name would keep the wrong data the amendment exists to remove. The
- * records that must stay as they were made (a booking request, a
- * conversation) take an appended amendment instead
- * (lib/patient-rights/amendments.ts). The operator's path is
+ * BAA 1.3.0's clause 14(b): "healdesk corrects a person's contact details in
+ * its own copy." A contact's name, number and address are those details, so
+ * the row changes, and the audit row says which fields changed and who
+ * asked, never what they said: a "prior" that carried the old name would
+ * keep the wrong data the amendment exists to remove. The records healdesk
+ * does not rewrite (a booking request, an appointment, a conversation) take
+ * an appended amendment instead (lib/patient-rights/amendments.ts). The operator's path is
  * `npm run ops:amend-contact` in apps/app's own shell (lib/ops/patient-entry.ts),
  * never apps/web; the portal's comes with M5.
  */

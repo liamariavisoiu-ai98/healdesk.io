@@ -129,8 +129,9 @@ describeDb("retention purge", () => {
   });
 
   test("the portal's transcript setting shortens transcripts, and only transcripts, and never lengthens them", async () => {
-    // BAA 1.3.0 clause 11: "Practice may shorten these periods in its
-    // portal". The portal's setting (90, 30 or 7 days) was read by nothing.
+    // BAA 1.3.0 clause 11: "Practice may shorten the period for transcripts
+    // in its portal". The portal's setting (90, 30 or 7 days) was read by
+    // nothing.
     const transcriptKept = async (label: string, settingDays: number | null, mediaDays?: number) => {
       const c = await seedClinic(label);
       if (mediaDays) {

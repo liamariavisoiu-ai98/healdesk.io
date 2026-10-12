@@ -321,8 +321,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   // The transcript clock: the practice's portal setting (Settings, 90, 30 or
   // 7 days; clinic_settings.transcript_retention_days) may shorten the media
   // clock, never lengthen it, and reaches transcripts only, no other record
-  // (BAA 1.3.0 clause 11, "Practice may shorten these periods in its
-  // portal"). A clinic with no settings row keeps the media clock.
+  // (BAA 1.3.0 clause 11, "Practice may shorten the period for transcripts
+  // in its portal"). A clinic with no settings row keeps the media clock.
   const [settings] = await tx.db
     .select({ transcriptDays: clinicSettings.transcriptRetentionDays })
     .from(clinicSettings)

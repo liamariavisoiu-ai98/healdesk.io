@@ -58,6 +58,9 @@ describeDb("the setup wizard's actions", () => {
       isCoveredEntity: false,
       attributionMode: "estimated",
       platform: "none",
+      // BAA 1.3.0, the current version, reads both calendar answers.
+      bookingSystem: "none",
+      calendarAccount: "workspace_no_baa",
       assentLabel: BAA_ASSENT_LABEL,
       templateVersion: CURRENT_BAA_VERSION,
     });

@@ -29,9 +29,9 @@ import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/fac
 /**
  * The amendment record (BAA 1.3.0 release gate 8; PT-17).
  *
- * Clause 14(b): where a record must stay as it was made, "such as a booking
- * request or the record of a conversation, healdesk appends the amendment to
- * it and links the two ... Every later use and export of that record then
+ * Clause 14(b): healdesk "does not rewrite a booking request, an appointment
+ * record or the record of a conversation: it appends the amendment to that
+ * record and links the two ... Every later use and export of that record then
  * carries the amendment." Until this gate nothing could hold one. These tests
  * hold the table, its writers, both exports and every path that deletes a
  * record to the clause: an amendment is appended, never changed, only ever

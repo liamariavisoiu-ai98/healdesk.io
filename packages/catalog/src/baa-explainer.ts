@@ -203,9 +203,9 @@ const BAA_EXPLAINERS_BY_VERSION: Readonly<Record<string, BaaExplainer>> = Object
 /**
  * The whole of "Why you're signing this" for one version of the agreement,
  * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.2, the
- * signed version, for 1.2.1 before it, and for any version that words no
- * bullet differently, so
- * what that screen shows stays byte for byte what it shows today; for 1.3.0,
+ * version signed until 1.3.0's release, for 1.2.1 before it, and for any
+ * version that words no bullet differently, so what that screen shows for
+ * them stays byte for byte what it showed; for 1.3.0, the current version,
  * the same heading, lead, objection and disclaimer above 1.3.0's bullets.
  * The signing screen takes the explainer from here with the version it
  * renders, never BAA_EXPLAINER directly (agreement-changes.md §12.14, release
@@ -239,14 +239,15 @@ export type ExplainedClauseId =
  * rules apply — descriptive, never "you need this", and the agreement governs.
  *
  * ⚖️ Every note here must stay true to the clause it explains, in every
- * version that renders that clause id. The signing screen renders only the
- * current template (1.2.2 today, 1.3.0 once released), and three ids carry a
+ * version that renders that clause id. The signing screen renders the
+ * current template (1.3.0 since its release on 13 October 2026; 1.2.2
+ * before, and for a checkout opened before it), and three ids carry a
  * different body in each: data-sources-none, minimum-necessary and
  * subcontractors. The pre-release audit of 6 October 2026 changed what each
  * of them says in 1.3.0 (the sources of patient information, the booking
  * fields and retention, Anthropic in covenant form and where a notice goes),
- * so this map keeps 1.2.1's notes, word for word what the live checkout
- * shows, and 1.3.0's are in BAA_CLAUSE_EXPLAINERS_BY_VERSION;
+ * so this map keeps 1.2.1's notes, word for word what the checkout showed
+ * for 1.2.1 and 1.2.2, and 1.3.0's are in BAA_CLAUSE_EXPLAINERS_BY_VERSION;
  * `clauseExplainer` picks between them. 1.2.2 shows the same notes as 1.2.1:
  * its clauses are 1.2.1's objects except reporting, subcontractors and
  * notices, and what the subcontractors note says (fifteen days' notice, the

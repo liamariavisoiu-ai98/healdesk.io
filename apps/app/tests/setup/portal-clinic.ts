@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import { BAA_ASSENT_LABEL, CURRENT_BAA_VERSION } from "@healdesk/catalog";
+import {
+  agreementPlatformFor,
+  BAA_ASSENT_LABEL,
+  CURRENT_BAA_VERSION,
+  type BookingSystemId,
+  type CalendarAccount,
+} from "@healdesk/catalog";
 
 import { signAgreement } from "@/lib/agreements";
 import { provisionClinic } from "@/lib/provisioning";
@@ -10,6 +16,11 @@ import { provisionClinic } from "@/lib/provisioning";
  * signed, the clinic provisioned on `plan` with its one sign-in, its
  * bought channels, settings defaults and knowledge. Synthetic, like every
  * fixture: provisioning's clinics start `synthetic`.
+ *
+ * The agreement is the current version, 1.3.0 since its release, signed with
+ * the two calendar answers it reads; provisioning records the location's
+ * first calendar terms from them. The default, no booking system and a
+ * Workspace account without Google's agreement, is the uncovered clause.
  */
 export type PortalClinic = {
   userId: string;
@@ -20,10 +31,17 @@ export type PortalClinic = {
 
 export async function provisionPortalClinic(
   label: string,
-  options: { plan?: string; specialty?: string } = {},
+  options: {
+    plan?: string;
+    specialty?: string;
+    bookingSystem?: BookingSystemId;
+    calendarAccount?: CalendarAccount;
+  } = {},
 ): Promise<PortalClinic> {
   const email = `${label}-${randomUUID().slice(0, 8)}@glowspa.test`;
   const specialty = options.specialty ?? "med-spa";
+  const bookingSystem = options.bookingSystem ?? "none";
+  const platform = agreementPlatformFor(bookingSystem);
   const signed = await signAgreement({
     clinicLegalName: `${label} Med Spa LLC`,
     specialty,
@@ -31,14 +49,16 @@ export async function provisionPortalClinic(
     signatoryEmail: email,
     isCoveredEntity: false,
     attributionMode: "estimated",
-    platform: "none",
+    platform,
+    bookingSystem,
+    calendarAccount: options.calendarAccount ?? "workspace_no_baa",
     assentLabel: BAA_ASSENT_LABEL,
     templateVersion: CURRENT_BAA_VERSION,
   });
   const result = await provisionClinic({
     clinicName: `${label} Med Spa LLC`,
     specialty,
-    platform: "none",
+    platform,
     plan: options.plan ?? "web-voice",
     contactName: "Laura Owner",
     contactEmail: email,

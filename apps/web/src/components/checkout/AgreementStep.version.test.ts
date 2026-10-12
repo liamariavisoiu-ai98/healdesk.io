@@ -13,11 +13,13 @@ import { type AgreementResult, AgreementStep } from "./AgreementStep";
  * Everything the buyer reads is one version's: the "Version …" line, the
  * bullets of "Why you're signing this" and the document itself; and the
  * signature request names that same version and the hash of that same
- * document. While 1.2.1 is current that is 1.2.1, with BAA_EXPLAINER's bullets
- * word for word. For 1.3.0, which nothing offers until its release, the step
- * is handed the entry the funnel will hold then (`baaAgreementCopy` for
- * 1.3.0's template), and must show 1.3.0's bullets above 1.3.0's text: never
- * "use it only" and "materially breach" above a clause that says more.
+ * document. Since its release on 13 October 2026 that is 1.3.0, the funnel's
+ * own entry, which must show 1.3.0's bullets above 1.3.0's text: never "use
+ * it only" and "materially breach" above a clause that says more. 1.2.2,
+ * which a screen loaded before the release may still show and the server
+ * signs inside its overlap, is handed to the step as that screen held it
+ * (`baaAgreementCopy` for 1.2.2's template), with BAA_EXPLAINER's bullets
+ * word for word.
  *
  * Run in a DOM, as the "Sign again" test is, because the signature is an
  * effect and a fetch, which static markup never runs.
@@ -126,7 +128,8 @@ function documentText(): string {
 }
 
 describe("the agreement step renders the version it signs (gate 11)", () => {
-  test("1.2.2, the signed version: BAA_EXPLAINER's bullets word for word, above 1.2.2, signing 1.2.2", async () => {
+  test("1.2.2, signed inside its overlap: BAA_EXPLAINER's bullets word for word, above 1.2.2, signing 1.2.2", async () => {
+    shown.version = "1.2.2";
     const onSigned = vi.fn();
     await renderStep(onSigned);
 
@@ -144,8 +147,8 @@ describe("the agreement step renders the version it signs (gate 11)", () => {
     await vi.waitFor(() => expect(onSigned).toHaveBeenCalled());
   });
 
-  test("1.3.0: its own bullets above its own text, and the request names 1.3.0", async () => {
-    shown.version = "1.3.0";
+  test("1.3.0, the current version: its own bullets above its own text, and the request names 1.3.0", async () => {
+    // The funnel's own entry, not one handed to the step.
     const onSigned = vi.fn();
     await renderStep(onSigned);
 
@@ -162,6 +165,11 @@ describe("the agreement step renders the version it signs (gate 11)", () => {
 
     const request = await sign();
     expect(request.templateVersion).toBe("1.3.0");
+    // Both answers 1.3.0's calendar clause is chosen by, as the step was given them.
+    expect(request).toMatchObject({
+      bookingSystem: "google_calendar",
+      calendarAccount: "workspace_baa",
+    });
     expect(request.displayedHash).toBe(hashBaaText(text));
     await vi.waitFor(() => expect(onSigned).toHaveBeenCalled());
   });

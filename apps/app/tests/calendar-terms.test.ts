@@ -46,8 +46,8 @@ import {
   inTenant,
   seedCalendarTerms,
   seedClinic,
-  seedDemoClinic,
   seedGoogleConnection,
+  seedLegacyDemoClinic,
   seedPortalUser,
   type SeededClinic,
 } from "./setup/factories";
@@ -63,24 +63,31 @@ import {
  * what an election does after it, through the code paths production uses.
  * Every clinic, agreement and account here is synthetic.
  *
- * The catalogue's release flag for the election document can be flipped
- * here (as tests/agreement-kinds.test.ts flips the DPA's), to show that a
- * release never upgrades a row recorded as a draft; and so can whether BAA
- * 1.3.0 is a version an account may be put under, standing in for its
- * release (plan C19), so that provisioning (C15) can be shown recording a
- * 1.3.0 signature's terms. Nothing else in the catalogue changes.
+ * calendar-election/1.0.0 was released with BAA 1.3.0 (plan C19, 13 October
+ * 2026), so no BAA election is a draft any more. To show what a draft does,
+ * and that a release never upgrades a row recorded as one, the BAA's form
+ * can be swapped here for an unreleased later version (`draft.election`),
+ * which the database's list of releases (app_calendar_election_released)
+ * leaves out, as it would a real one. Nothing else in the catalogue changes.
  */
-const release = vi.hoisted(() => ({ election: false, baa130: false }));
+const draft = vi.hoisted(() => ({ election: false }));
+const DRAFT_ELECTION = "calendar-election/1.1.0-draft";
 vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
-  const flip = <T extends { approvedByCounsel: boolean } | undefined>(election: T): T =>
-    election && release.election ? { ...election, approvedByCounsel: true } : election;
+  const asDraft = <T extends { version: string; approvedByCounsel: boolean } | undefined>(
+    election: T,
+  ): T =>
+    election && draft.election && election.version === actual.CALENDAR_ELECTION_VERSION
+      ? { ...election, version: DRAFT_ELECTION, approvedByCounsel: false }
+      : election;
   return {
     ...actual,
-    currentCalendarElection: () => flip(actual.currentCalendarElection()),
-    getCalendarElection: (version: string) => flip(actual.getCalendarElection(version)),
-    isBaaVersionAcceptable: (version: string) =>
-      actual.isBaaVersionAcceptable(version) || (release.baa130 && version === "1.3.0"),
+    currentCalendarElection: () => asDraft(actual.currentCalendarElection()),
+    calendarElectionFor: (version: string) => asDraft(actual.calendarElectionFor(version)),
+    getCalendarElection: (version: string) =>
+      version === DRAFT_ELECTION
+        ? asDraft(actual.getCalendarElection(actual.CALENDAR_ELECTION_VERSION))
+        : actual.getCalendarElection(version),
   };
 });
 
@@ -258,8 +265,7 @@ describeDb("calendar terms at runtime", () => {
   }, 60_000);
 
   afterEach(() => {
-    release.election = false;
-    release.baa130 = false;
+    draft.election = false;
     setGoogleFetch(undefined);
   });
 
@@ -346,6 +352,9 @@ describeDb("calendar terms at runtime", () => {
         isCoveredEntity: false,
         attributionMode: "estimated",
         platform: "none",
+        // BAA 1.3.0, the current version, reads both calendar answers.
+        bookingSystem: "none",
+        calendarAccount: "workspace_no_baa",
         assentLabel: BAA_ASSENT_LABEL,
         templateVersion: CURRENT_BAA_VERSION,
       });
@@ -354,12 +363,18 @@ describeDb("calendar terms at runtime", () => {
         specialty: "med-spa",
         platform: "none",
         isCoveredEntity: false,
-      };
+        bookingSystem: "none",
+        calendarAccount: "workspace_no_baa",
+      } as const;
       await expect(
         assertPlatformMatchesAgreement(signed.agreementId, purchase),
       ).resolves.toBeUndefined();
       await expect(
-        assertPlatformMatchesAgreement(signed.agreementId, { ...purchase, platform: "mindbody" }),
+        assertPlatformMatchesAgreement(signed.agreementId, {
+          ...purchase,
+          bookingSystem: "mindbody",
+          platform: "mindbody",
+        }),
       ).rejects.toMatchObject({
         name: "AgreementMismatchError",
         field: "agreementId",
@@ -481,8 +496,6 @@ describeDb("calendar terms at runtime", () => {
   test(
     "a location provisioned under a 1.3.0 signature is under its signed terms from the start, and the database reads them too (C15)",
     async () => {
-      // Standing in for the release (C19): until then provisioning refuses 1.3.0.
-      release.baa130 = true;
       const sign = async (
         email: string,
         answers: Pick<SignAgreementRequest, "platform" | "bookingSystem" | "calendarAccount">,
@@ -551,7 +564,7 @@ describeDb("calendar terms at runtime", () => {
 
       // 1.2.2 carries no calendar terms, so a location provisioned under it
       // waits for an election, and none was recorded. Signed by its version
-      // rather than as whatever is current, which 1.3.0 becomes at release.
+      // rather than as whatever is current, which 1.3.0 is since its release.
       const legacyEmail = `owner-${randomUUID().slice(0, 8)}@legacy.test`;
       const legacy = await sign(legacyEmail, { platform: "none" }, "1.2.2");
       const legacyClinic = await provision(legacyEmail, legacy.agreementId);
@@ -575,6 +588,7 @@ describeDb("calendar terms at runtime", () => {
       expect(await terms(clinic.clinicId)).toMatchObject({ kind: "covered", sequence: 1 });
 
       // A draft election, which counts here because this is a demo clinic.
+      draft.election = true;
       const narrowed = await elect(clinic.clinicId, MINDBODY, {
         source: "portal",
         userId: clinic.staffUserId,
@@ -610,11 +624,11 @@ describeDb("calendar terms at runtime", () => {
   test(
     "a demo clinic's draft terms count; once it is a customer neither the resolver nor the database counts them, and a release never upgrades them",
     async () => {
-      const demo = await seedDemoClinic("terms-demo");
+      const demo = await seedLegacyDemoClinic("terms-demo");
       expect(await withTenant({ clinicId: demo.clinicId, actor }, (tx) => isDemoClinic(tx))).toBe(
         true,
       );
-      // Its agreement is the current template, which carries no calendar terms.
+      // Its agreement is 1.2.2, which carries no calendar terms.
       expect(await terms(demo.clinicId)).toMatchObject({
         kind: "needs_election",
         reason: "legacy_agreement",
@@ -622,6 +636,7 @@ describeDb("calendar terms at runtime", () => {
       });
 
       // Its owner, the operator's own sign-in, elects covered terms in the portal: a draft, counted.
+      draft.election = true;
       const recorded = await elect(demo.clinicId, COVERED, {
         source: "portal",
         userId: demo.staffUserId,
@@ -651,7 +666,7 @@ describeDb("calendar terms at runtime", () => {
 
       // The catalogue releasing the document changes nothing for a row
       // recorded as a draft: the row says what was true when it was accepted.
-      release.election = true;
+      draft.election = false;
       expect(getCalendarElection("calendar-election/1.0.0")?.approvedByCounsel).toBe(true);
       expect(await terms(demo.clinicId)).toMatchObject({
         kind: "needs_election",
@@ -675,8 +690,10 @@ describeDb("calendar terms at runtime", () => {
         reason: "no_agreement",
       });
 
+      // Under a draft form, a location that is not the demo clinic records nothing.
       const legacy = await seedClinic("elect-unreleased");
       await bindLegacyAgreement(legacy);
+      draft.election = true;
       expect(
         await withTenant({ clinicId: legacy.clinicId, actor }, (tx) =>
           planCalendarElection(tx, MINDBODY),
@@ -689,6 +706,13 @@ describeDb("calendar terms at runtime", () => {
         reason: "draft_terms",
       });
       expect(await electionRows(legacy.clinicId)).toEqual([]);
+      // Released (calendar-election/1.0.0, plan C19), the same election is ready.
+      draft.election = false;
+      expect(
+        await withTenant({ clinicId: legacy.clinicId, actor }, (tx) =>
+          planCalendarElection(tx, MINDBODY),
+        ),
+      ).toMatchObject({ status: "ready" });
 
       // Bad answers are refused before anything is read.
       await expect(
@@ -717,7 +741,7 @@ describeDb("calendar terms at runtime", () => {
   test(
     "a narrowing election through a recipients link is recorded as the server rendered it, names the booking system and spends the link",
     async () => {
-      const demo = await seedDemoClinic("elect-narrow");
+      const demo = await seedLegacyDemoClinic("elect-narrow");
       const link = await insertCalendarLink(demo.clinicId, { sentTo: ["front@radiance.test"] });
 
       const outcome = await elect(
@@ -734,7 +758,8 @@ describeDb("calendar terms at runtime", () => {
           kind: "not_used",
           widened: false,
           ownerConfirmed: false,
-          documentReleased: false,
+          // calendar-election/1.0.0, released with BAA 1.3.0 (plan C19).
+          documentReleased: true,
           erased: null,
           consumedLink: { linkId: link, audience: "recipients", sentTo: ["front@radiance.test"] },
         },
@@ -772,7 +797,7 @@ describeDb("calendar terms at runtime", () => {
       });
       // Nor does another clinic's link, or a link that is not a calendar link.
       const elsewhere = await insertCalendarLink(
-        (await seedDemoClinic("elect-narrow-other")).clinicId,
+        (await seedLegacyDemoClinic("elect-narrow-other")).clinicId,
       );
       expect(
         await elect(demo.clinicId, MINDBODY, { source: "calendar_link", linkId: elsewhere }),
@@ -790,7 +815,7 @@ describeDb("calendar terms at runtime", () => {
   test(
     "a widening election through a recipients link records nothing and asks for the owner, whose confirm link records it unless it has changed",
     async () => {
-      const demo = await seedDemoClinic("elect-widen");
+      const demo = await seedLegacyDemoClinic("elect-widen");
       const recipients = await insertCalendarLink(demo.clinicId);
 
       const asked = await elect(demo.clinicId, COVERED, {
@@ -864,7 +889,7 @@ describeDb("calendar terms at runtime", () => {
   test(
     "in the portal the setting is the owner's: the owner's own sign-in widens and narrows, another member records nothing, nor does a stranger",
     async () => {
-      const demo = await seedDemoClinic("elect-portal");
+      const demo = await seedLegacyDemoClinic("elect-portal");
       const owner = { source: "portal", userId: demo.staffUserId } as const;
       expect(await elect(demo.clinicId, NO_BAA, owner)).toMatchObject({
         status: "recorded",
@@ -906,7 +931,7 @@ describeDb("calendar terms at runtime", () => {
     async () => {
       const google = fakeGoogleCalendar();
       setGoogleFetch(google.fetch);
-      const demo = await seedDemoClinic("elect-erase");
+      const demo = await seedLegacyDemoClinic("elect-erase");
       const owner = { source: "portal", userId: demo.staffUserId } as const;
       await elect(demo.clinicId, COVERED, owner);
       const { connectionId, accountRef } = await seedGoogleConnection(demo.clinicId, {
@@ -975,7 +1000,7 @@ describeDb("calendar terms at runtime", () => {
   test(
     "an election keeps a connection of the account kind it names and erases one of another kind",
     async () => {
-      const demo = await seedDemoClinic("elect-kind");
+      const demo = await seedLegacyDemoClinic("elect-kind");
       const owner = { source: "portal", userId: demo.staffUserId } as const;
       await elect(demo.clinicId, COVERED, owner);
       const { connectionId } = await seedGoogleConnection(demo.clinicId, { managed: true });
@@ -1007,7 +1032,7 @@ describeDb("calendar terms at runtime", () => {
   test(
     "two elections racing for one number are numbered one after the other",
     async () => {
-      const demo = await seedDemoClinic("elect-race");
+      const demo = await seedLegacyDemoClinic("elect-race");
       const owner = { source: "portal", userId: demo.staffUserId } as const;
 
       // A records and holds its transaction open; B's insert then waits on

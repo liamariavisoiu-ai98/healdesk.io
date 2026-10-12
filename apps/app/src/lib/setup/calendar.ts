@@ -39,9 +39,10 @@ import type { SetupSettings } from "./settings";
  * to Google: the deployment can ask Google and keep what it grants
  * (calendarConnectProblem: the OAuth client, sealing, the public origin), and
  * the location's calendar terms let healdesk write to a calendar. Everywhere
- * else, which before the calendar session's C19 is every clinic that signed
- * BAA 1.2.2, or any version before 1.3.0 (its terms resolve to
- * `needs_election`), the step says
+ * else, which includes every clinic that signed BAA 1.2.2, or any version
+ * before 1.3.0, until it records a calendar election (its terms resolve to
+ * `needs_election`; the election form is released with 1.3.0 since 13
+ * October 2026), the step says
  * "Bookings arrive as requests your team confirms." with no button: a button
  * that goes nowhere breaks the rule that every link works the day it ships.
  */

@@ -511,7 +511,7 @@ describeDb("the front door, end to end", () => {
 
     // No agreement in effect, then an unreleased draft in effect: refused.
     expect((await turnOn()).data.message).toMatch(/agreement in effect must be a released version/);
-    await bind("1.3.0", new Date(Date.now() - 60 * 60 * 1000).toISOString());
+    await bind("1.1.0-draft", new Date(Date.now() - 60 * 60 * 1000).toISOString());
     expect((await turnOn()).data.message).toMatch(/agreement in effect must be a released version/);
     expect(await doorOn()).toBe(false);
 

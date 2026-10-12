@@ -52,7 +52,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedCalendarTerms, seedClinic, seedDemoClinic } from "./setup/factories";
+import { inTenant, seedCalendarTerms, seedClinic, seedLegacyDemoClinic } from "./setup/factories";
 
 /**
  * Connecting a location's Google Calendar (plan §4, as the addendum changed
@@ -694,7 +694,7 @@ describeDb("connecting a Google Calendar", () => {
     async () => {
       // A demo clinic, the only kind that may record an election before the
       // document is released, under covered terms the owner recorded.
-      const demo = await seedDemoClinic("gc-domain-elect");
+      const demo = await seedLegacyDemoClinic("gc-domain-elect");
       const covered = await withTenant({ clinicId: demo.clinicId, actor: ACTOR }, (tx) =>
         recordCalendarElection(tx, {
           choice: { bookingSystem: "google_calendar", calendarAccount: "workspace_baa" },
@@ -847,7 +847,7 @@ describeDb("connecting a Google Calendar", () => {
       expect(await refusal({ ...base, disclosureVersion: "google-calendar-disclosure/0" })).toBe(
         "disclosure",
       );
-      const demo = await seedDemoClinic("gc-portal-start-elect");
+      const demo = await seedLegacyDemoClinic("gc-portal-start-elect");
       expect(
         await refusal({
           clinicId: demo.clinicId,
@@ -997,7 +997,7 @@ describeDb("connecting a Google Calendar", () => {
   );
 
   test(
-    "the automatic calendar link goes when the terms allow writing, and not for a legacy agreement before its election is released, or for manual booking",
+    "the automatic calendar link goes when the terms allow writing or a legacy agreement's election can be recorded, and not for manual booking",
     async () => {
       const live = await seedClinic("gc-offer-live");
       await seedCalendarTerms(live);
@@ -1019,10 +1019,13 @@ describeDb("connecting a Google Calendar", () => {
                  'I agree', 'Alex Chen', 'alex@radiance.test', now(), now())`,
         [randomUUID(), legacy.organizationId, "b".repeat(64)],
       );
-      expect(await offerCalendarLink(legacy.clinicId, "provisioning")).toEqual({
-        status: "skipped",
-        reason: "nothing_to_do",
-      });
+      // Its election is released (calendar-election/1.0.0, plan C19), so a
+      // practice that signed before 1.3.0 is sent the link to record one.
+      expect(await offerCalendarLink(legacy.clinicId, "provisioning")).toEqual({ status: "sent" });
+      expect(sent.map((email) => email.to)).toEqual([
+        live.staffEmail.toLowerCase(),
+        legacy.staffEmail.toLowerCase(),
+      ]);
 
       const manual = await seedClinic("gc-offer-manual");
       await seedCalendarTerms(manual, { bookingSystem: "mindbody" });
@@ -1043,7 +1046,7 @@ describeDb("connecting a Google Calendar", () => {
       } finally {
         process.env.GOOGLE_OAUTH_CLIENT_ID = FAKE_GOOGLE_CLIENT.clientId;
       }
-      expect(sent).toHaveLength(1);
+      expect(sent).toHaveLength(2);
     },
     SLOW,
   );
@@ -1080,7 +1083,7 @@ describeDb("connecting a Google Calendar", () => {
   test(
     "elections through a link: a narrowing one is recorded and spends its link for a new one; a widening one records nothing until the owner confirms",
     async () => {
-      const demo = await seedDemoClinic("gc-elect");
+      const demo = await seedLegacyDemoClinic("gc-elect");
       const token = await recipientsLink(demo.clinicId);
       expect((await calendarLinkPage(token)).state).toBe("election");
 
@@ -1213,7 +1216,7 @@ describeDb("connecting a Google Calendar", () => {
   test(
     "a location whose terms need an election, or are manual, is not sent to Google",
     async () => {
-      const demo = await seedDemoClinic("gc-noterms");
+      const demo = await seedLegacyDemoClinic("gc-noterms");
       const token = await recipientsLink(demo.clinicId);
       const link = (await resolveConnectionLink(token, {}, "calendar"))!;
       await expect(

@@ -43,27 +43,69 @@ import {
  * renders its own copy from the signature request and refuses a signature
  * whose hash differs. So the funnel's preview, built through the catalog's
  * buildBaaSelections with the platform the booking system implies, must come
- * out byte for byte as apps/app's signing path builds it today (from
- * `platform`, in apps/app/src/lib/agreements.ts), for every combination the
- * funnel can produce: every offered specialty, every covered-entity answer,
- * every booking system and every kind of Google account.
+ * out byte for byte as apps/app's signing path builds it (prepareAgreement in
+ * apps/app/src/lib/agreements.ts, from the signature request's answers), for
+ * every combination the funnel can produce: every offered specialty, every
+ * covered-entity answer, every booking system and every kind of Google
+ * account. Since 13 October 2026 the current version is 1.3.0, whose
+ * calendar clause both answers choose.
  */
 
-/** apps/app's signAgreement, as it builds the document from a signature request. */
+/**
+ * apps/app's prepareAgreement, as it builds the document from a signature
+ * request: the catalog's builder over the answers the request carries (the
+ * booking system, the platform AgreementStep sends beside it and the kind of
+ * Google account), the names trimmed and the address lower-cased.
+ */
 function serverRender(input: {
   clinicLegalName: string;
   specialty: string;
   platform: string;
+  bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"];
+  calendarAccount: (typeof CALENDAR_ACCOUNTS)[number];
   isCoveredEntity: boolean | null;
   signatoryName: string;
   signatoryTitle?: string;
   signatoryEmail: string;
   effectiveDate: string;
 }): string {
+  const template = currentBaaTemplate();
   const variables: BaaVariables = {
+    ...buildBaaSelections({
+      specialtyId: input.specialty,
+      attributionMode: "estimated",
+      bookingSystem: input.bookingSystem,
+      platformId: input.platform,
+      isCoveredEntity: input.isCoveredEntity,
+      calendarAccount: input.calendarAccount,
+      template,
+    }),
     clinicLegalName: input.clinicLegalName.trim(),
     signatoryName: input.signatoryName.trim(),
     signatoryTitle: input.signatoryTitle?.trim() || undefined,
+    signatoryEmail: input.signatoryEmail.trim().toLowerCase(),
+    effectiveDate: input.effectiveDate,
+  };
+  return renderBaa(template, variables);
+}
+
+/**
+ * apps/app's signing as it built a document before plan C3, from the
+ * picker's platform alone: what a 1.2.2 document, signed inside its overlap,
+ * still names.
+ */
+function legacyRender122(input: {
+  clinicLegalName: string;
+  specialty: string;
+  platform: string;
+  isCoveredEntity: boolean | null;
+  signatoryName: string;
+  signatoryEmail: string;
+  effectiveDate: string;
+}): string {
+  return renderBaa(getBaaTemplate("1.2.2")!, {
+    clinicLegalName: input.clinicLegalName.trim(),
+    signatoryName: input.signatoryName.trim(),
     signatoryEmail: input.signatoryEmail.trim().toLowerCase(),
     effectiveDate: input.effectiveDate,
     specialty: specialties.find((s) => s.id === input.specialty)?.name ?? input.specialty,
@@ -74,8 +116,7 @@ function serverRender(input: {
     outboundMessaging: false,
     bookingMode: "desk_confirms",
     calendarWrite: null,
-  };
-  return renderBaa(currentBaaTemplate(), variables);
+  });
 }
 
 /** Rendering a whole agreement twice, 72 times per specialty, is slow under a busy runner. */
@@ -118,6 +159,8 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
               ...signer,
               specialty: specialty.id,
               platform: agreementPlatformFor(system.id),
+              bookingSystem: system.id,
+              calendarAccount: account,
               isCoveredEntity: choice.isCoveredEntity,
             });
             expect(preview.text, `${specialty.id} ${covered} ${system.id} ${account}`).toBe(stored);
@@ -131,9 +174,9 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
     RENDER_TIMEOUT_MS,
   );
 
-  test("a booking system with a phase-two platform names it; one without names none", () => {
-    const render = (bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"]) =>
-      AGREEMENT_COPY.baa.render({
+  test("1.3.0 names the booking system answered; 1.2.2 named its phase-two platform, or none", () => {
+    const input = (bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"]) =>
+      ({
         clinicLegalName: "Glow Med Spa LLC",
         specialty: "med-spa",
         isCoveredEntity: false,
@@ -142,9 +185,23 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
         signatoryName: "Laura Owner",
         signatoryEmail: "info@glowmedspa.com",
         effectiveDate: "2026-10-06",
-      }).text;
+      }) as const;
+    const render = (bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"]) =>
+      AGREEMENT_COPY.baa.render(input(bookingSystem)).text;
+    expect(AGREEMENT_COPY.baa.version).toBe("1.3.0");
     expect(render("mindbody")).toContain("Mindbody");
-    expect(render("calendly")).not.toContain("Calendly");
+    expect(render("calendly")).toContain("Calendly");
+    // A 1.2.2 screen, loaded before the release, rendered the platform the
+    // booking system implies, as the server signing it inside its overlap does.
+    const v122 = baaAgreementCopy(getBaaTemplate("1.2.2")!);
+    for (const system of ["mindbody", "calendly"] as const) {
+      const preview = v122.render(input(system)).text;
+      expect(preview, system).toBe(
+        legacyRender122({ ...input(system), platform: agreementPlatformFor(system) }),
+      );
+    }
+    expect(v122.render(input("mindbody")).text).toContain("Mindbody");
+    expect(v122.render(input("calendly")).text).not.toContain("Calendly");
   });
 });
 
@@ -261,16 +318,20 @@ describe("the DPA the buyer reads is the one apps/app stores, once it is release
 describe("AGREEMENT_COPY", () => {
   test("holds the Business Associate Agreement, with its own explainer and assent wording", () => {
     expect(AGREEMENT_COPY.baa.title).toBe("Business Associate Agreement");
-    expect(AGREEMENT_COPY.baa.explainer).toBe(BAA_EXPLAINER);
+    // The current version's explainer: BAA_EXPLAINER's frame above 1.3.0's bullets.
+    expect(AGREEMENT_COPY.baa.explainer.heading).toBe(BAA_EXPLAINER.heading);
+    expect(AGREEMENT_COPY.baa.explainer.terms).toBe(baaExplainerTerms("1.3.0"));
     expect(AGREEMENT_COPY.baa.assentLabel).toBe("I agree to the Business Associate Agreement");
     expect(AGREEMENT_COPY.baa.version).toBe(currentBaaTemplate().version);
     expect(AGREEMENT_COPY.baa.fileStem).toBe("healdesk-baa");
   });
 
-  test("1.2.2, the version signed until the release, shows exactly BAA_EXPLAINER's bullets", () => {
-    expect(AGREEMENT_COPY.baa.version).toBe("1.2.2");
-    expect(AGREEMENT_COPY.baa.explainer.terms).toBe(BAA_EXPLAINER.terms);
-    expect(baaAgreementCopy(getBaaTemplate("1.2.2")!).explainer).toBe(BAA_EXPLAINER);
+  test("1.2.2, the version signed until 1.3.0's release, shows exactly BAA_EXPLAINER's bullets", () => {
+    expect(AGREEMENT_COPY.baa.version).toBe("1.3.0");
+    expect(AGREEMENT_COPY.baa.released).toBe(true);
+    const v122 = baaAgreementCopy(getBaaTemplate("1.2.2")!);
+    expect(v122.explainer).toBe(BAA_EXPLAINER);
+    expect(v122.explainer.terms).toBe(BAA_EXPLAINER.terms);
   });
 
   test("an entry reads everything off its template: 1.3.0 shows 1.3.0's bullets, notes and text (gate 11)", () => {
@@ -318,8 +379,10 @@ describe("AGREEMENT_COPY", () => {
         return note ? [[clause.id, note.plain]] : [];
       }),
     );
-    // The current entry is untouched by building another.
-    expect(AGREEMENT_COPY.baa.explainer).toBe(BAA_EXPLAINER);
+    // The current entry, 1.3.0's since its release, is the same explainer, and
+    // building another leaves it untouched.
+    expect(AGREEMENT_COPY.baa.explainer).toBe(copy.explainer);
+    expect(baaAgreementCopy(getBaaTemplate("1.2.2")!).explainer).toBe(BAA_EXPLAINER);
   });
 
   test("holds the Data Protection Agreement too, unreleased, with its own explainer and assent wording", () => {

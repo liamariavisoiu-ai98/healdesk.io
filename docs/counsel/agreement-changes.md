@@ -13,6 +13,12 @@
 >
 > **Since 9 October 2026 the version offered is BAA 1.2.2** (§ 13,
 > `docs/baa-v1.2.2.txt`), released by the owner without external counsel.
+>
+> **Since 13 October 2026 the version offered is BAA 1.3.0** (§ 12.15,
+> `docs/baa-v1.3.0.txt`), with the calendar election, released by the owner
+> without external counsel after Claude's own audit of the full text against
+> the code. 1.2.2 stays the go-live floor and signs until 27 October 2026 for
+> a checkout opened before the release.
 
 ## Contents
 
@@ -27,7 +33,7 @@
 9. [Clinics outside HIPAA: state-law terms instead of a separate DPA](#9-clinics-outside-hipaa)
 10. [Existing signers and subprocessor notice](#10-existing-signers-and-subprocessor-notice)
 11. [How a change ships (for the engineer)](#11-how-a-change-ships-for-the-engineer)
-12. [BAA 1.3.0 (draft): calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-draft-calendar-terms-the-q8-clauses-and-24-hours-notice)
+12. [BAA 1.3.0: calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-calendar-terms-the-q8-clauses-and-24-hours-notice) (released 13 October 2026, § 12.15)
 13. [BAA 1.2.2: the list on request, one email address, the spec's breach wording](#13-baa-122-the-list-on-request-one-email-address-the-specs-breach-wording)
 14. [Review log](#review-log-2026-10-01)
 
@@ -400,9 +406,14 @@ nothing and removes the argument.
 
 ---
 
-## 12. BAA 1.3.0 (draft): calendar terms, the Q8 clauses and 24 hours' notice
+## 12. BAA 1.3.0: calendar terms, the Q8 clauses and 24 hours' notice
 
-> **Drafted 6 October 2026. Not released, not offered, not legal advice.**
+> **Released 13 October 2026, and offered from that day (§ 12.15). Not legal
+> advice.** What follows down to § 12.14 records the draft as it stood
+> before the release, in the words of the day it was written; § 12.15 records
+> the release, the audit that preceded it and the two sentences it changed.
+>
+> **Drafted 6 October 2026.**
 > `packages/catalog/src/baa.ts` registers 1.3.0 at `BAA_TEMPLATES[1]` with
 > `approvedByCounsel: false`. Checkout does not offer it, and signing refuses
 > it: `validateSignRequest` and `signAgreement` both settle the version
@@ -411,7 +422,8 @@ nothing and removes the argument.
 > Provisioning refuses a row signed under it too: since plan C15 its approval
 > gate reads the bound acceptance's own version (`isBaaVersionAcceptable`),
 > where it used to read `currentBaaTemplate()`. The full text is
-> rendered in `docs/baa-v1.3.0-draft-calendar-clauses.txt`. The owner decided
+> rendered in `docs/baa-v1.3.0.txt` (until its release
+> `docs/baa-v1.3.0-draft-calendar-clauses.txt`). The owner decided
 > on 5 October 2026 (answer Q2) that Claude releases 1.3.0 and the calendar
 > election after its own adversarial audit of the full text, with no counsel
 > gate: against 45 CFR 164.504(e), the code's actual behaviour, the spec, the
@@ -546,7 +558,7 @@ down. On 6 October 2026:
 | Use stops when the Services end; the token is deleted on a disconnect through healdesk, when healdesk finds access removed at Google, and at destruction | Plan § 4.12 and § 9: `eraseCredentials`, `markCalendarBroken`, `sweepCalendarTerms`, destruction | No (C7, C8, C10) |
 | Covered: healdesk checks, when a calendar is chosen and again before each write, that the account belongs to a Workspace or Cloud Identity organisation and that the calendar belongs to that same organisation, and adds nothing to a calendar that fails | Reconciliation at connect (plan § 4.11) and `app_calendar_write_permitted` (§ 11.6) look only at the connected account (its `hd`) and the terms. The calendar list asks `minAccessRole=owner` with no organisation filter (`CALENDAR_LIST_QUERY` in the adapter), and Google lists as `owner` a calendar another account has shared in with "make changes and manage sharing". The owner's decision 4 of 6 October 2026 makes C8 the guardrail (§ 12.14, gate 1) | No (C8) |
 | Uncovered: withdrawal stops further writes; not used: nothing connected | The start route refuses not-used terms; a not-used election erases any connection (plan § 2.6, § 4.12) | No (C7, C8) |
-| Payments: healdesk may send a link in website chat or on Instagram, Messenger or WhatsApp, through Practice's own processor; on a call none, and the deposit is flagged for staff; a link, and what healdesk sends the processor, carry only an amount, a generic description and a reference number; no payer details kept from the processor's notice | On a call: `depositLine` in `apps/app/src/lib/voice/tools.ts` states the deposit and sends nothing. Links: nothing yet; deposit links are package D, which is paused | On a call, yes; links, no (package D; § 12.14, gate 10) |
+| Payments: healdesk may send a link in website chat or on Instagram, Messenger or WhatsApp, through Practice's own processor; on a call none, and the deposit is flagged for staff; a link, and what healdesk sends the processor, carry only an amount, a generic description and a reference number; no payer details kept from the processor's notice | On a call: `depositLine` in `apps/app/src/lib/voice/tools.ts` states the deposit and sends nothing. Links (since 7 October 2026, package D, 249e3a9): `createDepositLink` in `apps/app/src/lib/billing/deposit-link.ts`, through the practice's own Connect account, "Appointment deposit", descriptor suffix DEPOSIT, metadata `{hd, ref}`, every string checked for a treatment name, no processor payload kept; sent only through `apps/app/src/lib/booking/deposit-gate.ts`, never on a call | On a call, yes; links, yes (§ 12.14, gate 10; § 12.15) |
 | Payments: healdesk never takes card numbers | Nothing in `apps/app` asks for, parses or stores a card number, and 1.2.1's minimum-necessary clause says the same. One a patient volunteers would sit in the conversation transcript like any other words; the audit weighs that against "never takes" | Yes, by absence |
 | State law: processes patient information only on Practice's documented instructions (this agreement and the portal settings) and for purposes a–i; does not sell or share it as 1798.140 defines the words; combines it with other sources only for security and fraud | Nothing in the code sells, shares or combines it across clinics (identifier references are keyed per clinic). The portal the instructions name is not built yet (the funnel session builds it) | By design |
 | State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction), and since 12 October 2026 the operator's `ops:amend-record` and `ops:amend-contact` scripts in apps/app's own shell, which append an amendment beside a booking request, a conversation or an appointment (`record_amendments`) that both exports carry. Since 8 October 2026 a deletion (`apps/app/src/lib/patient-rights/erasure.ts`, run since 12 October 2026 by the `ops:erase-person` script in apps/app's shell, never apps/web) deletes one person, their raw payloads and their own messaging threads included, records the request without their number, and shows each subcontractor step outstanding with its ten-business-day deadline; backups age out at the host's 35 days (gate 18) | Deletion, yes (§ 12.14, gate 6); correction, yes (gate 8) |
@@ -900,23 +912,24 @@ them.
 
 ### 12.12 Golden hashes
 
-Frozen from this draft in `apps/app/tests/baa-golden.test.ts` and
-`packages/catalog/src/google-calendar-disclosure.test.ts`. An edit before
-release regenerates them in the same commit and is noted here; after
-release they never move.
+Frozen in `apps/app/tests/baa-golden.test.ts` and
+`packages/catalog/src/google-calendar-disclosure.test.ts`. Each edit before
+the release regenerated them in the same commit and is noted here; since the
+release of 13 October 2026 (§ 12.15) they never move. The table gives them as
+released.
 
 | Document and variant | SHA-256 |
 | --- | --- |
-| 1.3.0 covered_estimated (the sample) | `ba71a44659a5b376fb89c22640fc61eb0c6b2e073162156b9bca1a45d9d8ed86` |
-| 1.3.0 notcovered_estimated | `eeb9ab085099815f5c459bd4335db190465d1938544f4829a3c7aa980dda19d0` |
-| 1.3.0 unknown_estimated | `5d5265c06476360d96258b58ee470db91b5ce8eb7c16f3e864a77ce87e31245b` |
-| 1.3.0 uncovered_nobaa | `bd9690ff4b07f22f958486a2ae7e78c29dca7123a1a589a29230592a025ec219` |
-| 1.3.0 uncovered_personal | `069d81f7c99825af6612ebfc4eb5bc77678c107df6fab64980cb3e809eab866b` |
-| 1.3.0 notused_mindbody | `cba26412fd781fc212c131f41d98dcfbb339c1965f43249429c33767acba32e4` |
-| 1.3.0 notused_other | `522c0c46522e42c0e2b1501ac6df60b9a94d3eda07b2f15f3603063716dde7c0` |
-| 1.3.0 live_calcom | `6d3866b6637f9b4d08c24d9b0994f25edce61b5ffe6dbe8c948910edc3cc2d81` |
-| 1.3.0 live_highlevel_personal | `99d22fef502da4a091db9a64f29e74cff7b9aa920c9e13205af32715f9e6be55` |
-| 1.3.0 live_calendly_nobaa | `24bb5910b4c9a32e06d7a7a36b00980d1c868fda404d11c47e2db03aae0c3f08` |
+| 1.3.0 covered_estimated (the sample) | `2235429b5b23f49ae004ad2d414bfba630e108bdd36f7793dd1712859844d607` |
+| 1.3.0 notcovered_estimated | `ff38a96ddd458be2cda8b846e3f88563f2478605051520210ea1899911cf5757` |
+| 1.3.0 unknown_estimated | `1106e91ca18edc9c390808b2898510d6a4c3356dfa56c1d5c35d59f84568f741` |
+| 1.3.0 uncovered_nobaa | `a37e8909d30fc42941efa331d03a714eedf69488e377da3165a1927cce8dc578` |
+| 1.3.0 uncovered_personal | `9622fe3e337d3693e06b2873182535d9c12333be1182662761031aafeaa0c1f5` |
+| 1.3.0 notused_mindbody | `ad456a7f09c1b17f3c6c9d1f3cfc5dd6de0cd90d2244242712101002b6735e5e` |
+| 1.3.0 notused_other | `d0634fa22bc85786c44314f6f8019dfb1d1248cddd4a378487ee4bc68648e6eb` |
+| 1.3.0 live_calcom | `a30f9dbafc13c7a9076ed9e542c909693607dedf8354b1a083c35f987bb9d1d8` |
+| 1.3.0 live_highlevel_personal | `79b5b5fb08c06e5ad94ea5f6b4c41f55dd94631be73e71ed1ab9e30d03e89d97` |
+| 1.3.0 live_calendly_nobaa | `bc9905270da8fa75968ba80e8070de1275cbbf5856a25abf838f939a21463331` |
 | calendar-election/1.0.0 sample | `63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa` |
 | google-calendar-disclosure/1 | `5b3fa42bf21ce7ab880bb869f16f19d6953f87b576f67b0c431eb8eb273387d5` |
 
@@ -943,6 +956,11 @@ covered_outbound hash equals covered_estimated, as in every version since
 again (§ 13): the shared subcontractor sentence gives the list on request,
 the Notices clause names hello@healdesk.io, and the reporting clause carries
 the spec's 60-day wording. The election's and the disclosure's did not move.
+The release audit of 12 October moved the ten 1.3.0 hashes a last time, by
+its two text fixes in clauses 11 and 14(b) (§ 12.15); until then 1.3.0 /
+covered_estimated was
+`ba71a44659a5b376fb89c22640fc61eb0c6b2e073162156b9bca1a45d9d8ed86`. The
+release itself moved none: nothing in the text marks a draft.
 
 ### 12.13 The owner's choices between two 1.3.0 texts (6 October 2026)
 
@@ -1058,7 +1076,7 @@ audit and its gates (Q2), not on counsel's approval of the merged text.
 
 Clause by clause, the comment above `CLAUSES_1_3` in
 `packages/catalog/src/baa.ts` lists the changes; the regenerated text is
-`docs/baa-v1.3.0-draft-calendar-clauses.txt`. The cross-clause decisions:
+`docs/baa-v1.3.0.txt`. The cross-clause decisions:
 
 - **One breach and incident rule for every practice**: notice immediately
   following discovery and within 24 hours, subject to 164.412's
@@ -1845,6 +1863,136 @@ them. The election and the disclosure did not move in that round. The DPA's
 golden hashes (`packages/catalog/src/dpa.test.ts`) and `docs/dpa-v1.0.0.txt`
 moved with the shared clauses.
 
+### 12.15 Release, 13 October 2026, and the audit before it
+
+> **Not legal advice.** The owner released BAA 1.3.0 and
+> `calendar-election/1.0.0` on 13 October 2026, on the owner's own review and
+> **without external counsel** (owner answer Q2; plan C19), after Claude's own
+> audit of the full text against the code on main. Counsel's approval, as the
+> owner reported it on 6 October (§ 12.14), covered the calendar version of
+> the BAA and the 24 hours' notice, and predates the merged and redrafted
+> text: what is released is the owner's decision on this audit, not a
+> lawyer's. The DPA and its election stay unreleased.
+
+#### The audit (12 October 2026)
+
+- **Method.** Twelve 1.3.0 variants and three elections rendered through
+  `prepareBaa` and `renderCalendarElection`, every golden variant reproducing
+  its hash and the review copy matching the render byte for byte. Every
+  sentence that says what healdesk's systems do or never do was checked
+  against the code on main, by Claude for the calendar clauses, the election,
+  the disclosure and the explainer, and by three read-only investigators for
+  Meta and web chat; retention, deletion, export and destruction; and
+  payments, voice, safeguards and the public pages. Every finding ranked was
+  re-verified in the code. It was read again against main after the funnel's
+  gates 6, 8 and 9 landed (c57360f), and the two text fixes below are the
+  ones whose code reality that settled.
+- **Verdicts.** HOLDS (the code makes it true); GAP (false on main: the code
+  or the text must change); PENDING (true once named work lands); OWNER (an
+  owner or counsel action); TEXT-ONLY (no system claim).
+- **Regulatory skeleton.** Every element of 45 CFR 164.504(e) and
+  164.314(a) is present, as § 12.10 found; nothing the audit changed touches
+  one.
+
+#### What it changed in the text
+
+Two sentences, each a GAP whose fix was the text and whose code is on main
+(HRC-02: the text says what the product does). Both are 1.3.0's own objects,
+so no released hash moved.
+
+| Clause | Before | After | Why |
+| --- | --- | --- | --- |
+| 11, Minimum necessary | "Practice may shorten these periods in its portal." | "Practice may shorten the period for transcripts in its portal." | The portal's Settings shortens transcripts (90, 30 or 7 days, `clinic_settings.transcript_retention_days`), with the raw webhook payloads and idle chat threads that carry the same words, and no other period: the purge reads it for those and nothing else (`apps/app/src/lib/retention/purge.ts`). "These periods" promised a control over appointments, booking requests and contact details that no screen offers. The DPA's clause 10 has said this since 12 October |
+| 14(b), Amendment | "Where the record can be changed, healdesk corrects its own copy. Where a record must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the amendment to it and links the two, as 45 CFR 164.526(c)(1) provides." | "healdesk corrects a person's contact details in its own copy. It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the amendment to that record and links the two, as 45 CFR 164.526(c)(1) provides." | Gate 8 (`record_amendments`, drizzle/0064) appends to booking requests, conversations and appointments alike, and `amendContact` corrects a contact's name, number or address in place. The old sentence left an appointment under "where the record can be changed", as if healdesk rewrote it; it never does, because the appointment is the booking as the clinic's calendar holds it, which a sync or a reschedule moves |
+
+The sentence after them is unchanged: "Every later use and export of that
+record then carries the amendment." The DPA's Clients' requests clause
+carries 14(b) in its own words ("a client's contact details", "the
+correction", no CFR citation), and `packages/catalog/src/dpa.test.ts` holds
+the two together, so it took the same change; the DPA's eight golden hashes
+and `docs/dpa-v1.0.0.txt` were regenerated (the DPA 1.0.0 sample is now
+`6811e994dd460c3bd6d026e95865fd8cac80adb2e334cc54aa6e11dc9d2093e5`).
+
+Not reopened, because the owner decided them (9 and 12 October 2026,
+§ 13): reporting "without unreasonable delay and in no case later than 60
+calendar days"; the list of subcontractors on written request; hello@ as
+healdesk's notice address. The 24 hours' notice of a new subcontractor
+stands (§ 12.7).
+
+#### What shipped
+
+| Change | Where |
+| --- | --- |
+| 1.3.0 is `BAA_TEMPLATES[0]`, `publishedOn` 2026-10-13, `approvedByCounsel: true`, which records the owner's release (the flag's doc comment); checkout offers it and signing takes it | `packages/catalog/src/baa.ts` |
+| 1.2.2 is `BAA_TEMPLATES[1]`, frozen, and signable until `2026-10-27T00:00:00Z`, fourteen days after the release date (`BAA_RELEASE_OVERLAP`), so a checkout opened before the release, or a browser still holding the old signing screen, can finish; plan C20 empties the map once both production deployments are verified | `packages/catalog/src/baa.ts`; `signableTemplate` in `apps/app/src/lib/agreements.ts` |
+| The go-live floor stays 1.2.2 (below) | `MIN_ACCEPTABLE_BAA_VERSION` |
+| `calendar-election/1.0.0` released: `approvedByCounsel: true`, `publishedOn` 2026-10-13; an election under it now counts for every clinic, not only a demo clinic | `packages/catalog/src/calendar-terms.ts` |
+| `app_baa_version_acceptable()` accepts 1.3.0 and 1.2.2 and nothing else; `app_calendar_election_released()` lists `calendar-election/1.0.0` and nothing else (not the DPA's election); a DO block asserts both lists and that `app_destruction_rule()` gives 1.3.0 the export rule and 1.2.2 the thirty days | The `baa_release_1_3_0` migration in `apps/app/drizzle/` (numbered at integration, after main's `0065_destroy_deposit_payments`); parity tests in `apps/app/tests/database-audit.test.ts` |
+| The released review copy, with the variant clauses, the election and the disclosure in appendices | `docs/baa-v1.3.0.txt` (renamed from `docs/baa-v1.3.0-draft-calendar-clauses.txt`) |
+
+**The floor.** Kept at 1.2.2, although 1.3.0 is the first version with the
+Payments clause and the clause for a practice that is not a covered entity.
+Raising it would refuse go-live to every clinic that signed 1.2.2, and
+nothing yet lets one move to 1.3.0: `supersedeAgreement`
+(`apps/app/src/lib/agreements/kind.ts`) has no caller, and even with one a
+superseded first location would get no `agreement` election row, which only
+provisioning records (`recordAgreementTerms`) and the database allows only
+at sequence 1 (`calendar_elections_agreement_shape`, drizzle/0057), so 1.3.0's
+location paragraph would be untrue for that practice. A 1.2.2 location takes
+its calendar terms from its first calendar election, which this release
+makes possible for every clinic. Raising the floor waits for a re-sign path
+that records the first location's terms.
+
+#### The release gates on the day
+
+As main stood when this release was prepared (c57360f), against § 12.14's
+gates and the audit's findings. Each open row is owned.
+
+| Gate or finding | State | Owner |
+| --- | --- | --- |
+| Terminating the agreement ends the Services the same day, with clause 17's refund (clauses 1, 17, 20) | **Open.** `opMarkAgreementTerminated` records the termination and sweeps calendar access; it does not cancel the subscription, start offboarding or stop answering, and no refund kind exists for it. Interim only if the owner accepts it in writing: cancel in Stripe and start offboarding the same day | funnel (release/130-blockers); healdesk-io-58 for the refund kind |
+| Gate 6, per-person deletion | Closed: `ops:erase-person`, the identifier closure, keyed restore references for 35 days, `reapplyErasures` (drizzle/0063) | — |
+| Gate 8, the amendment record | Closed (drizzle/0064). Counsel's question: the emailed booking link shows only a count of amendments (it opens without a passkey), the portal (M5) the text behind step-up; whether a count "carries" the amendment on that one surface | counsel |
+| Gate 9, the purge's periods | Closed for every 1.3.0 and DPA clinic, which is purged nightly whatever the job's switch (`purgeIsPromised`); unprocessed payloads on the record clock; a failed purge alerts ops and reruns at 09 UTC | — |
+| Gate 21, `offboarding-destroy` switched on before the first clinic offboards; the retention switch for clinics on 1.2.2 and earlier | **Owner switches**, both seeded off | owner |
+| Clinical content sent on Meta is not kept (clause 11) | **Open.** A free-text preferred window is screened by word lists (`findClinicalContent`, `WINDOW_REFUSED`), not the closed time grammar the audit asked for | funnel |
+| Gate 12, /privacy's de-identification commitment and "one per provider"; gate 14, Terms §§ 4, 7, 9 and 15 | **Open** until the funnel's legal-pages bump lands with this release. Gate 13 is settled by the owner's decisions of 9 and 12 October: /subprocessors is gone and /trust is the Terms annex | funnel |
+| Gate 20, no doubled greeting on Meta; the Meta follow-ups' switches | **Open.** The front-door prompt still opens "1. Greet the person warmly and briefly."; the desk's follow-up and the reschedule line still pass `enabled: true` | funnel (and the paid `qa:meta` run) |
+| The Settings card's Google Calendar disclosure | **Open defect.** `apps/app/src/lib/portal/settings-calendar.ts` passes `GOOGLE_CALENDAR_DISCLOSURE` unrendered, so the card shows "{clinicName}"; the wizard and the link page render it | calendar session |
+| Export at offboarding on AWS (clause 17) | Built on main (a6fc8b6), not applied; the bundle carries the deposits since a7da3a9; the day-21 alert for a 1.3.0 clinic and the bundle's chat threads and webhook payloads are open | healdesk-io-58; funnel |
+| `deposit_payments` survive destruction (clause 17's two records) | Open at c57360f; closed on main while this release was prepared (a7da3a9, drizzle `0065_destroy_deposit_payments`: destruction deletes them and the clinic's Connect ledger rows) | — |
+| Gates 15–18 and 22: Retell's region in writing, vendor processor terms, Anthropic's BAA signed before any PHI (and its retention sentences checked against what is signed), 35-day backups and encrypted ALB-to-task traffic applied; the Security Official named | **Owner and infra** | owner; healdesk-io-58 |
+
+The audit ranked the termination, Meta clinical-content, public-pages and
+Meta-greeting rows and the Settings card as blockers of this release (owner
+answer Q2: release only if the audit finds no blocker), and the job
+switches, the export, `deposit_payments` and the owner-and-infra rows as
+gates before the first live clinic or the first offboarding under 1.3.0. When the release
+was prepared those blockers were still open on main, so 1.3.0 is released on
+the owner's decision to release with them open, not on the audit's
+clearance. No clinic is live and apps/app holds synthetic and seed data
+only (CLAUDE.md), so no patient's information is yet handled under any
+version; every open row must close before the first live clinic.
+
+#### For the owner and counsel
+
+- **California, for a practice outside HIPAA.** § 13.5 left open whether
+  1.3.0 adds "or sooner where a law that applies requires it" to the
+  reporting clause. The release keeps the owner's 60-day wording: Cal. Civ.
+  Code 1798.82(b) binds healdesk directly, and the internal 24 hours meets it.
+  Open for counsel.
+- **The count on the booking link** (gate 8, above). Open for counsel.
+- **The open rows above,** each before its trigger.
+
+#### Golden hashes
+
+The ten 1.3.0 hashes moved with the two text fixes and are frozen from the
+release (§ 12.12). The election's
+(`63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa`) and the
+disclosure's did not move. No hash of 1.2.2 or of any older version moved:
+1.2.2 / covered_estimated is still
+`e6cfb7356be47a223bf8802f8d762f78844e0106af29fe772ca03eab85621893`.
+
 ---
 
 ## 13. BAA 1.2.2: the list on request, one email address, the spec's breach wording
@@ -1885,7 +2033,7 @@ Final, and in code the same day:
 | The go-live floor, `MIN_ACCEPTABLE_BAA_VERSION`, is 1.2.2: 1.2.1 is below it. `BAA_RELEASE_OVERLAP` stays empty | `packages/catalog/src/baa.ts` |
 | `app_baa_version_acceptable()` accepts 1.2.2 and nothing else; the console's wording of the destruction job and two comments say "1.2.2 and earlier" | `apps/app/drizzle/0062_baa_floor_1_2_2.sql`; parity test in `apps/app/tests/database-audit.test.ts` |
 | 1.2.2 destroys on the thirty days, as 1.2.1 does (its Term clause is 1.2.1's) | `DESTRUCTION_RULES` in `apps/app/src/lib/offboarding/offboarding.ts` |
-| The unreleased drafts, edited in place: BAA 1.3.0 and DPA 1.0.0 give the list on request (the shared sentence in `subprocessor-notice.ts`), name hello@healdesk.io, and report all three without unreasonable delay and in no case later than 60 calendar days after discovery; the 24-hour rationale sentence is gone from both | `packages/catalog/src/baa.ts`, `dpa.ts`, `subprocessor-notice.ts`, `dpa-explainer.ts`; `docs/baa-v1.3.0-draft-calendar-clauses.txt`; `docs/dpa-v1.0.0.txt` |
+| The unreleased drafts, edited in place: BAA 1.3.0 and DPA 1.0.0 give the list on request (the shared sentence in `subprocessor-notice.ts`), name hello@healdesk.io, and report all three without unreasonable delay and in no case later than 60 calendar days after discovery; the 24-hour rationale sentence is gone from both | `packages/catalog/src/baa.ts`, `dpa.ts`, `subprocessor-notice.ts`, `dpa-explainer.ts`; `docs/baa-v1.3.0.txt` (then the draft copy); `docs/dpa-v1.0.0.txt` |
 | The phase-two read-only user's address is `hello+{slug}@healdesk.io` (was `connect+…`) | `CONNECT_EMAIL_TEMPLATE` in `packages/catalog/src/connection-steps.ts` |
 
 1.2.1 stays registered, released and frozen (its hash still reproduces), as

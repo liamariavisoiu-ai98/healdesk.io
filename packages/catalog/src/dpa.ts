@@ -573,10 +573,11 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * nightly purge's (apps/app src/lib/retention/purge.ts), which runs for
    * every DPA practice whatever its switch (purgeIsPromised, release gate 9).
    * Until 12 October 2026 the DPA stated none during the term (dpa.md, gap
-   * 2) while its practices were purged at 90 days. Where 1.3.0 says
+   * 2) while its practices were purged at 90 days. Where 1.3.0 said
    * "Practice may shorten these periods in its portal", this says what the
    * portal does: its Settings shortens transcripts, to 30 or 7 days, and no
-   * other period (clinic_settings.transcript_retention_days).
+   * other period (clinic_settings.transcript_retention_days). 1.3.0 says the
+   * same since its release audit of 12 October 2026.
    */
   {
     id: "minimum-necessary",
@@ -773,19 +774,22 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    *
    * A correction is BAA 1.3.0's clause 14(b) in this document's words (PT-17:
    * a correction, as a client asks for one, and no 45 CFR citation). It is
-   * made in healdesk's own copy where the record can be changed, and appended
-   * and linked where it cannot: a booking request's facts never change (the
-   * no-rewrite trigger in drizzle/0039 refuses a new `treatment` or
-   * `preferred_window`), and the record of a conversation is kept as it was
-   * made. "Correct that information as Practice directs" alone promised a
-   * change the database forbids. The amendment record (BAA 1.3.0 release
-   * gate 8, apps/app drizzle/0064 and lib/patient-rights/amendments.ts) is
-   * what appends and links one, both exports carry it, and the desk's view
-   * of a request says it is there; `amendContact` corrects a contact in
-   * place. The operator runs both from apps/app's own scripts
-   * (`ops:amend-record`, `ops:amend-contact`), never through the ops
-   * envelope; on the AWS host only a field cleared by contact id, until the
-   * portal (M5) takes the correction's text (dpa.md, gap 22).
+   * made in healdesk's own copy for a client's contact details, and appended
+   * and linked to every other record it reaches: a booking request's facts
+   * never change (the no-rewrite trigger in drizzle/0039 refuses a new
+   * `treatment` or `preferred_window`), the record of a conversation is kept
+   * as it was made, and an appointment is the booking as the clinic's
+   * calendar holds it. Until BAA 1.3.0's release audit of 12 October 2026 it
+   * named only the first two as appended, which read as if an appointment
+   * were corrected in place. "Correct that information as Practice directs"
+   * alone promised a change the database forbids. The amendment record (BAA
+   * 1.3.0 release gate 8, apps/app drizzle/0064 and
+   * lib/patient-rights/amendments.ts) is what appends and links one, both
+   * exports carry it, and the desk's view of a request says it is there;
+   * `amendContact` corrects a contact in place. The operator runs both from
+   * apps/app's own scripts (`ops:amend-record`, `ops:amend-contact`), never
+   * through the ops envelope; on the AWS host only a field cleared by contact
+   * id, until the portal (M5) takes the correction's text (dpa.md, gap 22).
    *
    * The last sentence says what a deletion keeps (gate 6, 12 October 2026;
    * dpa.md, gap 15). Until then it said the client's telephone number was kept
@@ -813,10 +817,10 @@ const CLAUSES_1_0: readonly DpaClause[] = [
         `When a client asks Practice to see, correct or delete their Client Information, ` +
           `healdesk will give Practice what it needs to answer within ten business days of ` +
           `Practice asking. It will correct that information as Practice directs, and delete it ` +
-          `as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. Where the record can be ` +
-          `changed, healdesk corrects its own copy. Where a record must stay as it was made, such ` +
-          `as a booking request or the record of a conversation, healdesk appends the correction ` +
-          `to it and links the two. Every later use and export of that record then carries the ` +
+          `as the clause headed "${STATE_LAW_CLAUSE_HEADING}" provides. healdesk corrects a ` +
+          `client's contact details in its own copy. It does not rewrite a booking request, an ` +
+          `appointment record or the record of a conversation: it appends the correction to that ` +
+          `record and links the two. Every later use and export of that record then carries the ` +
           `correction. When a client's information is deleted, healdesk keeps a record of the ` +
           `request that holds no telephone number, email address or name. For the ` +
           `${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information ` +

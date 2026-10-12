@@ -15,8 +15,12 @@ import { agreementMismatch } from "@/lib/checkout/intents";
 
 const nameOf = (id: string) => specialties.find((s) => s.id === id)!.name;
 
-/** A 1.2.2 Business Associate Agreement's variables, as signAgreement stores them. */
-const BAA = {
+/**
+ * A 1.2.2 Business Associate Agreement's variables, as signAgreement stores
+ * them: signed before 1.3.0's release, or inside its overlap, naming the
+ * picker's platform and no calendar answer.
+ */
+const BAA_122 = {
   clinicLegalName: "Glow Med Spa LLC",
   signatoryName: "Laura Owner",
   signatoryEmail: "info@glowspa.test",
@@ -32,6 +36,18 @@ const BAA = {
   displayedHashVerified: true,
 };
 
+/**
+ * A 1.3.0 one, the current version since 13 October 2026: it names the
+ * booking system, and carries both calendar answers beside the variant.
+ */
+const BAA = {
+  ...BAA_122,
+  connectedPlatform: "Calendly",
+  bookingSystem: "calendly",
+  calendarAccount: "workspace_baa",
+  appliedClauses: ["practice-status", "google-calendar-covered"],
+};
+
 /** The purchase that agreement was signed for. */
 const PURCHASE = {
   clinicName: "Glow Med Spa LLC",
@@ -44,8 +60,10 @@ const PURCHASE = {
 
 describe("a Business Associate Agreement", () => {
   test("the document as signed, under the version being signed, passes", () => {
-    expect(CURRENT_BAA_VERSION).toBe("1.2.2");
+    expect(CURRENT_BAA_VERSION).toBe("1.3.0");
     expect(agreementMismatch(CURRENT_BAA_VERSION, BAA, PURCHASE)).toBeNull();
+    // 1.2.2 too, which is still the go-live floor.
+    expect(agreementMismatch("1.2.2", BAA_122, PURCHASE)).toBeNull();
     // The name as signed: trimmed on both sides.
     expect(
       agreementMismatch(CURRENT_BAA_VERSION, BAA, {
@@ -85,7 +103,7 @@ describe("a Business Associate Agreement", () => {
 
   test("names another booking platform (before 1.3.0, the one the booking system implies)", () => {
     expect(
-      agreementMismatch(CURRENT_BAA_VERSION, BAA, {
+      agreementMismatch("1.2.2", BAA_122, {
         ...PURCHASE,
         bookingSystem: "mindbody",
         platform: "mindbody",
@@ -93,16 +111,34 @@ describe("a Business Associate Agreement", () => {
     ).toMatch(/different booking system/);
     expect(
       agreementMismatch(
-        CURRENT_BAA_VERSION,
-        { ...BAA, connectedPlatform: "Mindbody" },
+        "1.2.2",
+        { ...BAA_122, connectedPlatform: "Mindbody" },
         { ...PURCHASE, bookingSystem: "mindbody", platform: "mindbody" },
       ),
     ).toBeNull();
   });
 
+  test("names another booking system or Google account (1.3.0, which reads both)", () => {
+    for (const changed of [
+      { bookingSystem: "mindbody", platform: "mindbody" },
+      { calendarAccount: "personal" },
+    ] as const) {
+      expect(
+        agreementMismatch(CURRENT_BAA_VERSION, BAA, { ...PURCHASE, ...changed }),
+        JSON.stringify(changed),
+      ).toMatch(/different booking system or Google account/);
+    }
+    // A 1.3.0 row without the answers it reads is no match for any purchase.
+    expect(agreementMismatch(CURRENT_BAA_VERSION, BAA_122, PURCHASE)).toMatch(
+      /different booking system or Google account/,
+    );
+  });
+
   test("is of a template that may not be put in force: a draft, a superseded release, or none we know", () => {
-    for (const version of ["1.3.0", "1.2.0", "1.0.0", "0.1.0-draft", "9.9.9"]) {
-      expect(agreementMismatch(version, BAA, PURCHASE), version).toMatch(/can no longer be used/);
+    for (const version of ["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "9.9.9"]) {
+      expect(agreementMismatch(version, BAA_122, PURCHASE), version).toMatch(
+        /can no longer be used/,
+      );
     }
   });
 

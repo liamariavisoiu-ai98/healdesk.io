@@ -42,8 +42,9 @@ describe("which templates ask the calendar questions", () => {
     for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       expect(templateReadsCalendarAccount(getBaaTemplate(version)!), version).toBe(false);
     }
-    // While 1.3.0 is a draft the offered template asks nothing new.
-    expect(templateReadsCalendarAccount(currentBaaTemplate())).toBe(false);
+    // Since 1.3.0's release the offered template asks both questions.
+    expect(currentBaaTemplate().version).toBe("1.3.0");
+    expect(templateReadsCalendarAccount(currentBaaTemplate())).toBe(true);
   });
 });
 

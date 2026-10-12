@@ -27,9 +27,11 @@ import { withTenant } from "@/lib/tenant";
 /**
  * healdesk's own demo clinic: one fictional practice, allowed in production
  * by the owner (Q6, 5 October 2026), so the Google verification video can
- * show a calendar being connected and booked into before the calendar
- * documents are released (plan §2.6). scripts/demo-clinic.ts is the only
- * caller of createDemoClinic; the test fixtures use it too.
+ * show a calendar being connected and booked into, as it could before the
+ * calendar documents were released (plan §2.6; released with BAA 1.3.0 on 13
+ * October 2026, plan C19). Signed under 1.3.0, it starts under the calendar
+ * terms its answers choose. scripts/demo-clinic.ts is the only caller of
+ * createDemoClinic; the test fixtures use it too.
  *
  * It is made exactly as a purchase makes a clinic, by the same two calls, so
  * nothing about it is a special case downstream:

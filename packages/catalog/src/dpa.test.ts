@@ -99,14 +99,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "ff3e7acf0f37364ab85a352008fbbc1632e41f2f584514f5fde2fb6b4d9b3b3b",
-  notcovered_live_covered: "293b770db110266cfe54ff8ebd06c771d3acf8eb6d2aaf0e33d5d5bfec27fd46",
-  notcovered_live_uncovered: "e529128d1eb4f915348b3d0c8d3c0c6483b17c51deb278e1cb4047b2bae0d3f2",
-  notcovered_live_personal: "66617caa4f393408e94ae2abbbbf15273ef22b7d919f05df9243ae0ded2f8dce",
-  notcovered_notused_other: "fe5020388e9890c09a85fa813ff19406005533a732e20ad23c4cba3575b04e61",
-  vet_live_covered: "a0642c9c4dff59ca91e4a454b8caa194bfaca51fb6bbd22aa1b2f602ae3410fe",
-  vet_live_personal: "723a41894d8bf9197bee2d2d8d0640ca4daca1a9b58696e23d6d435c43e21458",
-  vet_notused_mindbody: "ddf159354863b2cfd45f4fe49595b55bdafdb97165aaa22be2615488ea264aaf",
+  sample: "6811e994dd460c3bd6d026e95865fd8cac80adb2e334cc54aa6e11dc9d2093e5",
+  notcovered_live_covered: "c332a41922d7b7b9edc04d08fc6587d67a328c9773593af826703a6623be8f9c",
+  notcovered_live_uncovered: "3901f4a560d78e4a0b5afd548b8fdb2a3ce59d4b970487562b3900f4f4e0dbdc",
+  notcovered_live_personal: "285dc4403dadb782d3ecd23cd850c87d426e2e85e63e89f8beb3fa6f28a17d02",
+  notcovered_notused_other: "6eb0e5174aeec2bf33768c677bf382367c5b4138949c21ba8f6eca45c8cb426e",
+  vet_live_covered: "54ca23dee950c30cb1b322e76c0c5d3c7318c2ce282460a2d99219e780d478c7",
+  vet_live_personal: "84a2da1cff5755be55909a9b7f661d0226e1a9b31b3fcaefd6918f86085b72b0",
+  vet_notused_mindbody: "ea482e61c38db6632225e495d2a26c32f38162277ebb6f59aeac98aab29f3596",
 };
 
 const template = () => currentDpaTemplate();
@@ -783,15 +783,21 @@ describe("the DPA's pre-release text", () => {
   // promise in its clause 14(b) and fixed it (PT-17). The DPA takes that fix.
   test("a correction the record cannot take is appended and linked, in BAA 1.3.0's clause 14(b) words (PT-17)", () => {
     const pt17 = [
-      "Where the record can be changed, healdesk corrects its own copy.",
-      "Where a record must stay as it was made, such as a booking request or the record of a conversation, healdesk appends the amendment to it and links the two, as 45 CFR 164.526(c)(1) provides.",
+      "healdesk corrects a person's contact details in its own copy.",
+      "It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the amendment to that record and links the two, as 45 CFR 164.526(c)(1) provides.",
       "Every later use and export of that record then carries the amendment.",
     ];
     const baa = baa130();
     for (const sentence of pt17) expect(baa).toContain(sentence);
-    // In this document's words: a correction, as a client asks for one, and no HIPAA citation.
+    // In this document's words: a correction, as a client asks for one, for a
+    // client's details, and no HIPAA citation.
     const ours = pt17
-      .map((s) => s.replace(", as 45 CFR 164.526(c)(1) provides", "").replaceAll("amendment", "correction"))
+      .map((s) =>
+        s
+          .replace(", as 45 CFR 164.526(c)(1) provides", "")
+          .replaceAll("amendment", "correction")
+          .replace("a person's", "a client's"),
+      )
       .join(" ");
     expect(ours).not.toMatch(/amendment|CFR|\bpatient|\bPHI\b/i);
     for (const answers of Object.values(VARIANTS)) {

@@ -35,11 +35,11 @@ import {
  */
 
 /**
- * Standing in for the release of BAA 1.3.0 (plan C19), which adds it to the
- * versions an account may be put under. Until then provisioning refuses a
- * 1.3.0 signature like any draft's, so a test that provisions one sets
- * `release.baa130`, and only isBaaVersionAcceptable's answer for 1.3.0
- * changes: the template itself stays a draft.
+ * Standing in for a version falling below the go-live floor after a clinic
+ * signed it (a later release raising MIN_ACCEPTABLE_BAA_VERSION, or a
+ * rollback): a version in `floor.withdrawn` is one isBaaVersionAcceptable no
+ * longer accepts, and nothing else changes. BAA 1.3.0 is released (plan C19,
+ * 13 October 2026) and accepted for real.
  *
  * And for a booking system the catalogue reclassifies after a practice has
  * signed, as a vendor's written confirmation would (plan Q4): a system in
@@ -48,7 +48,7 @@ import {
  * chosen its clause by then, inside the catalogue, where this reaches
  * nothing.
  */
-const release = vi.hoisted(() => ({ baa130: false }));
+const floor = vi.hoisted(() => ({ withdrawn: [] as string[] }));
 const catalogue = vi.hoisted(() => ({ readsGoogle: [] as string[] }));
 vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
@@ -57,7 +57,7 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
   return {
     ...actual,
     isBaaVersionAcceptable: (version: string) =>
-      actual.isBaaVersionAcceptable(version) || (release.baa130 && version === "1.3.0"),
+      actual.isBaaVersionAcceptable(version) && !floor.withdrawn.includes(version),
     bookingSyncFor: (id: unknown) => (reclassified(id) ? "live" : actual.bookingSyncFor(id)),
     selectCalendarClause: (input: Parameters<typeof actual.selectCalendarClause>[0]) => {
       if (!reclassified(input.bookingSystem)) return actual.selectCalendarClause(input);
@@ -120,6 +120,9 @@ async function signFor(
     isCoveredEntity: false,
     attributionMode: "estimated",
     platform: "none",
+    // BAA 1.3.0, the current version, reads both calendar answers.
+    bookingSystem: "none",
+    calendarAccount: "workspace_no_baa",
     assentLabel: BAA_ASSENT_LABEL,
     templateVersion: CURRENT_BAA_VERSION,
   });
@@ -129,8 +132,8 @@ async function signFor(
 type SignedAnswers = {
   /**
    * A version other than the current one, signed as if it were current: how
-   * the release will sign 1.3.0 (agreements.test.ts, RELEASED_1_3), or how
-   * 1.2.0 was signed before 1.2.1 replaced it, and 1.2.1 before 1.2.2.
+   * 1.2.0 was signed before 1.2.1 replaced it, 1.2.1 before 1.2.2, and 1.2.2
+   * before 1.3.0's release (or inside its overlap).
    */
   version?: string;
   platform?: string;
@@ -265,7 +268,7 @@ describeDb("provisioning", () => {
   });
 
   afterEach(() => {
-    release.baa130 = false;
+    floor.withdrawn = [];
     catalogue.readsGoogle = [];
   });
 
@@ -389,7 +392,9 @@ describeDb("provisioning", () => {
 
     const clinic = rows[0]!;
     expect(clinic.attribution_mode).toBe("estimated");
-    expect(clinic.booking_provider).toBeNull();
+    // The booking system signed, as BAA 1.3.0 records it: "none", no booking
+    // software (plan C15). A 1.2.x signature naming no platform left it null.
+    expect(clinic.booking_provider).toBe("none");
     expect(clinic.average_treatment_value_usd).toBe("550.00");
     expect(clinic.plan).toBe("web-voice");
 
@@ -742,11 +747,10 @@ describeDb("provisioning", () => {
     const draft = validRequest({
       clinicName: "Draft Gate Clinic",
       contactEmail: draftEmail,
-      // 1.3.0, signed as its release will sign it, before that release.
+      // 1.1.0-draft, never released, signed as if it were current.
       agreementId: await signWith("Draft Gate Clinic", draftEmail, {
-        version: "1.3.0",
-        bookingSystem: "google_calendar",
-        calendarAccount: "workspace_baa",
+        version: "1.1.0-draft",
+        platform: "none",
       }),
     });
     const supersededEmail = "superseded@gate.test";
@@ -772,7 +776,7 @@ describeDb("provisioning", () => {
     });
 
     for (const [request, version] of [
-      [draft, "1.3.0"],
+      [draft, "1.1.0-draft"],
       [superseded, "1.2.0"],
       [replaced, "1.2.1"],
     ] as const) {
@@ -789,27 +793,35 @@ describeDb("provisioning", () => {
       expect(await written(request), version).toEqual({ clinics: 0, claims: 0, bound: false });
     }
 
-    // The version's own standing is all the gate asks: released, the same
-    // 1.3.0 row provisions.
-    release.baa130 = true;
-    const first = await provisionClinic(draft);
+    // The version's own standing is all the gate asks: 1.3.0, released and
+    // current since 13 October 2026, provisions, with its calendar terms.
+    const releasedEmail = "released@gate.test";
+    const released = validRequest({
+      clinicName: "Released Gate Clinic",
+      contactEmail: releasedEmail,
+      agreementId: await signWith("Released Gate Clinic", releasedEmail, {
+        bookingSystem: "google_calendar",
+        calendarAccount: "workspace_baa",
+      }),
+    });
+    const first = await provisionClinic(released);
     expect(first.replayed).toBe(false);
-    expect(await written(draft)).toEqual({ clinics: 1, claims: 1, bound: true });
+    expect(await written(released)).toEqual({ clinics: 1, claims: 1, bound: true });
     expect(await electionRowsOf(first.clinicId)).toHaveLength(1);
 
     // The gate judges an account about to be made, never one that exists.
-    // Once the version falls below the floor again (a later release raising
+    // Once the version falls below the floor (a later release raising
     // MIN_ACCEPTABLE_BAA_VERSION, or a rollback), Stripe's redelivery of the
     // same purchase still replays, rather than meeting a 422 and a
     // provisioning_rejected alert for a clinic that is already there.
-    release.baa130 = false;
-    expect(await provisionClinic(draft)).toEqual({
+    floor.withdrawn = ["1.3.0"];
+    expect(await provisionClinic(released)).toEqual({
       organizationId: first.organizationId,
       clinicId: first.clinicId,
       clinicSlug: first.clinicSlug,
       replayed: true,
     });
-    expect(await written(draft)).toEqual({ clinics: 1, claims: 1, bound: true });
+    expect(await written(released)).toEqual({ clinics: 1, claims: 1, bound: true });
     expect(await electionRowsOf(first.clinicId)).toHaveLength(1);
   });
 
@@ -893,7 +905,6 @@ describeDb("provisioning", () => {
   });
 
   test("a 1.3.0 signature gives the location it sets up its first calendar terms: the agreement row, sequence 1, as signed", async () => {
-    release.baa130 = true;
     const email = "terms@calendar.test";
     const agreementId = await signWith("Covered Terms Clinic", email, {
       version: "1.3.0",
@@ -995,7 +1006,6 @@ describeDb("provisioning", () => {
     // records the one clause they select, which is always a clause for the
     // account kind signed. Refused here rather than failing inside the
     // transaction, so a paid purchase reaches ops at once.
-    release.baa130 = true;
     const malformed: Record<string, unknown>[] = [
       // Covered is for a Workspace account with Google's BAA, never a personal one.
       {
@@ -1060,7 +1070,6 @@ describeDb("provisioning", () => {
     // would leave a paid purchase with no account: it is recorded as signed,
     // manual and all, and the difference logged. Live booking takes an
     // election, which widens and so needs the owner.
-    release.baa130 = true;
     const email = "reclassified@calendar.test";
     const agreementId = await signWith("Reclassified Clinic", email, {
       version: "1.3.0",

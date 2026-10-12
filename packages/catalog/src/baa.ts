@@ -74,18 +74,19 @@ import { wrap } from "./wrap";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ Version 1.2.2 is the current template and is what clinics now sign. It
- * was released on 2026-10-09 by the owner, on the owner's own review and
- * without external counsel, replacing 1.2.1, which no clinic had signed; the
- * doc comment on `approvedByCounsel` records exactly what that flag now
- * means. 1.3.0, the calendar-dependent version, is drafted at
- * BAA_TEMPLATES[1] and not offered until it is released. 1.2.1 and 1.2.0,
- * each released on 2026-10-01, 1.0.0, which counsel approved in September
- * 2026, 1.1.0-draft, which was never offered, and 0.1.0-draft are retained
- * below them and never offered again: accounts created against 1.0.0 and
- * 0.1.0-draft signed that exact text, and their stored hash has to keep
- * reproducing from it. That reproducibility is the whole reason the ASSEMBLED
- * document is hashed rather than the template.
+ * ⚖️ Version 1.3.0, the calendar-dependent version, is the current template
+ * and is what clinics now sign. It was released on 2026-10-13 by the owner,
+ * on the owner's own review and without external counsel, after Claude's
+ * own audit of the full text against the code (plan C19); the doc comment
+ * on `approvedByCounsel` records exactly what that flag now means. 1.2.2,
+ * released on 2026-10-09, stays signable only inside its BAA_RELEASE_OVERLAP
+ * window and stays the go-live floor (MIN_ACCEPTABLE_BAA_VERSION). 1.2.1
+ * and 1.2.0, each released on 2026-10-01, 1.0.0, which counsel approved in
+ * September 2026, 1.1.0-draft, which was never offered, and 0.1.0-draft are
+ * retained below them and never offered again: accounts created against
+ * 1.0.0 and 0.1.0-draft signed that exact text, and their stored hash has to
+ * keep reproducing from it. That reproducibility is the whole reason the
+ * ASSEMBLED document is hashed rather than the template.
  *
  * `approvedByCounsel` is enforced rather than merely asserted —
  * provisionClinic() refuses to create a clinic against a template where it is
@@ -229,11 +230,11 @@ export type BaaTemplate = {
    * screen flags one as a draft.
    *
    * The name predates the decision it now records. 1.0.0 was approved by
-   * counsel; versions 1.2.0 and 1.2.1 were released on 2026-10-01, and 1.2.2
-   * on 2026-10-09, each on the owner's own review without external counsel,
-   * and this flag is what records each release. Not renamed, because
-   * provisioning, agreements, AgreementStep and the tests all read it by this
-   * name.
+   * counsel; versions 1.2.0 and 1.2.1 were released on 2026-10-01, 1.2.2 on
+   * 2026-10-09 and 1.3.0 on 2026-10-13, each on the owner's own review
+   * without external counsel, and this flag is what records each release.
+   * Not renamed, because provisioning, agreements, AgreementStep and the
+   * tests all read it by this name.
    */
   approvedByCounsel: boolean;
   preamble: (v: BaaVariables) => string;
@@ -2197,7 +2198,8 @@ function preamble121(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
-// Version 1.2.2 — the offered version. Three changes to 1.2.1, 9 October 2026.
+// Version 1.2.2 — three changes to 1.2.1. Released 2026-10-09; replaced by
+// 1.3.0 on 2026-10-13, and still the go-live floor.
 // -----------------------------------------------------------------------------
 
 /**
@@ -2413,7 +2415,8 @@ function preamble122(v: BaaVariables): string {
 }
 
 // -----------------------------------------------------------------------------
-// Version 1.3.0 — DRAFT. The calendar-dependent agreement. Not offered.
+// Version 1.3.0 — the offered version. The calendar-dependent agreement,
+// released 2026-10-13.
 // -----------------------------------------------------------------------------
 
 /**
@@ -2452,7 +2455,7 @@ export const BACKUP_RETENTION_DAYS = 35;
  * by the owner on 3 October 2026; `ENTITY.postalAddress`) as literals, not
  * imports, so a released text cannot move when legal.ts does. The email is
  * hello@healdesk.io, healdesk's only email address (owner, 9 October 2026),
- * changed in place from legal@ because 1.3.0 is unreleased.
+ * changed in place from legal@ while 1.3.0 was unreleased.
  * The mailbox is for correspondence only: never a place of business, a
  * registered office or an address for service of process, which the Notices
  * clause says. NOTICE_ADDRESS and NOTICE_ADDRESS_1_2_2, above, stay for the
@@ -2547,9 +2550,9 @@ const STATE_LAW_HEADINGS: Record<
  * caller gets the live text by default: a manual-booking practice is told of
  * no calendar purpose, data or recipient except under a calendar election.
  *
- * Unreleased in both documents, so changed in place. Once either is released
- * it is frozen with that document's golden hashes: a new wording is a new
- * function beside this one, never an edit to it.
+ * Released with BAA 1.3.0 on 2026-10-13, and frozen from then with its golden
+ * hashes, for the DPA too, which renders it as it stands: a new wording is a
+ * new function beside this one, never an edit to it.
  */
 export function stateLawClauseBody(input: {
   subject: StateLawSubject;
@@ -2817,7 +2820,9 @@ export function stateLawClauseBody(input: {
  * deposit for staff, which is what `depositLine` in apps/app's voice tools
  * does today. What a link carries, what healdesk sends the processor, and
  * the payer details healdesk keeps from the processor's notice (none) are
- * package D's to build to (§12.14, release gates).
+ * package D's (apps/app lib/billing/deposit-link.ts; release gate 10, §12.14).
+ * Released with BAA 1.3.0 on 2026-10-13 and frozen from then, for the DPA
+ * too: a new wording is a new constant.
  */
 export const PAYMENTS_CLAUSE_HEADING = "Payments";
 export const PAYMENTS_CLAUSE_BODY =
@@ -2916,7 +2921,9 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
  *                    patients and no SMS.
  *   minimum          NEW object: what the booking-field catalogue asks, no
  *                    email, "the person booking", and each record's retention
- *                    as the purge runs it; backups within 35 days.
+ *                    as the purge runs it; Practice may shorten the period for
+ *                    transcripts, the one its portal shortens; backups within
+ *                    35 days.
  *   reporting        NEW object: one rule for every practice and one
  *                    deadline for all three reports, without unreasonable
  *                    delay and in no case later than 60 calendar days after
@@ -2928,9 +2935,11 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
  *                    written request, as 1.2.2 gives it; the notice goes to
  *                    the notice address and names the subcontractor
  *                    (subprocessor-notice.ts).
- *   patient rights   NEW object: "Practice"; an amendment appended and linked
- *                    where a record must stay as it was made; a request made
- *                    to healdesk itself answered only in healdesk's reply.
+ *   patient rights   NEW object: "Practice"; contact details corrected in
+ *                    place, and an amendment appended and linked to a booking
+ *                    request, an appointment record or the record of a
+ *                    conversation, never a rewrite; a request made to
+ *                    healdesk itself answered only in healdesk's reply.
  *   acting           Headed "Where healdesk acts in Practice's place".
  *   prohibited       NEW object: the Meta replies carved out of the
  *                    advertising ban expressly, and described in paragraphs of
@@ -2966,17 +2975,25 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
  * names anything but that booking system. So the agreement and the system it
  * was signed with can never disagree.
  *
- * Drafted, not released: it sits at [1] with approvedByCounsel false, so
- * nothing offers it, and signing refuses it: validateSignRequest and
- * signAgreement (apps/app/src/lib/agreements.ts) both sign only
- * BAA_TEMPLATES[0], or a released version inside its BAA_RELEASE_OVERLAP
- * window. Provisioning does not check it: its approval gate reads
- * currentBaaTemplate(), not the bound acceptance's version, until plan C15
- * makes it read the bound one, and C15 must land before the release. The
- * owner releases it after the release gates in agreement-changes.md §12.14
- * are closed (owner, Q2; plan C19), when it moves to [0]. Its golden hashes
- * are regenerated with each edit before release, and noted in
- * agreement-changes.md §12.
+ * Released on 2026-10-13 by the owner, on the owner's own review and
+ * without external counsel (owner, Q2; plan C19), after the release audit of
+ * 12 October 2026 read every sentence that says what healdesk's systems do
+ * against the code on main (agreement-changes.md §12.15, which also lists
+ * the release gates still open on that day). That audit made the last two
+ * edits in place, each so the text says what the code now does: in the
+ * Minimum necessary clause, Practice shortens "the period for transcripts"
+ * in its portal, where it said "these periods"; and in item b of the
+ * patient-rights clause, healdesk corrects contact details in place and
+ * appends an amendment to a booking request, an appointment record or the
+ * record of a conversation, where an appointment read as corrected.
+ *
+ * It sits at BAA_TEMPLATES[0], so checkout offers it and validateSignRequest
+ * and signAgreement (apps/app/src/lib/agreements.ts) sign it; 1.2.2 signs
+ * only until its BAA_RELEASE_OVERLAP deadline. Provisioning's approval gate
+ * reads the bound acceptance's own version (plan C15), so a clinic signed
+ * under either goes live. Frozen from the release: a later wording is a new
+ * version, and its golden hashes (apps/app/tests/baa-golden.test.ts,
+ * agreement-changes.md §12.12) never move.
  */
 const CLAUSES_1_3: readonly BaaClause[] = [
   {
@@ -3164,8 +3181,8 @@ const CLAUSES_1_3: readonly BaaClause[] = [
   // De-identify first, then combine, and never re-identify: no PHI is
   // aggregated across practices (owner, 6 October 2026). The conditions state
   // law sets for de-identified information are stated here, once, for every
-  // practice (SL-04); the public commitment must be on healdesk.io/privacy
-  // before release (§12.14, PAGE-C19).
+  // practice (SL-04); the public commitment on healdesk.io/privacy is release
+  // gate 12 (§12.14, PAGE-C19), still open at the release (§12.15).
   {
     id: "own-use",
     heading: HEADINGS_1_3.ownUse,
@@ -3289,6 +3306,13 @@ const CLAUSES_1_3: readonly BaaClause[] = [
    * with its contact by cascade, so the text gives it its own sentence, and a
    * person's contact details stay while any record of theirs does (purge
    * step 3).
+   *
+   * Until the release audit of 12 October 2026 it said "Practice may shorten
+   * these periods in its portal". The portal shortens one of them: its
+   * Settings shortens transcripts, to 30 or 7 days, with the raw webhook
+   * payloads and idle chat threads that carry the same words, and no other
+   * record (clinic_settings.transcript_retention_days, read by the purge), so
+   * the sentence now names the transcripts, in the DPA's words.
    */
   {
     id: "minimum-necessary",
@@ -3334,9 +3358,10 @@ const CLAUSES_1_3: readonly BaaClause[] = [
           `confirmed for and its appointment's time. A person's contact details are kept while any ` +
           `conversation, appointment record or booking request of theirs is kept, and in any case ` +
           `until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded ` +
-          `or changed. Practice may shorten these periods in its portal. A backup copy of anything ` +
-          `healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion. No call ` +
-          `audio is kept at all. The Term clause governs what is held after termination.`,
+          `or changed. Practice may shorten the period for transcripts in its portal. A backup copy ` +
+          `of anything healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the ` +
+          `deletion. No call audio is kept at all. The Term clause governs what is held after ` +
+          `termination.`,
       ),
   },
 
@@ -3473,6 +3498,20 @@ const CLAUSES_1_3: readonly BaaClause[] = [
       wrap(subprocessorNoticeClauseBody()),
   },
 
+  /**
+   * Item b says which records are corrected and which take an amendment
+   * beside them, as the code does it (release gate 8; apps/app
+   * lib/patient-rights/amendments.ts and drizzle/0064): a contact's name,
+   * number or address is corrected in place (`amendContact`), and a booking
+   * request, an appointment and a conversation each take an appended,
+   * linked amendment (`record_amendments`), never a rewrite. Until the
+   * release audit of 12 October 2026 it named only a booking request and a
+   * conversation as appended, under "where the record can be changed,
+   * healdesk corrects its own copy", which read as if an appointment were
+   * corrected in place; the code appends to it, because the appointment is
+   * the booking as the clinic's calendar holds it, which a sync or a
+   * reschedule may move.
+   */
   {
     id: "patient-rights",
     heading: HEADINGS_1_3.patientRights,
@@ -3488,11 +3527,11 @@ const CLAUSES_1_3: readonly BaaClause[] = [
         `a. Access. healdesk will make available the PHI it holds about that patient in a ` +
           `designated record set, so Practice can meet its obligations under 45 CFR 164.524.`,
         `b. Amendment. healdesk will make that information available for amendment and will ` +
-          `incorporate any amendment Practice directs, under 45 CFR 164.526. Where the record can ` +
-          `be changed, healdesk corrects its own copy. Where a record must stay as it was made, ` +
-          `such as a booking request or the record of a conversation, healdesk appends the ` +
-          `amendment to it and links the two, as 45 CFR 164.526(c)(1) provides. Every later use ` +
-          `and export of that record then carries the amendment.`,
+          `incorporate any amendment Practice directs, under 45 CFR 164.526. healdesk corrects a ` +
+          `person's contact details in its own copy. It does not rewrite a booking request, an ` +
+          `appointment record or the record of a conversation: it appends the amendment to that ` +
+          `record and links the two, as 45 CFR 164.526(c)(1) provides. Every later use and export ` +
+          `of that record then carries the amendment.`,
         `c. Accounting. healdesk will maintain and make available the information Practice needs ` +
           `to give a patient an accounting of disclosures under 45 CFR 164.528.`,
       ]
@@ -3882,6 +3921,26 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // read [0], so a version stays at [0] until its successor is approved for
   // release too.
   {
+    version: "1.3.0",
+    publishedOn: "2026-10-13",
+    // Approved for release by the OWNER on 2026-10-13, on the owner's own
+    // review and without external counsel: as the field's doc comment on
+    // BaaTemplate defines it, the flag records the owner's release, not a
+    // lawyer's approval. Drafted on 2026-10-06 and redrafted by the
+    // pre-release audit (agreement-changes.md §12.14); released after
+    // Claude's own audit of the full text against the code (plan C19, owner
+    // answer Q2; §12.15), whose two text fixes are listed above CLAUSES_1_3.
+    approvedByCounsel: true,
+    preamble: preamble130,
+    clauses: CLAUSES_1_3,
+    validate: validate130,
+  },
+  // Released on 2026-10-09 and offered until 1.3.0 replaced it on
+  // 2026-10-13. Retained and frozen, as every released version is; signable
+  // only until its deadline in BAA_RELEASE_OVERLAP, so a checkout opened
+  // before the release can finish. Still MIN_ACCEPTABLE_BAA_VERSION, so a
+  // clinic that signed it goes live.
+  {
     version: "1.2.2",
     publishedOn: "2026-10-09",
     // Approved for release by the OWNER on 2026-10-09, on the owner's own
@@ -3892,22 +3951,6 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     approvedByCounsel: true,
     preamble: preamble122,
     clauses: CLAUSES_1_2_2,
-  },
-  // ⚖️ Drafted on 2026-10-06; not released, so not at [0], and signing
-  // refuses it, taking only [0] or a released version inside its
-  // overlap. Provisioning refuses a row signed under it too (plan C15: its
-  // approval gate reads the bound acceptance's own version) until the
-  // release. Released by the owner after an audit of the full text (plan
-  // C19): it then moves to [0] with a release date, and 1.2.2 stays signable
-  // until the deadline in BAA_RELEASE_OVERLAP, unless the release raises
-  // MIN_ACCEPTABLE_BAA_VERSION past it.
-  {
-    version: "1.3.0",
-    publishedOn: "2026-10-06",
-    approvedByCounsel: false,
-    preamble: preamble130,
-    clauses: CLAUSES_1_3,
-    validate: validate130,
   },
   // Released on 2026-10-01 and offered until 1.2.2 replaced it on
   // 2026-10-09 for the three changes listed above CLAUSES_1_2_2. No clinic
@@ -3980,15 +4023,25 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * judgement made at each release, and a floor makes it a constant raised on
  * purpose rather than a side effect of publishing.
  *
- * 1.2.2, the version being signed, while 1.3.0 is a draft. Raised from 1.2.1
- * with the 1.2.2 release on 2026-10-09: no clinic had signed 1.2.1, so
- * nobody has to re-accept, and a 1.2.1 document would point clinics at a
- * subcontractor page that no longer exists, give a notice address that is
- * no longer used and promise breach deadlines the owner has replaced. It
- * refuses 1.0.0, 1.2.0, 1.2.1 and every unreleased draft. Whether releasing
- * 1.3.0 raises it is part of that release (plan C19): 1.3.0 is the first
- * version with the Payments clause and the clause for a practice that is not
- * a covered entity.
+ * 1.2.2. Raised from 1.2.1 with the 1.2.2 release on 2026-10-09: no clinic
+ * had signed 1.2.1, so nobody has to re-accept, and a 1.2.1 document would
+ * point clinics at a subcontractor page that no longer exists, give a notice
+ * address that is no longer used and promise breach deadlines the owner has
+ * replaced. It refuses 1.0.0, 1.2.0, 1.2.1 and every unreleased draft.
+ *
+ * The 1.3.0 release on 2026-10-13 kept it at 1.2.2 (plan C19;
+ * agreement-changes.md §12.15), although 1.3.0 is the first version with the
+ * Payments clause and the clause for a practice that is not a covered
+ * entity. Raising it would refuse go-live to every 1.2.2 signer, and nothing
+ * yet lets one move to 1.3.0: `supersedeAgreement` (apps/app
+ * lib/agreements/kind.ts) has no caller, and even with one a superseded
+ * first location would get no `agreement` election row, which only
+ * provisioning records (`recordAgreementTerms`) and the database allows only
+ * at sequence 1 (calendar_elections_agreement_shape, drizzle/0057), so 1.3.0's
+ * location paragraph would be untrue for that practice. A 1.2.2 location takes
+ * its calendar terms from its first calendar election instead, which is how
+ * every version before 1.3.0 works. Raising the floor waits for a re-sign
+ * path that records the first location's terms.
  *
  * At each release: decide whether the new version raises the floor, and add
  * every acceptable version to app_baa_version_acceptable() in a migration.
@@ -4003,8 +4056,9 @@ export const MIN_ACCEPTABLE_BAA_VERSION = "1.2.2";
  * MIN_ACCEPTABLE_BAA_VERSION. "Older" is position in BAA_TEMPLATES, which is
  * ordered newest released first, with a draft after the release it follows;
  * publishedOn cannot decide it, because 1.2.0 and 1.2.1 share a date, and a
- * draft can be published before the release it follows (1.3.0, 1.2.2). A draft
- * is never acceptable, wherever it sits: it is not approved for release.
+ * draft can be published before the release it follows (1.3.0 was drafted on
+ * 2026-10-06, before 1.2.2's release). A draft is never acceptable, wherever
+ * it sits: it is not approved for release.
  */
 export function isBaaVersionAcceptable(version: string): boolean {
   const at = BAA_TEMPLATES.findIndex((t) => t.version === version);
@@ -4042,20 +4096,23 @@ export function templateReadsCalendarAccount(template: BaaTemplate): boolean {
  * released, mapped to the ISO time they stop. A release reaches apps/app and
  * apps/web in two deploys, and a buyer who loaded the agreement before the
  * second one would otherwise be refused mid-checkout. The 1.2.2 release
- * lists nothing: it raised MIN_ACCEPTABLE_BAA_VERSION past 1.2.1, so 1.2.1
- * is not listed, because a buyer could sign it and then be refused at
+ * listed nothing: it raised MIN_ACCEPTABLE_BAA_VERSION past 1.2.1, so 1.2.1
+ * was not listed, because a buyer could sign it and then be refused at
  * go-live, and the go-live floor test in apps/app/tests/agreements.test.ts
- * fails while any version listed here is below the floor. Empty until 1.3.0
- * is released: that release (plan C19) sets 1.2.2 to the release time plus
- * 72 hours, unless it raises MIN_ACCEPTABLE_BAA_VERSION past 1.2.2, in which
- * case 1.2.2 is not listed either, for the same reason. Plan C20 empties
- * it once both production deployments are verified. apps/app's signing
- * reads it (signableTemplate in apps/app/src/lib/agreements.ts): a version
- * listed here signs only if it was released, and only before its deadline,
- * which must be an ISO 8601 instant with its own offset, such as
- * "2026-10-12T12:00:00Z". A deadline in any other form closes the window.
+ * fails while any version listed here is below the floor. The 1.3.0 release
+ * (plan C19, 2026-10-13) lists 1.2.2 until fourteen days after the release
+ * date, so a checkout already open, or a browser still holding the old
+ * signing screen, can finish; 1.2.2 is the floor, so its signer goes live.
+ * Plan C20 empties it once both production deployments are verified.
+ * apps/app's signing reads it (signableTemplate in
+ * apps/app/src/lib/agreements.ts): a version listed here signs only if it
+ * was released, and only before its deadline, which must be an ISO 8601
+ * instant with its own offset, such as "2026-10-12T12:00:00Z". A deadline in
+ * any other form closes the window.
  */
-export const BAA_RELEASE_OVERLAP: Readonly<Record<string, string>> = {};
+export const BAA_RELEASE_OVERLAP: Readonly<Record<string, string>> = {
+  "1.2.2": "2026-10-27T00:00:00Z",
+};
 
 /**
  * The words on the button that signs the agreement.

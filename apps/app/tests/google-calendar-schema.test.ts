@@ -75,7 +75,7 @@ type ElectionInput = {
   linkId?: string | null;
   userId?: string | null;
   ownerConfirmed?: boolean;
-  /** Default: what the catalogue says of the version (calendar-election/1.0.0 is a draft today). */
+  /** Default: what the catalogue says of the version (calendar-election/1.0.0 is released since 13 October 2026). */
   released?: boolean;
   /** Overrides the hash the server would compute. */
   documentHash?: string;
@@ -545,15 +545,24 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
         message: expect.stringMatching(/app_booking_system_live/),
       };
 
-      // calendar-election/1.0.0 is a draft today, in the catalogue and in the database.
-      expect(getCalendarElection("calendar-election/1.0.0")?.approvedByCounsel).toBe(false);
+      // calendar-election/1.0.0 is released (plan C19), in the catalogue and in
+      // the database (the baa_release_1_3_0 migration); calling it a draft is as
+      // wrong as the reverse.
+      expect(getCalendarElection("calendar-election/1.0.0")?.approvedByCounsel).toBe(true);
+      await expect(elect({ released: false })).rejects.toMatchObject(releasedRefusal);
+      // The DPA's election is still a draft, and is the draft here: not on
+      // the database's list of releases.
+      const DRAFT = "calendar-election-dpa/1.0.0";
+      expect(getCalendarElection(DRAFT)).toBeUndefined();
       // Told truthfully, a draft is refused for a clinic that is not a demo clinic...
-      await expect(elect({})).rejects.toMatchObject({
+      await expect(elect({ documentVersion: DRAFT })).rejects.toMatchObject({
         code: "42501",
         message: expect.stringMatching(/only a demo clinic may record a draft/),
       });
       // ...and calling it released, or inventing a released version, changes nothing.
-      await expect(elect({ released: true })).rejects.toMatchObject(releasedRefusal);
+      await expect(elect({ documentVersion: DRAFT, released: true })).rejects.toMatchObject(
+        releasedRefusal,
+      );
       await expect(
         elect({ released: true, documentVersion: "calendar-election/9.9.9" }),
       ).rejects.toMatchObject(releasedRefusal);
@@ -588,9 +597,11 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
         message: expect.stringMatching(/SHA-256 of rendered_text/),
       });
       // A demo clinic is not believed about the release either.
-      await expect(elect({ released: true })).rejects.toMatchObject(releasedRefusal);
+      await expect(elect({ documentVersion: DRAFT, released: true })).rejects.toMatchObject(
+        releasedRefusal,
+      );
       // Told truthfully, the draft counts here.
-      await elect({});
+      await elect({ documentVersion: DRAFT });
     },
     SLOW,
   );
@@ -598,19 +609,16 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
   test(
     "a released document counts for any clinic, by the database's own list of releases",
     async () => {
-      // The release (plan C19) is a migration adding the version to
-      // app_calendar_election_released(). Rehearsed here inside one rolled-back
-      // transaction, as the owner, whom the guard binds as it binds everyone.
+      // The release (plan C19) is the baa_release_1_3_0 migration, which added the version to
+      // app_calendar_election_released(). Run inside one rolled-back
+      // transaction, as the owner, whom the guard binds as it binds everyone,
+      // on a clinic that is not a demo clinic.
       const clinic = await seedClinic("elect-released");
       const agreement = await bindCalendarAgreement(clinic, { bookingSystem: "mindbody" });
       const link = await insertCalendarLink(clinic.clinicId, { audience: "owner" });
       const client = await getMigratorPool().connect();
       try {
         await client.query("begin");
-        await client.query(`
-          create or replace function app_calendar_election_released(version text)
-          returns boolean language sql immutable set search_path = public, pg_temp
-          as $$ select coalesce(version = any (array['calendar-election/1.0.0']), false) $$`);
         await client.query(`select set_config('app.clinic_id', $1, true)`, [clinic.clinicId]);
         const elected = await insertElection(
           client as unknown as Client,
@@ -637,11 +645,11 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
         await client.query("rollback").catch(() => {});
         client.release();
       }
-      // Rolled back: the released list is empty again, and nothing was recorded.
+      // The list is the migration's, not the test's: 1.0.0 stays released.
       const { rows } = await getMigratorPool().query<{ released: boolean }>(
         `select app_calendar_election_released('calendar-election/1.0.0') as released`,
       );
-      expect(rows[0]!.released).toBe(false);
+      expect(rows[0]!.released).toBe(true);
     },
     SLOW,
   );

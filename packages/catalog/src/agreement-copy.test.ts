@@ -36,11 +36,14 @@ describe("AGREEMENT_COPY", () => {
     expect(baa.kind).toBe("baa");
     expect(baa.title).toBe("Business Associate Agreement");
     expect(baa.currentVersion).toBe(CURRENT_BAA_VERSION);
-    // 1.2.2, the version signed until the release, shows BAA_EXPLAINER, bullets and all, as 1.2.1 did.
+    // 1.2.2, the version signed until 1.3.0's release, shows BAA_EXPLAINER, bullets and all, as 1.2.1 did.
     expect(baa.explainer("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baa.explainer("1.2.2").terms).toBe(BAA_EXPLAINER.terms);
     expect(baa.explainer("1.2.1")).toBe(BAA_EXPLAINER);
-    expect(baa.explainer(baa.currentVersion)).toBe(BAA_EXPLAINER);
+    // 1.3.0, the current version since its release, shows its own bullets (the next test).
+    expect(baa.currentVersion).toBe("1.3.0");
+    expect(baa.explainer(baa.currentVersion)).toBe(baa.explainer("1.3.0"));
+    expect(baa.explainer(baa.currentVersion)).not.toBe(BAA_EXPLAINER);
     expect(baa.clauseNote).toBe(clauseExplainer);
     expect(baa.assentLabel).toBe(BAA_ASSENT_LABEL);
     expect(baa.assentSentence).toBe(assentSentence);

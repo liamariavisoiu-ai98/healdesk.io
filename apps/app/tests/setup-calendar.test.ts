@@ -1,8 +1,10 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
 import {
+  agreementPlatformFor,
   BAA_ASSENT_LABEL,
   CURRENT_BAA_VERSION,
+  getBaaTemplate,
   GOOGLE_CALENDAR_DISCLOSURE,
   renderGoogleCalendarDisclosure,
 } from "@healdesk/catalog";
@@ -58,12 +60,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import {
-  inTenant,
-  seedCalendarTerms,
-  seedGoogleConnection,
-  type SeedCalendarTermsInput,
-} from "./setup/factories";
+import { inTenant, seedGoogleConnection, type SeedCalendarTermsInput } from "./setup/factories";
 
 /**
  * Setup step 3 on the calendar session's functions (plan Part E, 3.1 and
@@ -167,42 +164,57 @@ type Clinic = {
   userId: string;
 };
 
-/** A clinic as payment makes one, then, unless `terms` is null, under 1.3.0's calendar terms. */
+/**
+ * A clinic as payment makes one: signed under BAA 1.3.0, the current version,
+ * with `terms`'s two answers (Google Calendar in a Workspace under Google's
+ * BAA unless they say otherwise), so provisioning records the location's
+ * calendar terms from the signature (plan C15). With `terms` null, signed
+ * under 1.2.2 instead, as a practice that signed before 1.3.0's release did:
+ * no calendar terms until an election.
+ */
 async function provisioned(
   label: string,
   terms: SeedCalendarTermsInput | null = {},
 ): Promise<Clinic> {
   const email = `${label}-${randomUUID().slice(0, 8)}@glowspa.test`;
-  const signed = await signAgreement({
-    clinicLegalName: "Glow Med Spa LLC",
-    specialty: "med-spa",
-    signatoryName: "Laura Owner",
-    signatoryEmail: email,
-    isCoveredEntity: false,
-    attributionMode: "estimated",
-    platform: "none",
-    assentLabel: BAA_ASSENT_LABEL,
-    templateVersion: CURRENT_BAA_VERSION,
-  });
+  const bookingSystem = terms?.bookingSystem ?? "google_calendar";
+  const platform = terms ? agreementPlatformFor(bookingSystem) : "none";
+  const v122 = getBaaTemplate("1.2.2")!;
+  const signed = await signAgreement(
+    {
+      clinicLegalName: "Glow Med Spa LLC",
+      specialty: "med-spa",
+      signatoryName: "Laura Owner",
+      signatoryEmail: email,
+      isCoveredEntity: false,
+      attributionMode: "estimated",
+      platform,
+      ...(terms
+        ? { bookingSystem, calendarAccount: terms.calendarAccount ?? "workspace_baa" }
+        : {}),
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: terms ? CURRENT_BAA_VERSION : v122.version,
+    },
+    {},
+    terms ? {} : { current: v122 },
+  );
   const result = await provisionClinic({
     clinicName: "Glow Med Spa LLC",
     specialty: "med-spa",
-    platform: "none",
+    platform,
     plan: "web-voice",
     contactName: "Laura Owner",
     contactEmail: email,
     agreementId: signed.agreementId,
     idempotencyKey: `idem-${randomUUID()}`,
   });
-  const clinic = {
+  return {
     clinicId: result.clinicId,
     organizationId: result.organizationId,
     slug: result.clinicSlug,
     name: "Glow Med Spa LLC",
     userId: result.ownerUserId!,
   };
-  if (terms) await seedCalendarTerms(clinic, terms);
-  return clinic;
 }
 
 /** The clinic's sign-in, as the session cookie would carry it. */
@@ -467,8 +479,8 @@ describeDb("setup step 3 on the calendar functions", () => {
         __setKeyWrapperForTests(undefined);
       }
 
-      // Terms that still need an election (every 1.2.1 signature until the
-      // calendar session's C19), and terms under which the calendar is not used.
+      // Terms that still need an election (a signature before 1.3.0), and
+      // terms under which the calendar is not used.
       for (const terms of [null, { bookingSystem: "mindbody" as const }]) {
         const other = await provisioned("wc-gate-terms", terms);
         expect(
@@ -876,7 +888,7 @@ describeDb("setup step 3 on the calendar functions", () => {
       await setAutoConfirm(clinic.clinicId, false, actor);
       expect((await line()).on).toBe(false);
 
-      // Terms not recorded yet (every 1.2.1 signature until C19): no button, and the line says why.
+      // Terms not recorded yet (a signature before 1.3.0): no button, and the line says why.
       const legacy = await provisioned("wc-rightnow-legacy", null);
       const legacyState = await loadSetupState({
         clinicId: legacy.clinicId,

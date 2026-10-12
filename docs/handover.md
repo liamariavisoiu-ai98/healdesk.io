@@ -589,13 +589,12 @@ request id, count) is the record outside the database.
 ### Amendments
 
 BAA 1.3.0's clause 14(b) and the DPA's Clients' requests clause: healdesk incorporates any
-amendment the practice directs. Where the record can be changed, we correct our own
-copy; where a record must stay as it was made, a booking request or the record of a
-conversation, we append the amendment to it and link the two, and every later use and
-export of that record carries it. An appointment takes an appended amendment too: it is
-the booking as the practice's calendar holds it, which a sync or a reschedule moves, so
-a correction of its service, practitioner or time is appended beside it, never written
-over the calendar's.
+amendment the practice directs. We correct a person's contact details in our own copy; we
+never rewrite a booking request, an appointment record or the record of a conversation,
+but append the amendment to that record and link the two, and every later use and export
+of that record carries it. An appointment is the booking as the practice's calendar holds
+it, which a sync or a reschedule moves, so a correction of its service, practitioner or
+time is appended beside it, never written over the calendar's.
 
 1. **Who may direct one.** The practice, from its notice address, verified as for a
    deletion request. A patient who asks us directly is passed to the practice within

@@ -15,18 +15,18 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  * Amendments to the records that must stay as they were made.
  *
  * BAA 1.3.0's clause 14(b), and the DPA's Clients' requests clause in its own
- * words: healdesk incorporates any amendment Practice directs. Where the
- * record can be changed, healdesk corrects its own copy (`amendContact` in
+ * words: healdesk incorporates any amendment Practice directs. healdesk
+ * corrects a person's contact details in its own copy (`amendContact` in
  * ./export.ts, for a contact's name, number or address, each of which can
- * also be cleared). Where a record must stay as it was made, such as a
- * booking request or the record of a conversation, healdesk appends the
- * amendment to it and links the two, as 45 CFR 164.526(c)(1) provides, and
- * every later use and export of that record then carries the amendment. An
- * appointment takes an amendment too: it is the booking as the clinic's
- * calendar holds it, which a sync or a reschedule may move, so a correction
- * of its service, practitioner or time is appended beside it rather than
- * written over the calendar's. Release gate 8 (PT-17) is this file and
- * `record_amendments` (drizzle/0064).
+ * also be cleared). It does not rewrite a booking request, an appointment
+ * record or the record of a conversation: it appends the amendment to that
+ * record and links the two, as 45 CFR 164.526(c)(1) provides, and every
+ * later use and export of that record then carries the amendment. An
+ * appointment is the booking as the clinic's calendar holds it, which a sync
+ * or a reschedule may move, so a correction of its service, practitioner or
+ * time is appended beside it rather than written over the calendar's; the
+ * clause has named it since the release audit of 12 October 2026. Release
+ * gate 8 (PT-17) is this file and `record_amendments` (drizzle/0064).
  *
  * A booking request's facts never change (the no-rewrite trigger, 0039 and
  * 0041), and a conversation is the record of what was said, so neither is

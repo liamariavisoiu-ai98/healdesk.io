@@ -414,7 +414,10 @@ export async function seedGoogleConnection(
 /**
  * healdesk's demo clinic, made the way scripts/demo-clinic.ts makes it
  * (createDemoClinic: the agreement signed, then provisioning's internal
- * demo option), under a unique synthetic name and operator address.
+ * demo option), under a unique synthetic name and operator address. Signed
+ * under the current version, BAA 1.3.0, so it starts under the calendar terms
+ * createDemoClinic's default answers choose (uncovered); seedLegacyDemoClinic
+ * below is one that signed before.
  */
 export async function seedDemoClinic(label: string): Promise<SeededClinic> {
   const { createDemoClinic } = await import("@/lib/onboarding/demo-clinic");
@@ -431,6 +434,68 @@ export async function seedDemoClinic(label: string): Promise<SeededClinic> {
     organizationId: demo.organizationId,
     slug: demo.clinicSlug,
     staffUserId: demo.ownerUserId,
+    staffEmail,
+  };
+}
+
+/**
+ * A demo clinic whose agreement is BAA 1.2.2, as a practice that signed before
+ * 1.3.0's release (plan C19, 13 October 2026) has: no calendar terms until
+ * its first calendar election (`needs_election`, `legacy_agreement`), so an
+ * election or seedCalendarTerms takes sequence 1. Made by the same two calls
+ * createDemoClinic makes, with 1.2.2 signed as if it were current, since
+ * createDemoClinic signs the current version, which gives the location its
+ * signed terms from the start.
+ */
+export async function seedLegacyDemoClinic(label: string): Promise<SeededClinic> {
+  const [{ BAA_ASSENT_LABEL, getBaaTemplate }, { signAgreement }, { provisionClinic }] =
+    await Promise.all([
+      import("@healdesk/catalog"),
+      import("@/lib/agreements"),
+      import("@/lib/provisioning"),
+    ]);
+  const suffix = randomUUID().slice(0, 8);
+  const staffEmail = `ops-${label}-${suffix}@healdesk-demo.test`;
+  const name = `${label} Demo Practice ${suffix}`;
+  const v122 = getBaaTemplate("1.2.2")!;
+  const signed = await signAgreement(
+    {
+      clinicLegalName: name,
+      specialty: "med-spa",
+      signatoryName: "Ops Operator",
+      signatoryTitle: "healdesk operator, for the demo clinic",
+      signatoryEmail: staffEmail,
+      isCoveredEntity: null,
+      attributionMode: "estimated",
+      platform: "none",
+      assentLabel: BAA_ASSENT_LABEL,
+      templateVersion: v122.version,
+    },
+    {},
+    { current: v122 },
+  );
+  const provisioned = await provisionClinic(
+    {
+      clinicName: name,
+      specialty: "med-spa",
+      platform: "none",
+      plan: "complete",
+      contactName: "Ops Operator",
+      contactEmail: staffEmail,
+      agreementId: signed.agreementId,
+      idempotencyKey: `demo_${randomUUID()}`,
+    },
+    {},
+    { demo: true },
+  );
+  if (!provisioned.ownerUserId) {
+    throw new Error("seedLegacyDemoClinic: provisioning made no owner sign-in.");
+  }
+  return {
+    clinicId: provisioned.clinicId,
+    organizationId: provisioned.organizationId,
+    slug: provisioned.clinicSlug,
+    staffUserId: provisioned.ownerUserId,
     staffEmail,
   };
 }

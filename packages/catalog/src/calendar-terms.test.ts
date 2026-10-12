@@ -458,15 +458,17 @@ describe("the calendar election document", () => {
     electedOn: "2026-10-07",
   };
 
-  test("is versioned like a document and not released until the owner releases it", () => {
+  test("is versioned like a document and released by the owner with BAA 1.3.0", () => {
     const current = currentCalendarElection();
     expect(current.version).toBe("calendar-election/1.0.0");
     expect(CALENDAR_ELECTIONS[0]).toBe(current);
     expect(getCalendarElection(current.version)).toBe(current);
     expect(getCalendarElection("calendar-election/0.0.0")).toBeUndefined();
-    // Released with BAA 1.3.0 (plan C19); until then only a demo clinic's
-    // election may count (plan A10, enforced from C6 and C7).
-    expect(current.approvedByCounsel).toBe(false);
+    // Released with BAA 1.3.0 on 2026-10-13 (plan C19), so an election under
+    // it counts for every clinic, not only a demo clinic (plan A10); the
+    // database's app_calendar_election_released() says the same.
+    expect(current.approvedByCounsel).toBe(true);
+    expect(current.publishedOn).toBe("2026-10-13");
   });
 
   test("names the practice, the location and the agreement, and carries the clause without the location paragraph", () => {

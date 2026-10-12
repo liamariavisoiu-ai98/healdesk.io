@@ -39,8 +39,13 @@ const mocks = vi.hoisted(() => {
     cookieJar: [] as { name: string; value: string }[],
     sent: [] as { to: string; kind: string; subject: string; text: string }[],
     calendarStates: [] as { clinicId: string; state: string }[],
-    /** Stands in for the release of the BAA's election form (C19), as calendar-terms.test.ts does. */
-    release: { election: false },
+    /**
+     * The BAA's election form is released (calendar-election/1.0.0, plan C19);
+     * this swaps it for an unreleased later version, as calendar-terms.test.ts
+     * does, to show what a draft does. The database leaves that version off
+     * its list of releases, as it would a real one.
+     */
+    draft: { election: false },
   };
 });
 
@@ -89,12 +94,12 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
   return {
     ...actual,
-    // Only the BAA's form is ever "released" here; the DPA's stays as the
+    // Only the BAA's form is ever made a draft here; the DPA's stays as the
     // catalogue has it, unreleased.
     calendarElectionFor: (version: string) => {
       const form = actual.calendarElectionFor(version);
-      return mocks.release.election && actual.agreementKindOfVersion(version) === "baa"
-        ? { ...form, approvedByCounsel: true }
+      return mocks.draft.election && actual.agreementKindOfVersion(version) === "baa"
+        ? { ...form, version: "calendar-election/1.1.0-draft", approvedByCounsel: false }
         : form;
     },
   };
@@ -125,7 +130,7 @@ import {
   inTenant,
   seedCalendarTerms,
   seedClinic,
-  seedDemoClinic,
+  seedLegacyDemoClinic,
   seedPortalUser,
   type SeededClinic,
 } from "./setup/factories";
@@ -409,7 +414,7 @@ describeDb("the portal's way into the calendar", () => {
     mocks.sent.length = 0;
     mocks.calendarStates.length = 0;
     mocks.cookieJar.length = 0;
-    mocks.release.election = false;
+    mocks.draft.election = false;
     await signInAs(null);
     freshAccounts();
     google = fakeGoogleCalendar();
@@ -518,7 +523,7 @@ describeDb("the portal's way into the calendar", () => {
       await seedCalendarTerms(clinic);
       const manual = await seedClinic("cp-refusals-manual");
       await seedCalendarTerms(manual, { bookingSystem: "mindbody" });
-      const demo = await seedDemoClinic("cp-refusals-elect");
+      const demo = await seedLegacyDemoClinic("cp-refusals-elect");
       const back = (c: Pick<SeededClinic, "slug">, outcome: string) =>
         `${ORIGIN}/c/${c.slug}/settings?calendar=${outcome}`;
       // Each refusal is a 303 back to the page, binding no browser.
@@ -756,7 +761,7 @@ describeDb("the portal's way into the calendar", () => {
     async () => {
       // A demo clinic: the only kind that may record an election before the
       // election document is released (plan A10).
-      const demo = await seedDemoClinic("cp-kind");
+      const demo = await seedLegacyDemoClinic("cp-kind");
       expect(await getCalendarTerms(demo.clinicId)).toEqual({
         terms: { kind: "needs_election", reason: "legacy_agreement" },
         election: { status: "ready" },
@@ -915,7 +920,7 @@ describeDb("the portal's way into the calendar", () => {
   test(
     "an account in another Workspace domain needs the owner's election too; the same terms again keep the connection until the new account replaces it",
     async () => {
-      const demo = await seedDemoClinic("cp-domain");
+      const demo = await seedLegacyDemoClinic("cp-domain");
       const covered = {
         bookingSystem: "google_calendar",
         calendarAccount: "workspace_baa",
@@ -971,7 +976,7 @@ describeDb("the portal's way into the calendar", () => {
   test(
     "elections in the portal are the owner's: another member's is owner_only and a stranger's not_member, an unticked or unsigned one is refused, and a draft waits for its release",
     async () => {
-      const demo = await seedDemoClinic("cp-owner-only");
+      const demo = await seedLegacyDemoClinic("cp-owner-only");
       const manager = await seedPortalUser(demo.clinicId, "admin");
       const stranger = await seedClinic("cp-owner-only-other");
       const narrowing = {
@@ -1023,9 +1028,10 @@ describeDb("the portal's way into the calendar", () => {
         { source: "portal", terms_kind: "not_used", owner_confirmed: true },
       ]);
 
-      // Not a demo clinic: the document is a draft until it is released.
+      // Not a demo clinic: a draft form waits for its release.
       const legacy = await seedClinic("cp-owner-only-legacy");
       await bindAgreement(legacy.organizationId, "1.2.1");
+      mocks.draft.election = true;
       expect(await getCalendarTerms(legacy.clinicId)).toEqual({
         terms: { kind: "needs_election", reason: "legacy_agreement" },
         election: { status: "unavailable", reason: "draft_terms" },
@@ -1053,6 +1059,18 @@ describeDb("the portal's way into the calendar", () => {
       });
       expect(await elections(legacy.clinicId)).toEqual([]);
       expect(await elections(bare.clinicId)).toEqual([]);
+
+      // Released, as calendar-election/1.0.0 is (plan C19), the same location's
+      // owner records it.
+      mocks.draft.election = false;
+      expect(await getCalendarTerms(legacy.clinicId)).toMatchObject({
+        terms: { kind: "needs_election", reason: "legacy_agreement" },
+        election: { status: "ready" },
+      });
+      expect(await electAs(legacy.clinicId, {}, owner(legacy))).toMatchObject({
+        status: "recorded",
+        kind: "not_used",
+      });
     },
     SLOW,
   );
@@ -1060,7 +1078,7 @@ describeDb("the portal's way into the calendar", () => {
   test(
     "a practice under a DPA is never handed the BAA's election: its own form is unreleased, so nothing offers, mails or records one even once the BAA's is",
     async () => {
-      mocks.release.election = true;
+      // The BAA's form is released (plan C19); the DPA's is not.
       const baa = await seedClinic("cp-dpa-baa");
       await bindAgreement(baa.organizationId, "1.2.1");
       const dpa = await seedClinic("cp-dpa");

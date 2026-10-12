@@ -141,9 +141,9 @@ describe("the subcontractors note", () => {
     );
   });
 
-  test("is what the offered checkout has always shown, so drafting 1.3.0 changes nothing it shows", () => {
+  test("is what the checkout showed until 1.3.0's release, so releasing 1.3.0 changes nothing 1.2.2 shows", () => {
     // The signing screen shows 1.2.1's note, through clauseExplainer, for
-    // 1.2.2 as it did for 1.2.1.
+    // 1.2.2 as it did for 1.2.1; since the release it renders 1.3.0's own.
     expect(BAA_CLAUSE_EXPLAINERS.subcontractors).toEqual({
       plain:
         "Every vendor that handles patient information signs the same obligations with " +
@@ -155,8 +155,9 @@ describe("the subcontractors note", () => {
         "object on reasonable grounds",
       citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
     });
+    expect(clauseExplainer("1.2.2", "subcontractors")).toBe(BAA_CLAUSE_EXPLAINERS.subcontractors);
     expect(clauseExplainer(currentBaaTemplate().version, "subcontractors")).toBe(
-      BAA_CLAUSE_EXPLAINERS.subcontractors,
+      BAA_CLAUSE_EXPLAINERS_BY_VERSION["1.3.0"]!.subcontractors,
     );
   });
 });
@@ -194,7 +195,10 @@ describe("the bullets above the agreement", () => {
   test("1.2.1 and 1.2.2 keep their bullets word for word, because their clause still says use and materially breaches", () => {
     expect(baaExplainerTerms("1.2.1")).toBe(BAA_EXPLAINER.terms);
     expect(baaExplainerTerms("1.2.2")).toBe(BAA_EXPLAINER.terms);
-    expect(baaExplainerTerms(currentBaaTemplate().version)).toBe(BAA_EXPLAINER.terms);
+    // 1.3.0, the current template since its release, words two of them its own way (below).
+    expect(baaExplainerTerms(currentBaaTemplate().version)).toBe(
+      BAA_EXPLAINER_TERMS_BY_VERSION["1.3.0"],
+    );
     expect(citing(BAA_EXPLAINER.terms, "164.504(e)(2)(ii)(J)")).toBe(
       "At the end of the agreement, return or destroy the patient data we hold and keep no copies " +
         "— and where that is not feasible, keep protecting it under the same terms and use it only " +
@@ -241,11 +245,12 @@ describe("the bullets above the agreement", () => {
 });
 
 describe("the explainer for one version (gate 11)", () => {
-  test("1.2.2, the signed version, and 1.2.1 get BAA_EXPLAINER itself, so the screen does not move a byte", () => {
+  test("1.2.2, signed until 1.3.0's release, and 1.2.1 get BAA_EXPLAINER itself, so their screen does not move a byte", () => {
     expect(baaExplainerFor("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
-    expect(baaExplainerFor(currentBaaTemplate().version)).toBe(BAA_EXPLAINER);
+    // The current template is 1.3.0, which has its own (the next test).
+    expect(baaExplainerFor(currentBaaTemplate().version)).toBe(baaExplainerFor("1.3.0"));
     // Every released version that words no bullet differently, and anything unknown.
     for (const version of ["1.2.0", "1.0.0", "9.9.9", "toString", ""]) {
       expect(baaExplainerFor(version), version).toBe(BAA_EXPLAINER);

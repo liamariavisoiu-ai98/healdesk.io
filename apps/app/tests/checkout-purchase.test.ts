@@ -68,6 +68,9 @@ async function agreementFor(email: string): Promise<string> {
     isCoveredEntity: false,
     attributionMode: "estimated",
     platform: "none",
+    // BAA 1.3.0, the current version, reads both calendar answers.
+    bookingSystem: "none",
+    calendarAccount: "workspace_no_baa",
     assentLabel: BAA_ASSENT_LABEL,
     templateVersion: CURRENT_BAA_VERSION,
   });
@@ -88,11 +91,14 @@ async function purchase(overrides: Record<string, unknown> = {}) {
     agreementId,
     nonce: n,
     body: {
-      // The agreement's own answers: the legal name it names and its
-      // covered-entity answer, which the intent is matched against.
+      // The agreement's own answers: the legal name it names, its
+      // covered-entity answer and the two calendar answers 1.3.0 reads, which
+      // the intent is matched against.
       clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",
       platform: "none",
+      bookingSystem: "none",
+      calendarAccount: "workspace_no_baa",
       plan: "web-voice",
       billingInterval: "month",
       contactName: "Laura Owner",
@@ -179,8 +185,9 @@ describeDb("checkout intents", () => {
 
   test("the agreement must be the document the purchase describes, or the buyer signs again", async () => {
     // Signed for "Glow Med Spa LLC", a med spa, "No" to billing insurance,
-    // and no booking platform. A request changed after signing is refused
-    // under `agreementId`, which sends the funnel back to the signature.
+    // no booking system and a Workspace account without Google's agreement.
+    // A request changed after signing is refused under `agreementId`, which
+    // sends the funnel back to the signature.
     const p = await purchase();
     const changed: [string, Record<string, unknown>][] = [
       ["another legal name", { clinicName: "Other Spa LLC" }],

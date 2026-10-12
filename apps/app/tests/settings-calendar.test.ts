@@ -21,7 +21,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedCalendarTerms, seedGoogleConnection } from "./setup/factories";
+import { inTenant, seedGoogleConnection } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 import { brokenLinks } from "./setup/portal-links";
 
@@ -88,7 +88,7 @@ const ENV = ["BETTER_AUTH_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_S
 const saved: Record<string, string | undefined> = {};
 
 let google: FakeGoogleCalendar;
-/** Under no calendar terms: a sign-in cannot start. */
+/** Under terms that write to no calendar (a one-way booking system): a sign-in cannot start. */
 let unelected: PortalClinic;
 /** Under covered terms (Google Calendar, a Workspace account under a BAA). */
 let covered: PortalClinic;
@@ -166,13 +166,18 @@ describeDb("Settings → Calendar", () => {
     });
     for (const key of ENV) saved[key] = process.env[key];
     process.env.BETTER_AUTH_URL = ORIGIN;
-    unelected = await provisionPortalClinic("calnone", { plan: "web-voice" });
-    covered = await provisionPortalClinic("calcovered", { plan: "web-voice" });
-    const [org] = await sql<{ organization_id: string }>(
-      `select organization_id from clinics where id = $1`,
-      [covered.clinicId],
-    );
-    await seedCalendarTerms({ clinicId: covered.clinicId, organizationId: org!.organization_id });
+    // Each signed BAA 1.3.0 with its calendar answers, and provisioning
+    // recorded the location's first terms from them (plan C15).
+    unelected = await provisionPortalClinic("calnone", {
+      plan: "web-voice",
+      bookingSystem: "mindbody",
+      calendarAccount: "workspace_no_baa",
+    });
+    covered = await provisionPortalClinic("calcovered", {
+      plan: "web-voice",
+      bookingSystem: "google_calendar",
+      calendarAccount: "workspace_baa",
+    });
     // Warm the page and the actions once, outside any test's clock.
     await import("@/app/c/[slug]/settings/page");
     await actions();

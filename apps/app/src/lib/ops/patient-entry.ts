@@ -313,8 +313,8 @@ export type ShellCorrectOutcome =
 
 /**
  * Correct a contact's name, number or address in place, or clear one, on
- * Practice's direction (BAA 1.3.0 clause 14(b): "Where the record can be
- * changed, healdesk corrects its own copy"). A field is cleared only when
+ * Practice's direction (BAA 1.3.0 clause 14(b): "healdesk corrects a
+ * person's contact details in its own copy"). A field is cleared only when
  * `clear` names it; an empty value changes nothing. The audit row says which
  * fields changed and who asked; the reply names the fields, never values.
  */

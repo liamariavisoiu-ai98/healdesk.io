@@ -3,9 +3,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+  agreementPlatformFor,
   BAA_ASSENT_LABEL,
   CURRENT_BAA_VERSION,
   NEVER_SAY_DEFAULTS,
+  type BookingSystemId,
+  type CalendarAccount,
   SIGNATURE_HEADER,
   TIMESTAMP_HEADER,
   sign,
@@ -154,9 +157,17 @@ function profile(website: string): ClinicProfile {
   } as unknown as ClinicProfile;
 }
 
+/**
+ * The current agreement, BAA 1.3.0 since its release, signed with the two
+ * calendar answers it reads and the platform the booking system implies, as
+ * the funnel's agreement step sends them.
+ */
 async function agreementFor(
   email: string,
-  platform = "none",
+  answers: { bookingSystem: BookingSystemId; calendarAccount: CalendarAccount } = {
+    bookingSystem: "none",
+    calendarAccount: "workspace_no_baa",
+  },
   isCoveredEntity: boolean | null = false,
 ) {
   const result = await signAgreement({
@@ -167,7 +178,9 @@ async function agreementFor(
     signatoryEmail: email,
     isCoveredEntity,
     attributionMode: "estimated",
-    platform,
+    platform: agreementPlatformFor(answers.bookingSystem),
+    bookingSystem: answers.bookingSystem,
+    calendarAccount: answers.calendarAccount,
     assentLabel: BAA_ASSENT_LABEL,
     templateVersion: CURRENT_BAA_VERSION,
   });
@@ -181,11 +194,19 @@ const RECEIPT_URL = "https://invoice.stripe.com/i/acct_1Test/test_c2V0dXAgZmVlIH
 
 /** A purchase through an intent and a paid first invoice, as production makes one. */
 async function purchaseAndProvision(
-  options: { bookingSystem?: string; platform?: string; hostedInvoiceUrl?: string | null } = {},
+  options: {
+    bookingSystem?: BookingSystemId;
+    platform?: string;
+    hostedInvoiceUrl?: string | null;
+  } = {},
 ): Promise<Provisioned & { provisionBody: Record<string, unknown> }> {
   const email = `laura-${randomUUID().slice(0, 8)}@glowspa.test`;
   const platform = options.platform ?? "mindbody";
-  const agreementId = await agreementFor(email, platform);
+  const bookingSystem = options.bookingSystem ?? "mindbody";
+  const agreementId = await agreementFor(email, {
+    bookingSystem,
+    calendarAccount: "workspace_no_baa",
+  });
   const nonce = createHash("sha256").update(randomBytes(24)).digest("hex");
   const website = "glowmedspa.com";
   const intent = await postIntent(
@@ -201,7 +222,7 @@ async function purchaseAndProvision(
       isCoveredEntity: false,
       inviteRef: null,
       nonceHash: nonce,
-      bookingSystem: options.bookingSystem ?? "mindbody",
+      bookingSystem,
       calendarAccount: "workspace_no_baa",
       website,
       profile: profile(website),
@@ -254,7 +275,7 @@ async function provisionDirect(
   const email = `${label}-${randomUUID().slice(0, 8)}@glowspa.test`;
   const agreementId = await agreementFor(
     email,
-    "none",
+    undefined,
     options.isCoveredEntity === undefined ? false : options.isCoveredEntity,
   );
   const result = await provisionClinic(
@@ -443,7 +464,9 @@ describeDb("the setup wizard", () => {
           (await c.query(`select booking_system, auto_confirm_bookings from clinic_settings`))
             .rows[0]!,
       );
-      expect(settings).toEqual({ booking_system: null, auto_confirm_bookings: true });
+      // No intent, but the signed agreement (BAA 1.3.0 reads it) names the
+      // booking system: none, which books live, so Auto-confirm stays on.
+      expect(settings).toEqual({ booking_system: "none", auto_confirm_bookings: true });
     });
   });
 

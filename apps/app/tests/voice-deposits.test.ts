@@ -66,8 +66,8 @@ import {
   inTenant,
   seedCalendarTerms,
   seedClinic,
-  seedDemoClinic,
   seedGoogleConnection,
+  seedLegacyDemoClinic,
 } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -204,7 +204,7 @@ describeDb("deposits on the phone", DB_TEST_OPTIONS, () => {
    * approved, and a desk to mail. The answer gate is this file's mock.
    */
   async function demoClinic(label: string, deposits: Deposits = {}) {
-    const demo = await seedDemoClinic(label);
+    const demo = await seedLegacyDemoClinic(label);
     await getMigratorPool().query(
       `update clinics set timezone = $2, timezone_confirmed_at = now(), opening_hours = $3::jsonb,
               stripe_connect_account_id = 'acct_1VoiceDemo', stripe_connect_connected_at = now()

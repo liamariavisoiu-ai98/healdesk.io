@@ -630,7 +630,8 @@ describeDb("agreement kinds in the database (0051)", () => {
       production: true,
       agreementVersion: "1.2.1",
     });
-    for (const version of ["1.3.0", "1.2.0"]) {
+    // A draft, and a release below the floor.
+    for (const version of ["1.1.0-draft", "1.2.0"]) {
       const offer = await seedAcceptance({ version });
       await expect(
         getAppPool().query(`select app_supersede_agreement($1::uuid, $2::uuid, 'ops')`, [
@@ -663,8 +664,8 @@ describeDb("agreement kinds in the database (0051)", () => {
       covered: true,
       agreementVersion: "dpa/1.0.0",
     });
-    const draft = await seedAcceptance({ version: "1.3.0" });
-    expect(getBaaTemplate("1.3.0")!.approvedByCounsel).toBe(false);
+    const draft = await seedAcceptance({ version: "1.1.0-draft" });
+    expect(getBaaTemplate("1.1.0-draft")!.approvedByCounsel).toBe(false);
     await expect(supersedeAgreement(dpa.clinicId, draft, "ops")).rejects.toBeInstanceOf(
       SupersedeError,
     );
@@ -741,7 +742,9 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
   }
 
   test("a BAA clinic is stored with its regime, its kind and the answer it signed", async () => {
-    const baa = prepareBaa(getBaaTemplate(CURRENT_BAA_VERSION)!, {
+    // 1.2.2, still the go-live floor, which carries no calendar terms, so the
+    // row needs no calendar answers to provision.
+    const baa = prepareBaa(getBaaTemplate("1.2.2")!, {
       clinicLegalName: "Kind Clinic",
       specialty: "Med Spas, Dermatology & Aesthetics",
       signatoryName: "Alex Chen",

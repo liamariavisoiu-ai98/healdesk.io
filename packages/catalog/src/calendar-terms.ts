@@ -46,22 +46,26 @@ import { wrap } from "./wrap";
  * The clause bodies live here, once. BAA 1.3.0 renders them with the location
  * paragraph appended (baa.ts); the election document renders them without it;
  * the funnel's data protection agreement is to pick its calendar clause
- * through `selectCalendarClause`. Every promise in them has to be kept by
- * code before they are released: the event body (packages/connectors/src/
- * google/event.ts) and the reads (the Google adapter) already are; the token
- * erasure on disconnect, on revocation at Google and at destruction, use
- * stopping when the Services end, and the account checks at connect, arrive
- * with the connect flow and the watch (plan §4.11, §4.12, §9). The covered
- * clause's organisation check, at choice and before every write and for every
- * provider calendar, is plan C8's guardrail (owner, 6 October 2026: "Yes,
- * guardrail it"; agreement-changes.md §12.14). docs/counsel/agreement-changes.md
- * §12.4 keeps the list, and the release checks it against the code.
+ * through `selectCalendarClause`. Every promise in them is kept by code: the
+ * event body (packages/connectors/src/google/event.ts) and the reads (the
+ * Google adapter); the token erasure on disconnect, on revocation at Google
+ * and at destruction, use stopping when the Services end, and the account
+ * checks at connect, by the connect flow and the watch (plan §4.11, §4.12,
+ * §9); and the covered clause's organisation check, at choice and before
+ * every write and for every provider calendar, by plan C8's guardrail (owner,
+ * 6 October 2026: "Yes, guardrail it"; agreement-changes.md §12.14). The
+ * assistant's own bookings write through the same checks (apps/app
+ * lib/booking/writer.ts, plan C13). docs/counsel/agreement-changes.md §12.4
+ * keeps the list, and the release audit checked it against the code
+ * (§12.15).
  *
- * Frozen once released. The 1.3.0 golden hashes and the election golden hash
- * (apps/app/tests/baa-golden.test.ts) both reproduce through these sentences,
- * so a later wording is a new set of sentences beside these, selected by
- * version, never an edit to them. Until then the pre-release audit's edits
- * (agreement-changes.md §12.14) are made in place.
+ * Frozen since their release with BAA 1.3.0 and calendar-election/1.0.0 on
+ * 2026-10-13 (plan C19; agreement-changes.md §12.15). The 1.3.0 golden hashes
+ * and the election golden hash (apps/app/tests/baa-golden.test.ts) both
+ * reproduce through these sentences, so a later wording is a new set of
+ * sentences beside these, selected by version, never an edit to them. The
+ * pre-release audit's edits (agreement-changes.md §12.14) were the last made
+ * in place.
  */
 
 export type CalendarAccount = "workspace_baa" | "workspace_no_baa" | "personal";
@@ -507,16 +511,19 @@ export function selectCalendarClause(input: {
  * anyone who signed an agreement before 1.3.0 (plan §2.6, decision 3).
  *
  * A versioned document, like the direct-booking addendum, because it amends
- * a contract: the server is to render it again with what the person typed,
- * hash the exact bytes and store version, hash and text on the election row,
+ * a contract: the server renders it again with what the person typed, hashes
+ * the exact bytes and stores version, hash and text on the election row,
  * never accepting a hash from the browser (the setup-link precedent,
- * apps/app/src/lib/onboarding/requirements.ts). That server side, and the
- * table it writes, arrive with plan C6 and C7.
+ * apps/app/src/lib/onboarding/requirements.ts; apps/app
+ * lib/booking/elections.ts and `calendar_elections`, drizzle/0057).
  *
  * `approvedByCounsel` keeps the BAA's name for the same thing: released for
- * use by the owner. While it is false an election is to count only for a
- * demo clinic (plan A10), and the database is to refuse a draft row for
- * anyone else (plan §11.6, from C6 and C7).
+ * use by the owner. An election under a version where it is false counts
+ * only for a demo clinic (plan A10), and the database refuses one for anyone
+ * else (plan §11.6): app_calendar_election_released() lists the released
+ * versions, written out, and tests/database-audit.test.ts holds the two
+ * lists together. calendar-election/1.0.0 was released with BAA 1.3.0 on
+ * 2026-10-13 (plan C19), and the migration of that day added it there.
  *
  * To revise: add a new entry at CALENDAR_ELECTIONS[0] with a new version.
  * Never edit an existing one; an election row's stored hash points at it.
@@ -526,7 +533,7 @@ export type CalendarElection = {
   version: string;
   /** When this text was published. Not when anyone accepted it. */
   publishedOn: string;
-  /** Released for use. False until the owner releases it with BAA 1.3.0 (plan C19). */
+  /** Released for use by the owner; app_calendar_election_released() in the database agrees. */
   approvedByCounsel: boolean;
   /** Section 1: what recording the election does to the agreement. */
   purpose: string;
@@ -540,15 +547,17 @@ export const CALENDAR_ELECTIONS: readonly CalendarElection[] = [
   // Newest first; currentCalendarElection() reads [0].
   {
     version: CALENDAR_ELECTION_VERSION,
-    publishedOn: "2026-10-06",
-    approvedByCounsel: false,
+    publishedOn: "2026-10-13",
+    // Approved for release by the OWNER on 2026-10-13, with BAA 1.3.0, on the
+    // owner's own review and without external counsel (plan C19; owner
+    // answer Q2; agreement-changes.md §12.15). Drafted on 2026-10-06.
+    approvedByCounsel: true,
     // The clause it carries says "this agreement" throughout, as it does in
     // the BAA; the last sentence says which agreement that is, so nobody can
     // read it as the election itself. Its section 2 is the shared clause body,
     // so the pre-release audit's calendar edits of 6 October 2026
-    // (agreement-changes.md §12.14) moved this version's bytes in place: it is
-    // unreleased, and no election row can exist yet (the table arrives with
-    // plan C6 and C7). From its release, a new wording is a new version.
+    // (agreement-changes.md §12.14) moved this version's bytes in place while
+    // it was unreleased. From its release, a new wording is a new version.
     purpose:
       "For the location named above, this election takes the place of the Google Calendar " +
       "clause of the Business Associate Agreement between Practice and healdesk, from the date " +

@@ -2,6 +2,8 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import {
   BAA_ASSENT_LABEL,
+  type BookingSystemId,
+  type CalendarAccount,
   type ClinicProfile,
   CURRENT_BAA_VERSION,
   SIGNATURE_HEADER,
@@ -251,6 +253,9 @@ describeDb("the funnel's answers, stored", () => {
       isCoveredEntity: false,
       attributionMode: "estimated",
       platform: (overrides.platform as string | undefined) ?? "none",
+      // BAA 1.3.0, the current version, reads both answers the order carries.
+      bookingSystem: (overrides.bookingSystem as BookingSystemId | undefined) ?? "calendly",
+      calendarAccount: (overrides.calendarAccount as CalendarAccount | undefined) ?? "workspace_baa",
       assentLabel: BAA_ASSENT_LABEL,
       templateVersion: CURRENT_BAA_VERSION,
     });

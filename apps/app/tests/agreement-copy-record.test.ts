@@ -92,6 +92,9 @@ const VARS: BaaVariables = {
   attributionMode: "estimated",
   connectedPlatform: null,
   outboundMessaging: true,
+  // Read by BAA 1.3.0, the current version, which renders nothing without them.
+  bookingSystem: "none",
+  calendarAccount: "workspace_no_baa",
 };
 
 const PREPARED = prepareBaa(currentBaaTemplate(), VARS);

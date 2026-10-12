@@ -25,8 +25,10 @@ in 1.2.0 the same day, before any clinic had signed it; 1.2.1 corrected
 them. On 9 October 2026 the owner released 1.2.2, 1.2.1 with three changes
 (the subcontractor list on request, hello@healdesk.io as the only email
 address, the spec's 60-day breach wording; `agreement-changes.md` § 13),
-again before any clinic had signed; 1.2.2 is the version offered
-(`docs/baa-v1.2.2.txt`). The
+again before any clinic had signed. On 13 October 2026 the owner released
+1.3.0, the calendar-dependent version, with the calendar election, after
+Claude's own audit of the full text against the code (`agreement-changes.md`
+§ 12.15); 1.3.0 is the version offered (`docs/baa-v1.3.0.txt`). The
 reasoning: no clinic is live and no real patient data has been processed;
 the regulatory skeleton of the BAA is checkable against the text of 45 CFR
 164.504(e) and was checked; the open points that a lawyer would settle are
@@ -41,8 +43,8 @@ makes both healdesk and the clinic non-compliant. Several statutes in the
 state table could not be read on the state's own site this session and are
 marked as unverified with the one action that would verify each. The
 `approvedByCounsel` flag in `packages/catalog/src/baa.ts` is set true for
-1.2.2 (and the superseded 1.2.1 and 1.2.0) on the owner's own review, and its
-doc comment says so.
+1.3.0 (and the superseded 1.2.2, 1.2.1 and 1.2.0) on the owner's own review,
+and its doc comment says so.
 
 ## Rules for this folder
 

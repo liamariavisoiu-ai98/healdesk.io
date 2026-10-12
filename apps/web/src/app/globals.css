@@ -3016,6 +3016,15 @@
    paper plane that flies in; when the pointer leaves they change back. The
    two share the button's one cell, so it keeps the word's width, and the
    word stays in the page as the button's name. */
+/*
+ * A button's words giving way to its icon, as one hand-over rather than a
+ * swap (owner, 12 October 2026: "Talk now" into the phone, and "Send" into
+ * the paper plane, were too abrupt). The leaving one goes first, softening
+ * and shrinking a little; the arriving one follows a beat later out of a
+ * blur, on a long deceleration with no overshoot, so the two are never both
+ * sharp at once. Each state's rule carries the delay of the one arriving in
+ * it, so the hand-over runs the same way back.
+ */
 .morph-btn {
   display: inline-grid;
   place-items: center;
@@ -3024,16 +3033,21 @@
 .morph-btn > * {
   grid-area: 1 / 1;
   transition:
-    opacity var(--duration-base) var(--ease-standard),
-    transform var(--duration-slow) var(--ease-spring),
-    filter var(--duration-base) var(--ease-standard);
+    opacity var(--duration-slow) var(--ease-standard),
+    transform var(--duration-slower) var(--ease-out),
+    filter var(--duration-slow) var(--ease-standard);
+}
+
+.morph-btn__label {
+  transition-delay: 140ms;
 }
 
 .morph-btn__icon {
   display: grid;
   opacity: 0;
-  filter: blur(3px);
-  transform: scale(0.4) rotate(-30deg);
+  filter: blur(6px);
+  transform: scale(0.62) rotate(-16deg);
+  transition-delay: 0ms;
 }
 
 .morph-btn__icon svg {
@@ -3041,40 +3055,50 @@
   height: 1.3em;
 }
 
+/* The plane comes in from low and to the left, as if landing. */
 .morph-btn__icon--fly {
-  transform: translate(-10px, 8px) scale(0.5) rotate(-12deg);
+  transform: translate(-9px, 7px) scale(0.62) rotate(-10deg);
 }
 
+/* Morphed. Under the pointer or keyboard focus on most; on Send, once the
+   visitor's first words have woken it (`data-armed`, ChatSkins.tsx), and
+   then for good. */
 @media (hover: hover) {
-  .morph-btn:hover .morph-btn__label {
+  .morph-btn:not(.morph-btn--once):hover .morph-btn__label {
     opacity: 0;
-    filter: blur(4px);
-    transform: scale(0.7);
+    filter: blur(6px);
+    transform: scale(0.82);
+    transition-delay: 0ms;
   }
 
-  .morph-btn:hover .morph-btn__icon {
+  .morph-btn:not(.morph-btn--once):hover .morph-btn__icon {
     opacity: 1;
     filter: blur(0);
     transform: none;
+    transition-delay: 140ms;
   }
 }
 
-.morph-btn:focus-visible:not(:disabled) .morph-btn__label {
+.morph-btn:not(.morph-btn--once):focus-visible:not(:disabled) .morph-btn__label,
+.morph-btn--once[data-armed] .morph-btn__label {
   opacity: 0;
-  filter: blur(4px);
-  transform: scale(0.7);
+  filter: blur(6px);
+  transform: scale(0.82);
+  transition-delay: 0ms;
 }
 
-.morph-btn:focus-visible:not(:disabled) .morph-btn__icon {
+.morph-btn:not(.morph-btn--once):focus-visible:not(:disabled) .morph-btn__icon,
+.morph-btn--once[data-armed] .morph-btn__icon {
   opacity: 1;
   filter: blur(0);
   transform: none;
+  transition-delay: 140ms;
 }
 
 /* The phone rings once it is there. */
 @media (prefers-reduced-motion: no-preference) and (hover: hover) {
   .morph-btn:hover .morph-btn__icon--ring svg {
-    animation: morph-ring var(--duration-slower) var(--ease-in-out) var(--duration-base) both;
+    animation: morph-ring var(--duration-slower) var(--ease-in-out) 520ms both;
   }
 }
 
@@ -3113,12 +3137,14 @@
 }
 
 /* The soul's aura round her, on healdesk's own card: the same three layers
-   the soul has, larger, reaching well past her face so the part outside it
-   is the living edge. */
+   the soul has, reaching a little past her face so the part outside it is
+   the living edge. Kept inside the gap between her and the ways to call
+   (owner, 12 October 2026): at -34% it reached over the line above her and
+   the "In your browser" under the control. */
 .aya-aura {
   --soul-beat: 3500ms;
-  --soul-aura: -34%;
-  --soul-aura-blur: 22px;
+  --soul-aura: -12%;
+  --soul-aura-blur: 18px;
   pointer-events: none;
 }
 
@@ -3349,8 +3375,10 @@
   }
 }
 
-/* One app into the next: the header, the thread, the composer and the box's
-   highlight each morph, and the page itself does not cross-fade under them. */
+/* One app into the next: the header, the thread and the composer each morph,
+   and the page itself does not cross-fade under them. The boxes' pill is not
+   among them: a morphing element is drawn above the whole page while it
+   moves, and the pill has to stay under the boxes' icons (.voice-segments). */
 :root.chat-morph::view-transition-old(root),
 :root.chat-morph::view-transition-new(root) {
   animation: none;
@@ -3376,7 +3404,7 @@
 
 /* The segmented control's pill, sliding to the way chosen: one column of the
    control's grid wide (its padding and gap taken off), moved along by whole
-   widths of itself. */
+   widths of itself. The chat card's boxes are the same control (ChatSkins). */
 .voice-segments__pill {
   position: absolute;
   top: 4px;

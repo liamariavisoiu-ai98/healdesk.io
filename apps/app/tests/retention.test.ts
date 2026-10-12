@@ -126,6 +126,49 @@ describeDb("retention purge", () => {
     expect(rows[0]).toEqual({ media: TRANSCRIPT_RETENTION_DAYS, records: TRANSCRIPT_RETENTION_DAYS });
   });
 
+  test("the portal's transcript setting shortens transcripts, and only transcripts, and never lengthens them", async () => {
+    // BAA 1.3.0 clause 11: "Practice may shorten these periods in its
+    // portal". The portal's setting (90, 30 or 7 days) was read by nothing.
+    const transcriptKept = async (label: string, settingDays: number | null, mediaDays?: number) => {
+      const c = await seedClinic(label);
+      if (mediaDays) {
+        await getMigratorPool().query(`update clinics set retention_media_days = $2 where id = $1`, [
+          c.clinicId,
+          mediaDays,
+        ]);
+      }
+      if (settingDays !== null) {
+        await inTenant(c.clinicId, (client) =>
+          client.query(
+            `insert into clinic_settings (clinic_id, transcript_retention_days) values ($1, $2)`,
+            [c.clinicId, settingDays],
+          ),
+        );
+      }
+      const call = await seedConversation(c.clinicId, { startedAt: new Date(now.getTime() - 8 * DAY) });
+      await inTenant(c.clinicId, (client) =>
+        client.query(`update conversations set transcript_uri = 's3://t/' || id`),
+      );
+      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, now));
+      return inTenant(c.clinicId, async (client) => {
+        const { rows } = await client.query<{ id: string; transcript_uri: string | null }>(
+          `select id, transcript_uri from conversations`,
+        );
+        // The conversation itself is on the record clock (90 days) and stays.
+        expect(rows.map((r) => r.id)).toEqual([call.conversationId]);
+        return rows[0]!.transcript_uri !== null;
+      });
+    };
+    // Seven days: an eight-day-old transcript goes, and its conversation stays.
+    expect(await transcriptKept("transcripts-7", 7)).toBe(false);
+    // Ninety, or no setting at all: it stays.
+    expect(await transcriptKept("transcripts-90", 90)).toBe(true);
+    expect(await transcriptKept("transcripts-none", null)).toBe(true);
+    // A setting longer than the clinic's own period changes nothing: with the
+    // media clock at seven days, ninety in the portal still clears it.
+    expect(await transcriptKept("transcripts-longer", 90, 7)).toBe(false);
+  });
+
   test("the per-clinic window is honoured", async () => {
     const c = await seedClinic("purgeShort");
     await getMigratorPool().query(

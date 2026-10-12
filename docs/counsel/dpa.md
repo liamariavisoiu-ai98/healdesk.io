@@ -318,8 +318,12 @@ Added on 7 October 2026, read at origin/main c926414:
    application can shorten either setting (no portal control, no ops
    operation), and the `retention-purge` job is seeded off, so nothing is
    deleted at 90 days either. (12 October 2026: a DPA practice is purged every
-   night whatever the switch says, gate 9, so the 90 days are kept for it;
-   the portal control is still missing.) The DPA states no period during the term, only
+   night whatever the switch says, gate 9, so the 90 days are kept for it.
+   The portal's Settings has a transcript control, 90, 30 or 7 days
+   (`clinic_settings.transcript_retention_days`), and since the same day
+   the purge reads it: it shortens the transcript clock, never lengthens it
+   past the clinic's own, and reaches no other record. The other periods
+   have no portal control.) The DPA states no period during the term, only
    "no call audio is kept at all", although the spec wants a stated period
    for data handled as PHI. Before the release the owner decides: state "90
    days" once the purge runs for live clinics (and "which Practice may
@@ -328,9 +332,9 @@ Added on 7 October 2026, read at origin/main c926414:
 3. **Deletion on request: resolved** (12 October 2026, BAA 1.3.0 release gate
    6). `eraseContact` had no caller. The care page's "Delete a person" (ops
    `erasePerson`) now runs it and deletes what it did not reach: the
-   client's raw payloads, the Meta requests they sent, their drafts and
-   messaging threads, and their suppressions, consent records and contact
-   attempts. It records the request without the client and shows each
+   client's raw payloads, the drafts and messaging threads that are theirs
+   alone, and their suppressions, consent records and contact attempts. A
+   booking request goes only with the client it names. It records the request without the client and shows each
    subcontractor step outstanding until recorded, with the ten-business-day
    deadline; docs/handover.md has the runbook.
 4. **BAA 1.2.1's minimum-necessary list is narrower than the booking

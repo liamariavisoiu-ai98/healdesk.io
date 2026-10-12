@@ -5,6 +5,7 @@ import {
   appointments,
   bookingRequests,
   chatThreads,
+  clinicSettings,
   clinics,
   contacts,
   conversations,
@@ -30,7 +31,9 @@ import type { TenantTx } from "@/lib/tenant";
  * ## Two clocks, per clinic
  *
  * `clinics.retention_media_days` (default 90) removes the transcript
- * REFERENCE from a conversation. No audio is kept anywhere (decision of
+ * REFERENCE from a conversation, sooner when the practice has shortened its
+ * transcripts in the portal (`clinic_settings.transcript_retention_days`,
+ * 30 or 7 days; it can only shorten, and reaches no other record). No audio is kept anywhere (decision of
  * 21 September 2026; the vendor's recording storage is off in its console,
  * docs/hipaa-risk-analysis.md T5). The transcript text itself lives with the
  * voice vendor under its own retention setting, which must be at most this
@@ -241,7 +244,18 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .limit(1);
   if (!clinic) return result;
 
-  const mediaBefore = daysAgo(now, clinic.mediaDays);
+  // The transcript clock: the practice's portal setting (Settings, 90, 30 or
+  // 7 days; clinic_settings.transcript_retention_days) may shorten the media
+  // clock, never lengthen it, and reaches transcripts only, no other record
+  // (BAA 1.3.0 clause 11, "Practice may shorten these periods in its
+  // portal"). A clinic with no settings row keeps the media clock.
+  const [settings] = await tx.db
+    .select({ transcriptDays: clinicSettings.transcriptRetentionDays })
+    .from(clinicSettings)
+    .where(eq(clinicSettings.clinicId, tx.clinicId))
+    .limit(1);
+  const transcriptDays = Math.min(clinic.mediaDays, settings?.transcriptDays ?? clinic.mediaDays);
+  const mediaBefore = daysAgo(now, transcriptDays);
   const recordBefore = daysAgo(now, clinic.recordDays);
 
   // 1. Media references.
@@ -483,6 +497,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         webhookEvents: result.webhookEventsDeleted,
         chatThreads: result.chatThreadsDeleted,
         mediaDays: clinic.mediaDays,
+        transcriptDays,
         recordDays: clinic.recordDays,
       },
     });

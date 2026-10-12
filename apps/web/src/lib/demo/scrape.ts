@@ -36,7 +36,10 @@ export type ScrapedPage = { url: string; title: string; text: string };
 export type ClinicBrand = {
   /** The name the site calls itself, from og:site_name, JSON-LD or <title>. */
   name: string | null;
-  /** Absolute https URL of a logo or icon, or null when none was found. */
+  /**
+   * Absolute https URL of a logo or icon, or a `data:image/svg+xml` URI for a
+   * logo the site draws inline (common on Shopify themes); null when none.
+   */
   logoUrl: string | null;
   /** `#rrggbb`, from theme-color or the stylesheet's dominant saturated colour. */
   color: string | null;
@@ -384,10 +387,43 @@ function nameFromJsonLd(blocks: string[]): string | null {
   return null;
 }
 
+/**
+ * Someone else's logo on the clinic's page: a review badge, a payment mark,
+ * a social icon. Peachy Studio's first "logo" image was Google's, beside its
+ * star rating, and the demo wore it as the clinic's.
+ */
+const THIRD_PARTY = /google|facebook|instagram|tiktok|twitter|youtube|yelp|trustpilot|apple|visa|mastercard|amex|paypal|klarna|afterpay|affirm|cherry|carecredit|stripe|shopify|bbb|realself|healthgrades|zocdoc/i;
+
+/**
+ * A logo the site draws as inline SVG inside an element called "logo",
+ * returned as a data URI. An SVG shown through <img> runs no script and
+ * loads nothing, and the obvious hazards are stripped anyway. Fills set by
+ * the site's stylesheet do not carry over, so such a logo renders in its
+ * default black, which reads fine on the white header it sits in.
+ */
+function logoFromInlineSvg(html: string): string | null {
+  const re = /<(?:div|a|span|h1|p|figure)\b[^>]*class\s*=\s*["'][^"']*logo[^"']*["'][^>]*>([\s\S]{0,800}?)(<svg\b[\s\S]*?<\/svg>)/gi;
+  for (let m = re.exec(html); m; m = re.exec(html)) {
+    let svg = m[2]!;
+    if (svg.length > 30_000 || THIRD_PARTY.test(m[0]!.slice(0, 300))) continue;
+    svg = svg
+      .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+      .replace(/<foreignObject\b[\s\S]*?<\/foreignObject>/gi, "")
+      .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*')/gi, "")
+      .replace(/(href|xlink:href)\s*=\s*("(?!#)[^"]*"|'(?!#)[^']*')/gi, "");
+    if (!/\sxmlns=/.test(svg)) svg = svg.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+    return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+  }
+  return null;
+}
+
 function logoFromImages(html: string, base: URL): string | null {
   for (const tag of html.match(/<img\b[^>]*>/gi) ?? []) {
     const marker = `${attr(tag, "class") ?? ""} ${attr(tag, "id") ?? ""} ${attr(tag, "alt") ?? ""} ${attr(tag, "src") ?? ""}`;
-    if (!/logo/i.test(marker)) continue;
+    if (!/logo/i.test(marker) || THIRD_PARTY.test(marker)) continue;
+    // A 16-pixel badge is an icon beside a rating, not a brand.
+    const width = Number(attr(tag, "width") ?? "0");
+    if (width > 0 && width < 40) continue;
     const src = attr(tag, "src") ?? attr(tag, "data-src");
     const url = httpsUrl(src, base);
     if (url) return url;
@@ -474,7 +510,8 @@ async function brandColour(html: string, base: URL): Promise<string | null> {
 // The two crawlers
 // -----------------------------------------------------------------------------
 
-type PlainCrawl = { pages: ScrapedPage[]; brand: ClinicBrand; home: URL };
+/** `targets` are the internal pages chosen by `prioritiseLinks`, best first. */
+type PlainCrawl = { pages: ScrapedPage[]; brand: ClinicBrand; home: URL; targets: URL[] };
 
 async function plainCrawl(start: URL): Promise<PlainCrawl> {
   const home = await safeFetch(start, "html");
@@ -510,16 +547,28 @@ async function plainCrawl(start: URL): Promise<PlainCrawl> {
     name: cleanSiteName(metaContent(home.body, "og:site_name") ?? nameFromJsonLd(blocks) ?? titleOf(home.body)),
     logoUrl:
       httpsUrl(logoFromJsonLd(blocks), home.url) ??
+      logoFromInlineSvg(home.body) ??
       logoFromImages(home.body, home.url) ??
       iconFromLinks(home.body, home.url),
     color: await brandColour(home.body, home.url).catch(() => null),
   };
-  return { pages, brand, home: home.url };
+  return { pages, brand, home: home.url, targets };
 }
 
 type ApifyItem = { url?: string; text?: string; markdown?: string; metadata?: { title?: string } };
 
-async function apifyCrawl(start: URL, token: string): Promise<ScrapedPage[]> {
+/**
+ * Render pages with Apify's browser crawler.
+ *
+ * Given `pages`, it renders exactly those and follows no links (depth 0):
+ * the plain fetch has already chosen the pages a receptionist would want,
+ * and a free crawl spends its budget wherever the site's links lead. The
+ * first live test, on a dermatology group, rendered fifteen condition pages
+ * (moles, warts, scabies) and none of pricing, specials or the FAQ. Without
+ * `pages`, because the plain fetch found too few links to choose from (a
+ * site whose menu is built in the browser), it crawls from the homepage.
+ */
+async function apifyCrawl(start: URL, token: string, pages?: URL[]): Promise<ScrapedPage[]> {
   const endpoint =
     "https://api.apify.com/v2/acts/apify~website-content-crawler/run-sync-get-dataset-items" +
     `?timeout=${APIFY_TIMEOUT_SECS}&clean=true&format=json`;
@@ -527,11 +576,11 @@ async function apifyCrawl(start: URL, token: string): Promise<ScrapedPage[]> {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      startUrls: [{ url: start.href }],
+      startUrls: (pages ?? [start]).map((url) => ({ url: url.href })),
       // Adaptive renders only the pages that need a browser, which is most of
       // a Wix site and almost none of a WordPress one.
       crawlerType: "playwright:adaptive",
-      maxCrawlDepth: 2,
+      maxCrawlDepth: pages ? 0 : 2,
       maxCrawlPages: APIFY_PAGE_BUDGET,
       maxResults: APIFY_PAGE_BUDGET,
       saveMarkdown: true,
@@ -540,7 +589,12 @@ async function apifyCrawl(start: URL, token: string): Promise<ScrapedPage[]> {
     }),
     signal: AbortSignal.timeout((APIFY_TIMEOUT_SECS + 20) * 1000),
   });
-  if (!response.ok) throw new Error(`Apify HTTP ${response.status}`);
+  if (!response.ok) {
+    // Apify's own words, for the operator's build note: "Apify HTTP 400" alone
+    // cost a debugging session the first time.
+    const detail = ((await response.json().catch(() => null)) as { error?: { message?: string } } | null)?.error?.message;
+    throw new Error(`Apify HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ""}`);
+  }
   const items = (await response.json()) as ApifyItem[];
   return (Array.isArray(items) ? items : [])
     .map((item) => ({
@@ -609,12 +663,24 @@ export async function scrapeClinicSite(input: string): Promise<ScrapeResult> {
   await assertPublicUrl(start);
 
   const token = process.env.APIFY_TOKEN;
-  const [plain, rendered] = await Promise.allSettled([
-    plainCrawl(start),
-    token ? apifyCrawl(start, token) : Promise.reject(new Error("APIFY_TOKEN not set")),
+  // The plain fetch first (a second or two): it chooses the pages the
+  // rendering crawler then renders, and finds the brand either way.
+  const [plain] = await Promise.allSettled([plainCrawl(start)]);
+  const chosen =
+    plain.status === "fulfilled" && plain.value.targets.length >= 3
+      ? [plain.value.home, ...plain.value.targets]
+      : undefined;
+  const [rendered] = await Promise.allSettled([
+    token ? apifyCrawl(start, token, chosen) : Promise.reject(new Error("APIFY_TOKEN not set")),
   ]);
 
-  const renderedPages = rendered.status === "fulfilled" ? rendered.value : [];
+  // Rendered pages in the order they were chosen, best first, so the text
+  // cap in merge() trims the least useful pages rather than the pricing page.
+  const rank = (url: string) => {
+    const i = chosen?.findIndex((c) => key(c.href) === key(url)) ?? -1;
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  const renderedPages = rendered.status === "fulfilled" ? [...rendered.value].sort((a, b) => rank(a.url) - rank(b.url)) : [];
   const plainPages = plain.status === "fulfilled" ? plain.value.pages : [];
   const pages = merge(renderedPages, plainPages);
 
@@ -640,3 +706,8 @@ export async function scrapeClinicSite(input: string): Promise<ScrapeResult> {
     apifyNote,
   };
 }
+
+/** The logo picker without the network, for the tests. */
+export const scrapeBrandForTests = {
+  logo: (html: string, base: URL) => logoFromInlineSvg(html) ?? logoFromImages(html, base) ?? iconFromLinks(html, base),
+};

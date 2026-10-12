@@ -310,7 +310,7 @@ describeDb("usage reported to Stripe's meters", () => {
     const world: StripeWorld = createStripeWorld({
       customerId: clinic.customerId,
       subscriptionId: clinic.subscriptionId,
-      // Sold as Web Chatbot's rate, which the bought Web + Voice package is not.
+      // Sold as AYA Web Chat's rate, which the bought Web + Voice package is not.
       items: [
         { lookupKey: "healdesk_web-voice_month_89700" },
         { lookupKey: "healdesk_meter_chat_conversations_block100_4000" },

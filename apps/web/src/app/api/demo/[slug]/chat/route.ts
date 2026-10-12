@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-import { buildClinicChatPrompt } from "@/lib/demo/clinic-prompts";
+import { demoChatParams } from "@/lib/demo/chat-model";
 import { getDemoSession, isDemoActive, isDemoSlug, profileOf } from "@/lib/demo/sessions";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
@@ -28,10 +28,8 @@ import { clientKey, rateLimit } from "@/lib/rate-limit";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const MODEL = "claude-opus-5-5";
 const MAX_TURNS = 16;
 const MAX_CHARS = 1_000;
-const MAX_TOKENS = 2_000;
 const IP_LIMIT = 40;
 const IP_WINDOW_MS = 60 * 60 * 1000;
 /** One prospect and their team, playing with it for a week. */
@@ -105,25 +103,8 @@ export async function POST(request: Request, ctx: { params: Promise<{ slug: stri
     async start(controller) {
       const send = (payload: Record<string, unknown>) => controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
       try {
-        const modelStream = client.beta.messages.stream({
-          model: MODEL,
-          max_tokens: MAX_TOKENS,
-          // A refused turn retries on Anthropic's recommended fallback model
-          // instead of leaving the prospect with an empty bubble.
-          betas: ["server-side-fallback-2026-07-01"],
-          fallbacks: "default",
-          // Short front-desk answers: low effort is fast and holds quality here.
-          output_config: { effort: "low" },
-          system: [
-            {
-              type: "text",
-              text: buildClinicChatPrompt(profile),
-              // Stable for the life of the demo, so every turn after the first reads it from cache.
-              cache_control: { type: "ephemeral" },
-            },
-          ],
-          messages: clean,
-        });
+        // The same request the handoff audit tested (lib/demo/chat-model.ts).
+        const modelStream = client.beta.messages.stream(demoChatParams(profile, clean));
 
         for await (const event of modelStream) {
           if (event.type === "content_block_delta" && event.delta.type === "text_delta") {

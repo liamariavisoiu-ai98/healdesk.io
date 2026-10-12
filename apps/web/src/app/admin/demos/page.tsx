@@ -3,10 +3,20 @@ import { redirect } from "next/navigation";
 
 import { requireOperator } from "@/lib/admin/operator";
 import { isEmailConfigured } from "@/lib/email";
-import { demoUrl, displayName, isDemoExpired, listDemoSessions, profileOf, type DemoSession } from "@/lib/demo/sessions";
+import { AUDIT_THRESHOLDS, auditReportOf, type AuditIssue } from "@/lib/demo/audit";
+import { handoffBlocker } from "@/lib/demo/build";
+import {
+  demoUrl,
+  displayName,
+  isDemoBuildStalled,
+  isDemoExpired,
+  listDemoSessions,
+  profileOf,
+  type DemoSession,
+} from "@/lib/demo/sessions";
 import { isMarketingStoreConfigured } from "@/lib/sheets/client";
 
-import { emailDemoAction, retryDemoAction } from "./actions";
+import { emailDemoAction, releaseDemoAction, retryDemoAction } from "./actions";
 import { CopyLink, DemoBuilder, RefreshWhileAnyBuilding } from "./DemoBuilder";
 
 /**
@@ -20,6 +30,10 @@ import { CopyLink, DemoBuilder, RefreshWhileAnyBuilding } from "./DemoBuilder";
  * The list below the form is the `demo_sessions` tab of the marketing Sheet,
  * newest first: what is building, what is live and until when, what failed
  * and why, whether the link was emailed, and which demos turned into a sale.
+ *
+ * Every demo passes the handoff audit (lib/demo/audit.ts) before it goes
+ * live. A held one shows the audit's blockers here, and "Release anyway"
+ * ships it on the operator's own judgement, recorded on the row.
  */
 
 export const metadata: Metadata = { title: "Demos" };
@@ -34,10 +48,65 @@ function when(date: Date | null): string {
 
 function statusOf(session: DemoSession): { label: string; tone: string } {
   if (session.claimed) return { label: `Claimed${session.claimedPlan ? ` · ${session.claimedPlan}` : ""}`, tone: "bg-tint-mint" };
+  if (isDemoBuildStalled(session)) return { label: "Stalled", tone: "bg-tint-peach" };
   if (session.status === "building") return { label: "Building…", tone: "bg-tint-butter" };
+  if (session.status === "auditing") return { label: "Auditing…", tone: "bg-tint-butter" };
+  if (session.status === "held") return { label: "Held for review", tone: "bg-tint-peach" };
   if (session.status === "failed") return { label: "Failed", tone: "bg-tint-peach" };
   if (isDemoExpired(session)) return { label: "Expired", tone: "bg-paper-2" };
+  if (session.auditVerdict === "flagged") return { label: "Live · flagged", tone: "bg-tint-sky" };
+  if (session.auditVerdict === "released") return { label: "Live · released", tone: "bg-tint-sky" };
   return { label: "Live", tone: "bg-tint-sky" };
+}
+
+function isRunning(session: DemoSession): boolean {
+  return (session.status === "building" || session.status === "auditing") && !isDemoBuildStalled(session);
+}
+
+function Issue({ issue }: { issue: AuditIssue }) {
+  return (
+    <li>
+      <span className="font-semibold">{issue.where}:</span> {issue.problem}
+      {issue.evidence ? <span className="text-muted"> &ldquo;{issue.evidence.slice(0, 220)}&rdquo;</span> : null}
+    </li>
+  );
+}
+
+/** The audit's verdict on one demo: the score, what blocks it, what to fix. */
+function AuditSummary({ session }: { session: DemoSession }) {
+  const report = auditReportOf(session.auditReport);
+  if (!report) return null;
+  const fixes = report.findings.filter((f) => f.severity === "fix");
+  return (
+    <details className="mt-2 text-[14.4px]" open={session.status === "held"}>
+      <summary className="cursor-pointer font-semibold">
+        Audit {report.overall}/100
+        {report.blockers.length > 0 ? ` · ${report.blockers.length} blocker${report.blockers.length === 1 ? "" : "s"}` : ""}
+        {fixes.length > 0 ? ` · ${fixes.length} to fix` : ""}
+        {report.previous ? ` · repaired from ${report.previous.overall}` : ""}
+      </summary>
+      {report.summary ? <p className="mt-1.5">{report.summary}</p> : null}
+      <p className="text-muted mt-1.5">
+        {Object.entries(report.scores)
+          .map(([d, n]) => `${d} ${n}`)
+          .join(" · ")}
+      </p>
+      {report.blockers.length > 0 ? (
+        <ul className="mt-1.5 list-disc space-y-1 pl-5">
+          {report.blockers.slice(0, 6).map((b, i) => (
+            <Issue key={i} issue={b} />
+          ))}
+        </ul>
+      ) : null}
+      {fixes.length > 0 ? (
+        <ul className="text-muted mt-1.5 list-disc space-y-1 pl-5">
+          {fixes.slice(0, 6).map((f, i) => (
+            <Issue key={i} issue={f} />
+          ))}
+        </ul>
+      ) : null}
+    </details>
+  );
 }
 
 export default async function DemosPage() {
@@ -65,11 +134,16 @@ export default async function DemosPage() {
 
   return (
     <main className="mx-auto w-full max-w-[1240px] px-4 py-10 sm:px-8 lg:px-14">
-      <RefreshWhileAnyBuilding active={sessions.some((s) => s.status === "building")} />
+      <RefreshWhileAnyBuilding active={sessions.some(isRunning)} />
       <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Demos</h1>
       <p className="text-muted mt-2 max-w-[70ch] text-[15.6px]">
         When a prospect asks for the AI demo, paste their website here. You get a private link to a page where their clinic&rsquo;s voice
         agent and website chat sit side by side, built from their own site, live for seven days.
+      </p>
+      <p className="text-muted mt-2 max-w-[70ch] text-[14.4px]">
+        Claude Opus 5.5 audits every demo against the clinic&rsquo;s site before the link opens or is emailed. It ships at{" "}
+        {AUDIT_THRESHOLDS.ship}/100 with no blockers, gets one repair round from {AUDIT_THRESHOLDS.repairFrom}, ships with a Slack flag from{" "}
+        {AUDIT_THRESHOLDS.floor}, and is held for you below that or with any blocker.
       </p>
 
       {!configured ? (
@@ -117,12 +191,13 @@ export default async function DemosPage() {
                 {session.scrapeSource ? ` · via ${session.scrapeSource}` : ""}
               </p>
               {session.buildNote ? <p className="mt-1.5 text-[14.4px] font-medium">{session.buildNote}</p> : null}
+              <AuditSummary session={session} />
               <div className="mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-2">
                 <a href={demoUrl(session.slug)} target="_blank" rel="noreferrer" className="text-red-deep hover:text-red text-[14.4px] font-bold">
                   Open
                 </a>
                 <CopyLink url={demoUrl(session.slug)} />
-                {session.status === "ready" && session.leadEmail && !isDemoExpired(session) ? (
+                {handoffBlocker(session) === null && session.leadEmail && !isDemoExpired(session) ? (
                   <form action={emailDemoAction}>
                     <input type="hidden" name="slug" value={session.slug} />
                     <button type="submit" className="text-red-deep hover:text-red text-[14.4px] font-bold">
@@ -130,11 +205,19 @@ export default async function DemosPage() {
                     </button>
                   </form>
                 ) : null}
-                {session.status !== "building" ? (
+                {session.status === "held" && profile && !isDemoExpired(session) ? (
+                  <form action={releaseDemoAction}>
+                    <input type="hidden" name="slug" value={session.slug} />
+                    <button type="submit" className="text-red-deep hover:text-red text-[14.4px] font-bold">
+                      Release anyway
+                    </button>
+                  </form>
+                ) : null}
+                {!isRunning(session) ? (
                   <form action={retryDemoAction}>
                     <input type="hidden" name="slug" value={session.slug} />
                     <button type="submit" className="text-muted hover:text-ink text-[14.4px] font-bold">
-                      {session.status === "failed" ? "Retry build" : "Rebuild from the site"}
+                      {session.status === "failed" || isDemoBuildStalled(session) ? "Retry build" : "Rebuild and re-audit"}
                     </button>
                   </form>
                 ) : null}

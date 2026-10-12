@@ -426,7 +426,7 @@ const notDue = { code: "23514", message: expect.stringMatching(/not due for dest
 /**
  * Each of the six functions that refuse a clinic that is not due, called as
  * the runtime role: the five deletes (the calendar's providers since 0057,
- * the records of deletion requests since 0061, the amendments since 0062)
+ * the records of deletion requests since 0062, the amendments since 0063)
  * and the destroyed stamp.
  */
 const GUARDED = [
@@ -453,10 +453,10 @@ const DAY_COUNTING_FUNCTIONS = [
   "app_record_days_in_force(integer, integer, timestamptz)",
   "app_record_cutoff()",
   "app_purge_booking_requests(timestamptz)",
-  // 0061: the deletion records' own clock, and their delete at destruction.
+  // 0062: the deletion records' own clock, and their delete at destruction.
   "app_expire_erasure_records()",
   "app_destroy_erasure_requests(uuid)",
-  // 0062: the amendments' delete at destruction, and at the purge.
+  // 0063: the amendments' delete at destruction, and at the purge.
   "app_destroy_record_amendments(uuid)",
   "app_purge_amended_appointments(timestamptz)",
   "app_purge_amended_conversations(timestamptz)",

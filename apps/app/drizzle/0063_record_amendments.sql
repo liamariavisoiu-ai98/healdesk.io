@@ -92,7 +92,7 @@ CREATE INDEX "record_amendments_appointment_idx" ON "record_amendments" USING bt
 -- anything else still refers to them; it now also returns the amendments it
 -- deleted, which changes its result, so it is dropped and recreated with its
 -- app_purge_booking_requests() keeps its result, its floor and the UTC pin
--- 0058 gave it. app_mark_clinic_destroyed() is 0061's definition with the
+-- 0058 gave it. app_mark_clinic_destroyed() is 0062's definition with the
 -- table added, keeping every table it checked, its UTC pin and its pinned
 -- search_path.
 --
@@ -485,7 +485,7 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_destroy_record_amendments(uuid) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_destroy_record_amendments(uuid) TO healdesk_app;--> statement-breakpoint
 
--- 0061's definition, the last before this one, with record_amendments added to
+-- 0062's definition, the last before this one, with record_amendments added to
 -- the tables it requires empty, and the clinic's row locked before the
 -- checks. Every table it checked before, it still checks. tests/booking-request-destruction.test.ts reads the list from this
 -- source and holds it to every table with a clinic_id.
@@ -569,7 +569,7 @@ COMMENT ON FUNCTION app_purge_amended_conversations(timestamptz) IS
 COMMENT ON FUNCTION app_destroy_record_amendments(uuid) IS
   'Deletes every amendment of the tenant''s own clinic, for destroyClinicData, before its booking requests and conversations go. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
-  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, the setup screens, slot holds, providers and provider services 0056 and 0057 added, the records of deletion requests (0061) and the amendments (0062). Returns destroyed_at.';--> statement-breakpoint
+  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, the setup screens, slot holds, providers and provider services 0056 and 0057 added, the records of deletion requests (0062) and the amendments (0063). Returns destroyed_at.';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The posture, re-asserted: a later widening fails here, not in production.

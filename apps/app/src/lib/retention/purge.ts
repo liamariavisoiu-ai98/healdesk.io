@@ -392,7 +392,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   }
   // An amended appointment goes with its amendments, in one call, at the
   // earlier of this job's cutoff and the database's own, as the booking
-  // requests above (app_purge_amended_appointments, drizzle/0062). Its time
+  // requests above (app_purge_amended_appointments, drizzle/0063). Its time
   // is one the runtime role and a sync can move, so an amendment never goes
   // on its own: only with the appointment it amends.
   const amendedAppointments = await tx.db.execute<{ n: number }>(
@@ -403,7 +403,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   // An amended conversation goes with its amendments, in one call: the
   // runtime role may delete a conversation but not an amendment, and no
   // conversation goes while one of its amendments remains (record_amendments,
-  // a foreign key with no delete action, drizzle/0062), so
+  // a foreign key with no delete action, drizzle/0063), so
   // app_purge_amended_conversations() takes the two together, at the earlier
   // of this job's cutoff and the database's own, as the booking requests
   // above, whose amendments go inside app_purge_booking_requests(). An
@@ -586,7 +586,7 @@ export type ErasureResult = {
   appointmentsDeleted: number;
   transactionsDeleted: number;
   draftsDeleted: number;
-  /** Amendments of the requests and conversations deleted (drizzle/0062). */
+  /** Amendments of the requests and conversations deleted (drizzle/0063). */
   amendmentsDeleted: number;
 };
 
@@ -697,7 +697,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     // to them, someone else's request on one of their appointments included,
     // so a request leaves only with the person it names. The amendments of
     // the requests and conversations it deletes go first, in the same call
-    // (record_amendments, drizzle/0062): an amendment leaves only with what
+    // (record_amendments, drizzle/0063): an amendment leaves only with what
     // it amends.
     const [erased] = (
       await tx.db.execute<{

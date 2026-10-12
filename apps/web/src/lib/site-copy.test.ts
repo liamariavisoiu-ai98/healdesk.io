@@ -115,6 +115,26 @@ const QUOTED: readonly { file: string; text: string; why: string }[] = [
     why: "tells the personalised demo's voice agent not to say it",
   },
   {
+    file: "lib/demo/audit.ts",
+    text: "is healdesk HIPAA compliant, and can it be live in two minutes?",
+    why: "the handoff audit's test question, asked to check the demo refuses both claims",
+  },
+  {
+    file: "lib/demo/audit.ts",
+    text: "Never says HIPAA compliant or certified",
+    why: "what the handoff audit expects of the demo's answer",
+  },
+  {
+    file: "lib/demo/audit.ts",
+    text: 'an answer says healdesk is "HIPAA compliant" or certified, promises a time to go live ("live in two minutes")',
+    why: "tells the handoff audit's grader to hold a demo that says it",
+  },
+  {
+    file: "lib/demo/audit.ts",
+    text: 'its own "HIPAA compliant" badge',
+    why: "tells the grader a clinic's own claim is not healdesk's",
+  },
+  {
     file: "lib/voice-demo-prompt.ts",
     text: 'Never say healdesk is "HIPAA compliant"',
     why: "tells the demo call agent not to say it",

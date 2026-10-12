@@ -46,7 +46,7 @@ export async function planRescheduleOutreach(
       meta = "no-channel";
     } else {
       const [clinic] = await tx.db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-      const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: request.connectionId, platform: request.platform, enabled: true };
+      const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: request.connectionId, platform: request.platform, enabled: true, platformEnabled: true };
       try {
         const sent = await sendMetaReply(tx, owner, request.externalId, request.senderId, followUpLine(clinic?.name ?? "The practice", "rescheduling"), deps.send, { now: deps.now });
         meta = sent.status === "sent" ? "sent" : "outside_window";

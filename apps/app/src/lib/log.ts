@@ -219,12 +219,41 @@ function write(
  * Summarise an unknown thrown value for a log line: the error's name and
  * message, scrubbed. Never the stack, never the object — a driver error
  * carries the query and its parameters.
+ *
+ * Nor drizzle's message. drizzle-orm 0.45 wraps every driver error in a
+ * `DrizzleQueryError` whose own message is "Failed query: <the SQL>" and
+ * "params: <every bound value>": a booking's time, a request's key and a
+ * caller's first name sit beside the ids, and scrub() catches only phone-
+ * and address-shaped text. So the wrapper is unwrapped to the database's own
+ * error at `.cause` (its message names the constraint or our RAISE text,
+ * never a row's values), and a wrapper with nothing under it (a pool
+ * timeout, a socket dropped mid-query) says only that the query failed.
+ * The same lesson as connect/[token]/actions.ts and lib/agreements.ts,
+ * learned once for every caller.
  */
 export function describeError(error: unknown): string {
-  if (error instanceof Error) {
-    return scrub(`${error.name}: ${error.message}`).slice(0, 300);
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && isQueryWrapper(current); depth += 1) {
+    const cause = (current as { cause?: unknown }).cause;
+    if (cause === undefined || cause === null) {
+      return `${(current as Error).name}: query failed before the database answered`;
+    }
+    current = cause;
+  }
+  if (isQueryWrapper(current)) return "Error: query failed";
+  if (current instanceof Error) {
+    return scrub(`${current.name}: ${current.message}`).slice(0, 300);
   }
   return "unknown error";
+}
+
+/** drizzle's DrizzleQueryError, by its shape: the failed query and its parameters as own properties. */
+function isQueryWrapper(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    Object.prototype.hasOwnProperty.call(error, "query") &&
+    Object.prototype.hasOwnProperty.call(error, "params")
+  );
 }
 
 export const log = {

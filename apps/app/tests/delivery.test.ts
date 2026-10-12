@@ -461,7 +461,7 @@ describeDb("delivery", () => {
           // The welcome email's backstop: a sweep, not a switched job, because
           // the welcome it retries goes unswitched at every provisioning.
           "welcome-email",
-          // The deletion records' own clock (drizzle/0061): a sweep, not a
+          // The deletion records' own clock (drizzle/0062): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.
           "erasure-expiry",

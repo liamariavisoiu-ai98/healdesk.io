@@ -22,14 +22,17 @@ import {
   type SlotHoldStatus,
 } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
+import { recordDepositOutcome, type DepositOutcome } from "@/lib/billing/deposits";
 import { availableSlotsFor, deskSpanFree, openContext, serviceDuration } from "@/lib/booking/availability";
 import { arrangeSlots, namedWeekdays, slotLabel, writableConnection, writeToCalendar, type CalendarSlot, type CalendarWriteOutcome } from "@/lib/booking/calendar";
-import { lockClinicCalendar } from "@/lib/booking/holds";
+import { bookedDepositOutcome, depositGateFor } from "@/lib/booking/deposit-gate";
+import { ANSWERED_AS_REQUEST, lockClinicCalendar } from "@/lib/booking/holds";
 import { calendarTermsFor } from "@/lib/booking/terms";
 import { calendarBreakOf, googleCalendarConnection, isTokenBreak, markCalendarBroken } from "@/lib/connections/google-calendar";
 import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/reschedule";
 import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
+import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { listClinics } from "@/lib/ops/clinics";
 import { amendmentCount } from "@/lib/patient-rights/amendments";
 import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
@@ -331,14 +334,19 @@ export type CreateBookingRequestInput =
     }
   | {
       channel: "voice";
-      /** The caller, already upserted by the ingest. */
+      /** The caller, already upserted by the ingest or the booking engine. */
       contactId: string;
-      conversationId: string;
+      /** The call's conversation; null for a request the booking engine logs during the call, before the post-call record exists. */
+      conversationId: string | null;
       preferredWindow: string;
       treatment: string | null;
       alternativeWindows?: string[];
       /** Validated here against the clinic's requirement set; refusals audited. */
       collectedFields?: Record<string, string>;
+      /** The conversation's booking key (lib/booking/engine.ts), unique per clinic: how a retried tool call finds this request. */
+      vendorCallId?: string;
+      /** `agent_direct` when the assistant is attempting the booking itself. Frozen at insert. */
+      bookedVia?: BookedVia;
     };
 
 /**
@@ -407,6 +415,8 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       alternativeWindows,
       treatment: input.channel === "voice" ? input.treatment : null,
       collectedFields,
+      vendorCallId: input.channel === "voice" ? (input.vendorCallId ?? null) : null,
+      bookedVia: input.channel === "voice" ? (input.bookedVia ?? "desk") : "desk",
       tokenHash: hashToken(token),
       expiresAt: sql`now() + make_interval(days => ${BOOKING_REQUEST_TTL_DAYS})`,
       lastInboundAt: input.channel === "meta" ? (input.lastInboundAt ?? now) : null,
@@ -1063,8 +1073,11 @@ async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: D
     // §7.9: the assistant's event reached Google after its hold stopped
     // blocking, and the time has been taken since. The record rolled back
     // whole; the hold is let go and never retried (the writer never deletes
-    // an event), and the desk decides.
-    await withTenant({ clinicId, actor: LINK_ACTOR }, (tx) => releaseUnknownHold(tx, hold.id, "record_conflict"));
+    // an event), the clinic is told in the same transaction to look for a
+    // duplicate (calendar_check), and the desk decides.
+    await withTenant({ clinicId, actor: LINK_ACTOR }, async (tx) => {
+      if (await releaseAssistantHold(tx, hold.id, "record_conflict")) await notifyBookingAlert(tx, "calendar_check", { bookingRequestId: facts.id });
+    });
     return null;
   }
   return recorded.kind === "recorded"
@@ -1072,31 +1085,72 @@ async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: D
     : null;
 }
 
-type RecordedLateWrite =
-  | { kind: "recorded"; appointmentId: string; startsAt: Date }
-  /** The hold is no longer `unknown`: someone else recorded or released it. */
+export type RecordedLateWrite =
+  | {
+      kind: "recorded";
+      appointmentId: string;
+      startsAt: Date;
+      minutes: number;
+      requestId: string;
+      /** The deposit decision the booking was recorded with (lib/booking/deposit-gate.ts). */
+      deposit: DepositOutcome;
+    }
+  /** The hold is no longer in the state the caller fenced on: someone else recorded or released it. */
   | { kind: "settled" }
-  /** The request was decided (or erased) meanwhile: the hold is released, nothing recorded. */
+  /** The request was decided (or erased) meanwhile: the hold is released, nothing recorded, and the clinic told to check. */
   | { kind: "request_decided" };
 
 /**
- * The record step for an assistant write found in Google after the fact
- * (plan §7.9, the watch's fence): the `unknown` hold becomes `converted`,
- * its booking is recorded as written with the hold's own time, length and
- * calendar, and the request is confirmed by the assistant.
+ * Which state the record step may convert a hold from (plan §7.9): the
+ * engine's own write, `writing` under the lease it took at the claim; or a
+ * write found in Google after the fact (the watch, the desk path), `unknown`.
+ */
+export type HoldFence = { lease: string } | "unknown";
+
+const ASSISTANT_DIRECT_LABEL = "assistant (direct booking)";
+
+function fenced(holdId: string, fence: HoldFence) {
+  return fence === "unknown"
+    ? and(eq(slotHolds.id, holdId), eq(slotHolds.status, "unknown"))
+    : and(eq(slotHolds.id, holdId), eq(slotHolds.status, "writing"), eq(slotHolds.leaseToken, fence.lease));
+}
+
+/**
+ * The record step for an assistant write Google confirmed (plan §7.9): the
+ * hold becomes `converted`, its booking is recorded as written with the
+ * hold's own time, length and calendar, and the request is confirmed by the
+ * assistant. The engine's writer fences on its lease; a write found after
+ * the fact (the watch, or the desk path's read-back) fences on `unknown`.
  *
  * The hold and its request are read and locked before anything is written,
  * so a hold someone else settled, or a request decided meanwhile, changes
- * nothing but the release of that hold (`request_decided`). A 23P01 from
- * the booking (its time retaken after the hold stopped blocking) rolls the
- * whole of it back; the caller releases the hold.
+ * nothing but the release of that hold (`request_decided`), with the
+ * clinic told in the same transaction (calendar_check, L34): the event is in
+ * Google, and a decision was made without it. A 23P01 from the booking (its
+ * time retaken after the hold stopped blocking) rolls the whole of it back;
+ * the caller releases the hold and raises the same alert.
+ *
+ * A booking recorded here raises no alert of its own (Annex X6); the
+ * request reads as confirmed by the assistant, "after the call" when it was
+ * found late or the caller had already been answered with a request
+ * (ANSWERED_AS_REQUEST), so whoever calls them back sees it is booked.
+ *
+ * The deposit is the engine's decision as it stands now, through D's one
+ * writer (insertAppointment → recordDepositOutcome): a booking already in
+ * the calendar can only flag a deposit that is due for the front desk.
  */
-async function recordAssistantWrite(tx: TenantTx, holdId: string, externalId: string, now: Date): Promise<RecordedLateWrite> {
+export async function recordAssistantWrite(
+  tx: TenantTx,
+  holdId: string,
+  externalId: string,
+  now: Date,
+  fence: HoldFence = "unknown",
+): Promise<RecordedLateWrite> {
   await lockClinicCalendar(tx);
   const [hold] = await tx.db
-    .select({ startsAt: slotHolds.startsAt, minutes: slotHolds.durationMinutes, calendarId: slotHolds.calendarId, requestId: slotHolds.bookingRequestId })
+    .select({ startsAt: slotHolds.startsAt, minutes: slotHolds.durationMinutes, calendarId: slotHolds.calendarId, requestId: slotHolds.bookingRequestId, channel: slotHolds.channel, outcomeReason: slotHolds.outcomeReason })
     .from(slotHolds)
-    .where(and(eq(slotHolds.id, holdId), eq(slotHolds.clinicId, tx.clinicId), eq(slotHolds.status, "unknown")))
+    .where(and(fenced(holdId, fence), eq(slotHolds.clinicId, tx.clinicId)))
     .for("update")
     .limit(1);
   if (!hold) return { kind: "settled" };
@@ -1109,13 +1163,17 @@ async function recordAssistantWrite(tx: TenantTx, holdId: string, externalId: st
         .limit(1)
     : [];
   if (!request || request.expired || !(DECIDABLE_FROM.confirmed as string[]).includes(request.status)) {
-    await releaseUnknownHold(tx, holdId, "request_decided");
+    await releaseAssistantHold(tx, holdId, "request_decided", fence);
+    if (request) await notifyBookingAlert(tx, "calendar_check", { bookingRequestId: request.id });
     return { kind: "request_decided" };
   }
+  const late = fence === "unknown" || hold.outcomeReason === ANSWERED_AS_REQUEST;
   await tx.db
     .update(slotHolds)
-    .set({ status: "converted", outcomeReason: "written_late", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
-    .where(and(eq(slotHolds.id, holdId), eq(slotHolds.status, "unknown")));
+    .set({ status: "converted", outcomeReason: late ? "written_late" : "written", releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
+    .where(fenced(holdId, fence));
+  const gate = await depositGateFor(tx, { channel: hold.channel === "web_chat" ? "web" : hold.channel, service: request.treatment });
+  const deposit = bookedDepositOutcome(gate.outcome);
   const appointmentId = await insertAppointment(tx, {
     contactId: request.contactId,
     conversationId: request.conversationId,
@@ -1126,26 +1184,35 @@ async function recordAssistantWrite(tx: TenantTx, holdId: string, externalId: st
     calendarEventKey: `hold:${holdId}`,
     calendarId: hold.calendarId,
     written: { externalId, at: now },
+    deposit,
   });
   await tx.db.update(slotHolds).set({ appointmentId, updatedAt: sql`now()` }).where(eq(slotHolds.id, holdId));
   await tx.db
     .update(bookingRequests)
-    .set({ status: "confirmed", confirmedFor: hold.startsAt, appointmentId, decidedAt: now, decidedByLabel: ASSISTANT_LATE_LABEL })
+    .set({ status: "confirmed", confirmedFor: hold.startsAt, appointmentId, decidedAt: now, decidedByLabel: late ? ASSISTANT_LATE_LABEL : ASSISTANT_DIRECT_LABEL })
     .where(eq(bookingRequests.id, request.id));
-  tx.audit.record({ action: "create", resourceType: "appointment", resourceId: appointmentId, metadata: { bookingRequestId: request.id, bookedByAssistant: true, writtenLate: true } });
-  return { kind: "recorded", appointmentId, startsAt: hold.startsAt };
+  tx.audit.record({ action: "create", resourceType: "appointment", resourceId: appointmentId, metadata: { bookingRequestId: request.id, bookedByAssistant: true, writtenLate: late || undefined } });
+  return {
+    kind: "recorded",
+    appointmentId,
+    startsAt: hold.startsAt,
+    minutes: hold.minutes,
+    requestId: request.id,
+    deposit,
+  };
 }
 
-/** Let go of an `unknown` hold whose write will never be recorded (plan §7.9), audited. */
-async function releaseUnknownHold(tx: TenantTx, holdId: string, reason: "record_conflict" | "request_decided"): Promise<void> {
+/** Let go of an assistant hold whose write will never be recorded (plan §7.9), fenced and audited. */
+export async function releaseAssistantHold(tx: TenantTx, holdId: string, reason: string, fence: HoldFence = "unknown"): Promise<boolean> {
   const released = await tx.db
     .update(slotHolds)
     .set({ status: "released", outcomeReason: reason, releasedAt: sql`clock_timestamp()`, updatedAt: sql`now()` })
-    .where(and(eq(slotHolds.id, holdId), eq(slotHolds.clinicId, tx.clinicId), eq(slotHolds.status, "unknown")))
+    .where(and(fenced(holdId, fence), eq(slotHolds.clinicId, tx.clinicId)))
     .returning({ id: slotHolds.id });
   if (released.length) {
     tx.audit.record({ action: "update", resourceType: "slot_hold", resourceId: holdId, metadata: { outcome: "released", reason } });
   }
+  return released.length > 0;
 }
 
 /** Whether a live hold (a call holding time right now) overlaps the span, on any calendar. */
@@ -1212,7 +1279,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
   // may yet book it (the guard above saw it a moment ago, or it started
   // since): the desk waits.
   const holds = await tx.db
-    .select({ id: slotHolds.id, status: slotHolds.status, startsAt: slotHolds.startsAt, minutes: slotHolds.durationMinutes, calendarId: slotHolds.calendarId, insertAttemptedAt: slotHolds.insertAttemptedAt })
+    .select({ id: slotHolds.id, status: slotHolds.status, channel: slotHolds.channel, startsAt: slotHolds.startsAt, minutes: slotHolds.durationMinutes, calendarId: slotHolds.calendarId, insertAttemptedAt: slotHolds.insertAttemptedAt })
     .from(slotHolds)
     .where(eq(slotHolds.bookingRequestId, candidate.id))
     .orderBy(desc(slotHolds.createdAt));
@@ -1250,11 +1317,18 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
     const assistantHold = reserved ?? holds[0];
     const target = writes ? await writableConnection(tx) : null;
     const connection = writes && !target ? await googleCalendarConnection(tx) : null;
+    const treatment = d.service.canonicalName ?? (input.treatment?.trim().slice(0, 120) || candidate.treatment || candidate.collectedFields.service || null);
+    // A deposit reservation becoming the booking carries the engine's
+    // deposit for its service (D's per-service amounts), as the booking
+    // would have had the assistant made it, not the clinic-wide rule.
+    const deposit = reserved
+      ? bookedDepositOutcome((await depositGateFor(tx, { channel: reserved.channel === "web_chat" ? "web" : reserved.channel, service: treatment })).outcome)
+      : undefined;
     appointmentId = await insertAppointment(tx, {
       contactId: candidate.contactId,
       conversationId: candidate.conversationId,
       scheduledFor: input.confirmedFor!,
-      treatment: d.service.canonicalName ?? (input.treatment?.trim().slice(0, 120) || candidate.treatment || candidate.collectedFields.service || null),
+      treatment,
       durationMinutes: d.service.minutes,
       // Occupies the location's calendar wherever healdesk writes to it, a
       // broken connection included, so it still blocks the assistant after
@@ -1262,6 +1336,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
       bookingOrigin: writes ? "desk" : null,
       calendarEventKey: assistantHold ? `hold:${assistantHold.id}` : candidate.id,
       calendarId: writes ? (assistantHold?.calendarId ?? d.deskCalendar?.calendarId ?? target?.calendarId ?? connection?.calendarId ?? "primary") : null,
+      ...(deposit ? { deposit, depositAlerted: true } : {}),
     });
     if (reserved) {
       await tx.db.update(slotHolds).set({ appointmentId, updatedAt: sql`now()` }).where(eq(slotHolds.id, reserved.id));
@@ -1323,7 +1398,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
 
   if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
   if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
-  const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true };
+  const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true, platformEnabled: true };
   try {
     // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
     // message tag and no template, so the desk calls instead.
@@ -1352,13 +1427,35 @@ type AppointmentInput = {
   calendarId: string | null;
   /** Already in Google: the assistant's write, found by a read-back. */
   written?: { externalId: string; at: Date };
+  /**
+   * The booking engine's deposit decision (lib/booking/deposit-gate.ts): for
+   * the assistant's own bookings, written through D's recordDepositOutcome,
+   * and for a deposit reservation staff confirm. Absent for any other staff
+   * confirmation, which applies the clinic-level rule.
+   */
+  deposit?: DepositOutcome;
+  /**
+   * The deposit's L10 alert went when the time was reserved for it (the
+   * engine's claim): the amount is written as owed to the front desk with
+   * no second alert.
+   */
+  depositAlerted?: boolean;
 };
 
 async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise<string> {
-  // The agent's script carries the clinic's deposit rule; with no payment
-  // link path, a required deposit is owed to the front desk.
-  const [agent] = await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
+  // A staff confirmation: the agent's script carries the clinic's deposit
+  // rule; with no payment link path, a required deposit is owed to the front
+  // desk. The engine's decision: written here only when its alert already
+  // went; otherwise after the insert, by D's one writer.
+  const [agent] = input.deposit
+    ? [null]
+    : await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
   const depositPolicy = agent?.depositPolicy ?? null;
+  const owedAlready =
+    input.depositAlerted === true && input.deposit?.isRequired === true && (input.deposit.action === "book_and_flag" || input.deposit.action === "hold_and_alert");
+  // A chat link (`collect`) is priced from the appointment's own amount.
+  const engineUsd =
+    (owedAlready || input.deposit?.action === "collect") && input.deposit?.amountUsd != null ? String(input.deposit.amountUsd) : null;
   const [appointment] = await tx.db
     .insert(appointments)
     .values({
@@ -1367,8 +1464,8 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
       conversationId: input.conversationId,
       scheduledFor: input.scheduledFor,
       treatment: input.treatment,
-      depositUsd: depositPolicy?.required && depositPolicy.amountUsd !== null ? String(depositPolicy.amountUsd) : null,
-      depositStatus: depositPolicy?.required ? "pending_front_desk" : "none",
+      depositUsd: input.deposit ? engineUsd : depositPolicy?.required && depositPolicy.amountUsd !== null ? String(depositPolicy.amountUsd) : null,
+      depositStatus: owedAlready || (!input.deposit && depositPolicy?.required) ? "pending_front_desk" : "none",
       // The desk confirmed it; the clinic's own system has not reported it
       // back to us, and may never. See schema.ts.
       externalConfirmedAt: null,
@@ -1386,6 +1483,7 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
         : {}),
     })
     .returning({ id: appointments.id });
+  if (input.deposit && !owedAlready) await recordDepositOutcome(tx, input.deposit, { appointmentId: appointment!.id });
   return appointment!.id;
 }
 

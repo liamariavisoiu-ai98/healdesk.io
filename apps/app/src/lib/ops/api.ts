@@ -81,9 +81,11 @@ import {
   opDisconnectCalendar,
   opIssueCalendarLink,
   opSetAutoConfirm,
+  OPS_SWITCH_LABEL,
   readBookingProjection,
   type BookingProjection,
 } from "@/lib/ops/calendar-ops";
+import { readMetaPlatformSwitches, setMetaPlatformEnabled } from "@/lib/channels/meta-platforms";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import {
   ERASURE_STEP_OUTCOMES,
@@ -344,9 +346,11 @@ const OPERATIONS = [
   "startForwardingTest",
   "listClinicHealth",
   "recordClinicTouch",
-  // The Meta front door: a sealed token per platform, and the per-clinic switch.
+  // The Meta front door: a sealed token per platform, the per-clinic switch,
+  // and the clinic's own Instagram, Messenger and WhatsApp switches beneath it.
   "attachMetaChannel",
   "setMetaFrontDoor",
+  "setMetaPlatform",
   // Booking hand-off (design of 23 September 2026, §B.4, §H.5).
   // Configuration and write ledgers; never a patient. The call-back switch
   // and the WhatsApp template name went with v1's inbound-only rule, and the
@@ -434,6 +438,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "recordClinicTouch",
   "attachMetaChannel",
   "setMetaFrontDoor",
+  "setMetaPlatform",
   "setBookingRequirements",
   "setClinicTimezone",
   "setConnectionPhiBasis",
@@ -963,6 +968,8 @@ export async function runOperation(
       return opAttachMetaChannel(args, operator);
     case "setMetaFrontDoor":
       return opSetMetaFrontDoor(args, operator);
+    case "setMetaPlatform":
+      return opSetMetaPlatform(args, operator);
     case "setBookingRequirements":
       return opSetBookingRequirements(args, operator);
     case "setClinicTimezone":
@@ -2575,6 +2582,11 @@ export type OnboardingView = {
   /** The Meta front door: the per-clinic switch and the channels attached. */
   meta: {
     enabled: boolean;
+    /**
+     * The clinic's own switch for each platform (Settings), beneath the front
+     * door: both must be on for a message to be answered. Three flags.
+     */
+    platforms: Record<MetaPlatform, boolean>;
     channels: { platform: MetaPlatform; externalId: string; label: string | null; status: string }[];
     /** Last 30 days, counts only; the requests live behind the desk's single-use link. */
     bookingRequests: { waiting: number; accepted: number; confirmed: number; declined: number };
@@ -2649,13 +2661,14 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, bookingRequests, booking, bookingView } = await withTenant(
+  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
       const connections = await listConnections(tx.db, tx.clinicId);
       return {
         agent: await getAgentConfig(tx),
+        metaPlatforms: await readMetaPlatformSwitches(tx.db, tx.clinicId),
         bookingRequests: await bookingRequestCounts(tx),
         booking: await readBookingState(tx),
         bookingView: await readBookingProjection(tx, clinic.timezone),
@@ -2714,7 +2727,7 @@ async function opGetOnboarding(
       authorizeUrl: null,
     },
     // Counts only. The requests themselves live behind the desk's link.
-    meta: { enabled: clinic.metaFrontDoorEnabled, channels: metaChannels, bookingRequests },
+    meta: { enabled: clinic.metaFrontDoorEnabled, platforms: metaPlatforms, channels: metaChannels, bookingRequests },
     forwarding: clinic.synthflowNumberE164
       ? forwardingInstructions({
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
@@ -3717,6 +3730,37 @@ async function opSetMetaFrontDoor(
     (tx) => setMetaFrontDoor(tx, enabled),
   );
   await audit(operator, enabled ? "meta_front_door_enabled" : "meta_front_door_disabled", { clinicSlug: clinic.slug });
+  return care.updated();
+}
+
+/**
+ * One of the clinic's Instagram, Messenger and WhatsApp switches, as Settings
+ * sets it and through the same writer (lib/channels/meta-platforms.ts), so
+ * the Meta channel's own switch and its record follow exactly as they do for
+ * the clinic. No release gate: the switch is beneath the front door, which
+ * keeps them, and On answers nobody while the door is shut. The flip is
+ * recorded under the console's name for itself, as Auto-confirm's is.
+ */
+async function opSetMetaPlatform(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const platform = stringArg(args, "platform");
+  if (!isMetaPlatform(platform)) return care.error("Instagram, Messenger or WhatsApp?");
+  const enabled = booleanArg(args, "enabled");
+  if (enabled === undefined) return care.error("On or off?");
+  const { changed } = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => setMetaPlatformEnabled(tx, platform, enabled, OPS_SWITCH_LABEL),
+  );
+  if (changed) {
+    await audit(operator, enabled ? "meta_platform_enabled" : "meta_platform_disabled", {
+      clinicSlug: clinic.slug,
+      platform,
+    });
+  }
   return care.updated();
 }
 

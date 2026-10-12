@@ -637,7 +637,7 @@ over the calendar's.
 
 An amendment lives exactly as long as the record it amends: the erasure, the purge and
 destruction delete it with that record, in the same function, and nothing deletes it
-on its own (drizzle/0062). The portal (M5) must show amendments beside every record it
+on its own (drizzle/0063). The portal (M5) must show amendments beside every record it
 shows or exports.
 
 ### Reaching the app's shell
@@ -678,11 +678,11 @@ data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of
 table) fires two BEFORE INSERT triggers from 0054 that refuse it: `clinics_insert_guard`
 refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
 every booking request whose key is already there, which is all of them, since
-`booking_request_keys` sorts ahead of `booking_requests` in a dump. A third, 0061's
+`booking_request_keys` sorts ahead of `booking_requests` in a dump. A third, 0062's
 `erasure_requests_guard`, does not refuse but restamps every deletion request's
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
-person gave before the deletion and after it; 0062's `record_amendments_guard` likewise
+person gave before the deletion and after it; 0063's `record_amendments_guard` likewise
 restamps every amendment's `recorded_at`. For such a load the owner disables all four
 by name, loads every table, `booking_request_keys` included, and enables them again, in
 one transaction:

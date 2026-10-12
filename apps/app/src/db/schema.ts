@@ -962,7 +962,7 @@ export const conversations = pgTable(
     // alone would index-scan then re-filter. That's the common path, not the rare one.
     index("conversations_contact_idx").on(t.clinicId, t.contactId),
     // The target of record_amendments' (clinic_id, conversation_id) key, which
-    // is what keeps an amendment on a record of its own clinic (drizzle/0062).
+    // is what keeps an amendment on a record of its own clinic (drizzle/0063).
     unique("conversations_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -1112,7 +1112,7 @@ export const appointments = pgTable(
       .on(t.clinicId, t.externalSource, t.externalAppointmentId)
       .where(sql`${t.externalAppointmentId} is not null`),
     // The target of record_amendments' (clinic_id, appointment_id) key, which
-    // is what keeps an amendment on a record of its own clinic (drizzle/0062).
+    // is what keeps an amendment on a record of its own clinic (drizzle/0063).
     unique("appointments_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -1660,7 +1660,7 @@ export const bookingRequests = pgTable(
     // The thread a Meta request lives on, for the window check.
     index("booking_requests_thread_idx").on(t.clinicId, t.platform, t.senderId),
     // The target of record_amendments' (clinic_id, booking_request_id) key,
-    // which is what keeps an amendment on a record of its own clinic (0062).
+    // which is what keeps an amendment on a record of its own clinic (0063).
     unique("booking_requests_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -2495,7 +2495,7 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
  * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
  * BAA gate. Each target is a foreign key that carries clinic_id with the
  * record's id, so an amendment can only point at a record of its own clinic.
- * Append-only (drizzle/0062): the runtime role may INSERT and SELECT, no role
+ * Append-only (drizzle/0063): the runtime role may INSERT and SELECT, no role
  * may UPDATE, `recorded_at` is the database's clock at the insert, and the
  * foreign keys have no delete action, so an amendment leaves only with the
  * record it amends, inside the functions that delete that record (erasure,
@@ -3637,6 +3637,21 @@ export const clinicSettings = pgTable(
       .$type<TranscriptRetentionDays>()
       .notNull()
       .default(90),
+
+    /**
+     * Settings → Channels: Instagram, Messenger and WhatsApp, each On or Off
+     * on its own (spec, "Every switch in the portal"; 0061). On by default,
+     * so a platform answers once it is connected. The webhook skips a
+     * message on a platform switched Off (app_meta_channel), and the Meta
+     * channel's own clinic_channels.enabled is kept On while any connected
+     * platform's switch is On, and Off once none is, by their one writer,
+     * lib/channels/meta-platforms.ts.
+     * Beneath the operator's front door (clinics.meta_front_door_enabled),
+     * never instead of it.
+     */
+    instagramEnabled: boolean("instagram_enabled").notNull().default(true),
+    messengerEnabled: boolean("messenger_enabled").notNull().default(true),
+    whatsappEnabled: boolean("whatsapp_enabled").notNull().default(true),
 
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -15,6 +15,7 @@ import {
 } from "@/lib/checkout/review";
 import type { SiteReadLine } from "@/lib/checkout/site-read";
 import { GUARANTEE_TEXT, LEGAL_VERSION } from "@/lib/legal";
+import { usd } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import type { AgreementResult } from "./AgreementStep";
@@ -51,7 +52,10 @@ export function ReviewStep({
   onBack,
   onClose,
   headingRef,
+  setupCreditUsd = 0,
 }: {
+  /** The demo-week credit Stripe's coupon takes off the setup fee, in dollars; 0 for no offer. */
+  setupCreditUsd?: number;
   plan: Plan;
   interval: BillingInterval;
   specialty: SpecialtyId | null;
@@ -73,7 +77,7 @@ export function ReviewStep({
   onClose?: () => void;
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
-  const fee = setupFeeToday(plan);
+  const fee = setupFeeToday(plan, setupCreditUsd);
   const inService = channelsInServiceLine(plan, interval);
 
   return (
@@ -105,6 +109,11 @@ export function ReviewStep({
         aria-label="What you pay"
       >
         <p className="font-display text-[26.4px] leading-tight font-medium">{fee.headline}</p>
+        {setupCreditUsd > 0 ? (
+          <p className="mt-1 text-sm font-semibold text-[#2f7d3a]">
+            {usd.format(plan.setupFeeUsd)} less {usd.format(setupCreditUsd)}: 50% off, booked during your demo.
+          </p>
+        ) : null}
         <p className="text-muted mt-2 text-sm">
           {fee.covers} You then have 30 days to finish setup:{" "}
           <a
@@ -217,7 +226,7 @@ export function ReviewStep({
 
         <div className="mt-4">
           <PrimaryButton onClick={onPay} disabled={!termsAccepted || submitting}>
-            {submitting ? "Taking you to payment…" : payLabel(plan)}
+            {submitting ? "Taking you to payment…" : payLabel(plan, setupCreditUsd)}
           </PrimaryButton>
         </div>
       </div>

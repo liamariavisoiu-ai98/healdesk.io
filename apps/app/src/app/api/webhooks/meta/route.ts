@@ -20,7 +20,11 @@ export const runtime = "nodejs";
  * GET is Meta's one-time verification handshake. POST is every event; the
  * body is authenticated with the app secret before it is parsed, each
  * message is resolved to a clinic by the page / account / number id, and a
- * clinic whose front door is switched off is silently skipped. The reply is
+ * clinic whose front door is switched off, or which has switched the
+ * message's platform Off in Settings (Instagram, Messenger and WhatsApp each
+ * have their own switch, lib/channels/meta-platforms.ts), is silently
+ * skipped: nothing is claimed, counted or answered, and the message waits for
+ * the clinic's team in the app. The reply is
  * produced by the narrow agent in lib/meta/front-door.ts and sent with the
  * clinic's sealed token, opened inside the tenant transaction. A message
  * that completes a booking request also emails the clinic's desk a
@@ -110,7 +114,9 @@ export async function POST(request: Request): Promise<Response> {
     let clinicId: string | undefined;
     try {
       const owner = await resolveMetaChannel(message.externalId);
-      if (!owner || !owner.enabled) {
+      // The operator's front door, then the clinic's own switch for this
+      // platform: both must be on (app_meta_channel, 0061).
+      if (!owner || !owner.enabled || !owner.platformEnabled) {
         skipped += 1;
         continue;
       }

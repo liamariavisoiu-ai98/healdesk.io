@@ -12,7 +12,13 @@ import { eq } from "drizzle-orm";
 import { clinics, type DepositUncollectable } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
+import {
+  connectedMetaPlatforms,
+  META_PLATFORM_NAMES,
+  setMetaPlatformEnabled,
+} from "@/lib/channels/meta-platforms";
 import { ChannelSwitchError, setChannelEnabled } from "@/lib/channels/switch";
+import type { MetaPlatform } from "@/lib/meta/front-door";
 import { formatPhone } from "@/lib/setup/help";
 import {
   saveDirectLine,
@@ -36,8 +42,13 @@ import { appliesWhen, CHANNEL_WORDS } from "./applies";
  * One door for every switch, free of Next: the server action checks the
  * sign-in (requirePortal) and says whether a passkey step-up is live; this
  * validates, writes through each setting's one writer (lib/setup/settings.ts,
- * lib/billing/deposits.ts, lib/channels/switch.ts) inside the clinic's
- * tenant, and words the result. Every writer validates again on the server,
+ * lib/billing/deposits.ts, lib/channels/switch.ts,
+ * lib/channels/meta-platforms.ts) inside the clinic's tenant, and words the
+ * result.
+ *
+ * The Meta channel has no switch of its own here: the spec gives Instagram,
+ * Messenger and WhatsApp one each, and a platform's switch shows, and saves,
+ * once that platform is connected. Every writer validates again on the server,
  * whatever the page sent.
  *
  * Where calls go is guarded twice over (plan Part D4): the direct line and
@@ -52,7 +63,9 @@ import { appliesWhen, CHANNEL_WORDS } from "./applies";
 
 export const SETTING_KEYS = [
   "channel_web",
-  "channel_meta",
+  "channel_instagram",
+  "channel_messenger",
+  "channel_whatsapp",
   "channel_voice",
   "coverage_mode",
   "tone",
@@ -88,7 +101,9 @@ export const SENSITIVE_SETTINGS: ReadonlySet<SettingKey> = new Set<SettingKey>([
 /** Which bought channels a setting belongs to; a clinic without any of them has no such setting. */
 export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> = {
   channel_web: ["web"],
-  channel_meta: ["meta"],
+  channel_instagram: ["meta"],
+  channel_messenger: ["meta"],
+  channel_whatsapp: ["meta"],
   channel_voice: ["voice"],
   coverage_mode: ["voice"],
   tone: ["web", "meta", "voice"],
@@ -206,12 +221,28 @@ async function write(
 
   switch (key) {
     case "channel_web":
-    case "channel_meta":
     case "channel_voice": {
       const channel = key.slice("channel_".length) as Channel;
       const on = requireBoolean(value, key);
       await setChannelEnabled(tx, channel, on, label, now);
       return channelToast(channel, on, state.settings.directLineE164);
+    }
+
+    case "channel_instagram":
+    case "channel_messenger":
+    case "channel_whatsapp": {
+      const platform = key.slice("channel_".length) as MetaPlatform;
+      const on = requireBoolean(value, key);
+      // Only a connected platform has a switch on the page; one that isn't
+      // connected would be told it answers when nothing reaches it.
+      if (!(await connectedMetaPlatforms(tx.db, tx.clinicId)).includes(platform)) {
+        throw new Refusal(
+          key,
+          `${META_PLATFORM_NAMES[platform]} isn't connected yet. Its switch appears here once it is.`,
+        );
+      }
+      await setMetaPlatformEnabled(tx, platform, on, label, now);
+      return metaPlatformToast(platform, on);
     }
 
     case "coverage_mode": {
@@ -476,6 +507,14 @@ export function channelToast(channel: Channel, on: boolean, directLine: string |
     case "meta":
       return `${capitalise(CHANNEL_WORDS.meta)} are off. Messages wait for your team in those apps.`;
   }
+}
+
+/** What switching Instagram, Messenger or WhatsApp does, in one sentence. */
+export function metaPlatformToast(platform: MetaPlatform, on: boolean): string {
+  const name = META_PLATFORM_NAMES[platform];
+  return on
+    ? `${name} is on. AYA answers messages there.`
+    : `${name} is off. Messages there wait for your team in ${name}.`;
 }
 
 function capitalise(text: string): string {

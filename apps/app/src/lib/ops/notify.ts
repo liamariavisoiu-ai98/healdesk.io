@@ -111,6 +111,10 @@ export const OPS_EVENTS = [
   // `phase` offboarding or billing, `count` how many (reconcileTerminations
   // in lib/agreements/termination.ts).
   "agreement_termination_finished_late",
+  // A location's billing clinic is one in another practice, so the answer
+  // gate treats it as having no billing clinic and doesn't answer for it
+  // (lib/billing/answering.ts), once per location.
+  "billing_pointer_outside_practice",
   // A first-period refund under Terms § 5 recorded the plan's immediate
   // cancellation while the billing-requests job, its only executor, is
   // switched off (commitRefund in lib/billing/stripe-actions.ts).

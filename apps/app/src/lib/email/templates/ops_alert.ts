@@ -286,6 +286,12 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A recorded termination had a step that never ran, and the hourly reconcile has now finished it for the practice below: for phase offboarding it started its locations' offboarding, for phase billing it recorded the subscription's cancellation. Check the practice in the console. If its subscription billed in between, refund that period, and if the termination refunds fees, confirm that refund on its Billing page.",
   },
+  // Raised once per location by the answer gate.
+  billing_pointer_outside_practice: {
+    title: "A location is billed to another practice",
+    action:
+      "The clinic below records its billing clinic as one in another practice. The assistant treats it as having no billing and passes its calls and messages to the clinic rather than answer them. Find which practice the location belongs to and correct its billing clinic.",
+  },
   // Raised by a first-period refund (commitRefund) whose cancel_now waits on
   // the switched-off billing-requests job.
   refund_cancel_job_off: {

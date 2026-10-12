@@ -16,7 +16,7 @@ import type { ActorContext } from "@/lib/audit";
 import { isPaused, type ClinicPause } from "@/lib/channels/state";
 import { clinicLocalDate, closedOn } from "@/lib/clinic/closures";
 import { isOpenAt, parseOpeningHours } from "@/lib/clinic/opening-hours";
-import { notifyOps } from "@/lib/ops/notify";
+import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { withTenant } from "@/lib/tenant";
 
 import { effectiveIncluded, getEntitlements, hasPlanStarted } from "./entitlements";
@@ -400,6 +400,7 @@ async function runGate(
         callRouting: clinics.callRouting,
         dataClassification: clinics.dataClassification,
         billingClinicId: clinics.billingClinicId,
+        organizationId: clinics.organizationId,
       })
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
@@ -454,6 +455,7 @@ async function runGate(
 
     return {
       billingClinicId: clinic.billingClinicId ?? tx.clinicId,
+      organizationId: clinic.organizationId,
       isSynthetic: clinic.dataClassification === "synthetic",
       agreement,
       channelRow: row ?? null,
@@ -471,6 +473,21 @@ async function runGate(
 
   const { billingClinicId } = location;
   const billed = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
+    // billing_clinic_id is the runtime role's to write, so a location's
+    // pointer is followed only into its own practice (as the termination
+    // follows it, app_organization_clinics): one at another practice's
+    // billing clinic is treated as no billing clinic at all, which fails
+    // closed, and ops is told once.
+    if (billingClinicId !== input.clinicId) {
+      const [payer] = await tx.db
+        .select({ organizationId: clinics.organizationId })
+        .from(clinics)
+        .where(eq(clinics.id, billingClinicId))
+        .limit(1);
+      if (payer && payer.organizationId !== location.organizationId) {
+        return { row: null, counted: false, foreign: true };
+      }
+    }
     const row = await getEntitlements(tx.db, billingClinicId);
     if (!row || !input.usage) return { row, counted: false };
     const [seen] = await tx.db
@@ -488,6 +505,9 @@ async function runGate(
     return { row, counted: seen !== undefined };
   });
 
+  if ("foreign" in billed) {
+    await notifyOpsOnce("billing_pointer_outside_practice", { clinicId: input.clinicId });
+  }
   const row = billed.row;
   const facts: AnswerFacts = {
     channel,

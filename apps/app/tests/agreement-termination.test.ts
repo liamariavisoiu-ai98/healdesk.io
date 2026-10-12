@@ -759,6 +759,34 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     });
   }, 180_000);
 
+  test("the answer gate never follows a location's billing pointer into another practice", async () => {
+    // The verification of 3a6de11: R6's rule, applied where the assistant
+    // decides whether to answer, so a location can't ride another
+    // practice's subscription.
+    const a = await seedPractice("gate-pointer-a");
+    const b = await seedPractice("gate-pointer-b");
+    expect(
+      await assistantMayAnswer({ clinicId: a.locationId, channel: "voice", actor: ACTOR }),
+    ).toEqual({ decision: "answer" });
+    await asApp(a.locationId, (c) =>
+      c.query(`update clinics set billing_clinic_id = $2 where id = $1`, [
+        a.locationId,
+        b.billingClinicId,
+      ]),
+    );
+    expect(
+      await assistantMayAnswer({ clinicId: a.locationId, channel: "voice", actor: ACTOR }),
+    ).toEqual({
+      decision: "pass_through",
+      reason: "not_active",
+      fallback: "direct_line",
+      directLine: LINE,
+    });
+    expect(notifyOpsOnce).toHaveBeenCalledWith("billing_pointer_outside_practice", {
+      clinicId: a.locationId,
+    });
+  }, 180_000);
+
   test("a location pointed at another practice's billing clinic never gets that practice cancelled", async () => {
     const ended = await seedPractice("term-pointer-a");
     const other = await seedPractice("term-pointer-b");

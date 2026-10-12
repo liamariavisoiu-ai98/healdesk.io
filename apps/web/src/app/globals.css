@@ -4501,13 +4501,15 @@
   scale: 0.97;
 }
 
+/* "Talk to AYA": the logo's red (owner, 12 October 2026), with the deeper
+   red under the pointer that "Get AYA" has. */
 .notice__button--primary {
-  background: var(--color-ink);
+  background: var(--color-red);
   color: #fff;
 }
 
 .notice__button--primary:hover {
-  background: color-mix(in srgb, var(--color-ink) 88%, #fff);
+  background: var(--color-red-deep);
 }
 
 .notice__button:focus-visible {

@@ -115,6 +115,12 @@ export type CompleteBookingFields = { firstName: string; phone: string; preferre
 export const EMPTY_BOOKING_FIELDS: BookingFields = { firstName: null, phone: null, preferredWindow: null, alternativeWindows: [] };
 
 /**
+ * How a Meta request's name and every window are screened, wherever they are
+ * cleaned: for the everyday skin and hair conditions as well (windowIsClean).
+ */
+const META_SCREEN = { conditions: true } as const;
+
+/**
  * What the model extracted, made safe to keep.
  *
  * A first name is letters only and short; a phone must normalise to E.164
@@ -123,18 +129,20 @@ export const EMPTY_BOOKING_FIELDS: BookingFields = { firstName: null, phone: nul
  * row that exists to be emailed about. An alternative is cleaned the same
  * way; a dirty one, or one that repeats the primary, is dropped silently and
  * never asked for again. A field that fails is simply missing, and the
- * assistant asks again.
+ * assistant asks again. Only a Meta thread is cleaned here, so the name and
+ * the windows are screened as Meta's (META_SCREEN): letters and spaces are
+ * enough to spell "Maria with acne".
  */
 export function cleanBookingFields(
   raw: { first_name?: unknown; phone?: unknown; window?: unknown; alternatives?: unknown; alt_windows?: unknown } | null | undefined,
 ): BookingFields {
   const name = cleanText(raw?.first_name, 40);
-  const firstName = name && /^[\p{L}][\p{L}' -]*$/u.test(name) ? name : null;
+  const firstName = name && /^[\p{L}][\p{L}' -]*$/u.test(name) && findClinicalContent({ name }, META_SCREEN).length === 0 ? name : null;
   const phoneRaw = cleanText(raw?.phone, 32);
   const phone = phoneRaw ? (toE164(phoneRaw) ?? null) : null;
   const window = cleanText(raw?.window, 120);
-  const preferredWindow = window && windowIsClean(window) ? window : null;
-  const alternativeWindows = cleanAlternatives(raw?.alternatives ?? raw?.alt_windows, preferredWindow ? [preferredWindow] : []);
+  const preferredWindow = window && windowIsClean(window, META_SCREEN) ? window : null;
+  const alternativeWindows = cleanAlternatives(raw?.alternatives ?? raw?.alt_windows, preferredWindow ? [preferredWindow] : [], META_SCREEN);
   return { firstName, phone, preferredWindow, alternativeWindows };
 }
 
@@ -142,14 +150,14 @@ function cleanText(v: unknown, max: number): string | null {
   return typeof v === "string" && v.trim() ? v.trim().replace(/\s+/g, " ").slice(0, max) : null;
 }
 
-/** Cleaned, deduplicated against `taken` and each other, capped at two. */
-export function cleanAlternatives(raw: unknown, taken: readonly string[]): string[] {
+/** Cleaned, deduplicated against `taken` and each other, capped at two. `options` as windowIsClean's. */
+export function cleanAlternatives(raw: unknown, taken: readonly string[], options: { conditions?: boolean } = {}): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set(taken.map(normaliseWindow));
   const out: string[] = [];
   for (const item of raw) {
     const text = cleanText(item, 120);
-    if (!text || !windowIsClean(text)) continue;
+    if (!text || !windowIsClean(text, options)) continue;
     const key = normaliseWindow(text);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -163,15 +171,25 @@ function normaliseWindow(w: string): string {
   return w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
-/** A preferred window is a day or a time, not a reason. True when nothing clinical slipped in. */
-export function windowIsClean(window: string): boolean {
-  return findClinicalContent({ window }).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window);
+/**
+ * A preferred window is a day or a time, not a reason. True when nothing clinical slipped in.
+ *
+ * `conditions` is a Meta request's rule (META_SCREEN): the catalog's
+ * everyday skin and hair conditions are refused as well, because Meta signs
+ * no BAA and its channels carry nothing clinical. A voice request's
+ * alternatives, which come from a call the BAA covers, are screened without
+ * them.
+ */
+export function windowIsClean(window: string, options: { conditions?: boolean } = {}): boolean {
+  return findClinicalContent({ window }, options).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window);
 }
 
 /**
- * The catalog matcher catches clinical CLAIMS; this catches a condition, a
- * treatment or a "for my …" slipping into the one free-text field a Meta
- * request has. A voice request carries the service in its own column.
+ * The catalog matcher catches clinical CLAIMS, and on Meta the everyday
+ * conditions; this catches a condition, a treatment or a "for my …" slipping
+ * into a window, the one free-text field a Meta request has. A voice
+ * request's alternatives go through it too; the service a caller asked for
+ * has a column of its own.
  */
 const WINDOW_REFUSED =
   /\b(for my|because|due to|acne|rosacea|melasma|eczema|psoriasis|wrinkles?|scars?|pain|anxiety|depress\w*|botox|fillers?|laser|ivf|fertility|surgery|lipo\w*|implants?|hair loss|treatment|consult\w*|procedure|injection|skin|teeth|tooth|dental)\b/i;
@@ -226,7 +244,7 @@ export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: Bo
     phone: fields.phone ?? existing?.phone ?? null,
     preferredWindow,
     // Existing first, then this message's, deduplicated against the primary and capped.
-    alternativeWindows: cleanAlternatives([...(existing?.alternativeWindows ?? []), ...fields.alternativeWindows], preferredWindow ? [preferredWindow] : []),
+    alternativeWindows: cleanAlternatives([...(existing?.alternativeWindows ?? []), ...fields.alternativeWindows], preferredWindow ? [preferredWindow] : [], META_SCREEN),
   };
   await tx.db
     .insert(metaBookingDrafts)
@@ -250,6 +268,11 @@ const LOCKED_COLUMN_FIELDS: ReadonlySet<string> = new Set(["first_name", "phone"
  * clinical. Anything else is dropped and named, never stored. The four locked
  * fields live in their own columns and are refused here so nothing collected
  * later can quietly rewrite a frozen number or window.
+ *
+ * Only the phone collects them (the voice tools and the post-call webhook): a
+ * Meta request keeps the locked four and nothing else. So the everyday skin
+ * and hair conditions are not counted here, and a caller's `service` may be
+ * the clinic's own "Acne Facial".
  */
 export function cleanCollectedFields(
   requirements: readonly BookingField[],
@@ -353,7 +376,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
   }
   const alternativeWindows =
     input.channel === "meta"
-      ? cleanAlternatives(input.fields.alternativeWindows, [input.fields.preferredWindow])
+      ? cleanAlternatives(input.fields.alternativeWindows, [input.fields.preferredWindow], META_SCREEN)
       : cleanAlternatives(input.alternativeWindows ?? [], [input.preferredWindow]);
 
   const raw = randomBytes(TOKEN_BYTES);

@@ -384,6 +384,8 @@ async function voiceToolBook(call: ToolCall): Promise<ToolReply> {
   // A service name is screened the way `treatment` is on an inbound call:
   // no clinical content and no digit run; the window matcher's treatment
   // words would refuse "consultation", which is exactly what this field is.
+  // The everyday skin and hair conditions are the Meta channels' rule, not
+  // this call's: "Acne Facial" is a med spa's service.
   const serviceRaw = text(call.body.service, 120);
   const service = serviceRaw && findClinicalContent({ service: serviceRaw }).length === 0 && !/\d{7,}/.test(serviceRaw) ? serviceRaw : null;
   const fieldsRaw = call.body.fields;

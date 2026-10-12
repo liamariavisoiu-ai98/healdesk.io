@@ -27,7 +27,7 @@ the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
 | C7      | The agreement and calendar terms in effect, elections, the demo clinic                             | Built                                          |
 | C8      | Connecting, choosing calendars, disconnecting, revoking (§2, §4)                                   | Built                                          |
 | C9      | Booking mode and Auto-confirm (§2)                                                                 | Built                                          |
-| C10     | The five-minute calendar watch                                                                     | To build; ships switched off                   |
+| C10     | The five-minute calendar watch                                                                     | Built, ships off; one email deferred (below)   |
 | C11     | Privacy §11 and `/data-deletion` say what the code does                                            | To build                                       |
 | C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | To build                                       |
 | C13     | The booking engine (§6); HRC-04 at each write (§4)                                                 | To build                                       |
@@ -61,6 +61,14 @@ the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
 - **No live booking yet.** The assistant books only where the location's terms allow writing, the
   connection is healthy, Auto-confirm is on and the owner has set the kill switch, and for no
   production clinic until the Retell process exists (launch plan 2.1).
+- **C10 defers one piece of plan §9.2 step 5:** the one-off "reconnect to accept the updated
+  notice" email to a clinic whose connection was accepted under a disclosure version no longer in
+  `GOOGLE_CALENDAR_DISCLOSURE_COMPATIBLE`, deduplicated by an audit row per version. Until it is
+  built, the disclosure's version must not be bumped out of that list: the booking mode already
+  sends such a connection to requests (`calendar_disclosure_outdated`), so a bump would put every
+  connected location on booking requests and tell no clinic why. Only
+  `google-calendar-disclosure/1` exists. The watch writes its `calendar_watch` security event on
+  every run, as the plan says: 288 rows a day, fewer than the decrypt audit rows its probes write.
 - **Not in this build:** the Retell process; booking from web chat and Meta (Meta stays
   request-only); the spec's other option for a one-way booking system, writing to Google for staff
   to copy across (such a clinic runs manual booking); the assistant cancelling or moving a booking;
@@ -151,7 +159,7 @@ app.healdesk.io; apps/web never does.
 - **Ops alerts** go through `notifyOps(event, fields)` (`apps/app/src/lib/ops/notify.ts`, on main:
   a log line, an `ops_alerts` row deduplicated within the hour and the I1 email; it never throws).
   This build adds its events to the closed `OPS_EVENTS` list (for example `calendar_broken`,
-  `calendar_degraded`, `calendar_recovered`, `calendar_watch_incomplete`,
+  `calendar_degraded`, `calendar_recovered`, `calendar_watch_incomplete`, `calendar_watch_failed`,
   `google_oauth_client_rejected`) in place of the plan's ops email, with ids and counts under
   `ALLOWED_LOG_KEYS` as fields. Security events stay as planned.
 - **Closures.** Availability (C12) leaves out every local date the clinic is closed, read with

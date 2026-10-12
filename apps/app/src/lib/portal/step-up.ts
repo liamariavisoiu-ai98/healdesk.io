@@ -29,7 +29,9 @@ import { currentSessionToken, type PortalContext } from "./access";
  * `patient_pages`: Conversations, Bookings and transcripts, held open for 15
  * minutes idle and 8 hours at most. `sensitive_change`: the direct line and
  * transfer number, the clinic's address, shortening retention, Stripe
- * connect and disconnect, adding or removing a device, exports.
+ * connect and disconnect, reconnecting or disconnecting a connected Google
+ * Calendar (the first connection needs none), adding or removing a device,
+ * exports.
  */
 export type StepUpPurpose = "patient_pages" | "sensitive_change";
 

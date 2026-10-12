@@ -11,6 +11,7 @@ import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { formatReplyBy } from "@/lib/reply-by";
 import { setupLastDay } from "@/lib/clinic/setup-window";
+import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
@@ -46,17 +47,18 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
   const { slug } = await params;
   const portal = await requirePortal(slug);
   const actor = await portalActor(portal);
+  const who = { type: "user", userId: portal.userId, label: actor.label } as const;
   const state = await loadSetupState({
     clinicId: portal.clinicId,
     userId: portal.userId,
-    actor: { type: "user", userId: portal.userId, label: actor.label },
+    actor: who,
   });
   if (!state) notFound();
 
   const home = `/c/${portal.clinicSlug}`;
   const audience = audienceFor(state.clinic.specialty);
   const one = audienceSingular(audience);
-  const tracker = buildTracker(state);
+  const tracker = buildTracker(state, await getCalendarConnection(portal.clinicId, { actor: who }));
   const finished = wizardFinished(state.screens, state.progress);
   const resume = resumeScreen(wizardScreens(state.screens), state.progress);
   const skipped = wizardScreens(state.screens).filter(

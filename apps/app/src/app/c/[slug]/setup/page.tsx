@@ -2,27 +2,31 @@ import {
   AFTER_HOURS_ONLY_LANDLINE_NOTE,
   ASSISTANT_TONE_OPTIONS,
   audienceFor,
-  BOOKING_SYSTEMS,
-  bookingSyncFor,
   CHANNEL_NAMES,
   COVERAGE_MODE_OPTIONS,
-  manualBookingNotice,
   timeZoneForUsAddress,
   US_TIME_ZONES,
 } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
+import type { ActorContext } from "@/lib/audit";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
+import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
-import { calendarStep, rightNowLine } from "@/lib/setup/calendar";
+import {
+  calendarStep,
+  readCalendarNotice,
+  requestedScreen,
+  type CalendarNotice,
+} from "@/lib/setup/calendar";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone, helpContacts } from "@/lib/setup/help";
 import { serviceInputOf } from "@/lib/setup/knowledge";
-import { isSetupScreen } from "@/lib/setup/save";
+import { providersStep } from "@/lib/setup/providers";
 import {
   neighbours,
   resumeScreen,
@@ -38,6 +42,7 @@ import { urgentHelpField } from "@/lib/setup/urgent";
 
 import { HelpPanel } from "../HelpPanel";
 
+import { connectCalendar, disconnectCalendar } from "./calendar-actions";
 import { BackupScreen } from "./screens/BackupScreen";
 import {
   CoverageScreen,
@@ -46,7 +51,8 @@ import {
   ToneScreen,
   UrgentScreen,
 } from "./screens/BehaviourScreens";
-import { CalendarScreen, ProvidersScreen } from "./screens/CalendarScreens";
+import { ProvidersScreen } from "./screens/CalendarScreens";
+import { CalendarStepView } from "./screens/CalendarStepView";
 import { ChannelsScreen } from "./screens/ChannelsScreen";
 import {
   BasicsScreen,
@@ -72,23 +78,26 @@ export const dynamic = "force-dynamic";
  *
  * Anyone using the clinic's sign-in can continue setup; nothing here shows a
  * patient, so no step-up is asked for, except to change the direct line once
- * it is set (actions.ts).
+ * it is set (actions.ts) and to reconnect or disconnect a connected calendar
+ * (calendar-actions.ts). Google's sign-in comes back to this page with only
+ * `?calendar=<outcome>`, which opens the calendar step and says what happened.
  */
 export default async function SetupPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ s?: string | string[] }>;
+  searchParams: Promise<{ s?: string | string[]; calendar?: string | string[] }>;
 }) {
   const { slug } = await params;
   const portal = await requirePortal(slug);
-  const { s } = await searchParams;
+  const { s, calendar } = await searchParams;
   const actor = await portalActor(portal);
+  const who: ActorContext = { type: "user", userId: portal.userId, label: actor.label };
   const state = await loadSetupState({
     clinicId: portal.clinicId,
     userId: portal.userId,
-    actor: { type: "user", userId: portal.userId, label: actor.label },
+    actor: who,
   });
   if (!state) notFound();
   const home = `/c/${portal.clinicSlug}`;
@@ -104,8 +113,8 @@ export default async function SetupPage({
     );
   }
 
-  const requested =
-    typeof s === "string" && isSetupScreen(s) && state.screens.includes(s) ? s : null;
+  const notice = readCalendarNotice(calendar);
+  const requested = requestedScreen(state.screens, s, notice);
   if (!requested) {
     const resume = resumeScreen(state.screens, state.progress);
     redirect(resume ? `${home}/setup?s=${resume}` : home);
@@ -126,7 +135,13 @@ export default async function SetupPage({
       </p>
       <Progress state={state} screen={screen} home={home} />
       <section className="mt-8">
-        {renderScreen(state, screen, { slug: portal.clinicSlug, backHref, home })}
+        {renderScreen(state, screen, {
+          slug: portal.clinicSlug,
+          backHref,
+          home,
+          actor: who,
+          notice: screen === "calendar" ? notice : null,
+        })}
       </section>
       <HelpPanel audience={audience} />
       {definition.step === "end" ? null : (
@@ -217,7 +232,14 @@ function Progress({
   );
 }
 
-type Nav = { slug: string; backHref: string | null; home: string };
+type Nav = {
+  slug: string;
+  backHref: string | null;
+  home: string;
+  actor: ActorContext;
+  /** What Google's return, or a calendar button, said happened: the calendar step only. */
+  notice: CalendarNotice | null;
+};
 
 function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
   const common = { slug: nav.slug, backHref: nav.backHref, skipCost: skipCost(state, screen) };
@@ -385,12 +407,10 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
     }
 
     case "calendar":
-      return <CalendarStep state={state} common={common} />;
+      return <CalendarStep state={state} common={common} notice={nav.notice} actor={nav.actor} />;
 
     case "providers":
-      return (
-        <ProvidersScreen {...common} providersRead={clinic.siteProfile?.providers.length ?? 0} />
-      );
+      return <ProvidersStep state={state} common={common} actor={nav.actor} />;
 
     case "channels": {
       const finished = state.screens
@@ -422,24 +442,57 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
 async function CalendarStep({
   state,
   common,
+  notice,
+  actor,
 }: {
   state: SetupState;
   common: { slug: string; backHref: string | null; skipCost: string };
+  notice: CalendarNotice | null;
+  actor: ActorContext;
 }) {
-  const step = await calendarStep(state.clinic.id);
-  const manualNotices = Object.fromEntries(
-    BOOKING_SYSTEMS.map((s) => [
-      s.id,
-      bookingSyncFor(s.id) === "manual" ? manualBookingNotice(s.label) : null,
-    ]),
+  const step = await calendarStep({ id: state.clinic.id, name: state.clinic.name }, { actor });
+  return (
+    <CalendarStepView
+      {...common}
+      step={step}
+      notice={notice}
+      settings={state.settings}
+      timeZone={state.clinic.timezone}
+      actions={{ connect: connectCalendar, disconnect: disconnectCalendar }}
+    />
+  );
+}
+
+async function ProvidersStep({
+  state,
+  common,
+  actor,
+}: {
+  state: SetupState;
+  common: { slug: string; backHref: string | null; skipCost: string };
+  actor: ActorContext;
+}) {
+  const services = state.knowledge.services.map((service) => service.name);
+  const step = await providersStep(
+    {
+      id: state.clinic.id,
+      name: state.clinic.name,
+      services,
+      siteProfile: state.clinic.siteProfile,
+    },
+    { actor },
   );
   return (
-    <CalendarScreen
+    <ProvidersScreen
       {...common}
-      bookingSystem={state.settings.bookingSystem}
-      systems={BOOKING_SYSTEMS.map((s) => ({ id: s.id, label: s.label }))}
-      rightNow={rightNowLine(step)}
-      manualNotices={manualNotices}
+      bookingDetail={state.settings.bookingDetail}
+      named={
+        step.kind === "named" ? { calendars: step.calendars, providers: step.providers } : null
+      }
+      unavailable={step.kind === "generic_only" ? step.reason : null}
+      providersRead={state.clinic.siteProfile?.providers.length ?? 0}
+      services={services}
+      maxProviders={MAX_PROVIDERS}
     />
   );
 }

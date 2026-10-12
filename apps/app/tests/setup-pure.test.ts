@@ -10,7 +10,8 @@ import {
 } from "@/lib/clinic/setup-window";
 import { copyProblems } from "@/lib/email/lint";
 import { validateAgentConfig } from "@/lib/onboarding/agent-config";
-import { calendarStep, providersAvailable, rightNowLine } from "@/lib/setup/calendar";
+import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+import { bookingLines, rightNowLine } from "@/lib/setup/calendar";
 import {
   actionLine,
   channelNextStep,
@@ -411,12 +412,42 @@ describe("Help", () => {
   });
 });
 
-describe("the calendar seam", () => {
-  test("without the calendar backend, bookings arrive as requests and named providers wait", async () => {
-    const step = await calendarStep("0c1d2e3f-0000-4000-8000-000000000000");
-    expect(step).toEqual({ kind: "requests_only" });
-    expect(providersAvailable(step)).toBe(false);
-    expect(rightNowLine(step)).toBe("Right now: your team confirms each booking AYA takes.");
+describe("Auto-confirm's Right now line", () => {
+  const live = { bookingSystem: "google_calendar" as const, autoConfirm: true };
+
+  test("every booking is a request today, whatever is connected; the line names a reason only the clinic set or can fix", () => {
+    for (const calendar of ["requests_only", "not_connected", "connected"] as const) {
+      expect(rightNowLine({ ...live, calendar })).toBe(
+        "Right now: your team confirms each booking AYA takes.",
+      );
+    }
+    expect(rightNowLine({ ...live, calendar: "broken" })).toBe(
+      "Right now: your team confirms each booking AYA takes, because your calendar connection stopped working.",
+    );
+    expect(rightNowLine({ ...live, autoConfirm: false, calendar: "connected" })).toBe(
+      "Right now: your team confirms each booking AYA takes, because Auto-confirm is off.",
+    );
+    expect(
+      rightNowLine({ bookingSystem: "mindbody", autoConfirm: false, calendar: "connected" }),
+    ).toBe("Right now: your team confirms each booking AYA takes in Mindbody.");
+    expect(
+      rightNowLine({ bookingSystem: "other", autoConfirm: false, calendar: "connected" }),
+    ).toBe("Right now: your team confirms each booking AYA takes in your booking system.");
+  });
+
+  test("the picker's answer on screen decides Auto-confirm as saving it would", () => {
+    const lines = bookingLines(
+      { bookingSystem: "google_calendar", autoConfirmBookings: false },
+      "not_connected",
+    );
+    // The saved system keeps the clinic's own switch; another follows its sync.
+    expect(lines.google_calendar!.autoConfirm).toBe(false);
+    expect(lines.calendly!.autoConfirm).toBe(true);
+    expect(lines.mindbody).toEqual({
+      autoConfirm: false,
+      rightNow: "Right now: your team confirms each booking AYA takes in Mindbody.",
+    });
+    expect(lines[""]).toEqual(lines.google_calendar);
   });
 });
 
@@ -470,9 +501,26 @@ function setupState(overrides: Partial<SetupState> = {}): SetupState {
   };
 }
 
+const NOT_CONNECTED: CalendarConnectionView = { status: "not_connected", accessRemovedAt: null };
+
+function connection(
+  status: "active" | "degraded" | "error" | "pending",
+): Exclude<CalendarConnectionView, { status: "not_connected" }> {
+  return {
+    status,
+    account: { email: "bookings@glow.test", kind: "workspace", domain: "glow.test" },
+    calendar: { id: "primary", primary: true },
+    connectedAt: at.toISOString(),
+    lastVerifiedAt: at,
+    brokenAt: status === "error" ? at : null,
+    lastError: status === "error" ? "calendar_not_found" : null,
+    disclosureCurrent: true,
+  };
+}
+
 describe("the build tracker", () => {
   test("each stage's done-rule reads the data, and the preview stays locked while the engine is not built", () => {
-    const fresh = buildTracker(setupState());
+    const fresh = buildTracker(setupState(), NOT_CONNECTED);
     expect(fresh.stages.map((s) => [s.id, s.state])).toEqual([
       ["agreement", "done"],
       ["payment", "done"],
@@ -518,7 +566,7 @@ describe("the build tracker", () => {
       progress: new Map([["services", { outcome: "done", at }]]),
     });
     expect(answersMissing(answered)).toEqual([]);
-    const tracker = buildTracker(answered);
+    const tracker = buildTracker(answered, NOT_CONNECTED);
     expect(tracker.stages.find((s) => s.id === "website")!.state).toBe("done");
     expect(tracker.stages.find((s) => s.id === "answers")!.state).toBe("done");
     expect(tracker.left).toEqual(["Assistant built", "Practice questions passed"]);
@@ -534,10 +582,39 @@ describe("the build tracker", () => {
     expect(joinWords(["a"])).toBe("a");
   });
 
-  test("the calendar never blocks the preview", () => {
-    const calendar = buildTracker(setupState()).stages.find((s) => s.id === "calendar")!;
-    expect(calendar.blocks).toBe(false);
-    expect(calendar.detail).toBe("Bookings arrive as requests your team confirms.");
+  test("the calendar stage follows the connection, and never blocks the preview", () => {
+    const stage = (view: CalendarConnectionView) =>
+      buildTracker(setupState(), view).stages.find((s) => s.id === "calendar")!;
+    expect(stage(NOT_CONNECTED)).toEqual({
+      id: "calendar",
+      label: "Calendar",
+      state: "info",
+      detail: "Bookings arrive as requests your team confirms.",
+      blocks: false,
+    });
+    for (const healthy of ["active", "degraded"] as const) {
+      expect(stage(connection(healthy))).toEqual({
+        id: "calendar",
+        label: "Calendar connected",
+        state: "done",
+        detail: "Connected as bookings@glow.test.",
+        blocks: false,
+      });
+    }
+    expect(stage(connection("error"))).toMatchObject({
+      state: "info",
+      detail:
+        "Your calendar connection stopped working, so bookings arrive as requests your team confirms until you reconnect it.",
+      blocks: false,
+    });
+    expect(stage(connection("pending")).state).toBe("info");
+    expect(
+      stage({ ...connection("active"), account: { email: null, kind: null, domain: null } }).detail,
+    ).toBe("Your Google Calendar is connected.");
+    // Connected or not, what is left is the same.
+    expect(buildTracker(setupState(), connection("active")).left).toEqual(
+      buildTracker(setupState(), NOT_CONNECTED).left,
+    );
   });
 });
 

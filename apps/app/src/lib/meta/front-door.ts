@@ -324,6 +324,36 @@ export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "serv
 }
 
 /**
+ * The reply with each part of the clinic's address taken out (split at
+ * commas and line breaks, and the street also without its number), its
+ * punctuation kept and each part left as the word "place", so the date and
+ * time checks still read "10/21" and "9:30" in what is left.
+ */
+function withoutAddress(reply: string, address: string | null | undefined): string {
+  let out = reply;
+  for (const part of addressParts(address)) {
+    const escaped = part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+    // Left as the word "place", so "between 4th and" what was "5th Avenue"
+    // still reads as a place.
+    out = out.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu"), " place ");
+  }
+  return out;
+}
+
+/** The address's parts, longest first, with each street also without its number. */
+function addressParts(address: string | null | undefined): string[] {
+  const parts: string[] = [];
+  for (const part of (address ?? "").split(/[,\n]+/)) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    parts.push(trimmed);
+    const street = trimmed.replace(/^\d+[a-z]?\s+/i, "");
+    if (street !== trimmed) parts.push(street);
+  }
+  return parts.sort((a, b) => b.length - a.length);
+}
+
+/**
  * The reply with the clinic's own words taken out: its name, and each part
  * of its address (split at commas and line breaks), with the street also
  * without its number ("Peel Street" for "1200 Peel Street"). Both are
@@ -333,13 +363,7 @@ export function guardContextFor(facts: Pick<FrontDoorFacts, "clinicName" | "serv
 function withoutOwnWords(reply: string, context: GuardContext): string {
   const phrases: string[] = [];
   if (context.clinicName) phrases.push(context.clinicName);
-  for (const part of (context.address ?? "").split(/[,\n]+/)) {
-    const trimmed = part.trim();
-    if (!trimmed) continue;
-    phrases.push(trimmed);
-    const street = trimmed.replace(/^\d+[a-z]?\s+/i, "");
-    if (street !== trimmed) phrases.push(street);
-  }
+  phrases.push(...addressParts(context.address));
   return phrases.reduce((text, phrase) => withoutPhrase(text, phrase), reply);
 }
 
@@ -362,7 +386,9 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // a menu: "Botox" where the menu says "Neurotoxin" (BAA 1.3.0 clause 16).
   if (namesMetaTreatment(withoutOwnWords(reply, context))) return { ok: false, reason: "a treatment name" };
   // No appointment details (appointmentDetail).
-  const reason = appointmentDetail(flat, context.publishedTimes ?? []);
+  // On the reply without the clinic's own address, which is public and may
+  // carry an ordinal or a number ("120 5th Avenue").
+  const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
   return reason ? { ok: false, reason } : { ok: true };
 }
 
@@ -441,6 +467,10 @@ const HOURS_CUE = /\b(open|opens|opened|opening|close|closes|closed|closing|hour
 const MONTH =
   "(?:january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
 
+/** What an ordinal names when it is a place, not a day. */
+const PLACE_WORD =
+  "(?:floor|fl|storey|story|level|street|st|avenue|ave|av|road|rd|boulevard|blvd|lane|ln|drive|dr|place|pl|terrace|crescent|parkway|pkwy|highway|hwy)\\b";
+
 /** A month by name, for the word-form dates: "may" and "march" are verbs too often to lead one. */
 const MONTH_WORDS =
   "(?:january|february|april|june|july|august|september|october|november|december|jan|feb|apr|jun|jul|aug|sep|sept|oct|nov|dec)\\.?(?![a-z])";
@@ -463,7 +493,9 @@ const DATE_IN_REPLY: readonly RegExp[] = [
   /\b(?!24\/7\b)\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\b/,
   /(?<![$\d.,])\d{1,2}\.\d{1,2}\.\d{2,4}\b/,
   /\b\d{4}-\d{1,2}-\d{1,2}\b/,
-  /\b\d{1,2}(?:st|nd|rd|th)\b/i,
+  // An ordinal day, but not a floor, a level or a street ("the 2nd floor",
+  // "5th Avenue", "between 4th and 5th Avenue", "14th St").
+  new RegExp(`\\b\\d{1,2}(?:st|nd|rd|th)\\b(?!\\s+(?:(?:and|&|or|to)\\s+(?:\\d{1,2}(?:st|nd|rd|th)\\s+)?)?${PLACE_WORD})`, "i"),
   new RegExp(`\\b${MONTH_WORDS}\\s+(?:the\\s+)?${DAY_WORD}\\b`, "i"),
   new RegExp(`\\b${DAY_WORD}\\s+(?:of\\s+)?${MONTH_WORDS}`, "i"),
   new RegExp(`\\bthe\\s+${HIGH_ORDINAL}\\b`, "i"),

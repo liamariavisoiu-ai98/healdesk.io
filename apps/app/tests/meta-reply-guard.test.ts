@@ -227,6 +227,30 @@ describe("the reply guard: appointment details", () => {
     expect(guardReply(reply, CLINIC)).toEqual({ ok: true });
   });
 
+  test("an ordinal that is a floor, a street or part of the clinic's address is no date", () => {
+    // The verification of 3a6de11, low: the date check read the raw reply.
+    const address = "120 5th Avenue, Suite 4, New York, NY 10011";
+    for (const reply of [
+      "We're at 120 5th Avenue, Suite 4.",
+      "The entrance is on 5th Avenue.",
+      "We're between 4th and 5th Avenue.",
+    ]) {
+      expect(guardReply(reply, { ...CLINIC, address }), reply).toEqual({ ok: true });
+    }
+    for (const reply of [
+      "We're on the 2nd floor.",
+      "We're on the 2nd floor, Suite 4.",
+      "Take the F train to 14th St.",
+      "The entrance is on 5th Avenue.",
+      "We're between 4th and 5th Avenue.",
+    ]) {
+      expect(guardReply(reply, CLINIC), reply).toEqual({ ok: true });
+    }
+    // A day of the month is still one.
+    expect(guardReply("Come in on the 2nd.", CLINIC)).toMatchObject({ ok: false });
+    expect(guardReply("The 5th is free.", { ...CLINIC, address })).toMatchObject({ ok: false });
+  });
+
   test("a day or a time outside a sentence about the hours gives the hand-off, even an honest one", () => {
     // The cost of not chasing phrasings: the front door states the hours,
     // and anything else timed goes to the practice.

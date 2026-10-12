@@ -40,11 +40,22 @@
 --     conversations those payloads were (external_call_id = the payload's
 --     delivery id), with their amendments, when no contact is on them and
 --     nothing else refers to them.
+--   * The purge kept rows up to a day past their period. Its cutoffs were
+--     exactly now less the period, and it runs at 03 and 09 UTC, so a row
+--     lived up to the period and eighteen hours, or a day more when a tick
+--     was missed, against clause 4's "no longer than the periods this
+--     agreement states". Every cutoff the purge takes by a stated period is
+--     now a day early (lib/retention/purge.ts), and app_record_cutoff(), the
+--     latest cutoff the database accepts, takes the same day.
+--   * Deposits had no retention clock, only destruction.
+--     app_purge_deposit_payments() deletes a deposit with its appointment,
+--     under the record clock, and one whose appointment is already gone once
+--     it is older than the clock.
 --
--- Safe to apply in place: one constraint widened, one function redefined on
--- its latest body (app_erase_contacts, 0064), three new ones. apps/app has
--- only ever held synthetic and seed data (CLAUDE.md, "Until BAA coverage is
--- in place").
+-- Safe to apply in place: one constraint widened, two functions redefined on
+-- their latest bodies (app_erase_contacts, 0064; app_record_cutoff, 0058),
+-- four new ones. apps/app has only ever held synthetic and seed data
+-- (CLAUDE.md, "Until BAA coverage is in place").
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
@@ -294,6 +305,114 @@ REVOKE ALL ON FUNCTION app_erase_unmatched_calls(uuid, text[]) FROM PUBLIC;--> s
 GRANT EXECUTE ON FUNCTION app_erase_unmatched_calls(uuid, text[]) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
+-- The record clock, a day early
+-- -----------------------------------------------------------------------------
+-- 0058's definition, with the cutoff a day before the clock in force: the
+-- purge runs at 03 and 09 UTC, so a cutoff of exactly the period kept a row
+-- up to eighteen hours past it, and a day more after a missed tick. A day
+-- early, every row is gone before its period ends, whichever run takes it.
+-- The latest cutoff app_purge_booking_requests, app_purge_amended_appointments,
+-- app_purge_amended_conversations and app_purge_deposit_payments accept. A
+-- one-day clock (the least clinics.retention_record_days allows) cuts at now.
+CREATE OR REPLACE FUNCTION app_record_cutoff()
+RETURNS timestamptz
+LANGUAGE plpgsql
+STABLE
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  in_force integer;
+BEGIN
+  IF tenant IS NULL THEN
+    RAISE EXCEPTION 'app_record_cutoff: no tenant; the record clock is one clinic''s own'
+      USING ERRCODE = '42501';
+  END IF;
+
+  SELECT app_record_days_in_force(c.retention_record_days, c.retention_record_days_previous,
+                                  c.retention_record_days_shortened_at)
+    INTO in_force
+    FROM clinics c
+   WHERE c.id = tenant;
+  IF in_force IS NULL THEN
+    RAISE EXCEPTION 'Clinic % does not exist.', tenant
+      USING ERRCODE = 'no_data_found';
+  END IF;
+  RETURN now() - make_interval(days => greatest(in_force - 1, 0));
+END
+$$;--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
+-- Deposits on the record clock
+-- -----------------------------------------------------------------------------
+-- A deposit goes the night its appointment does: the appointment is past the
+-- cutoff and no booking request holds it (the same predicate purgeClinic and
+-- app_purge_amended_appointments use), so it is deleted while the
+-- appointment still leads to it. A deposit whose appointment is already gone
+-- (its link set to NULL) goes once it is older than the cutoff. With each,
+-- the Connect event that last touched it. The runtime role has no DELETE on
+-- deposit_payments (0043), so this does it, no later than app_record_cutoff().
+CREATE OR REPLACE FUNCTION app_purge_deposit_payments(
+  record_before timestamptz,
+  OUT deposits_deleted integer,
+  OUT connect_events_deleted integer
+)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  allowed timestamptz;
+  doomed uuid[];
+BEGIN
+  IF tenant IS NULL THEN
+    RAISE EXCEPTION 'app_purge_deposit_payments: no tenant; a purge runs inside the clinic''s own transaction'
+      USING ERRCODE = '42501';
+  END IF;
+
+  allowed := app_record_cutoff();
+  IF record_before IS NULL OR record_before > allowed THEN
+    RAISE EXCEPTION 'app_purge_deposit_payments: % is later than clinic %''s record clock allows (%); refusing.',
+      record_before, tenant, allowed
+      USING ERRCODE = 'check_violation';
+  END IF;
+
+  SELECT coalesce(array_agg(dp.id), '{}')
+    INTO doomed
+    FROM deposit_payments dp
+   WHERE dp.clinic_id = tenant
+     AND ((dp.appointment_id IS NULL AND dp.created_at < record_before)
+          OR EXISTS (SELECT 1
+                       FROM appointments a
+                      WHERE a.id = dp.appointment_id
+                        AND a.clinic_id = tenant
+                        AND a.scheduled_for < record_before
+                        AND NOT EXISTS (SELECT 1 FROM booking_requests r
+                                         WHERE r.clinic_id = tenant AND r.appointment_id = a.id)));
+
+  DELETE FROM stripe_connect_events e
+   WHERE e.stripe_event_id IN (SELECT dp.last_event_id
+                                 FROM deposit_payments dp
+                                WHERE dp.clinic_id = tenant
+                                  AND dp.id = ANY (doomed)
+                                  AND dp.last_event_id IS NOT NULL)
+     AND (e.resolved_clinic_id IS NULL OR e.resolved_clinic_id = tenant);
+  GET DIAGNOSTICS connect_events_deleted = ROW_COUNT;
+
+  DELETE FROM deposit_payments dp
+   WHERE dp.clinic_id = tenant
+     AND dp.id = ANY (doomed);
+  GET DIAGNOSTICS deposits_deleted = ROW_COUNT;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_purge_deposit_payments(timestamptz) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_purge_deposit_payments(timestamptz) TO healdesk_app;--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON FUNCTION app_erasure_record_bound(uuid) IS
@@ -304,6 +423,11 @@ COMMENT ON FUNCTION app_unthread_requests(uuid, text[]) IS
   'Sets sender_id and external_id to NULL on the tenant''s Meta requests sent from the given threads, recorded no later than the named deletion request (app_erasure_record_bound). For a household thread whose identifier is the erased person''s own: the requests it sent for others stay, without it. Writes an audit row (booking_request_unthreaded) when it changes any.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_unmatched_calls(uuid, text[]) IS
   'Deletes the tenant''s conversations of the given calls that no contact is on, no appointment or booking request refers to, and that started no later than the named deletion request, with their amendments: a call with no caller ID whose raw payload named the person.';--> statement-breakpoint
+COMMENT ON FUNCTION app_record_cutoff() IS
+  'now() less the tenant''s record clock in force (app_record_days_in_force), a day early (0067): the latest cutoff the purge''s definers accept, so a row is gone before its period ends whichever run takes it. Refuses without a tenant.';--> statement-breakpoint
+COMMENT ON FUNCTION app_purge_deposit_payments(timestamptz) IS
+  'Deletes the tenant''s deposits whose appointment is past the cutoff and held by no booking request, and those whose appointment is gone and that are older than it, with the Connect events that last touched them. Refuses a cutoff later than app_record_cutoff(). Returns the two counts.';--> statement-breakpoint
+
 -- -----------------------------------------------------------------------------
 -- The posture, re-asserted: a later widening fails here, not in production.
 -- -----------------------------------------------------------------------------
@@ -313,7 +437,8 @@ DECLARE
 BEGIN
   IF has_function_privilege('public', 'app_erase_contacts(uuid[])', 'EXECUTE')
      OR has_function_privilege('public', 'app_unthread_requests(uuid, text[])', 'EXECUTE')
-     OR has_function_privilege('public', 'app_erase_unmatched_calls(uuid, text[])', 'EXECUTE') THEN
+     OR has_function_privilege('public', 'app_erase_unmatched_calls(uuid, text[])', 'EXECUTE')
+     OR has_function_privilege('public', 'app_purge_deposit_payments(timestamptz)', 'EXECUTE') THEN
     RAISE EXCEPTION 'A SECURITY DEFINER function of this migration is executable by PUBLIC.';
   END IF;
 
@@ -329,10 +454,21 @@ BEGIN
    WHERE p.oid IN ('app_erasure_record_bound(uuid)'::regprocedure,
                    'app_erase_contacts(uuid[])'::regprocedure,
                    'app_unthread_requests(uuid, text[])'::regprocedure,
-                   'app_erase_unmatched_calls(uuid, text[])'::regprocedure)
+                   'app_erase_unmatched_calls(uuid, text[])'::regprocedure,
+                   'app_record_cutoff()'::regprocedure,
+                   'app_purge_deposit_payments(timestamptz)'::regprocedure)
      AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) c WHERE c LIKE 'search_path=%');
   IF offending IS NOT NULL THEN
     RAISE EXCEPTION 'Function(s) without a pinned search_path: %', offending;
+  END IF;
+
+  SELECT string_agg(p.proname, ', ') INTO offending
+    FROM pg_proc p
+   WHERE p.oid IN ('app_record_cutoff()'::regprocedure,
+                   'app_purge_deposit_payments(timestamptz)'::regprocedure)
+     AND NOT ('TimeZone=UTC' = ANY (coalesce(p.proconfig, ARRAY[]::text[])));
+  IF offending IS NOT NULL THEN
+    RAISE EXCEPTION 'Function(s) that lost or lack the UTC pin (drizzle/0058): %', offending;
   END IF;
 END;
 $$;

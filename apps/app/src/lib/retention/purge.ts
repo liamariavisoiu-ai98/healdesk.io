@@ -103,15 +103,22 @@ import type { TenantTx } from "@/lib/tenant";
  *     transcript clock, since a call's payload carries its transcript.
  *     Until BAA 1.3.0's release gate 9 (PT-28) a payload never processed was
  *     never deleted;
- *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS).
+ *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS);
+ *   - a deposit: with its appointment, or, once its appointment is gone, the
+ *     record clock after it was made (app_purge_deposit_payments, 0067).
+ *
+ * Each cutoff taken by one of these periods is a day early (periodCutoff):
+ * the job runs at 03 and 09 UTC, so a cutoff of exactly the period kept a
+ * row up to eighteen hours past it, or a day more after a missed tick, and
+ * clause 4 keeps it "no longer than the periods this agreement states".
  *
  * A backup copy of anything deleted here expires with the host's backups,
  * within BACKUP_RETENTION_DAYS.
  *
  * ## Which clinics, and the switch
  *
- * The `retention-purge` job ships switched off (0032), like every job, and
- * its switch is one for every clinic. A clinic bound to BAA 1.3.0 or later,
+ * The `retention-purge` job ships switched off (0032), and its switch is
+ * one for every clinic. A clinic bound to BAA 1.3.0 or later,
  * or to the DPA, which state these periods as the purge runs them, is purged
  * every night whether the switch is on or not (`purgeIsPromised`; release
  * gate 9): the agreement it signed does not wait for an operator. The switch
@@ -179,6 +186,8 @@ export type PurgeResult = {
   webhookEventsDeleted: number;
   chatThreadsDeleted: number;
   slotHoldsDeleted: number;
+  /** Deposits whose appointment the record clock took (drizzle/0067). */
+  depositsDeleted: number;
 };
 
 /**
@@ -268,6 +277,19 @@ function daysAgo(now: Date, days: number): Date {
 }
 
 /**
+ * The cutoff for a period the agreement states, a day early. The purge runs
+ * at 03 and 09 UTC, so a cutoff of exactly the period kept a row up to
+ * eighteen hours past it, and a day more after a missed tick, where BAA
+ * 1.3.0's clause 4 keeps it "no longer than the periods this agreement
+ * states" (the calendar session's re-audit, C19, 12 October 2026). A day
+ * early, every row is gone before its period ends, whichever run takes it.
+ * app_record_cutoff() takes the same day (drizzle/0067).
+ */
+function periodCutoff(now: Date, days: number): Date {
+  return daysAgo(now, Math.max(days - 1, 0));
+}
+
+/**
  * One clinic, one transaction, on its own two clocks.
  *
  * Refuses to touch a clinic with a sync run in flight (phase two): the
@@ -290,6 +312,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     webhookEventsDeleted: 0,
     chatThreadsDeleted: 0,
     slotHoldsDeleted: 0,
+    depositsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -329,8 +352,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .where(eq(clinicSettings.clinicId, tx.clinicId))
     .limit(1);
   const transcriptDays = Math.min(clinic.mediaDays, settings?.transcriptDays ?? clinic.mediaDays);
-  const mediaBefore = daysAgo(now, transcriptDays);
-  const recordBefore = daysAgo(now, clinic.recordDays);
+  const mediaBefore = periodCutoff(now, transcriptDays);
+  const recordBefore = periodCutoff(now, clinic.recordDays);
 
   // 1. Media references.
   const cleared = await tx.db
@@ -384,6 +407,18 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     sql`select app_purge_booking_requests(least(${recordBefore}::timestamptz, app_record_cutoff())) as n`,
   );
   result.bookingRequestsDeleted = requests.rows[0]?.n ?? 0;
+
+  // Deposits go with their appointments, before them, while the
+  // appointment still leads to them (its foreign key on a deposit is SET
+  // NULL), and one whose appointment is already gone once it is older than
+  // the clock: deposit_payments had no clock but destruction (the calendar
+  // session's re-audit, C19). Through app_purge_deposit_payments(), as the
+  // runtime role has no DELETE on them, with the Connect event that last
+  // touched each, at the same cutoff as the requests.
+  const deposits = await tx.db.execute<{ deposits_deleted: number; connect_events_deleted: number }>(
+    sql`select * from app_purge_deposit_payments(least(${recordBefore}::timestamptz, app_record_cutoff()))`,
+  );
+  result.depositsDeleted = deposits.rows[0]?.deposits_deleted ?? 0;
 
   // Exceptions reference transactions and appointments; they go with the
   // rows they were about.
@@ -528,11 +563,11 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   //    neither past the transcript clock: a voice payload carries the whole
   //    transcript, so a practice that keeps transcripts seven days must not
   //    keep their raw copy thirty (second review, 12 October 2026).
-  const processedBefore = daysAgo(
+  const processedBefore = periodCutoff(
     now,
     Math.min(WEBHOOK_PAYLOAD_RETENTION_DAYS, clinic.recordDays, transcriptDays),
   );
-  const unprocessedBefore = daysAgo(now, Math.min(clinic.recordDays, transcriptDays));
+  const unprocessedBefore = periodCutoff(now, Math.min(clinic.recordDays, transcriptDays));
   const payloads = await tx.db
     .delete(webhookEvents)
     .where(
@@ -576,7 +611,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   //    is never later. Nothing is lost by it: a message after a day's
   //    silence starts a new conversation, and its first reply the opening
   //    line, whether or not the thread is still there.
-  const threadsBefore = daysAgo(
+  const threadsBefore = periodCutoff(
     now,
     Math.min(CHAT_THREAD_IDLE_RETENTION_DAYS, clinic.recordDays, transcriptDays),
   );
@@ -597,7 +632,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.draftsDeleted +
     result.webhookEventsDeleted +
     result.chatThreadsDeleted +
-    result.slotHoldsDeleted;
+    result.slotHoldsDeleted +
+    result.depositsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -614,6 +650,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         webhookEvents: result.webhookEventsDeleted,
         chatThreads: result.chatThreadsDeleted,
         slotHolds: result.slotHoldsDeleted,
+        deposits: result.depositsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

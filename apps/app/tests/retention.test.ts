@@ -1,3 +1,5 @@
+import { randomBytes } from "node:crypto";
+
 import { BAA_TEMPLATES, DPA_TEMPLATES, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -413,6 +415,139 @@ describeDb("retention purge", () => {
     };
     expect(await left(c.clinicId)).toEqual(["done-20", "never-60"]);
     expect(await left(short.clinicId)).toEqual(["done-3"]);
+  });
+
+  test("a row whose period ends between two runs is gone before it ends: every stated period is cut a day early", async () => {
+    // The purge runs at 03 and 09 UTC. With cutoffs of exactly the period, a
+    // row whose period ended at 06 lived until 09, and a day more after a
+    // missed tick (the calendar session's re-audit, C19, 12 October 2026).
+    // Here the run is now, each row's period ends three hours from now, before
+    // the next run, and each is gone after this one. A row with two days
+    // left stays. The database's own cutoff takes the same day.
+    const run = new Date();
+    const endsIn3h = (days: number) => new Date(run.getTime() - days * DAY + 3 * 60 * 60 * 1000);
+    const c = await seedClinic("purge-margin");
+    const seven = await seedClinic("purge-margin-seven");
+    const person = await seedContact(c.clinicId, "+15550150301");
+    const due = await seedConversation(c.clinicId, { startedAt: endsIn3h(90), contactId: person });
+    const notYet = await seedConversation(c.clinicId, { startedAt: new Date(run.getTime() - 88 * DAY), contactId: person });
+    const transcript = await seedConversation(seven.clinicId, { startedAt: endsIn3h(7) });
+    await inTenant(seven.clinicId, (client) =>
+      client.query(`insert into clinic_settings (clinic_id, transcript_retention_days) values ($1, 7)`, [seven.clinicId]),
+    );
+    await inTenant(seven.clinicId, (client) =>
+      client.query(`update conversations set transcript_uri = 'https://vendor.test/t/margin' where id = $1`, [
+        transcript.conversationId,
+      ]),
+    );
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(
+        `insert into booking_requests (clinic_id, contact_id, channel, preferred_window, status, token_hash, expires_at, created_at)
+         values ($1, $2, 'voice', 'Tuesday 2pm', 'requested', $3, $4::timestamptz + interval '7 days', $4)`,
+        [c.clinicId, person, randomBytes(32), endsIn3h(90)],
+      );
+      await client.query(
+        `insert into webhook_events (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
+         values ($1, 'synthflow', 'margin-done', true, '{}', $2, $2),
+                ($1, 'synthflow', 'margin-never', true, '{}', null, $3)`,
+        [c.clinicId, endsIn3h(30), endsIn3h(90)],
+      );
+      await client.query(
+        `insert into chat_threads (clinic_id, channel, party_ref, conversation_id, conversation_started_at, last_inbound_at)
+         values ($1, 'instagram', 'margin-thread', gen_random_uuid(), $2, $2)`,
+        [c.clinicId, endsIn3h(30)],
+      );
+    });
+
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, run));
+    expect(result).toMatchObject({ bookingRequestsDeleted: 1, webhookEventsDeleted: 2, chatThreadsDeleted: 1 });
+    const left = await inTenant(c.clinicId, async (client) => ({
+      conversations: (await client.query<{ id: string }>(`select id from conversations`)).rows.map((r) => r.id),
+      requests: (await client.query(`select 1 from booking_requests`)).rows.length,
+      payloads: (await client.query(`select 1 from webhook_events`)).rows.length,
+      threads: (await client.query(`select 1 from chat_threads`)).rows.length,
+    }));
+    expect(left).toEqual({ conversations: [notYet.conversationId], requests: 0, payloads: 0, threads: 0 });
+    expect(left.conversations).not.toContain(due.conversationId);
+
+    await withTenant({ clinicId: seven.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, run));
+    const reference = await inTenant(seven.clinicId, async (client) =>
+      (await client.query<{ uri: string | null }>(`select transcript_uri as uri from conversations`)).rows,
+    );
+    expect(reference).toEqual([{ uri: null }]);
+
+    const cutoff = await asApp(c.clinicId, (q) =>
+      q.query<{ days: number }>(`select extract(epoch from now() - app_record_cutoff())::float8 / 86400 as days`),
+    );
+    expect(cutoff.rows[0]!.days).toBeCloseTo(89, 5);
+  });
+
+  test("a deposit goes with its appointment on the record clock, or on its own once the appointment is gone; one still ahead stays", async () => {
+    // deposit_payments had no clock but destruction (C19). It now goes the
+    // night its appointment does, while the appointment still leads to it,
+    // with the Connect event that last touched it.
+    const run = new Date();
+    const c = await seedClinic("purge-deposits");
+    const person = await seedContact(c.clinicId, "+15550150401");
+    const old = await seedConversation(c.clinicId, { startedAt: new Date(run.getTime() - 120 * DAY), booked: true, contactId: person });
+    const ahead = await seedConversation(c.clinicId, { startedAt: new Date(run.getTime() - 2 * DAY), booked: true, contactId: person });
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(`update appointments set scheduled_for = $2 where id = $1`, [
+        old.appointmentId,
+        new Date(run.getTime() - 100 * DAY),
+      ]);
+      await client.query(`update appointments set scheduled_for = $2 where id = $1`, [
+        ahead.appointmentId,
+        new Date(run.getTime() + 5 * DAY),
+      ]);
+      await client.query(
+        `insert into deposit_payments
+           (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status, checkout_session_id,
+            last_event_id, created_at)
+         values ($1, $2, 'web', 5000, 'acct_purge', 'paid', 'cs_purge_old', 'evt_purge_old', $4),
+                ($1, $3, 'web', 5000, 'acct_purge', 'paid', 'cs_purge_ahead', 'evt_purge_ahead', $5),
+                ($1, null, 'web', 5000, 'acct_purge', 'expired', 'cs_purge_orphan', null, $4),
+                ($1, null, 'web', 5000, 'acct_purge', 'expired', 'cs_purge_orphan_new', null, $5)`,
+        [
+          c.clinicId,
+          old.appointmentId,
+          ahead.appointmentId,
+          new Date(run.getTime() - 110 * DAY),
+          new Date(run.getTime() - 3 * DAY),
+        ],
+      );
+    });
+    await getMigratorPool().query(
+      `insert into stripe_connect_events (stripe_event_id, type, account, resolved_clinic_id)
+       values ('evt_purge_old', 'checkout.session.completed', 'acct_purge', $1),
+              ('evt_purge_ahead', 'checkout.session.completed', 'acct_purge', $1)`,
+      [c.clinicId],
+    );
+
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, run));
+    expect(result.depositsDeleted).toBe(2);
+    expect(result.appointmentsDeleted).toBe(1);
+    const sessions = await inTenant(c.clinicId, async (client) =>
+      (
+        await client.query<{ s: string }>(`select checkout_session_id as s from deposit_payments order by 1`)
+      ).rows.map((r) => r.s),
+    );
+    expect(sessions).toEqual(["cs_purge_ahead", "cs_purge_orphan_new"]);
+    const events = (
+      await getMigratorPool().query<{ id: string }>(
+        `select stripe_event_id as id from stripe_connect_events where stripe_event_id like 'evt_purge_%' order by 1`,
+      )
+    ).rows.map((r) => r.id);
+    expect(events).toEqual(["evt_purge_ahead"]);
+
+    // Never ahead of the database's own clock, and only through it: the
+    // runtime role has no DELETE on deposits.
+    await expect(
+      asApp(c.clinicId, (q) => q.query(`select * from app_purge_deposit_payments(now())`)),
+    ).rejects.toMatchObject({ code: "23514", message: expect.stringMatching(/record clock/) });
+    await expect(
+      asApp(c.clinicId, (q) => q.query(`delete from deposit_payments`)),
+    ).rejects.toMatchObject({ code: "42501" });
   });
 
   test("a sync run that crashed does not hold the purge off a clinic for good", async () => {

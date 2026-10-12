@@ -123,15 +123,42 @@ const BOXES: { id: Skin; label: string; badge: string; ink: string; icon: ReactN
   { id: "messenger", label: "Messenger", badge: "linear-gradient(45deg,#0099ff,#a033ff 60%,#ff5280)", ink: "#fff", icon: Icon.messenger },
 ];
 
-function Avatar({ name, logoUrl, size, ring }: { name: string; logoUrl: string | null; size: number; ring?: boolean }) {
+function Avatar({
+  name,
+  logoUrl,
+  size,
+  ring,
+  filled,
+}: {
+  name: string;
+  logoUrl: string | null;
+  size: number;
+  ring?: boolean;
+  /**
+   * The mark in white on the brand's colour, rather than in colour on white:
+   * the homepage's white header (see `headerTone`). For a one-colour mark on
+   * a transparent ground, which healdesk's "h" is.
+   */
+  filled?: boolean;
+}) {
   const inner = (
     <span
       className="grid shrink-0 place-items-center overflow-hidden rounded-full bg-white text-[12px] font-bold"
-      style={{ width: size, height: size, boxShadow: "0 0 0 1px rgb(0 0 0 / 0.06)" }}
+      style={{
+        width: size,
+        height: size,
+        boxShadow: "0 0 0 1px rgb(0 0 0 / 0.06)",
+        ...(filled ? { background: "var(--clinic)" } : {}),
+      }}
       aria-hidden
     >
       {logoUrl ? (
-        <img src={logoUrl} alt="" referrerPolicy="no-referrer" className="size-full object-contain p-[2px]" />
+        <img
+          src={logoUrl}
+          alt=""
+          referrerPolicy="no-referrer"
+          className={`size-full object-contain ${filled ? "p-[5px] brightness-0 invert" : "p-[2px]"}`}
+        />
       ) : (
         <span className="grid size-full place-items-center" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
           {name.slice(0, 1).toUpperCase()}
@@ -256,6 +283,7 @@ export function ChatSkins({
   error,
   composer,
   footnote,
+  headerTone = "brand",
 }: {
   /** Whose assistant this is: the clinic's name, or AYA. */
   name: string;
@@ -283,6 +311,13 @@ export function ChatSkins({
   composer?: ReactNode;
   /** Under the composer, such as a note on what not to type. */
   footnote?: ReactNode;
+  /**
+   * The website skin's header: in the brand's colour, as a clinic's widget
+   * is (the default), or white with the avatar in the brand's colour, as the
+   * homepage's AYA card is (owner, 12 October 2026: the solid red bar was the
+   * heaviest thing on the page).
+   */
+  headerTone?: "brand" | "light";
 }) {
   const [skin, setSkin] = useState<Skin>("website");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -321,15 +356,24 @@ export function ChatSkins({
   // ─── The four costumes ─────────────────────────────────────────────────────
 
   const header = {
-    website: (
-      <div className="flex items-center gap-2.5 px-4 py-3" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
-        <Avatar name={name} logoUrl={logoUrl} size={34} />
-        <div className="min-w-0">
-          <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
-          <p className="truncate text-[12.6px] leading-tight opacity-80">We typically reply instantly</p>
+    website:
+      headerTone === "light" ? (
+        <div className="border-line text-ink flex items-center gap-2.5 border-b bg-white px-4 py-3">
+          <Avatar name={name} logoUrl={logoUrl} size={34} filled />
+          <div className="min-w-0">
+            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
+            <p className="text-muted truncate text-[12.6px] leading-tight">We typically reply instantly</p>
+          </div>
         </div>
-      </div>
-    ),
+      ) : (
+        <div className="flex items-center gap-2.5 px-4 py-3" style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}>
+          <Avatar name={name} logoUrl={logoUrl} size={34} />
+          <div className="min-w-0">
+            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
+            <p className="truncate text-[12.6px] leading-tight opacity-80">We typically reply instantly</p>
+          </div>
+        </div>
+      ),
     whatsapp: (
       <div className="flex items-center gap-2 px-2.5 py-2.5 text-white" style={{ background: "#008069" }}>
         <span className="[&_svg]:size-5">{Icon.back}</span>

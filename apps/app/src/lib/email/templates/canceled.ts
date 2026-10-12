@@ -18,7 +18,7 @@ import type { EmailTemplate } from "./types";
  * forwarding it never set up.
  *
  * The dates are destructionPlan's (lib/offboarding), by the rule of the
- * agreement the clinic's service ended under. On BAA 1.2.1 and earlier the
+ * agreement the clinic's service ended under. On BAA 1.2.2 and earlier the
  * data goes a day before thirty days are up, whatever the export; on BAA
  * 1.3.0 and the DPA it goes a day before thirty days are up once the export
  * has been delivered, at the next hourly run after its delivery when that is

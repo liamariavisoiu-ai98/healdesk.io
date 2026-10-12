@@ -12,7 +12,7 @@
  *
  * It replaces the Synthflow client that placed this call until 5 October
  * 2026. Replaced, not extended: there is one vendor for the demo call, and
- * the privacy notice and /subprocessors name it.
+ * the internal register (lib/subprocessors.ts) lists it.
  *
  * ## The API contract, transcribed
  *

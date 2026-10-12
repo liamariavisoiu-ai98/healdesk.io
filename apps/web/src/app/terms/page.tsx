@@ -4,6 +4,7 @@ import {
   OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
+  TRANSCRIPT_RETENTION_DAYS,
 } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
@@ -11,12 +12,13 @@ import { LegalPage, Section } from "@/components/LegalPage";
 import { ENTITY, GUARANTEE_TEXT, POLICY, entityDisplayName, packagesForTerms } from "@/lib/legal";
 import { overageBlockPrices } from "@/lib/pricing";
 import { site } from "@/lib/site";
+import { phiAgreementsOutstanding } from "@/lib/subprocessors";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/terms" },
   title: "Terms of service",
   description:
-    "The subscription agreement for healdesk: packages and fees, automatic renewal and how to cancel, the setup fee, refunds and the first-month guarantee, what the AI does and does not do, liability, and how patient information is governed.",
+    "The subscription agreement for healdesk: packages and fees, automatic renewal and how to cancel, the setup fee, refunds and the first-month guarantee, what the AI does and does not do, liability, and how patient information is governed; with an annex on how we protect data.",
 };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -35,8 +37,9 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  * floor, refund window, guarantee thresholds) come from src/lib/legal.ts and
  * drive the wording below: a zero refund window renders as "no refund window",
  * not as a blank. The first-month guarantee in section 5 is rendered from
- * GUARANTEE_TEXT there, because the spec requires the pricing page to carry
- * the identical words; /pricing must render the same object.
+ * GUARANTEE_TEXT there, because the spec requires the identical words
+ * wherever the guarantee is advertised; checkout's Review and pay step
+ * renders the same object beside the prices.
  *
  * What the service is (section 2) follows docs/v1-product-spec.md: inbound
  * only on five channels, booking straight into the Practice's Google Calendar,
@@ -82,6 +85,26 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  * or conversations, not per unit, and section 3's table prints each package's
  * block prices from the catalog (`overageBlockPrices`, the prices Stripe
  * bills), marked provisional until measured.
+ *
+ * Revised to the owner's decisions of 9 October 2026, as LEGAL_VERSION
+ * 2026-10-09.1. There is no pricing page any more, so section 3's prices are
+ * the ones shown at checkout. No vendor is named publicly: the list of the
+ * subcontractors that handle patient information is given to a Practice on
+ * request under the Business Associate Agreement (section 9), and section 3's
+ * payment processor goes unnamed. hello@healdesk.io is the one address,
+ * notices included (sections 18 and 20). And the content of /trust moved here
+ * as the closing annex, "How we protect data" (id "security", where /trust
+ * now redirects): our practices, for information, expressly not a term of
+ * this agreement, because the Business Associate Agreement incorporates this
+ * page by its address and must not pick up promises it does not itself make.
+ * The annex follows the spec's breach clock (without unreasonable delay and
+ * in no case later than 60 calendar days after discovery) in place of /trust's five
+ * days, and names no vendor and counts none. It does not name the entity
+ * either, for the reason above: section 20 is the one place on this page that
+ * does. The same version carries the package names the personalised demo's
+ * branch gave them on 7 October (AYA Web Chat, AYA Meta Chat, AYA Voice, AYA
+ * Complete Frontdesk), which section 3's table reads from the catalog: that
+ * branch numbered them 2026-10-07.3 on its own line, which never went out.
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -156,9 +179,8 @@ export default function TermsPage() {
 
       <Section id="fees" title="3. Packages and fees">
         <p>
-          Prices are in US dollars, exclusive of any applicable sales tax, and are those published
-          at <a href="/pricing" className="underline underline-offset-2">/pricing</a> when you
-          subscribe. The packages at the date of these terms:
+          Prices are in US dollars, exclusive of any applicable sales tax, and are the prices shown
+          at checkout when you subscribe. The packages at the date of these terms:
         </p>
         {/* The block prices are package terms like the allowances, so each
             package's row carries its own, from the catalog. While the rates
@@ -217,7 +239,7 @@ export default function TermsPage() {
           every started block of {OVERAGE_BLOCK_UNITS} extra voice minutes or{" "}
           {OVERAGE_BLOCK_UNITS} extra chat conversations is billed{" "}
           {OVERAGE_RATES_PROVISIONAL
-            ? "at the block prices published on the pricing page. Until those prices are published, usage above the allowance is not billed."
+            ? "at block prices we will give you in writing before they apply. Until then, usage above the allowance is not billed."
             : "at your package's block price in the table above, so a single minute or conversation over the allowance is billed as a whole block. These block prices are provisional until we have measured what that usage costs to serve. On a monthly package the blocks are billed in arrears on the next invoice; on an annual package they are invoiced separately, monthly in arrears, at the same prices."}{" "}
           Nothing else is charged for usage.
         </p>
@@ -251,8 +273,8 @@ export default function TermsPage() {
           keep.
         </p>
         <p>
-          Payments are processed through our Stripe account, which is linked to our operating
-          entity (section 20).
+          Payments are processed through our payment processor account, which is linked to our
+          operating entity (section 20).
         </p>
       </Section>
 
@@ -266,8 +288,8 @@ export default function TermsPage() {
         <p>
           <strong>To cancel:</strong> open the billing portal from the link in any invoice email and
           choose "cancel at end of period", or email{" "}
-          <a href={`mailto:${ENTITY.supportEmail}`} className="underline underline-offset-2">
-            {ENTITY.supportEmail}
+          <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+            {ENTITY.email}
           </a>{" "}
           from the address on the account. Cancellation takes effect at the end of the period you
           have paid for; the agent keeps working until then; nothing further is charged. You can
@@ -403,9 +425,9 @@ export default function TermsPage() {
           the same terms to the same information anyway. That agreement controls over these terms
           for everything about patient information: what we may do with it, how we protect it, what
           we report, and what happens to it when you leave. It allocates liability for patient
-          information in the same way as sections 13 and 14 of these terms. The list of companies
-          that process it for us, and whether each has signed with us, is at{" "}
-          <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>.
+          information in the same way as sections 13 and 14 of these terms. The list of the
+          subcontractors that process patient information for us is given to you on request, under
+          the Business Associate Agreement.
         </p>
         <p>
           <strong>The language model.</strong> The provider of the language model that generates
@@ -543,8 +565,8 @@ export default function TermsPage() {
       <Section id="notices" title="18. Notices">
         <p>
           Notices to us go to{" "}
-          <a href={`mailto:${ENTITY.noticesEmail}`} className="underline underline-offset-2">
-            {ENTITY.noticesEmail}
+          <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+            {ENTITY.email}
           </a>
           . Notices to you go to the email address on your account. A notice is effective when
           delivered.
@@ -578,15 +600,9 @@ export default function TermsPage() {
             <strong>Website:</strong> {site.domain}
           </li>
           <li>
-            <strong>General contact:</strong>{" "}
-            <a href={`mailto:${ENTITY.supportEmail}`} className="underline underline-offset-2">
-              {ENTITY.supportEmail}
-            </a>
-          </li>
-          <li>
-            <strong>Legal contact:</strong>{" "}
-            <a href={`mailto:${ENTITY.noticesEmail}`} className="underline underline-offset-2">
-              {ENTITY.noticesEmail}
+            <strong>Contact, legal notices included:</strong>{" "}
+            <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+              {ENTITY.email}
             </a>
           </li>
           {/* The registered address off the trade licence, printed here and in
@@ -605,6 +621,187 @@ export default function TermsPage() {
         </ul>
         <p>{ENTITY.postalAddressDisclaimer}</p>
       </Section>
+
+      {/* The annex. Unnumbered and ruled off, so that no reader takes it for
+          section 21: the Business Associate Agreement incorporates this page
+          by its address, and what follows is a description of our practices,
+          not a promise either agreement makes. The comment on TermsPage says
+          what it carries over from /trust and what it leaves behind. */}
+      <hr className="border-line mt-16" />
+      <Section id="security" title="How we protect data">
+        <p>
+          <strong>
+            This annex describes our practices for protecting information. It is provided for
+            information only and is not a term of this agreement, and it changes as our practices
+            do. The Business Associate Agreement you sign at checkout governs patient information.
+          </strong>
+        </p>
+
+        <h3 className={ANNEX_HEADING}>The boundary</h3>
+        <p>
+          {site.name} is two systems. This website and its demo hold no patient information at
+          all: a clinic owner&apos;s work email, a chat with a demo agent, a business enquiry. The
+          product — the assistant that answers your phone and chat — runs on separate
+          infrastructure, under the Business Associate Agreement, and that is the only place a
+          caller&apos;s name, number or question is kept.
+        </p>
+        <p>
+          The line is enforced in code, not only in policy: the website&apos;s lead records are
+          tested against a denylist of patient-shaped fields, and the product&apos;s database
+          refuses to write patient information for any clinic until its agreement is bound and the
+          clinic is deliberately moved to production.
+        </p>
+
+        <h3 className={ANNEX_HEADING}>What protects patient information</h3>
+        <ul className="list-disc space-y-3 pl-6">
+          <li>
+            <strong>One clinic cannot see another.</strong> Every table that holds patient
+            information carries row-level security that the application role cannot bypass and the
+            table owner cannot skip. A test suite asserts, for every such table, that the policy
+            exists, is forced, and names the clinic column.
+          </li>
+          <li>
+            <strong>The AI says it is an AI, first.</strong> Every call, chat and message opens
+            with a line saying the patient is talking to an AI assistant; on the phone the same
+            line says the call is transcribed, and no call audio is kept. The clinic cannot switch
+            it off or edit it out through the greeting, and it is the first line of every
+            transcript.
+          </li>
+          <li>
+            <strong>Transcripts are deleted automatically.</strong> Each conversation and its
+            transcript is deleted {TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner
+            if you choose a shorter period in your portal.
+          </li>
+          <li>
+            <strong>Encryption.</strong> At rest in the database and object store, and in transit
+            wherever we control both ends. Two routes are outside that: a phone call is not
+            end-to-end encrypted, and a patient who telephones has chosen the telephone, which is
+            the exception the Business Associate Agreement makes; and a message on Instagram,
+            Messenger or WhatsApp travels through Meta&apos;s systems, which we do not control.
+            Email that would carry patient information goes only over an encrypted connection, and
+            is not sent if the receiving server cannot accept one.
+          </li>
+          <li>
+            <strong>Where it runs.</strong> The product&apos;s servers and its database run in our
+            cloud hosting provider&apos;s US East region. The voice provider&apos;s region is
+            being confirmed in writing.
+          </li>
+          <li>
+            <strong>Who handles it.</strong> Inside the product, patient information is processed
+            by our cloud hosting provider, our voice provider and our AI model provider, each under
+            a business associate agreement with us that is signed before any patient information
+            reaches it. The list of these subcontractors is given to clinics on request, under the
+            Business Associate Agreement. The vendors that serve this website, its demo and our
+            billing never receive patient information.
+          </li>
+          <li>
+            <strong>Every access is recorded.</strong> Reads and writes of patient information are
+            written to an append-only audit table in the same transaction as the access, so an
+            access that rolled back leaves no false claim behind, and a real one cannot be erased
+            by the application.
+          </li>
+          <li>
+            <strong>Logs cannot carry patient data.</strong> The product has a single logger with
+            an allowlist of fields and a scrubber for numbers and addresses; a test fails the build
+            on any log call that goes around it.
+          </li>
+          <li>
+            <strong>No advertising platforms, anywhere.</strong> No pixel on this website, no
+            conversion API in the product, and nothing about a patient is ever sent to Meta or
+            Google for advertising; a browser policy on this website blocks the connections
+            outright. The next part covers the routes that carry patient details by design.
+          </li>
+          <li>
+            <strong>Signed agreements are evidence.</strong> The exact text a clinic signed, its
+            hash, who signed and when are stored append-only; the database role the application
+            uses holds no permission to change or delete them.
+          </li>
+        </ul>
+
+        <h3 className={ANNEX_HEADING}>Where there is no agreement, and how we handle it</h3>
+        <ul className="list-disc space-y-3 pl-6">
+          <li>
+            <strong>Instagram, Messenger and WhatsApp.</strong> Meta signs no business associate
+            agreement for any messaging product, and no vendor in front of Meta can change that.
+            So these channels are scoped to carry nothing clinical. A patient&apos;s message
+            travels through Meta because that is where the patient wrote to you. Anything clinical
+            in it is caught when it arrives, is not stored, is not repeated back and is not carried
+            into a summary, and the assistant moves the conversation to a call or your own secure
+            route and says why in one sentence. Replies never name a treatment.
+          </li>
+          <li>
+            <strong>Deposits.</strong> A deposit is taken through your own payment processor
+            account, under your own agreement with it, and payment processors sign no business
+            associate agreement. So a deposit link carries only an amount, a generic description
+            and a reference code: no treatment name, not in the description, the statement
+            descriptor or the metadata.
+          </li>
+          <li>
+            <strong>The AI model keeps inputs for 30 days.</strong> Our model provider covers its
+            service under its own business associate agreement, but the models it covers require 30
+            days of data retention and cannot run with none. Even under that agreement it may keep
+            content its automated trust-and-safety systems flag, or that the law requires it to
+            keep, for up to two years. Everywhere else we push retention down; this one we cannot,
+            so we say so here rather than leave it for your counsel to find.
+          </li>
+          <li>
+            <strong>Your calendar is yours.</strong> Bookings are written into your own Google
+            Calendar, under your own agreement with Google. That is the right place for them, and
+            it is worth confirming your Google Workspace plan carries that agreement.
+          </li>
+          <li>
+            <strong>Who we are.</strong> The operating entity is named in section 20.
+            HIPAA&apos;s obligations attach to a business associate wherever it is incorporated,
+            and ours are in the Business Associate Agreement.
+          </li>
+        </ul>
+
+        <h3 className={ANNEX_HEADING}>If something goes wrong</h3>
+        <p>
+          We tell the clinic of a breach of unsecured patient information, and of any other
+          security incident whether or not it turns out to be a breach, without unreasonable delay
+          and in no case later than 60 calendar days after discovery. Who pays for what follows is in the
+          agreements, not in small print: the cost of notifying patients and regulators sits with
+          the clinic (section 14), and we carry no liability insurance (section 13). We say both
+          plainly so a clinic can size its own cover.
+        </p>
+
+        <h3 className={ANNEX_HEADING}>What we do not claim</h3>
+        <ul className="list-disc space-y-3 pl-6">
+          <li>
+            <strong>No certification.</strong> There is no &quot;HIPAA certified&quot; and we do
+            not display a seal. HIPAA is a set of obligations, and the way to check ours is to read
+            the Business Associate Agreement and ask us for the architecture.
+          </li>
+          <li>
+            <strong>No third-party audit yet.</strong> No SOC 2 report exists. The controls above
+            are our own and we will walk any reviewer through them.
+          </li>
+          {/* Read from the internal register, so this line goes when the
+              last agreement is countersigned and not before. */}
+          {phiAgreementsOutstanding() ? (
+            <li>
+              <strong>
+                Not every agreement in the patient-information path is countersigned yet.
+              </strong>{" "}
+              Until every one is, our operator moves no clinic to production. That is a check a
+              person makes before switching a clinic over, not one the software enforces yet.
+            </li>
+          ) : null}
+        </ul>
+
+        <h3 className={ANNEX_HEADING}>Who to ask</h3>
+        <p>
+          Security questions, vulnerability reports and compliance questionnaires go to{" "}
+          <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+            {ENTITY.email}
+          </a>
+          . We answer within five business days, and we do not pursue good-faith researchers.
+        </p>
+      </Section>
     </LegalPage>
   );
 }
+
+/** The annex's own subheadings, a step below a section title. */
+const ANNEX_HEADING = "font-display pt-2 text-[20px] leading-tight font-medium tracking-[-0.015em]";

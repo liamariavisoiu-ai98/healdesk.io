@@ -1,5 +1,6 @@
 /**
- * Retell browser calls, for the personalised demo's "talk to it now".
+ * Retell browser calls, for "talk now": the personalised demo's, as the
+ * clinic, and the homepage's, as AYA (since 9 October 2026).
  *
  * ## Why this dials nobody
  *
@@ -38,6 +39,24 @@ export function readClinicDemoAgentConfig():
   const missing: string[] = [];
   if (!apiKey) missing.push("RETELL_API_KEY");
   if (!agentId) missing.push("RETELL_CLINIC_DEMO_AGENT_ID");
+  if (missing.length > 0) return { ok: false, missing };
+  return { ok: true, config: { apiKey: apiKey!, agentId: agentId! } };
+}
+
+/**
+ * AYA's own browser call on the homepage. It is the agent that answers the
+ * demo line (scripts/retell-demo-agent.ts, "inbound"), because a browser call
+ * is the visitor calling her: it opens "Thank you for calling healdesk",
+ * never with the outbound agent's "did you just request a demo?".
+ */
+export function readAyaDemoAgentConfig():
+  | { ok: true; config: WebCallConfig }
+  | { ok: false; missing: string[] } {
+  const apiKey = process.env.RETELL_API_KEY;
+  const agentId = process.env.RETELL_DEMO_INBOUND_AGENT_ID;
+  const missing: string[] = [];
+  if (!apiKey) missing.push("RETELL_API_KEY");
+  if (!agentId) missing.push("RETELL_DEMO_INBOUND_AGENT_ID");
   if (missing.length > 0) return { ok: false, missing };
   return { ok: true, config: { apiKey: apiKey!, agentId: agentId! } };
 }

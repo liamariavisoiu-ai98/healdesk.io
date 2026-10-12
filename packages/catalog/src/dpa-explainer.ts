@@ -65,8 +65,9 @@ export const DPA_EXPLAINER = {
     },
     {
       plain:
-        "Tell you immediately, and within 24 hours at most, of any misuse, security incident " +
-        "or breach, with a written report you can use for your own notices",
+        "Tell you of any misuse, security incident or breach without unreasonable delay, and " +
+        "in no case later than 60 calendar days after discovery, with a written report you can " +
+        "use for your own notices",
       citation: clause("Reporting incidents and breaches"),
     },
     {
@@ -103,7 +104,8 @@ export const DPA_EXPLAINER = {
  * this document's clause, by the heading it prints ("Google Calendar", since
  * the pre-release audit renamed it), never 45 CFR. The other three are
  * written for this document: client information, the DPA's categories of
- * recipient, and its 24 hours' notice with the effect "without penalty" has.
+ * recipient, and its 24 hours' notice of a new subcontractor with the effect
+ * "without penalty" has.
  */
 export const DPA_CLAUSE_EXPLAINERS: Readonly<Record<string, BaaExplainerTerm>> = {
   "data-sources": {

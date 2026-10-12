@@ -219,6 +219,16 @@ describe("the demo register", () => {
     expect(await demoInvitation(null)).toBeNull();
   });
 
+  it("never lets a demo the visitor asked for on the homepage open the purchase", async () => {
+    const { demoInvitation } = await import("@/lib/setup-gate");
+    const operators = await createDemoSession({ clinicName: "Smith", websiteUrl: "https://smith.com/", createdBy: "webhook" });
+    const visitors = await createDemoSession({ clinicName: "Peachy", websiteUrl: "https://peachystudio.com/", createdBy: "homepage" });
+    await updateDemoSession(operators.slug, { status: "ready" });
+    await updateDemoSession(visitors.slug, { status: "ready" });
+    expect((await demoInvitation(`hd_demo=${operators.slug}`))?.slug).toBe(operators.slug);
+    expect(await demoInvitation(`hd_demo=${visitors.slug}`)).toBeNull();
+  });
+
   it("purges demos a month past expiry, and never a claimed one", async () => {
     const old = new Date("2026-08-01T00:00:00Z");
     const stale = await createDemoSession({ clinicName: "Stale", websiteUrl: "https://a.com/" }, old);

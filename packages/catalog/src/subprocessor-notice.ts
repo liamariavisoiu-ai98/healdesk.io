@@ -1,7 +1,8 @@
 /**
- * Notice before a new subcontractor handles the information an agreement
- * protects: 24 hours, by email to the practice's notice address, naming the
- * subcontractor, with the practice's right to object.
+ * The current list of subcontractors, on request, and notice before a new
+ * one handles the information an agreement protects: 24 hours, by email to
+ * the practice's notice address, naming the subcontractor, with the
+ * practice's right to object.
  *
  * The owner decided on 6 October 2026 that the agreements after BAA 1.2.1
  * give 24 hours' notice rather than fifteen days, keeping the right to object
@@ -9,8 +10,14 @@
  * counsel risk (docs/counsel/brief.md): a day is far shorter than the usual
  * fifteen to thirty, so it weakens the objection right it keeps. Counsel
  * approved the 24-hour notice, as the owner reported on 6 October 2026
- * (agreement-changes.md §12.14). BAA 1.2.1 keeps its fifteen days for anyone
- * who signed it; a released clause never changes.
+ * (agreement-changes.md §12.14). BAA 1.2.1 and 1.2.2 keep their fifteen days
+ * for anyone who signs them; a released clause never changes.
+ *
+ * The list is given to a signed practice on its written request, never
+ * published at a URL: the public page at healdesk.io/subprocessors is gone
+ * (owner, 9 October 2026), and BAA 1.2.2 gives its list the same way. The
+ * request goes to healdesk's email address in the Notices clause, which is
+ * hello@healdesk.io in both documents that carry this sentence.
  *
  * The text lives here, once, because two documents are to carry it: BAA
  * 1.3.0's `subcontractors` clause (baa.ts), and the funnel's data protection
@@ -31,20 +38,21 @@ export const SUBPROCESSOR_NOTICE_HOURS = 24;
 export const SUBPROCESSOR_NOTICE_HEADING = "Notice of a new subcontractor";
 
 /**
- * The notice and the objection right, unwrapped; the document wraps it. The
- * objection right is what BAA 1.3.0's Term clause calls terminating "under the
- * Subcontractors clause", and gives its content there: the Services end the
- * same day, no Fees accrue afterwards, and Fees paid for later time are
- * refunded. A document that carries this sentence has to give "without
- * penalty" the same effect in its own Term clause.
+ * The list on request, the notice and the objection right, unwrapped; the
+ * document wraps it. The objection right is what BAA 1.3.0's Term clause
+ * calls terminating "under the Subcontractors clause", and gives its content
+ * there: the Services end the same day, no Fees accrue afterwards, and Fees
+ * paid for later time are refunded. A document that carries this sentence
+ * has to give "without penalty" the same effect in its own Term clause.
  */
 export function subprocessorNoticeClauseBody(): string {
   return (
-    `healdesk keeps a current list of its subcontractors at healdesk.io/subprocessors and ` +
-    `will give Practice at least ${SUBPROCESSOR_NOTICE_HOURS} hours' notice by email before ` +
-    `adding one that will handle the information this agreement protects. The notice goes to ` +
-    `Practice's address in the Notices clause and names the subcontractor, what it will receive ` +
-    `and why. If Practice objects on reasonable grounds before the change takes effect, Practice ` +
-    `may terminate this agreement without penalty.`
+    `healdesk will give Practice its current list of its subcontractors on Practice's written ` +
+    `request to healdesk's email address in the Notices clause, and will give Practice at least ` +
+    `${SUBPROCESSOR_NOTICE_HOURS} hours' notice by email before adding one that will handle the ` +
+    `information this agreement protects. The notice goes to Practice's address in the Notices ` +
+    `clause and names the subcontractor, what it will receive and why. If Practice objects on ` +
+    `reasonable grounds before the change takes effect, Practice may terminate this agreement ` +
+    `without penalty.`
   );
 }

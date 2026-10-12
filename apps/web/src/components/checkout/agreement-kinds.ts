@@ -44,8 +44,9 @@ import {
  * come through `clauseNote(version, id)`, because 1.3.0 words two of them
  * differently from 1.2.1: a 1.3.0 buyer must not read "use it only" and
  * "materially breach" above a clause that says more (agreement-changes.md
- * §12.14, release gate 11). While 1.2.1 is current the entry is exactly what
- * it was, BAA_EXPLAINER and all.
+ * §12.14, release gate 11). While 1.2.2 is current (released 9 October 2026,
+ * with 1.2.1's explainer unchanged) the entry is exactly what it was,
+ * BAA_EXPLAINER and all.
  */
 
 export type AgreementExplainer = {

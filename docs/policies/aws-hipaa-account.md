@@ -10,8 +10,10 @@ timestamp (`aws artifact list-customer-agreements`). Which region, which
 services hold PHI, how they are configured and who accepted are the customer's
 to keep (§1, §4.1–4.3). This page is that record: what a reviewer, an insurer
 or OCR sees beside the Artifact entry, the source for the AWS row of the
-[risk analysis](../hipaa-risk-analysis.md) and of `/subprocessors`, and the
-checklist the first build and every quarterly review are measured against.
+[risk analysis](../hipaa-risk-analysis.md) and of the subprocessor register in
+[hipaa-compliance.md](../hipaa-compliance.md), which a signed clinic is given on
+request, and the checklist the first build and every quarterly review are
+measured against.
 
 ## The record
 
@@ -92,11 +94,15 @@ or data were affected (§3.4, §3.8): that mapping is ours, from `audit_log`.
 At least six months' notice before a service leaves the list, less under the
 §1 carve-outs; 90 days if AWS terminates (§5.2). Notices go to the account's
 contact addresses: [confirm they reach the Security Official]. Our clinic BAA
-promises notice within five calendar days of our discovery
-(`packages/catalog/src/baa.ts`); §6 makes neither party the other's agent, so
-those days start when AWS's report arrives or when our own monitoring should
-have caught it, whichever is earlier. Whether AWS is our agent under §164.410
-is a question for counsel.
+(1.2.2, `packages/catalog/src/baa.ts`) promises notice without unreasonable
+delay and in no case later than 60 calendar days after our discovery, and we
+work to 24 hours internally ([incident-response.md](../incident-response.md));
+§6 makes neither party the other's agent, so both clocks start when AWS's
+report arrives or when our own monitoring should have caught it, whichever is
+earlier. AWS's own §3.4.3 window is also 60 days from its discovery, so a
+report that arrives late in it leaves us little or none of ours: we act on it
+the day it arrives. Whether AWS is our agent under §164.410 is a question for
+counsel.
 
 ## Boundaries, term and confidentiality
 

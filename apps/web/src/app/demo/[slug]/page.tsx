@@ -1,15 +1,14 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
 import { DEMO_SETUP_CREDIT } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { AgentMark, AgentPanel } from "@/components/agent-panel/AgentPanel";
+import { VoiceCard } from "@/components/agent-panel/VoiceCard";
 import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
-import { ClinicVoicePanel } from "@/components/demo/ClinicVoicePanel";
 import { CopyDemoLink, DemoCountdown, RefreshWhileBuilding } from "@/components/demo/DemoTimers";
 import { CoverageOffer } from "@/components/demo/CoverageOffer";
 import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
+import { readableOn } from "@/lib/demo/colour";
 import { weekSchedule } from "@/lib/demo/opening-hours";
 import type { ClinicProfile } from "@/lib/demo/profile";
 import { displayName, getDemoSession, isDemoExpired, isDemoSlug, profileOf } from "@/lib/demo/sessions";
@@ -50,21 +49,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 const FALLBACK_COLOUR = "#172a3a";
 
-/**
- * AYA's living-portrait clip, when it has been generated and dropped into
- * public/aya/ (eyes on camera, natural blinks, a slight smile, looping).
- * Until then the portrait animates her still frames (components/demo/AyaPortrait).
- */
-const AYA_VIDEO = existsSync(join(process.cwd(), "public", "aya", "aya-live.mp4")) ? "/aya/aya-live.mp4" : null;
-
-/** Readable text on the clinic's colour: dark ink on a light brand, white on a dark one. */
-function inkOn(hex: string): string {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
-  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  return luminance > 0.45 ? "#172a3a" : "#ffffff";
-}
-
 function chipsFor(profile: ClinicProfile): string[] {
   // A treatment with a real figure, not the free consultation: "How much is
   // Complimentary Consultation?" asks a question the name already answers.
@@ -103,31 +87,19 @@ function Shell({
   return (
     <div
       className="bg-paper text-ink flex min-h-dvh flex-col"
-      style={{ ["--clinic" as string]: colour, ["--clinic-ink" as string]: inkOn(colour) }}
+      style={{ ["--clinic" as string]: colour, ["--clinic-ink" as string]: readableOn(colour) }}
     >
       {children}
     </div>
   );
 }
 
-function ClinicMark({ name, logoUrl, size = 40 }: { name: string; logoUrl: string | null; size?: number }) {
-  return logoUrl ? (
-    // A third-party image by design: the clinic's own logo, from its own site.
-    <img
-      src={logoUrl}
-      alt={`${name} logo`}
-      referrerPolicy="no-referrer"
-      className="shrink-0 rounded-lg bg-white object-contain"
-      style={{ height: size, maxWidth: size * 3.5 }}
-    />
-  ) : (
-    <span
-      className="font-display grid shrink-0 place-items-center rounded-lg font-semibold"
-      style={{ width: size, height: size, background: "var(--clinic)", color: "var(--clinic-ink)", fontSize: size * 0.45 }}
-      aria-hidden
-    >
-      {name.slice(0, 1).toUpperCase()}
-    </span>
+/** Laid over each card once the demo's week is over. */
+function Archived() {
+  return (
+    <div className="bg-paper/80 absolute inset-0 grid place-items-center backdrop-blur-[2px]">
+      <p className="bg-ink rounded-full px-4 py-2 text-[14.4px] font-semibold text-white">Archived</p>
+    </div>
   );
 }
 
@@ -203,7 +175,7 @@ export default async function DemoPage({ params }: Props) {
 
       <header className="border-line/60 border-b">
         <div className="mx-auto flex max-w-[1240px] items-center gap-3 px-5 py-4 sm:px-8 lg:px-14">
-          <ClinicMark name={name} logoUrl={session.logoUrl} />
+          <AgentMark name={name} logoUrl={session.logoUrl} />
           {session.logoUrl ? null : (
             <span className="font-display hidden min-w-0 truncate text-[21px] font-semibold tracking-[-0.01em] sm:inline">{name}</span>
           )}
@@ -239,7 +211,7 @@ export default async function DemoPage({ params }: Props) {
             {site.agent} sounds like a person, not a robot. Talk to her and hear it for yourself.
           </p>
           <ul className="mt-5 flex flex-wrap gap-2">
-            {["Answers 24/7", "Phone, website & socials", "Books into your calendar", "Payment links via Stripe", "We sign a BAA and handle patient data under it"].map((point) => (
+            {["Answers 24/7", "Phone, website & socials", "Books into your calendar", "Deposit links in chat", "We sign a BAA and handle patient data under it"].map((point) => (
               <li key={point} className="border-line flex items-center gap-1.5 rounded-full border bg-white px-3.5 py-1.5 text-[14.4px] font-semibold">
                 <span aria-hidden className="size-1.5 rounded-full bg-[#87d68d]" />
                 {point}
@@ -248,56 +220,38 @@ export default async function DemoPage({ params }: Props) {
           </ul>
         </div>
 
+        {/* The two cards, drawn by the same parts as the homepage's
+            (components/agent-panel), in the clinic's colour and logo. */}
         <div className="mt-8 grid gap-5 lg:grid-cols-2">
-          {[
-            {
-              label: `${site.agent} voice agent`,
-              title: "Your phone line",
-              body: (
-                <ClinicVoicePanel
-                  slug={slug}
-                  clinicName={name}
-                  prefillPhone={session.phoneE164}
-                  demoLine={demoLine}
-                  ayaVideo={AYA_VIDEO}
-                  locked={expired}
-                />
-              ),
-            },
-            {
-              label: `${site.agent} chat`,
-              title: "Your website, WhatsApp, Instagram and Messenger",
-              body: (
-                <ClinicChatPanel
-                  slug={slug}
-                  clinicName={name}
-                  logoUrl={avatarLogo(session.logoUrl)}
-                  greeting={chatGreeting(name)}
-                  chips={chipsFor(profile)}
-                  locked={expired}
-                />
-              ),
-            },
-          ].map((panel) => (
-            <section
-              key={panel.label}
-              className="border-line relative flex flex-col overflow-hidden rounded-3xl border bg-white shadow-[0_1px_2px_rgb(23_42_58/0.06),0_12px_40px_-12px_rgb(23_42_58/0.18)]"
-            >
-              <div className="border-line flex items-center gap-3 border-b px-5 py-3.5">
-                <ClinicMark name={name} logoUrl={session.logoUrl} size={28} />
-                <div className="min-w-0">
-                  <p className="text-muted text-[12px] font-bold tracking-[0.1em] uppercase">{panel.label}</p>
-                  <p className="truncate text-[15.6px] font-semibold">{panel.title}</p>
-                </div>
-              </div>
-              {panel.body}
-              {expired ? (
-                <div className="bg-paper/80 absolute inset-0 grid place-items-center backdrop-blur-[2px]">
-                  <p className="bg-ink rounded-full px-4 py-2 text-[14.4px] font-semibold text-white">Archived</p>
-                </div>
-              ) : null}
-            </section>
-          ))}
+          <AgentPanel label={`${site.agent} voice agent`} title="Your phone line" name={name} logoUrl={session.logoUrl} overlay={expired ? <Archived /> : null}>
+            <VoiceCard
+              name={name}
+              portraitLabel={`${site.agent} \u00b7 ${name}\u2019s AI assistant`}
+              callRoute={`/api/demo/${slug}/retell`}
+              callerRoute={`/api/demo/${slug}/caller`}
+              demoLine={demoLine}
+              ringNote="One demo call, because you asked. Live, it only answers: it never dials a patient."
+              callbackExtra={{ demoSlug: slug }}
+              prefillPhone={session.phoneE164}
+              locked={expired}
+            />
+          </AgentPanel>
+          <AgentPanel
+            label={`${site.agent} chat`}
+            title="Your website, WhatsApp, Instagram and Messenger"
+            name={name}
+            logoUrl={session.logoUrl}
+            overlay={expired ? <Archived /> : null}
+          >
+            <ClinicChatPanel
+              slug={slug}
+              clinicName={name}
+              logoUrl={avatarLogo(session.logoUrl)}
+              greeting={chatGreeting(name)}
+              chips={chipsFor(profile)}
+              locked={expired}
+            />
+          </AgentPanel>
         </div>
 
         {/* Under both panels: what the assistant does beyond answering (owner, 7 October 2026). */}

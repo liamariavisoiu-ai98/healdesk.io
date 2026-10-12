@@ -2,9 +2,12 @@
 
 import { useCallback } from "react";
 
+import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { ChatDemo } from "@/components/ChatDemo";
+import { HealdeskSoul } from "@/components/HealdeskSoul";
 import { NicheCarousel } from "@/components/NicheCarousel";
 import { Outcomes } from "@/components/Outcomes";
+import { OwnBranding } from "@/components/OwnBranding";
 import { VoiceDemo } from "@/components/VoiceDemo";
 import { site } from "@/lib/site";
 import { specialties } from "@/lib/specialties";
@@ -37,12 +40,12 @@ import { specialties } from "@/lib/specialties";
  *
  * ## The section's dress
  *
- * Each panel sits in a field of soft colour, after the product cards on
- * reception.ai: the white panel reads as a device someone is holding, the
- * field behind it as the room it is in. The fields are plain CSS gradients
- * (`demo-field-*` in globals.css), warm behind the chat and cool behind the
- * call, so the two are told apart before a word is read.
+ * Until 9 October 2026 each panel sat in a field of soft colour, after the
+ * product cards on reception.ai. The owner then asked for the cards to look
+ * exactly like the personalised demo's ("Peachy"), so they are that page's
+ * cards now, white on the page, in healdesk's red.
  */
+
 export function HomeExperience() {
   /** Reel click: go and talk to her. There is nothing to select any more. */
   const goToDemo = useCallback(() => {
@@ -56,38 +59,49 @@ export function HomeExperience() {
     <>
       {/* The navbar's secondary CTA points here. */}
       <section id="aya" className="scroll-mt-24 pt-16 sm:pt-24">
-        <div className="mb-8 max-w-[760px] sm:mb-10">
+        {/* Centred, and the copy the owner asked for on 9 October 2026: 24/7,
+            every channel by name, bookings and payment links. Payment links
+            are claimed for chat only, because voice cannot send one in v1;
+            on a call she books and flags the deposit (docs/v1-product-spec.md). */}
+        <div className="mx-auto mb-8 max-w-[760px] text-center sm:mb-10">
           <p className="eyebrow-tag">
-            {site.agent} 1.0 · Meet your smart assistant
+            {site.agent} 3.0 · Meet your smart assistant
           </p>
-          <h2 className="font-display text-ink mt-5 text-[clamp(36px,4.8vw,66px)] leading-[1.02] font-normal tracking-[-0.03em]">
-            Website, DMs &amp; Phone
+          <h2 className="font-display text-ink mt-5 text-[clamp(36px,4.8vw,66px)] leading-[1.02] font-normal tracking-[-0.03em] text-balance">
+            One assistant, every channel, 24/7
           </h2>
-          <p className="text-muted mt-4 max-w-[58ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
-            One agent behind your website chat, your Instagram, Messenger and WhatsApp messages,
-            and your phone line. The chat is live; the call is a scripted example, or have her
-            place one demo call to you.
+          <p className="text-muted mx-auto mt-4 max-w-[60ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
+            {site.agent} answers your phone, website chat, Instagram, Facebook Messenger and
+            WhatsApp, 24/7. She books into your calendar during the conversation, and in chat
+            sends a deposit link through your own checkout. Try her below.
           </p>
         </div>
 
-        {/* One column below lg has to be declared: an undeclared one is sized
-            to the demos' widest content, which ran the chat card past a 320px
-            screen in Firefox (311px in a 280px grid) and 9px into the page's
-            margin in Chrome. grid-cols-1 is minmax(0, 1fr), the grid's width. */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 lg:gap-6">
-          <div className="demo-field-warm rounded-[28px] p-3 sm:p-5">
-            <ChatDemo />
-          </div>
-          <div className="demo-field-cool rounded-[28px] p-3 sm:p-5">
+        {/* The two cards are the personalised demo's own (components/agent-panel),
+            in healdesk's red, voice first as there (owner, 9 October 2026).
+            One column below lg has to be declared: an undeclared one is sized
+            to the cards' widest content, which ran the chat card past a 320px
+            screen in Firefox and into the page's margin in Chrome. */}
+        <div
+          className="grid grid-cols-1 gap-5 lg:grid-cols-2"
+          style={{ ["--clinic" as string]: "var(--color-red)", ["--clinic-ink" as string]: "#ffffff" }}
+        >
+          <AgentPanel label="AI voice agent" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
             <VoiceDemo />
-          </div>
+          </AgentPanel>
+          <AgentPanel label="Website chat & Meta DMs" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
+            <ChatDemo />
+          </AgentPanel>
         </div>
+
+        {/* Under the cards, her in theirs: their own demo, built from their
+            site and emailed to them (owner, 9 October 2026). */}
+        <OwnBranding />
       </section>
 
       {/* The eight outcomes, straight after the demos: meet her first, then
-          see what a month of her changes. Its cards scroll back up to the
-          demo, the same hand-off the niche deck makes below. */}
-      <Outcomes onOpen={goToDemo} />
+          see what a month of her changes, as the notifications it brings. */}
+      <Outcomes />
 
       <NicheCarousel specialties={specialties} onSelect={goToDemo} />
     </>

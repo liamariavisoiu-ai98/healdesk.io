@@ -127,8 +127,13 @@ through SES `healdesk-phi`, never Resend. Record the choice here and in
 until that is resolved, they are email only.
 
 **Verify current terms directly with each vendor.** Plan requirements change, and this
-table will drift. The public register is `apps/web/src/lib/subprocessors.ts`
-(`/subprocessors`); keep it matching this table.
+table will drift. This table is the register, and it is internal: there is no public
+subprocessor page (the owner removed `/subprocessors` on 9 October 2026). A signed clinic
+gets the current list on its written request to hello@healdesk.io, as BAA 1.2.2's
+Subcontractors clause promises (and the 1.3.0 and DPA drafts, through
+`packages/catalog/src/subprocessor-notice.ts`). Answer such a request from this table, so
+keep it current, and give each clinic its notice before a new subcontractor handles PHI:
+fifteen days under BAA 1.2.2.
 
 ---
 

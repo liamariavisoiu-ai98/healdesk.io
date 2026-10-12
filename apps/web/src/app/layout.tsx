@@ -37,6 +37,31 @@ const ashford = localFont({
   display: "swap",
 });
 
+/**
+ * Helvetica Now Display, and it is only ever a section label.
+ *
+ * The owner asked on 9 October 2026 for the small labels above each section
+ * ("AYA 3.0 · Meet your smart assistant", "What changes in month one") to be
+ * set in the face scalabid.com uses for its own: Helvetica Now Display at
+ * 600, the weight scalabid maps its "Bold" cut to. The file is that cut,
+ * copied from the scalabid repo.
+ *
+ * Licensed (Monotype), so it ships from this repo rather than from a font
+ * service. The owner confirmed on 9 October 2026 that the licence covers
+ * healdesk.io; a new domain needs that checked again before it serves this.
+ *
+ * One weight, as with Ashford above: `eyebrow-tag` asks for 600 and gets this
+ * face, and nothing asks it for anything heavier.
+ */
+const helveticaNow = localFont({
+  src: "./fonts/helvetica-now-display-bold.woff2",
+  weight: "600",
+  style: "normal",
+  variable: "--font-helvetica-now",
+  display: "swap",
+  fallback: ["Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
+});
+
 const fraunces = Fraunces({
   subsets: ["latin"],
   weight: ["400", "500", "600"],
@@ -111,7 +136,7 @@ export default function RootLayout({
       // Next 16 no longer neutralises `scroll-behavior: smooth` (globals.css)
       // during route transitions unless this attribute is present.
       data-scroll-behavior="smooth"
-      className={`${fraunces.variable} ${hanken.variable} ${ashford.variable}`}
+      className={`${fraunces.variable} ${hanken.variable} ${ashford.variable} ${helveticaNow.variable}`}
     >
       <body className="min-h-screen antialiased">
         {children}

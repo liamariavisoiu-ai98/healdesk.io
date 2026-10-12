@@ -1836,7 +1836,7 @@ function subscriptionEndedAt(subscription: unknown, delivery: Delivery): Date {
  * export by, and `destroyByOn`, the day the data is gone whatever happens. On
  * either rule the first is the date a day before day 29, when a run may
  * first destroy the data; the second is day 30's date on the thirty days (BAA
- * 1.2.1 and earlier) and day 90's on the export rule (BAA 1.3.0, DPA 1.0.0),
+ * 1.2.2 and earlier) and day 90's on the export rule (BAA 1.3.0, DPA 1.0.0),
  * a day after the latest the clinic can be due. Each is true however the
  * export goes, which a single date would not be.
  */

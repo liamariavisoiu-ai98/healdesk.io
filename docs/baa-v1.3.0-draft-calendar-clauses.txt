@@ -2,9 +2,14 @@ healdesk Business Associate Agreement — version 1.3.0, DRAFT, as redrafted on
 6 October 2026 by the adversarial audit that precedes its release, and
 corrected on 7 October by the verification of that redraft
 (docs/counsel/agreement-changes.md §12.14) and by clause 11's sentence on
-booking requests, which now have a period of their own (§12.12). Not released
-and not offered: approvedByCounsel is false and the template sits at
-BAA_TEMPLATES[1], below 1.2.1. Signing refuses it: validateSignRequest and
+booking requests, which now have a period of their own (§12.12), and on 9
+October by the owner's three decisions that BAA 1.2.2 carries too (§13): the
+list of subcontractors on written request, never at a web address;
+hello@healdesk.io as healdesk's notice email; and the product spec's breach
+wording, without unreasonable delay and in no case later than 60 calendar
+days, for all three kinds of report. Not released and not offered:
+approvedByCounsel is false and the template sits at BAA_TEMPLATES[1], below
+1.2.2, the version clinics sign. Signing refuses it: validateSignRequest and
 signAgreement take only BAA_TEMPLATES[0], or a released version inside its
 BAA_RELEASE_OVERLAP window (plan C3); provisioning does not yet check the
 bound version, which plan C15 changes before the release. The owner releases
@@ -13,7 +18,8 @@ Nothing below depends on that release, so releasing it moves no hash; an edit
 before then regenerates this text and its golden hashes in the same commit
 (§12.12).
 
-What is new against 1.2.1 (agreement-changes.md §12 and §12.14): the one
+What is new against 1.2.1, and so against 1.2.2, which is 1.2.1 with the three
+changes above (agreement-changes.md §12, §12.14 and §13): the one
 unconditional Google Calendar clause is replaced by three, exactly one of
 which renders, chosen by the booking system the practice names at checkout and
 by the kind of Google account that holds its calendar; a clause carries the
@@ -22,8 +28,9 @@ calendar text following the booking sync; a Payments clause; own use
 de-identifies before it combines and never re-identifies; a new subcontractor
 is notified 24 hours ahead instead of fifteen days. The pre-release audit then
 redrafted most of the rest: definitions of the Services, the Fees, HIPAA,
-patient information and a calendar election; one 24-hour breach and incident
-rule for every practice, the notice itself the written report; destruction as
+patient information and a calendar election; one breach and incident rule for
+every practice (24 hours until 9 October, the spec's 60 calendar days since),
+the notice itself the written report; destruction as
 the product does it (the export delivered unasked within 30 days; destruction
 at 30 days if it has been delivered by then, otherwise once it is, and never
 later than 90 days), with 35-day backups; termination that ends the Services,
@@ -41,7 +48,7 @@ business associate agreement. The specialty shows as the golden test passes
 it, an id rather than the catalogue's display name. From the title line on,
 the sample is exactly what apps/app/tests/baa-golden.test.ts freezes as 1.3.0
 / covered_estimated (SHA-256
-164d09a2028f07d2e2f087c337a691695cb055bd631a4b030fb4f6331c99d864). The clauses
+ba71a44659a5b376fb89c22640fc61eb0c6b2e073162156b9bca1a45d9d8ed86). The clauses
 that render only for some practices follow in Appendix A, the calendar
 election in Appendix B, and the Google Calendar disclosure the practice ticks
 before connecting in Appendix C. Source: packages/catalog/src/baa.ts (template
@@ -522,8 +529,8 @@ EFFECTIVE 13 September 2026
 12. REPORTING BREACHES AND SECURITY INCIDENTS
 
   healdesk will notify Practice, by email to Practice's address in the Notices
-  clause, immediately following discovery of any of the following, and in any
-  case within 24 hours of discovery:
+  clause, of any of the following without unreasonable delay and in no case
+  later than 60 calendar days after discovery:
 
     a. any use or disclosure of PHI that this agreement does not permit, by
        healdesk or by a subcontractor;
@@ -543,9 +550,6 @@ EFFECTIVE 13 September 2026
   reasonable diligence would have known. Anything else this clause covers is
   discovered when healdesk becomes aware of it.
 
-  For a breach, twenty-four hours is deliberately far inside the sixty days
-  that 45 CFR 164.410(b) allows, because Practice's own clock to notify
-  patients may run from healdesk's discovery rather than from its notice.
   healdesk delays a notice only where a law enforcement official states that
   the notice would impede a criminal investigation or damage national
   security. It then delays it only for as long as 45 CFR 164.412, or the state
@@ -601,12 +605,13 @@ EFFECTIVE 13 September 2026
   never trains on that content, and healdesk may not use PHI to train,
   fine-tune or evaluate any model, its own or a third party's.
 
-  healdesk keeps a current list of its subcontractors at
-  healdesk.io/subprocessors and will give Practice at least 24 hours' notice
-  by email before adding one that will handle the information this agreement
-  protects. The notice goes to Practice's address in the Notices clause and
-  names the subcontractor, what it will receive and why. If Practice objects
-  on reasonable grounds before the change takes effect, Practice may terminate
+  healdesk will give Practice its current list of its subcontractors on
+  Practice's written request to healdesk's email address in the Notices
+  clause, and will give Practice at least 24 hours' notice by email before
+  adding one that will handle the information this agreement protects. The
+  notice goes to Practice's address in the Notices clause and names the
+  subcontractor, what it will receive and why. If Practice objects on
+  reasonable grounds before the change takes effect, Practice may terminate
   this agreement without penalty.
 
 14. PATIENT ACCESS, AMENDMENT AND ACCOUNTING
@@ -793,7 +798,7 @@ EFFECTIVE 13 September 2026
 20. NOTICES, GOVERNING LAW, AND INTERPRETATION
 
   Notices under this agreement are in writing. Notices to healdesk go by email
-  to legal@healdesk.io, which is enough on its own. A copy may also be posted
+  to hello@healdesk.io, which is enough on its own. A copy may also be posted
   to healdesk's US mailing address for correspondence: 800 N King Street,
   Suite 304-1426, Wilmington, DE 19801, United States. That mailing address is
   not a place of business, a registered office or an address for service of

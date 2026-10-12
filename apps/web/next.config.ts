@@ -12,6 +12,31 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
 
   /**
+   * Pages retired on 9 October 2026 (owner's decisions), kept answering so an
+   * old link, a bookmark or a search result lands somewhere real rather than
+   * on the 404.
+   *
+   * /pricing → / is temporary (307). The page is disabled, not replaced:
+   * packages and prices are shown in the buy flow, with the guarantee beside
+   * them. A permanent redirect is cached by browsers and search engines with
+   * no expiry, which would outlive a pricing page that comes back.
+   *
+   * /trust → /terms#security is permanent (308): its content is the terms'
+   * closing annex, "How we protect data", for good. The fragment reaches the
+   * browser in the Location header, which scrolls to the annex.
+   *
+   * /subprocessors is not redirected. No vendor is named publicly any more;
+   * the list is given to signed clinics on request, so the address has no
+   * successor page and answers 404.
+   */
+  async redirects() {
+    return [
+      { source: "/pricing", destination: "/", permanent: false },
+      { source: "/trust", destination: "/terms#security", permanent: true },
+    ];
+  },
+
+  /**
    * CSP, HSTS, Permissions-Policy and the rest live in src/lib/security-headers.ts
    * as data, with the origin inventory and the nonce trade-off written down next
    * to the directives, and a unit test that fails if a directive goes missing.
@@ -44,6 +69,11 @@ const nextConfig: NextConfig = {
    * talk to the clinic's assistant from the browser, so it alone gets the
    * microphone and Retell's call origins, plus `https:` images for the
    * clinic's own logo. Same ordering rule, and it does not match /admin.
+   *
+   * The fourth is the homepage alone (`/`, which matches nothing but the
+   * root): since 9 October 2026 its voice card offers the same browser call,
+   * to AYA, so it gets the microphone and Retell's call origins too, and no
+   * other page does.
    */
   async headers() {
     const env = readSecurityHeadersEnv(process.env);
@@ -61,6 +91,13 @@ const nextConfig: NextConfig = {
         headers: securityHeaders(env, {
           connectSources: RETELL_CALL_ORIGINS,
           imageSources: ["https:"],
+          microphone: true,
+        }),
+      },
+      {
+        source: "/",
+        headers: securityHeaders(env, {
+          connectSources: RETELL_CALL_ORIGINS,
           microphone: true,
         }),
       },

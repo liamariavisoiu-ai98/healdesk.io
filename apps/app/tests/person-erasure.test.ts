@@ -774,11 +774,12 @@ describeDb("deletion on request", () => {
     const inserted = await asApp(c.clinicId, (q) =>
       q.query(
         `insert into booking_requests (clinic_id, contact_id, channel, platform, external_id, sender_id, preferred_window, token_hash, expires_at)
-         values ($1, $2, 'meta', 'whatsapp', null, null, 'Monday', $3, now() + interval '7 days')`,
+         values ($1, $2, 'meta', 'whatsapp', null, null, 'Monday', $3, now() + interval '7 days')
+         returning id`,
         [c.clinicId, child, randomBytes(32)],
       ),
     );
-    expect(inserted.rowCount).toBe(1);
+    expect(inserted.rows).toHaveLength(1);
     await expect(
       asApp(c.clinicId, (q) =>
         q.query(

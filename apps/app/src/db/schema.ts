@@ -422,9 +422,10 @@ export const clinics = pgTable(
      *             wrong for every clinic that keeps it.
      *
      * Consent records, suppressions and contact attempts are NOT on either
-     * clock: a suppression is a "stop", or the record of an erasure, and
-     * has to outlast the rows it stopped. They go with the rest of the
-     * clinic's data when it is destroyed at offboarding (lib/offboarding,
+     * clock: a suppression is a "stop", and has to outlast the rows it
+     * stopped. They go with the person when the person is erased
+     * (lib/patient-rights/erasure.ts), and with the rest of the clinic's
+     * data when it is destroyed at offboarding (lib/offboarding,
      * drizzle/0058). The purge job (lib/retention/purge.ts) is the only
      * reader of the two clocks.
      *
@@ -2273,10 +2274,17 @@ export const consentRecords = pgTable(
  *
  *   - `channel` is NULLABLE, and null means EVERY channel. Someone who says
  *     "stop calling me" has not invited a text instead.
- *   - Nothing here is deleted while the clinic is a customer. Re-consent
- *     creates a new consent record; it does not erase the record of them
- *     having asked us to stop. Destruction at offboarding takes the clinic's
- *     suppressions with the rest of its data (lib/offboarding).
+ *   - Re-consent creates a new consent record; it does not erase the record
+ *     of them having asked us to stop. The runtime role cannot delete a row
+ *     (0010). Two things do: the person's own erasure, which takes their
+ *     number from here with everything else (app_erase_contact_evidence,
+ *     lib/patient-rights/erasure.ts), and destruction at offboarding, which
+ *     takes the clinic's (lib/offboarding).
+ *
+ * An erasure no longer writes a row here. It kept the number "so the request
+ * itself is honoured" until 8 October 2026 (BAA 1.3.0 release gate 6); v1
+ * contacts no one first, so there is no outbound list for a number to stay
+ * on, and the request is recorded in erasure_requests without it.
  */
 export const suppressions = pgTable(
   "suppressions",
@@ -2337,6 +2345,84 @@ export const contactAttempts = pgTable(
       t.clinicId,
       t.phone,
       t.attemptedAt,
+    ),
+  ],
+);
+
+/** The operator's record that a subcontractor deleted what it held about the person. */
+export type ErasureVendorStamp = { at: string; by: string; how: string };
+
+/**
+ * A person's deletion request, recorded without the person (BAA 1.3.0 clause
+ * 4(c): "only a record of the request, for no longer than it needs one to make
+ * sure the information stays deleted"; the DPA's item c; release gate 6).
+ *
+ * Who asked, by role or ticket, when the request reached healdesk and the
+ * deadline it set, when the deletion ran, the counts it deleted, and the
+ * operator's stamp for each subcontractor step (ERASURE_VENDOR_STEPS in
+ * lib/patient-rights/erasure.ts). No telephone number, no email address, no
+ * name.
+ *
+ * `restore_refs` is the one thing that points at the person: keyed references
+ * (lib/identifier-ref.ts) to the numbers, addresses and messaging threads the
+ * deletion found, kept only so `reapplyErasures` can delete the person again
+ * from a database restored to a point before the deletion. Nothing else reads
+ * them, and nothing reads this table for a contact decision. They are emptied
+ * BACKUP_RETENTION_DAYS after the deletion, when the last backup that could
+ * bring the person back has expired, and the row goes then too unless a
+ * subcontractor step is still outstanding, in which case it stays, holding
+ * nothing about the person, until the operator stamps it. The hourly expiry
+ * does both (expireErasureRecords); it runs in the worker, which a restore
+ * keeps stopped, so a restore in progress keeps the references it needs.
+ * `erased_at` is the database's clock at the insert (a trigger), so the
+ * expiry cannot be put off by the writer. Destruction deletes the clinic's
+ * rows with the rest of its data.
+ */
+export const erasureRequests = pgTable(
+  "erasure_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Who asked, by role or ticket ("the practice, ticket 1182"). Scanned for patient details on the way in. */
+    requestedBy: text("requested_by").notNull(),
+    /** When the request reached healdesk: the deadline runs from here. */
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    /** Ten business days after receivedAt: the deletion here and every subcontractor step are due by then. */
+    dueBy: timestamp("due_by", { withTimezone: true }).notNull(),
+    /** When the deletion ran, by the database's clock (erasure_requests_stamp). */
+    erasedAt: timestamp("erased_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /** What the deletion removed, table by table: counts only. */
+    deleted: jsonb("deleted").$type<Record<string, number>>().notNull().default({}),
+    /** Keyed references to what the deletion found, for a restore only; emptied at expiry. */
+    restoreRefs: text("restore_refs")
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    /** Each subcontractor step the operator has stamped, by step id. */
+    vendorSteps: jsonb("vendor_steps")
+      .$type<Record<string, ErasureVendorStamp>>()
+      .notNull()
+      .default({}),
+  },
+  (t) => [
+    index("erasure_requests_clinic_idx").on(t.clinicId, t.erasedAt),
+    check(
+      "erasure_requests_requested_by_check",
+      sql`char_length(btrim(${t.requestedBy})) between 2 and 200`,
+    ),
+    check("erasure_requests_received_check", sql`${t.receivedAt} <= ${t.erasedAt}`),
+    check("erasure_requests_due_check", sql`${t.dueBy} > ${t.receivedAt}`),
+    check(
+      "erasure_requests_refs_check",
+      sql`array_position(${t.restoreRefs}, null) is null and cardinality(${t.restoreRefs}) <= 200`,
+    ),
+    check(
+      "erasure_requests_vendor_steps_check",
+      sql`jsonb_typeof(${t.vendorSteps}) = 'object' and (${t.vendorSteps} - 'retell') = '{}'::jsonb`,
     ),
   ],
 );
@@ -4922,4 +5008,5 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_provider_services",
   "clinic_setup_screens",
   "clinic_settings_history",
+  "erasure_requests",
 ] as const;

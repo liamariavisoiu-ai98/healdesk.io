@@ -545,7 +545,7 @@ down. On 6 October 2026:
 | Payments: healdesk may send a link in website chat or on Instagram, Messenger or WhatsApp, through Practice's own processor; on a call none, and the deposit is flagged for staff; a link, and what healdesk sends the processor, carry only an amount, a generic description and a reference number; no payer details kept from the processor's notice | On a call: `depositLine` in `apps/app/src/lib/voice/tools.ts` states the deposit and sends nothing. Links: nothing yet; deposit links are package D, which is paused | On a call, yes; links, no (package D; § 12.14, gate 10) |
 | Payments: healdesk never takes card numbers | Nothing in `apps/app` asks for, parses or stores a card number, and 1.2.1's minimum-necessary clause says the same. One a patient volunteers would sit in the conversation transcript like any other words; the audit weighs that against "never takes" | Yes, by absence |
 | State law: processes patient information only on Practice's documented instructions (this agreement and the portal settings) and for purposes a–i; does not sell or share it as 1798.140 defines the words; combines it with other sources only for security and fraud | Nothing in the code sells, shares or combines it across clinics (identifier references are keyed per clinic). The portal the instructions name is not built yet (the funnel session builds it) | By design |
-| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction). Nothing reachable deletes one person's records on request | Partly (no deletion; § 12.14, gate 6) |
+| State law: gives Practice what it needs for a consumer's access, deletion or correction request within ten business days; deletes one person's information within ten business days, raw copies from other services included, and from backups within 35 days after | Operator tools in `apps/app/src/lib/patient-rights/export.ts`: `exportPatient` (access) and `amendContact` (correction). Since 8 October 2026 the care page's "Delete a person" (ops `erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`) deletes one person, their raw payloads, the Meta requests they sent and their messaging threads included, records the request without their number, and shows each subcontractor step outstanding with its ten-business-day deadline; backups age out at the host's 35 days (gate 18) | Deletion, yes (§ 12.14, gate 6); correction, gate 8 |
 | State law: tells Practice if healdesk can no longer meet these obligations; lets it stop and remedy unauthorised use; provides compliance documents on request | Operating processes, none written down | No (a written process) |
 
 The release audit checks each row against the code. No clause promises a
@@ -1362,6 +1362,66 @@ these is closed, by code, a page, a signed paper or a host setting, and
    kept "so the request itself is honoured forever" changes with it. That is
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
+   Done on 8 October 2026 (`drizzle/0059_erasure_requests.sql`,
+   `apps/app/src/lib/patient-rights/erasure.ts`, pinned by
+   `tests/person-erasure.test.ts`):
+   - The operator erase path is the care page's "Delete a person", through
+     the signed ops envelope (`erasePerson`). The number and the address go
+     up in the signed body and nowhere else: apps/web keeps nothing it was
+     typed, no log line or audit row carries them, and the reply is the
+     request's id, its deadline and counts.
+   - One transaction runs `eraseContact` for each number and address, then
+     deletes what it does not reach: the person's raw payloads
+     (`webhook_events`: every voice payload of their calls, and any payload
+     carrying their number or address), the Meta requests they sent naming
+     another number (`app_erase_thread_requests`, by the platform and sender
+     id fixed when the request was written; the person named stays), their
+     drafts and their `chat_threads`, matched by the keyed references the
+     tables already hold, and their suppressions, consent records and
+     contact attempts (`app_erase_contact_evidence`, since the runtime role
+     has no DELETE on the three). No telephone number of theirs is left, in
+     any table (the test reads every table with a `clinic_id`, and the
+     security events, for it).
+   - `eraseContact` no longer writes `suppressions`, and its comment says
+     why. The request is recorded in `erasure_requests` without the number:
+     who asked by role or ticket, when it arrived, the ten-business-day
+     deadline (SL-06), when the deletion ran (the database's clock, stamped
+     by a trigger), the counts, and the operator's stamp for each
+     subcontractor step: Retell's, done in its console, since nothing in
+     apps/app reaches it yet. The care page shows each step outstanding,
+     with the deadline, until it is stamped; a stamp cannot be undone.
+   - The record's only reference to the person is `restore_refs`: keyed
+     references (`identifierRef`) to the numbers, addresses and messaging
+     threads the deletion found, used by `npm run reapply-erasures` to
+     delete the person again from a restored database, taking only what was
+     recorded before the deletion ran, and by nothing else. The hourly,
+     unswitched `erasure-expiry` sweep empties them 35 days after the
+     deletion (`BACKUP_RETENTION_DAYS`), when the row goes too unless a
+     subcontractor step is still outstanding (then it stays, holding
+     nothing of the person, until the step is stamped). The sweep runs in
+     the worker, which a restore keeps stopped, so a restore in progress
+     keeps the references it needs. Destruction deletes the records with the
+     rest of the clinic (`app_mark_clinic_destroyed` checks them).
+   - Nothing reads the record for a contact decision (a test lists the
+     modules that touch the table). Readers of `suppressions` after the
+     change: `canContact`, the outbound gate, which in v1 refuses before it
+     reads a row (`OUTBOUND_CONTACT_ENABLED` is false) and otherwise reads
+     only stops, of which v1 writes none; `exportPatient` and
+     `exportClinic`, which carry what is there; `reapplyErasures`, which
+     reads the numbers only to find a deleted person again after a restore;
+     and destruction. None of them sees an erasure.
+   - The purge deletes a `chat_threads` row once its last message is past
+     the record clock, clause 11's "until 90 days after the last time those
+     details were recorded".
+   - docs/handover.md has the "Deletion requests" runbook (who may ask, how
+     ops verifies, the operation, the vendor steps, the deadline, the
+     reply), and "Restoring" carries the records over and re-applies them.
+   - Left: a person who only ever messaged on Messenger or Instagram and
+     gave no number is found only by a thread id, which the practice cannot
+     see; their thread (a keyed reference and a time) goes with the purge.
+     Phase-two payloads (POS read-back) are matched by the number or the
+     address written verbatim, and a number formatted another way is not
+     found in them.
 7. **Offboarding (HRC-02, PT-01).** Code in
    `drizzle/0058_destruction_clock.sql` and
    `apps/app/src/lib/offboarding/offboarding.ts`, pinned by

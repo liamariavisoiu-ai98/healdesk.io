@@ -5,7 +5,9 @@ import { notFound, redirect } from "next/navigation";
 import { requireOperator } from "@/lib/admin/operator";
 import {
   addReportRecipient as addRecipientUpstream,
+  erasePerson as erasePersonUpstream,
   fetchClinicCare,
+  markErasureVendorDeleted as erasureVendorUpstream,
   markExportDelivered as exportDeliveredUpstream,
   markIncidentNotified as notifiedUpstream,
   markVoiceVendorDataDeleted as vendorDeletedUpstream,
@@ -28,7 +30,11 @@ import { CarePanel } from "./CarePanel";
  * dates, the rule they follow and two operator records. The one thing that IS
  * a patient — the export — is a script on the app host
  * (docs/incident-response.md), and this page only records that it was handed
- * over, and that the voice vendor's copy was deleted.
+ * over, and that the voice vendor's copy was deleted. A deletion request is
+ * the one form here that takes a patient's number or address: it passes
+ * through the server action to apps/app in the signed request and is kept
+ * nowhere on this side, and what the page shows of a request afterwards is
+ * who asked, the dates and the counts.
  */
 
 export const metadata: Metadata = { title: "Care" };
@@ -93,6 +99,20 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
     revalidatePath(path);
     return result;
   }
+  // The person's number and address pass through this action to apps/app in
+  // the signed request and are kept nowhere on this side.
+  async function erasePerson(input: { phone?: string; email?: string; requestedBy: string; receivedAt?: string }) {
+    "use server";
+    const result = await erasePersonUpstream(clinicId, input);
+    revalidatePath(path);
+    return result;
+  }
+  async function markErasureVendorDeleted(erasureId: string, step: string, how: string) {
+    "use server";
+    const result = await erasureVendorUpstream(clinicId, erasureId, step, how);
+    revalidatePath(path);
+    return result;
+  }
 
   return (
     <CarePanel
@@ -106,6 +126,8 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
         startOffboarding,
         markExportDelivered,
         markVoiceVendorDataDeleted,
+        erasePerson,
+        markErasureVendorDeleted,
       }}
     />
   );

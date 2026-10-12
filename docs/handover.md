@@ -341,10 +341,12 @@ offboarding and then stays open for the day (or the thirty) commits a change who
 has already run, holding the clinic's row locked all that time. The long-transaction
 alarm in the AWS list is what catches it.
 `retention-purge` runs both nightly and writes one audit row per clinic with counts.
-`baa_acceptances` has its own six-year floor.
+The same purge deletes a messaging thread (`chat_threads`) once its last message is past
+the record clock. `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
-set it to the minimum and screenshot it. Single-patient erasure is `eraseContact()` in
-`apps/app/src/lib/retention/purge.ts`. Set the host's snapshot retention to 35 days.
+set it to the minimum and screenshot it. Deleting one person on request is the care
+page's "Delete a person" ("Deletion requests", below). Set the host's snapshot
+retention to 35 days.
 
 When Stripe sends `customer.subscription.deleted` (or an operator starts it), the clinic
 gets `offboarding_started_at`, the end of its service, and a `destroy_after` thirty days
@@ -388,6 +390,65 @@ The destruction steps, in order:
 
 Export first, then destroy; the agreement's obligations persist until it is done.
 
+### Deletion requests
+
+BAA 1.3.0's clause 4(c) and the DPA's state-law clause (item c): when the practice tells
+us to delete a person's information, we delete it from our own records within ten
+business days, raw copies from other services included, have each subcontractor that
+holds it delete it in time, let our backups age it out within 35 days, and keep only a
+record of the request, no longer than we need it.
+
+1. **Who may ask.** The practice, and only the practice. A request the person makes to
+   us directly is passed to the practice within five business days, and our reply to
+   the person says we cannot act on it and have passed it on (the patient-rights
+   clause); we never contact the person afterwards.
+2. **Verify it.** Act on a request that comes from the practice's notice address (the
+   one email address on its account, which is the agreement's notice address), or one
+   confirmed from it: reply there, or call the practice's published number, before
+   acting on a request from anywhere else. The request names the person by the
+   telephone number and/or email address they gave the practice's assistant. Never ask
+   for, or write down, their name.
+3. **Run it.** `/admin/ops/<clinic>/care` → "Deletion requests" → "Delete a person":
+   the number and/or the address, who asked by role or ticket ("the practice, ticket
+   1182"; a name or a number there is refused), and when the request reached us (the
+   deadline runs from it). One transaction, through the signed ops envelope
+   (`erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`): the person's
+   contacts, calls, appointments, payments matched to them, every booking request they
+   made or that names them, the Meta booking requests they sent naming someone else's
+   number, their half-collected Meta drafts, their messaging threads, the raw payloads
+   the voice vendor or another service sent about them, and their suppressions, consent
+   records and contact attempts. apps/web keeps nothing it was typed; the reply is a
+   count and the deadline, and nothing on the page names the person afterwards.
+4. **The subcontractor steps.** The care page lists each one outstanding, with the
+   deadline, until it is recorded. Retell: in Retell's console, find and delete the
+   person's calls and transcripts by their number, then "Record it". Anthropic is not
+   a step: what it keeps it keeps under the exception clause 4(c) names, for the period
+   the Subcontractors clause states. AWS is our database and its backups, which the
+   deletion and the 35-day backup window reach. Meta and Google Calendar are the
+   practice's own services: tell the practice it may delete the person's messages in its
+   own inboxes and their events in its own calendar.
+5. **The deadline.** Ten business days (Monday to Friday, counted in UTC) after the
+   request reached us, for the deletion here and every subcontractor step; the care page
+   shows it and marks it overdue.
+6. **The reply.** On the practice's own thread, so it names no one: the date we deleted
+   the information, the date each subcontractor deleted its copy, and that copies in
+   our encrypted backups expire within 35 days of the deletion. Keep the thread (it holds
+   the number) until the record's restore references expire, 35 days after the
+   deletion, as the fallback a restore after a total loss needs (below), then delete it
+   from the mailbox and its trash.
+
+What is kept: one `erasure_requests` row, with who asked, the dates, the counts and the
+subcontractor stamps, and no number, address or name. Its `restore_refs` are keyed
+references to what the deletion found, used only by `npm run reapply-erasures` after a
+restore. The hourly `erasure-expiry` sweep in the worker empties them 35 days
+(`BACKUP_RETENTION_DAYS`) after the deletion, when no backup that held the person is
+left, and deletes the row then too, or as soon as its last subcontractor step is
+recorded. It is not a switched job. Nothing reads the record to decide whether to
+contact anyone: v1 contacts no one first, and an erasure no longer writes the number
+into `suppressions`, which was the do-not-contact list. Destruction at offboarding
+deletes the clinic's records with the rest. The `person data erased` log line (clinic,
+request id, count) is the record outside the database.
+
 ### Restoring
 
 Restore from the host's physical snapshot or point-in-time recovery, or from a full
@@ -396,17 +457,23 @@ data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of
 table) fires two BEFORE INSERT triggers from 0054 that refuse it: `clinics_insert_guard`
 refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
 every booking request whose key is already there, which is all of them, since
-`booking_request_keys` sorts ahead of `booking_requests` in a dump. For such a load the
-owner disables both by name, loads every table, `booking_request_keys` included, and
-enables both again, in one transaction:
+`booking_request_keys` sorts ahead of `booking_requests` in a dump. A third, 0059's
+`erasure_requests_guard`, does not refuse but restamps every deletion request's
+`erased_at` with the moment of the load, which would keep its restore references longer
+than the backup window and move the line `reapply-erasures` draws between what the
+person gave before the deletion and after it. For such a load the owner disables all
+three by name, loads every table, `booking_request_keys` included, and enables them
+again, in one transaction:
 
 ```sql
 BEGIN;
 ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
+ALTER TABLE erasure_requests DISABLE TRIGGER erasure_requests_guard;
 -- the data-only load
 ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
+ALTER TABLE erasure_requests ENABLE TRIGGER erasure_requests_guard;
 COMMIT;
 ```
 
@@ -419,10 +486,13 @@ request loaded without its key could be deleted and written again with another d
 `tests/booking-request-destruction.test.ts` runs these steps.
 
 A restore brings back every clinic as it was at the point restored to, so a clinic
-destroyed since comes back with its patients. After any restore, of any kind, destruction
-runs again before the service reopens:
+destroyed since comes back with its patients, and a person deleted since comes back
+with their records. After any restore, of any kind, destruction and every deletion
+request run again before the service reopens:
 
-1. Keep the web tier, the worker and the voice process stopped.
+1. Keep the web tier, the worker and the voice process stopped. The worker runs the
+   hourly expiry of deletion records, so stopping it keeps every record's restore
+   references while the restore is in progress.
 2. Read the `clinic data destroyed` log lines written after the point restored to (the
    log groups never expire). Each names a clinic and the dates it was destroyed on:
    `serviceEndedAt`, and `exportDeliveredAt` when its export had been delivered. For each
@@ -436,7 +506,21 @@ runs again before the service reopens:
    runtime role's `DATABASE_URL`. It destroys every clinic that is due, on every rule at
    once, whether or not the `offboarding-destroy` job is switched on, and exits non-zero
    while any clinic is still due.
-4. Only then reopen the service.
+4. Put back the deletion requests the restore lost. A restore to a point before a
+   deletion loses that deletion's `erasure_requests` row with it, and the row is what
+   finds the person again. RDS restores into a new instance, so while the old one still
+   exists, copy its `erasure_requests` rows into the restored one as the owner, clinic by
+   clinic inside each clinic's tenant (the table is FORCEd), with
+   `erasure_requests_guard` disabled as above so each keeps its `erased_at`. If the old
+   instance is gone, the `person data erased` log lines written after the point restored
+   to name each request lost (clinic and request id): run each deletion again from the
+   practice's request, which the mailbox keeps for those 35 days ("Deletion requests").
+5. Run `npm run reapply-erasures -w @healdesk/app` with the runtime role's
+   `DATABASE_URL`. For every deletion whose record still holds its references, it finds
+   the person in the restored data and deletes what was recorded no later than the
+   deletion ran, so anything they gave afterwards stays, and writes no new record. It
+   exits non-zero if any clinic could not be done.
+6. Only then reopen the service.
 
 ### Logs
 

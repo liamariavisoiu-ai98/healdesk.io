@@ -88,6 +88,9 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "serviceEndedAt",
   "exportDeliveredAt",
   "destroyAt",
+  // A deletion request's id (erasure_requests, lib/patient-rights/erasure.ts):
+  // a random uuid naming the request, never the person.
+  "erasureId",
   // Counters.
   "count",
   "written",

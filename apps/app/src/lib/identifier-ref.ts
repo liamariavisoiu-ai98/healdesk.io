@@ -8,7 +8,9 @@ import { env } from "@/lib/env";
  * Three ledgers have to recognise something they have seen before without
  * holding it: chat_threads finds a person's conversation by their sender id,
  * meta_inbound_messages skips a Meta message delivered twice, and
- * usage_events counts a call or a conversation once. The 0043 design stored a
+ * usage_events counts a call or a conversation once. A fourth, the record of
+ * a deletion request, has to recognise the person it deleted if a restore
+ * brings them back (erasure_requests.restore_refs). The 0043 design stored a
  * plain sha256 of each id, and a WhatsApp sender id is the sender's phone
  * number: there are few enough numbers to hash them all and read the table
  * back. So the reference is an HMAC-SHA256 under a key that lives only in the
@@ -34,13 +36,21 @@ import { env } from "@/lib/env";
  * logged and never appears in an error.
  */
 
-export type IdentifierRefKind = "chat_party" | "meta_message" | "call" | "chat_conversation";
+/**
+ * `erasure` is the deletion request's own kind (lib/patient-rights/erasure.ts):
+ * the reference to a telephone number ("phone:" + E.164) or an email address
+ * ("email:" + the lower-cased address) that a deletion found, kept on the
+ * request only to delete the person again after a restore, and never used to
+ * find anyone for any other purpose.
+ */
+export type IdentifierRefKind = "chat_party" | "meta_message" | "call" | "chat_conversation" | "erasure";
 
 export const IDENTIFIER_REF_KINDS: readonly IdentifierRefKind[] = [
   "chat_party",
   "meta_message",
   "call",
   "chat_conversation",
+  "erasure",
 ];
 
 export const IDENTIFIER_REF_HKDF_INFO = "healdesk.identifier-ref.v1";

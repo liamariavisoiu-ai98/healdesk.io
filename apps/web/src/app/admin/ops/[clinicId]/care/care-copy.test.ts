@@ -42,6 +42,8 @@ const ACTIONS: Actions = {
   startOffboarding: NOT_IN_A_RENDER,
   markExportDelivered: NOT_IN_A_RENDER,
   markVoiceVendorDataDeleted: NOT_IN_A_RENDER,
+  erasePerson: NOT_IN_A_RENDER,
+  markErasureVendorDeleted: NOT_IN_A_RENDER,
 };
 
 function leaving(
@@ -70,6 +72,7 @@ function leaving(
           how: null,
         },
       },
+      deletionRequests: [],
       recipients: [],
       deliveries: [],
       incidents: [],

@@ -7,6 +7,7 @@ import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
+import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 
@@ -87,6 +88,20 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // defaults stamped as its booking requirement set. Same shape as the sweep
   // above: a pure function of the clock over rows that already exist.
   await record("booking-requirements-defaults", async () => ({ status: "ok", note: `${await applyBookingRequirementDefaults(now)} defaulted` }));
+  // The record of a deletion request keeps its keyed references for the
+  // BACKUP_RETENTION_DAYS a backup can bring the person back, and goes with
+  // them once every subcontractor step is stamped (lib/patient-rights/
+  // erasure.ts). Not a switched job: BAA 1.3.0's "for no longer than it needs
+  // one" does not wait for a switch that ships off. Hourly, so a reference is
+  // never kept more than an hour past the window; a restore keeps the worker,
+  // and so this, stopped until the deletions are applied again.
+  await record("erasure-expiry", async () => {
+    const r = await expireErasureRecords(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.emptied} emptied, ${r.deleted} deleted${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // Every hour, on either rule: a clinic is due at day 29 (on BAA 1.3.0 or
   // the DPA once its export is delivered, or at the delivery when later) or
   // at day 89, and the next hourly run destroys it (lib/offboarding, "Which

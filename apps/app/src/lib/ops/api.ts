@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { canWriteBookings, getAdapter, GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
+import { canWriteBookings, getAdapter, GOOGLE_CALENDAR_PROVIDER, toE164 } from "@healdesk/connectors";
 import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -85,6 +85,15 @@ import {
   type BookingProjection,
 } from "@/lib/ops/calendar-ops";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
+import {
+  erasePerson,
+  isErasureVendorStep,
+  listErasureRequests,
+  stampErasureVendorStep,
+  totalErased,
+  type ErasureCounts,
+  type ErasureVendorStepId,
+} from "@/lib/patient-rights/erasure";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
@@ -300,6 +309,12 @@ const OPERATIONS = [
   "startOffboarding",
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
+  // Deletion on request (lib/patient-rights/erasure.ts; BAA 1.3.0 release gate
+  // 6). The one operation here that takes a patient's identifiers in: the
+  // number or address to delete, read and dropped in this request, never
+  // stored by apps/web and never sent back. The answer is counts and a date.
+  "erasePerson",
+  "markErasureVendorDeleted",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -392,6 +407,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "startOffboarding",
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
+  "erasePerson",
+  "markErasureVendorDeleted",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -895,6 +912,10 @@ export async function runOperation(
       return opMarkExportDelivered(args, operator);
     case "markVoiceVendorDataDeleted":
       return opMarkVoiceVendorDataDeleted(args, operator);
+    case "erasePerson":
+      return opErasePerson(args, operator);
+    case "markErasureVendorDeleted":
+      return opMarkErasureVendorDeleted(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -3183,6 +3204,23 @@ export type CareView = {
       how: string | null;
     } | null;
   };
+  /**
+   * The clinic's deletion requests (lib/patient-rights/erasure.ts), newest
+   * first: who asked by role or ticket, the dates, the counts and each
+   * subcontractor step, outstanding until stamped, with the deadline. Never a
+   * number, an address or a reference to one.
+   */
+  deletionRequests: {
+    id: string;
+    requestedBy: string;
+    receivedAt: string;
+    dueBy: string;
+    erasedAt: string;
+    deleted: Record<string, number>;
+    /** When the record's restore references are emptied; null once they have been. */
+    restoreRecordUntil: string | null;
+    steps: { id: string; label: string; stampedAt: string | null; stampedBy: string | null; how: string | null }[];
+  }[];
   recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
   deliveries: {
     kind: string;
@@ -3231,6 +3269,7 @@ async function opGetClinicCare(
         .limit(DELIVERY_ROWS);
       const incidents = await listIncidents(tx);
       tx.audit.record({ action: "read", resourceType: "incident", resultCount: incidents.length, metadata: { purpose: "care_view" } });
+      const deletionRequests = await listErasureRequests(tx);
       return {
         clinic: {
           id: clinic.id,
@@ -3262,6 +3301,22 @@ async function opGetClinicCare(
               }
             : null,
         },
+        deletionRequests: deletionRequests.map((d) => ({
+          id: d.id,
+          requestedBy: d.requestedBy,
+          receivedAt: d.receivedAt.toISOString(),
+          dueBy: d.dueBy.toISOString(),
+          erasedAt: d.erasedAt.toISOString(),
+          deleted: d.deleted,
+          restoreRecordUntil: d.restoreRecordUntil?.toISOString() ?? null,
+          steps: d.steps.map((step) => ({
+            id: step.id,
+            label: step.label,
+            stampedAt: step.stamp?.at ?? null,
+            stampedBy: step.stamp?.by ?? null,
+            how: step.stamp?.how ?? null,
+          })),
+        })),
         recipients: recipients.map((r) => ({
           email: r.email,
           label: r.label,
@@ -3567,6 +3622,106 @@ async function opMarkVoiceVendorDataDeleted(
     ipAddress: operator.request.ipAddress ?? null,
     userAgent: operator.request.userAgent ?? null,
   });
+  return care.updated();
+}
+
+// -----------------------------------------------------------------------------
+// Deletion on request
+// -----------------------------------------------------------------------------
+
+export type ErasePersonOutcome =
+  | { status: "erased"; erasureId: string; dueBy: string; rows: number; deleted: ErasureCounts }
+  | { status: "error"; message: string };
+
+const erase = {
+  error: (message: string) => ok({ status: "error", message } satisfies ErasePersonOutcome),
+};
+
+/** Who asked, by role or ticket, scanned as an incident's summary is: a name, a number or an address refuses it. */
+function whoAsked(value: string | undefined): string | { error: string } {
+  if (!value || value.length < 2) {
+    return { error: "Say who asked, by role or ticket: \"the practice, ticket 1182\"." };
+  }
+  try {
+    assertNoPhi({ requestedBy: value }, "requestedBy");
+    return value;
+  } catch (error) {
+    if (error instanceof PhiInAuditError) {
+      return {
+        error: `"Who asked" looks like it carries patient details (${error.message}). Name the role or the ticket, never the person.`,
+      };
+    }
+    throw error;
+  }
+}
+
+/**
+ * Delete one person at a clinic, and record the request without them
+ * (docs/handover.md, "Deletion requests"). The number and the address are
+ * read from the signed request, normalised, used, and dropped: they reach no
+ * log line, no audit row and no reply. The reply is the request's id, its
+ * deadline and the counts. The `person data erased` log line, written once
+ * the deletion has committed, is the record outside the database that a
+ * restore to an earlier point needs (docs/handover.md, "Restoring").
+ */
+async function opErasePerson(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return erase.error("No such clinic.");
+  if (clinic.destroyedAt) {
+    return erase.error("This clinic's data has already been destroyed; there is no one left to delete.");
+  }
+  const rawPhone = stringArg(args, "phone", 40);
+  const rawEmail = stringArg(args, "email", MAX_EMAIL_LENGTH);
+  const phone = rawPhone ? toE164(rawPhone) : undefined;
+  if (rawPhone && !phone) {
+    return erase.error("That is not a telephone number we can match. Give it in international form: +1 and ten digits for a US number.");
+  }
+  const email = rawEmail?.toLowerCase();
+  if (email && !EMAIL_SHAPED.test(email)) return erase.error("That is not an email address.");
+  if (!phone && !email) return erase.error("Give the person's telephone number, their email address, or both.");
+  const requestedBy = whoAsked(stringArg(args, "requestedBy", 200));
+  if (typeof requestedBy !== "string") return erase.error(requestedBy.error);
+  const receivedRaw = stringArg(args, "receivedAt", 40);
+  const receivedAt = receivedRaw ? new Date(receivedRaw) : undefined;
+  if (receivedAt && (Number.isNaN(receivedAt.getTime()) || receivedAt.getTime() > Date.now() + 60_000)) {
+    return erase.error("When did the request reach us? A past date and time.");
+  }
+
+  const result = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => erasePerson(tx, { phone, email, requestedBy, receivedAt }),
+  );
+  const rows = totalErased(result.deleted);
+  // Outside the database, after the commit: a restore to a point before this
+  // deletion loses its record with it, and this line says it happened.
+  log.info("person data erased", { clinicId: clinic.id, erasureId: result.erasureId, count: rows });
+  await audit(operator, "person_erased", { clinicSlug: clinic.slug, erasureId: result.erasureId, rows });
+  return ok({
+    status: "erased",
+    erasureId: result.erasureId,
+    dueBy: result.dueBy.toISOString(),
+    rows,
+    deleted: result.deleted,
+  } satisfies ErasePersonOutcome);
+}
+
+/** The operator's stamp that a subcontractor deleted what it held about the person, in its own console. Once per step. */
+async function opMarkErasureVendorDeleted(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const erasureId = stringArg(args, "erasureId");
+  if (!erasureId || !UUID_SHAPED.test(erasureId)) return care.error("Which deletion request?");
+  const step = stringArg(args, "step", 40);
+  if (!isErasureVendorStep(step)) return care.error("Which subcontractor step?");
+  const how = incidentText(stringArg(args, "how", 200), "how");
+  if (typeof how !== "string") return care.error(how.error);
+  const outcome = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => stampErasureVendorStep(tx, { erasureId, step: step as ErasureVendorStepId, by: operator.email, how }),
+  );
+  if (outcome === "not_found") return care.error("No such deletion request at this clinic.");
+  if (outcome === "already_stamped") return care.error("That step is already recorded.");
+  await audit(operator, "erasure_vendor_step_recorded", { clinicSlug: clinic.slug, erasureId, step });
   return care.updated();
 }
 

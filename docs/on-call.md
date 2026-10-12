@@ -29,7 +29,10 @@ without an export its ninety, are up, so it is gone before they are whatever hou
 left) and the annual renewal reminder (09 UTC). It also still carries the monthly
 revenue report and the nightly POS sync, which are phase two and stay switched off in
 v1, and two sweeps from the 23 September booking design (Meta booking drafts,
-booking-requirement defaults).
+booking-requirement defaults). One more sweep is not switched: `erasure-expiry`, every
+hour, empties a deletion request's restore references 35 days after the deletion and
+deletes the record once its subcontractor steps are recorded (docs/handover.md,
+"Deletion requests"). Stopping the worker stops it too, which is what a restore needs.
 
 The Stripe launch (drizzle/0043) adds five billing jobs, all seeded off: hourly, the
 usage meter report (overage on monthly plans to Stripe's meters) and the usage alerts

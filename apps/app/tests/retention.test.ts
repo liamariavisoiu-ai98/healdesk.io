@@ -172,7 +172,7 @@ describeDb("retention purge", () => {
     expect(await count(c.clinicId, "conversations")).toBe(1);
   });
 
-  test("erasure removes one person's rows and leaves a do-not-contact row behind", async () => {
+  test("erasure removes one person's rows and leaves no copy of their number behind", async () => {
     const c = await seedClinic("erase");
     const target = await seedContact(c.clinicId, "+15550100001");
     const other = await seedContact(c.clinicId, "+15550100002");
@@ -185,7 +185,6 @@ describeDb("retention purge", () => {
     expect(result.contactsMatched).toBe(1);
     expect(result.conversationsDeleted).toBe(1);
     expect(result.appointmentsDeleted).toBe(1);
-    expect(result.suppressed).toBe(true);
 
     const rows = await inTenant(c.clinicId, async (client) => {
       const contacts = await client.query<{ phone: string }>(`select phone from contacts order by phone`);
@@ -193,7 +192,10 @@ describeDb("retention purge", () => {
       return { contacts: contacts.rows, suppressed: suppressed.rows };
     });
     expect(rows.contacts.map((r) => r.phone)).toEqual(["+15550100002"]);
-    expect(rows.suppressed).toEqual([{ phone: "+15550100001", reason: "erasure_request" }]);
+    // Until gate 6 the number stayed here "so the request itself is honoured";
+    // BAA 1.3.0's clause 4(c) allows only a record of the request, kept no
+    // longer than needed (erasure_requests, without the number).
+    expect(rows.suppressed).toEqual([]);
     expect(await count(c.clinicId, "conversations")).toBe(1);
   });
 

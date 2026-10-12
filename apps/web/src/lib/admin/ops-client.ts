@@ -174,6 +174,10 @@ type OperatorOp =
   | "startOffboarding"
   | "markExportDelivered"
   | "markVoiceVendorDataDeleted"
+  // Deletion on request (BAA 1.3.0 release gate 6). The number and address go
+  // up in the signed body and are never stored, logged or sent back here.
+  | "erasePerson"
+  | "markErasureVendorDeleted"
   // The billing panel (build spec §7 E, R35).
   | "getClinicBilling"
   | "setOverageMode"
@@ -2250,6 +2254,25 @@ export type CareView = {
       how: string | null;
     } | null;
   };
+  /**
+   * The clinic's deletion requests (apps/app lib/patient-rights/erasure.ts),
+   * newest first: who asked by role or ticket, the dates as "YYYY-MM-DD HH:MM
+   * UTC", the counts, and each subcontractor step, outstanding until stamped.
+   * Nothing here names the person: apps/app sends no number, address or
+   * reference to one.
+   */
+  deletionRequests: {
+    id: string;
+    requestedBy: string;
+    receivedAt: string;
+    dueBy: string;
+    erasedAt: string;
+    /** Rows deleted, summed across the tables the deletion reached. */
+    rows: number;
+    /** When the restore references are emptied, or null once they have been. */
+    restoreRecordUntil: string | null;
+    steps: { id: string; label: string; stampedAt: string | null; stampedBy: string | null; how: string | null }[];
+  }[];
   recipients: { email: string; label: string | null; addedBy: string; addedOn: string }[];
   deliveries: {
     kind: string;
@@ -2301,6 +2324,29 @@ function readCareView(value: unknown): CareView {
       destruction: readDestruction(clinic.destruction),
       voiceVendorDeletion: readVoiceVendorDeletion(clinic.voiceVendorDeletion),
     },
+    deletionRequests: list(data.deletionRequests ?? [], "care.deletionRequests").map((entry) => {
+      const d = object(entry, "care.deletionRequest");
+      const deleted = object(d.deleted, "care.deletionRequest.deleted");
+      return {
+        id: id(d.id, "care.deletionRequest.id"),
+        requestedBy: text(d.requestedBy, "care.deletionRequest.requestedBy"),
+        receivedAt: instant(d.receivedAt, "care.deletionRequest.receivedAt").at,
+        dueBy: instant(d.dueBy, "care.deletionRequest.dueBy").at,
+        erasedAt: instant(d.erasedAt, "care.deletionRequest.erasedAt").at,
+        rows: Object.entries(deleted).reduce((sum, [key, n]) => sum + count(n, `care.deletionRequest.deleted.${key}`), 0),
+        restoreRecordUntil: optionalInstant(d.restoreRecordUntil, "care.deletionRequest.restoreRecordUntil")?.on ?? null,
+        steps: list(d.steps, "care.deletionRequest.steps").map((value) => {
+          const step = object(value, "care.deletionRequest.step");
+          return {
+            id: text(step.id, "care.deletionRequest.step.id"),
+            label: text(step.label, "care.deletionRequest.step.label"),
+            stampedAt: optionalInstant(step.stampedAt, "care.deletionRequest.step.stampedAt")?.at ?? null,
+            stampedBy: optionalText(step.stampedBy, "care.deletionRequest.step.stampedBy"),
+            how: optionalText(step.how, "care.deletionRequest.step.how"),
+          };
+        }),
+      };
+    }),
     recipients: list(data.recipients, "care.recipients").map((entry) => {
       const r = object(entry, "care.recipient");
       return {
@@ -2399,6 +2445,36 @@ export function markExportDelivered(clinicId: string, how: string) {
 }
 export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
   return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
+}
+
+export type ErasePersonOutcome =
+  | { status: "erased"; erasureId: string; dueBy: string; rows: number }
+  | { status: "refused"; message: string };
+
+/**
+ * Delete one person at a clinic (docs/handover.md, "Deletion requests"). The
+ * number and the address travel in the signed body to apps/app and nowhere
+ * else: this module logs only the operation's name, and the reply is the
+ * request's id, its deadline and a count.
+ */
+export function erasePerson(
+  clinicId: string,
+  input: { phone?: string; email?: string; requestedBy: string; receivedAt?: string },
+): Promise<OpsResult<ErasePersonOutcome>> {
+  return callOps("erasePerson", "write", { clinicId, ...input }, (value) => {
+    const data = object(value, "erasePerson");
+    if (state(data, "erasePerson") !== "erased") return refusal(data, "erasePerson");
+    return {
+      status: "erased",
+      erasureId: id(data.erasureId, "erasePerson.erasureId"),
+      dueBy: instant(data.dueBy, "erasePerson.dueBy").at,
+      rows: count(data.rows, "erasePerson.rows"),
+    };
+  });
+}
+
+export function markErasureVendorDeleted(clinicId: string, erasureId: string, step: string, how: string) {
+  return careWrite("markErasureVendorDeleted", { clinicId, erasureId, step, how });
 }
 
 export type OpenIncidentOutcome =

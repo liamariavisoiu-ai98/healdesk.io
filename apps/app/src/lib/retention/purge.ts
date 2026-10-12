@@ -1,14 +1,14 @@
-import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
 
 import {
   appointments,
   bookingRequests,
+  chatThreads,
   clinics,
   contacts,
   conversations,
   metaBookingDrafts,
   reconciliationExceptions,
-  suppressions,
   syncRuns,
   transactions,
   webhookEvents,
@@ -58,22 +58,27 @@ import type { TenantTx } from "@/lib/tenant";
  * clock cannot be shortened, used and put back in one go. An appointment a
  * remaining request still holds waits for the night the request goes. A Meta
  * draft abandoned for a day goes here too, as a backstop to the sweep the
- * clinic's next Meta message runs.
+ * clinic's next Meta message runs, and a messaging thread (chat_threads)
+ * once its last message is past the record clock.
  *
  * ## What the record clock never purges, and why
  *
  * `consent_records`, `suppressions` and `contact_attempts` are not on the
- * record clock. A suppression is a person's "stop", or the record that their
- * information was erased (eraseContact below), and has to outlast the rows it
- * stopped; all three are append-only by grant (0010). None of them stays for
- * good, though: they go with the rest of the clinic's data when it is
- * destroyed at offboarding (destroyClinicData in lib/offboarding, through
+ * record clock. A suppression is a person's "stop", and has to outlast the
+ * rows it stopped; all three are append-only by grant (0010). None of them
+ * stays for good, though: a person's go when that person is erased
+ * (app_erase_contact_evidence, through the erase path in
+ * lib/patient-rights/erasure.ts), and the rest with the clinic's data when it
+ * is destroyed at offboarding (destroyClinicData in lib/offboarding, through
  * app_destroy_contact_evidence, drizzle/0058). They were kept past that as
  * the TCPA evidence that an outbound contact was lawful, but v1 contacts no
  * one first, so there is nothing for them to evidence, and every agreement's
- * return-or-destroy clause reaches them (BAA 1.3.0 release gate 7).
- * `audit_log` is append-only by grant. `baa_acceptances` has its own
- * six-year floor (0025) and is never swept by anything.
+ * return-or-destroy clause reaches them (BAA 1.3.0 release gate 7). An
+ * erasure is recorded in `erasure_requests`, without the number, and that
+ * record has its own clock: BACKUP_RETENTION_DAYS, run hourly by
+ * expireErasureRecords. `audit_log` is append-only by grant.
+ * `baa_acceptances` has its own six-year floor (0025) and is never swept by
+ * anything.
  *
  * ## Tenant isolation is the API, not a check
  *
@@ -97,6 +102,7 @@ export type PurgeResult = {
   contactsDeleted: number;
   draftsDeleted: number;
   webhookEventsDeleted: number;
+  chatThreadsDeleted: number;
 };
 
 function daysAgo(now: Date, days: number): Date {
@@ -122,6 +128,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     contactsDeleted: 0,
     draftsDeleted: 0,
     webhookEventsDeleted: 0,
+    chatThreadsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -300,6 +307,21 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ senderId: metaBookingDrafts.senderId });
   result.draftsDeleted = drafts.length;
 
+  // 6. Messaging threads quiet for the whole record clock. A thread is a
+  //    keyed reference to the sender's platform id (for WhatsApp, their
+  //    number) and when they last wrote, kept to count conversations and to
+  //    know whose first reply has carried the opening line. BAA 1.3.0's
+  //    clause 11 keeps a person's contact details "until 90 days after the
+  //    last time those details were recorded"; a thread's last message is
+  //    that time. Nothing is lost by it: a message after a day's silence
+  //    starts a new conversation, and its first reply the opening line,
+  //    whether or not the thread is still there.
+  const quietThreads = await tx.db
+    .delete(chatThreads)
+    .where(and(eq(chatThreads.clinicId, tx.clinicId), lt(chatThreads.lastInboundAt, recordBefore)))
+    .returning({ ref: chatThreads.partyRef });
+  result.chatThreadsDeleted = quietThreads.length;
+
   // The audit row says what kind and how many — never which person.
   const total =
     result.mediaCleared +
@@ -309,7 +331,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.conversationsDeleted +
     result.contactsDeleted +
     result.draftsDeleted +
-    result.webhookEventsDeleted;
+    result.webhookEventsDeleted +
+    result.chatThreadsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -324,6 +347,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         contacts: result.contactsDeleted,
         drafts: result.draftsDeleted,
         webhookEvents: result.webhookEventsDeleted,
+        chatThreads: result.chatThreadsDeleted,
         mediaDays: clinic.mediaDays,
         recordDays: clinic.recordDays,
       },
@@ -340,6 +364,14 @@ export type ErasureRequest = {
   email?: string;
   /** Who asked, for the audit row: "patient", "clinic", or a ticket id. */
   requestedBy: string;
+  /**
+   * Only what was recorded no later than this: a contact created by then, a
+   * draft last written by then. Omitted, everything there is. The erase path
+   * applied again after a restore passes the time of the original deletion
+   * (reapplyErasures in lib/patient-rights/erasure.ts), so a person who came
+   * back after asking to be deleted keeps what they gave afterwards.
+   */
+  before?: Date;
 };
 
 export type ErasureResult = {
@@ -349,7 +381,6 @@ export type ErasureResult = {
   appointmentsDeleted: number;
   transactionsDeleted: number;
   draftsDeleted: number;
-  suppressed: boolean;
 };
 
 /**
@@ -360,12 +391,19 @@ export type ErasureResult = {
  * waiting for a join. Their booking requests go too, whatever the desk
  * decided, as do a payment matched to one of their appointments and a
  * half-collected Meta draft carrying the number. A deleted request's id and
- * token hash are never written again (booking_request_keys). What remains
- * afterwards is a suppression row for the phone number — deliberately. The
- * number is kept so the request itself is honoured for as long as healdesk
- * holds the clinic's data; keeping it is what the law expects of a
- * do-not-contact list, and it is the one thing an erasure must not erase.
- * Destruction at offboarding takes it with everything else (lib/offboarding).
+ * token hash are never written again (booking_request_keys).
+ *
+ * Nothing of the person is kept afterwards, the number included. Until 8
+ * October 2026 this wrote the number into `suppressions` "so the request
+ * itself is honoured", a copy kept for as long as the clinic's data was;
+ * BAA 1.3.0's clause 4(c) allows only a record of the request, for no
+ * longer than it is needed, and v1 contacts no one first, so there is no
+ * do-not-contact list for the number to stay on. The operator's erase path
+ * (erasePerson in lib/patient-rights/erasure.ts) runs this, deletes what this
+ * does not reach (the person's raw call payloads, the Meta requests they
+ * sent naming another number, their messaging thread, and their own
+ * suppressions, consent records and contact attempts), and records the
+ * request in erasure_requests, without the number.
  */
 export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promise<ErasureResult> {
   if (!request.phone && !request.email) {
@@ -380,8 +418,9 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
         eq(contacts.clinicId, tx.clinicId),
         or(
           request.phone ? eq(contacts.phone, request.phone) : sql`false`,
-          request.email ? eq(contacts.email, request.email) : sql`false`,
+          request.email ? sql`lower(${contacts.email}) = ${request.email.toLowerCase()}` : sql`false`,
         ),
+        request.before ? lte(contacts.createdAt, request.before) : sql`true`,
       ),
     );
   const ids = matches.map((m) => m.id);
@@ -392,7 +431,6 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     appointmentsDeleted: 0,
     transactionsDeleted: 0,
     draftsDeleted: 0,
-    suppressed: false,
   };
 
   if (ids.length) {
@@ -475,29 +513,15 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
   if (phones.length) {
     const drafts = await tx.db
       .delete(metaBookingDrafts)
-      .where(and(eq(metaBookingDrafts.clinicId, tx.clinicId), inArray(metaBookingDrafts.phone, phones)))
+      .where(
+        and(
+          eq(metaBookingDrafts.clinicId, tx.clinicId),
+          inArray(metaBookingDrafts.phone, phones),
+          request.before ? lte(metaBookingDrafts.updatedAt, request.before) : sql`true`,
+        ),
+      )
       .returning({ senderId: metaBookingDrafts.senderId });
     result.draftsDeleted = drafts.length;
-  }
-
-  // The do-not-contact row outlives the erasure, on purpose.
-  const phone = request.phone ?? matches.find((m) => m.phone)?.phone ?? null;
-  if (phone) {
-    const [existing] = await tx.db
-      .select({ id: suppressions.id })
-      .from(suppressions)
-      .where(and(eq(suppressions.clinicId, tx.clinicId), eq(suppressions.phone, phone), isNull(suppressions.channel)))
-      .limit(1);
-    if (!existing) {
-      await tx.db.insert(suppressions).values({
-        clinicId: tx.clinicId,
-        phone,
-        channel: null,
-        reason: "erasure_request",
-        note: `Erasure requested by ${request.requestedBy}`,
-      });
-    }
-    result.suppressed = true;
   }
 
   tx.audit.record({
@@ -512,7 +536,6 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
       appointments: result.appointmentsDeleted,
       transactions: result.transactionsDeleted,
       drafts: result.draftsDeleted,
-      suppressed: result.suppressed,
     },
   });
 

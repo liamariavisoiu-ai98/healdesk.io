@@ -11,6 +11,7 @@ import {
   clinicSetupScreens,
   contacts,
   conversations,
+  erasureRequests,
   metaBookingDrafts,
   metaInboundMessages,
   providerConnections,
@@ -134,8 +135,8 @@ import { withTenant } from "@/lib/tenant";
  * ## What goes, and what stays
  *
  * Every patient row, the keyed hashes of who messaged the clinic, its closed
- * days, its connections, and its suppressions, consent records and contact
- * attempts. Those three were kept until BAA 1.3.0's release gate 7 as the
+ * days, its connections, its suppressions, consent records and contact
+ * attempts, and the records of its deletion requests (erasure_requests). Those three were kept until BAA 1.3.0's release gate 7 as the
  * TCPA evidence that an outbound contact was lawful; v1 contacts no one
  * first, so there is nothing for them to evidence, and every agreement's
  * return-or-destroy clause reaches them (1.3.0's Term clause keeps only the
@@ -474,8 +475,9 @@ export type DestructionResult = { clinicId: string; deleted: Record<string, numb
 /**
  * Every patient row for one clinic, booking requests and slot holds
  * included, the hashes of who messaged it, its closed days, its setup
- * progress, its providers, and its suppressions, consent records and contact
- * attempts, gone. Audit, agreements, calendar elections and billing stay.
+ * progress, its providers, its suppressions, consent records and contact
+ * attempts, and the records of its deletion requests, gone. Audit,
+ * agreements, calendar elections and billing stay.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -507,6 +509,12 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
+  // The records of the clinic's deletion requests (drizzle/0059): dates,
+  // counts and keyed references to the people deleted, kept to delete them
+  // again after a restore. A restore after this re-runs the destruction,
+  // which takes those people with everyone else, so no record of them needs
+  // to outlast it.
+  await del("erasure_requests", () => tx.db.delete(erasureRequests).where(eq(erasureRequests.clinicId, c)).returning({ id: erasureRequests.id }));
   // sync_runs and connection_links are append-only by grant (0015, 0024):
   // operational history with no patient in it, kept as the record of what
   // ran. The credentials go with the connection row below.

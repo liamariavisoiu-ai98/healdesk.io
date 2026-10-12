@@ -3,7 +3,13 @@
 import { useState, useTransition } from "react";
 
 import { INCIDENT_CLASSES, type IncidentClass } from "@/lib/admin/incident-classes";
-import type { CareOutcome, CareView, OpenIncidentOutcome, OpsResult } from "@/lib/admin/ops-client";
+import type {
+  CareOutcome,
+  CareView,
+  ErasePersonOutcome,
+  OpenIncidentOutcome,
+  OpsResult,
+} from "@/lib/admin/ops-client";
 
 type Actions = {
   addRecipient: (email: string, label?: string) => Promise<OpsResult<CareOutcome>>;
@@ -19,6 +25,13 @@ type Actions = {
   startOffboarding: (reason: string) => Promise<OpsResult<CareOutcome>>;
   markExportDelivered: (how: string) => Promise<OpsResult<CareOutcome>>;
   markVoiceVendorDataDeleted: (how: string) => Promise<OpsResult<CareOutcome>>;
+  erasePerson: (input: {
+    phone?: string;
+    email?: string;
+    requestedBy: string;
+    receivedAt?: string;
+  }) => Promise<OpsResult<ErasePersonOutcome>>;
+  markErasureVendorDeleted: (erasureId: string, step: string, how: string) => Promise<OpsResult<CareOutcome>>;
 };
 
 // The clocks apps/app computes (lib/incidents/incidents.ts): BAA 1.3.0 gives
@@ -31,7 +44,9 @@ const CLASS_LABELS: Record<IncidentClass, string> = {
   service_complaint: "Service complaint (2 business days to a first reply)",
 };
 
-function describe(result: OpsResult<CareOutcome> | OpsResult<OpenIncidentOutcome>): string | null {
+function describe(
+  result: OpsResult<CareOutcome> | OpsResult<OpenIncidentOutcome> | OpsResult<ErasePersonOutcome>,
+): string | null {
   if (!result.ok) return result.message;
   if (result.data.status === "refused") return result.data.message;
   return null;
@@ -123,10 +138,147 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
         <OpenIncidentForm onOpen={actions.openIncident} />
       </Section>
 
+      <Section title={`Deletion requests — ${v.deletionRequests.length}`}>
+        <DeletionRequests view={v} actions={actions} />
+      </Section>
+
       <Section title="Offboarding">
         <Offboarding view={v} actions={actions} />
       </Section>
     </main>
+  );
+}
+
+/**
+ * One person deleted on the practice's request (docs/handover.md, "Deletion
+ * requests"). The number and the address are typed here, sent once in the
+ * signed request, and gone: this page keeps neither, the form is cleared when
+ * the deletion succeeds, and nothing that comes back names the person.
+ */
+function DeletionRequests({ view, actions }: { view: CareView; actions: Actions }) {
+  const [pending, start] = useTransition();
+  const [problem, setProblem] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const now = new Date().toISOString().slice(0, 16).replace("T", " ");
+  return (
+    <div className="text-sm">
+      <p className="text-muted">
+        When the practice asks us to delete a person, delete them here within ten business days of the request reaching
+        us, then do each subcontractor step in the vendor&rsquo;s own console and record it. This deletes their contact,
+        calls, appointments, booking requests (those they sent naming someone else&rsquo;s number included), drafts,
+        messaging threads, raw payloads and any stop, consent or contact-attempt record, and keeps a record of the request
+        without their number. Only the practice can ask: a request from the person goes to the practice
+        (docs/handover.md, &ldquo;Deletion requests&rdquo;).
+      </p>
+      {view.deletionRequests.length ? (
+        <ul className="mt-3 grid gap-3">
+          {view.deletionRequests.map((r) => (
+            <li key={r.id} className="border-line rounded-xl border px-4 py-3">
+              <div className="flex flex-wrap items-baseline gap-2">
+                <span className="font-semibold">Asked by {r.requestedBy}</span>
+                <span className="text-muted text-xs">
+                  received {r.receivedAt} · deleted {r.erasedAt} · {r.rows} rows
+                </span>
+              </div>
+              <ul className="mt-2 grid gap-1 text-xs">
+                {r.steps.map((step) =>
+                  step.stampedAt ? (
+                    <li key={step.id} className="text-done">
+                      {step.label}: recorded {step.stampedAt} by {step.stampedBy}
+                      {step.how ? ` (${step.how})` : ""}.
+                    </li>
+                  ) : (
+                    <li key={step.id} className={r.dueBy < now ? "text-red-deep font-bold" : "text-red-deep"}>
+                      Outstanding: {step.label}, by {r.dueBy}
+                      {r.dueBy < now ? " — OVERDUE" : ""}.{" "}
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => {
+                          const how = window.prompt("How was it deleted at the vendor? (one line, no patient details)");
+                          if (!how) return;
+                          start(async () => setProblem(describe(await actions.markErasureVendorDeleted(r.id, step.id, how))));
+                        }}
+                        className="border-line-strong ml-1 rounded-full border px-2 py-0.5 font-bold"
+                      >
+                        Record it
+                      </button>
+                    </li>
+                  ),
+                )}
+              </ul>
+              <p className="text-muted mt-1 text-xs">
+                {r.restoreRecordUntil
+                  ? `The record keeps keyed references, to delete the person again after a restore, until ${r.restoreRecordUntil}.`
+                  : "The record's restore references have expired; it holds no reference to the person."}
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const f = new FormData(form);
+          const phone = String(f.get("phone") ?? "").trim();
+          const email = String(f.get("email") ?? "").trim();
+          const requestedBy = String(f.get("requestedBy") ?? "").trim();
+          const received = String(f.get("receivedAt") ?? "").trim();
+          if (!window.confirm(`Delete everything ${view.clinic.name} holds about this person? This cannot be undone.`)) return;
+          start(async () => {
+            setProblem(null);
+            setDone(null);
+            const result = await actions.erasePerson({
+              ...(phone ? { phone } : {}),
+              ...(email ? { email } : {}),
+              requestedBy,
+              ...(received ? { receivedAt: new Date(received).toISOString() } : {}),
+            });
+            const message = describe(result);
+            setProblem(message);
+            if (!message && result.ok && result.data.status === "erased") {
+              form.reset();
+              setDone(`Deleted ${result.data.rows} rows. Record each subcontractor step below by ${result.data.dueBy}.`);
+            }
+          });
+        }}
+        className="mt-5 grid gap-3"
+      >
+        <p className="text-xs font-bold uppercase">Delete a person</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Telephone number</span>
+            <input name="phone" type="tel" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Email address</span>
+            <input name="email" type="email" autoComplete="off" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Who asked — role or ticket, never a name</span>
+            <input
+              name="requestedBy"
+              required
+              maxLength={200}
+              placeholder="the practice, ticket 1182"
+              className="border-line mt-1 w-full rounded-lg border px-3 py-2"
+            />
+          </label>
+          <label className="text-sm">
+            <span className="text-muted block text-xs font-bold uppercase">Request reached us (optional; default now)</span>
+            <input name="receivedAt" type="datetime-local" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          </label>
+        </div>
+        <div>
+          <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">
+            Delete this person
+          </button>
+        </div>
+        {problem ? <p className="text-red-deep text-xs">{problem}</p> : null}
+        {done ? <p className="text-done text-xs">{done}</p> : null}
+      </form>
+    </div>
   );
 }
 

@@ -383,7 +383,6 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       appointmentsDeleted: 1,
       conversationsDeleted: 1,
       draftsDeleted: 1,
-      suppressed: true,
     });
 
     const left = await inTenant(c.clinicId, async (client) => ({
@@ -408,7 +407,8 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       appointments: [neighbour.appointmentId],
       contacts: [neighbour.contactId],
       drafts: [neighbour.phone],
-      suppressed: [target.phone],
+      // No copy of the number is kept as the record of the request (gate 6).
+      suppressed: [],
     });
     expect(await counts(elsewhere.clinicId)).toEqual(ONE_PERSON);
   });
@@ -429,7 +429,6 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       contactsMatched: 1,
       bookingRequestsDeleted: 3,
       draftsDeleted: 1,
-      suppressed: true,
     });
     expect(await counts(c.clinicId)).toEqual(NOTHING);
   });
@@ -731,8 +730,14 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     );
 
     // And no other function takes a request ahead of its person: the only
-    // definers that delete booking requests are these three, each bound to
-    // state the runtime role cannot write.
+    // definers that delete booking requests are these four. Three are bound
+    // to state the runtime role cannot write. The fourth, gate 6's
+    // app_erase_thread_requests (drizzle/0059), takes the Meta requests one
+    // messaging thread sent, whoever each names, by the platform and sender
+    // id fixed when the request was written: a person's deletion reaches the
+    // requests they sent for someone else's number, and that someone stays.
+    // So a request leaves with its person or with the thread that sent it,
+    // and booking_request_keys keeps any of them from coming back.
     const { rows } = await getMigratorPool().query<{ proname: string }>(
       `select p.proname
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -743,6 +748,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     expect(rows.map((r) => r.proname)).toEqual([
       "app_destroy_booking_requests",
       "app_erase_contacts",
+      "app_erase_thread_requests",
       "app_purge_booking_requests",
     ]);
   });

@@ -274,15 +274,52 @@ $$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_clinic_phi_update_permitted(uuid) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_clinic_phi_update_permitted(uuid) TO healdesk_app;--> statement-breakpoint
 
+-- The rule for a new amendment (record_amendments, 0064), which is an INSERT
+-- but not new patient data: Practice's direction about a record healdesk
+-- already holds (BAA 1.3.0 clause 14(b); 45 CFR 164.526, which runs while
+-- the PHI is held). The Term clause keeps healdesk's duties while it holds
+-- PHI, and a terminated practice is offboarding and still holds it, so an
+-- amendment is judged as a change to a row already held
+-- (app_clinic_phi_update_permitted), not as a new row, and is refused once
+-- the clinic is destroyed: there is nothing left to amend (review R4).
+CREATE OR REPLACE FUNCTION app_clinic_amendment_permitted(target_clinic uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT app_clinic_phi_update_permitted(target_clinic)
+     AND NOT EXISTS (
+           SELECT 1 FROM clinics c WHERE c.id = target_clinic AND c.destroyed_at IS NOT NULL
+         )
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_clinic_amendment_permitted(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_clinic_amendment_permitted(uuid) TO healdesk_app;--> statement-breakpoint
+
 -- 0051's trigger function, asking the INSERT and the UPDATE their own
--- question. The message keeps "refusing to write PHI to <table>", which the
--- tests and the runbooks match.
+-- question, and an amendment (record_amendments, 0064) its own. The message
+-- keeps "refusing to write PHI to <table>", which the tests and the
+-- runbooks match.
 CREATE OR REPLACE FUNCTION app_enforce_baa_gate()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+  -- An amendment is Practice's direction about a record already held: its
+  -- own rule, offboarding included (app_clinic_amendment_permitted).
+  IF TG_TABLE_NAME = 'record_amendments' THEN
+    IF NOT app_clinic_amendment_permitted(NEW.clinic_id) THEN
+      RAISE EXCEPTION
+        'Clinic % may not take an amendment: it is destroyed, or production without an agreement that covers its data; refusing to write PHI to %.',
+        NEW.clinic_id, TG_TABLE_NAME
+        USING
+          ERRCODE = 'check_violation',
+          HINT = 'An amendment is taken while the clinic holds the record it amends, through offboarding, and never after destruction. See docs/hipaa-compliance.md.';
+    END IF;
+    RETURN NEW;
+  END IF;
   IF (TG_OP = 'UPDATE' AND NOT app_clinic_phi_update_permitted(NEW.clinic_id))
      OR (TG_OP <> 'UPDATE' AND NOT app_clinic_accepts_phi(NEW.clinic_id)) THEN
     RAISE EXCEPTION

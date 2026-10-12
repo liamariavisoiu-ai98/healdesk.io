@@ -1,9 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { answerFrontDoor } from "@/lib/meta/front-door";
+import { appendAmendment } from "@/lib/patient-rights/amendments";
 import { ingestWebhook } from "@/lib/sync/webhooks";
 import { withTenant } from "@/lib/tenant";
 
@@ -92,6 +93,55 @@ describeDb("a clinic that has left keeps nothing new", () => {
     await asApp(c.clinicId, (q) =>
       q.query(`update contacts set phone = '+14155550142' where id = $1`, [c.contactId]),
     );
+  });
+
+  test("a terminated practice's record still takes an amendment while offboarding, and none once destroyed (R4)", async () => {
+    // BAA 1.3.0 keeps healdesk's duties while it holds the PHI, and clause
+    // 14(b)'s amendments run while it does: a new row, but not new patient data.
+    const c = await liveClinic("left-amend");
+    const requestId = await inTenant(c.clinicId, async (q) => {
+      const { rows } = await q.query<{ id: string }>(
+        `insert into booking_requests (clinic_id, contact_id, channel, preferred_window, token_hash, expires_at)
+         values ($1, $2, 'voice', 'Saturday morning', $3, now() + interval '7 days') returning id`,
+        [c.clinicId, c.contactId, randomBytes(32)],
+      );
+      return rows[0]!.id;
+    });
+    await getMigratorPool().query(
+      `update baa_acceptances set terminated_at = now(), termination_reason = 'change_in_law'
+        where organization_id = $1`,
+      [c.organizationId],
+    );
+    await startOffboarding(c.clinicId);
+    const amend = () =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        appendAmendment(tx, {
+          target: { kind: "booking_request", id: requestId },
+          amendment: "The practice notes the preferred time was Sunday.",
+          requestedBy: "practice",
+          recordedBy: "ops@healdesk.test",
+        }),
+      );
+    expect(await amend()).toMatchObject({ status: "appended" });
+    // Nor does the amendment open the gate to anything else.
+    await expect(
+      asApp(c.clinicId, (q) =>
+        q.query(`insert into contacts (clinic_id, phone) values ($1, '+14155550143')`, [
+          c.clinicId,
+        ]),
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+
+    // Destroyed: nothing left to amend, and the database says so first.
+    await getMigratorPool().query(`update clinics set destroyed_at = now() where id = $1`, [
+      c.clinicId,
+    ]);
+    await expect(amend()).rejects.toMatchObject({
+      cause: {
+        code: "23514",
+        message: expect.stringMatching(/refusing to write PHI to record_amendments/),
+      },
+    });
   });
 
   test("clinicHasLeft holds the clinic's row: an offboarding can't start until the write it guards commits", async () => {

@@ -1,4 +1,11 @@
-import { agreementKindOfVersion } from "@healdesk/catalog";
+import {
+  agreementKindOfVersion,
+  getBaaTemplate,
+  getDpaTemplate,
+  TRANSCRIPT_RETENTION_DAYS,
+  type BaaVariables,
+  type DpaVariables,
+} from "@healdesk/catalog";
 import { and, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 
 import {
@@ -175,37 +182,85 @@ export type PurgeResult = {
 };
 
 /**
- * The BAA versions written before the purge's periods were promised as the
- * purge runs them. Every version after them, released or not, and every DPA,
- * states them (BAA 1.3.0 clause 11; the DPA's "Minimum necessary" clause,
- * which states them since 12 October 2026, docs/counsel/dpa.md gap 2), so a
- * new version is purged nightly from the day it is signed unless it is added
- * here, by a decision recorded beside it.
- *
- * 1.2.2 (released 9 October 2026, after this list was drawn up) is here
- * because its retention sentence is 1.2.1's own clause object (CLAUSES_1_2_2
- * in @healdesk/catalog takes every clause but three from 1.2.1, and none of
- * the three is about retention), so it promises the purge no more than 1.2.1
- * does; it follows 1.2.1 at destruction too (app_destruction_rule, 0062).
+ * The purge's periods, as an agreement has to state them to promise the
+ * nightly purge: BAA 1.3.0's clause 11 and the DPA's "Minimum necessary"
+ * clause (since 12 October 2026, docs/counsel/dpa.md gap 2) say each of
+ * these, word for word, with TRANSCRIPT_RETENTION_DAYS. 1.2.2 and earlier say
+ * only "keeps transcripts and conversation records for 90 days", which
+ * promises no period for a booking request, an appointment or a contact.
+ * Matched on the text with its line breaks folded, so the 78-column wrap
+ * cannot hide one.
  */
-export const BAA_VERSIONS_BEFORE_THE_PURGE_PROMISE: ReadonlySet<string> = new Set([
-  "1.2.2",
-  "1.2.1",
-  "1.2.0",
-  "1.1.0-draft",
-  "1.0.0",
-  "0.1.0-draft",
-]);
+const PURGE_PERIODS: readonly string[] = [
+  `keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place`,
+  `each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time`,
+  `keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time`,
+  `contact details are kept while any conversation, appointment record or booking request of theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded or changed`,
+];
+
+/** Any practice: every clause body is pure and total, and what is read here is the same for all. */
+const SAMPLE_BAA: BaaVariables = {
+  specialty: "med-spa",
+  attributionMode: "estimated",
+  connectedPlatform: null,
+  isCoveredEntity: true,
+  outboundMessaging: false,
+  bookingSystem: "google_calendar",
+  calendarAccount: "workspace_baa",
+  clinicLegalName: "Practice",
+  signatoryName: "Signatory",
+  signatoryEmail: "signatory@practice.test",
+  effectiveDate: "2026-01-01",
+};
+const SAMPLE_DPA: DpaVariables = {
+  clinicLegalName: "Practice",
+  signatoryName: "Signatory",
+  signatoryEmail: "signatory@practice.test",
+  effectiveDate: "2026-01-01",
+  specialty: "med-spa",
+  bookingSystem: "google_calendar",
+  calendarAccount: "workspace_baa",
+};
+
+/**
+ * Whether an agreement's own clauses state every one of the purge's periods,
+ * read from the clauses a sample practice's copy contains (the retention
+ * clause applies to every practice in both agreements).
+ */
+export function agreementStatesThePurge(version: string): boolean {
+  const bodies =
+    agreementKindOfVersion(version) === "dpa"
+      ? (getDpaTemplate(version)?.clauses ?? [])
+          .filter((c) => c.appliesWhen(SAMPLE_DPA))
+          .map((c) => c.body(SAMPLE_DPA))
+      : (getBaaTemplate(version)?.clauses ?? [])
+          .filter((c) => c.appliesWhen(SAMPLE_BAA))
+          .map((c) => c.body(SAMPLE_BAA));
+  const text = bodies.join(" ").replace(/\s+/g, " ");
+  return PURGE_PERIODS.every((period) => text.includes(period));
+}
+
+const promised = new Map<string, boolean>();
 
 /**
  * Whether the agreement a clinic is on (the version in effect,
  * app_agreement_in_effect) promises the purge's periods, so that the nightly
- * run purges it whatever the job's switch says. None, or an earlier BAA: no.
+ * run purges it whatever the job's switch says: read from that version's own
+ * text (agreementStatesThePurge), so each version decides by what it says.
+ * BAA 1.3.0 and the DPA do; 1.2.2 and earlier do not; a version the catalog
+ * does not hold has no text, and promises nothing. Until 12 October 2026
+ * every version not on a list of earlier ones counted as promising, and
+ * 1.2.2, released after the list was written, would have been purged with
+ * the switch off had it not been added by hand (third review).
  */
 export function purgeIsPromised(version: string | null): boolean {
   if (version === null) return false;
-  if (agreementKindOfVersion(version) === "dpa") return true;
-  return !BAA_VERSIONS_BEFORE_THE_PURGE_PROMISE.has(version);
+  let answer = promised.get(version);
+  if (answer === undefined) {
+    answer = agreementStatesThePurge(version);
+    promised.set(version, answer);
+  }
+  return answer;
 }
 
 function daysAgo(now: Date, days: number): Date {

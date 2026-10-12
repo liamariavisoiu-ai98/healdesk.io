@@ -512,7 +512,9 @@ describeDb("retention purge", () => {
     // the purge's periods, and only for them.
     const off = await runRetentionPurgeJob({ now });
     expect(off.status).toBe("ok");
-    expect(off.status === "ok" ? off.note : "").toMatch(/^Switched off: only the clinics on BAA 1\.3\.0/);
+    expect(off.status === "ok" ? off.note : "").toMatch(
+      /^Switched off: only the clinics whose agreement states the purge's periods \(BAA 1\.3\.0, the DPA\)\./,
+    );
     expect(await count(v130, "conversations")).toBe(0);
     expect(await count(dpa, "conversations")).toBe(0);
     expect(await count(v121, "conversations")).toBe(1);
@@ -535,15 +537,57 @@ describeDb("retention purge", () => {
     expect(sweep.clinicsConsidered).toBeGreaterThan(0);
   });
 
-  test("which agreements promise the purge: BAA 1.3.0 and every later version, and the DPA; none of the earlier versions", () => {
-    for (const t of BAA_TEMPLATES) {
-      expect(purgeIsPromised(t.version), t.version).toBe(
-        !["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"].includes(t.version),
+  test("an agreement promises the purge only if its own retention clause states the purge's periods: today BAA 1.3.0 and the DPA", () => {
+    // Each template's expectation is read from its own text, never from a
+    // list of versions: until 12 October 2026 every version not on a list of
+    // earlier ones counted as promising, and 1.2.2, released after the list
+    // was written, was nearly purged with the switch off (third review).
+    // The marker is the period no earlier version states: a booking request's.
+    const N = TRANSCRIPT_RETENTION_DAYS;
+    const statesThePeriods = (text: string) => {
+      const flat = text.replace(/\s+/g, " ");
+      return (
+        flat.includes(`each booking request for ${N} days after the latest of when it was made`) &&
+        flat.includes(`each appointment record for ${N} days after the appointment's time`)
       );
+    };
+    const baaSample = {
+      specialty: "plastic-surgery",
+      attributionMode: "estimated" as const,
+      connectedPlatform: null,
+      isCoveredEntity: true,
+      outboundMessaging: false,
+      bookingSystem: "mindbody" as const,
+      calendarAccount: "personal" as const,
+      clinicLegalName: "Clinic",
+      signatoryName: "Owner",
+      signatoryEmail: "owner@clinic.test",
+      effectiveDate: "2026-10-12",
+    };
+    const promising: string[] = [];
+    for (const t of BAA_TEMPLATES) {
+      const text = t.clauses
+        .filter((c) => c.appliesWhen(baaSample))
+        .map((c) => c.body(baaSample))
+        .join("\n");
+      expect(purgeIsPromised(t.version), t.version).toBe(statesThePeriods(text));
+      if (statesThePeriods(text)) promising.push(t.version);
     }
-    expect(purgeIsPromised("1.3.0")).toBe(true);
-    expect(purgeIsPromised("1.4.0")).toBe(true);
-    for (const t of DPA_TEMPLATES) expect(purgeIsPromised(t.version), t.version).toBe(true);
+    const dpaSample = { ...baaSample, specialty: "veterinary" as const };
+    for (const t of DPA_TEMPLATES) {
+      const text = t.clauses
+        .filter((c) => c.appliesWhen(dpaSample))
+        .map((c) => c.body(dpaSample))
+        .join("\n");
+      expect(purgeIsPromised(t.version), t.version).toBe(statesThePeriods(text));
+      if (statesThePeriods(text)) promising.push(t.version);
+    }
+    // Pinned, so a change in what any version promises is seen here.
+    expect(promising.sort()).toEqual(["1.3.0", "dpa/1.0.0"]);
+    // A version the catalog does not hold has no text, and promises nothing:
+    // the old rule purged any unknown version with the switch off.
+    expect(purgeIsPromised("1.4.0")).toBe(false);
+    expect(purgeIsPromised("9.9.9")).toBe(false);
     expect(purgeIsPromised(null)).toBe(false);
   });
 });

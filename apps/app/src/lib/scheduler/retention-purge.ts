@@ -16,8 +16,8 @@ import { JOB_RETENTION_PURGE, runWideningJob } from "./jobs";
  *
  * Which clinics: the job ships switched OFF (drizzle/0032), but its switch
  * widens the run rather than starting it. A clinic whose agreement in effect
- * is BAA 1.3.0 or later, or the DPA, is purged every night whatever the
- * switch says, because that agreement states the purge's periods
+ * states the purge's periods, read from that version's own text (BAA 1.3.0
+ * and the DPA today), is purged every night whatever the switch says
  * (purgeIsPromised; BAA 1.3.0 release gate 9). With the switch on, every
  * other clinic is purged too; the owner turns it on at the release of 1.3.0
  * (docs/handover.md).
@@ -111,7 +111,7 @@ export async function runRetentionPurgeJob(options: { now?: Date } = {}) {
       return (
         (switchedOn
           ? ""
-          : "Switched off: only the clinics on BAA 1.3.0 or later, or the DPA. ") +
+          : "Switched off: only the clinics whose agreement states the purge's periods (BAA 1.3.0, the DPA). ") +
         `Purged ${sweep.clinicsConsidered} clinics: ${totals.media} media references cleared, ` +
         `${totals.rows} rows deleted` +
         (totals.skipped ? `, ${totals.skipped} skipped (sync running)` : "") +

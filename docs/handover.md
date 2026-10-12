@@ -406,10 +406,11 @@ kind of payload no later than the transcript period, since a call's payload carr
 transcript, and an amendment with the record it amends. `lib/retention/purge.ts` lists
 each period as BAA 1.3.0's clause 11 states it.
 
-Which clinics: a clinic on BAA 1.3.0 or later, or the DPA, is purged every night whether
-the job's switch is on or not, because its agreement states the purge's periods
-(`purgeIsPromised`); the switch adds every other clinic, those on 1.2.2 or earlier and
-any with no agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
+Which clinics: a clinic whose agreement states the purge's periods is purged every night
+whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
+retention clause: BAA 1.3.0 and the DPA today, and any later version only if its text
+says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
+agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
 ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
 too, are purged as well, and check that the next 03 UTC run's note no longer begins
 "Switched off". A sync run (phase two) holds a clinic's purge only while it is younger

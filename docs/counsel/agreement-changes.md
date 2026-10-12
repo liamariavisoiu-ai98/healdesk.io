@@ -1638,9 +1638,12 @@ these is closed, by code, a page, a signed paper or a host setting, and
    `lib/scheduler/retention-purge.ts`, pinned by `tests/retention.test.ts`):
    - The purge runs for every clinic bound to BAA 1.3.0 or later, or to the
      DPA, every night, whether the job's switch is on or not
-     (`purgeIsPromised`: every version but the six before 1.3.0, 1.2.2
-     among them since its release, and every
-     DPA, read from the agreement in effect; `runWideningJob`, which keeps
+     (`purgeIsPromised`, read from the agreement in effect: a version
+     promises the purge only if its own retention clause states the
+     purge's periods, which 1.3.0's and the DPA's do and 1.2.2's and
+     earlier do not. Until the third review of 12 October 2026 every
+     version off a list of earlier ones counted as promising, and 1.2.2,
+     released after the list, nearly did; `runWideningJob`, which keeps
      runJob's lock and records each run). The switch, which 0032 ships off,
      adds every other clinic. The owner switches it on at the release
      (docs/handover.md, "Retention and offboarding"), so 1.2.2 and 1.2.1 clinics are

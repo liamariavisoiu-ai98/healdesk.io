@@ -636,6 +636,44 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     expect(await requestsOf(practice.billingClinicId)).toHaveLength(1);
   }, 180_000);
 
+  test("a location pointed at another practice's billing clinic never gets that practice cancelled", async () => {
+    const ended = await seedPractice("term-pointer-a");
+    const other = await seedPractice("term-pointer-b");
+    worldFor(ended);
+    // The runtime role may write billing_clinic_id: point A's second
+    // location at B's billing clinic.
+    await asApp(ended.locationId, (c) =>
+      c.query(`update clinics set billing_clinic_id = $2 where id = $1`, [
+        ended.locationId,
+        other.billingClinicId,
+      ]),
+    );
+
+    await run("markAgreementTerminated", {
+      agreementId: ended.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "change_in_law",
+    });
+
+    // A's locations are offboarding and A's own subscription is cancelled;
+    // B is untouched, and ops is told about the pointer.
+    expect(await offboardingOf(ended.locationId)).not.toBeNull();
+    expect(await requestsOf(ended.billingClinicId)).toEqual([
+      { kind: "cancel_now", reason: "ops", outcome: null },
+    ]);
+    expect(await requestsOf(other.billingClinicId)).toEqual([]);
+    expect(await offboardingOf(other.billingClinicId)).toBeNull();
+    expect(notifyOps).toHaveBeenCalledWith("agreement_termination_incomplete", {
+      clinicId: ended.locationId,
+      agreementId: ended.agreementId,
+      phase: "billing_pointer",
+    });
+
+    // Nor does the hourly reconcile follow it.
+    await reconcileBilling(new Date());
+    expect(await requestsOf(other.billingClinicId)).toEqual([]);
+  }, 180_000);
+
   test("who ended it and why is recorded once, with the date, and never changed", async () => {
     const practice = await seedPractice("term-reason");
     await run("markAgreementTerminated", {

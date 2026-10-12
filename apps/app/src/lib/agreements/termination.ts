@@ -71,7 +71,8 @@ export type TerminationEffect =
 
 type Location = {
   clinicId: string;
-  billingClinicId: string;
+  /** Null when the location points at a billing clinic outside its organisation (review R6). */
+  billingClinicId: string | null;
   offboarding: boolean;
   destroyed: boolean;
 };
@@ -79,7 +80,7 @@ type Location = {
 async function locationsOf(organizationId: string): Promise<Location[]> {
   const result = await unsafeDb.execute<{
     clinic_id: string;
-    billing_clinic_id: string;
+    billing_clinic_id: string | null;
     offboarding_started_at: Date | string | null;
     destroyed_at: Date | string | null;
   }>(
@@ -88,13 +89,45 @@ async function locationsOf(organizationId: string): Promise<Location[]> {
   );
   return result.rows.map((row) => ({
     clinicId: String(row.clinic_id),
-    billingClinicId: String(row.billing_clinic_id),
+    billingClinicId: row.billing_clinic_id === null ? null : String(row.billing_clinic_id),
     offboarding: row.offboarding_started_at !== null,
     destroyed: row.destroyed_at !== null,
   }));
 }
 
 type Steps = { offboarded: number; cancellations: number; failures: number };
+
+/**
+ * The billing clinics to cancel for these locations. A location whose
+ * pointer leads outside its organisation has none here
+ * (app_organization_clinics): its pointer is the runtime role's to write, so
+ * it is never followed into another practice's subscription. Ops is told,
+ * once per such location, to cancel its billing by hand.
+ */
+async function billingClinicsOf(
+  locations: readonly Location[],
+  agreementId: string,
+): Promise<{ billingClinics: string[]; refused: number }> {
+  const billingClinics = new Set<string>();
+  let refused = 0;
+  for (const location of locations) {
+    if (location.billingClinicId !== null) {
+      billingClinics.add(location.billingClinicId);
+      continue;
+    }
+    refused += 1;
+    log.error("termination refused a billing pointer outside the practice", {
+      clinicId: location.clinicId,
+      agreementId,
+    });
+    await notifyOps("agreement_termination_incomplete", {
+      clinicId: location.clinicId,
+      agreementId,
+      phase: "billing_pointer",
+    });
+  }
+  return { billingClinics: [...billingClinics], refused };
+}
 
 /**
  * The termination's two steps, for the locations and billing clinics given:
@@ -198,16 +231,22 @@ export async function endServicesAfterTermination(input: {
     return { status: "agreement_in_effect" };
 
   const locations = await locationsOf(organizationId);
+  const { billingClinics, refused } = await billingClinicsOf(locations, agreementId);
   const steps = await endServicesFor({
     agreementId,
     terminatedAt,
     reason,
     locations,
-    billingClinics: [...new Set(locations.map((location) => location.billingClinicId))],
+    billingClinics,
     actor,
     request,
   });
-  return { status: "services_ended", ...steps, refundDue: terminationRefundsFees(reason) };
+  return {
+    status: "services_ended",
+    ...steps,
+    failures: steps.failures + refused,
+    refundDue: terminationRefundsFees(reason),
+  };
 }
 
 const RECONCILE_ACTOR = { type: "service", serviceName: "termination-reconcile" } as const;
@@ -267,8 +306,12 @@ export async function reconcileTerminations(): Promise<TerminationReconcileSumma
       const locations = await locationsOf(organizationId);
       const toOffboard = locations.filter((l) => !l.destroyed && !l.offboarding);
       const toCancel: string[] = [];
+      // A pointer outside the practice was refused, and told to ops, when
+      // the termination ran; it is not followed here either.
       for (const billingClinicId of new Set(locations.map((l) => l.billingClinicId))) {
-        if (await cancellationOwed(billingClinicId)) toCancel.push(billingClinicId);
+        if (billingClinicId !== null && (await cancellationOwed(billingClinicId))) {
+          toCancel.push(billingClinicId);
+        }
       }
       if (toOffboard.length === 0 && toCancel.length === 0) continue;
       summary.practices += 1;

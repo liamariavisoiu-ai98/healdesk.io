@@ -292,6 +292,14 @@ $$;--> statement-breakpoint
 -- cancellation (lib/agreements/termination.ts). Read across tenants by
 -- design, as app_clinics_overview() is: ids, the billing clinic and the
 -- offboarding dates, no patient data.
+--
+-- The billing clinic is the location's own id when it has no pointer, and
+-- the clinic it points at only when that clinic is in the same
+-- organisation; otherwise NULL, which the termination refuses to cancel for
+-- and tells ops about (review R6). billing_clinic_id is the runtime role's
+-- to write, so a pointer at another practice's billing clinic would
+-- otherwise have let terminating one practice cancel the other's
+-- subscription.
 CREATE OR REPLACE FUNCTION app_organization_clinics(target_org text)
 RETURNS TABLE (
   clinic_id uuid,
@@ -305,9 +313,14 @@ STABLE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-  SELECT c.id, coalesce(c.billing_clinic_id, c.id), c.data_classification,
-         c.offboarding_started_at, c.destroyed_at
+  SELECT c.id,
+         CASE
+           WHEN c.billing_clinic_id IS NULL THEN c.id
+           WHEN b.organization_id = c.organization_id THEN b.id
+         END,
+         c.data_classification, c.offboarding_started_at, c.destroyed_at
     FROM clinics c
+    LEFT JOIN clinics b ON b.id = c.billing_clinic_id
    WHERE c.organization_id = target_org
    ORDER BY c.created_at, c.id
 $$;--> statement-breakpoint
@@ -319,7 +332,7 @@ COMMENT ON FUNCTION app_clinic_accepts_phi(uuid) IS
 COMMENT ON FUNCTION app_clinic_phi_update_permitted(uuid) IS
   'May a patient row already held be changed: app_clinic_accepts_phi(), or, once the clinic is offboarding, the same rule without the agreement in effect, so destruction''s cascades and the purge still run after a termination. Enforced on UPDATE by app_enforce_baa_gate (0063).';--> statement-breakpoint
 COMMENT ON FUNCTION app_organization_clinics(text) IS
-  'The locations of one organisation, with their billing clinic and offboarding dates: what a recorded termination offboards and cancels (0063). Ids and dates only.';
+  'The locations of one organisation, with their billing clinic (NULL when a location points at a billing clinic outside the organisation) and offboarding dates: what a recorded termination offboards and cancels (0063). Ids and dates only.';
 --> statement-breakpoint
 
 -- -----------------------------------------------------------------------------

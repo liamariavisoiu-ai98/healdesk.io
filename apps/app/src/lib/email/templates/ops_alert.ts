@@ -263,13 +263,14 @@ const WORDING: Record<OpsEvent, Wording> = {
   // Raised by a recorded termination (lib/agreements/termination.ts) for each
   // location it could not start offboarding (phase offboarding), each
   // billing clinic it could not record a cancellation for (phase billing),
-  // and each billing clinic whose cancellation is recorded while the
-  // billing-requests job is off (phase billing_job_off). The termination
-  // itself is recorded, and the assistant has stopped.
+  // each billing clinic whose cancellation is recorded while the
+  // billing-requests job is off (phase billing_job_off), and each location
+  // whose billing pointer leads outside its practice (phase billing_pointer).
+  // The termination itself is recorded, and the assistant has stopped.
   agreement_termination_incomplete: {
     title: "A terminated practice's service did not fully end",
     action:
-      "The agreement's termination is recorded and the assistant has stopped, but one step did not finish for the clinic below. For phase offboarding, start offboarding from its care page. For phase billing, cancel the subscription in Stripe at once, without proration: every ending stops the fees on the day. For phase billing_job_off, the cancellation is recorded but the billing-requests job that carries it out is switched off, so the subscription keeps billing: switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration.",
+      "The agreement's termination is recorded and the assistant has stopped, but one step did not finish for the clinic below. For phase offboarding, start offboarding from its care page. For phase billing, cancel the subscription in Stripe at once, without proration: every ending stops the fees on the day. For phase billing_job_off, the cancellation is recorded but the billing-requests job that carries it out is switched off, so the subscription keeps billing: switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration. For phase billing_pointer, the location's billing clinic is recorded as one in another practice, so nothing was cancelled for it: find which subscription bills this location and cancel it in Stripe at once, without proration, then correct the location's billing clinic.",
   },
   // Raised by the hourly reconcile per practice and step it finished.
   agreement_termination_finished_late: {

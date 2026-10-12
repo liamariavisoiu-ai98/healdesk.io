@@ -1900,7 +1900,6 @@
   width: 228px;
   gap: 8px;
   padding: 10px 12px 12px;
-  border-radius: var(--radius-md);
   background: rgb(255 255 255 / 0.96);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
@@ -1908,25 +1907,44 @@
   color: var(--color-ink);
   font-size: 12.5px;
   line-height: 1.3;
+  /* Closed: a small oval bubble at the logo's side, which it goes back to
+     quickly. */
   opacity: 0;
   pointer-events: none;
-  transform: translate(var(--card-from), -50%) scale(0.96);
+  border-radius: 50%;
+  transform: translate(var(--card-from), -50%) scale(0.32);
   transition:
     opacity var(--duration-base) var(--ease-standard),
-    transform var(--duration-slow) var(--ease-out);
+    transform var(--duration-base) var(--ease-in-out),
+    border-radius var(--duration-base) var(--ease-in-out);
 }
 
 /* Out to the right: the logos on her left open over her hair, the ones on her
    right over the wall beyond them, and none over her face. */
 .portrait__card {
   left: calc(100% + 12px);
-  --card-from: -6px;
+  --card-from: -10px;
   transform-origin: left center;
 }
 
+/* Open: it blows up out of the logo like a bubble, on the spring that
+   overshoots a hair and settles, its corners easing from round to the card's
+   own, and what it says comes in a beat after (owner, 12 October 2026: the
+   cards appeared at once). */
 .portrait__node[data-shown] .portrait__card {
   opacity: 1;
+  border-radius: var(--radius-md);
   transform: translate(0, -50%);
+  transition:
+    opacity var(--duration-fast) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-spring),
+    border-radius var(--duration-slow) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .portrait__node[data-shown] .portrait__card-head {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 90ms both;
+  }
 }
 
 /* Stripe's sits at the photo's right edge, level with the phone line on the
@@ -1938,7 +1956,7 @@
     bottom: calc(100% + 12px);
     left: auto;
     right: 0;
-    transform: translate(0, 6px) scale(0.96);
+    transform: translate(0, 10px) scale(0.32);
     transform-origin: 100% 100%;
   }
 
@@ -1958,7 +1976,7 @@
   .portrait__node[data-side="right"] .portrait__card {
     left: auto;
     right: calc(100% + 8px);
-    --card-from: 6px;
+    --card-from: 10px;
     transform-origin: right center;
   }
 }
@@ -2237,14 +2255,19 @@
 }
 
 /* The phone line: a live call */
+/* In iOS voicemail's colours (owner, 12 October 2026): its light grey
+   ground and hairline, the time in its secondary grey, and the voice drawn
+   as its bars, blue where they have played and grey ahead, the blue moving
+   along as the call runs. */
 .sc-call__live {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 6px 11px;
   border-radius: 9999px;
-  background: var(--color-ink);
-  color: #fff;
+  background: #f2f2f7;
+  box-shadow: 0 0 0 0.5px rgb(60 60 67 / 0.16);
+  color: rgb(60 60 67 / 0.8);
 }
 
 .sc-call__dot {
@@ -2252,7 +2275,7 @@
   width: 7px;
   height: 7px;
   border-radius: 9999px;
-  background: #34c759;
+  background: #007aff;
 }
 
 /* The timer counts on its own: an integer property animated, printed by a
@@ -2285,7 +2308,7 @@
   flex: 1;
   height: 100%;
   border-radius: 9999px;
-  background: rgb(255 255 255 / 0.85);
+  background: #007aff;
   scale: 1 0.3;
 }
 
@@ -2460,6 +2483,30 @@
     animation-delay: 180ms;
   }
 
+  /* Then the price, confirmed from the clinic's own list (owner, 12 October
+     2026), and the booking a beat later than in the other scenes. */
+  .portrait__node[data-shown] .sc-web .sc-row--price {
+    animation: sc-in var(--duration-slow) var(--ease-spring) 1050ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--price .sc-type {
+    animation: sc-type var(--duration-slow) var(--ease-out) 1180ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--price .sc-check path {
+    stroke-dasharray: 1;
+    animation: sc-draw var(--duration-slow) var(--ease-out) 1180ms both;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--2 {
+    animation-delay: 1850ms;
+  }
+
+  .portrait__node[data-shown] .sc-web .sc-row--2 .sc-type,
+  .portrait__node[data-shown] .sc-web .sc-row--2 .sc-check path {
+    animation-delay: 2000ms;
+  }
+
   /* After hours: the tag fades in with the card, its moon rising into it. */
   .portrait__node[data-shown] .portrait__after {
     animation: sc-fade var(--duration-base) var(--ease-standard) 60ms both;
@@ -2540,7 +2587,9 @@
   }
 
   .portrait__node[data-shown] .sc-call__wave i {
-    animation: sc-wave 520ms var(--ease-in-out) calc(var(--b) * -73ms) infinite alternate;
+    animation:
+      sc-wave 520ms var(--ease-in-out) calc(var(--b) * -73ms) infinite alternate,
+      sc-played var(--duration-base) var(--ease-standard) calc(200ms + var(--b) * 90ms) both;
   }
 
   .portrait__node[data-shown] .sc-call__wave i:nth-child(3n) {
@@ -2731,6 +2780,12 @@
   }
   to {
     --sc-sec: 42;
+  }
+}
+
+@keyframes sc-played {
+  from {
+    background-color: #c7c7cc;
   }
 }
 

@@ -73,7 +73,7 @@ function Ticks() {
   );
 }
 
-/** Website chat: the question, typed, then the booking. */
+/** Website chat: the question, typed, the price confirmed from the clinic's list, then the booking. */
 function WebChat() {
   return (
     <span className="sc sc-web">
@@ -86,6 +86,12 @@ function WebChat() {
           </span>
         </span>
         <span className="sc-type">Asked about pricing</span>
+      </span>
+      <span className="sc-row sc-row--price">
+        <span className="sc-web__icon sc-web__icon--booked" aria-hidden>
+          <Check />
+        </span>
+        <span className="sc-type">Pricing confirmed</span>
       </span>
       <span className="sc-row sc-row--2">
         <span className="sc-web__icon sc-web__icon--booked" aria-hidden>

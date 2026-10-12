@@ -192,7 +192,7 @@ const LOGOS: readonly Omit<HeroLogo, "at">[] = [
     group: "messages",
     angle: -155,
     scene: "web",
-    showcase: [{ text: "Asked about pricing" }, { text: "Consultation booked · Thu 3:00 PM" }],
+    showcase: [{ text: "Asked about pricing" }, { text: "Pricing confirmed" }, { text: "Consultation booked · Thu 3:00 PM" }],
   },
   {
     name: "Instagram",

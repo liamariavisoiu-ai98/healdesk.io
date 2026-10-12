@@ -412,7 +412,11 @@ vendor payload (`webhook_events`) thirty days after it arrived once processed (o
 record clock, if shorter) and at the record clock if it was never processed, and either
 kind of payload no later than the transcript period, since a call's payload carries its
 transcript, and an amendment with the record it amends. `lib/retention/purge.ts` lists
-each period as BAA 1.3.0's clause 11 states it.
+each period as BAA 1.3.0's clause 11 states it. Every cutoff is a day early, so a row is
+gone before its period ends whichever of the 03 and 09 UTC runs takes it (the database's
+`app_record_cutoff()` takes the same day), and a deposit goes the night its appointment
+does, or once older than the record clock when its appointment is already gone
+(`app_purge_deposit_payments()`, 0067).
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own

@@ -317,6 +317,20 @@ GRANT EXECUTE ON FUNCTION app_destroy_erasure_requests(uuid) TO healdesk_app;-->
 -- What still bounds the restore path: the 35 days the references are kept,
 -- only what was recorded before the deletion ran, only numbers no contact
 -- carries, and the audit row each call leaves.
+--
+-- Against the runtime role itself, two of those are advisory, and the audit
+-- row is the bound (third review, 12 October 2026):
+--   * it can mint its own "restore" record: its INSERT on erasure_requests
+--     covers restore_refs, so a record it writes with any references stands
+--     for 35 days, in this transaction or a later one;
+--   * it can blank a live contact's phone for the length of one call (its
+--     UPDATE on contacts), call this, and put the number back, so "a
+--     contact of the clinic still carries it" is not checked against a
+--     contact it has hidden.
+-- So the refusal keeps the application from deleting a "stop" that still
+-- belongs to someone on file by mistake; it does not keep a runtime role
+-- that means to from doing it. What it cannot do is delete without the
+-- audit row, which names the record and the counts, in an append-only log.
 CREATE OR REPLACE FUNCTION app_erase_contact_evidence(
   erasure uuid,
   target_phones text[],
@@ -521,7 +535,7 @@ COMMENT ON FUNCTION app_expire_erasure_records() IS
 COMMENT ON FUNCTION app_destroy_erasure_requests(uuid) IS
   'Deletes every record of a deletion request at the tenant''s own clinic, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contact_evidence(uuid, text[]) IS
-  'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. Refuses a number any contact of the clinic still carries, and writes an audit row (person_erasure_evidence) for every call that deletes anything. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
+  'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. Refuses a number any contact of the clinic still carries, and writes an audit row (person_erasure_evidence) for every call that deletes anything. Against the runtime role the record and the refusal are advisory (it can insert a record with references, and blank a contact''s phone for one call); the audit row is the bound. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
 COMMENT ON FUNCTION app_payload_names(text, text[]) IS
   'Whether a raw payload names a person, by any of the given patterns (lib/patient-rights/erasure.ts, payloadsAbout): up to 256 KiB a body that parses as JSON is walked string by string; any error doing that, and any larger or non-JSON body, falls back to a text match, as written and with backslash escapes replaced by a space. Never fails on what the body holds, so one payload cannot block every erasure at its clinic.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS

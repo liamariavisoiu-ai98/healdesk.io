@@ -424,9 +424,13 @@ record of the request, no longer than we need it.
    the number and/or the address, who asked by role or ticket ("the practice, ticket
    1182"; a name or a number there is refused), and when the request reached us (the
    deadline runs from it). One transaction, through the signed ops envelope
-   (`erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`): the person's
-   contacts, calls, appointments, payments matched to them, every booking request that
-   names them, their half-collected Meta drafts, their own messaging threads, the raw
+   (`erasePerson`, `apps/app/src/lib/patient-rights/erasure.ts`). Who the person is:
+   the number and address the practice gave, plus every number and address on a
+   contact either one matches (one step, never a chain); every contact carrying any of
+   those is theirs, and goes whole, so a second contact that shares their number goes
+   with its calls even when the practice gave only the address. The reply says how
+   many numbers and addresses that came to. What goes: the person's contacts, calls,
+   appointments, payments matched to them, every booking request that names them, their half-collected Meta drafts, their own messaging threads, the raw
    payloads the voice vendor or another service sent about them, and their
    suppressions, consent records and contact attempts. A booking request that names
    someone else stays, even one the person sent: a messaging thread is theirs only when

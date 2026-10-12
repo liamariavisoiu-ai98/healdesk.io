@@ -2465,6 +2465,11 @@ export type ErasePersonOutcome =
        * person. Counts only, never who.
        */
       kept: { sharedThreads: number; requests: number; drafts: number };
+      /**
+       * How many numbers and addresses apps/app took as the person's: those
+       * given, and every one on a contact they matched. Counts only.
+       */
+      identifiers: { phones: number; emails: number };
     }
   | { status: "refused"; message: string };
 
@@ -2487,8 +2492,18 @@ export function erasePerson(
       dueBy: instant(data.dueBy, "erasePerson.dueBy").at,
       rows: count(data.rows, "erasePerson.rows"),
       kept: readKept(data.kept),
+      identifiers: readIdentifiers(data.identifiers),
     };
   });
+}
+
+function readIdentifiers(value: unknown): Extract<ErasePersonOutcome, { status: "erased" }>["identifiers"] {
+  if (value === null || value === undefined) return { phones: 0, emails: 0 };
+  const i = object(value, "erasePerson.identifiers");
+  return {
+    phones: count(i.phones, "erasePerson.identifiers.phones"),
+    emails: count(i.emails, "erasePerson.identifiers.emails"),
+  };
 }
 
 function readKept(value: unknown): Extract<ErasePersonOutcome, { status: "erased" }>["kept"] {

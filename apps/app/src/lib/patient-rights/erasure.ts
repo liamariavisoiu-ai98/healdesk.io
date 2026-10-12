@@ -40,8 +40,11 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  * The practice names them by telephone number, email address or both. From
  * those the deletion finds, among rows recorded no later than it runs:
  *
- *   - their contacts, by number or address, and every number and address on
- *     those contacts;
+ *   - their numbers and addresses: the ones asked, and every number and
+ *     address on a contact those match (one step, not a chain);
+ *   - their contacts: every contact carrying any of those, erased whole, so
+ *     no contact that shares their number keeps its row and its calls while
+ *     its payloads, thread and stops go;
  *   - the messaging threads ("<platform>:<sender id>") that may be theirs:
  *     the WhatsApp id each number is (the number without its plus), the
  *     thread each of their own Meta booking requests came from, and the
@@ -232,33 +235,46 @@ async function databaseNow(tx: TenantTx): Promise<Date> {
   return new Date(result.rows[0]!.now);
 }
 
+/** The tenant's contacts recorded by `before` that carry any of the numbers or addresses. */
+async function contactsCarrying(
+  tx: TenantTx,
+  phones: ReadonlySet<string>,
+  emails: ReadonlySet<string>,
+  before: Date,
+): Promise<{ id: string; phone: string | null; email: string | null }[]> {
+  if (!phones.size && !emails.size) return [];
+  return tx.db
+    .select({ id: contacts.id, phone: contacts.phone, email: contacts.email })
+    .from(contacts)
+    .where(
+      and(
+        eq(contacts.clinicId, tx.clinicId),
+        or(
+          phones.size ? inArray(contacts.phone, [...phones]) : sql`false`,
+          emails.size ? sql`lower(${contacts.email}) = any(${textArray([...emails])})` : sql`false`,
+        ),
+        lte(contacts.createdAt, before),
+      ),
+    );
+}
+
 async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey> {
   const phones = new Set(asked.phones);
   const emails = new Set(asked.emails);
   const threads = new Set(asked.threads);
 
-  const people =
-    phones.size || emails.size
-      ? await tx.db
-          .select({ id: contacts.id, phone: contacts.phone, email: contacts.email })
-          .from(contacts)
-          .where(
-            and(
-              eq(contacts.clinicId, tx.clinicId),
-              or(
-                phones.size ? inArray(contacts.phone, [...phones]) : sql`false`,
-                emails.size
-                  ? sql`lower(${contacts.email}) = any(${textArray([...emails])})`
-                  : sql`false`,
-              ),
-              lte(contacts.createdAt, before),
-            ),
-          )
-      : [];
-  for (const person of people) {
+  // The person's identifiers: the ones asked, and every number and address
+  // on a contact those match. Then every contact carrying any of them is
+  // theirs, and is erased whole: a contact that shares their number, found
+  // only through the address asked, must not keep its row and its calls
+  // while its payloads, thread and stops go, nor be taken later by a
+  // restore's re-application alone (review of 12 October 2026). One step,
+  // not a chain: an address on that second contact is not followed further.
+  for (const person of await contactsCarrying(tx, phones, emails, before)) {
     if (person.phone) phones.add(person.phone);
     if (person.email) emails.add(person.email.toLowerCase());
   }
+  const people = await contactsCarrying(tx, phones, emails, before);
   const contactIds = people.map((p) => p.id);
 
   // The threads that may be theirs: their numbers' WhatsApp ids, and the
@@ -506,7 +522,6 @@ async function eraseSurveyed(
   tx: TenantTx,
   erasureId: string,
   s: Survey,
-  asked: Asked,
   before: Date,
   requestedBy: string,
   extraPartyRefs: readonly string[] = [],
@@ -516,11 +531,12 @@ async function eraseSurveyed(
   // The raw payloads first, found while the calls they belong to still exist.
   const payloads = await payloadsAbout(tx, s, before);
 
-  // The people, by each number and address the request names, with their
-  // own requests whatever thread they came from.
-  for (const phone of asked.phones)
+  // The people, by every number and address the survey made theirs (not
+  // only the ones asked), with their own requests whatever thread they came
+  // from: every contact carrying one of them goes whole.
+  for (const phone of s.phones)
     add(counts, await eraseContact(tx, { phone, requestedBy, before }));
-  for (const email of asked.emails)
+  for (const email of s.emails)
     add(counts, await eraseContact(tx, { email, requestedBy, before }));
 
   // The drafts on their own threads (eraseContact took the ones carrying
@@ -608,6 +624,11 @@ export type ErasePersonResult = {
   dueBy: Date;
   deleted: ErasureCounts;
   kept: ErasureKept;
+  /**
+   * How many numbers and addresses the deletion took as the person's: the
+   * ones asked, and every one on a contact those matched. Counts only.
+   */
+  identifiers: { phones: number; emails: number };
 };
 
 /**
@@ -657,7 +678,7 @@ export async function erasePerson(
     .returning({ id: erasureRequests.id, erasedAt: erasureRequests.erasedAt });
   if (!row) throw new Error("The deletion request was not recorded.");
 
-  const deleted = await eraseSurveyed(tx, row.id, s, asked, now, input.requestedBy);
+  const deleted = await eraseSurveyed(tx, row.id, s, now, input.requestedBy);
   await tx.db
     .update(erasureRequests)
     .set({ deleted })
@@ -676,7 +697,14 @@ export async function erasePerson(
       keptDrafts: s.kept.drafts,
     },
   });
-  return { erasureId: row.id, erasedAt: row.erasedAt, dueBy, deleted, kept: s.kept };
+  return {
+    erasureId: row.id,
+    erasedAt: row.erasedAt,
+    dueBy,
+    deleted,
+    kept: s.kept,
+    identifiers: { phones: s.phones.length, emails: s.emails.length },
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -937,7 +965,6 @@ export async function reapplyErasures(): Promise<ReapplyResult> {
             tx,
             record.id,
             s,
-            asked,
             record.erasedAt,
             `restore of erasure ${record.id}`,
             record.restoreRefs,

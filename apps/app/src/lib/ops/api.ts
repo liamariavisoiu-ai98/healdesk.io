@@ -3656,6 +3656,12 @@ export type ErasePersonOutcome =
       deleted: ErasureCounts;
       /** What stayed because a thread the person was on also booked for someone else: counts only. */
       kept: ErasureKept;
+      /**
+       * The numbers and addresses taken as the person's: those given, and
+       * every one on a contact they matched; every contact carrying any of
+       * them was erased whole. Counts only.
+       */
+      identifiers: { phones: number; emails: number };
     }
   | { status: "error"; message: string };
 
@@ -3729,6 +3735,7 @@ async function opErasePerson(args: Record<string, unknown>, operator: Operator):
     rows,
     deleted: result.deleted,
     kept: result.kept,
+    identifiers: result.identifiers,
   } satisfies ErasePersonOutcome);
 }
 

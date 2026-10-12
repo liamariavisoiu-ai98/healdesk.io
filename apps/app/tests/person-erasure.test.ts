@@ -816,6 +816,56 @@ describeDb("deletion on request", () => {
     ).rejects.toMatchObject({ code: "42501" });
   });
 
+  test("a deletion by address alone erases every contact carrying the person's number too, whole", async () => {
+    // C1 has the number and the address; C2, a call matched only by the
+    // number, has a conversation. Asked by the address, the first version
+    // erased C1 only, yet deleted C2's payloads, WhatsApp thread and stops by
+    // the number, and left C2 and its call to a restore's re-application.
+    const c = await seedClinic("erase-closure");
+    const at = new Date(Date.now() - 2 * DAY);
+    const synced = await seedContact(c.clinicId, "+15550138001");
+    const caller = await seedContact(c.clinicId, "+15550138001");
+    const stranger = await seedContact(c.clinicId, "+15550138009");
+    await inTenant(c.clinicId, async (client) => {
+      await client.query(`update contacts set created_at = $1`, [at]);
+      await client.query(`update contacts set email = 'dana@example-patient.test' where id = $1`, [
+        synced,
+      ]);
+      await thread(client, c.clinicId, "whatsapp", "15550138001", at);
+      await evidence(client, c.clinicId, "+15550138001", at);
+    });
+    await seedConversation(c.clinicId, { startedAt: at, contactId: caller });
+    await seedConversation(c.clinicId, { startedAt: at, contactId: stranger });
+
+    const outcome = data<ErasePersonOutcome>(
+      await runOperation(
+        "erasePerson",
+        {
+          clinicId: c.clinicId,
+          email: "dana@example-patient.test",
+          requestedBy: "the practice, ticket 10",
+        },
+        OPERATOR,
+      ),
+    );
+    if (outcome.status !== "erased") throw new Error("not erased");
+    expect(outcome.deleted).toMatchObject({
+      contacts: 2,
+      conversations: 1,
+      chatThreads: 1,
+      suppressions: 1,
+    });
+    // The reply says the rule by count: one number and one address taken.
+    expect(outcome.identifiers).toEqual({ phones: 1, emails: 1 });
+    await inTenant(c.clinicId, async (client) => {
+      const left = await client.query<{ id: string }>(`select id from contacts`);
+      expect(left.rows.map((r) => r.id)).toEqual([stranger]);
+      const calls = await client.query<{ contact_id: string }>(`select contact_id from conversations`);
+      expect(calls.rows.map((r) => r.contact_id)).toEqual([stranger]);
+    });
+    expect(await whereTheNumberIs(c.clinicId, "5550138001")).toEqual([]);
+  });
+
   test("a deletion that finds more than two hundred references still completes, and records them all", async () => {
     // The first version capped restore_refs at 200 (a CHECK), and recorded
     // every reference the survey found, so a person past the cap could never

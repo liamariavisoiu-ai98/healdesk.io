@@ -265,9 +265,9 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
             setProblem(message);
             if (!message && result.ok && result.data.status === "erased") {
               form.reset();
-              const kept = result.data.kept;
+              const { kept, identifiers } = result.data;
               setDone(
-                `Deleted ${result.data.rows} rows. Record each subcontractor step below by ${result.data.dueBy}.` +
+                `Deleted ${result.data.rows} rows, for ${identifiers.phones} number(s) and ${identifiers.emails} address(es): those given, and every one on a contact they matched, with every contact carrying any of them. Record each subcontractor step below by ${result.data.dueBy}.` +
                   (kept.sharedThreads
                     ? ` Kept ${kept.requests} booking request(s) and ${kept.drafts} draft(s) for someone else, sent from ${kept.sharedThreads} messaging account(s) this person also used: tell the practice they stay as those people's records.`
                     : ""),

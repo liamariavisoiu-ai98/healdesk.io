@@ -20,12 +20,19 @@ import type { TenantTx } from "@/lib/tenant";
  * offboarding (the branch review's R11). For a production clinic the
  * database refuses the new row anyway (app_clinic_accepts_phi).
  */
-export async function clinicHasLeft(tx: TenantTx): Promise<boolean> {
-  const [row] = await tx.db
+export async function clinicHasLeft(
+  tx: TenantTx,
+  options: { lock?: boolean } = {},
+): Promise<boolean> {
+  const query = tx.db
     .select({ started: clinics.offboardingStartedAt, destroyed: clinics.destroyedAt })
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
-    .limit(1)
-    .for("share");
+    .limit(1);
+  // `lock: false` reads without holding the row: for a check made before
+  // something slow (the Meta front door's model call), which takes the lock
+  // again, right before it writes. A lock held across the slow part would
+  // make every portal save and app_start_offboarding's FOR UPDATE wait for it.
+  const [row] = options.lock === false ? await query : await query.for("share");
   return row !== undefined && (row.started !== null || row.destroyed !== null);
 }

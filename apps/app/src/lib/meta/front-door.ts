@@ -886,10 +886,10 @@ export async function answerFrontDoor(
 ): Promise<FrontDoorAnswer | null> {
   const facts = await frontDoorFacts(tx);
   if (!facts) return null;
-  // A clinic that has left keeps nothing new (lib/clinic/leaving.ts). The
-  // webhook asked in an earlier transaction; an offboarding that started
-  // since is seen here, in the one that would write.
-  if (await clinicHasLeft(tx)) return null;
+  // A clinic that has left keeps nothing new (lib/clinic/leaving.ts). Asked
+  // here without holding the clinic's row, because the model call below can
+  // take seconds, and asked again, with the row held, before the first write.
+  if (await clinicHasLeft(tx, { lock: false })) return null;
   // The clinic's switch for this platform (Settings). The webhook skips such
   // a message before it gets here; this holds for any other caller.
   if (!(await metaPlatformOn(tx, input.platform))) return null;
@@ -897,19 +897,16 @@ export async function answerFrontDoor(
   const now = input.now ?? new Date();
   const thread: ThreadInput | null = input.thread ? { platform: input.platform, externalId: input.thread.externalId, senderId: input.thread.senderId, connectionId: input.thread.connectionId } : null;
 
-  if (thread) await touchMetaThread(tx, thread.platform, thread.senderId, now);
-  // Which conversation this message belongs to, and whether its reply is the first.
-  const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
-
+  // Everything up to the model's answer reads; nothing is written before it.
   let answer: Draft;
   let extracted: BookingFields | null = null;
   let deskNotice: CreatedBookingRequest | null = null;
   let wants = false;
   const screened = screenInbound(input.text);
   if (screened === "urgent") {
-    // Before the model, and instead of it: the fixed line, and the clinic's urgent alert.
+    // Before the model, and instead of it: the fixed line, and (below, with
+    // the writes) the clinic's urgent alert.
     answer = { text: urgentLine(facts), source: "urgent", guard: null, screened, booking: "none", greeted: false };
-    await notifyBookingAlert(tx, "urgent", {});
   } else if (screened === "clinical") {
     answer = { text: fallback, source: "handoff", guard: null, screened, booking: "none", greeted: false };
   } else if (!input.responder) {
@@ -928,6 +925,16 @@ export async function answerFrontDoor(
       answer = { text: fallback, source: "handoff", guard: "model error", screened: null, booking: "none", greeted: false };
     }
   }
+
+  // The writes, from here to the commit, with the clinic's row held
+  // (clinicHasLeft, FOR SHARE): an offboarding that started while the model
+  // ran is seen now, and leaves nothing written; one that starts from now
+  // waits for this transaction.
+  if (await clinicHasLeft(tx)) return null;
+  if (thread) await touchMetaThread(tx, thread.platform, thread.senderId, now);
+  // Which conversation this message belongs to, and whether its reply is the first.
+  const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
+  if (screened === "urgent") await notifyBookingAlert(tx, "urgent", {});
 
   // Only the model extracts booking fields, so a screened message never
   // reaches the draft or a request.

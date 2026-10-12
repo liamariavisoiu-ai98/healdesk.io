@@ -174,6 +174,53 @@ describeDb("a clinic that has left keeps nothing new", () => {
     expect(answer).toBeNull();
   });
 
+  test("the front door holds no lock on the clinic while the model runs, and writes nothing if the clinic left meanwhile", async () => {
+    // The verification of 3a6de11: clinicHasLeft's FOR SHARE was taken
+    // before the model call and held across it, so app_start_offboarding's
+    // FOR UPDATE, and every portal save, waited for the model.
+    const c = await liveClinic("left-model");
+    let blocked: unknown = null;
+    const responder = async () => {
+      // While the model runs, the clinic's offboarding starts and commits.
+      const other = await getMigratorPool().connect();
+      try {
+        await other.query("begin");
+        await other.query(`set local lock_timeout = '1s'`);
+        await other.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+        await other.query(`select * from app_start_offboarding($1::uuid, null)`, [c.clinicId]);
+        await other.query("commit");
+      } catch (error) {
+        blocked = error;
+        await other.query("rollback");
+      } finally {
+        other.release();
+      }
+      return JSON.stringify({ reply: "We're open weekdays 9 to 5.", booking: { wants: false } });
+    };
+    const answer = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      answerFrontDoor(tx, {
+        platform: "instagram",
+        text: "When are you open?",
+        responder,
+        thread: {
+          platform: "instagram",
+          externalId: "ig_page_left_model",
+          senderId: "ig_user_left_model",
+          connectionId: randomUUID(),
+        },
+      }),
+    );
+    // The offboarding didn't wait for the model, and the answer, seeing it,
+    // wrote nothing: no conversation opened for the message.
+    expect(blocked).toBeNull();
+    expect(answer).toBeNull();
+    const { rows } = await getMigratorPool().query(
+      `select 1 from chat_threads where clinic_id = $1`,
+      [c.clinicId],
+    );
+    expect(rows).toEqual([]);
+  });
+
   test("a booking platform's webhook for a clinic that has left is stored nowhere", async () => {
     const c = await liveClinic("left-webhook");
     await startOffboarding(c.clinicId);

@@ -50,7 +50,8 @@ import { inTenant, seedCalendarTerms, seedClinic, seedGoogleConnection } from ".
  * Ops alerts also reach the real notifyOps when a test sets `realOps`, to
  * see what its hourly dedupe lets through; and a location in `failTerms` has
  * a terms check that throws. The desk sweep (C12's sweepDeskWrites) runs for
- * real, its calls recorded, unless a test sets the answer it gives.
+ * real, its calls recorded, unless a test sets the answer it gives; so does
+ * C13's hold sweep.
  */
 const notices = vi.hoisted(() => ({
   realOps: false,
@@ -58,6 +59,10 @@ const notices = vi.hoisted(() => ({
   desk: {
     calls: [] as (Date | undefined)[],
     answer: null as null | import("@/lib/booking/calendar").DeskSweepResult,
+  },
+  holds: {
+    calls: [] as (Date | undefined)[],
+    answer: null as null | import("@/lib/booking/writer").HoldSweepResult,
   },
   calendar: [] as {
     clinicId: string;
@@ -121,6 +126,16 @@ vi.mock("@/lib/booking/calendar", async (importOriginal) => {
     sweepDeskWrites: async (options: Parameters<typeof actual.sweepDeskWrites>[0] = {}) => {
       notices.desk.calls.push(options.now);
       return notices.desk.answer ?? actual.sweepDeskWrites(options);
+    },
+  };
+});
+vi.mock("@/lib/booking/writer", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/booking/writer")>();
+  return {
+    ...actual,
+    sweepHolds: async (options: Parameters<typeof actual.sweepHolds>[0] = {}) => {
+      notices.holds.calls.push(options.now);
+      return notices.holds.answer ?? actual.sweepHolds(options);
     },
   };
 });
@@ -244,6 +259,8 @@ describeDb("the calendar watch", () => {
     notices.failTerms.clear();
     notices.desk.calls.length = 0;
     notices.desk.answer = null;
+    notices.holds.calls.length = 0;
+    notices.holds.answer = null;
     google = fakeGoogleCalendar();
     setGoogleFetch(google.fetch);
     resetGoogleTokenCache();
@@ -1105,6 +1122,62 @@ describeDb("the calendar watch", () => {
         status: "failed",
         note: expect.stringMatching(/1 location\(s\) unreadable/),
       });
+    },
+    SLOW,
+  );
+  test(
+    "every run settles the assistant's unsettled writes, once on the run's clock, and records what it did",
+    async () => {
+      await connectedLocation("watch-hold-sweep");
+      const now = new Date();
+      notices.holds.answer = {
+        lapsed: 1,
+        checked: 2,
+        confirmed: 1,
+        released: 1,
+        expired: 3,
+        errors: 0,
+      };
+
+      const summary = await watchCalendars({ now });
+      expect(notices.holds.calls).toEqual([now]);
+      expect(summary).toMatchObject({ holds: notices.holds.answer, failed: 0 });
+      const [event] = (await securityEvents("calendar_watch")).slice(-1);
+      expect(event).toMatchObject({
+        holdsLapsed: 1,
+        holdsChecked: 2,
+        holdsConfirmed: 1,
+        holdsReleased: 1,
+        holdsExpired: 3,
+      });
+      expect(event).not.toHaveProperty("holds");
+
+      await switchWatch(true);
+      expect(await runCalendarWatchJob({ now })).toMatchObject({
+        status: "ok",
+        note: expect.stringMatching(
+          /assistant holds: 1 lapsed, 2 read back \(1 confirmed, 1 let go\), 3 expired/,
+        ),
+      });
+    },
+    SLOW,
+  );
+
+  test(
+    "a hold sweep that could not read a location fails the run, and ops is told",
+    async () => {
+      await connectedLocation("watch-hold-unreadable");
+      notices.holds.answer = {
+        lapsed: 0,
+        checked: 0,
+        confirmed: 0,
+        released: 0,
+        expired: 0,
+        errors: 1,
+      };
+
+      expect(await watchCalendars()).toMatchObject({ failed: 1, ok: 1 });
+      expect(notices.ops).toEqual([{ event: "calendar_watch_failed", fields: { count: 1 } }]);
     },
     SLOW,
   );

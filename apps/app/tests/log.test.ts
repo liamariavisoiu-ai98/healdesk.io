@@ -1,3 +1,4 @@
+import { DrizzleQueryError } from "drizzle-orm";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { ALLOWED_LOG_KEYS, LogFieldError, describeError, log, scrub } from "@/lib/log";
@@ -138,5 +139,47 @@ describe("log", () => {
     const error = new Error("connect ECONNREFUSED for owner@clinic.test");
     expect(describeError(error)).toBe("Error: connect ECONNREFUSED for [email redacted]");
     expect(describeError("boom")).toBe("unknown error");
+  });
+
+  test("describeError gives the database's own error under drizzle's wrapper, never the query or its parameters", () => {
+    // drizzle-orm 0.45 puts the SQL and every bound value in its wrapper's
+    // message; the values here are the shapes a booking's own would take.
+    const query =
+      'update "booking_requests" set "status" = $1, "confirmed_for" = $2, "decided_by_label" = $3 where "booking_requests"."id" = $4';
+    const params = [
+      "confirmed",
+      "2026-10-15T14:00:00.000Z",
+      "assistant (direct booking)",
+      "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+    ];
+    const cause = Object.assign(
+      new Error('duplicate key value violates unique constraint "booking_requests_vendor_call_idx"'),
+      { name: "DatabaseError", code: "23505" },
+    );
+    const wrapped = new DrizzleQueryError(query, params, cause);
+    expect(wrapped.message).toContain("2026-10-15T14:00:00.000Z");
+
+    const described = describeError(wrapped);
+    expect(described).toBe(
+      'DatabaseError: duplicate key value violates unique constraint "booking_requests_vendor_call_idx"',
+    );
+    for (const leaked of ["Failed query", "params", 'update "booking_requests"', "2026-10-15", "direct booking"]) {
+      expect(described).not.toContain(leaked);
+    }
+
+    // With nothing under it (a pool timeout, a dropped socket): only that it failed.
+    expect(describeError(new DrizzleQueryError(query, params))).toBe(
+      "Error: query failed before the database answered",
+    );
+
+    // And through the logger, as every caller passes it.
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    log.error("assistant calendar write failed after the call moved on", {
+      error: describeError(wrapped),
+    });
+    const line = String(spy.mock.calls[0]![0]);
+    expect(line).not.toContain("2026-10-15");
+    expect(line).not.toContain("assistant (direct booking)");
+    expect(line).toContain("booking_requests_vendor_call_idx");
   });
 });

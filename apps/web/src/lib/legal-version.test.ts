@@ -9,9 +9,7 @@ import { describe, expect, test } from "vitest";
 
 import DataDeletionPage from "@/app/data-deletion/page";
 import PrivacyPage from "@/app/privacy/page";
-import SubprocessorsPage from "@/app/subprocessors/page";
 import TermsPage from "@/app/terms/page";
-import TrustPage from "@/app/trust/page";
 import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
 
 /**
@@ -22,6 +20,11 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  * moves whenever the text does, and on 1 October 2026 it did not: a4c8e7e
  * changed terms § 9 and /subprocessors and left the version alone, so two
  * different texts went out under one number.
+ *
+ * /subprocessors and /trust were pinned here too until 9 October 2026, when
+ * the owner retired them: the vendor list is no longer published, and /trust's
+ * content is the terms' closing annex, which this pin covers with the rest of
+ * the terms.
  *
  * So the text of each page is hashed and pinned here beside the version it
  * was published under. Change a page and its hash moves, and this fails until
@@ -48,21 +51,17 @@ const PINNED = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-07.3",
+  replaces: "2026-10-09.1",
   sha256: {
-    "/terms": "dce52b76e24e31aa6e75f36b00e33442b9335def4ee06174731cf219de71ec62",
-    "/privacy": "d2a602153d6779e2ec49246259aba9196ace16999368ebe1b3fa20f30e544590",
-    "/subprocessors": "fd5df59b5d16036300545efd9c648c8eb97e5ab69b8df97636c1535c2bf0c8f6",
-    "/trust": "3afd18cd5d363f861bca400dea22b94b952b069a2459f6cbeb82cfb9f5b52691",
-    "/data-deletion": "c176eca3132e36d15ee7924b829b7d8c70c30e655bb1a068606d10289b1531be",
+    "/terms": "056b9fced8d9ef06fdbf3ede68ae408196dff393b5cee9b0634fcafab557b114",
+    "/privacy": "73f99393d3cdf9292af61ed1732e9bb35a90dcf978f99cbbcad5f3e1dfe00c63",
+    "/data-deletion": "9b1c6df0b56d48387f37e67f3fc86c9a1b77faebdd6d598b76534ef202f65628",
   },
 } as const;
 
 const PAGES = [
   ["/terms", TermsPage],
   ["/privacy", PrivacyPage],
-  ["/subprocessors", SubprocessorsPage],
-  ["/trust", TrustPage],
   ["/data-deletion", DataDeletionPage],
 ] as const;
 

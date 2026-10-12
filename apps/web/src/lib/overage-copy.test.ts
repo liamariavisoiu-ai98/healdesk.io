@@ -7,17 +7,14 @@ import {
   overageBlockCents,
   type Plan,
   plans,
-  pricingCards,
 } from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
-import PricingPage from "@/app/pricing/page";
 import TermsPage from "@/app/terms/page";
 import type { AgreementResult } from "@/components/checkout/AgreementStep";
 import { ReviewStep } from "@/components/checkout/ReviewStep";
-import { PricingCards } from "@/components/PricingCards";
 import { siteReadLine } from "@/lib/checkout/site-read";
 import { VOICE_DEMO_PRICES } from "@/lib/voice-demo-prompt";
 
@@ -41,6 +38,12 @@ import { computeDesired, meteredPriceParams } from "../../scripts/stripe-setup";
  * creates: the block price is the metered price's `unit_amount`, and the block
  * size its `transform_quantity`, rounded up, which is what "started" means. A
  * change to the rates, the block or the wording on one side only fails here.
+ *
+ * The surfaces are Review and pay, the terms and the demo call's price list.
+ * The pricing page and its cards were the fourth until the owner disabled the
+ * page on 9 October 2026; packages and prices are shown in the buy flow now,
+ * and its package step quotes no overage, so Review and pay is where a buyer
+ * reads the block and its price before paying.
  */
 
 const text = (markup: string) =>
@@ -118,85 +121,49 @@ describe("the block Stripe bills is the block the catalog defines", () => {
   );
 });
 
-describe("the pricing cards show each package's block and its price", () => {
-  const markup = renderToStaticMarkup(h(PricingCards));
-  // One <h2> per card, in pricingCards' order, each card's text from its name on.
-  const cards = markup
-    .split("<h2")
-    .slice(1)
-    .map((card) => text(`<h2${card}`));
+const SIGNED: AgreementResult = {
+  agreementId: "6f1b0c9e-8f2a-4d31-9c77-1a2b3c4d5e6f",
+  version: "1.2.1",
+  hash: "a".repeat(64),
+  text: "HEALDESK BUSINESS ASSOCIATE AGREEMENT\n\n1. Definitions...",
+  acceptedAt: "2026-10-06T10:00:00.000Z",
+  approvedByCounsel: true,
+};
+const noop = () => undefined;
 
-  test("one card per pricing card, in order", () => {
-    expect(
-      cards.map((words) => pricingCards.find((card) => words.startsWith(card.name))?.id),
-    ).toEqual(pricingCards.map((card) => card.id));
-  });
-
-  test.each(pricingCards.map((card, i) => [card.name, card, i] as const))(
-    "%s",
-    (_name, card, i) => {
-      if (OVERAGE_RATES_PROVISIONAL) return;
-      const words = cards[i]!;
-      expect(words.startsWith(card.name)).toBe(true);
-      const row = words.slice(words.indexOf("After that"), words.indexOf("Locations"));
-      // A twin card sells two packages: both must bill what the one card says.
-      for (const id of card.planIds) {
-        const plan = getPlan(id)!;
-        const parts = said(
-          plan,
-          (price, meter) =>
-            `${price} per block of ${OVERAGE_BLOCK_UNITS} ${meter === "voiceMinutes" ? "minutes" : "conversations"}`,
-        );
-        expect(row.trim(), id).toBe(`After that ${parts.join(" · ")}, provisional`);
-      }
-    },
+/** Review and pay for one package and interval, read as text. */
+function reviewAndPay(plan: Plan, interval: "month" | "year"): string {
+  return text(
+    renderToStaticMarkup(
+      h(ReviewStep, {
+        plan,
+        interval,
+        specialty: "med-spa",
+        clinicName: "Glow Med Spa LLC",
+        siteRead: siteReadLine(null, "glowmedspa.com"),
+        salesTax: false,
+        agreement: SIGNED,
+        copyLink: h("a", { href: "#" }, "Download"),
+        termsAccepted: false,
+        onTerms: noop,
+        submitting: false,
+        error: null,
+        onPay: noop,
+        onBack: noop,
+      }),
+    ),
   );
+}
 
-  test("the footnote says a started block is billed whole", () => {
-    expect(text(markup)).toContain(
-      `Past the allowance you are billed for each started block of ${OVERAGE_BLOCK_UNITS} minutes or ${OVERAGE_BLOCK_UNITS} conversations`,
-    );
-  });
-});
+const EVERY_PACKAGE_AND_INTERVAL = plans.flatMap((plan) =>
+  (["month", "year"] as const).map((interval) => [plan.id, interval] as const),
+);
 
 describe("Review and pay states the package's own block prices", () => {
-  const SIGNED: AgreementResult = {
-    agreementId: "6f1b0c9e-8f2a-4d31-9c77-1a2b3c4d5e6f",
-    version: "1.2.1",
-    hash: "a".repeat(64),
-    text: "HEALDESK BUSINESS ASSOCIATE AGREEMENT\n\n1. Definitions...",
-    acceptedAt: "2026-10-06T10:00:00.000Z",
-    approvedByCounsel: true,
-  };
-  const noop = () => undefined;
-
-  test.each(
-    plans.flatMap((plan) =>
-      (["month", "year"] as const).map((interval) => [plan.id, interval] as const),
-    ),
-  )("%s %s", (id, interval) => {
+  test.each(EVERY_PACKAGE_AND_INTERVAL)("%s %s", (id, interval) => {
     if (OVERAGE_RATES_PROVISIONAL) return;
     const plan = getPlan(id)!;
-    const words = text(
-      renderToStaticMarkup(
-        h(ReviewStep, {
-          plan,
-          interval,
-          specialty: "med-spa",
-          clinicName: "Glow Med Spa LLC",
-          siteRead: siteReadLine(null, "glowmedspa.com"),
-          salesTax: false,
-          agreement: SIGNED,
-          copyLink: h("a", { href: "#" }, "Download"),
-          termsAccepted: false,
-          onTerms: noop,
-          submitting: false,
-          error: null,
-          onPay: noop,
-          onBack: noop,
-        }),
-      ),
-    );
+    const words = reviewAndPay(plan, interval);
     const line = words.slice(
       words.indexOf("Past that:"),
       words.indexOf("These rates are provisional"),
@@ -208,6 +175,11 @@ describe("Review and pay states the package's own block prices", () => {
     );
     const when = interval === "year" ? "invoiced monthly" : "on your next invoice";
     expect(line.trim()).toBe(`Past that: ${parts.join(" and ")}, ${when}.`);
+    // Provisional, said beside the price, as the pricing cards' ", provisional"
+    // said it until the cards went with /pricing (CLAUDE.md, "Claims and copy").
+    expect(words).toContain(
+      `${when}. These rates are provisional until we have measured what a minute and a conversation cost to serve.`,
+    );
   });
 });
 
@@ -305,10 +277,13 @@ describe("no surface quotes a per-unit rate", () => {
   });
 
   test.each([
-    ["the pricing page", () => text(renderToStaticMarkup(h(PricingPage)))],
     ["the terms", () => text(renderToStaticMarkup(h(TermsPage)))],
     ["the demo call's price list", () => VOICE_DEMO_PRICES.replace(/\s+/g, " ")],
   ] as const)("%s", (_name, words) => {
     expect(words()).not.toMatch(PER_UNIT);
+  });
+
+  test.each(EVERY_PACKAGE_AND_INTERVAL)("Review and pay, %s %s", (id, interval) => {
+    expect(reviewAndPay(getPlan(id)!, interval)).not.toMatch(PER_UNIT);
   });
 });

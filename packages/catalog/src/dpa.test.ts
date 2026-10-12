@@ -97,14 +97,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "bbbf78a01e8ab87a1002efb13731114c78516e7cef3c58dedeef884e060eb897",
-  notcovered_live_covered: "52120750cce9007c4d6eada1a8fbb023f023d18639cb209dee479de5e5a86c84",
-  notcovered_live_uncovered: "097d35333212acadcd8ebf75307c533fbdb08a7c56de97aa670a9c4d3fcebd17",
-  notcovered_live_personal: "f5c6cb05cf2ec4f8bc52762f2a65142abd533e7ba9aaa6d9a44bf4e706cb34ff",
-  notcovered_notused_other: "38c44a9f8ae0466e31108f36c08d312538b4fa5348a94354403c342720dbda74",
-  vet_live_covered: "4ceb26f8428abde32e2aa4d5b302bc9f911e827639b634449e21ccb529d39c3c",
-  vet_live_personal: "2fcec88b63e130c00c3f6af60a93fcb69e07c57a2f96af5965a2336c8e352923",
-  vet_notused_mindbody: "efde0436f457d7868b9c5907b6db2f03d9a7c46f742694fe3594ad22590f7ce2",
+  sample: "10b6feef5a2218d8c3fe625b9f3cb5bff3b2f40744a5ce03179d7c5ce79662de",
+  notcovered_live_covered: "90a48c419c6f4b411df4feef900f2e13f8b228f4c5899a529fb6d5b9f8446a7f",
+  notcovered_live_uncovered: "4fde981e73606b52af2a0f39af26931850e0e8c34be87781a54ac74e95897cc8",
+  notcovered_live_personal: "5f4f2331ad1030c285acce87908320faa8bca118fa486cebcb31ecf0850a8e7e",
+  notcovered_notused_other: "2c745b572696f1f29063eec51dce36e479cfddcdb8fa6ea21b04d0b5e74c7e53",
+  vet_live_covered: "2284042eb8df86bc096fe4390068041ef294e5c65be00dbc5f15101b3ca9788a",
+  vet_live_personal: "29a9d00ce132092fe3b0530d63cf18ac0f251332328a5c43b23c21cfb46f7fc3",
+  vet_notused_mindbody: "a12e3426f2a821545117c29c98af5dea82c4d485659414a8b1e75fd434c35874",
 };
 
 const template = () => currentDpaTemplate();
@@ -584,8 +584,11 @@ describe("what the DPA says", () => {
   test("names the party, notice address and Delaware law the BAA names", () => {
     const text = unwrap(render({}).text);
     expect(text).toContain(
-      'Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk"), of 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to legal@healdesk.io',
+      'Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates ("healdesk"), of 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to hello@healdesk.io',
     );
+    // hello@ is healdesk's only email address (owner, 9 October 2026), as BAA 1.2.2 prints it.
+    expect(text).not.toMatch(/legal@|privacy@/);
+    expect(text).toContain("To healdesk: 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States, and by email to hello@healdesk.io.");
     expect(text).toContain("governed by the laws of the State of Delaware");
     expect(text).toContain(
       "the email address of the signatory above, which is also the address of Practice's healdesk account",
@@ -645,14 +648,15 @@ describe("the DPA's pre-release text", () => {
     );
   });
 
-  test("every incident and breach is notified immediately, and within 24 hours, as BAA 1.3.0's one rule", () => {
+  test("every incident and breach is notified without unreasonable delay and within 60 calendar days, as BAA 1.3.0's one rule", () => {
     for (const answers of Object.values(VARIANTS)) {
       const incidents = unwrap(section(render(answers).text, "Reporting incidents and breaches"));
+      // The spec's wording, one deadline for all three (owner, 9 October 2026).
       expect(incidents).toContain(
-        "healdesk will notify Practice, by email to Practice's address in the Notices clause, immediately following discovery of any of the following, and in any case within 24 hours of discovery: a. any use or disclosure of Client Information that this agreement does not permit, by healdesk or by a subcontractor; b. any breach; c. any security incident, including anything a state breach-notification law treats as a breach of the security of Client Information.",
+        "healdesk will notify Practice, by email to Practice's address in the Notices clause, of any of the following without unreasonable delay and in no case later than 60 calendar days after discovery: a. any use or disclosure of Client Information that this agreement does not permit, by healdesk or by a subcontractor; b. any breach; c. any security incident, including anything a state breach-notification law treats as a breach of the security of Client Information.",
       );
-      // No other clock: not 1.2.1's five days for anything.
-      expect(incidents).not.toMatch(/five (business|calendar) days|5 days/);
+      // No other clock: not 1.2.1's five days, and not the internal 24 hours.
+      expect(incidents).not.toMatch(/five (business|calendar) days|5 days|24 hours|twenty-four|immediately/i);
       expect(incidents).toContain(
         "Each notice is also a written report, sent to the same address and as complete as healdesk can then make it, and healdesk will add to the report promptly as information becomes available.",
       );

@@ -7,7 +7,7 @@ import { track, type EventName } from "@/lib/analytics";
 /**
  * Fire one funnel event when a page mounts. Renders nothing.
  *
- * Exists so server components (the pricing page, the contact page) can emit
+ * Exists so server components (the contact page) can emit
  * a view event without becoming client components themselves.
  */
 export function TrackView({

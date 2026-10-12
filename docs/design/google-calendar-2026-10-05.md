@@ -30,8 +30,8 @@ the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
 | C10     | The five-minute calendar watch                                                                     | Built, ships off; one email deferred (below)   |
 | C11     | Privacy §11 and `/data-deletion` say what the code does                                            | To build                                       |
 | C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | Built (568a56d)                                |
-| C13     | The booking engine (§6); HRC-04 at each write (§4)                                                 | To build                                       |
-| C14     | The harness wired to the engine, and the fixed lines                                               | To build                                       |
+| C13     | The booking engine (§6); HRC-04 at each write (§4)                                                 | Built; its alerts are §6's                     |
+| C14     | The harness wired to the engine, and the fixed lines                                               | Built; the demo clinic only                    |
 | C15     | Provisioning reads the signed acceptance                                                           | Built                                          |
 | C17     | The console's cards; `setBookingMode` and `directBookingAllowed` removed                           | Built                                          |
 | C18     | Elections and account changes from the portal (§2)                                                 | Built                                          |
@@ -561,13 +561,13 @@ lines.
   (`apps/web/src/lib/integrations.ts`) matches `BOOKING_SYSTEMS`; C19 adds a test holding them
   together.
 - **The runtime.** Bookings are written only through `lib/booking/engine.ts` (C13): `offerTimes`,
-  `placeHold`, `bookConversation`, `logRequest` and `ensureDeskNotified`. Google is never called
-  inside a database transaction. `offerTimes` follows `canOfferTimes`, not the mode (plan §8.1,
-  over §7.4's "manual mode" comment): a clinic with Auto-confirm off, or still in setup
-  (`not_production`, `agent_not_approved`), is offered real free times once its terms allow
-  writing and its calendar is healthy, and the time chosen becomes a request. The funnel's "Talk
-  to your AYA" preview, whose dry tools hold and write nothing, calls `offerTimes` only, never
-  `placeHold`, `bookConversation` or `logRequest`. The keys:
+  `placeHold`, `bookConversation` and `logRequest`, below. Google is never called inside a database
+  transaction. `offerTimes` follows `canOfferTimes`, not the mode (plan §8.1, over §7.4's "manual
+  mode" comment): a clinic with Auto-confirm off, or still in setup (`not_production`,
+  `agent_not_approved`), is offered real free times once its terms allow writing and its calendar
+  is healthy, and the time chosen becomes a request. The funnel's "Talk to your AYA" preview, whose
+  dry tools hold and write nothing, calls `offerTimes` only, never `placeHold`, `bookConversation`
+  or `logRequest`. The keys:
 
 | Channel                              | `holderKey`              | `bookingKey`                                                                        |
 | ------------------------------------ | ------------------------ | ----------------------------------------------------------------------------------- |
@@ -577,8 +577,116 @@ lines.
 | Synthflow harness, demo clinics only | `voice:<call_id>`        | `<call_id>`                                                                         |
 
 The Retell process links its post-call record by its key prefix. Until Retell, the Synthflow routes
-are a test harness: for any clinic that is not a demo clinic, `slots`, `hold` and `book` answer 403
-`manual_booking`.
+are a test harness (C14, `lib/voice/tools.ts`): for any clinic that is not a demo clinic, `slots`,
+`hold` and `book` answer 403 `manual_booking`, and `request` answers 403 `not_available`, synthetic
+clinics in setup included. A request logged in the call raises only a booking alert, which reaches
+nobody before M5, and the post-call record would then link it and mail nobody; so such a clinic's
+requests reach its desk only through the Synthflow post-call webhook, which writes the request and
+mails the desk (`notifyDesk`). The plan's §7.13 table sent a synthetic clinic's request to
+`logRequest`; the coordinator chose otherwise on 12 October, so that a forwarding test call at a
+clinic still in setup reaches someone. Only the demo clinic reaches the engine.
+
+**What the Retell process takes from the harness** (C14): the rules the harness follows that the
+process must follow too, calling the same functions rather than copying them.
+
+- **Keys.** Its own, from the table: holder `retell:<call_id>`, booking key
+  `retell:<call_id>:<n>`.
+- **The post-call record.** `ingestCall` links every request the engine logged on the call to the
+  conversation, oldest first, matched by the exact call id (the harness's key) or by the prefix
+  `retell:<externalCallId>:`, with `starts_with` (a call id's underscores are LIKE wildcards). The
+  call id in the post-call payload must therefore be the raw id inside the keys.
+  `IngestResult.bookingRequestId` is the first of them. It creates no second request and mails
+  nothing for them: there is no post-call notify step, as every alert was raised when its request
+  was committed.
+- **The gate.** `voiceAnswerDecision`, outside any transaction, before `offerTimes` and before
+  `placeHold`, and passed to `bookConversation` as `gate`, which asks it after the replay (§9, item
+  13). Taking a request does not ask it: a request is what a refused call with no direct line falls
+  back to.
+- **One booking a call (the harness).** Its booking key is the call id, so before offering or
+  holding a time it asks `keyReusedFor`, and a call that has booked or passed a request hears the
+  one-per-call line rather than choose a time that could only end in `key_reused`. Retell's n grows
+  for each booking the caller asks for, so the process has no such limit.
+- **Times.** `voiceOffer` chooses at most three (plan §6.4): the earliest on each of the first three
+  days, or, with fewer days (a day the caller named), spread across each. A named `day` is
+  `YYYY-MM-DD` and `from` a date or an ISO time with its offset, both read on the clinic's clock;
+  `at` is an ISO time with its offset, as offered. Anything else is refused, never read on the
+  server's clock. The alternatives of a `slot_taken` carry the `provider_id` asked for.
+- **Lines.** Every answer is a fixed line from `lib/booking/lines.ts`, said as written:
+  `BOOKED_LINE` with `{when}` on the clinic's clock and the clinic's own service name, `HOLD_LINE`,
+  `slotGoneLine`, `REQUEST_TAKEN_LINE`, `DEPOSIT_HOLD_LINE`, `DEPOSIT_REQUEST_LINE`, the two
+  one-per-call lines, `IN_PROGRESS_LINE`, `NO_FREE_TIME_LINE` (nothing free on a day or after a time
+  the caller named; nothing free in the whole offer is `MANUAL_BOOKING_LINE`, and a request),
+  `MISSING_DETAIL_LINES`, and `TOOL_FAILURE_LINE` when Google does not answer or an engine call
+  throws, with the tool's audit row saying `error`. A deposit is said with `depositLine`, scope
+  `booking`; a call is never sent a link. `IN_PROGRESS_LINE`, `NO_FREE_TIME_LINE` and
+  `MISSING_DETAIL_LINES` were worded in C14, not by the plan, and wait for the owner's review.
+- **The budget.** The harness waits 8 seconds for Google (`BOOK_CALENDAR_BUDGET_MS`); a write still
+  in flight then is answered as a request and records its own outcome.
+
+**The engine API the Retell process calls** (C13; `holderKey` and `bookingKey` as in the table):
+
+```ts
+offerTimes(clinicId, { channel, holderKey, from?, day?, service?, providerId?, now?, actor? })
+  -> { status: "ok"; timeZone; serviceMinutes; canonicalService;
+       slots: { at: Date; providerId: string | null }[] }
+   | { status: "request_only"; reasons: string[] }   // the mode's codes, deposit_required…
+   | { status: "unavailable" }                       // Google did not answer; nothing changed
+placeHold(clinicId, { channel, holderKey, startsAt, service, providerId?, contactId?, now?,
+    actor? })
+  -> { kind: "held"; holdId; expiresAt; startsAt; minutes; providerId }
+   | { kind: "slot_taken"; alternatives: Date[] } | { kind: "request_only"; reasons: string[] }
+   | { kind: "in_progress" }                         // this caller's last write is still unsettled
+   | { kind: "unavailable" }
+bookConversation(clinicId, { channel: "voice", holderKey, bookingKey, startsAt, firstName,
+    phoneE164, service, fields?, providerId?, budgetMs, now?, actor?, gate? })
+  -> { kind: "booked"; startsAt; minutes; canonicalService; providerId; replayed;
+       deposit: { action; amountUsd } | null }       // for depositLine; a call is never sent a link
+   | { kind: "request_logged"; reason; modeReasons?; replayed; deposit }
+   | { kind: "slot_taken"; alternatives: Date[] } | { kind: "in_progress" }
+   | { kind: "key_reused"; first: "booked" | "request_logged"; firstStartsAt? }
+   | { kind: "unavailable" } | { kind: "refused" }   // refused: B's gate, passed as `gate`
+   | { kind: "invalid"; field: "first_name" | "at" | "phone" | "preferred_window" }
+logRequest(clinicId, { channel: "voice", holderKey, bookingKey, firstName, phoneE164,
+    preferredWindow, alternativeWindows?, service, fields?, now?, actor? })
+  -> { kind: "request_logged"; replayed } | { kind: "key_reused"; first; firstStartsAt? }
+   | { kind: "invalid"; field: "first_name" | "phone" | "preferred_window" }
+keyReusedFor(tx, bookingKey)                         // C14; inside the caller's tenant transaction
+  -> { kind: "key_reused"; first; firstStartsAt? } | null
+```
+
+`request_logged`'s `reason` is one of `manual` (with the mode's `modeReasons`), `deposit_required`,
+`deposit_hold`, `calendar_broken`, `calendar_not_permitted`, `opening_hours_unknown`,
+`timezone_unconfirmed`, `provider_unavailable`, `unconfirmed`, `budget`, `write_refused`,
+`record_conflict`, `requested` or `already_logged`. A booking that names no provider books the
+provider of the caller's own live hold at that time, if it is on one. B's `voiceAnswerDecision` is
+asked before `offerTimes` and `placeHold`, and passed to `bookConversation` as `gate`, which asks it
+after the replay (§9, item 13). There is no `ensureDeskNotified`, and nothing for the post-call
+record to make sure of: every alert is raised inside the transaction that commits what it reports,
+so a process that dies leaves no committed request untold, and no desk link is mailed or re-issued
+(§9, item 11).
+
+**The engine's alerts** (`notifyBookingAlert`, ids only; agreed with the funnel on 12 October; one
+alert per event, the most specific), each raised inside the transaction that commits what it
+reports:
+
+- **`booking_request` (L7) `{ bookingRequestId }`:** a request logged in the call, for manual mode,
+  a calendar problem, a write not permitted, refused or broken, or the caller asking for one; and
+  the caller answered with a request while the write is still in flight (the budget ran out), once,
+  retries included.
+- **`deposit_to_collect` (L10), D's `recordDepositOutcome`:** a deposit flagged on a booking, or a
+  time reserved for one; and, instead of L7, a request logged because a call cannot take a deposit
+  ("Book by phone without a deposit" off), `{ bookingRequestId }`.
+- **`calendar_check` (L34) `{ bookingRequestId }`:** the write unconfirmed; a write in flight let
+  go (`releaseLiveHolds`) or lapsed (the watch); a write that reached Google after its time was
+  retaken or its request decided; the watch giving up on one it could not settle.
+- **None:** a booking written, now or found later by the watch (Annex X6; the request reads as
+  confirmed and the daily summary lists it); a second booking asked for under a key that has one.
+
+A caller answered with a request while the write was in flight gets no second alert from that
+write: the hold carries `answered_as_request`, read under its row lock by every step that settles
+it, and a booking that lands is labelled "confirmed after the call", which is what staff calling
+back see. Staff confirming a deposit reservation get its service's own deposit, with no second
+L10. The Meta front door and the Synthflow post-call record keep `notifyDesk` until M5.
 
 ## 7. Dropped from this build: C4 and C16
 
@@ -712,10 +820,13 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
     number, times and service, which the v1 portal rules in CLAUDE.md do not allow. So desk-token
     links do not carry into v1 for real patients: C12 makes its desk-path changes in
     `decideBookingRequest`'s core rather than in the token page, and C12 and C13 mail no desk token
-    and re-issue none (no `app_reissue_undelivered_booking_token`). Which booking-alert kind, if
-    any, each of the plan's `notifyDesk` variants (`fyi_direct`, `calendar_unconfirmed`,
-    `late_write_confirmed`, `deposit_hold`) and link-free notices (`second_ask`,
-    `calendar_conflict`) becomes is to be agreed before C12.
+    and re-issue none (no `app_reissue_undelivered_booking_token`). Settled with the funnel on 12
+    October, for C13: the plan's `notifyDesk` variants and link-free notices became booking alerts,
+    raised inside the transaction that commits what each reports (§6, "The engine's alerts"):
+    `fyi_direct` and `late_write_confirmed` none, `deposit_hold` D's L10, `calendar_unconfirmed`
+    and `calendar_conflict` the one new kind `calendar_check` (L34, added to `BookingAlertKind`;
+    its template and copy are M5's), `second_ask` none. The plan's owed-notice sweep and
+    `ensureDeskNotified` are not built: nothing commits without its alert.
 12. **Voice deposits (C13, with D).** With "Book by phone without a deposit" off, D declines a
     deposit-required voice booking whatever "When a deposit cannot be collected" says, following
     the spec's row for the phone switch ("routes to staff instead"). The plan (§7.6) and the Stripe

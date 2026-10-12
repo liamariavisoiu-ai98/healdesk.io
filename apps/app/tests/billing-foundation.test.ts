@@ -489,7 +489,7 @@ describeDb("billing foundation", () => {
       });
       expect(row.first_paid_at?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
 
-      // Bought Complete, billed as Web Chatbot, started: channels follow what
+      // Bought Complete, billed as AYA Web Chat, started: channels follow what
       // was bought, and the window opens from the start through
       // allowanceWindow (an annual plan's first month).
       const started = await seedClinic("fixtures-started");

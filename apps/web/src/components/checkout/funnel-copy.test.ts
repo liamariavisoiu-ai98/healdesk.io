@@ -458,8 +458,8 @@ describe("the clinic step", () => {
   test("no website: the phone first, then the Meta bot with its condition", () => {
     const words = text(clinicStep(answered({ noWebsite: true })));
     expect(words).toContain("Website chat needs a website");
-    const phone = words.indexOf("AI Voice Agent Alone");
-    const meta = words.indexOf("Meta Chatbot");
+    const phone = words.indexOf("AYA Voice");
+    const meta = words.indexOf("AYA Meta Chat");
     expect(phone).toBeGreaterThan(0);
     expect(meta).toBeGreaterThan(phone);
     expect(words).toContain("whose patients already message it on Instagram, Facebook or WhatsApp");
@@ -482,7 +482,7 @@ describe("the clinic step", () => {
     }
     expect(monthly).not.toContain("billed annually");
     // The review's own example: the phone alone, on annual terms.
-    expect(annual).toContain("AI Voice Agent Alone: $637/mo billed annually + $997 setup fee");
+    expect(annual).toContain("AYA Voice: $637/mo billed annually + $997 setup fee");
   });
 });
 

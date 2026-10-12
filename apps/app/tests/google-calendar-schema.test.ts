@@ -896,7 +896,7 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
         `insert into baa_acceptances
          (id, organization_id, document_version, document_hash, rendered_text, variables,
           assent_label, accepted_by_name, accepted_by_email, accepted_at)
-       values ($1, null, '1.2.1', repeat('e', 64), 'BAA (synthetic)', '{"clinicLegalName":"Radiance"}'::jsonb,
+       values ($1, null, '1.2.2', repeat('e', 64), 'BAA (synthetic)', '{"clinicLegalName":"Radiance"}'::jsonb,
                'I agree', 'Alex Chen', 'alex@radiance.test', now() + interval '1 second')`,
         [superseding],
       );

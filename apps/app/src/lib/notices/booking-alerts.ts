@@ -21,7 +21,13 @@ export type BookingAlertKind =
   /** L12: the urgent matcher fired. Critical. */
   | "urgent"
   /** L20: a message left on the website's contact form while chat was off or paused. */
-  | "website_message";
+  | "website_message"
+  /**
+   * L34: a booking the assistant made may not be in the calendar (the write
+   * was never confirmed, or a later desk decision won); staff check it in
+   * Bookings. Sent at once, at any hour.
+   */
+  | "calendar_check";
 
 /** What the alert points at. Ids only: the portal shows the rest behind sign-in and step-up. */
 export type BookingAlertRef = {

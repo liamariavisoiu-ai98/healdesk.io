@@ -27,7 +27,7 @@ import { site } from "@/lib/site";
  *
  * The homepage's argument is the live demo, and until now it had no path to
  * checkout at all. AYA's own prompt told her to point at a button that only
- * exists on /pricing. A prospect she had just convinced had to find the footer,
+ * existed on /pricing (retired 9 October 2026). A prospect she had just convinced had to find the footer,
  * open another page, and start again. That is the widest leak in the funnel,
  * and it is a routing problem rather than a persuasion one.
  *
@@ -287,11 +287,20 @@ export function BuyButton({
   label = site.cta.primary.label,
   prefill,
   variant = "solid",
+  size = "px-5 py-2.5 text-sm",
 }: {
   className?: string;
   label?: string;
   prefill?: BuyPrefill;
   variant?: "solid" | "quiet";
+  /**
+   * Padding and type size. Replaces the default rather than adding to it: a
+   * caller's `px-6` appended beside the default `px-5` left the winner to the
+   * order Tailwind emitted the two, so the hero's buttons came out at
+   * whatever size that happened to be. Pass "" to size the button entirely
+   * from `className`.
+   */
+  size?: string;
 }) {
   const buy = useBuy();
 
@@ -304,7 +313,8 @@ export function BuyButton({
       : "border-line-strong text-ink hover:border-ink border-[1.5px] bg-white";
 
   const classes = [
-    "inline-flex items-center justify-center gap-2 rounded-[6px] px-5 py-2.5 text-sm font-semibold transition-colors duration-200",
+    "inline-flex items-center justify-center gap-2 rounded-[6px] font-semibold transition-colors duration-200",
+    size,
     styles,
     className,
   ].join(" ");

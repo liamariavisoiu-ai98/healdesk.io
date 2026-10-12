@@ -52,7 +52,8 @@ export const metadata: Metadata = {
  * `Attribution`, `HowItWorks`, `LeakCalculator` and `SpecialtyStrip` sat
  * unrendered in src/components for two weeks and were deleted on 23 September
  * 2026; the booked → showed → collected chain they carried is in git history
- * if it comes back. `WhyGoSmart` moved to /why-wait. `CTA` closes /pricing.
+ * if it comes back. `WhyGoSmart` moved to /why-wait. `CTA`, which closed
+ * /pricing, went with that page on 9 October 2026.
  */
 export default function HomePage() {
   return (

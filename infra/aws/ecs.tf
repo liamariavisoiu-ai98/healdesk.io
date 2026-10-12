@@ -206,6 +206,41 @@ locals {
     }
   })
 
+  # A leaving clinic's return bundle (docs/handover.md, "Retention and
+  # offboarding", step 2), written to the export bucket (exports.tf) because
+  # this task's disk goes with it. Run only from a terminal
+  # (infra/aws/scripts/run-task.sh patient-export <clinic id> "<who asked>"),
+  # which passes the clinic, who asked and the object key as environment
+  # overrides: an id, a label and a key, none of them secret or a patient's.
+  # It gets the runtime role's URL and nothing else secret, and the export
+  # task's role, which may put a bundle in the bucket and do nothing more:
+  # not the app task role, so it cannot open a clinic's credentials.
+  patient_export_container = {
+    name             = "app"
+    image            = local.app_image
+    essential        = true
+    command          = ["node", "--import", "tsx", "scripts/patient-export.ts"]
+    workingDirectory = "/repo/apps/app"
+
+    environment = [
+      { name = "AWS_REGION", value = var.region },
+      { name = "HEALDESK_EXPORT_BUCKET", value = local.export_bucket },
+      { name = "NODE_ENV", value = "production" },
+      { name = "NODE_EXTRA_CA_CERTS", value = local.rds_ca_bundle },
+    ]
+    secrets = [{ name = "DATABASE_URL", valueFrom = local.app_secret_arns["DATABASE_URL"] }]
+
+    linuxParameters = { initProcessEnabled = true }
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = merge(local.log_driver_options, {
+        awslogs-group         = aws_cloudwatch_log_group.app["patient-export"].name
+        awslogs-stream-prefix = "patient-export"
+      })
+    }
+  }
+
   # Migrations then the queue install, as healdesk_migrator, before every
   # service update. It gets the migrator URL and nothing else: no app
   # secrets, no KMS settings, no task role. npm keeps its cache and logs under
@@ -353,6 +388,25 @@ resource "aws_ecs_task_definition" "worker" {
   }
 
   #checkov:skip=CKV_AWS_336:tsx compiles the worker at start and writes its cache and IPC pipe under /tmp; a read-only root needs a writable /tmp mount the image does not provide yet. The image runs as a non-root user.
+}
+
+resource "aws_ecs_task_definition" "patient_export" {
+  family                   = local.task_families.patient_export
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "512"
+  memory                   = "2048"
+  execution_role_arn       = aws_iam_role.ecs_execution.arn
+  task_role_arn            = aws_iam_role.export_task.arn
+
+  container_definitions = jsonencode([local.patient_export_container])
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+
+  #checkov:skip=CKV_AWS_336:tsx compiles the script at start and writes its cache under /tmp, as the worker does; a read-only root needs a writable /tmp mount the image does not provide yet. It runs once, by hand, as a non-root user.
 }
 
 resource "aws_ecs_task_definition" "migrate" {

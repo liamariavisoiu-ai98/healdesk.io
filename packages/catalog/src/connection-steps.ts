@@ -77,8 +77,13 @@ export type ConnectionGuide = {
   verified: boolean;
 };
 
-/** The address a clinic adds as our read-only user. */
-export const CONNECT_EMAIL_TEMPLATE = "connect+{slug}@healdesk.io";
+/**
+ * The address a clinic adds as our read-only user: a plus-address on
+ * hello@healdesk.io, healdesk's only email address (owner, 9 October 2026), so
+ * the platform's invitation reaches the one inbox with the clinic's slug on
+ * it. Phase two: the read-back is fenced out of v1.
+ */
+export const CONNECT_EMAIL_TEMPLATE = "hello+{slug}@healdesk.io";
 
 export function connectEmailFor(clinicSlug: string): string {
   return CONNECT_EMAIL_TEMPLATE.replace("{slug}", clinicSlug);

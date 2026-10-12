@@ -28,12 +28,9 @@ describe("sitemap()", () => {
   it("lists exactly the public pages, as absolute URLs", () => {
     expect(sitemap().map((entry) => entry.url)).toEqual([
       "https://healdesk.io/",
-      "https://healdesk.io/pricing",
       "https://healdesk.io/contact",
       "https://healdesk.io/privacy",
       "https://healdesk.io/terms",
-      "https://healdesk.io/subprocessors",
-      "https://healdesk.io/trust",
       "https://healdesk.io/why-wait",
       "https://healdesk.io/data-deletion",
     ]);

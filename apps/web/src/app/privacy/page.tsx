@@ -1,12 +1,17 @@
+import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
 import { CookieChoice } from "@/components/analytics/CookieChoice";
 import { CALL_CONSENT, CONSENT_NOTICE_VERSION, MARKETING_CONSENT_LABEL, DEMO_ACCESS_DAYS } from "@/lib/consent";
+import { DEMO_LIFETIME_MS, DEMO_RETENTION_AFTER_EXPIRY_DAYS } from "@/lib/demo/sessions";
 import { GATE_COOKIE } from "@/lib/gate";
 import { ENTITY, POLICY, entityDisplayName } from "@/lib/legal";
 import { site } from "@/lib/site";
-import { SUBPROCESSORS } from "@/lib/subprocessors";
+import { PROCESSOR_CATEGORIES, WEBSITE_PROCESSING } from "@/lib/subprocessors";
+
+/** A personalised demo's week, in days, as lib/demo/sessions.ts counts it. */
+const DEMO_LIFETIME_DAYS = DEMO_LIFETIME_MS / (24 * 60 * 60 * 1000);
 
 export const metadata: Metadata = {
   alternates: { canonical: "/privacy" },
@@ -27,8 +32,8 @@ export const metadata: Metadata = {
  *
  * Every concrete fact is imported from the module that owns it — the cookie
  * name from src/lib/gate.ts, the consent wording from src/lib/consent.ts, the
- * vendors from src/lib/subprocessors.ts — so the policy cannot describe a
- * site that no longer exists. The rule for the prose is the same: a sentence
+ * kinds of vendor from src/lib/subprocessors.ts — so the policy cannot
+ * describe a site that no longer exists. The rule for the prose is the same: a sentence
  * may describe only something the code does today. Two adversarial reviews
  * removed every sentence that described a feature we meant to build.
  *
@@ -46,6 +51,21 @@ export const metadata: Metadata = {
  * wording docs/counsel/agreement-changes.md § 8 gives for sections 1, 9 and
  * 12, and section 9's claims about the product cut back to what is decided.
  *
+ * Revised to the owner's decisions of 9 October 2026 (LEGAL_VERSION
+ * 2026-10-09.1). No vendor of ours is named: section 5 describes each kind of
+ * vendor by what it does (src/lib/subprocessors.ts, WEBSITE_PROCESSING), the
+ * prose elsewhere says "our AI model provider" and the like, and the list of
+ * the subcontractors that handle patient information is given to clinics on
+ * request under the Business Associate Agreement. Google and Meta are still
+ * named, as the platforms a clinic connects and whose app reviews read
+ * sections 11 to 13. hello@healdesk.io is the one address. Section 9's breach
+ * clock is the spec's (without unreasonable delay and in no case later than
+ * 60 calendar days after discovery), and sections 6 and 12 say that transcripts are
+ * deleted automatically after 90 days, or sooner if the clinic chooses. The
+ * same version adds section 2's "If you ask for your own demo", for the
+ * homepage's "See it in your own branding" (api/own-demo), and the number a
+ * personalised demo's "Call us" keeps, which shipped without a line here.
+ *
  * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
  * (release gate 12, agreement-changes.md § 12.14):
  *   - section 14 is the public commitment 1.3.0's clause headed "healdesk's
@@ -56,16 +76,13 @@ export const metadata: Metadata = {
  *     calendar names it reads so the clinic can choose; the three things
  *     Google's permission reaches that healdesk neither reads nor stores; and
  *     when the stored connection is deleted;
- *   - section 9's breach clock is the one the owner decided on 12 October
- *     2026, in 2acc070's words: "without unreasonable delay and in no case
- *     later than 60 calendar days after discovery", where it said five
- *     calendar days. The 24 hours apps/app's incident deadline keeps is an
- *     internal operating target, and no public page promises it. Section 9
- *     also says a vendor signs before patient information reaches it, as a
- *     promise rather than a statement of fact.
+ *   - section 9 says a vendor signs before patient information reaches it, as
+ *     1.3.0's Subcontractors clause does, a promise rather than a statement
+ *     of fact. Its breach clock stays the 9 October wording: the 24 hours
+ *     apps/app's incident deadline keeps is an internal operating target, and
+ *     no public page promises it.
  */
 export default function PrivacyPage() {
-  const marketingVendors = SUBPROCESSORS.filter((s) => s.scope !== "product");
   return (
     <LegalPage
       title="Privacy policy"
@@ -110,7 +127,7 @@ export default function PrivacyPage() {
             personal domain, which specialty's demo you opened, the campaign code if you arrived
             from an email we sent, the site that referred you (the site name only, never the full
             link), the dates you first and last unlocked the demo, and which steps of this site
-            you reached afterwards (for example "viewed pricing", "started checkout"), recorded
+            you reached afterwards (for example "started checkout", "completed payment"), recorded
             against your record so we know what worked. We do not email you a transcript, and we
             do not email you about the product unless you tick the box below.
           </li>
@@ -123,20 +140,20 @@ export default function PrivacyPage() {
             the product. Unlocking the demo is not consent to marketing.
           </li>
           <li>
-            <strong>What you type into the demo.</strong> Your messages are sent to Anthropic, our
-            language model provider, to generate a reply, together with the public service
-            information of the specialty being demonstrated. We do not store the conversation on
+            <strong>What you type into the demo.</strong> Your messages are sent to our AI model
+            provider to generate a reply, together with the public service information of the
+            specialty being demonstrated. We do not store the conversation on
             our servers, during or after it. Do not put anyone's health information into the demo;
             it is a demonstration for clinic staff, not a patient channel.
           </li>
           <li>
             <strong>Your phone number, if you ask {site.agent} to call you.</strong> Only when you
             tick a separate box reading: <em>"{CALL_CONSENT.text}"</em>. {CALL_CONSENT.note} The
-            call is placed by Retell, the voice platform that runs this demo call, on a separate
-            agent from the product&apos;s own voice agent, which never calls anyone. Retell passes
-            your number, the first name you gave and the specialty you were viewing to the agent,
-            and runs the conversation on Anthropic&apos;s Claude model. Neither we nor Retell keep a
-            recording or a transcript of the call. The number, the exact wording you agreed to, its
+            call is placed by our voice provider, on a separate agent from the product&apos;s own
+            voice agent, which never calls anyone. The voice provider passes your number, the
+            first name you gave and the specialty you were viewing to the agent, and runs the
+            conversation on our AI model provider&apos;s model. Neither we nor the voice provider
+            keep a recording or a transcript of the call. The number, the exact wording you agreed to, its
             version, the time and your IP address are stored as the consent record
             for {POLICY.callConsentRetentionYears} years — the period in which a call could be
             disputed — and are used for nothing else.
@@ -145,10 +162,10 @@ export default function PrivacyPage() {
             {/* Added 7 Oct 2026 (LEGAL_VERSION 2026-10-07.3): the demo line on
                 the site, and the setup link AYA emails when an owner says yes. */}
             <strong>If you call {site.agent}&apos;s demo line.</strong> When you dial{" "}
-            {site.demoLine.display}, Retell receives your number and the call&apos;s audio while it
-            is live, and {site.agent} runs on Anthropic&apos;s Claude model, as above. Neither we nor
-            Retell keep a recording or a transcript of the call, we do not keep your number, and the
-            line is never used to call you back.
+            {site.demoLine.display}, our voice provider receives your number and the call&apos;s
+            audio while it is live, and {site.agent} runs on our AI model provider&apos;s model, as
+            above. Neither we nor the voice provider keep a recording or a transcript of the call,
+            we do not keep your number, and the line is never used to call you back.
           </li>
           <li>
             <strong>If you ask {site.agent}, on either call, to email you.</strong> Only if you
@@ -167,6 +184,24 @@ export default function PrivacyPage() {
             it takes bookings. We keep that business profile with the email we sent. It is
             information about a business, not about a person; it is never patient information;
             and every email we send this way says who we are and carries a working unsubscribe.
+          </li>
+          <li id="own-demo">
+            {/* Added 9 Oct 2026 (LEGAL_VERSION 2026-10-09.1) with the
+                homepage's "See it in your own branding", and the personalised
+                demo's "Call us", which keeps the number you will call from.
+                The "Show me" sentence was added 12 Oct 2026 under the same
+                unpublished version, with the preview (api/own-demo/preview). */}
+            <strong>If you ask for your own demo.</strong> &ldquo;See it in your own branding&rdquo;
+            on the homepage asks for your clinic&apos;s website and your email. &ldquo;Show
+            me&rdquo; first reads the website&apos;s front page once, to draw its name, logo and
+            colours in the preview, and keeps nothing from it. We read the
+            website&apos;s public pages, and the practice&apos;s public business listing for its
+            opening hours, and our AI model provider turns them into a private demo page in your
+            clinic&apos;s name. We keep the website, your email and what was read with the demo,
+            and email you its link once. Our team gets a copy of the request and may reply; it is
+            not added to a marketing list. If you tell us the number you will call the demo line
+            from, we keep it with the demo so the line answers as your clinic. A demo is live for{" "}
+            {DEMO_LIFETIME_DAYS} days; section 6 says when it is deleted.
           </li>
           <li>
             <strong>Contact form submissions</strong> — your name, your clinic's name if you give
@@ -188,10 +223,10 @@ export default function PrivacyPage() {
           <li>
             {/* Added 6 Oct 2026 with "Get in touch" (LEGAL_VERSION
                 2026-10-06.2). */}
-            <strong>Calls you book</strong> ("Get in touch") — the booking form is Calendly's,
-            shown on our page. The name and email you give, anything you add in its form and the
-            time you pick go to Calendly, which passes the booking to us so we can hold the call.
-            Nothing of Calendly's loads until you open it.
+            <strong>Calls you book</strong> ("Get in touch") — the booking form is our scheduling
+            provider&apos;s, shown on our page. The name and email you give, anything you add in its
+            form and the time you pick go to that provider, which passes the booking to us so we
+            can hold the call. Nothing of the provider&apos;s loads until you open it.
           </li>
           <li>
             {/* Adopted 3 Oct 2026 by the owner without external counsel review;
@@ -206,15 +241,15 @@ export default function PrivacyPage() {
             beside Pay, which version of these terms you accepted, when, and the IP address you
             accepted from. Your browser's time zone is sent with them, as a starting point for your
             clinic's own until you confirm it in setup. Card
-            details go directly to Stripe and never touch our servers. If you reach the payment
+            details go directly to our payment processor and never touch our servers. If you reach the payment
             page and stop, we send one email about it, an hour later, and no more; it carries the
             same one-click unsubscribe.
             {/* Added 6 Oct 2026 with the website read (LEGAL_VERSION 2026-10-06.3):
                 app/api/clinic-site and lib/site-read. */}{" "}
             If you give your clinic's website, we read it so that setup starts with your details
             already filled in: up to eight of its public pages, never one its robots.txt asks
-            robots not to read. We send the text of those pages to Anthropic, which picks out the
-            business details: services and prices, locations and opening hours, the practitioners
+            robots not to read. We send the text of those pages to our AI model provider, which
+            picks out the business details: services and prices, locations and opening hours, the practitioners
             the site names, its policies and its answers to common questions. It is told to leave
             out anything a patient wrote or said, such as reviews and testimonials. The details go
             back to your browser for the rest of checkout, and this website keeps neither the pages
@@ -231,12 +266,13 @@ export default function PrivacyPage() {
           <li>
             <strong>Technical data.</strong> Your IP address and the page requested, used to
             rate-limit the demo and stop abuse. Rate-limit counters expire with their window: an
-            hour for most, a day for the demo-call limit on a given number. Request logs are kept
+            hour for most, a day for the demo-call limit on a given number and for the number of
+            demos asked for with one email address or for one website. Request logs are kept
             briefly by our hosting provider and never longer than {POLICY.logRetentionDays} days.
           </li>
           <li>
             <strong>Analytics, only if you accept the cookie notice.</strong> Page views and named
-            funnel steps (for example "viewed pricing", "reached checkout step 3"). Never the
+            funnel steps (for example "started checkout", "reached checkout step 3"). Never the
             contents of a form, an email address, a phone number or a chat message. If you decline,
             nothing is measured and the site works identically.
           </li>
@@ -253,7 +289,7 @@ export default function PrivacyPage() {
             the browser is told which servers this site may talk to, and those are not on the
             list — not only a policy.
           </li>
-          <li>We do not use what you type into the demo to train any model, and neither does Anthropic.</li>
+          <li>We do not use what you type into the demo to train any model, and neither does our AI model provider.</li>
           <li>We do not knowingly collect information from anyone under 18; the site is for businesses.</li>
           <li>We do not use "dark patterns": declining analytics is one click and changes nothing else.</li>
         </ul>
@@ -277,46 +313,55 @@ export default function PrivacyPage() {
         </div>
         <ul className="list-disc space-y-3 pl-6">
           <li>
-            <strong>Analytics cookies</strong> — set by PostHog only after you accept the notice, to
-            tell one visit from another. Withdraw with the button above; analytics stops on the
+            <strong>Analytics cookies</strong> — set by our analytics provider only after you accept
+            the notice, to tell one visit from another. Withdraw with the button above; analytics stops on the
             next page load and the notice asks again.
           </li>
           <li>
-            <strong>Calendly's cookies</strong> — only if you open "Get in touch": Calendly may set
-            its own cookies inside its booking window. They are Calendly's, under its own cookie
-            policy, and we do not read them.
+            <strong>Our scheduling provider&apos;s cookies</strong> — only if you open "Get in
+            touch": the scheduling provider may set its own cookies inside its booking window.
+            They are its own, under its own cookie policy, and we do not read them.
           </li>
         </ul>
       </Section>
 
+      {/* By category, never by name (owner, 9 October 2026): the rows are
+          WEBSITE_PROCESSING, which privacy-copy.test.ts ties to the internal
+          register's website rows. */}
       <Section id="vendors" title="5. Who processes it">
         <p>
-          The companies below process visitor data for this website. Each receives only what
-          the row says, and none receives patient information from this site. The full register,
-          including the vendors inside the product that do handle patient information and the
-          status of each one's agreement with us, is at{" "}
-          <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>.
+          We use service providers for the jobs below, and describe them by what they do. Each
+          receives only what its row says, and none receives patient information from this
+          website.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] text-[15px]">
             <thead>
               <tr className="border-line border-b text-left">
-                <th className="py-2 pr-4 font-semibold">Vendor</th>
-                <th className="py-2 pr-4 font-semibold">Purpose</th>
-                <th className="py-2 font-semibold">Receives</th>
+                <th className="py-2 pr-4 font-semibold">Kind of provider</th>
+                <th className="py-2 pr-4 font-semibold">What it does</th>
+                <th className="py-2 font-semibold">What it receives</th>
               </tr>
             </thead>
             <tbody>
-              {marketingVendors.map((v) => (
-                <tr key={v.name} className="border-line border-b align-top">
-                  <td className="py-2 pr-4 font-semibold">{v.name}</td>
-                  <td className="py-2 pr-4">{v.purpose}</td>
-                  <td className="py-2">{v.data}</td>
+              {WEBSITE_PROCESSING.map((row) => (
+                <tr key={row.category} className="border-line border-b align-top">
+                  <td className="py-2 pr-4 font-semibold">{PROCESSOR_CATEGORIES[row.category]}</td>
+                  <td className="py-2 pr-4">{row.purpose}</td>
+                  <td className="py-2">{row.receives}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <p>
+          Inside the product, patient information is processed by our cloud hosting provider, our
+          voice provider and our AI model provider, each under a business associate agreement with
+          us, signed before any patient information reaches it; messages on Instagram, Messenger
+          and WhatsApp travel through Meta, which signs no such agreement, so the product keeps
+          them non-clinical (section 12). The list of the subcontractors that handle patient
+          information is given to clinics on request, under the Business Associate Agreement.
+        </p>
       </Section>
 
       <Section id="retention" title="6. How long we keep it">
@@ -332,13 +377,20 @@ export default function PrivacyPage() {
           </li>
           <li>Server logs: {POLICY.logRetentionDays} days.</li>
           <li>Demo-call consent records: {POLICY.callConsentRetentionYears} years, then deleted.</li>
-          <li>Demo conversations: not stored by us at all; Anthropic's own retention applies to its processing.</li>
-          <li>Your website's pages, read at checkout: not stored by us at all; Anthropic's own retention applies to its processing. What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.</li>
-          <li>The demo call itself: no recording or transcript is kept by us or by Retell; Retell keeps the call&apos;s basic record (time, length, how it ended) for 30 days. We hold the number only in the consent record above.</li>
+          <li>Demo conversations: not stored by us at all; our AI model provider's own retention applies to its processing.</li>
+          <li>A personalised demo, and what was read to build it: live for {DEMO_LIFETIME_DAYS} days, then deleted {DEMO_RETENTION_AFTER_EXPIRY_DAYS} days later, unless your clinic buys from it, when it is kept with your purchase.</li>
+          <li>Your website's pages, read at checkout: not stored by us at all; our AI model provider's own retention applies to its processing. What was read from them, once you press Pay: kept with your purchase, and deleted 14 days after you last pressed Pay if the purchase is not completed, otherwise 90 days after your account is created.</li>
+          <li>The demo call itself: no recording or transcript is kept by us or by our voice provider, which keeps the call&apos;s basic record (time, length, how it ended) for 30 days. We hold the number only in the consent record above.</li>
           <li>A follow-up you asked for on the demo call: as ordinary email correspondence, until the request is answered and closed.</li>
           <li>Contact-form messages: as ordinary email correspondence, until the enquiry is closed.</li>
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>
+          <li>
+            Inside the product, a clinic&apos;s patient conversations: each conversation and its
+            transcript is deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it took
+            place, or sooner if the clinic chooses a shorter period, and no call audio is kept at
+            all. The clinic&apos;s Business Associate Agreement with us governs the rest.
+          </li>
         </ul>
       </Section>
 
@@ -346,8 +398,8 @@ export default function PrivacyPage() {
         <p>
           Wherever you are, you can ask us what we hold about you, ask for it to be corrected or
           deleted, and withdraw marketing consent. Email{" "}
-          <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
-            {ENTITY.privacyEmail}
+          <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+            {ENTITY.email}
           </a>{" "}
           and we answer within 30 days. We will verify the request by replying to the address on
           file; we do not require an account or a form.
@@ -391,25 +443,26 @@ export default function PrivacyPage() {
         <p>
           The controls the product commits to for patient information are set out in the
           Business Associate Agreement. Every vendor that will handle patient information for us
-          signs an agreement with us before any patient information reaches it; Meta and Stripe
-          sign none, so the product keeps clinical content away from them. Patient information is
-          encrypted at rest, and in transit wherever we control both ends. Two routes are outside
+          signs an agreement with us before any patient information reaches it; Meta and payment
+          processors sign none, so the product keeps clinical content away from them. Patient
+          information is encrypted at rest, and in transit wherever we control both ends. Two
+          routes are outside
           that: a phone call is not end-to-end encrypted, and a patient who telephones has chosen
           the telephone; and a message on Instagram, Messenger or WhatsApp travels through
           Meta&apos;s systems, which we do not control. Email that would carry patient information
           goes only over an encrypted connection, and is not sent if the receiving server cannot
           accept one. A breach of unsecured patient information, or any other security incident,
-          is reported to the clinic without unreasonable delay and in no case later than 60
-          calendar days after discovery.
+          is reported to the clinic without unreasonable delay and in no case later than 60 calendar days
+          after discovery.
         </p>
         <p>
-          The product&apos;s servers and its database run in Amazon Web Services&apos; US East
-          region. The voice provider&apos;s region is being confirmed in writing, and appears on
-          the{" "}
-          <a href="/subprocessors" className="underline underline-offset-2">subprocessor page</a>{" "}
-          once it is. That page lists every vendor with the status of its agreement. No third
-          party has audited us; these are our own commitments and we will show you the
-          architecture behind any of them.
+          The product&apos;s servers and its database run in our cloud hosting provider&apos;s US
+          East region. The voice provider&apos;s region is being confirmed in writing. A clinic can
+          ask for the list of the subcontractors that handle its patients&apos; information, under
+          its Business Associate Agreement. No third party has audited us; these are our own
+          commitments. The annex to our{" "}
+          <a href="/terms#security" className="underline underline-offset-2">terms</a> describes the
+          controls, and we will show you the architecture behind any of them.
         </p>
       </Section>
 
@@ -426,15 +479,9 @@ export default function PrivacyPage() {
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>
-            <strong>Privacy requests:</strong>{" "}
-            <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
-              {ENTITY.privacyEmail}
-            </a>
-          </li>
-          <li>
-            <strong>Everything else:</strong>{" "}
-            <a href={`mailto:${ENTITY.supportEmail}`} className="underline underline-offset-2">
-              {ENTITY.supportEmail}
+            <strong>Privacy requests, and everything else:</strong>{" "}
+            <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+              {ENTITY.email}
             </a>
           </li>
           <li>
@@ -491,9 +538,8 @@ export default function PrivacyPage() {
           not use it to build or improve generalized artificial intelligence or machine learning
           models, and do not let people read it except where the clinic asks us to, where it is
           needed for security, or where the law requires it. It is shared with no one except the
-          vendors on our{" "}
-          <a href="/subprocessors" className="underline underline-offset-2">subprocessor list</a>{" "}
-          that run the product, and only as they need it to do so.
+          service providers that run the product for us, whose list a clinic can ask us for, and
+          only as they need it to do so.
         </p>
         <p>
           <strong>
@@ -557,8 +603,9 @@ export default function PrivacyPage() {
             <strong>Kept for the clinic.</strong> The conversation is kept for the clinic that
             received it, under that clinic&apos;s instructions and its Business Associate Agreement
             with us, and is visible to that clinic&apos;s team in its portal, and to healdesk staff
-            only as the clinic&apos;s agreement allows. If you wrote to a clinic, that clinic
-            controls the record; see section 13.
+            only as the clinic&apos;s agreement allows. It is deleted automatically{" "}
+            {TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if the clinic chooses.
+            If you wrote to a clinic, that clinic controls the record; see section 13.
           </li>
         </ul>
       </Section>
@@ -574,8 +621,8 @@ export default function PrivacyPage() {
             data deletion page
           </a>
           . In short: email{" "}
-          <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
-            {ENTITY.privacyEmail}
+          <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+            {ENTITY.email}
           </a>{" "}
           and we answer within 30 days, as in section 7. Where the data belongs to a clinic&apos;s
           patients, we act on that clinic&apos;s instructions.

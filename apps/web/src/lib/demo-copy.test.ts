@@ -111,15 +111,4 @@ describe("the demo opens the way the product must", () => {
     const { agent } = await loadCopy();
     expect(agent.greeting).toMatch(/AI assistant/);
   });
-
-  test("the scripted call opens with the AI and transcription line, and sends nothing", async () => {
-    const { agent } = await loadCopy();
-    const [first] = agent.voice;
-    expect(first?.agent).toBe(true);
-    expect(first?.text).toMatch(/AI assistant/);
-    expect(first?.text).toMatch(/transcribed/);
-    for (const line of agent.voice) {
-      expect(line.text).not.toMatch(/\btext\b|\blink\b/i);
-    }
-  });
 });

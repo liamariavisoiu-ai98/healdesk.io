@@ -45,7 +45,7 @@ export const RENEWAL_UPCOMING_ENTRY: TemplateEntry<RenewalUpcomingPayload> = {
   fixture: {
     renewsOn: "2027-11-05",
     amountCents: 1_148_400,
-    planName: "Complete FrontDesk AI",
+    planName: "AYA Complete Frontdesk",
     locations: 1,
     noticeDays: 30,
   },

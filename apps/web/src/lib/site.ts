@@ -6,13 +6,15 @@
  * ## The shape of the site is deliberate, and small
  *
  * One page carries the argument: hero, the two live demos, the specialties we
- * know, the money question, and a way to get in touch. Pricing and contact
- * exist as their own pages but are linked ONLY from the footer, because a nav
- * full of links is an invitation to leave before the demo has done its job.
+ * know, the money question, and a way to get in touch. Contact exists as its
+ * own page but is linked ONLY from the footer, because a nav full of links is
+ * an invitation to leave before the demo has done its job. There is no
+ * pricing page since 9 October 2026 (owner): prices are shown in the purchase
+ * flow.
  *
  * So the navbar holds a wordmark, one link and two calls to action, in that
- * order of weight: "Get AYA" opens the purchase flow, "Talk to AYA" moves
- * the viewport to the demo, and "Why wait?" goes to the calculator, which
+ * order of weight: "Get AYA" opens the purchase flow, "Try AYA for free"
+ * (until 9 October 2026 "Talk to AYA") moves the viewport to the demo, and "Why wait?" goes to the calculator, which
  * left the homepage on 23 September 2026 so that the homepage could be about
  * meeting her. Nothing else.
  */
@@ -65,7 +67,7 @@ export const site = {
    */
   description:
     "healdesk answers every call, chat and DM for high-ticket elective clinics, " +
-    "day or night, and books appointments straight into your calendar.",
+    "day or night, and books the appointment into your calendar.",
 
   /**
    * The line in the bar above the hero headline, after jasper.ai's "NEW"
@@ -81,7 +83,7 @@ export const site = {
    */
   announcement: {
     tag: "New",
-    text: "Instagram, Messenger and WhatsApp, now available alongside your phone and website chat.",
+    text: "AYA now answers Instagram, Messenger and WhatsApp too.",
     cta: "Get AYA",
   },
 
@@ -92,7 +94,7 @@ export const site = {
      * href, so the CTA is never dead.
      */
     primary: { label: "Get AYA", href: "/get-started" },
-    secondary: { label: "Talk to AYA", href: "#aya" },
+    secondary: { label: "Try AYA for free", href: "#aya" },
   },
 
   /**
@@ -117,13 +119,10 @@ export const site = {
    */
   footerLinks: [
     { label: "Why wait?", href: "/why-wait" },
-    { label: "Pricing", href: "/pricing" },
     { label: "Contact us", href: "/contact" },
     { label: "Privacy", href: "/privacy" },
     { label: "Data deletion", href: "/data-deletion" },
     { label: "Terms", href: "/terms" },
-    { label: "Subprocessors", href: "/subprocessors" },
-    { label: "Trust", href: "/trust" },
   ],
 
   email: "hello@healdesk.io",

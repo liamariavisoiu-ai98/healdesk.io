@@ -66,7 +66,7 @@ import { withTenant } from "@/lib/tenant";
  * hour its service ended the next hourly run has its data gone before the
  * limit passes, with most of a day to spare for a worker that was down.
  *
- *   - BAA 1.2.1, 1.2.0 and 1.1.0-draft say "Within thirty days of
+ *   - BAA 1.2.2, 1.2.1, 1.2.0 and 1.1.0-draft say "Within thirty days of
  *     termination healdesk will return or destroy all PHI it holds for
  *     Practice and retain no copies, and will give Practice, on request
  *     before that date, an export". 1.0.0 and 0.1.0-draft say "On
@@ -198,7 +198,7 @@ export const UNDELIVERED_EXPORT_ALERT_DAYS = 21;
 export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
 
 /**
- * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.1 and
+ * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.2 and
  * earlier). export_or_ninety: from day 29 if the export was delivered by
  * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
  * DPA 1.0.0). Every hourly run destroys on either rule.
@@ -218,6 +218,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
     "1.3.0": "export_or_ninety",
+    "1.2.2": "thirty_days",
     "1.2.1": "thirty_days",
     "1.2.0": "thirty_days",
     "1.1.0-draft": "thirty_days",

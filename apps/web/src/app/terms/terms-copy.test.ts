@@ -1,4 +1,4 @@
-import { OVERAGE_RATES_PROVISIONAL } from "@healdesk/catalog";
+import { OVERAGE_RATES_PROVISIONAL, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
@@ -257,7 +257,7 @@ describe("refunds say what is refunded, how, and when", () => {
 describe("the first-month guarantee", () => {
   const text = pageText();
 
-  test("is rendered word for word from the shared constant, so /pricing can carry the same words", () => {
+  test("is rendered word for word from the shared constant, so checkout can carry the same words", () => {
     for (const para of GUARANTEE_TEXT.paragraphs) {
       expect(text).toContain(`${para.lead} ${para.body}`);
     }
@@ -272,7 +272,7 @@ describe("the first-month guarantee", () => {
       `A call the caller ends after ${POLICY.guaranteeAbandonedCallSeconds} seconds and before the opening line has started does count as missed.`,
     );
     expect(whole).toContain(`Your first month is the ${POLICY.guaranteeFirstMonthDays} days that start on your plan start, the day the assistant first answers a patient`);
-    expect(whole).toContain(`Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.supportEmail}`);
+    expect(whole).toContain(`Within ${POLICY.guaranteeClaimWindowDays} days after your first month ends, the account owner emails ${ENTITY.email}`);
     expect(whole).toContain(`We tell you our finding within ${POLICY.guaranteeFindingBusinessDays} business days of your claim.`);
     expect(whole).toContain(
       `to the payment method you paid with, within ${POLICY.guaranteeRefundWithinDays} days of that finding`,
@@ -317,3 +317,79 @@ describe("the first-month guarantee", () => {
     expect(text).toContain(`Version ${LEGAL_VERSION}`);
   });
 });
+
+describe("the terms point at no retired page, and name one address", () => {
+  const text = pageText();
+
+  test("prices are the ones shown at checkout; the vendor list is given on request", () => {
+    // The owner disabled /pricing and deleted /subprocessors on 9 October
+    // 2026; a contract that sends its reader to either sends them to nothing.
+    expect(text).toContain("are the prices shown at checkout when you subscribe");
+    expect(text).toContain(
+      "The list of the subcontractors that process patient information for us is given to you on request, under the Business Associate Agreement.",
+    );
+    // The page's own links; the navbar and the footer have owners of their own.
+    const markup = renderToStaticMarkup(h(TermsPage));
+    const main = markup.slice(markup.indexOf("<main"), markup.indexOf("</main>"));
+    expect(main).not.toMatch(/href="\/(?:pricing|subprocessors|trust)\b/);
+  });
+
+  test("notices, and everything else, go to the one address", () => {
+    expect(text).toContain(`Notices to us go to ${ENTITY.email} .`);
+    expect(text.match(/[\w.+-]+@healdesk\.io/g)?.every((address) => address === ENTITY.email)).toBe(true);
+  });
+});
+
+/**
+ * The content of /trust, moved into the terms on 9 October 2026 as an annex.
+ * The Business Associate Agreement incorporates this page by its address, so
+ * the annex must say, before anything else, that it describes our practices
+ * and binds nobody, and that the agreement governs patient information.
+ */
+describe("the annex on how we protect data", () => {
+  const markup = renderToStaticMarkup(h(TermsPage));
+  const annex = pageTextOf(markup.slice(markup.indexOf('id="security"'), markup.indexOf("</main>")));
+
+  test("is the last thing on the page, after section 20, under its own anchor", () => {
+    expect(markup.indexOf('id="security"')).toBeGreaterThan(markup.indexOf('id="entity"'));
+    expect(annex.startsWith("How we protect data")).toBe(true);
+  });
+
+  test("opens by saying it is not a term of the agreement", () => {
+    expect(annex).toContain(
+      "How we protect data This annex describes our practices for protecting information. It is provided for information only and is not a term of this agreement, and it changes as our practices do. The Business Associate Agreement you sign at checkout governs patient information.",
+    );
+  });
+
+  test("states the spec's breach clock, for breaches and security incidents alike", () => {
+    expect(annex).toContain(
+      "We tell the clinic of a breach of unsecured patient information, and of any other security incident whether or not it turns out to be a breach, without unreasonable delay and in no case later than 60 calendar days after discovery.",
+    );
+    expect(annex).not.toMatch(/five calendar days|within five business days of/);
+  });
+
+  test("says transcripts are deleted automatically, and claims no audit", () => {
+    expect(annex).toContain(
+      `Each conversation and its transcript is deleted ${TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if you choose a shorter period in your portal.`,
+    );
+    expect(annex).toContain("No SOC 2 report exists.");
+  });
+
+  test("counts no vendor and promises no notice period for a new one", () => {
+    expect(annex).not.toMatch(/\b(?:\d+|two|three|four|five|six|seven|eight|nine|ten) vendors\b/i);
+    expect(annex).not.toMatch(/days before a vendor is added|fifteen days|15 days/i);
+    expect(annex).toContain("The list of these subcontractors is given to clinics on request");
+  });
+});
+
+function pageTextOf(markup: string): string {
+  return markup
+    .replace(/^[^>]*>/, "")
+    .replace(/<style[\s\S]*?<\/style>/g, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}

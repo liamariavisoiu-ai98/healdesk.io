@@ -96,7 +96,7 @@ describe("effectiveIncluded (BD5)", () => {
   });
 
   test("falls back to the bought package's allowance for a channel bought but not yet billed", () => {
-    // Bought Web + Voice, billed as Web Chatbot: the phone's first call counts
+    // Bought Web + Voice, billed as AYA Web Chat: the phone's first call counts
     // against the bought package's 1,000 minutes, never against 0.
     expect(effectiveIncluded(base, "voice_minutes")).toBe(1_000);
     expect(effectiveIncluded({ ...base, locations: 2 }, "voice_minutes")).toBe(2_000);

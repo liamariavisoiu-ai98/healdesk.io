@@ -77,7 +77,7 @@ Why each piece is shaped the way it is:
   `*.elb.amazonaws.com` name, so the TLS origin Vercel calls needs a name of ours. And a separate
   host lets the ALB keep the server-to-server routes off the origin every browser uses, and makes
   a leak of the internal name into a browser detectable.
-- **Encrypted all the way to the app.** Clinics' BAA (1.2.1 and 1.3.0) promises encryption
+- **Encrypted all the way to the app.** Clinics' BAA (1.2.1, 1.2.2 and the 1.3.0 draft) promises encryption
   wherever healdesk controls both ends, which includes the load balancer to the task, and 1.3.0
   makes it a release gate. Next's standalone server speaks plain HTTP, so the web task runs the
   `tls-proxy` sidecar: a fresh key and self-signed certificate at every start, written under
@@ -496,6 +496,7 @@ signed in to `865780386982`:
 bash run-task.sh migrate        # migrations, then queue:install
 bash run-task.sh db-bootstrap   # init-secrets, then the two roles
 bash run-task.sh destroy-due    # after a restore only: "Restoring production" below
+bash run-task.sh patient-export <clinic id> "<who asked, and the ticket>"   # offboarding
 ```
 
 `destroy-due` is the worker's container (its environment, secrets and task role) running
@@ -504,6 +505,33 @@ still due, so `run-task.sh` exits 1 too. Every full deploy registers a revision 
 commit's image once both services are running it; the deploy role may register it but not run it.
 `run-task.sh` runs the revision naming the image the worker service runs, so after a rollback it
 runs the rolled-back code.
+
+`patient-export` produces a leaving clinic's return bundle (`docs/handover.md`, "Retention and
+offboarding", step 2) and puts it in the export bucket (`exports.tf`), because the task's disk goes
+with it. It is `scripts/patient-export.ts` with the runtime role's `DATABASE_URL` as its only
+secret and its own task role, which may put `clinic-*.json` objects in that bucket and do nothing
+else: not the app task role, so it cannot open a clinic's credentials, and the web tier and the
+worker cannot write to the bucket. It is the one run with overrides, three environment variables
+CloudTrail records: the clinic's id, who asked, and the object key
+`clinic-<id>-<UTC time>.json`. None is secret or a patient's: `run-task.sh` refuses a label shaped
+like an email address or a phone number, and a date written in digits reads as one, so dates go
+in words. A per-patient export (a patient-rights request) is **open** on this host: its phone number or
+email would travel in an override, so it is not offered; an override naming the contact's id
+instead would avoid that. The upload happens inside the export's transaction, so a failed upload leaves no
+audit row, and the care page refuses a handover until a bundle exists. On success `run-task.sh`
+prints the object's key and the next steps, in CloudShell:
+
+```bash
+KEY='the clinic-....json key run-task.sh printed'
+aws s3 cp "s3://healdesk-production-exports-865780386982/$KEY" .
+# Actions > Download file, hand it over by the route the handover names, then delete both copies:
+aws s3 rm "s3://healdesk-production-exports-865780386982/$KEY"
+rm -f "$KEY"
+```
+
+The bucket is SSE-KMS under the product key, TLS only, private and not versioned, so the delete
+is final; an object nobody deletes goes after 7 days. Every read and write of an object is a
+CloudTrail data event. Then record the handover on the clinic's care page.
 
 It borrows the web service's private subnets and security group (refusing if the service is
 missing or would give a public address), runs the family's newest ACTIVE revision that names a
@@ -655,16 +683,10 @@ anything reads the data.
    workflow treats it as a first deploy and asks for both; db-bootstrap keeps every parameter that
    is set and only re-asserts the roles.
 
-Two more operator steps in the handover need a file or a shell this build does not give an
-operator yet:
-
-- **Offboarding's return bundle** (`npm run patient-export`) writes a file to the disk of
-  whatever runs it. On this host that is a task's disk, gone when the task stops, so there is no
-  way to hand the bundle over. It needs a design (most likely the transcript bucket's pattern: SSE-KMS,
-  a short-lived presigned link) before the first clinic leaves. It does not block launch.
-- **Step 4 above** uses the CloudShell VPC environment as the migrator, typing the password at
-  psql's prompt. That works, but it is the only write path into the database outside the code,
-  so log each use in `security_events`.
+Step 4 uses the CloudShell VPC environment as the migrator, typing the password at psql's
+prompt. That works, but it is the only write path into the database outside the code, so log
+each use in `security_events`. Offboarding's return bundle, the other handover step that needed a
+file, is `run-task.sh patient-export` (above).
 
 ---
 
@@ -859,7 +881,7 @@ data only until every link of the chain is in place.
 
 | Link or gate | State |
 | --- | --- |
-| Clinic to healdesk | Built: accepted inline at checkout (BAA 1.2.1; 1.3.0 drafted, not released) |
+| Clinic to healdesk | Built: accepted inline at checkout (BAA 1.2.2, the floor since 12 October 2026; 1.3.0 drafted, not released) |
 | healdesk to Retell | **Not done.** Self-sign the BAA and DPA; per-agent retention at the minimum, PII controls on, recording off, each screenshotted; Retell's US region and encryption at rest confirmed in writing (release gate 15). The product's Retell endpoint is not built either |
 | healdesk to Anthropic | **Not done.** A separate HIPAA-ready organisation (the setting is organisation-wide and one-way); 30-day retention disclosed, no zero-retention request (gate 17). Only that organisation's key ever goes into `app/ANTHROPIC_API_KEY` |
 | healdesk to the database | RDS under the AWS BAA, once this module is applied with the settings above |

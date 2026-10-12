@@ -97,6 +97,7 @@ env:
   MIGRATE_FAMILY: healdesk-production-migrate
   DB_BOOTSTRAP_FAMILY: healdesk-production-db-bootstrap
   DESTROY_DUE_FAMILY: healdesk-production-destroy-due
+  PATIENT_EXPORT_FAMILY: healdesk-production-patient-export
   APP_URL: https://app.healdesk.io
   # ECR tags are immutable, so the commit names one image for good.
   IMAGE_TAG: ${{ github.sha }}
@@ -333,6 +334,7 @@ jobs:
           fetch "$WEB_FAMILY" web
           fetch "$WORKER_FAMILY" worker
           fetch "$DESTROY_DUE_FAMILY" destroy-due
+          fetch "$PATIENT_EXPORT_FAMILY" patient-export
           if [ "$MIGRATE" = true ]; then fetch "$MIGRATE_FAMILY" migrate; fi
           if [ "$BOOTSTRAP_DB" = true ]; then fetch "$DB_BOOTSTRAP_FAMILY" db-bootstrap; fi
           # The TLS sidecar is in the web task only while alb_to_task_tls is on.
@@ -446,9 +448,10 @@ jobs:
       # revision this run starts from (deploy) or returns to (rollback), it
       # must have the shape Terraform gives its family, or nothing is
       # registered or moved. Web: app, plus tls-proxy while the hop is
-      # encrypted; worker, destroy-due and migrate: app; db-bootstrap:
-      # db-admin. The execution role everywhere, the app task role on web,
-      # worker and destroy-due, the
+      # encrypted; worker, destroy-due, patient-export and migrate: app;
+      # db-bootstrap: db-admin. The execution role everywhere, the app task
+      # role on web, worker and destroy-due, the export task role on
+      # patient-export, the
       # db-admin task role on db-bootstrap and none on migrate (the db-admin
       # role may write the internal secrets; no app container may hold it).
       # No web, worker or destroy-due container may carry what Terraform
@@ -471,19 +474,20 @@ jobs:
             names=$(jq -c '[.containerDefinitions[].name] | sort' "$file")
             case "$label" in
               web) [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names" ;;
-              worker | destroy-due | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
+              worker | destroy-due | patient-export | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
               db-bootstrap) [ "$names" = '["db-admin"]' ] || refuse "$label" "$file" "containers $names" ;;
             esac
             [ "$(jq -r '.executionRoleArn // ""' "$file")" = "$role-ecs-execution" ] \
               || refuse "$label" "$file" "execution role $(jq -r '.executionRoleArn // "none"' "$file")"
             case "$label" in
               web | worker | destroy-due) task_role="$role-app-task" ;;
+              patient-export) task_role="$role-export-task" ;;
               db-bootstrap) task_role="$role-db-admin-task" ;;
               migrate) task_role="" ;;
             esac
             [ "$(jq -r '.taskRoleArn // ""' "$file")" = "$task_role" ] \
               || refuse "$label" "$file" "task role $(jq -r '.taskRoleArn // "none"' "$file")"
-            if [ "$label" = web ] || [ "$label" = worker ] || [ "$label" = destroy-due ]; then
+            if [ "$label" = web ] || [ "$label" = worker ] || [ "$label" = destroy-due ] || [ "$label" = patient-export ]; then
               found=$(jq -r --arg never "$NEVER_ON_APP_TASKS" '($never | split(" ")) as $n
                 | [.containerDefinitions[] | (.environment // []) + (.secrets // []) | .[].name
                   | select(. as $name | $n | index($name))] | unique | join(" ")' "$file")
@@ -495,7 +499,7 @@ jobs:
               [ -z "$found" ] || refuse "$label" "$file" "reads $found from Secrets Manager, which only db-bootstrap may"
             fi
           }
-          for label in web worker destroy-due migrate db-bootstrap; do
+          for label in web worker destroy-due patient-export migrate db-bootstrap; do
             if [ -f "$RUNNER_TEMP/$label.json" ]; then check "$label"; fi
           done
           if [ "$failed" = 1 ]; then
@@ -602,6 +606,15 @@ jobs:
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/destroy-due.json
+          container-name: app
+          image: ${{ steps.images.outputs.app_image }}
+
+      - name: Render patient-export
+        id: render-patient-export
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
+        with:
+          task-definition: ${{ runner.temp }}/patient-export.json
           container-name: app
           image: ${{ steps.images.outputs.app_image }}
 
@@ -758,6 +771,16 @@ jobs:
           task-definition: ${{ steps.render-destroy-due.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
 
+      # The same for the offboarding export (docs/handover.md, "Retention and
+      # offboarding", step 2): run by hand with run-task.sh patient-export.
+      - name: Register patient-export
+        id: register-patient-export
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        with:
+          task-definition: ${{ steps.render-patient-export.outputs.task-definition }}
+          cluster: ${{ env.CLUSTER }}
+
       # A service this run started from 0 has no good revision to fall back
       # to: its last completed deployment is Terraform's, at 0 tasks, with a
       # placeholder image that was never pushed. The circuit breaker would
@@ -818,6 +841,7 @@ jobs:
           WEB_TASK: ${{ steps.deploy-web.outputs.task-definition-arn || steps.rollback.outputs.web_task_definition }}
           WORKER_TASK: ${{ steps.deploy-worker.outputs.task-definition-arn || steps.rollback.outputs.worker_task_definition }}
           DESTROY_DUE_TASK: ${{ steps.register-destroy-due.outputs.task-definition-arn }}
+          PATIENT_EXPORT_TASK: ${{ steps.register-patient-export.outputs.task-definition-arn }}
           ROLLED_BACK_TO: ${{ steps.rollback.outputs.commit }}
           MIGRATED: ${{ inputs.migrate }}
           BOOTSTRAPPED: ${{ inputs.bootstrap_db }}
@@ -830,6 +854,7 @@ jobs:
                 echo "- web: ${WEB_TASK##*/}"
                 echo "- worker: ${WORKER_TASK##*/}"
                 echo "- destroy-due: ${DESTROY_DUE_TASK##*/} (registered; run by hand after a restore)"
+                echo "- patient-export: ${PATIENT_EXPORT_TASK##*/} (registered; run by hand at offboarding)"
                 echo "- db-bootstrap: $([ "$BOOTSTRAPPED" = true ] && echo ran || echo skipped)"
                 echo "- migrations: $([ "$MIGRATED" = true ] && echo ran || echo skipped)"
                 ;;

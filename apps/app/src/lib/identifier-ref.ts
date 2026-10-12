@@ -14,7 +14,9 @@ import { env } from "@/lib/env";
  * back. So the reference is an HMAC-SHA256 under a key that lives only in the
  * environment (HEALDESK_IDENTIFIER_REF_KEY, see env.ts on why it must never
  * be rotated without a re-key plan), and a copy of the database alone reveals
- * nothing.
+ * nothing. slot_holds names who holds a time the same way (kind
+ * `slot_holder`, lib/booking/holds.ts holderRefOf, which leaves the prefix
+ * off for that column's CHECK).
  *
  * Construction, version 1:
  *
@@ -34,13 +36,15 @@ import { env } from "@/lib/env";
  * logged and never appears in an error.
  */
 
-export type IdentifierRefKind = "chat_party" | "meta_message" | "call" | "chat_conversation";
+export type IdentifierRefKind =
+  "chat_party" | "meta_message" | "call" | "chat_conversation" | "slot_holder";
 
 export const IDENTIFIER_REF_KINDS: readonly IdentifierRefKind[] = [
   "chat_party",
   "meta_message",
   "call",
   "chat_conversation",
+  "slot_holder",
 ];
 
 export const IDENTIFIER_REF_HKDF_INFO = "healdesk.identifier-ref.v1";

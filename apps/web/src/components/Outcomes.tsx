@@ -376,7 +376,7 @@ export function Outcomes() {
   return (
     <section id="outcomes" aria-labelledby="outcomes-heading" className="scroll-mt-24 pt-16 sm:pt-24">
       {/* Centred header, the specialties section's own. */}
-      <div data-reveal="stagger" className="mx-auto max-w-[760px] text-center">
+      <div data-reveal="stagger" className="mx-auto text-center">
         <p className="eyebrow-tag">What changes in month one</p>
         <h2 id="outcomes-heading" className="heading-section mx-auto mt-5">
           Eight things your desk stops losing

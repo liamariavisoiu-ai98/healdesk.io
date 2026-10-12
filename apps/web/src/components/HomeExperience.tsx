@@ -62,15 +62,15 @@ export function HomeExperience() {
             every channel by name, bookings and payment links. Payment links
             are claimed for chat only, because voice cannot send one in v1;
             on a call she books and flags the deposit (docs/v1-product-spec.md). */}
-        <div data-reveal="stagger" className="mx-auto mb-8 max-w-[760px] text-center sm:mb-10">
+        <div data-reveal="stagger" className="mx-auto mb-8 text-center sm:mb-10">
           <p className="eyebrow-tag">
-            {site.agent} 3.0 · Meet your smart assistant
+            Meet your smart assistant, {site.agent} 3.0
           </p>
           <h2 className="heading-section text-ink mx-auto mt-5">
             One assistant, every channel, 24/7
           </h2>
           <p className="text-muted mx-auto mt-4 max-w-[60ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
-            {site.agent} answers your phone, website chat, Instagram, Facebook Messenger and
+            {site.agent} 3.0 answers your phone, website chat, Instagram, Facebook Messenger and
             WhatsApp, 24/7. She books into your calendar during the conversation, and in chat
             sends a deposit link through your own checkout. Try her below.
           </p>
@@ -89,7 +89,7 @@ export function HomeExperience() {
           {/* No mark in the cards' top rows (owner, 12 October 2026): the
               soul sat there as a blurred orange orb, which at 36px read as a
               rendering fault. The label stands alone; AYA is in the cards. */}
-          <AgentPanel label="AI voice agent" name={site.agent} logoUrl={null} mark={false}>
+          <AgentPanel label="Voice agent" name={site.agent} logoUrl={null} mark={false}>
             <VoiceDemo />
           </AgentPanel>
           <AgentPanel label="Website chat & Meta DMs" name={site.agent} logoUrl={null} mark={false}>

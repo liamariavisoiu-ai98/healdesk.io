@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { assertPayloadAllowed } from "@/lib/email/lint";
+import { deliverNotice } from "@/lib/email/outbox";
 import { readUnsubscribeToken } from "@/lib/email/unsubscribe";
 import { queueChannelReady } from "@/lib/notices/channel-ready";
 import { sendStepsOn, STEPS_PER_DAY, stepsRecipient } from "@/lib/notices/steps-sent";
@@ -200,5 +201,82 @@ describeDb("the channel step emails", () => {
       );
     });
     expect(await queue()).toBe(false);
+  });
+
+  test("O10 waits for daytime, and is closed unsent if the clinic finished the step overnight", async () => {
+    const transport = capture();
+    // 22:00 and 07:30 the next morning, New York (the clinic's time zone).
+    const evening = new Date("2030-01-15T03:00:00Z");
+    const morning = new Date("2030-01-15T12:30:00Z");
+    const ready = async (readyAt: Date) => {
+      await inTenant(clinic.clinicId, async (c) => {
+        await c.query(
+          `update clinic_channels set ready_at = $2, waiting_on = 'forwarding', live_at = null
+            where clinic_id = $1 and channel = 'voice'`,
+          [clinic.clinicId, readyAt],
+        );
+      });
+      expect(
+        await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+          queueChannelReady(tx, { channel: "voice", ayaNumberE164: AYA }),
+        ),
+      ).toBe(true);
+      return (
+        await inTenant(
+          clinic.clinicId,
+          async (c) =>
+            (
+              await c.query<{ id: string }>(
+                `select id from billing_notices where kind = 'channel_ready' and dedupe_key = $1`,
+                [`channel_ready:voice:${readyAt.toISOString()}`],
+              )
+            ).rows,
+        )
+      )[0]!.id;
+    };
+    const notice = async (id: string) =>
+      (
+        await inTenant(
+          clinic.clinicId,
+          async (c) =>
+            (
+              await c.query<{ sent: boolean; recipients_count: number; last_error: string | null }>(
+                `select sent_at is not null as sent, recipients_count, last_error
+                   from billing_notices where id = $1`,
+                [id],
+              )
+            ).rows,
+        )
+      )[0]!;
+
+    // Still waiting in the morning: it goes.
+    const waiting = await ready(new Date(Date.now() - 3 * 3_600_000));
+    expect(await deliverNotice(clinic.clinicId, waiting, { now: evening, transport })).toBe(
+      "waiting",
+    );
+    expect(await deliverNotice(clinic.clinicId, waiting, { now: morning, transport })).toBe("sent");
+    expect(transport.sent).toHaveLength(1);
+
+    // Forwarded overnight: by morning phone is live, and nothing is sent.
+    const done = await ready(new Date(Date.now() - 2 * 3_600_000));
+    expect(await deliverNotice(clinic.clinicId, done, { now: evening, transport })).toBe(
+      "waiting",
+    );
+    await inTenant(clinic.clinicId, async (c) => {
+      await c.query(
+        `update clinic_channels set live_at = now(), waiting_on = null
+          where clinic_id = $1 and channel = 'voice'`,
+        [clinic.clinicId],
+      );
+    });
+    expect(await deliverNotice(clinic.clinicId, done, { now: morning, transport })).toBe(
+      "superseded",
+    );
+    expect(transport.sent).toHaveLength(1);
+    expect(await notice(done)).toEqual({
+      sent: true,
+      recipients_count: 0,
+      last_error: "not sent: the channel's last step was done before it could go",
+    });
   });
 });

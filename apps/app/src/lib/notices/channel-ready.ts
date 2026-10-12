@@ -2,6 +2,7 @@ import { isCarrier, type Channel } from "@healdesk/catalog";
 import { and, eq } from "drizzle-orm";
 
 import { clinicChannels, clinics } from "@/db/schema";
+import { isWaitingOnReadyStep } from "@/lib/email/superseded";
 import { describeError, log } from "@/lib/log";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { emailCallUrl, helpContacts } from "@/lib/setup/help";
@@ -28,6 +29,10 @@ import { enqueuePlanNotice } from "./plan-notices";
  * the clinic did not buy, or a channel with no ready email yet. In the
  * caller's transaction; the insert runs in a savepoint, so a failure to
  * queue never undoes the caller's work, and is logged.
+ *
+ * The kind waits for daytime, so the same question is asked again when the
+ * outbox would send it (lib/email/superseded.ts): a notice queued in the
+ * evening is closed unsent if the clinic forwarded its line overnight.
  */
 export async function queueChannelReady(
   tx: TenantTx,
@@ -50,7 +55,7 @@ export async function queueChannelReady(
         and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.channel, input.channel)),
       )
       .limit(1);
-    if (!row?.readyAt || row.liveAt || row.waitingOn !== "forwarding") return false;
+    if (!isWaitingOnReadyStep(input.channel, row)) return false;
     const [clinic] = await tx.db
       .select({
         slug: clinics.slug,

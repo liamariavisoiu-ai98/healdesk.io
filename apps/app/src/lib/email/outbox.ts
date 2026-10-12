@@ -15,6 +15,7 @@ import { carriesUnsubscribe, CRITICAL_NOTICE_KINDS, optionalSwitchOf } from "./k
 import { NOTICE_KIND_REGISTRY, NOTICE_KINDS, type NoticeKind } from "./kinds";
 import { assertPayloadAllowed, LinkNotAllowedError, PayloadNotAllowedError } from "./lint";
 import { optionalEmailAllowed } from "./stop";
+import { supersededReason } from "./superseded";
 import { EmailEnvelopeError, sendEmail } from "./send";
 import { EmailCompositionError } from "./templates/compose";
 import { audienceFor, clinicReason } from "./templates/context";
@@ -66,7 +67,9 @@ import { unsubscribeHeaders, unsubscribeUrl } from "./unsubscribe";
  *     minute (runBillingNoticesJob). The `billing-notices` job row is the
  *     switch for both: off, nothing is sent.
  *   - A `daytime` kind waits for 07:00–20:00 in the clinic's time zone;
- *     `any_hour` goes at once.
+ *     `any_hour` goes at once. Either way, a kind whose subject can be over
+ *     before it goes (O10's step) is re-read when it would be sent, and
+ *     closed unsent when it is (lib/email/superseded.ts).
  *   - A critical notice still unsent ten minutes after it was due turns
  *     /api/health red and raises notifyOps once (lateCriticalNotices), so a
  *     mail outage cannot hide behind a mail alert.
@@ -99,6 +102,8 @@ export type NoticeOutcome =
   | "waiting"
   /** Its optional email switch is off: closed without sending. */
   | "switched_off"
+  /** What it was about is over (lib/email/superseded.ts): closed without sending. */
+  | "superseded"
   /** Not claimable now: already sent, leased by another worker, dead, or not yet due. */
   | "not_due";
 
@@ -238,6 +243,17 @@ async function claimNotice(
       })
       .where(notDue);
     return "switched_off";
+  }
+
+  // Re-read at send time, after quiet hours: an O10 held until morning is not
+  // sent about a step the clinic finished overnight.
+  const superseded = await supersededReason(tx, kind, row.payload);
+  if (superseded) {
+    await tx.db
+      .update(billingNotices)
+      .set({ sentAt: now, recipientsCount: 0, lastError: `not sent: ${superseded}` })
+      .where(notDue);
+    return "superseded";
   }
 
   // The claim: lease the row for two minutes and count the attempt, in one

@@ -496,6 +496,7 @@ signed in to `865780386982`:
 bash run-task.sh migrate        # migrations, then queue:install
 bash run-task.sh db-bootstrap   # init-secrets, then the two roles
 bash run-task.sh destroy-due    # after a restore only: "Restoring production" below
+bash run-task.sh reapply-erasures   # after a restore only, beside destroy-due
 bash run-task.sh patient-export CLINIC_ID   # offboarding
 bash run-task.sh erase-person CLINIC_ID CONTACT_ID WHO_ASKED you@healdesk.io   # [RECEIVED_AT]
 bash run-task.sh amend-contact CLINIC_ID CONTACT_ID FIELDS_TO_CLEAR WHO_ASKED you@healdesk.io
@@ -531,7 +532,9 @@ rm -f "$KEY"
 ```
 
 The bucket is SSE-KMS under the product key, TLS only, private and not versioned, so the delete
-is final; an object nobody deletes goes after 7 days. Every read and write of an object is a
+is final; an object nobody deletes goes after a day (S3 counts to the next midnight UTC, so 24 to
+48 hours), so a bundle made late on the destruction clock cannot outlive the data it copied by more
+than that: download it straight after the run. Every read and write of an object is a
 CloudTrail data event. Then record the handover on the clinic's care page.
 
 `erase-person` and `amend-contact` are the patient-rights operator scripts
@@ -544,6 +547,9 @@ erasure the day the request came (an ISO date), for an amendment the fields to c
 `phone`, `email`; new values wait for the portal). Each has the runtime role's `DATABASE_URL`,
 erasure also `HEALDESK_IDENTIFIER_REF_KEY`, and no task role: neither calls an AWS service. Their
 result (the request id, counts, any deadline) is in the task's log stream, ids and numbers only.
+`reapply-erasures` takes no arguments: after a restore it deletes again every person whose
+deletion the restored database still remembers (`docs/handover.md`, "Restoring", step 5), with the
+runtime URL and `HEALDESK_IDENTIFIER_REF_KEY`, and exits 1 if any clinic could not be done.
 
 It borrows the web service's private subnets and security group (refusing if the service is
 missing or would give a public address), runs the family's newest ACTIVE revision that names a
@@ -680,17 +686,20 @@ anything reads the data.
    `infra.yml` apply may run between the swap and that commit.
 4. Put back, as `healdesk_migrator`, any destruction dates the restore lost (handover
    "Restoring", step 2), from the CloudShell VPC environment the drill describes.
-5. Bring the schema up to the code, then destroy what is due:
+5. Bring the schema up to the code, destroy what is due, and delete again everyone deleted since
+   the point restored to (handover "Restoring", step 5):
 
    ```bash
    bash run-task.sh migrate
    bash run-task.sh destroy-due
+   bash run-task.sh reapply-erasures
    ```
 
    `destroy-due` uses the runtime role's `DATABASE_URL` from Parameter Store, which names
    production's endpoint: it runs against the copy only once step 3 has given the copy that name.
    Do not go on until it exits 0. A clinic still due is named, by id only, in
-   `/healdesk/production/destroy-due`.
+   `/healdesk/production/destroy-due`. `reapply-erasures` is the same for people: it exits 1 while
+   any clinic's deletions could not be done again.
 6. Reopen: `deploy-app.yml` with `bootstrap_db` and `migrate` ticked. With both services at 0 the
    workflow treats it as a first deploy and asks for both; db-bootstrap keeps every parameter that
    is set and only re-asserts the roles.

@@ -261,6 +261,14 @@ locals {
         script  = "scripts/ops-amend-contact.ts"
         secrets = ["DATABASE_URL"]
       }
+      # After a restore, beside destroy-due (docs/handover.md, "Restoring",
+      # step 5): every deletion the restored database still remembers, done
+      # again. No arguments; it finds people by the keyed references its
+      # records keep, so it needs the key that made them.
+      "reapply-erasures" = {
+        script  = "scripts/reapply-erasures.ts"
+        secrets = ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"]
+      }
       } : name => {
       name             = "app"
       image            = local.app_image

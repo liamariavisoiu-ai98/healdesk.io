@@ -743,11 +743,11 @@ run "production_defaults" {
       aws_s3_bucket_public_access_block.exports.block_public_acls && aws_s3_bucket_public_access_block.exports.block_public_policy &&
       aws_s3_bucket_public_access_block.exports.ignore_public_acls && aws_s3_bucket_public_access_block.exports.restrict_public_buckets &&
       one(aws_s3_bucket_ownership_controls.exports.rule).object_ownership == "BucketOwnerEnforced" &&
-      one(aws_s3_bucket_lifecycle_configuration.exports.rule).expiration[0].days == 7 &&
+      one(aws_s3_bucket_lifecycle_configuration.exports.rule).expiration[0].days == 1 &&
       toset([for st in data.aws_iam_policy_document.exports_bucket.statement : st.sid]) == toset(["DenyAnythingWithoutTls", "DenyUploadsNotUnderKms"]) &&
       alltrue([for st in data.aws_iam_policy_document.exports_bucket.statement : st.effect == "Deny"])
     )
-    error_message = "The export bucket is SSE-KMS under our key with bucket keys, private, owner-enforced, TLS only, KMS-only uploads, and keeps an object at most 7 days."
+    error_message = "The export bucket is SSE-KMS under our key with bucket keys, private, owner-enforced, TLS only, KMS-only uploads, and keeps an object one day (24 to 48 hours, to S3's next midnight)."
   }
 
   assert {
@@ -797,7 +797,9 @@ run "production_defaults" {
   # --- the patient-rights operator scripts: ids only, no task role ---
   assert {
     condition = (
-      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact"]) &&
+      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact", "reapply-erasures"]) &&
+      jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/reapply-erasures.ts"] &&
+      [for e in jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"] &&
       jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/ops-erase-person.ts"] &&
       jsondecode(aws_ecs_task_definition.ops_script["amend-contact"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/ops-amend-contact.ts"] &&
       [for e in jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"] &&
@@ -813,8 +815,8 @@ run "production_defaults" {
 
   assert {
     condition = (
-      alltrue([for f in ["erase-person", "amend-contact"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
-      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : strcontains(jsonencode(st.resources), "erase-person") || strcontains(jsonencode(st.resources), "amend-contact") if contains(st.actions, "ecs:RunTask")])
+      alltrue([for f in ["erase-person", "amend-contact", "reapply-erasures"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
+      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : strcontains(jsonencode(st.resources), "erase-person") || strcontains(jsonencode(st.resources), "amend-contact") || strcontains(jsonencode(st.resources), "reapply-erasures") if contains(st.actions, "ecs:RunTask")])
     )
     error_message = "The deploy role registers the operator scripts' revisions but may never run one."
   }

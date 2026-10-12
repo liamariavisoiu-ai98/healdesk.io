@@ -774,7 +774,7 @@ request run again before the service reopens:
    to name each request lost (clinic and request id): run each deletion again from the
    practice's request, which the mailbox keeps for those 35 days ("Deletion requests").
 5. Run `npm run reapply-erasures -w @healdesk/app` with the runtime role's
-   `DATABASE_URL`. For every deletion whose record still holds its references, it finds
+   `DATABASE_URL` (on the AWS host: `bash run-task.sh reapply-erasures` in CloudShell). For every deletion whose record still holds its references, it finds
    the person in the restored data and deletes what was recorded no later than the
    deletion ran, so anything they gave afterwards stays, and writes no new record. It
    exits non-zero if any clinic could not be done.

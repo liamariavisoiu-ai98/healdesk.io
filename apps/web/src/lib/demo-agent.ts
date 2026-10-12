@@ -31,7 +31,7 @@ export const DEMO_AGENT = {
   greeting:
     `Hi, I'm ${site.agent}, healdesk's AI assistant. I answer for med spas, surgery, ` +
     "fertility, dental, derm and weight loss clinics. Ask me anything a " +
-    "patient would, or anything you'd ask a supplier.",
+    "patient would.",
 
   /**
    * Two operator questions and one compliance question.

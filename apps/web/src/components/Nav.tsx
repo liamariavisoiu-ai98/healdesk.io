@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 
 import { BuyButton } from "@/components/BuyModal";
 import { GetInTouch } from "@/components/GetInTouch";
-import { WordmarkGlyphs } from "@/components/Wordmark";
+import { NAV_WORDMARK_HEIGHT, WordmarkGlyphs } from "@/components/Wordmark";
 import { site } from "@/lib/site";
 
 /**
@@ -13,9 +13,10 @@ import { site } from "@/lib/site";
  * It used to be the receiving half of a hand-off: the giant wordmark behind
  * AYA in the hero shrank into this one as you scrolled, and this one faded in
  * as that one faded out. The hero is static now (see HeroStage.tsx), so the
- * logo is simply always here, at one size, on every route.
+ * logo is simply always here, at one size, on every route. The navbar asks
+ * for its larger size (Wordmark.tsx); the pages without a navbar keep 28px.
  */
-export function Brand({ className = "" }: { className?: string }) {
+export function Brand({ className = "", height }: { className?: string; height?: number }) {
   return (
     <a
       href="/"
@@ -23,7 +24,7 @@ export function Brand({ className = "" }: { className?: string }) {
       aria-label={`${site.name} home`}
     >
       <span className="inline-block min-w-0">
-        <WordmarkGlyphs />
+        <WordmarkGlyphs height={height} />
       </span>
     </a>
   );
@@ -63,7 +64,7 @@ export function Nav() {
   return (
     <header className="border-line/60 bg-paper/85 sticky top-0 z-50 border-b backdrop-blur-md">
       <div className="mx-auto flex max-w-[1240px] items-center gap-2 px-5 py-4 min-[480px]:gap-3 sm:gap-5 sm:px-8 lg:px-14">
-        <Brand className="min-w-0" />
+        <Brand className="min-w-0" height={NAV_WORDMARK_HEIGHT} />
 
         {/* Text links are hidden on the narrower screens rather than wrapped:
             a phone's row holds the wordmark and the two buttons instead of

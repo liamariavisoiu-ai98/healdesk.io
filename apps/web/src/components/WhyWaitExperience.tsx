@@ -114,7 +114,7 @@ export function WhyWaitExperience() {
             <p className="eyebrow-tag">No card, no setup, no call from sales</p>
             <h2
               id="try-heading"
-              className="font-display text-ink mt-5 max-w-[16ch] text-[clamp(38px,4.8vw,64px)] leading-[1.02] font-normal tracking-[-0.03em] text-balance"
+              className="heading-section text-ink mt-5"
             >
               Talk to {site.agent} for {DEMO_ACCESS_DAYS} days before you decide.
             </h2>

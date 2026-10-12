@@ -19,10 +19,9 @@ import { site } from "@/lib/site";
  *
  * ## Typography
  *
- * Satori, which draws this, takes TTF/OTF/WOFF and not WOFF2, and the only
- * font shipped in the repo (TAN Ashford) is WOFF2 and is reserved for figures
- * anyway. The site's display face arrives through next/font at build time and
- * is not on disk to read. So the tagline sets in the bundled default sans,
+ * Satori, which draws this, takes TTF/OTF/WOFF and not WOFF2, and the repo
+ * ships no font files of its own: both of the site's faces arrive through
+ * next/font at build time and are not on disk to read. So the tagline sets in the bundled default sans,
  * which is honest rather than a near-miss imitation of Fraunces. If a TTF of
  * the display face is ever added under app/fonts, pass it in `fonts` below.
  *

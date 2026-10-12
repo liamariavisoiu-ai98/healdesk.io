@@ -88,7 +88,7 @@ export function WhyGoSmart({
     <section id="why" className="scroll-mt-24 py-20 sm:py-28">
       <div className="max-w-[54ch]">
         <p className="eyebrow-tag">Why go smart?</p>
-        <h2 className="font-display mt-3 text-[clamp(36px,5.28vw,62.4px)] leading-[1.04] font-medium tracking-[-0.026em]">
+        <h2 className="heading-section mt-5">
           The calls you never hear about are the ones{" "}
           <span className="text-brand-gradient">worth the most</span>.
         </h2>

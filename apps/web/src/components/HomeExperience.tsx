@@ -67,7 +67,7 @@ export function HomeExperience() {
           <p className="eyebrow-tag">
             {site.agent} 3.0 · Meet your smart assistant
           </p>
-          <h2 className="font-display text-ink mt-5 text-[clamp(36px,4.8vw,66px)] leading-[1.02] font-normal tracking-[-0.03em] text-balance">
+          <h2 className="heading-section text-ink mx-auto mt-5">
             One assistant, every channel, 24/7
           </h2>
           <p className="text-muted mx-auto mt-4 max-w-[60ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">

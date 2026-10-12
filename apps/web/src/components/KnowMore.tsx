@@ -144,7 +144,7 @@ export function KnowMore() {
         <p className="eyebrow-tag">
           Want to know more?
         </p>
-        <h2 className="font-display mt-3 text-[clamp(36px,5.28vw,62.4px)] leading-[1.04] font-medium tracking-[-0.026em]">
+        <h2 className="heading-section mt-5">
           Ask us anything.
         </h2>
       </div>

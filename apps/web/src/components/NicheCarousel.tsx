@@ -40,7 +40,7 @@ export function NicheCarousel({
           className="bg-gradient-to-r from-transparent via-orange to-transparent mx-auto mt-5 block h-px w-full max-w-[200px]"
         />
 
-        <h2 className="font-display mx-auto mt-5 text-[clamp(33.6px,4.8vw,55.2px)] leading-[1.06] font-medium tracking-[-0.026em] text-balance">
+        <h2 className="heading-section mx-auto mt-5">
           Explore the specialties we cover
         </h2>
       </div>

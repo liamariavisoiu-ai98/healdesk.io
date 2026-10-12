@@ -65,7 +65,7 @@ export function CoverageOffer({
   return (
     <section className="bg-ink mt-14 overflow-hidden rounded-lg px-5 py-12 text-center text-white sm:px-12 sm:py-14">
       <p className="text-[13.2px] font-bold tracking-[0.14em] text-white/60 uppercase">Reachable around the clock</p>
-      <h2 className="font-display mx-auto mt-3 max-w-[24ch] text-[38px] leading-[1.05] font-medium tracking-[-0.025em] text-balance sm:text-[56px]">
+      <h2 className="heading-section mx-auto mt-3">
         From {fmt(openHours)} to {HOURS_IN_A_WEEK} hours a week.
       </h2>
       <p className="mx-auto mt-4 max-w-[48ch] text-[18px] leading-[1.5] text-white/75">

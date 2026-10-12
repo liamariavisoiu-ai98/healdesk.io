@@ -1,6 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Hanken_Grotesk } from "next/font/google";
-import localFont from "next/font/local";
+import { Fraunces, Instrument_Sans } from "next/font/google";
 
 import { CookieNotice } from "@/components/analytics/CookieNotice";
 import { CampaignMemory } from "@/components/analytics/CampaignMemory";
@@ -13,67 +12,41 @@ import "./globals.css";
 // layout shift from a late-arriving webfont.
 
 /**
- * TAN Ashford, and it is only ever a number.
+ * Two faces, and only two (owner, 12 October 2026): Fraunces for every
+ * heading and figure, Instrument Sans for everything else.
  *
- * It ran the whole display layer for an afternoon and has been pulled back to
- * figures: the rating, the prices, the money the calculator works out. A face
- * this assertive earns its place on a lone 4.9 the size of a fist and fights
- * every heading it sits under, which is what happens when a display face has
- * one weight and a lot of personality.
+ * TAN Ashford (figures), Helvetica Now Display (section labels) and the
+ * system monospace on the hero's announcement tag went the same day; their
+ * files are in git history. The admin console keeps a monospace for the
+ * codes and keys it prints, which are data rather than typography, and the
+ * month-one phone draws its lock screen in the device's own face, as a
+ * phone would (globals.css, "What changes in month one").
  *
- * Licensed, so it ships from this repo rather than from a font service.
- *
- * ⚠️ One weight, 700. Figures carry `font-semibold` and resolve to it, and a
- * browser asked for a LIGHTER weight than exists uses the nearest real face
- * rather than synthesising, so nothing is faux-bolded. Do not reach for
- * `font-bold` expecting heavier; there is nothing heavier and that IS the case
- * a browser fakes. The file also has no ellipsis glyph, which no figure needs.
+ * Fraunces is loaded whole, as a variable font, with its optical-size axis
+ * (`opsz`, 9 to 144) as well as its weight, rather than as three fixed
+ * weights. Fixed weights are cut at one optical size, so a 64px heading was
+ * drawn with the same coarse, low-contrast shapes as 14px text; with the axis
+ * in the file the browser picks the cut from the size (`font-optical-sizing:
+ * auto`, the default), and large headings get the sharper display design.
+ * The soft and wonky axes stay out: nothing uses them and each one adds to
+ * the file.
  */
-const ashford = localFont({
-  src: "./fonts/ashford-bold.woff2",
-  weight: "700",
-  style: "normal",
-  variable: "--font-ashford",
-  display: "swap",
-});
-
-/**
- * Helvetica Now Display, and it is only ever a section label.
- *
- * The owner asked on 9 October 2026 for the small labels above each section
- * ("AYA 3.0 · Meet your smart assistant", "What changes in month one") to be
- * set in the face scalabid.com uses for its own: Helvetica Now Display at
- * 600, the weight scalabid maps its "Bold" cut to. The file is that cut,
- * copied from the scalabid repo.
- *
- * Licensed (Monotype), so it ships from this repo rather than from a font
- * service. The owner confirmed on 9 October 2026 that the licence covers
- * healdesk.io; a new domain needs that checked again before it serves this.
- *
- * One weight, as with Ashford above: `eyebrow-tag` asks for 600 and gets this
- * face, and nothing asks it for anything heavier.
- */
-const helveticaNow = localFont({
-  src: "./fonts/helvetica-now-display-bold.woff2",
-  weight: "600",
-  style: "normal",
-  variable: "--font-helvetica-now",
-  display: "swap",
-  fallback: ["Helvetica Neue", "Helvetica", "Arial", "sans-serif"],
-});
-
 const fraunces = Fraunces({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
   style: ["normal", "italic"],
+  axes: ["opsz"],
   variable: "--font-fraunces",
   display: "swap",
 });
 
-const hanken = Hanken_Grotesk({
+/**
+ * Instrument Sans, the body face from 12 October 2026, replacing Hanken
+ * Grotesk. Variable, 400 to 700: a class asking for 800 resolves to 700
+ * rather than being synthesised.
+ */
+const instrument = Instrument_Sans({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-hanken",
+  variable: "--font-instrument",
   display: "swap",
 });
 
@@ -136,7 +109,7 @@ export default function RootLayout({
       // Next 16 no longer neutralises `scroll-behavior: smooth` (globals.css)
       // during route transitions unless this attribute is present.
       data-scroll-behavior="smooth"
-      className={`${fraunces.variable} ${hanken.variable} ${ashford.variable} ${helveticaNow.variable}`}
+      className={`${fraunces.variable} ${instrument.variable}`}
     >
       <body className="min-h-screen antialiased">
         {children}

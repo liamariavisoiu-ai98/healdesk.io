@@ -18,8 +18,8 @@
  * ## The origin inventory (re-check this when adding a third-party anything)
  *
  * Everything the pages load today is same-origin:
- *   - Fonts: Fraunces and Hanken Grotesk come through next/font (self-hosted
- *     at build time) and TAN Ashford is a local woff2. No font CDN, so no
+ *   - Fonts: Fraunces and Instrument Sans come through next/font
+ *     (self-hosted at build time). No font CDN, so no
  *     fonts.googleapis.com / fonts.gstatic.com here, and adding them would be
  *     a regression, not a fix.
  *   - Video: the niche cards and HealdeskSoul play from /public (webm + mp4),

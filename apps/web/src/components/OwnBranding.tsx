@@ -308,7 +308,7 @@ export function OwnBranding() {
       ) : null}
 
       {/* The window, coming up out of the stage's foot. */}
-      <div className="relative mx-auto mt-8 max-w-[760px] overflow-hidden rounded-t-[14px] border border-b-0 border-black/10 bg-white shadow-[0_0_0_0.5px_rgb(0_0_0/0.06),0_-18px_50px_-24px_rgb(23_42_58/0.35)]">
+      <div className="relative mx-auto mt-8 max-w-[760px] overflow-hidden rounded-t-md border border-b-0 border-black/10 bg-white shadow-lg ring-1 ring-black/[0.06]">
         {/* The toolbar, reduced to Safari's own: lights and the address pill. */}
         <form onSubmit={showMe} noValidate className="relative z-20 flex h-[52px] items-center gap-3 border-b border-black/[0.08] bg-[#f6f6f6] px-3.5">
           <span className="flex shrink-0 gap-2" aria-hidden>

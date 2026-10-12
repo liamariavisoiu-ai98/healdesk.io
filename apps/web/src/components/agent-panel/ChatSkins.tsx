@@ -552,18 +552,14 @@ export function ChatSkins({
       headerTone === "light" ? (
         <div className="text-ink flex items-center gap-2.5 px-4 py-3" data-tone="light">
           <Avatar name={name} logoUrl={logoUrl} size={34} filled />
-          <div className="min-w-0">
-            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
-            <p className="text-muted truncate text-[12.6px] leading-tight">We typically reply instantly</p>
-          </div>
+          {/* The name alone: "We typically reply instantly" under it went
+              (owner, 12 October 2026). */}
+          <p className="min-w-0 truncate text-[15px] leading-tight font-semibold">{name}</p>
         </div>
       ) : (
         <div className="flex items-center gap-2.5 px-4 py-3" data-tone="brand" style={{ color: "var(--clinic-ink)" }}>
           <Avatar name={name} logoUrl={logoUrl} size={34} />
-          <div className="min-w-0">
-            <p className="truncate text-[15px] leading-tight font-semibold">{name}</p>
-            <p className="truncate text-[12.6px] leading-tight opacity-80">We typically reply instantly</p>
-          </div>
+          <p className="min-w-0 truncate text-[15px] leading-tight font-semibold">{name}</p>
         </div>
       ),
     whatsapp: (

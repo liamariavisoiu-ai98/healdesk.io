@@ -163,6 +163,35 @@ describeDb("database audit (0031)", () => {
     ]);
   });
 
+  test("the runtime role inserts a signature unbound, and never the agreement gate's inputs (0066)", async () => {
+    // INSERT on baa_acceptances is column-scoped: a signature is written
+    // unbound by signAgreement and bound, terminated or given a reason only by
+    // the definers and the console's own writes. With any of the four, the
+    // runtime role could write itself an agreement in effect (review R1).
+    const { rows } = await getMigratorPool().query<{ attname: string }>(`
+      select a.attname
+        from pg_attribute a
+       where a.attrelid = 'baa_acceptances'::regclass and a.attnum > 0 and not a.attisdropped
+         and has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'INSERT')
+       order by a.attname
+    `);
+    expect(rows.map((r) => r.attname)).toEqual([
+      "accepted_at",
+      "accepted_by_email",
+      "accepted_by_name",
+      "accepted_by_title",
+      "assent_label",
+      "document_hash",
+      "document_version",
+      "id",
+      "ip_address",
+      "rendered_text",
+      "user_agent",
+      "user_id",
+      "variables",
+    ]);
+  });
+
   test("client numbers are issued in order of creation and never change, for any role (0057)", async () => {
     const first = await seedClinic("number1");
     const second = await seedClinic("number2");

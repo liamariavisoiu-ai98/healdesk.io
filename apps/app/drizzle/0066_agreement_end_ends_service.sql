@@ -92,8 +92,11 @@ GRANT UPDATE (termination_reason) ON baa_acceptances TO healdesk_app;--> stateme
 --     production, which the table-wide INSERT grant allowed, would have had
 --     the gate's other input in hand from the start (0058's insert guard,
 --     with that added);
---   * the posture block at the foot fails the migration that widens any of
---     these again.
+--   * the DO block below asserts this posture once, when this migration
+--     runs, so it cannot be applied over a wider grant; it does not run
+--     again. What keeps the posture afterwards is CI:
+--     tests/database-audit.test.ts pins the grants, and
+--     tests/phi-gate-inputs.test.ts runs both exploits as the runtime role.
 REVOKE INSERT ON baa_acceptances FROM healdesk_app;--> statement-breakpoint
 GRANT INSERT (id, user_id, document_version, document_hash, rendered_text, variables, assent_label,
               accepted_by_name, accepted_by_email, accepted_by_title, accepted_at, ip_address,

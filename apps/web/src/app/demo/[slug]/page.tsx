@@ -147,11 +147,13 @@ export default async function DemoPage({ params }: Props) {
       ? process.env.RETELL_DEMO_FROM_NUMBER!
       : null;
 
-  // Building, or a build that failed and the team is finishing by hand.
+  // Building, being audited (lib/demo/audit.ts), or held or failed and the
+  // team is finishing it by hand. Only an audited demo is ever shown.
+  const inProgress = session.status === "building" || session.status === "auditing";
   if (!profile || session.status !== "ready") {
     return (
       <Shell colour={colour}>
-        {session.status === "building" && !expired ? <RefreshWhileBuilding /> : null}
+        {inProgress && !expired ? <RefreshWhileBuilding /> : null}
         <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
           <span
             aria-hidden
@@ -161,7 +163,7 @@ export default async function DemoPage({ params }: Props) {
             We&rsquo;re preparing {name}&rsquo;s demo
           </h1>
           <p className="text-muted mt-3 text-[17px] font-medium">
-            {session.status === "building"
+            {inProgress
               ? "We're reading your website and setting up your voice and chat assistants. This usually takes a minute or two, and this page will update by itself."
               : "Our team is putting the finishing touches on it. Check back shortly, or reply to our email and we'll let you know the moment it's ready."}
           </p>

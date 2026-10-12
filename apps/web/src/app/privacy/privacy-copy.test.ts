@@ -107,3 +107,43 @@ describe("the product's commitments the policy repeats", () => {
     expect(text.match(/[\w.+-]+@healdesk\.io/g)?.every((address) => address === ENTITY.email)).toBe(true);
   });
 });
+
+/**
+ * What BAA 1.3.0 says this page says (release gate 12,
+ * docs/counsel/agreement-changes.md § 12.14).
+ *
+ * Its clause headed "healdesk's own use, and de-identified statistics" says
+ * healdesk "commits publicly, at healdesk.io/privacy, to keep and use that
+ * information only in de-identified form and not to try to re-identify it".
+ * Until 12 October 2026 nothing here said so. Its Google Calendar clause lets
+ * a practice that books by provider choose one calendar per provider, where
+ * section 11 said the clinic "chooses which calendar". Section 9's breach
+ * clock is the 9 October wording, which the test above holds: no public page
+ * promises the 24 hours apps/app keeps as an internal operating target.
+ */
+describe("the commitments BAA 1.3.0 points at", () => {
+  const text = pageText();
+
+  test("section 14 makes the de-identification commitment, in the clause's terms", () => {
+    expect(text).toContain(
+      "We commit to keep and use it only in de-identified form and not to try to re-identify it, and we will not re-identify, or try to re-identify, any individual from it.",
+    );
+    expect(text).toContain(
+      "only to produce aggregate statistics about the service, such as what fraction of after-hours calls are answered. We use those statistics only to measure and improve the service.",
+    );
+    expect(text).toContain("Anyone we give it to must meet the same conditions under a contract with us.");
+  });
+
+  test("section 11 allows the calendar or one per provider, and reads nothing else", () => {
+    expect(text).toContain(
+      "chooses the calendar the assistant books into or, where it books by provider, one calendar for each provider",
+    );
+    expect(text).not.toContain("chooses which calendar");
+    expect(text).toContain("the product does not read or store any of them");
+    expect(text).not.toContain("It uses other events on the calendar");
+  });
+
+  test("section 9 promises no 24 hours, which is an internal target only", () => {
+    expect(text).not.toContain("within 24 hours of discovery");
+  });
+});

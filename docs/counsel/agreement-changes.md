@@ -1710,6 +1710,42 @@ these is closed, by code, a page, a signed paper or a host setting, and
     the same day, with the refund clause 17 gives (HRC-07, SUB-03); §9 and
     §14 may say "consistently with" for "in the same way" (ICD-16).
 
+Gates 12 and 14 are written in LEGAL_VERSION 2026-10-12.1, which replaces
+2026-10-09.1; gate 13 is retired. The owner decided on 12 October 2026 for
+the direction of 9 October (cc7d209 and 2acc070, on main through PR #6,
+f002e3f): breaches and incidents are reported "without unreasonable delay
+and in no case later than 60 calendar days after discovery", and the 24
+hours apps/app's incident deadline keeps is an internal operating target
+that no public page promises; `/subprocessors` is retired, the list given to
+a signed clinic on written request (clause 13 says so since § 13); `/trust`
+is the Terms' annex, "How we protect data".
+
+- 12: `/privacy` § 14 makes clause 8's commitment in clause 8's terms, for a
+  clinic whose agreement allows de-identification (1.2.1 and 1.2.2 also do,
+  more loosely; the DPA allows none), and § 11 follows clause 6: the
+  calendar or one per provider, the main calendar until one is chosen, the
+  calendar names read, the three things not read, and when the token is
+  deleted. § 9 keeps 2acc070's breach wording and says, as clause 13 does,
+  that a vendor signs before patient information reaches it.
+- 13: retired by owner decision, list on request; done on main by the
+  9 October branch, not here.
+- 14: Terms § 9 states the language-model provider's agreement as clause 13
+  states Anthropic's, without naming a vendor, and says no real patient
+  information is processed until every agreement in the chain is in place;
+  §§ 9 and 14 say "consistently with". Terms § 1 defines the "Data
+  Agreement" (the BAA, or the DPA in its place), and §§ 4, 7 and 15 give the
+  owner's refund rule of 12 October 2026, which clause 17's third paragraph
+  states for the BAA: every ending stops the subscription and fees that day;
+  a refund only where Practice terminates for healdesk's violation of a
+  material term or under the Subcontractors clause, of the prorated unused
+  paid period (the rest of the year on an annual plan), never the setup fee
+  or overage already billed, and nothing before the plan starts; otherwise
+  none. §§ 13 and 14 keep it outside the exclusion and the indemnity, as
+  clause 18 does. Terms § 4's cancellation is the portal's Auto-renew switch,
+  since Stripe's portal has cancellation off. The code that ends the
+  subscription and refunds on termination (blocker 1 of the C19 audit, refund
+  kind `agreement_terminated`) is another branch's.
+
 **Paper and settings**
 
 15. Retell's US region and encryption at rest confirmed in writing, and its

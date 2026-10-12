@@ -65,6 +65,22 @@ export const metadata: Metadata = {
  * same version adds section 2's "If you ask for your own demo", for the
  * homepage's "See it in your own branding" (api/own-demo), and the number a
  * personalised demo's "Call us" keeps, which shipped without a line here.
+ *
+ * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
+ * (release gate 12, agreement-changes.md § 12.14):
+ *   - section 14 is the public commitment 1.3.0's clause headed "healdesk's
+ *     own use, and de-identified statistics" says healdesk makes "at
+ *     healdesk.io/privacy", in that clause's words and no further;
+ *   - section 11 follows 1.3.0's Google Calendar clause: the calendar, or one
+ *     per provider; the account's main calendar until one is chosen; the
+ *     calendar names it reads so the clinic can choose; the three things
+ *     Google's permission reaches that healdesk neither reads nor stores; and
+ *     when the stored connection is deleted;
+ *   - section 9 says a vendor signs before patient information reaches it, as
+ *     1.3.0's Subcontractors clause does, a promise rather than a statement
+ *     of fact. Its breach clock stays the 9 October wording: the 24 hours
+ *     apps/app's incident deadline keeps is an internal operating target, and
+ *     no public page promises it.
  */
 export default function PrivacyPage() {
   return (
@@ -77,15 +93,18 @@ export default function PrivacyPage() {
           This policy covers <strong>{site.domain}</strong> and the people who use it: clinic
           owners and staff considering {site.name}, and anyone who tries the demo. {site.name}{" "}
           ("we", "us") operates it; the operating entity is named in section 10. It does not
-          cover patients of our customers, except as sections 11 to 13 say about the product.
+          cover patients of our customers, except as sections 11 to 14 say about the product.
         </p>
         {/* Adopted 3 Oct 2026 by the owner without external counsel review.
             The scope sentence for sections 11 to 13, which Google's and Meta's
-            app reviews read. */}
+            app reviews read. Section 14 added 12 Oct 2026 (LEGAL_VERSION
+            2026-10-12.1). */}
         <p>
           Sections 11 and 12 also describe what the product does with data it receives from Google
           and from Meta when a clinic connects its Google Calendar, its Facebook Page, its Instagram
           account or its WhatsApp number, and section 13 says how to have that data deleted.
+          Section 14 is the public commitment our Business Associate Agreement makes about
+          de-identified statistics.
         </p>
         <p>
           <strong>Patient information is not handled on this website.</strong> When a clinic
@@ -423,10 +442,11 @@ export default function PrivacyPage() {
         </p>
         <p>
           The controls the product commits to for patient information are set out in the
-          Business Associate Agreement. There is an agreement with every vendor that holds patient
-          information, signed before any patient information reaches it; Meta and payment
-          processors sign none, so the product keeps clinical content away from them. Patient information is
-          encrypted at rest, and in transit wherever we control both ends. Two routes are outside
+          Business Associate Agreement. Every vendor that will handle patient information for us
+          signs an agreement with us before any patient information reaches it; Meta and payment
+          processors sign none, so the product keeps clinical content away from them. Patient
+          information is encrypted at rest, and in transit wherever we control both ends. Two
+          routes are outside
           that: a phone call is not end-to-end encrypted, and a patient who telephones has chosen
           the telephone; and a message on Instagram, Messenger or WhatsApp travels through
           Meta&apos;s systems, which we do not control. Email that would carry patient information
@@ -479,27 +499,41 @@ export default function PrivacyPage() {
           Required for Google's verification of the Calendar scope: what the
           app does with Google user data, and the Limited Use statement,
           verbatim in substance. It describes the v1 calendar connection in
-          docs/v1-product-spec.md ("Where bookings are written"), which is not
-          built yet; every sentence must be true before the first clinic
-          connects. */}
+          docs/v1-product-spec.md ("Where bookings are written"); every
+          sentence must be true before the first clinic connects. Revised 12
+          Oct 2026 (LEGAL_VERSION 2026-10-12.1) to BAA 1.3.0's clause headed
+          "Google Calendar", which every calendar clause and election shares
+          in these respects. */}
       <Section id="google" title="11. Google Calendar data (clinics that connect a calendar)">
         <p>
           A clinic that uses {site.name} connects its Google Calendar with a Google sign-in during
-          setup, and chooses which calendar the assistant uses. With that access the product does
-          two things, and only these:
+          setup, and chooses the calendar the assistant books into or, where it books by provider,
+          one calendar for each provider. Until it chooses, the product uses the main calendar of
+          the account it connected. With that access the product does these things, and only
+          these:
         </p>
         <ul className="list-disc space-y-3 pl-6">
           <li>
-            <strong>Reads availability</strong> on the chosen calendar, so the assistant offers
-            patients times that are actually free.
+            <strong>Reads the names of the calendars</strong> that account owns or manages, so the
+            clinic can choose.
           </li>
           <li>
-            <strong>Creates and changes the events it books</strong> on that calendar.
+            <strong>Reads when each chosen calendar is free or busy</strong>, so the assistant
+            offers patients times that are actually free.
+          </li>
+          <li>
+            <strong>Adds appointments</strong> to a chosen calendar when the assistant books one
+            and when the clinic&apos;s staff confirm a booking request, and reads back only the
+            appointments it added. Each is private, with no guests and no reminders, and carries a
+            first name, the service and the time: never a phone number, an email address, or
+            anything clinical beyond the service&apos;s name.
           </li>
         </ul>
         <p>
-          It uses other events on the calendar only to see when the clinic is busy, never changes
-          an event it did not create, and writes to no other Google service. The access is used only to provide the booking feature
+          Google&apos;s permission also reaches the list of every calendar the account subscribes
+          to, the other events on its calendars, and when its other calendars are free or busy; the
+          product does not read or store any of them. It never moves, edits or cancels an event it
+          did not create, and writes to no other Google service. The access is used only to provide the booking feature
           the clinic turned on. We do not sell Google user data, do not use it for advertising, do
           not use it to build or improve generalized artificial intelligence or machine learning
           models, and do not let people read it except where the clinic asks us to, where it is
@@ -521,11 +555,14 @@ export default function PrivacyPage() {
           </strong>
         </p>
         <p>
-          The connection is stored encrypted. A clinic can disconnect or change the calendar from
-          its portal at any time, which deletes the stored connection, or remove {site.name}&apos;s
-          access from its Google Account&apos;s security settings, which ends it at once. The events
-          the assistant booked stay in the clinic&apos;s own calendar, which the clinic controls
-          under its own agreement with Google.
+          The connection is stored encrypted, and the product stops using it when the
+          clinic&apos;s service ends. A clinic can change the calendar in its portal at any time,
+          or disconnect it there, which deletes the stored connection. It can also remove{" "}
+          {site.name}&apos;s access from its Google Account&apos;s security settings, which ends
+          the access at once; we delete the stored connection when we next find that it no longer
+          works. In any case it is deleted when we destroy the clinic&apos;s data after its service
+          ends. The appointments already added stay in the clinic&apos;s own calendar, which the
+          clinic controls under its own agreement with Google.
         </p>
       </Section>
 
@@ -589,6 +626,37 @@ export default function PrivacyPage() {
           </a>{" "}
           and we answer within 30 days, as in section 7. Where the data belongs to a clinic&apos;s
           patients, we act on that clinic&apos;s instructions.
+        </p>
+      </Section>
+
+      {/* Added 12 Oct 2026 (LEGAL_VERSION 2026-10-12.1). BAA 1.3.0's clause
+          headed "healdesk's own use, and de-identified statistics" says
+          healdesk "commits publicly, at healdesk.io/privacy, to keep and use
+          that information only in de-identified form and not to try to
+          re-identify it". This is that commitment, with the rest of the
+          clause it belongs to, in the clause's own terms and no wider: only
+          aggregate statistics about the service, only to measure and improve
+          it, combined only after de-identification. No code makes such
+          statistics today. The data protection agreement for practices HIPAA
+          does not reach permits none, so this section speaks only of the
+          Business Associate Agreement. */}
+      <Section id="de-identified" title="14. De-identified statistics">
+        <p>
+          Where a clinic&apos;s Business Associate Agreement allows it, we may de-identify its
+          patient information, to the standard HIPAA sets in 45 CFR 164.514(b), and combine it
+          with de-identified information from other clinics, only to produce aggregate statistics
+          about the service, such as what fraction of after-hours calls are answered. We use those
+          statistics only to measure and improve the service. We combine only information that has
+          already been de-identified, and never combine patient information itself with
+          information from any other source to produce them.
+        </p>
+        <p>
+          We take reasonable measures to ensure that the de-identified information cannot be
+          associated with any individual or household. We commit to keep and use it only in
+          de-identified form and not to try to re-identify it, and we will not re-identify, or try
+          to re-identify, any individual from it. Anyone we give it to must meet the same
+          conditions under a contract with us. We never use patient information to train,
+          fine-tune or evaluate any model.
         </p>
       </Section>
     </LegalPage>

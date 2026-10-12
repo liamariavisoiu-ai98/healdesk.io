@@ -74,12 +74,32 @@ describe("the terms describe v1 as the spec defines it", () => {
     // Anthropic's own retention page: 30 days, except flagged or legally
     // required content, which it may keep for up to two years. The terms
     // must carry the exception, or they overstate what happens.
-    expect(text).toContain("keeps that content for 30 days, for abuse detection, and then deletes it, except content");
-    expect(text).toContain("which it may keep for up to two years; it never trains on it");
-    expect(text).toContain("in the same way as sections 13 and 14");
-    expect(text).toContain("in the same way as this section and section 13");
+    expect(text).toContain(
+      "it keeps conversation content for 30 days, for abuse detection and security, and then deletes it, except content",
+    );
+    expect(text).toContain(
+      "which it may keep for up to two years; the service it provides under that agreement cannot run with shorter retention, and it never trains on that content",
+    );
+    expect(text).toContain("consistently with sections 13 and 14");
+    expect(text).toContain("consistently with this section and section 13");
     expect(text).toContain("These limits do not apply to our wilful misconduct or gross negligence");
     expect(text).toContain("civil money penalty a regulator imposes on us for our own conduct");
+  });
+
+  test("the model provider's agreement is a promise about when it is signed, not a fact", () => {
+    // BAA 1.3.0's Subcontractors clause: Anthropic receives conversation
+    // content "only under a business associate agreement with healdesk signed
+    // before any patient's information reaches it". That agreement is an
+    // owner item and is not signed yet (release gate 17), so the terms may
+    // not describe it as in force (release gate 14). The page names no
+    // vendor (the owner's direction of 9 October 2026).
+    expect(text).toContain(
+      "Our language-model provider receives the content of each conversation, to generate the agent's replies, only under a business associate agreement with us signed before any patient's information reaches it.",
+    );
+    expect(text).toContain(
+      "We process no real patient information for your Practice until each business associate agreement in the chain is in place: yours with us, and ours with every vendor that will handle it, which are our hosting provider, our database provider, our voice provider and our language-model provider.",
+    );
+    expect(text).not.toContain("Under its business associate agreement with us it keeps");
   });
 
   test("the opening line's promise of a person is a duty the Practice has agreed to", () => {
@@ -89,6 +109,49 @@ describe("the terms describe v1 as the spec defines it", () => {
     expect(text).toContain(
       "Requests for a person. When a caller or visitor asks for a person, the assistant takes their details and alerts the contact you named. You get back to them within 24 hours, as the assistant tells them you will.",
     );
+  });
+
+  test("ending the Data Agreement ends the subscription that day, with the refund only where 1.3.0 gives one", () => {
+    // BAA 1.3.0's Term clause: "Terminating this agreement ends the Services
+    // on the same day. Where Practice terminates because healdesk has violated
+    // a material term, or under the Subcontractors clause, no Fees accrue for
+    // any time after that day, and healdesk refunds any Fees Practice has paid
+    // for that time." Its Liability clause keeps that refund outside the
+    // exclusion and the indemnity, and its Definitions clause lets it govern
+    // the Terms on termination and the Fees (release gate 14). The owner
+    // confirmed on 12 October 2026 how it works, for the BAA and the DPA
+    // alike: every ending stops fees that day; the refund is the prorated
+    // unused part of the paid period, never the setup fee or overage already
+    // billed, nothing before the plan starts, and nothing on any other ending.
+    expect(text).toContain(
+      'In these terms your Data Agreement means that Business Associate Agreement or, for a Practice that signs our data protection agreement in its place, that agreement. Where these terms and your Data Agreement differ about terminating it and what then happens to the service and your fees, your Data Agreement controls (section 15).',
+    );
+    expect(text).toContain(
+      "However your Data Agreement ends, your subscription and the service end on the same day, and no fees accrue for any time after that day.",
+    );
+    expect(text).toContain(
+      "A refund is owed only where you terminate your Data Agreement because we have violated a material term of it, or under its Subcontractors clause after objecting to a new subprocessor. We then refund the fees you have paid for the time after that day: the prorated unused part of the subscription period you have paid for, which on an annual plan is the rest of the year. The refund never includes the setup fee or usage above the allowance already billed, and if your plan has not started (section 3) there is nothing to refund.",
+    );
+    expect(text).toContain(
+      "Where we terminate your Data Agreement because of your breach, or it ends in any other way, this section refunds nothing.",
+    );
+    expect(text).toContain(
+      "If your Data Agreement ends, however it ends, your subscription ends with it on the same day, not at the end of the period you have paid for, and no fees accrue for any time after that day.",
+    );
+    expect(text).toContain(
+      "the agent stops answering when it ends, which is at the end of the paid period, or on the day your Data Agreement ends if that comes first (section 15)",
+    );
+    expect(text).toContain("and neither is the refund section 15 gives when you terminate your Data Agreement");
+    expect(text).toContain("It does not extend to a claim for the refund section 15 gives.");
+  });
+
+  test("cancelling is the portal's Auto-renew switch, because Stripe's portal offers no cancel", () => {
+    // apps/web/scripts/stripe-account-settings.ts switches subscription_cancel
+    // off in Stripe's Customer Portal; apps/app's Billing screen carries the
+    // Auto-renew switch, and ops turns it off for a Practice that emails.
+    expect(text).toContain("in your portal, open Billing and turn Auto-renew off");
+    expect(text).not.toContain("cancel at end of period");
+    expect(text).not.toContain("open the billing portal");
   });
 
   test("leaving delivers an export within 30 days, then destruction on the agreement's terms", () => {

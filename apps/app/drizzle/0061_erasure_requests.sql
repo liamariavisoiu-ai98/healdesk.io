@@ -142,7 +142,7 @@ BEGIN
     -- would outlive the destruction: the expiry skips destroyed clinics, so
     -- its references would be kept for good. The clinic's row is read FOR
     -- SHARE, and app_mark_clinic_destroyed() locks it FOR UPDATE before it
-    -- checks the tables empty (0060), so an erasure racing the destruction
+    -- checks the tables empty (0062), so an erasure racing the destruction
     -- either lands before the check, which then refuses, or sees the stamp.
     SELECT c.destroyed_at INTO destroyed FROM clinics c WHERE c.id = NEW.clinic_id FOR SHARE;
     IF destroyed IS NOT NULL THEN
@@ -422,7 +422,7 @@ COMMENT ON FUNCTION app_destroy_erasure_requests(uuid) IS
 COMMENT ON FUNCTION app_erase_contact_evidence(uuid, text[]) IS
   'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
-  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, the setup screens, slot holds, providers and provider services 0056 and 0057 added, and the records of deletion requests (0059). Returns destroyed_at.';--> statement-breakpoint
+  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, the setup screens, slot holds, providers and provider services 0056 and 0057 added, and the records of deletion requests (0061). Returns destroyed_at.';--> statement-breakpoint
 COMMENT ON TABLE suppressions IS
   'Do-not-contact list: a NULL channel means every channel, and it outranks any consent record. The runtime role cannot delete a row; the person''s own erasure (app_erase_contact_evidence) and destruction (app_destroy_contact_evidence) do. An erasure writes nothing here: it is recorded in erasure_requests, without the number.';--> statement-breakpoint
 

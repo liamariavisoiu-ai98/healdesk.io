@@ -14,8 +14,8 @@ import { withTenant } from "@/lib/tenant";
  * The device email: O3 in Annex X5 of the funnel and portal plan, "A device
  * was added or removed". It goes to the sign-in's address when a passkey is
  * added (except the first, in the browser that paid, where the person adding
- * it is the person reading the inbox), when one is removed, and when code
- * entry locks after wrong codes.
+ * it is the person reading the inbox), when one is removed, when code entry
+ * locks after wrong codes, and when "Someone left" signs everyone out.
  *
  * Sent straight, not through the outbox: factors belong to the user, not to
  * a clinic, and one sign-in can open several locations. The factor's row (or,
@@ -34,6 +34,8 @@ export async function notifyDeviceChange(
     first?: boolean;
     /** For a lockout: when code entry unlocks. */
     lockedUntil?: Date;
+    /** For "Someone left": how many devices it removed. */
+    removedCount?: number;
   },
   options: SendEmailOptions = {},
 ): Promise<void> {
@@ -67,6 +69,7 @@ export async function notifyDeviceChange(
         ...(deviceName ? { deviceName } : {}),
         changedAt: now.toISOString(),
         ...(lockedMinutes ? { lockedMinutes } : {}),
+        ...(change.kind === "signed_out" ? { removedCount: change.removedCount ?? 0 } : {}),
       },
       {
         clinicName: null,

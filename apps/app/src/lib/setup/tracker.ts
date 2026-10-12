@@ -1,3 +1,5 @@
+import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+
 import type { SetupState } from "./state";
 
 /**
@@ -10,7 +12,8 @@ import type { SetupState } from "./state";
  *
  * The last two stages are the engine's (M4): nothing in this build builds an
  * assistant or runs its practice questions, so they are honestly not done,
- * and the preview stays locked. The calendar stage never blocks: without a
+ * and the preview stays locked. The calendar stage reads the connection
+ * (the calendar session's getCalendarConnection) and never blocks: without a
  * connected calendar, bookings arrive as requests.
  */
 
@@ -58,7 +61,7 @@ export function answersMissing(
   return missing;
 }
 
-export function buildTracker(state: SetupState): Tracker {
+export function buildTracker(state: SetupState, calendar: CalendarConnectionView): Tracker {
   const stages: Stage[] = [];
 
   stages.push({
@@ -113,13 +116,7 @@ export function buildTracker(state: SetupState): Tracker {
     blocks: true,
   });
 
-  stages.push({
-    id: "calendar",
-    label: "Calendar",
-    state: "info",
-    detail: "Bookings arrive as requests your team confirms.",
-    blocks: false,
-  });
+  stages.push(calendarStage(calendar));
 
   stages.push({
     id: "built",
@@ -139,6 +136,34 @@ export function buildTracker(state: SetupState): Tracker {
 
   const left = stages.filter((s) => s.blocks && s.state !== "done").map((s) => s.label);
   return { stages, left, previewUnlocked: left.length === 0 };
+}
+
+/**
+ * "Calendar connected" once a connection is healthy (active, or degraded by
+ * a passing failure); otherwise what bookings do without it. Never blocks.
+ */
+function calendarStage(calendar: CalendarConnectionView): Stage {
+  if (calendar.status === "active" || calendar.status === "degraded") {
+    return {
+      id: "calendar",
+      label: "Calendar connected",
+      state: "done",
+      detail: calendar.account.email
+        ? `Connected as ${calendar.account.email}.`
+        : "Your Google Calendar is connected.",
+      blocks: false,
+    };
+  }
+  return {
+    id: "calendar",
+    label: "Calendar",
+    state: "info",
+    detail:
+      calendar.status === "error"
+        ? "Your calendar connection stopped working, so bookings arrive as requests your team confirms until you reconnect it."
+        : "Bookings arrive as requests your team confirms.",
+    blocks: false,
+  };
 }
 
 /** "a, b and c". */

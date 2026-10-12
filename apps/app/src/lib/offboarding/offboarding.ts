@@ -493,7 +493,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
-  // The amendments Practice directed (drizzle/0060), before the requests and
+  // The amendments Practice directed (drizzle/0062), before the requests and
   // conversations they amend: neither can go while one remains, and the app
   // role cannot delete one, so app_destroy_record_amendments() deletes every
   // one of this tenant's, on the requests' own floor.
@@ -517,7 +517,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
-  // The records of the clinic's deletion requests (drizzle/0059): dates,
+  // The records of the clinic's deletion requests (drizzle/0061): dates,
   // counts and keyed references to the people deleted, kept to delete them
   // again after a restore. A restore after this re-runs the destruction,
   // which takes those people with everyone else, so no record of them needs

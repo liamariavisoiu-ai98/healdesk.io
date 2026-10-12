@@ -1,4 +1,5 @@
 import type { RequestContext } from "@/lib/audit";
+import { clientIp } from "@/lib/client-ip";
 import { env } from "@/lib/env";
 
 import type { MetaAppCredentials } from "./connect";
@@ -28,9 +29,8 @@ export function seeOther(location: string, setCookie?: string): Response {
 
 /** The same trace the token pages record (app/connect/[token]/request-context.ts), read off a route's Request. */
 export function requestContextFrom(request: Request): RequestContext {
-  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   return {
-    ipAddress: forwarded || request.headers.get("x-real-ip") || undefined,
+    ipAddress: clientIp(request.headers),
     userAgent: request.headers.get("user-agent") ?? undefined,
   };
 }

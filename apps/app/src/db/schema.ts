@@ -962,7 +962,7 @@ export const conversations = pgTable(
     // alone would index-scan then re-filter. That's the common path, not the rare one.
     index("conversations_contact_idx").on(t.clinicId, t.contactId),
     // The target of record_amendments' (clinic_id, conversation_id) key, which
-    // is what keeps an amendment on a record of its own clinic (drizzle/0060).
+    // is what keeps an amendment on a record of its own clinic (drizzle/0062).
     unique("conversations_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -1068,6 +1068,15 @@ export const appointments = pgTable(
      * Written once (migration B).
      */
     calendarEventKey: text("calendar_event_key"),
+    /**
+     * The Google calendar a healdesk booking occupies and is written to: the
+     * location's own (its connection's metadata.calendarId, `primary` by
+     * default) or a named provider's (clinic_providers.calendar_id). The
+     * overlap guard keys on the clinic and this calendar; a healdesk booking
+     * with none occupies every calendar of its location. Written at insert
+     * and never changed (migration B).
+     */
+    calendarId: text("calendar_id"),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1090,6 +1099,10 @@ export const appointments = pgTable(
       "appointments_calendar_event_key_check",
       sql`${t.calendarEventKey} is null or ${t.calendarEventKey} ~ '^(hold:)?[0-9a-f-]{36}$'`,
     ),
+    check(
+      "appointments_calendar_id_check",
+      sql`${t.calendarId} is null or (char_length(${t.calendarId}) between 1 and 255 and ${t.calendarId} !~ '[[:space:][:cntrl:]]')`,
+    ),
     index("appointments_clinic_idx").on(t.clinicId, t.scheduledFor),
     index("appointments_confirmed_idx")
       .on(t.clinicId, t.externalConfirmedAt)
@@ -1099,7 +1112,7 @@ export const appointments = pgTable(
       .on(t.clinicId, t.externalSource, t.externalAppointmentId)
       .where(sql`${t.externalAppointmentId} is not null`),
     // The target of record_amendments' (clinic_id, appointment_id) key, which
-    // is what keeps an amendment on a record of its own clinic (drizzle/0060).
+    // is what keeps an amendment on a record of its own clinic (drizzle/0062).
     unique("appointments_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -1647,7 +1660,7 @@ export const bookingRequests = pgTable(
     // The thread a Meta request lives on, for the window check.
     index("booking_requests_thread_idx").on(t.clinicId, t.platform, t.senderId),
     // The target of record_amendments' (clinic_id, booking_request_id) key,
-    // which is what keeps an amendment on a record of its own clinic (0060).
+    // which is what keeps an amendment on a record of its own clinic (0062).
     unique("booking_requests_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -2476,7 +2489,7 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
  * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
  * BAA gate. Each target is a foreign key that carries clinic_id with the
  * record's id, so an amendment can only point at a record of its own clinic.
- * Append-only (drizzle/0060): the runtime role may INSERT and SELECT, no role
+ * Append-only (drizzle/0062): the runtime role may INSERT and SELECT, no role
  * may UPDATE, `recorded_at` is the database's clock at the insert, and the
  * foreign keys have no delete action, so an amendment leaves only with the
  * record it amends, inside the functions that delete that record (erasure,
@@ -4923,6 +4936,15 @@ export const slotHolds = pgTable(
     /** starts_at + duration_minutes, stored for the overlap query (a CHECK keeps them equal). */
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
     status: text("status").$type<SlotHoldStatus>().notNull().default("held"),
+    /**
+     * The Google calendar the time is held on: the location's own (its
+     * connection's metadata.calendarId, `primary` for the account's main
+     * calendar) or a named provider's. The overlap guard keys on the clinic
+     * and this calendar (addendum, named providers). No default: a hold that
+     * left it out would quietly key the guard on `primary`. Never changes
+     * (migration B).
+     */
+    calendarId: text("calendar_id").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .default(sql`clock_timestamp()`),
@@ -4998,6 +5020,10 @@ export const slotHolds = pgTable(
       sql`${t.blocksUntil} is null or ${t.blocksUntil} <= ${t.createdAt} + interval '1450 minutes'`,
     ),
     check("slot_holds_check_attempts_check", sql`${t.checkAttempts} >= 0`),
+    check(
+      "slot_holds_calendar_id_check",
+      sql`char_length(${t.calendarId}) between 1 and 255 and ${t.calendarId} !~ '[[:space:][:cntrl:]]'`,
+    ),
     check(
       "slot_holds_outcome_reason_check",
       sql`${t.outcomeReason} is null or ${t.outcomeReason} ~ '^[a-z0-9_]{1,40}$'`,

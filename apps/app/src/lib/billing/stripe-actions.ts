@@ -27,7 +27,7 @@ import {
   type Entitlements,
 } from "@/db/schema";
 import { assertNoPhi, type ActorContext } from "@/lib/audit";
-import { coverageModeOf, type CoverageMode } from "@/lib/billing/answering";
+import { readCoverageMode, type CoverageMode } from "@/lib/billing/answering";
 import { createLocationClinic, LOCATION_CLINICS_READY } from "@/lib/location-clinic";
 import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
@@ -522,9 +522,8 @@ async function addBoughtChannelRows(
 
 /**
  * How the clinic's calls reach us, for an email that ends a channel's service
- * (R31). `routing` follows the BD23 mapping that `coverageModeOf` in
- * answering.ts owns: `always` forwards every call, `conditional` the ones
- * staff miss plus everything after hours.
+ * (R31). `routing` is the clinic's coverage mode, through `readCoverageMode`
+ * in answering.ts: `clinic_settings.coverage_mode`, the single source.
  */
 async function forwardingFacts(tx: TenantTx): Promise<{
   carrier: NoticePayloads["plan_changed"]["carrier"];
@@ -544,7 +543,7 @@ async function forwardingFacts(tx: TenantTx): Promise<{
   return {
     carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
     phoneSystem: clinic.phoneSystem,
-    routing: coverageModeOf(clinic),
+    routing: await readCoverageMode(tx.db, tx.clinicId, clinic),
   };
 }
 

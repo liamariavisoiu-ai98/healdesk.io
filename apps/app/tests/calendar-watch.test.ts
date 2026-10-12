@@ -49,11 +49,16 @@ import { inTenant, seedCalendarTerms, seedClinic, seedGoogleConnection } from ".
  * it: the addendum's "in the SAME transaction that claims broken_alerted_at".
  * Ops alerts also reach the real notifyOps when a test sets `realOps`, to
  * see what its hourly dedupe lets through; and a location in `failTerms` has
- * a terms check that throws.
+ * a terms check that throws. The desk sweep (C12's sweepDeskWrites) runs for
+ * real, its calls recorded, unless a test sets the answer it gives.
  */
 const notices = vi.hoisted(() => ({
   realOps: false,
   failTerms: new Set<string>(),
+  desk: {
+    calls: [] as (Date | undefined)[],
+    answer: null as null | import("@/lib/booking/calendar").DeskSweepResult,
+  },
   calendar: [] as {
     clinicId: string;
     state: string;
@@ -106,6 +111,16 @@ vi.mock("@/lib/ops/notify", async (importOriginal) => {
     notifyOps: async (event: string, fields: Record<string, unknown>) => {
       notices.ops.push({ event, fields });
       if (notices.realOps) await actual.notifyOps(event as never, fields as never);
+    },
+  };
+});
+vi.mock("@/lib/booking/calendar", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/booking/calendar")>();
+  return {
+    ...actual,
+    sweepDeskWrites: async (options: Parameters<typeof actual.sweepDeskWrites>[0] = {}) => {
+      notices.desk.calls.push(options.now);
+      return notices.desk.answer ?? actual.sweepDeskWrites(options);
     },
   };
 });
@@ -227,6 +242,8 @@ describeDb("the calendar watch", () => {
     notices.ops.length = 0;
     notices.realOps = false;
     notices.failTerms.clear();
+    notices.desk.calls.length = 0;
+    notices.desk.answer = null;
     google = fakeGoogleCalendar();
     setGoogleFetch(google.fetch);
     resetGoogleTokenCache();
@@ -1046,6 +1063,48 @@ describeDb("the calendar watch", () => {
         vi.restoreAllMocks();
         await getMigratorPool().query(`truncate ops_alerts`);
       }
+    },
+    SLOW,
+  );
+
+  test(
+    "every run sweeps the desk's unsettled Google writes once, on the run's clock, and records what it did",
+    async () => {
+      await connectedLocation("watch-desk-sweep");
+      const now = new Date();
+      notices.desk.answer = { attempted: 3, written: 2, failed: 0, unknown: 1, errors: 0 };
+
+      const summary = await watchCalendars({ now });
+      expect(notices.desk.calls).toEqual([now]);
+      expect(summary).toMatchObject({ desk: notices.desk.answer, failed: 0 });
+      expect(notices.ops.filter((n) => n.event === "calendar_watch_failed")).toEqual([]);
+      const [event] = (await securityEvents("calendar_watch")).slice(-1);
+      expect(event).toMatchObject({ deskSwept: 3, deskWritten: 2, deskFailed: 0, deskUnknown: 1 });
+      expect(event).not.toHaveProperty("desk");
+
+      await switchWatch(true);
+      expect(await runCalendarWatchJob({ now })).toMatchObject({
+        status: "ok",
+        note: expect.stringMatching(/desk writes swept 3: 2 written, 1 still unknown, 0 failed/),
+      });
+    },
+    SLOW,
+  );
+
+  test(
+    "a desk sweep that could not read a location fails the run, and ops is told",
+    async () => {
+      await connectedLocation("watch-desk-unreadable");
+      notices.desk.answer = { attempted: 0, written: 0, failed: 0, unknown: 0, errors: 1 };
+
+      expect(await watchCalendars()).toMatchObject({ failed: 1, ok: 1 });
+      expect(notices.ops).toEqual([{ event: "calendar_watch_failed", fields: { count: 1 } }]);
+
+      await switchWatch(true);
+      expect(await runCalendarWatchJob()).toMatchObject({
+        status: "failed",
+        note: expect.stringMatching(/1 location\(s\) unreadable/),
+      });
     },
     SLOW,
   );

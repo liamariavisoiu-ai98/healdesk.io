@@ -24,6 +24,7 @@ import {
   saveBasics,
   saveHours,
 } from "./practice";
+import { saveNamedProviders } from "./providers";
 import { neighbours, recordScreen } from "./screens";
 import { SETUP_SCREENS, type SetupScreenId } from "./screen-ids";
 import { saveDirectLine, saveSetupSettings, SetupSettingsError, toE164 } from "./settings";
@@ -89,6 +90,15 @@ export async function saveSetupScreen(
   // (app/c/[slug]/setup/actions.ts); it is never "answered" by a form.
   if (screen === "backup") {
     return { ok: false, field: "screen", message: "The backup is added by its own steps." };
+  }
+  if (screen === "providers") {
+    // 3.2's named providers are checked with Google and saved by the
+    // calendar functions, each in a transaction of its own, before this
+    // screen's: Google is never asked inside a transaction. Only what they
+    // saved reaches booking_detail, below.
+    const named = await saveNamedProviders(ctx, input);
+    if (!named.ok) return named;
+    input = named.bookingDetail ? { bookingDetail: named.bookingDetail } : {};
   }
   try {
     return await withTenant({ clinicId: ctx.clinicId, actor: actorOf(ctx) }, async (tx) => {
@@ -295,9 +305,12 @@ async function writeScreen(
     }
 
     case "providers":
-      // Named providers need the calendar backend's provider functions; until
-      // they exist the shared calendar is the only answer (lib/setup/calendar.ts).
-      await saveSetupSettings(tx, { bookingDetail: "generic" }, ctx.actorLabel, now);
+      // `named_provider` only once saveNamedProviders has saved the providers
+      // (saveSetupScreen, before this transaction); nothing when it left the
+      // saved answer as it is.
+      if (input.bookingDetail === "named_provider" || input.bookingDetail === "generic") {
+        await saveSetupSettings(tx, { bookingDetail: input.bookingDetail }, ctx.actorLabel, now);
+      }
       return;
 
     case "channels":

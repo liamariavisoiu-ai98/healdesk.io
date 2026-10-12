@@ -419,9 +419,9 @@ function labelOf(actor: ActorContext): string {
  * terms, its Google Calendar connection, Auto-confirm and the owner's kill
  * switch, not by the addendum's counsel approval and the practice's election
  * of it. It stays, inert for any real clinic, only for its last callers: the
- * voice tool routes until the harness is parked (plan C12), and the console's
- * booking-mode switch and gate list until the console's cards are rebuilt
- * (C17), which deletes it.
+ * console's booking-mode switch and gate list, until the console's cards are
+ * rebuilt (C17), which deletes it. The voice tool routes no longer ask it
+ * (parked, plan C12).
  *
  * Six gates, all read fresh on every call and never cached, because the
  * failure this guards against is a clinic that was switched to direct
@@ -474,7 +474,7 @@ export async function directBookingAllowed(tx: TenantTx): Promise<DirectBookingC
   if (!writable)
     miss(
       "no_writable_calendar",
-      "No active, writable calendar connection with a recorded PHI basis (none can exist until the Google Calendar adapter is built).",
+      "No active, writable calendar connection: the location's Google Calendar, under calendar terms that let healdesk write.",
     );
 
   const [agent] = await tx.db

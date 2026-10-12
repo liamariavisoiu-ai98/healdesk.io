@@ -310,6 +310,38 @@ describe("screenClinicProfile", () => {
     expect(unknown.services.map((s) => s.name)).toEqual(["Hydrafacial"]);
   });
 
+  test("a med spa's services named for a condition are its menu, and stay, with the words that name them", () => {
+    // The everyday skin and hair conditions are the Meta channels' rule only
+    // (clinical-content.ts): a clinic's own site is made of them.
+    const screened = screenClinicProfile(
+      profile({
+        services: [
+          service({ name: "Acne Facial" }),
+          service({ name: "Rosacea Laser", priceKind: "from", priceUsd: 350 }),
+          service({ name: "Scar revision consultation", priceKind: null, priceUsd: null }),
+          service({ name: "Hair loss PRP", priceKind: "range", priceUsd: 600, maxUsd: 900 }),
+        ],
+        policies: ["Acne facials are booked as a series of three."],
+        faqs: [
+          {
+            question: "Do you treat acne and rosacea?",
+            answer: "Yes: our Acne Facial and our Rosacea Laser.",
+          },
+        ],
+      }),
+      "med-spa",
+    );
+    expect(screened.services.map((s) => s.name)).toEqual([
+      "Acne Facial",
+      "Rosacea Laser",
+      "Scar revision consultation",
+      "Hair loss PRP",
+    ]);
+    expect(screened.policies).toEqual(["Acne facials are booked as a series of three."]);
+    expect(screened.faqs.map((f) => f.question)).toEqual(["Do you treat acne and rosacea?"]);
+    expect(screened.dropped).toBe(0);
+  });
+
   test("a second screening adds to the count, up to the cap", () => {
     const once = screenClinicProfile(profile({ policies: ["No aftercare is needed."] }), "med-spa");
     expect(once.dropped).toBe(1);

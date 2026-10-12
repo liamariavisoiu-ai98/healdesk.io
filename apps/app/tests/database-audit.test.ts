@@ -593,7 +593,7 @@ describeDb("database audit (0031)", () => {
   test("the BAA gate trigger guards every table that carries a caller's number or payload", async () => {
     // In the catalogue's own (C collation) order. 0057 added the slot holds
     // (a time tied to a call and a contact) and the named providers with
-    // their services (whose patient someone is, beside a booking); 0060 the
+    // their services (whose patient someone is, beside a booking); 0062 the
     // amendments Practice directs to a request or a conversation.
     const expected = [
       "appointments",

@@ -1362,7 +1362,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
    kept "so the request itself is honoured forever" changes with it. That is
    what clause 4(c) promises: "only a record of the request, for no longer
    than it needs one to make sure the information stays deleted".
-   Done on 8 October 2026 (`drizzle/0059_erasure_requests.sql`,
+   Done on 8 October 2026 (`drizzle/0061_erasure_requests.sql`,
    `apps/app/src/lib/patient-rights/erasure.ts`, pinned by
    `tests/person-erasure.test.ts`):
    - The operator erase path is the care page's "Delete a person", through
@@ -1511,7 +1511,7 @@ these is closed, by code, a page, a signed paper or a host setting, and
    booking request or conversation it amends, carried by `exportPatient`,
    `exportClinic` and the portal export. The DPA's clause 13 promises the
    same, as a correction, so its release waits on this gate too (`dpa.md`,
-   gap 22). Done on 12 October 2026 (`drizzle/0060_record_amendments.sql`,
+   gap 22). Done on 12 October 2026 (`drizzle/0062_record_amendments.sql`,
    `apps/app/src/lib/patient-rights/amendments.ts`, pinned by
    `tests/record-amendments.test.ts`):
    - `record_amendments` holds each amendment: the record it amends (a

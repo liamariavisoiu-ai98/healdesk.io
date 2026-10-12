@@ -1,5 +1,5 @@
 {
-  "id": "74ed0775-1786-4938-9569-a4648f6ead0e",
+  "id": "41cd36f1-c57f-4b94-9b8d-842e897ee89a",
   "prevId": "72783ffd-4e38-44ca-aacd-d96e56c6a808",
   "version": "7",
   "dialect": "postgresql",
@@ -1296,7 +1296,7 @@
       "checkConstraints": {
         "billing_notices_kind_check": {
           "name": "billing_notices_kind_check",
-          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected')"
+          "value": "\"billing_notices\".\"kind\" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready')"
         }
       },
       "isRLSEnabled": false
@@ -5617,135 +5617,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.erasure_requests": {
-      "name": "erasure_requests",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_by": {
-          "name": "requested_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "received_at": {
-          "name": "received_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "due_by": {
-          "name": "due_by",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "erased_at": {
-          "name": "erased_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "clock_timestamp()"
-        },
-        "deleted": {
-          "name": "deleted",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "restore_refs": {
-          "name": "restore_refs",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::text[]"
-        },
-        "vendor_steps": {
-          "name": "vendor_steps",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        }
-      },
-      "indexes": {
-        "erasure_requests_clinic_idx": {
-          "name": "erasure_requests_clinic_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "erased_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "erasure_requests_clinic_id_clinics_id_fk": {
-          "name": "erasure_requests_clinic_id_clinics_id_fk",
-          "tableFrom": "erasure_requests",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "erasure_requests_requested_by_check": {
-          "name": "erasure_requests_requested_by_check",
-          "value": "\"erasure_requests\".\"requested_by\" in ('practice', 'person_via_practice', 'representative_via_practice')"
-        },
-        "erasure_requests_received_check": {
-          "name": "erasure_requests_received_check",
-          "value": "\"erasure_requests\".\"received_at\" <= \"erasure_requests\".\"erased_at\""
-        },
-        "erasure_requests_due_check": {
-          "name": "erasure_requests_due_check",
-          "value": "\"erasure_requests\".\"due_by\" > \"erasure_requests\".\"received_at\""
-        },
-        "erasure_requests_refs_check": {
-          "name": "erasure_requests_refs_check",
-          "value": "array_position(\"erasure_requests\".\"restore_refs\", null) is null"
-        },
-        "erasure_requests_vendor_steps_check": {
-          "name": "erasure_requests_vendor_steps_check",
-          "value": "jsonb_typeof(\"erasure_requests\".\"vendor_steps\") = 'object' and (\"erasure_requests\".\"vendor_steps\" - 'retell') = '{}'::jsonb"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.factor_lockouts": {
       "name": "factor_lockouts",
       "schema": "",
@@ -7170,7 +7041,7 @@
       "checkConstraints": {
         "report_deliveries_kind_check": {
           "name": "report_deliveries_kind_check",
-          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'welcome')"
+          "value": "\"report_deliveries\".\"kind\" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'welcome', 'steps_sent')"
         },
         "report_deliveries_delivery_status_check": {
           "name": "report_deliveries_delivery_status_check",

@@ -24,7 +24,7 @@ import type { TenantTx } from "@/lib/tenant";
  * calendar holds it, which a sync or a reschedule may move, so a correction
  * of its service, practitioner or time is appended beside it rather than
  * written over the calendar's. Release gate 8 (PT-17) is this file and
- * `record_amendments` (drizzle/0060).
+ * `record_amendments` (drizzle/0062).
  *
  * A booking request's facts never change (the no-rewrite trigger, 0039 and
  * 0041), and a conversation is the record of what was said, so neither is
@@ -33,7 +33,7 @@ import type { TenantTx } from "@/lib/tenant";
  * record of the same clinic. The runtime role may add one and read them, and
  * nothing else: no role may change one once written (a trigger), and one
  * leaves only with the record it amends, through the functions that delete
- * those records (erasure, the purge, destruction; drizzle/0060).
+ * those records (erasure, the purge, destruction; drizzle/0062).
  *
  * Who writes them:
  *
@@ -62,7 +62,7 @@ export const AMENDMENT_MAX_LENGTH = 4000;
  * that promised none is left anywhere. A contact's details are corrected
  * with `amendContact` instead. A record's id and an ISO date and time are
  * taken out before the digits are counted. The database holds the same rule
- * (record_amendments_identifier_check, drizzle/0060), in the same patterns.
+ * (record_amendments_identifier_check, drizzle/0062), in the same patterns.
  */
 const RECORD_ID = /[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g;
 const ISO_MOMENT = /[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?/g;

@@ -20,6 +20,12 @@ export function ScreenShell(props: {
   screen: string;
   title: string;
   intro?: ReactNode;
+  /**
+   * What comes between the intro and the screen's fields, outside its form,
+   * so it may hold forms of its own (the calendar step's Sign in with Google
+   * and Disconnect): a form cannot sit inside another.
+   */
+  lead?: ReactNode;
   /** What skipping this screen costs, in one sentence. */
   skipCost: string;
   backHref: string | null;
@@ -54,74 +60,76 @@ export function ScreenShell(props: {
   }
 
   return (
-    <form
-      noValidate
-      aria-describedby={statusId}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void run(() => saveScreen(props.slug, props.screen, props.payload()), "save");
-      }}
-    >
+    <>
       <h1 className="text-2xl font-semibold">{props.title}</h1>
       {props.intro ? <div className="text-muted mt-3 space-y-2">{props.intro}</div> : null}
-
-      <div className="mt-6 grid gap-5">{props.children}</div>
-
-      <div
-        id={statusId}
-        role="status"
-        aria-live="polite"
-        className={
-          problem
-            ? "mt-6 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800"
-            : "sr-only"
-        }
+      {props.lead ? <div className="mt-6 grid gap-5">{props.lead}</div> : null}
+      <form
+        noValidate
+        aria-describedby={statusId}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void run(() => saveScreen(props.slug, props.screen, props.payload()), "save");
+        }}
       >
-        {problem ? (
-          <>
-            {problem.message}
-            {problem.stepUpHref ? (
-              <>
-                {" "}
-                <a href={problem.stepUpHref} className="font-semibold underline">
-                  Confirm it&rsquo;s you
-                </a>
-              </>
-            ) : null}
-          </>
-        ) : null}
-      </div>
+        <div className="mt-6 grid gap-5">{props.children}</div>
 
-      <div className="mt-6 flex flex-wrap items-center gap-3">
-        <button
-          type="submit"
-          disabled={working !== null}
-          className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-50"
+        <div
+          id={statusId}
+          role="status"
+          aria-live="polite"
+          className={
+            problem
+              ? "mt-6 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800"
+              : "sr-only"
+          }
         >
-          {working === "save" ? "Saving…" : (props.submitLabel ?? "Save and continue")}
-        </button>
-        {props.skippable === false ? null : (
+          {problem ? (
+            <>
+              {problem.message}
+              {problem.stepUpHref ? (
+                <>
+                  {" "}
+                  <a href={problem.stepUpHref} className="font-semibold underline">
+                    Confirm it&rsquo;s you
+                  </a>
+                </>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+
+        <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
-            type="button"
+            type="submit"
             disabled={working !== null}
-            onClick={() => void run(() => skipScreen(props.slug, props.screen), "skip")}
-            className="border-line min-h-11 rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-50"
+            className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-50"
           >
-            {working === "skip" ? "Skipping…" : "Skip for now"}
+            {working === "save" ? "Saving…" : (props.submitLabel ?? "Save and continue")}
           </button>
+          {props.skippable === false ? null : (
+            <button
+              type="button"
+              disabled={working !== null}
+              onClick={() => void run(() => skipScreen(props.slug, props.screen), "skip")}
+              className="border-line min-h-11 rounded-full border px-5 py-3 text-sm font-semibold disabled:opacity-50"
+            >
+              {working === "skip" ? "Skipping…" : "Skip for now"}
+            </button>
+          )}
+        </div>
+        {props.skippable === false ? null : (
+          <p className="text-muted mt-3 text-sm">If you skip: {props.skipCost}</p>
         )}
-      </div>
-      {props.skippable === false ? null : (
-        <p className="text-muted mt-3 text-sm">If you skip: {props.skipCost}</p>
-      )}
-      {props.backHref ? (
-        <p className="mt-6 text-sm">
-          <a href={props.backHref} className="text-muted underline underline-offset-2">
-            Back
-          </a>
-        </p>
-      ) : null}
-    </form>
+        {props.backHref ? (
+          <p className="mt-6 text-sm">
+            <a href={props.backHref} className="text-muted underline underline-offset-2">
+              Back
+            </a>
+          </p>
+        ) : null}
+      </form>
+    </>
   );
 }
 

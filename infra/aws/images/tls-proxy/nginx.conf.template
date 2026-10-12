@@ -1,0 +1,135 @@
+# tls-proxy: TLS on 8443 in front of apps/app on 127.0.0.1:3001, inside the
+# web task (the Dockerfile says why the hop exists). The entrypoint renders
+# this file into its runtime directory at every start, replacing __RUN_DIR__
+# and __KEEPALIVE_SECONDS__.
+#
+# The proxy is meant to be invisible: the app should see each request exactly
+# as it would with the load balancer forwarding to it directly
+# (alb_to_task_tls = false), and every setting below that departs from
+# nginx's defaults does so for that reason or to keep patient data off disk
+# and out of logs.
+
+# The master stays in the foreground for ECS, as the image's unprivileged
+# user, so there is no `user` directive.
+daemon off;
+pid __RUN_DIR__/nginx.pid;
+
+# One worker. The task has half a vCPU, shared with Node, and an event-driven
+# worker holds thousands of idle WebSockets without help.
+worker_processes 1;
+
+# Startup failures and critical faults only. An error line for a failed
+# request carries the whole request line, and this host's URLs carry
+# single-use tokens in their paths and OAuth codes, checkout references and
+# Meta's verify token in their query strings. The load balancer's 5xx metrics
+# and the app's own logs say what those lines would.
+error_log stderr crit;
+
+events {
+    worker_connections 4096;
+}
+
+http {
+    # No access log, for the same reason: every request line is a URL.
+    access_log off;
+    server_tokens off;
+
+    # nginx creates these at start even though nothing below spills to disk,
+    # and the compiled-in paths under /var/cache/nginx belong to root.
+    client_body_temp_path __RUN_DIR__/client_body;
+    proxy_temp_path __RUN_DIR__/proxy;
+    fastcgi_temp_path __RUN_DIR__/fastcgi;
+    uwsgi_temp_path __RUN_DIR__/uwsgi;
+    scgi_temp_path __RUN_DIR__/scgi;
+
+    # A WebSocket handshake asks to upgrade, and the upstream connection
+    # becomes the socket. Anything else closes its upstream connection when
+    # the response ends: loopback connections cost nothing, and nginx can
+    # then never reuse one that Node has just timed out.
+    map $http_upgrade $connection_upgrade {
+        default upgrade;
+        "" close;
+    }
+
+    # The load balancer sets X-Forwarded-Proto to the scheme the client used.
+    # Without one (a request from inside the task), this hop's own scheme is
+    # the same answer.
+    map $http_x_forwarded_proto $forwarded_proto {
+        default $http_x_forwarded_proto;
+        "" $scheme;
+    }
+
+    server {
+        # HTTP/1.1 only: a WebSocket upgrade needs it, and the target group
+        # speaks HTTP/1.1 to its targets.
+        listen 8443 ssl default_server;
+        server_name _;
+
+        ssl_certificate __RUN_DIR__/tls.crt;
+        ssl_certificate_key __RUN_DIR__/tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-CHACHA20-POLY1305;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:tls:1m;
+        ssl_session_timeout 1h;
+        ssl_session_tickets off;
+
+        # Longer than the load balancer's idle timeout, as AWS advises for
+        # targets, so the balancer never sends a request on a connection this
+        # side has just closed (an intermittent 502). The task definition
+        # sets TLS_PROXY_KEEPALIVE_SECONDS from alb_idle_timeout (ecs.tf);
+        # without it the entrypoint uses 130, for the default of 120.
+        keepalive_timeout __KEEPALIVE_SECONDS__s;
+
+        # Relayed Stripe events reach 1 MB. The app enforces its own, smaller
+        # limit on each route; this is only the ceiling.
+        client_max_body_size 4m;
+
+        # Node accepts 16 KB of request headers and the load balancer a 16 KB
+        # request line. nginx's default is 8 KB a line, so a long URL (an
+        # OAuth callback, say) that Next would serve could get a 414 here.
+        large_client_header_buffers 4 16k;
+
+        location / {
+            proxy_pass http://127.0.0.1:3001;
+            proxy_http_version 1.1;
+            proxy_redirect off;
+
+            proxy_set_header Host $http_host;
+            proxy_set_header X-Forwarded-Proto $forwarded_proto;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection $connection_upgrade;
+
+            # Passed on exactly as the load balancer sent it, not appended to.
+            # The balancer appends the address the request came from, and
+            # apps/app takes that last entry as the client's address, trusting
+            # exactly one proxy (TRUSTED_PROXY_HOPS in
+            # apps/app/src/lib/client-ip.ts). Appending this hop would put the
+            # balancer's own private address last on every request, so every
+            # per-address limit would share one bucket, and the count would
+            # differ with alb_to_task_tls on and off.
+            proxy_set_header X-Forwarded-For $http_x_forwarded_for;
+
+            # Bodies stream through in both directions and are never written
+            # to a temp file: request bodies (patient messages) and responses
+            # (transcripts) never touch a disk here, and a streamed response
+            # reaches the browser as Next sends it.
+            proxy_request_buffering off;
+            proxy_buffering off;
+            proxy_max_temp_file_size 0;
+
+            # The response's headers (the per-request security policy, the
+            # session cookies, Next's own) have to fit in one buffer, 4 KB by
+            # default; a response whose headers do not would fail here with a
+            # 502 the app never sees. The busy size has to be at least as big.
+            proxy_buffer_size 16k;
+            proxy_busy_buffers_size 16k;
+
+            # A WebSocket can sit quiet between messages for as long as a call
+            # lasts. The load balancer's idle timeout still bounds an ordinary
+            # request that stops sending.
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+    }
+}

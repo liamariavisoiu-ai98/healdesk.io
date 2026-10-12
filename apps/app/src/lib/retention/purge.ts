@@ -12,6 +12,7 @@ import {
   metaBookingDrafts,
   reconciliationExceptions,
   recordAmendments,
+  slotHolds,
   syncRuns,
   transactions,
   webhookEvents,
@@ -141,6 +142,8 @@ import type { TenantTx } from "@/lib/tenant";
  * the copy is kept only to re-read a payload found to be misparsed.
  */
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
+/** A slot hold that has stopped blocking is kept a week at most (plan §11.8), less on a shorter record clock. */
+export const SLOT_HOLD_RETENTION_DAYS = 7;
 
 /**
  * A sync run started longer ago than this is a crashed one, not one in
@@ -164,6 +167,7 @@ export type PurgeResult = {
   draftsDeleted: number;
   webhookEventsDeleted: number;
   chatThreadsDeleted: number;
+  slotHoldsDeleted: number;
 };
 
 /**
@@ -219,6 +223,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     draftsDeleted: 0,
     webhookEventsDeleted: 0,
     chatThreadsDeleted: 0,
+    slotHoldsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -275,7 +280,33 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: conversations.id });
   result.mediaCleared = cleared.length;
 
-  // 2. Records, children first. Booking requests lead: one that produced an
+  // 2. Slot holds first (plan §11.8). A hold names its contact, request and
+  //    appointment, each ON DELETE SET NULL, so the deletes below would
+  //    otherwise rewrite holds through the transition trigger. Every hold
+  //    that has stopped blocking goes once it is a week old, or older than
+  //    the record clock when that is shorter: a hold is made when its
+  //    request is, so no hold younger than the clock names a request this
+  //    run deletes. One that still blocks is never deleted (the delete
+  //    guard, drizzle/0057), and the same predicate keeps it out of reach
+  //    here, by the database's clock.
+  const holdsBefore = new Date(
+    Math.max(daysAgo(now, SLOT_HOLD_RETENTION_DAYS).getTime(), recordBefore.getTime()),
+  );
+  const holds = await tx.db
+    .delete(slotHolds)
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        lt(slotHolds.createdAt, holdsBefore),
+        sql`not ((${slotHolds.status} = 'held' and ${slotHolds.expiresAt} > clock_timestamp())
+                 or (${slotHolds.status} in ('writing', 'unknown', 'reserved')
+                     and ${slotHolds.blocksUntil} > clock_timestamp()))`,
+      ),
+    )
+    .returning({ id: slotHolds.id });
+  result.slotHoldsDeleted = holds.length;
+
+  // 3. Records, children first. Booking requests lead: one that produced an
   //    appointment holds it, so it goes before it, once its own dates and
   //    its appointment's are all past the clock. Through
   //    app_purge_booking_requests(), as the app role has no DELETE on them,
@@ -357,7 +388,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   }
   // An amended appointment goes with its amendments, in one call, at the
   // earlier of this job's cutoff and the database's own, as the booking
-  // requests above (app_purge_amended_appointments, drizzle/0060). Its time
+  // requests above (app_purge_amended_appointments, drizzle/0062). Its time
   // is one the runtime role and a sync can move, so an amendment never goes
   // on its own: only with the appointment it amends.
   const amendedAppointments = await tx.db.execute<{ n: number }>(
@@ -368,7 +399,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   // An amended conversation goes with its amendments, in one call: the
   // runtime role may delete a conversation but not an amendment, and no
   // conversation goes while one of its amendments remains (record_amendments,
-  // a foreign key with no delete action, drizzle/0060), so
+  // a foreign key with no delete action, drizzle/0062), so
   // app_purge_amended_conversations() takes the two together, at the earlier
   // of this job's cutoff and the database's own, as the booking requests
   // above, whose amendments go inside app_purge_booking_requests(). An
@@ -402,7 +433,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.conversationsDeleted += gone.length;
   }
 
-  // 3. Contacts nothing refers to any more, and that are themselves old. A
+  // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
   //    the contact without touching updated_at, and a person a request names
   //    cannot be deleted (booking_requests.contact_id is NO ACTION), so
@@ -423,7 +454,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: contacts.id });
   result.contactsDeleted = orphaned.length;
 
-  // 4. Vendor payloads: raw bodies, PHI by the migration's own admission. A
+  // 5. Vendor payloads: raw bodies, PHI by the migration's own admission. A
   //    processed one at thirty days, or the record clock when the clinic
   //    has shortened it below that, so no raw copy outlives the record it
   //    became. One never processed at the record clock: the period of the
@@ -443,7 +474,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: webhookEvents.id });
   result.webhookEventsDeleted = payloads.length;
 
-  // 5. Abandoned Meta drafts: a first name and a number, "swept after a day"
+  // 6. Abandoned Meta drafts: a first name and a number, "swept after a day"
   //    when the clinic's next Meta message arrives (readMetaDraft in
   //    lib/meta/booking-requests.ts). A clinic whose threads go quiet would
   //    keep them for good without this.
@@ -458,7 +489,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ senderId: metaBookingDrafts.senderId });
   result.draftsDeleted = drafts.length;
 
-  // 6. Messaging threads quiet for the whole record clock. A thread is a
+  // 7. Messaging threads quiet for the whole record clock. A thread is a
   //    keyed reference to the sender's platform id (for WhatsApp, their
   //    number) and when they last wrote, kept to count conversations and to
   //    know whose first reply has carried the opening line. BAA 1.3.0's
@@ -483,7 +514,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.contactsDeleted +
     result.draftsDeleted +
     result.webhookEventsDeleted +
-    result.chatThreadsDeleted;
+    result.chatThreadsDeleted +
+    result.slotHoldsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -499,6 +531,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         drafts: result.draftsDeleted,
         webhookEvents: result.webhookEventsDeleted,
         chatThreads: result.chatThreadsDeleted,
+        slotHolds: result.slotHoldsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,
@@ -533,7 +566,7 @@ export type ErasureResult = {
   appointmentsDeleted: number;
   transactionsDeleted: number;
   draftsDeleted: number;
-  /** Amendments of the requests and conversations deleted (drizzle/0060). */
+  /** Amendments of the requests and conversations deleted (drizzle/0062). */
   amendmentsDeleted: number;
 };
 
@@ -644,7 +677,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     // to them, someone else's request on one of their appointments included,
     // so a request leaves only with the person it names. The amendments of
     // the requests and conversations it deletes go first, in the same call
-    // (record_amendments, drizzle/0060): an amendment leaves only with what
+    // (record_amendments, drizzle/0062): an amendment leaves only with what
     // it amends.
     const [erased] = (
       await tx.db.execute<{

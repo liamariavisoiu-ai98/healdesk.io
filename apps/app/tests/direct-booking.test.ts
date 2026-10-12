@@ -1,45 +1,35 @@
-import { fixtureAdapter } from "@healdesk/connectors";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
-
-/**
- * The direct-booking addendum is not counsel-approved in the catalogue
- * (`approvedByCounsel: false`), and E.1 refuses while it is not. The tests
- * below need both answers, so the flag is switched per test through a
- * hoisted handle; the catalogue text itself is untouched.
- */
-const addendum = vi.hoisted(() => ({ approved: false }));
-vi.mock("@healdesk/catalog", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
-  return {
-    ...actual,
-    currentDirectBookingAddendum: () => ({ ...actual.currentDirectBookingAddendum(), approvedByCounsel: addendum.approved }),
-  };
-});
+import { FAKE_GOOGLE_CLIENT } from "@healdesk/connectors";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { POST as bookTool } from "@/app/api/voice/tools/[clinicId]/book/route";
 import { POST as contextTool } from "@/app/api/voice/tools/[clinicId]/context/route";
 import { POST as slotsTool } from "@/app/api/voice/tools/[clinicId]/slots/route";
-import { markVerified, saveConnection } from "@/lib/connections/store";
+import { voiceAnswerDecision } from "@/lib/billing/answering";
+import { MANUAL_BOOKING_LINE } from "@/lib/booking/lines";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
-import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
-import { ingestCall } from "@/lib/voice/ingest";
 import { spokenPhone, spokenSlot } from "@/lib/voice/spoken";
-import { __resetVoiceToolLimitsForTests, __setVoiceToolRuntimeForTests, callRefOf, depositLine, VOICE_TOOL_LIMITS } from "@/lib/voice/tools";
+import { __resetVoiceToolLimitsForTests, callRefOf, depositLine, VOICE_TOOL_LIMITS } from "@/lib/voice/tools";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { inTenant, seedCalendarTerms, seedClinic, seedDemoClinic, seedEntitled, seedGoogleConnection } from "./setup/factories";
 
 /**
- * Direct booking by the phone assistant (design of 23 September 2026, §E),
- * through the mid-call tool routes, against the fixture calendar.
+ * The Synthflow mid-call tool routes, parked as a pre-Retell test harness
+ * (plan §7.13, C12): no time from a clinic's Google Calendar reaches the
+ * voice vendor. `context` says requests and no times for every clinic but
+ * healdesk's demo clinic, whose mode is bookingModeFor's; `slots` and `book`
+ * answer 403 `manual_booking` for every clinic, until the engine is wired
+ * for the demo clinic (C14). Authentication, the body discipline and the
+ * rate limits are unchanged.
  */
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "test" } as const;
 const SECRET = "voice-tools-secret-for-tests";
 const TZ = "America/New_York";
-const SPOKEN = /^[A-Z][a-z]+ the \d+(st|nd|rd|th) at \d{1,2}(:\d{2})? (AM|PM)$/;
+const HOURS = '{"sun":[],"mon":[["09:00","17:00"]],"tue":[["09:00","17:00"]],"wed":[["09:00","17:00"]],"thu":[["09:00","17:00"]],"fri":[["09:00","17:00"]],"sat":[]}';
+const ENV_KEYS = ["GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET"] as const;
 
 describe("spoken forms (pure)", () => {
   test("a number is read in groups with oh for zero; a slot is a weekday, an ordinal and a clock time", () => {
@@ -59,37 +49,30 @@ describe("spoken forms (pure)", () => {
   });
 });
 
-describeDb("the direct-booking tools", () => {
-  const mailed: { target: DeliveryTarget; message: OutgoingEmail }[] = [];
-  const transport: EmailTransport = {
-    name: "capture",
-    async send(target, message) {
-      mailed.push({ target, message });
-      return { status: "sent", messageId: `m-${mailed.length}` };
-    },
-  };
-
+describeDb("the parked voice tools", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
     process.env.BETTER_AUTH_URL = "https://app.healdesk.test";
   }, 60_000);
 
+  let saved: Record<string, string | undefined> = {};
   beforeEach(() => {
     process.env.HEALDESK_VOICE_TOOLS_SECRET = SECRET;
-    process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
-    addendum.approved = true;
-    __setVoiceToolRuntimeForTests({ transport });
     __resetVoiceToolLimitsForTests();
+    // healdesk's (fake) Google client, so a clinic's calendar can count as healthy.
+    saved = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
+    process.env.GOOGLE_OAUTH_CLIENT_ID = FAKE_GOOGLE_CLIENT.clientId;
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = FAKE_GOOGLE_CLIENT.clientSecret;
   });
 
   afterEach(() => {
-    fixtureAdapter.reset();
-    mailed.length = 0;
     delete process.env.HEALDESK_VOICE_TOOLS_SECRET;
     delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
-    addendum.approved = false;
-    __setVoiceToolRuntimeForTests(undefined);
+    for (const key of ENV_KEYS) {
+      if (saved[key] === undefined) delete process.env[key];
+      else process.env[key] = saved[key];
+    }
   });
 
   afterAll(async () => {
@@ -109,19 +92,20 @@ describeDb("the direct-booking tools", () => {
   const call = (callId: string, extra: Record<string, unknown> = {}) => ({ call_id: callId, user_phone_number: "(415) 555-0177", ...extra });
 
   /**
-   * A live clinic with an approved script, a writable fixture calendar with
-   * a PHI basis, and — unless told otherwise — the direct-booking election.
+   * A live clinic with an approved script, a billing row and a live voice
+   * channel (the answer gate in front of the tools fails closed without
+   * them), and — unless told otherwise — calendar terms that write and a
+   * healthy Google connection: everything live booking would need.
    */
-  async function liveClinic(label: string, opts: { direct?: boolean; specialty?: string; deposit?: boolean } = {}) {
+  async function liveClinic(label: string, opts: { calendar?: boolean; specialty?: string; deposit?: boolean } = {}) {
     const c = await seedClinic(label);
     await getMigratorPool().query(
-      `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now(), specialty = $2, timezone = $3 where id = $1`,
+      `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now(), specialty = $2, timezone = $3,
+              timezone_confirmed_at = now(), opening_hours = '{"sun":[],"mon":[["09:00","17:00"]],"tue":[["09:00","17:00"]],"wed":[["09:00","17:00"]],"thu":[["09:00","17:00"]],"fri":[["09:00","17:00"]],"sat":[]}'::jsonb
+        where id = $1`,
       [c.clinicId, opts.specialty ?? "med-spa", TZ],
     );
-    // A production clinic answers only with a billing row and a live voice
-    // channel: the answer gate in front of the tools fails closed without them.
     await seedEntitled(c.clinicId, { channelRows: [{ channel: "voice", liveAt: new Date() }] });
-    await inTenant(c.clinicId, (client) => client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [c.clinicId, "desk@example-clinic.test"]));
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
       await updateAgentConfig(tx, {
@@ -133,24 +117,50 @@ describeDb("the direct-booking tools", () => {
         depositPolicy: opts.deposit ? { required: true, amountUsd: 100, collection: "front_desk" } : null,
       });
       await approveAgentConfig(tx, "Dr Chen");
-      const id = await saveConnection(tx.db, { clinicId: c.clinicId, provider: "fixture", credentials: { apiKey: "fx-key" }, metadata: { durationMinutes: 30 } });
-      await markVerified(tx.db, { clinicId: c.clinicId, connectionId: id, capabilities: {} });
-      return id;
     });
-    await inTenant(c.clinicId, (client) => client.query(`update provider_connections set phi_basis = 'practice_account'`));
     if (opts.deposit) {
       // A deposit is only asked for with deposits on and a connected Stripe account (BD27).
       await getMigratorPool().query(`update clinics set stripe_connect_account_id = 'acct_1DirectBooking', stripe_connect_connected_at = now() where id = $1`, [c.clinicId]);
       await inTenant(c.clinicId, (client) => client.query(`insert into clinic_settings (clinic_id, deposits_enabled) values ($1, true)`, [c.clinicId]));
     }
-    if (opts.direct !== false) {
-      await getMigratorPool().query(
-        `update clinics set booking_mode = 'direct', direct_booking_elected_at = now(), direct_booking_elected_by_label = 'Dr Chen, Owner',
-                direct_booking_clause_version = 'direct-booking-addendum/1.0.0', direct_booking_clause_hash = decode('ab', 'hex') where id = $1`,
-        [c.clinicId],
-      );
+    if (opts.calendar !== false) {
+      await seedCalendarTerms(c);
+      await seedGoogleConnection(c.clinicId);
     }
     return c;
+  }
+
+  /**
+   * healdesk's demo clinic, ready in every way live booking needs: its
+   * calls answered, calendar terms that write, a healthy Google connection,
+   * hours and a confirmed zone, an approved script. With the owner's switch
+   * on, its booking mode is live.
+   */
+  async function liveDemoClinic(label: string) {
+    const demo = await seedDemoClinic(label);
+    await getMigratorPool().query(
+      `update clinics set timezone = $2, timezone_confirmed_at = now(), opening_hours = $3::jsonb where id = $1`,
+      [demo.clinicId, TZ, HOURS],
+    );
+    await withTenant({ clinicId: demo.clinicId, actor: ACTOR }, async (tx) => {
+      await setPhoneSettings(tx, { publishedPhoneE164: "+14155550198" });
+      await updateAgentConfig(tx, {
+        greeting: "Hi",
+        services: [{ name: "Consultation", priceFromUsd: 0, priceToUsd: 0, durationMinutes: 30 }],
+        escalationPhone: null,
+        escalationHours: "Weekdays 9 to 5",
+        notes: null,
+        depositPolicy: null,
+      });
+      await approveAgentConfig(tx, "Dr Chen");
+    });
+    await seedCalendarTerms(demo);
+    await seedGoogleConnection(demo.clinicId);
+    await inTenant(demo.clinicId, (client) =>
+      client.query(`update clinic_channels set enabled = true, live_at = now() where channel = 'voice'`),
+    );
+    expect(await voiceAnswerDecision(demo.clinicId)).toEqual({ decision: "answer" });
+    return demo;
   }
 
   test("503 without the secret and 401 with the wrong one — a different secret from the webhook's", async () => {
@@ -171,158 +181,80 @@ describeDb("the direct-booking tools", () => {
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from audit_log where resource_type like 'voice_tool_%'`))).rows).toHaveLength(0);
   });
 
-  test("/context returns the practice's set and the effective mode; slots and book are 403 for a desk clinic, with the env off, or with the addendum unapproved", async () => {
-    const desk = await liveClinic("db-desk", { direct: false, specialty: "plastic-surgery", deposit: true });
-    const ctx = await post("context", desk.clinicId, call("ctx1"));
+  test("/context: requests and no times for every clinic but the demo clinic, even one with everything live booking needs", async () => {
+    process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
+    const live = await liveClinic("db-live", { specialty: "plastic-surgery", deposit: true });
+    const ctx = await post("context", live.clinicId, call("ctx1"));
     expect(ctx.status).toBe(200);
     expect(await ctx.json()).toEqual({
       required_fields_spoken: "your first name, a number the practice can call, a day or time that works best, one or two other times that could work, your last name, which service you're asking about, and whether this is a consultation or a treatment visit",
       booking_mode: "desk_confirms",
+      can_offer_times: false,
+      hold_seconds: 60,
+      booking_mode_reasons: ["harness_demo_only"],
       deposit_line: expect.stringMatching(/^A deposit of 100 dollars/),
       clinic_phone_spoken: "four one five — five five five — oh one nine nine",
       answer_mode: "assistant",
       transfer_number: null,
     });
-    const refused = await post("slots", desk.clinicId, call("ctx1"));
-    expect(refused.status).toBe(403);
-    expect(await refused.json()).toEqual({ error: "direct_booking_off", missing: [expect.stringMatching(/not elected direct booking/)] });
-    expect((await post("book", desk.clinicId, call("ctx1", { first_name: "Sam", at: new Date(Date.now() + 86_400_000).toISOString() }))).status).toBe(403);
 
-    const direct = await liveClinic("db-direct");
-    expect(await (await post("context", direct.clinicId, call("ctx2"))).json()).toMatchObject({ booking_mode: "direct", deposit_line: "" });
-    delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
-    // The context's mode follows the gate, so the agent never starts a flow the tool would refuse.
-    expect(await (await post("context", direct.clinicId, call("ctx2"))).json()).toMatchObject({ booking_mode: "desk_confirms" });
-    let off = await post("slots", direct.clinicId, call("ctx2"));
-    expect(off.status).toBe(403);
-    expect(await off.json()).toEqual({ error: "direct_booking_off", missing: [expect.stringMatching(/HEALDESK_DIRECT_BOOKING_ENABLED/)] });
-    process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
-    addendum.approved = false;
-    off = await post("slots", direct.clinicId, call("ctx2"));
-    expect(off.status).toBe(403);
-    expect(await off.json()).toEqual({ error: "direct_booking_off", missing: [expect.stringMatching(/addendum has not been approved/)] });
-    addendum.approved = true;
-    expect((await post("slots", direct.clinicId, call("ctx2"))).status).toBe(200);
-    expect((await inTenant(direct.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows).toHaveLength(0);
-  });
-
-  test("/slots lists at most six free times with spoken labels; /book takes one of them, is idempotent on the call id, tells the desk without details, and links the post-call webhook to the same request", async () => {
-    const c = await liveClinic("db-book", { specialty: "plastic-surgery", deposit: true });
-    const listed = await post("slots", c.clinicId, call("call_book_1", { days: 5 }));
-    expect(listed.status).toBe(200);
-    const { slots } = (await listed.json()) as { slots: { at: string; label: string; spoken: string }[] };
-    expect(slots.length).toBeGreaterThan(0);
-    expect(slots.length).toBeLessThanOrEqual(6);
-    for (const s of slots) {
-      expect(Date.parse(s.at)).toBeGreaterThan(Date.now());
-      expect(s.spoken).toMatch(SPOKEN);
-      expect(s.label).toMatch(/^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}, \d{1,2}:\d{2} (AM|PM)$/);
-    }
-    expect(slots.map((s) => Date.parse(s.at))).toEqual([...slots.map((s) => Date.parse(s.at))].sort((a, b) => a - b));
-
-    // A time the calendar did not offer is refused; so is a missing name.
-    const invented = new Date(Date.parse(slots[0]!.at) + 7 * 60_000).toISOString();
-    const refused = await post("book", c.clinicId, call("call_book_1", { first_name: "Dana", at: invented }));
-    expect(refused.status).toBe(409);
-    expect(await refused.json()).toEqual({ error: "slot_unavailable" });
-    expect((await post("book", c.clinicId, call("call_book_1", { first_name: "Dana <script>", at: slots[0]!.at }))).status).toBe(400);
-    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from appointments`))).rows).toHaveLength(0);
-
-    // The booking. Fields are validated against the practice's set; a clinical service is dropped to null.
-    const chosen = slots[1]!;
-    const booked = await post("book", c.clinicId, call("call_book_1", { first_name: "Dana", at: chosen.at, service: "Rhinoplasty consultation", fields: { last_name: "Okonkwo", consult_or_treatment: "consultation", dob: "1990", phone: "+15550000000" } }));
-    expect(booked.status).toBe(200);
-    const reply = (await booked.json()) as { booked: boolean; when_spoken: string; calendar: string; deposit_line?: string };
-    // The deposit flagged for the desk comes back with the line the agent says (BD27).
-    expect(reply).toEqual({ booked: true, when_spoken: chosen.spoken, calendar: "written", deposit_line: expect.stringMatching(/^A deposit of 100 dollars is required/) });
-
-    const stored = await inTenant(c.clinicId, async (client) => ({
-      requests: (await client.query<Record<string, unknown>>(`select channel, status, booked_via, vendor_call_id, decided_by_label, preferred_window, treatment, collected_fields, conversation_id, desk_notified_at, confirmed_for, appointment_id from booking_requests`)).rows,
-      appointments: (await client.query<Record<string, unknown>>(`select scheduled_for, treatment, deposit_status, deposit_usd, calendar_write_status, external_appointment_id, external_confirmed_at from appointments`)).rows,
-      contacts: (await client.query<{ phone: string; full_name: string; timezone: string }>(`select phone, full_name, timezone from contacts`)).rows,
-      audit: (await client.query<{ resource_type: string; metadata: Record<string, unknown> }>(`select resource_type, metadata from audit_log where resource_type in ('voice_tool_book', 'voice_tool_slots', 'appointment', 'booking_request') order by occurred_at`)).rows,
-    }));
-    expect(stored.requests).toHaveLength(1);
-    expect(stored.requests[0]).toMatchObject({
-      channel: "voice",
-      status: "confirmed",
-      booked_via: "agent_direct",
-      vendor_call_id: "call_book_1",
-      decided_by_label: "assistant (direct booking)",
-      preferred_window: chosen.label,
-      treatment: "Rhinoplasty consultation",
-      collected_fields: { last_name: "Okonkwo", consult_or_treatment: "consultation" },
-      conversation_id: null,
+    // The demo clinic's context is its booking mode, read fresh: live, so direct.
+    const demo = await liveDemoClinic("db-demo");
+    const demoCtx = (await (await post("context", demo.clinicId, call("ctx2"))).json()) as Record<string, unknown>;
+    expect(demoCtx).toMatchObject({
+      booking_mode: "direct",
+      can_offer_times: true,
+      hold_seconds: 60,
+      booking_mode_reasons: [],
     });
-    expect(stored.requests[0]!.desk_notified_at).not.toBeNull();
-    expect(new Date(stored.requests[0]!.confirmed_for as string).toISOString()).toBe(chosen.at);
-    expect(stored.appointments).toHaveLength(1);
-    expect(stored.appointments[0]).toMatchObject({ treatment: "Rhinoplasty consultation", deposit_status: "pending_front_desk", deposit_usd: "100.00", calendar_write_status: "written", external_confirmed_at: null });
-    expect(stored.appointments[0]!.external_appointment_id).toBe(`fx-${stored.requests[0]!.appointment_id ? "" : ""}${(await inTenant(c.clinicId, (client) => client.query<{ id: string }>(`select id from booking_requests`))).rows[0]!.id}`);
-    expect(stored.contacts).toEqual([{ phone: "+14155550177", full_name: "Dana", timezone: TZ }]);
-    // The calendar was handed a name, the sink address and the time — never the number.
-    const writes = fixtureAdapter.recordedWrites();
-    expect(writes).toHaveLength(1);
-    expect(writes[0]!.input.attendee).toEqual({ name: "Dana Okonkwo", email: expect.stringMatching(/^bookings\+[0-9a-f-]{36}@sink\.healdesk\.io$/), timeZone: TZ });
-    expect(JSON.stringify(writes[0]!.input)).not.toMatch(/0177|phone/i);
-    // Audit: the call by digest, never the id or the number; fields named, never valued.
-    const refs = stored.audit.filter((a) => a.resource_type.startsWith("voice_tool_"));
-    expect(refs.length).toBeGreaterThanOrEqual(3);
-    for (const a of refs) expect(a.metadata.callRef).toBe(callRefOf("call_book_1"));
-    expect(JSON.stringify(stored.audit)).not.toMatch(/call_book_1|0177|Okonkwo|Rhinoplasty/);
-    expect(stored.audit.filter((a) => a.metadata.outcome === "field_refused").map((a) => `${a.metadata.field}:${a.metadata.reason}`).sort()).toEqual(["dob:not_required", "phone:locked"]);
-
-    // The desk's FYI: the subject says the assistant booked, the body says who and when only through the link.
-    expect(mailed).toHaveLength(1);
-    expect(mailed[0]!.message.subject).toBe("The assistant booked an appointment — db-book Clinic");
-    expect(mailed[0]!.message.text).toMatch(/booked a caller directly into your calendar, as you elected/);
-    expect(mailed[0]!.message.text).toMatch(/a deposit is due/);
-    expect(mailed[0]!.message.text).toMatch(/https:\/\/app\.healdesk\.test\/booking\/[A-Za-z0-9_-]{43}/);
-    expect(mailed[0]!.message.text).not.toMatch(/Dana|Okonkwo|0177|Rhinoplasty|\d{1,2}:\d{2} (AM|PM)/);
-    expect(mailed[0]!.message.phiClass).toBe("none");
-
-    // Idempotent: the retry answers with the first result and writes nothing more.
-    const again = await post("book", c.clinicId, call("call_book_1", { first_name: "Dana", at: slots[3]!.at }));
-    expect(again.status).toBe(200);
-    expect(await again.json()).toEqual(reply);
-    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from appointments`))).rows).toHaveLength(1);
-    expect(fixtureAdapter.recordedWrites()).toHaveLength(1);
-    expect(mailed).toHaveLength(1);
-
-    // The post-call webhook for the same call links the conversation instead of creating a second request.
-    const ingested = await ingestCall(
-      { externalCallId: "call_book_1", clinicId: c.clinicId, callerPhone: "+14155550177", startedAt: new Date(), outcome: "booked", booking: { scheduledFor: new Date(chosen.at), preferredWindow: "Thursday" } },
-      ACTOR,
-    );
-    const linked = await inTenant(c.clinicId, (client) => client.query<{ id: string; conversation_id: string | null }>(`select id, conversation_id from booking_requests`));
-    expect(linked.rows).toHaveLength(1);
-    expect(linked.rows[0]!.conversation_id).toBe(ingested.conversationId);
-    expect(ingested.bookingRequestId).toBe(linked.rows[0]!.id);
-    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from appointments`))).rows).toHaveLength(1);
+    // The owner's switch off: requests, with times still on offer, and the reason named.
+    delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    const switchedOff = (await (await post("context", demo.clinicId, call("ctx3"))).json()) as Record<string, unknown>;
+    expect(switchedOff).toMatchObject({
+      booking_mode: "desk_confirms",
+      can_offer_times: true,
+      booking_mode_reasons: ["kill_switch_off"],
+    });
   });
 
-  test("a calendar failure still books: the row stays, the agent hears failed, the desk still hears", async () => {
-    const c = await liveClinic("db-calfail");
-    const { slots } = (await (await post("slots", c.clinicId, call("call_fail_1"))).json()) as { slots: { at: string; spoken: string }[] };
-    fixtureAdapter.failNextWrite();
-    const booked = await post("book", c.clinicId, call("call_fail_1", { first_name: "Sam", at: slots[0]!.at }));
-    expect(booked.status).toBe(200);
-    expect(await booked.json()).toEqual({ booked: true, when_spoken: slots[0]!.spoken, calendar: "failed" });
-    const rows = await inTenant(c.clinicId, (client) => client.query<{ calendar_write_status: string; calendar_write_error: string; deposit_status: string }>(`select calendar_write_status, calendar_write_error, deposit_status from appointments`));
-    expect(rows.rows).toEqual([{ calendar_write_status: "failed", calendar_write_error: "conflict", deposit_status: "none" }]);
-    expect(mailed).toHaveLength(1);
-    expect(mailed[0]!.message.text).not.toMatch(/a deposit is due/);
-    // The retry reports what the row says.
-    expect(await (await post("book", c.clinicId, call("call_fail_1", { first_name: "Sam", at: slots[0]!.at }))).json()).toMatchObject({ booked: true, calendar: "failed" });
+  test("/slots and /book are 403 for every clinic, manual_booking where the call is answered, and write nothing", async () => {
+    process.env.HEALDESK_DIRECT_BOOKING_ENABLED = "true";
+    const live = await liveClinic("db-parked");
+    const demo = await liveDemoClinic("db-parked-demo");
+    for (const clinicId of [live.clinicId, demo.clinicId]) {
+      // Both calls are answered, and the demo clinic's mode is live: still
+      // nothing is offered or booked until the engine is wired (C14).
+      expect((await voiceAnswerDecision(clinicId)).decision).toBe("answer");
+      const expected = { error: "manual_booking", say: MANUAL_BOOKING_LINE };
+      const slots = await post("slots", clinicId, call("call_parked", { days: 5 }));
+      expect(slots.status).toBe(403);
+      expect(await slots.json()).toEqual(expected);
+      const booked = await post("book", clinicId, call("call_parked", { first_name: "Dana", at: new Date(Date.now() + 3 * 86_400_000).toISOString() }));
+      expect(booked.status).toBe(403);
+      expect(await booked.json()).toEqual(expected);
+      const stored = await inTenant(clinicId, async (client) => ({
+        requests: (await client.query(`select 1 from booking_requests`)).rows.length,
+        appointments: (await client.query(`select 1 from appointments`)).rows.length,
+        holds: (await client.query(`select 1 from slot_holds`)).rows.length,
+        audit: (await client.query<{ resource_type: string; metadata: Record<string, unknown> }>(
+          `select resource_type, metadata from audit_log where resource_type in ('voice_tool_slots', 'voice_tool_book') order by occurred_at`,
+        )).rows,
+      }));
+      expect(stored).toMatchObject({ requests: 0, appointments: 0, holds: 0 });
+      expect(stored.audit.map((a) => [a.resource_type, a.metadata.outcome, a.metadata.reason, a.metadata.callRef])).toEqual([
+        ["voice_tool_slots", "refused", "manual_booking", callRefOf("call_parked")],
+        ["voice_tool_book", "refused", "manual_booking", callRefOf("call_parked")],
+      ]);
+    }
   });
 
   test("rate limits: twelve calls a minute per call id, sixty per clinic", async () => {
-    const c = await liveClinic("db-limit", { direct: false });
+    const c = await liveClinic("db-limit", { calendar: false });
     for (let i = 0; i < VOICE_TOOL_LIMITS.perCall; i += 1) expect((await post("context", c.clinicId, call("call_busy"))).status).toBe(200);
     expect((await post("context", c.clinicId, call("call_busy"))).status).toBe(429);
     expect((await post("context", c.clinicId, call("call_other"))).status).toBe(200);
     __resetVoiceToolLimitsForTests();
     for (let i = 0; i < VOICE_TOOL_LIMITS.perClinic; i += 1) expect((await post("context", c.clinicId, call(`call_${i}`))).status).toBe(200);
     expect((await post("context", c.clinicId, call("call_last"))).status).toBe(429);
-  });
+  }, 120_000);
 });

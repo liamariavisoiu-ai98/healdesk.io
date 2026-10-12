@@ -1,0 +1,274 @@
+import {
+  agreementKindOfVersion,
+  getPlan,
+  planForChannels,
+  type AgreementKind,
+  type BillingInterval,
+} from "@healdesk/catalog";
+import { eq, sql } from "drizzle-orm";
+
+import { baaAcceptances, clinics } from "@/db/schema";
+import type { ActorContext } from "@/lib/audit";
+import { withBillingTenant } from "@/lib/billing/billing-clinic";
+import {
+  getEntitlementsForUpdate,
+  setOverageMode,
+  setUsageAlertsEnabled,
+} from "@/lib/billing/entitlements";
+import { setAutoRenew } from "@/lib/billing/stripe-actions";
+import {
+  getBillingSummary,
+  pendingPlanChangeOf,
+  previewNextInvoice,
+  readBillingGroup,
+  type BillingSummary,
+  type PreviewNextInvoiceResult,
+} from "@/lib/billing/summary";
+import { withTenant } from "@/lib/tenant";
+
+import { portalDay } from "./format";
+
+/**
+ * Billing (plan Part F6): this plan's screen over Package C's actions. The
+ * screen never works out a bill: every amount it shows comes from
+ * lib/billing/summary.ts (the database's view, with overage already in
+ * dollars) or from Stripe's own preview, and every change goes through
+ * Package C's action for it. What lives here is the reading for the page,
+ * the two switches that are columns on the billing row (the allowance and
+ * the usage alerts, as the console's billing panel writes them), and the
+ * agreement on file.
+ */
+
+export type BillingView = {
+  summary: BillingSummary | null;
+  /** Stripe's preview of the next charge, once the plan has started. */
+  nextInvoice: PreviewNextInvoiceResult | null;
+  /** A plan change already in flight, which choosing the same plan again finishes. */
+  pendingChange: { planId: string; interval: BillingInterval } | null;
+  agreement: {
+    kind: AgreementKind;
+    version: string;
+    acceptedAt: Date;
+    signatory: string;
+  } | null;
+  /**
+   * "Billed at the Web Chatbot price until phone is in service", after the
+   * start, while the billed package is not the bought one.
+   */
+  billedUntil: { billedPlanName: string; boughtPlanName: string; waiting: string[] } | null;
+};
+
+export async function readBillingView(input: {
+  clinicId: string;
+  actor: ActorContext;
+  now?: Date;
+}): Promise<BillingView> {
+  const now = input.now ?? new Date();
+  const summary = await getBillingSummary(input.clinicId, { now });
+  const group = await readBillingGroup(input.clinicId, { now, actor: input.actor });
+  const pending = group.row ? pendingPlanChangeOf(group.row) : null;
+  const nextInvoice = summary?.isPlanStarted
+    ? await previewNextInvoice(input.clinicId, { now })
+    : null;
+  const agreement = await readAgreement(input.clinicId, input.actor);
+  return {
+    summary,
+    nextInvoice,
+    pendingChange: pending ? { planId: pending.planId, interval: pending.interval } : null,
+    agreement,
+    billedUntil: billedUntil(summary),
+  };
+}
+
+/** The channel words a "not yet in service" line uses. */
+const CHANNEL_WORDS = {
+  web: "website chat",
+  meta: "Instagram, Messenger & WhatsApp",
+  voice: "phone",
+} as const;
+
+function billedUntil(summary: BillingSummary | null): BillingView["billedUntil"] {
+  if (!summary?.isPlanStarted || !summary.billedPlanId || !summary.boughtPlanId) return null;
+  if (summary.billedPlanId === summary.boughtPlanId) return null;
+  const billed = getPlan(summary.billedPlanId);
+  const bought = getPlan(summary.boughtPlanId);
+  if (!billed || !bought) return null;
+  const waiting = (["web", "meta", "voice"] as const)
+    .filter((c) => bought.channels[c] && !billed.channels[c])
+    .map((c) => CHANNEL_WORDS[c]);
+  return { billedPlanName: billed.name, boughtPlanName: bought.name, waiting };
+}
+
+/**
+ * The agreement on file: the organisation's newest bound, unterminated
+ * acceptance (app_agreement_in_effect, 0048), read inside the clinic's
+ * tenant, where the policy on baa_acceptances shows only its own
+ * organisation's. Contract metadata, never patient data.
+ */
+export async function readAgreement(
+  clinicId: string,
+  actor: ActorContext,
+): Promise<BillingView["agreement"]> {
+  return withTenant({ clinicId, actor }, async (tx) => {
+    const [clinic] = await tx.db
+      .select({ organizationId: clinics.organizationId })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    if (!clinic) return null;
+    const found = await tx.db.execute<{ agreement_id: string }>(
+      sql`select agreement_id from app_agreement_in_effect(${clinic.organizationId})`,
+    );
+    const id = found.rows[0]?.agreement_id;
+    if (!id) return null;
+    const [row] = await tx.db
+      .select({
+        version: baaAcceptances.documentVersion,
+        acceptedAt: baaAcceptances.acceptedAt,
+        signatory: baaAcceptances.acceptedByName,
+      })
+      .from(baaAcceptances)
+      .where(eq(baaAcceptances.id, id))
+      .limit(1);
+    if (!row) return null;
+    return {
+      kind: agreementKindOfVersion(row.version),
+      version: row.version.replace(/^(baa|dpa)\//, ""),
+      acceptedAt: row.acceptedAt,
+      signatory: row.signatory,
+    };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The three switches
+// -----------------------------------------------------------------------------
+
+export type BillingSwitchKey = "overage_mode" | "usage_alerts" | "auto_renew";
+
+export function isBillingSwitchKey(value: unknown): value is BillingSwitchKey {
+  return value === "overage_mode" || value === "usage_alerts" || value === "auto_renew";
+}
+
+export type BillingSwitchResult = { ok: true; toast: string } | { ok: false; message: string };
+
+/**
+ * One of Billing's three switches (spec, "Every switch in the portal",
+ * Billing): when the monthly allowance runs out, usage alerts, auto-renew.
+ * The allowance and the alerts are columns on the billing clinic's row,
+ * written as the console's panel writes them (lib/ops/billing.ts), under the
+ * row's lock; auto-renew is Package C's setAutoRenew, which also tells
+ * Stripe. The step-up is the caller's (the server action).
+ */
+export async function setBillingSwitch(
+  ctx: { clinicId: string; actorLabel: string; userId: string },
+  key: BillingSwitchKey,
+  value: unknown,
+): Promise<BillingSwitchResult> {
+  const actor: ActorContext = { type: "user", userId: ctx.userId, label: ctx.actorLabel };
+  switch (key) {
+    case "overage_mode": {
+      if (value !== "allow" && value !== "hard_cap") {
+        return { ok: false, message: "Choose what happens when the allowance runs out." };
+      }
+      const done = await withBillingTenant(ctx.clinicId, actor, async (tx) => {
+        const row = await getEntitlementsForUpdate(tx.db, tx.clinicId);
+        if (!row) return false;
+        if (row.overageMode !== value) {
+          await setOverageMode(tx.db, tx.clinicId, value);
+          tx.audit.record({
+            action: "update",
+            resourceType: "entitlements",
+            resourceId: tx.clinicId,
+            metadata: { field: "overage_mode", mode: value },
+          });
+        }
+        return true;
+      });
+      if (!done)
+        return { ok: false, message: "We couldn't find a billing account for this clinic." };
+      return {
+        ok: true,
+        toast:
+          value === "allow"
+            ? "When the allowance runs out, AYA keeps answering and the extra is billed in blocks of 100."
+            : "When the allowance runs out, calls go to your direct line and website chat shows a contact form until it renews. Nothing extra is billed.",
+      };
+    }
+
+    case "usage_alerts": {
+      if (typeof value !== "boolean") return { ok: false, message: "Choose on or off." };
+      const done = await withBillingTenant(ctx.clinicId, actor, async (tx) => {
+        const row = await getEntitlementsForUpdate(tx.db, tx.clinicId);
+        if (!row) return false;
+        if (row.usageAlertsEnabled !== value) {
+          await setUsageAlertsEnabled(tx.db, tx.clinicId, value);
+          tx.audit.record({
+            action: "update",
+            resourceType: "entitlements",
+            resourceId: tx.clinicId,
+            metadata: { field: "usage_alerts", on: value },
+          });
+        }
+        return true;
+      });
+      if (!done)
+        return { ok: false, message: "We couldn't find a billing account for this clinic." };
+      return {
+        ok: true,
+        toast: value
+          ? "Usage alerts on. We email you at 80% and 100% of the allowance."
+          : "Usage alerts off. We won't email you at 80% and 100%. If AYA ever stops at the allowance, you still hear about it.",
+      };
+    }
+
+    case "auto_renew": {
+      if (typeof value !== "boolean") return { ok: false, message: "Choose on or off." };
+      // Whether the plan has started decides what Off means (spec, Billing):
+      // after the start it ends at the period's end; before it, it never starts.
+      const started = (await getBillingSummary(ctx.clinicId))?.isPlanStarted ?? false;
+      const result = await setAutoRenew({
+        clinicId: ctx.clinicId,
+        on: value,
+        actorLabel: ctx.actorLabel,
+      });
+      if (result.status !== "ok") return { ok: false, message: result.message };
+      if (value) {
+        return {
+          ok: true,
+          toast: started
+            ? "Auto-renew on. Your plan carries on as before."
+            : "Auto-renew on. Your plan starts the day AYA first answers, as before.",
+        };
+      }
+      const day = result.closesOn
+        ? portalDay(result.closesOn, await clinicTimeZone(ctx.clinicId, actor))
+        : null;
+      return {
+        ok: true,
+        toast: started
+          ? `Auto-renew off. Your plan ends ${day ? `on ${day}` : "at the end of the period you've paid for"}; turn it back on any time before then.`
+          : `Auto-renew off. Your plan won't start, and nothing more is charged.${day ? ` Turn it back on any time before ${day}.` : ""}`,
+      };
+    }
+  }
+}
+
+/** The clinic's own time zone, for a date a toast names. */
+async function clinicTimeZone(clinicId: string, actor: ActorContext): Promise<string> {
+  return withTenant({ clinicId, actor }, async (tx) => {
+    const [row] = await tx.db
+      .select({ timezone: clinics.timezone })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    return row?.timezone ?? "America/New_York";
+  });
+}
+
+/** The plan a clinic's channels in service would be billed as, for a line that names it. */
+export function planForChannelsName(
+  channels: readonly ("web" | "meta" | "voice")[],
+): string | null {
+  return planForChannels(channels)?.name ?? null;
+}

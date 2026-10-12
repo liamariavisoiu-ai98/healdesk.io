@@ -5,7 +5,7 @@ import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { locksOutClinic } from "./kind-rules";
+import { locksOutClinic, toSomeoneNamed } from "./kind-rules";
 
 /**
  * What Resend later says about an email apps/app sent (Annex X3).
@@ -28,6 +28,10 @@ import { locksOutClinic } from "./kind-rules";
  * and the event is logged. A sign-in that cannot arrive locks the clinic out
  * of its account, so a bounce, complaint or suppression on one of those kinds
  * calls notifyOps as well.
+ *
+ * The steps a clinic sends on (O11) go to someone it named, not to its
+ * address: their row is updated like any other, but a bounce from that
+ * person's inbox says nothing about the clinic's, so ops is not called.
  */
 
 export type RelayedEmailEvent = {
@@ -109,7 +113,7 @@ export async function applyEmailEvent(event: RelayedEmailEvent): Promise<{ recor
     });
   }
 
-  if (undeliverable) {
+  if (undeliverable && !(event.kind && toSomeoneNamed(event.kind))) {
     // The clinic and the kind, not the delivery: ops calls the clinic once
     // about its address, not once per email that bounced off it.
     await notifyOps(`clinic_address_${event.type as "bounced" | "complained" | "suppressed"}`, {

@@ -217,6 +217,8 @@ export type HoldInput = {
   contactId?: string | null;
   /** Place it this many seconds in the past (its 60-second window runs from then). */
   placedSecondsAgo?: number;
+  /** The calendar it holds time on; `primary` unless a test names another. */
+  calendarId?: string;
 };
 
 /** Inserts a held slot hold through the guard trigger, on the client given. */
@@ -226,10 +228,10 @@ export async function insertHold(c: Client, clinicId: string, input: HoldInput):
   const { rows } = await c.query<{ id: string }>(
     `insert into slot_holds
        (clinic_id, channel, holder_ref, starts_at, duration_minutes, ends_at, contact_id,
-        created_at, expires_at)
+        created_at, expires_at, calendar_id)
      values ($1, $2, $3, $4::timestamptz, $5::int, $4::timestamptz + make_interval(mins => $5::int), $6,
              clock_timestamp() - make_interval(secs => $7::int),
-             clock_timestamp() - make_interval(secs => $7::int) + interval '60 seconds')
+             clock_timestamp() - make_interval(secs => $7::int) + interval '60 seconds', $8)
      returning id`,
     [
       clinicId,
@@ -239,6 +241,7 @@ export async function insertHold(c: Client, clinicId: string, input: HoldInput):
       minutes,
       input.contactId ?? null,
       ago,
+      input.calendarId ?? "primary",
     ],
   );
   return rows[0]!.id;

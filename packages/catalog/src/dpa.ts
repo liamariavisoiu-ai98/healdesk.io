@@ -771,7 +771,7 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * `preferred_window`), and the record of a conversation is kept as it was
    * made. "Correct that information as Practice directs" alone promised a
    * change the database forbids. The amendment record (BAA 1.3.0 release
-   * gate 8, apps/app drizzle/0060 and lib/patient-rights/amendments.ts) is
+   * gate 8, apps/app drizzle/0062 and lib/patient-rights/amendments.ts) is
    * what appends and links one, both exports carry it, and the desk's view
    * of a request says it is there; `amendContact` corrects a contact in place, and both
    * have the operator's path through the ops envelope (dpa.md, gap 22).
@@ -934,7 +934,7 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * the owner. After destruction nothing of a client is left: since gates 6
    * and 7 a deletion keeps no telephone number, and destruction deletes the
    * suppressions and the records of deletion requests with the rest
-   * (destroyClinicData, apps/app drizzle/0058 and 0059), so the exception for
+   * (destroyClinicData, apps/app drizzle/0058 and 0061), so the exception for
    * a deleted client's number is gone (dpa.md, gap 15).
    */
   {

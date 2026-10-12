@@ -87,11 +87,13 @@ import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
  *     (app_erase_contact_evidence), so no telephone number of theirs is left.
  *
  * Slot holds that named them keep only the time, with the contact, request
- * and appointment gone from them (their foreign keys). The purge of a hold a
- * day after it lapses lands with the calendar session's C12; until then a
- * spent hold stays, holding the time and its holder_ref (a plain sha256 of
- * the holder, which is the calendar session's to key). usage_events keep the
- * keyed reference of each call and conversation, as the billing record, with
+ * and appointment gone from them (their foreign keys), and go with the
+ * nightly purge once they have stopped blocking and are a week old, or
+ * sooner on a shorter record clock (SLOT_HOLD_RETENTION_DAYS, the calendar
+ * session's C12, lib/retention/purge.ts). Until then a spent hold keeps its
+ * holder_ref, a plain sha256 of the call it was made on, not a keyed
+ * reference: the calendar session's to change. usage_events keep the keyed
+ * reference of each call and conversation, as the billing record, with
  * nothing that leads to the person.
  *
  * ## The record, and how long it lasts
@@ -184,7 +186,7 @@ export type ErasureCounts = {
   suppressions: number;
   consentRecords: number;
   contactAttempts: number;
-  /** Amendments of the requests and conversations deleted (record_amendments, drizzle/0060). */
+  /** Amendments of the requests and conversations deleted (record_amendments, drizzle/0062). */
   amendments: number;
 };
 
@@ -570,7 +572,7 @@ function add(counts: ErasureCounts, contact: ErasureResult): void {
  * under the record of the request (`erasureId`): the definer that deletes
  * the person's suppressions, consent records and contact attempts refuses
  * without one written in this transaction or still holding its restore
- * references (drizzle/0059).
+ * references (drizzle/0061).
  */
 async function eraseSurveyed(
   tx: TenantTx,
@@ -857,7 +859,7 @@ const EXPIRY_ACTOR = { type: "service", serviceName: "erasure-expiry" } as const
  * agreement's "no longer than it needs one" does not wait for one. It runs in
  * the worker, which a restore keeps stopped, so references a restore still
  * needs are never emptied while it is in progress. The clock is the
- * database's (app_expire_erasure_records, drizzle/0059): the runtime role
+ * database's (app_expire_erasure_records, drizzle/0061): the runtime role
  * can neither empty the references sooner nor delete a record itself, and a
  * step counts as stamped only with a stamp the database timestamped.
  */

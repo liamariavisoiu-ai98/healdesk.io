@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { connectRequestContext } from "@/app/connect/[token]/request-context";
+import { MAX_WRITE_ATTEMPTS } from "@/lib/booking/calendar";
 import { withinConnectAttemptLimit } from "@/lib/connections/attempt-limit";
 import { channelLabel, resolveBookingRequest, type ResolvedBookingRequest } from "@/lib/meta/booking-requests";
 
@@ -78,14 +79,20 @@ export default async function BookingRequestPage({ params, searchParams }: { par
   const open = req.status === "requested";
   const acceptedPending = req.status === "accepted";
   const rescheduling = req.status === "rescheduling";
-  const direct = req.bookedVia === "agent_direct";
+  // Booked by the assistant only once its write is confirmed (plan §7.7): an
+  // `agent_direct` request still `requested` is one whose booking could not
+  // be confirmed in the calendar, and the desk decides it like any other.
+  const direct = req.status === "confirmed" && (req.decidedByLabel ?? "").startsWith("assistant");
+  const unconfirmedDirect = req.bookedVia === "agent_direct" && !direct;
   const service = req.treatment ?? req.collectedFields.service ?? null;
   const collected = Object.entries(req.collectedFields).filter(([id]) => id !== "service");
   const labelFor = (id: string) => BOOKING_FIELDS.find((f) => f.id === id)?.label ?? id.replace(/_/g, " ");
 
   const heading = direct
     ? "Booked by the assistant on the call"
-    : open
+    : unconfirmedDirect && open
+      ? "The assistant couldn't confirm this booking reached your calendar"
+      : open
       ? "A patient would like to book"
       : acceptedPending
         ? "Accepted — awaiting your call"
@@ -100,8 +107,10 @@ export default async function BookingRequestPage({ params, searchParams }: { par
       <h1 className="mt-2 text-[26px] leading-tight font-semibold tracking-tight sm:text-3xl">{heading}</h1>
       <p className="mt-4 max-w-[58ch] text-[15px] text-[color:var(--color-muted)]">
         {direct
-          ? `Taken on ${when} through ${via}. Your assistant booked this caller directly, as you elected. Nothing further is needed unless you want to change it, which you do in your calendar.`
-          : `Taken on ${when} through ${via}. The assistant took these details and confirmed nothing; it told the person you would call. Nothing is booked until you confirm it here or by phone.`}
+          ? `Taken on ${when} through ${via}. Your assistant booked this caller directly into your calendar. Nothing further is needed unless you want to change it, which you do in your calendar.`
+          : unconfirmedDirect
+            ? `Taken on ${when} through ${via}. The assistant tried to book this caller but couldn't confirm the booking reached your calendar. Check your calendar, then confirm a time here or call them.`
+            : `Taken on ${when} through ${via}. The assistant took these details and confirmed nothing; it told the person you would call. Nothing is booked until you confirm it here or by phone.`}
       </p>
 
       <dl className="mt-6 grid gap-3 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
@@ -191,7 +200,8 @@ function Proposed({ req, query }: { req: ResolvedBookingRequest; query: Params }
 function Decided({ req, query }: { req: ResolvedBookingRequest; query: Params }) {
   const when = req.decidedAt?.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
   const slot = req.confirmedFor?.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" });
-  const direct = req.bookedVia === "agent_direct";
+  const direct = req.status === "confirmed" && (req.decidedByLabel ?? "").startsWith("assistant");
+  const heldFor = req.heldFor?.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" });
   const relayed =
     req.channel !== "meta"
       ? null
@@ -206,14 +216,22 @@ function Decided({ req, query }: { req: ResolvedBookingRequest; query: Params })
               : null;
   // §B.4: the write's outcome, from the redirect just now or from the row on a later open.
   const calendarStatus = query.calendar && query.calendar !== "none" ? query.calendar : req.calendarWrite?.status ?? null;
+  const calendarError = req.calendarWrite?.error ?? null;
   const calendarLine =
     !slot || !calendarStatus || calendarStatus === "none" || calendarStatus === "not-connected"
       ? null
       : calendarStatus === "written"
         ? "Added to your calendar."
-        : calendarStatus === "failed"
-          ? `Recorded here, but NOT added to your calendar — please add it by hand: ${slot}.`
-          : "Recorded here; we're checking your calendar and will add it if it isn't there.";
+        : calendarStatus === "failed" && calendarError === "event_id_taken"
+          ? `Recorded here. The assistant's booking for this request is already in your calendar${heldFor ? ` at ${heldFor}` : ""}, so nothing more was added; change it there if needed.`
+          : calendarStatus === "failed" && calendarError === "calendar_not_connected"
+            ? `Recorded here, but NOT added to your calendar, because your Google Calendar isn't connected right now — please add it by hand: ${slot}.`
+            : calendarStatus === "failed"
+              ? `Recorded here, but NOT added to your calendar — please add it by hand: ${slot}.`
+              : (req.calendarWrite?.attempts ?? 0) >= MAX_WRITE_ATTEMPTS
+                ? // Out of attempts, nothing will try again: say so rather than "we're checking".
+                  `Recorded here, but we couldn't confirm it reached your calendar — please check your calendar and add it by hand if it isn't there: ${slot}.`
+                : "Recorded here; we're checking your calendar and will add it if it isn't there.";
   const confirmLine = !slot
     ? null
     : direct

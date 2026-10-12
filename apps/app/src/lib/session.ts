@@ -10,6 +10,7 @@ import { clinicMemberships, clinics } from "@/db/schema";
 
 import type { ActorContext, RequestContext } from "./audit";
 import { auth } from "./auth";
+import { clientIp } from "./client-ip";
 import { INTERNAL_ORG_ID } from "./ops/internal-org";
 import { TenantAccessError, type TenantContext } from "./tenant";
 
@@ -174,14 +175,17 @@ export async function resolveTenantContext(
   };
 }
 
-/** Request metadata for the audit trail. Never contains PHI. */
+/**
+ * Request metadata for the audit trail. Never contains PHI. The address is
+ * the one our load balancer saw (lib/client-ip.ts), not the first
+ * forwarded-for entry, which the browser writes.
+ */
 export async function requestMeta(): Promise<RequestContext> {
   const h = await headers();
-  const forwarded = h.get("x-forwarded-for");
 
   return {
     requestId: h.get("x-request-id") ?? randomUUID(),
-    ipAddress: forwarded?.split(",")[0]?.trim() ?? h.get("x-real-ip") ?? undefined,
+    ipAddress: clientIp(h),
     userAgent: h.get("user-agent") ?? undefined,
   };
 }

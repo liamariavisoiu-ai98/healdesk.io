@@ -1,234 +1,225 @@
-import {
-  audienceFor,
-  audienceSingular,
-  CHANNEL_NAMES,
-  getPlan,
-  planStartSentence,
-} from "@healdesk/catalog";
-import { headers } from "next/headers";
-import { notFound, redirect } from "next/navigation";
+import { audienceSingular, CHANNEL_NAMES, getPlan, planStartSentence } from "@healdesk/catalog";
+import type { Metadata } from "next";
+import { notFound } from "next/navigation";
 
-import { auth } from "@/lib/auth";
-import { formatReplyBy } from "@/lib/reply-by";
+import { getBillingSummary } from "@/lib/billing/summary";
 import { setupLastDay } from "@/lib/clinic/setup-window";
+import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { requirePortal } from "@/lib/portal/access";
-import { portalActor } from "@/lib/portal/actor";
+import { needsAttention } from "@/lib/portal/attention";
+import { portalDay } from "@/lib/portal/format";
+import { readHomeFacts } from "@/lib/portal/home";
+import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
+import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
-import {
-  resumeScreen,
-  SCREEN_DEFINITIONS,
-  stepsLeft,
-  wizardFinished,
-  wizardScreens,
-} from "@/lib/setup/screens";
-import { loadSetupState } from "@/lib/setup/state";
+import { wizardFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
 
-import { HelpPanel } from "./HelpPanel";
+import { PortalShell } from "./PortalShell";
+
+export const metadata: Metadata = { title: "Home · healdesk", referrer: "no-referrer" };
 
 export const dynamic = "force-dynamic";
 
 /**
- * The clinic's page before go-live (plan Part F1, "Before go-live"): where
- * setup stands, the build tracker, Talk to your AYA (locked until every
- * stage is done, naming what is left), each channel's status in words, and
- * when the plan starts. M3's later screens (Settings, Knowledge, Billing)
- * join it from the same guard; nothing here shows a patient.
+ * Home (plan Part F1; spec, "Home: what happened, and is everything
+ * working"). Before go-live: what needs the clinic, the build tracker and
+ * Talk to your AYA (locked until every stage is done, naming what is left),
+ * each channel's status in words with no dates, and when the plan starts.
+ *
+ * After go-live M5 and M6 add the "Waiting for you" card and the week's three
+ * numbers from the claims function; until then Home shows the channels and
+ * the plan as they stand. Nothing here shows a patient, so no step-up.
  */
-
-async function signOut(): Promise<void> {
-  "use server";
-  await auth.api.signOut({ headers: await headers() });
-  redirect("/sign-in");
-}
-
 export default async function ClinicHome({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const portal = await requirePortal(slug);
-  const actor = await portalActor(portal);
-  const state = await loadSetupState({
-    clinicId: portal.clinicId,
-    userId: portal.userId,
-    actor: { type: "user", userId: portal.userId, label: actor.label },
-  });
-  if (!state) notFound();
+  const now = new Date();
+  const page = await loadPortalPage(portal, now);
+  if (!page) notFound();
+  const { state } = page;
+  const shell = shellProps(portal, page, "home");
 
-  const home = `/c/${portal.clinicSlug}`;
-  const audience = audienceFor(state.clinic.specialty);
-  const one = audienceSingular(audience);
-  const tracker = buildTracker(state);
-  const finished = wizardFinished(state.screens, state.progress);
-  const resume = resumeScreen(wizardScreens(state.screens), state.progress);
-  const skipped = wizardScreens(state.screens).filter(
-    (id) => state.progress.get(id)?.outcome === "skipped",
-  );
-  const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
-  const live = state.channels.some((c) => c.liveAt !== null);
-
-  return (
-    <main className="mx-auto min-h-screen max-w-xl px-4 py-10">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold">{state.clinic.name}</h1>
-        <form action={signOut}>
-          <button
-            type="submit"
-            className="border-line min-h-11 rounded-full border px-5 py-2 text-sm font-semibold"
-          >
-            Sign out
-          </button>
-        </form>
-      </header>
-
-      {state.clinic.offboardingStartedAt ? (
-        <p className="mt-6 rounded-xl border border-line bg-white px-4 py-3">
+  if (state.clinic.offboardingStartedAt) {
+    return (
+      <PortalShell {...shell}>
+        <h1 className="text-2xl font-semibold">Home</h1>
+        <p className="border-line mt-6 rounded-xl border bg-white px-4 py-3">
           This account has closed.
         </p>
-      ) : (
-        <>
-          {live ? null : (
-            <p className="mt-6 rounded-xl border border-line bg-paper-2 px-4 py-3 text-sm font-semibold">
-              AYA isn&rsquo;t answering {audience} yet.{" "}
-              <a href="#tracker" className="underline underline-offset-2">
-                See where she&rsquo;s up to
-              </a>
-              .
-            </p>
-          )}
+      </PortalShell>
+    );
+  }
 
-          <section aria-labelledby="setup-heading" className="mt-8">
-            <h2 id="setup-heading" className="text-lg font-semibold">
-              Setup
-            </h2>
-            {finished ? (
-              <p className="text-muted mt-2">
-                Setup is done.{" "}
-                {skipped.length > 0 ? (
-                  <>
-                    You skipped{" "}
-                    {joinWords(skipped.map((id) => SCREEN_DEFINITIONS[id].title.toLowerCase()))}:{" "}
-                    <a href={`${home}/setup?s=${skipped[0]}`} className="font-semibold underline">
-                      finish {skipped.length === 1 ? "it" : "them"}
-                    </a>
-                    .
-                  </>
-                ) : (
-                  <a href={`${home}/setup?s=basics`} className="underline underline-offset-2">
-                    Change your answers
-                  </a>
-                )}
-              </p>
-            ) : (
-              <div className="mt-3 rounded-xl border border-line bg-white px-4 py-4">
-                <p>
-                  {stepsLeft(state.screens, state.progress) === 1
-                    ? "One step left, about fifteen minutes in all."
-                    : `${stepsLeft(state.screens, state.progress)} steps left, about fifteen minutes in all.`}
-                </p>
-                <a
-                  href={resume ? `${home}/setup?s=${resume}` : `${home}/setup`}
-                  className="bg-ink mt-3 inline-flex min-h-11 items-center rounded-full px-6 py-3 text-sm font-bold text-white"
-                >
-                  Continue setup
-                </a>
-              </div>
-            )}
-            {finished && !state.hasBackup ? (
-              <p className="text-muted mt-3 text-sm">
-                No backup way in yet.{" "}
-                <a href={`${home}/setup?s=backup`} className="font-semibold underline">
-                  Add an authenticator app
-                </a>{" "}
-                in case the device with your Face ID is lost.
-              </p>
-            ) : null}
-          </section>
+  const facts = await readHomeFacts({
+    clinicId: portal.clinicId,
+    address: state.address,
+    actor: page.actorContext,
+  });
+  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts });
+  const tracker = buildTracker(
+    state,
+    await getCalendarConnection(portal.clinicId, { actor: page.actorContext }),
+  );
+  const finished = wizardFinished(state.screens, state.progress);
+  const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
+  const one = audienceSingular(shell.audience);
+  const live = shell.status.kind !== "not_yet";
+  const started = state.billing?.planStartedAt ?? null;
+  const summary = started ? await getBillingSummary(portal.clinicId, { now }) : null;
 
-          <section id="tracker" aria-labelledby="tracker-heading" className="mt-10">
-            <h2 id="tracker-heading" className="text-lg font-semibold">
-              Building your AYA
-            </h2>
-            <ol className="mt-3 grid gap-2">
-              {tracker.stages.map((stage) => (
-                <li key={stage.id} className="rounded-xl border border-line bg-white px-4 py-3">
-                  <p className="flex items-center justify-between gap-3 font-semibold">
-                    <span>{stage.label}</span>
-                    <span
-                      className={
-                        stage.state === "done" ? "text-green text-sm" : "text-muted text-sm"
-                      }
-                    >
-                      {stage.state === "done"
-                        ? "Done ✓"
-                        : stage.state === "info"
-                          ? "For now"
-                          : "Not yet"}
-                    </span>
-                  </p>
-                  <p className="text-muted mt-1 text-sm">{stage.detail}</p>
-                </li>
-              ))}
-            </ol>
-            <div className="mt-4 rounded-xl border border-line bg-white px-4 py-4">
-              <button
-                type="button"
-                disabled
-                aria-describedby="preview-left"
-                className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
+  return (
+    <PortalShell {...shell}>
+      <h1 className="text-2xl font-semibold">Home</h1>
+
+      {attention.length > 0 ? (
+        <section aria-labelledby="attention-heading" className="mt-6">
+          <h2 id="attention-heading" className="text-lg font-semibold">
+            Needs attention
+          </h2>
+          <ul className="mt-3 grid gap-2">
+            {attention.map((item) => (
+              <li
+                key={item.id}
+                className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3"
               >
-                Talk to your AYA
-              </button>
-              <p id="preview-left" className="text-muted mt-2 text-sm">
-                Opens when every stage above is done. Still to come:{" "}
-                {joinWords(tracker.left.map((l) => l.toLowerCase()))}. In the preview nothing
-                reaches {audience}, and nothing is booked.
-              </p>
-            </div>
-          </section>
+                <span>{item.text}</span>
+                <a
+                  href={item.action.href}
+                  className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
+                >
+                  {item.action.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
-          <section aria-labelledby="channels-heading" className="mt-10">
-            <h2 id="channels-heading" className="text-lg font-semibold">
-              Your channels
-            </h2>
-            <ul className="mt-3 grid gap-2">
-              {state.channels.map((c) => (
-                <li key={c.channel} className="rounded-xl border border-line bg-white px-4 py-3">
-                  <p className="flex items-center justify-between gap-3">
-                    <span className="font-semibold">{CHANNEL_NAMES[c.channel]}</span>
-                    <span className="bg-paper-2 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold">
-                      {channelStatusWord(c.status)}
-                    </span>
-                  </p>
-                  <p className="text-muted mt-1 text-sm">
-                    {setupSentence(c.channel, channelNextStep(c, finished))}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </section>
-
-          {plan && state.billing ? (
-            <section aria-labelledby="plan-heading" className="mt-10">
-              <h2 id="plan-heading" className="text-lg font-semibold">
-                Your plan
-              </h2>
-              <p className="text-muted mt-2">
-                {plan.name}. {planStartSentence(plan, state.billing.interval, one)}
-              </p>
-              {state.billing.setupDeadlineAt && !state.billing.planStartedAt ? (
-                <p className="text-muted mt-2 text-sm">
-                  Setup stays available until{" "}
-                  {formatReplyBy(
-                    setupLastDay(state.billing.setupDeadlineAt, state.clinic.timezone),
-                  )}
-                  . If nothing is answering {audience} by the end of that day, the account closes.
+      {live ? null : (
+        <section id="tracker" aria-labelledby="tracker-heading" className="mt-10 scroll-mt-6">
+          <h2 id="tracker-heading" className="text-lg font-semibold">
+            Building your AYA
+          </h2>
+          <ol className="mt-3 grid gap-2">
+            {tracker.stages.map((stage) => (
+              <li key={stage.id} className="border-line rounded-xl border bg-white px-4 py-3">
+                <p className="flex items-center justify-between gap-3 font-semibold">
+                  <span>{stage.label}</span>
+                  <span
+                    className={stage.state === "done" ? "text-green text-sm" : "text-muted text-sm"}
+                  >
+                    {stage.state === "done"
+                      ? "Done ✓"
+                      : stage.state === "info"
+                        ? "For now"
+                        : "Not yet"}
+                  </span>
                 </p>
-              ) : null}
-            </section>
-          ) : null}
-        </>
+                <p className="text-muted mt-1 text-sm">{stage.detail}</p>
+              </li>
+            ))}
+          </ol>
+          <div className="border-line mt-4 rounded-xl border bg-white px-4 py-4">
+            {/* Talk to your AYA is the engine's preview (M4). Until every
+                blocking stage is done the button stays locked and names what
+                is left; it is never a link to a page that does not exist. */}
+            <button
+              type="button"
+              disabled
+              aria-describedby="preview-left"
+              className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
+            >
+              Talk to your AYA
+            </button>
+            <p id="preview-left" className="text-muted mt-2 text-sm">
+              Opens when every stage above is done. Still to come:{" "}
+              {joinWords(tracker.left.map((l) => l.toLowerCase()))}. In the preview nothing reaches{" "}
+              {shell.audience}, and nothing is booked.
+            </p>
+          </div>
+        </section>
       )}
 
-      <HelpPanel audience={audience} />
-    </main>
+      <section aria-labelledby="channels-heading" className="mt-10">
+        <h2 id="channels-heading" className="text-lg font-semibold">
+          Your channels
+        </h2>
+        <ul className="mt-3 grid gap-2">
+          {state.channels.map((c) => (
+            <li key={c.channel} className="border-line rounded-xl border bg-white px-4 py-3">
+              <p className="flex items-center justify-between gap-3">
+                <span className="font-semibold">{CHANNEL_NAMES[c.channel]}</span>
+                <span className="bg-paper-2 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold">
+                  {channelStatusWord(c.status)}
+                </span>
+              </p>
+              <p className="text-muted mt-1 text-sm">
+                {setupSentence(c.channel, channelNextStep(c, finished))}
+              </p>
+            </li>
+          ))}
+        </ul>
+        {isBuiltSection("settings") ? (
+          <p className="text-muted mt-3 text-sm">
+            Switch a channel on or off in{" "}
+            <a
+              href={`${sectionPath(portal.clinicSlug, "settings")}#channels`}
+              className="font-semibold underline"
+            >
+              Settings
+            </a>
+            .
+          </p>
+        ) : null}
+      </section>
+
+      {plan && state.billing ? (
+        <section aria-labelledby="plan-heading" className="mt-10">
+          <h2 id="plan-heading" className="text-lg font-semibold">
+            Your plan
+          </h2>
+          {started && summary ? (
+            <p className="text-muted mt-2">
+              {plan.name}. Your plan started on {portalDay(started, state.clinic.timezone, now)},
+              when AYA first answered
+              {summary.firstPeriodEndsAt
+                ? `; your first ${state.billing.interval === "year" ? "year" : "month"} runs to ${portalDay(
+                    new Date(new Date(summary.firstPeriodEndsAt).getTime() - 1),
+                    state.clinic.timezone,
+                    now,
+                  )}`
+                : ""}
+              .
+            </p>
+          ) : (
+            <p className="text-muted mt-2">
+              {plan.name}. {planStartSentence(plan, state.billing.interval, one)}
+            </p>
+          )}
+          {state.billing.setupDeadlineAt && !started ? (
+            <p className="text-muted mt-2 text-sm">
+              Setup stays available until{" "}
+              {portalDay(
+                setupLastDay(state.billing.setupDeadlineAt, state.clinic.timezone),
+                state.clinic.timezone,
+                now,
+              )}
+              . If nothing is answering {shell.audience} by the end of that day, the account closes.
+            </p>
+          ) : null}
+          {isBuiltSection("billing") ? (
+            <p className="mt-3 text-sm">
+              <a
+                href={sectionPath(portal.clinicSlug, "billing")}
+                className="font-semibold underline"
+              >
+                See Billing
+              </a>
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+    </PortalShell>
   );
 }

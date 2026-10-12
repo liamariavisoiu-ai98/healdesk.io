@@ -16,6 +16,7 @@ import { CalendarCard } from "./CalendarCard";
 import {
   AlertsCard,
   ChannelsCard,
+  RecordsCard,
   PaymentsCard,
   SafetyNetCard,
   TalkCard,
@@ -89,6 +90,7 @@ export default async function SettingsPage({
       <FeedbackProvider>
         <div className="mt-6 grid gap-6">
           <ChannelsCard view={view} />
+          <RecordsCard view={view} />
           <TalkCard view={view} />
           <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />
           <PaymentsCard view={view} connectOutcome={typeof connect === "string" ? connect : null} />

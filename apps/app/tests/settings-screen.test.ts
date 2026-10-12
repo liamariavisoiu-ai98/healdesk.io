@@ -396,6 +396,102 @@ describeDb("Settings", () => {
     ]);
   });
 
+  test("how long transcripts are kept: lengthening is free; shortening needs a step-up, is stored, keeps its history and emails the clinic", async () => {
+    // BAA 1.3.0 clause 11: "Practice may shorten these periods in its portal".
+    const stored = () =>
+      inTenant(
+        portal.clinicId,
+        async (c) =>
+          (
+            await c.query<{ days: number }>(
+              `select transcript_retention_days as days from clinic_settings where clinic_id = $1`,
+              [portal.clinicId],
+            )
+          ).rows[0]?.days,
+      );
+    const history = () =>
+      inTenant(
+        portal.clinicId,
+        async (c) =>
+          (
+            await c.query<{ before_value: string; after_value: string; actor_label: string }>(
+              `select before_value, after_value, actor_label from clinic_settings_history
+                where field = 'transcript_retention_days' order by changed_at`,
+            )
+          ).rows,
+      );
+    const notices = () =>
+      inTenant(
+        portal.clinicId,
+        async (c) =>
+          (
+            await c.query<{ payload: Record<string, unknown> }>(
+              `select payload from billing_notices
+                where kind = 'setting_changed' and payload->>'field' = 'transcript_retention_days'`,
+            )
+          ).rows,
+      );
+
+    // Shortening without a live passkey: refused, nothing stored.
+    expect(await save("transcript_retention", 7)).toEqual({
+      ok: false,
+      message: expect.stringMatching(/deletes the older ones for good, so it needs Face ID/),
+      stepUpHref: expect.stringMatching(/\/step-up\?next=/),
+    });
+    expect((await stored()) ?? 90).toBe(90);
+    expect(await history()).toEqual([]);
+    expect(await save("transcript_retention", 45)).toMatchObject({
+      ok: false,
+      message: "Choose 90, 30 or 7 days.",
+    });
+
+    // With one: stored, its history kept, and the clinic told, in days.
+    steppedUp = true;
+    expect(await save("transcript_retention", 7)).toEqual({
+      ok: true,
+      toast: "Transcripts older than 7 days are deleted tonight. This can't be undone.",
+    });
+    expect(await stored()).toBe(7);
+    expect(await history()).toEqual([
+      { before_value: "90", after_value: "7", actor_label: "Front desk Mac" },
+    ]);
+    const sent = await notices();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.payload).toMatchObject({
+      field: "transcript_retention_days",
+      beforeDays: 90,
+      afterDays: 7,
+      deviceName: "Front desk Mac",
+      settingsUrl: expect.stringMatching(new RegExp(`/c/${portal.clinicSlug}/settings#records$`)),
+    });
+    expect(() => assertPayloadAllowed(sent[0]!.payload, "setting_changed")).not.toThrow();
+
+    // Lengthening needs no step-up and sends no email; the history keeps it.
+    steppedUp = false;
+    expect(await save("transcript_retention", 30)).toEqual({
+      ok: true,
+      toast: "Transcripts are kept for 30 days, then deleted. Nothing already deleted comes back.",
+    });
+    expect(await stored()).toBe(30);
+    expect((await history()).map((h) => [h.before_value, h.after_value])).toEqual([
+      ["90", "7"],
+      ["7", "30"],
+    ]);
+    expect(await notices()).toHaveLength(1);
+
+    // The card offers it beside the channels, and says what shortening does first.
+    const { default: SettingsPage } = await import("@/app/c/[slug]/settings/page");
+    const html = renderToStaticMarkup(
+      await SettingsPage({
+        params: Promise.resolve({ slug: portal.clinicSlug }),
+        searchParams: Promise.resolve({}),
+      }),
+    );
+    expect(html).toContain('id="records"');
+    expect(html.indexOf('id="channels"')).toBeLessThan(html.indexOf('id="records"'));
+    expect(html.indexOf('id="records"')).toBeLessThan(html.indexOf('id="how-aya-talks"'));
+  });
+
   test("deposits: Take deposits waits for a connected account and an amount; each switch changes what AYA does with a booking that needs one", async () => {
     expect(await save("deposits_enabled", true)).toMatchObject({
       ok: false,

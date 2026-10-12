@@ -9,7 +9,9 @@ import type { EmailTemplate } from "./types";
  * O4: "Setting changed" (Annex X5), to the clinic's address, when a setting
  * that decides where calls go is changed after it was first set (plan Part
  * D4): the direct line, where every call goes whenever AYA can't answer, and
- * the transfer number, where a live call is put through. Each change needs a
+ * the transfer number, where a live call is put through; and when the time
+ * transcripts are kept is shortened (Records), which deletes the older ones
+ * at the next nightly purge. Each change needs a
  * passkey step-up on a device the clinic added, so the email names that
  * device, says when, and shows the number before and after, masked to its
  * last four digits.
@@ -22,7 +24,8 @@ import type { EmailTemplate } from "./types";
  * An outbox kind: no token, and the action opens Settings behind sign-in.
  */
 
-export type SettingChangedField = "direct_line_e164" | "transfer_e164";
+export type SettingChangedField =
+  "direct_line_e164" | "transfer_e164" | "transcript_retention_days";
 
 export type SettingChangedPayload = {
   field: SettingChangedField;
@@ -30,6 +33,9 @@ export type SettingChangedPayload = {
   beforeMasked: string | null;
   /** The number after, masked; null when it went back to the default. */
   afterMasked: string | null;
+  /** For transcript retention: the days kept before and after, in place of the numbers. */
+  beforeDays?: number;
+  afterDays?: number;
   changedAt: string;
   /** The device whose passkey made the change, as staff named it. */
   deviceName?: string;
@@ -54,6 +60,12 @@ const WORDS: Record<
     // A transfer number left empty is the direct line (Settings → Alerts).
     empty: "your direct line",
   },
+  transcript_retention_days: {
+    name: "transcript retention",
+    subject: "Your transcripts are now kept for less time",
+    does: "Transcripts older than this are deleted each night, and a deleted transcript can't be brought back.",
+    empty: "90 days",
+  },
 };
 
 export const renderSettingChanged: EmailTemplate<SettingChangedPayload> = (payload, ctx) => {
@@ -64,8 +76,9 @@ export const renderSettingChanged: EmailTemplate<SettingChangedPayload> = (paylo
   const clinic = ctx.clinicName ?? "your practice";
   const when = momentLong(payload.changedAt, ctx);
   const by = payload.deviceName ? `, from “${payload.deviceName}”` : "";
-  const before = payload.beforeMasked ?? words.empty;
-  const after = payload.afterMasked ?? words.empty;
+  const days = (n: number | undefined) => (typeof n === "number" ? `${n} days` : null);
+  const before = days(payload.beforeDays) ?? payload.beforeMasked ?? words.empty;
+  const after = days(payload.afterDays) ?? payload.afterMasked ?? words.empty;
 
   return compose(
     {

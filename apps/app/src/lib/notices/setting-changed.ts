@@ -25,7 +25,8 @@ export const NOT_A_DEVICE_LABEL = "the clinic's sign-in";
  *
  * Only for a change after the value was first set (plan Part D4): setting a
  * direct line the first time is part of setup, and needs neither a step-up
- * nor an email.
+ * nor an email. A shortened transcript retention carries its days instead of
+ * numbers (the Records card, lib/portal/settings.ts).
  *
  * The numbers are masked to their last four digits before they are stored:
  * the payload sits in the outbox until it is sent, and the email only has to
@@ -40,6 +41,8 @@ export async function notifySettingChanged(
     field: SettingChangedField;
     before: string | null;
     after: string | null;
+    /** A number of days kept (transcript retention) rather than a number to call. */
+    days?: { before: number; after: number };
     /** The clinic_settings_history row the change wrote. */
     historyId: string;
     actorLabel: string;
@@ -61,7 +64,12 @@ export async function notifySettingChanged(
         .where(eq(clinics.id, tx.clinicId))
         .limit(1);
       if (!clinic) return;
-      const card = change.field === "transfer_e164" ? "alerts" : "safety-net";
+      const card =
+        change.field === "transfer_e164"
+          ? "alerts"
+          : change.field === "transcript_retention_days"
+            ? "records"
+            : "safety-net";
       // The device's name, unless it is the sign-in rather than a device, or
       // a name the payload allowlist would refuse ("maria@frontdesk", a long
       // run of digits): the sender treats a refused payload as final, so the
@@ -78,6 +86,7 @@ export async function notifySettingChanged(
           field: change.field,
           beforeMasked: maskPhone(change.before),
           afterMasked: maskPhone(change.after),
+          ...(change.days ? { beforeDays: change.days.before, afterDays: change.days.after } : {}),
           changedAt: change.at.toISOString(),
           ...(deviceName ? { deviceName } : {}),
           settingsUrl: publicUrl(`/c/${clinic.slug}/settings#${card}`),

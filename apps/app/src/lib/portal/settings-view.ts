@@ -10,6 +10,7 @@ import {
   FORWARDING_PASS_THROUGH_DAYS,
   forwardingInstructions,
   isCarrier,
+  TRANSCRIPT_RETENTION_DAYS_OPTIONS,
   type CallRouting,
   type Carrier,
   type Channel,
@@ -39,7 +40,12 @@ import { urgentHelpField } from "@/lib/setup/urgent";
 import { withTenant } from "@/lib/tenant";
 
 import { appliesWhen } from "./applies";
-import { SETTING_CHANNELS, type SettingKey } from "./settings";
+import {
+  retentionLine,
+  retentionShortenedLine,
+  SETTING_CHANNELS,
+  type SettingKey,
+} from "./settings";
 
 /**
  * What the Settings page shows (plan Part F2), as plain data for its cards:
@@ -130,6 +136,15 @@ export type SettingsView = {
     transferNumber: string;
     transferIsSet: boolean;
     transferPlaceholder: string;
+  };
+  /**
+   * Records (BAA 1.3.0 clause 11: "Practice may shorten these periods in its
+   * portal"): how long transcripts are kept, 90, 30 or 7 days, and for each
+   * shorter choice the sentence the clinic confirms before it is saved.
+   */
+  records: {
+    retentionDays: number;
+    options: { id: string; label: string; line: string; confirm: string | null }[];
   };
 };
 
@@ -294,6 +309,15 @@ export async function readSettingsView(input: {
       transferNumber: settings.transferE164 ? formatPhone(settings.transferE164) : "",
       transferIsSet: settings.transferE164 !== null,
       transferPlaceholder: settings.directLineE164 ? formatPhone(settings.directLineE164) : "",
+    },
+    records: {
+      retentionDays: settings.transcriptRetentionDays,
+      options: TRANSCRIPT_RETENTION_DAYS_OPTIONS.map((days) => ({
+        id: String(days),
+        label: `${days} days`,
+        line: days === 90 ? "The longest your agreement allows." : retentionLine(days),
+        confirm: days < settings.transcriptRetentionDays ? retentionShortenedLine(days) : null,
+      })),
     },
   };
 }

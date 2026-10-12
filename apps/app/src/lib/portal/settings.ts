@@ -2,14 +2,16 @@ import {
   ASSISTANT_LANGUAGE_NAMES,
   ASSISTANT_TONE_OPTIONS,
   COVERAGE_MODE_OPTIONS,
+  TRANSCRIPT_RETENTION_DAYS_OPTIONS,
+  type TranscriptRetentionDays,
   type AssistantLanguage,
   type AssistantTone,
   type Channel,
   type CoverageModeId,
 } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
-import { clinics, type DepositUncollectable } from "@/db/schema";
+import { clinics, clinicSettingsHistory, type DepositUncollectable } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { DepositSettingsError, setDepositSettings } from "@/lib/billing/deposits";
 import {
@@ -19,6 +21,7 @@ import {
 } from "@/lib/channels/meta-platforms";
 import { ChannelSwitchError, setChannelEnabled } from "@/lib/channels/switch";
 import type { MetaPlatform } from "@/lib/meta/front-door";
+import { notifySettingChanged } from "@/lib/notices/setting-changed";
 import { formatPhone } from "@/lib/setup/help";
 import {
   saveDirectLine,
@@ -56,6 +59,12 @@ import { appliesWhen, CHANNEL_WORDS } from "./applies";
  * (the first time needs none, as in setup), keep their before and after in
  * clinic_settings_history, and email the clinic's address (O4).
  *
+ * So is how long transcripts are kept (Records; BAA 1.3.0 clause 11,
+ * "Practice may shorten these periods in its portal"): shortening it deletes
+ * what is older at the next nightly purge and cannot be undone, so it needs a
+ * step-up, keeps its history and emails the clinic (O4); lengthening it
+ * needs neither, and the history keeps it too.
+ *
  * A switch whose channels are not answering yet says so in its toast
  * ("Applies when phone opens.", lib/portal/applies.ts), so nothing claims an
  * effect "from now on" before anyone can feel it.
@@ -85,6 +94,7 @@ export const SETTING_KEYS = [
   "daily_summary",
   "transfer_live_calls",
   "transfer_number",
+  "transcript_retention",
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -124,6 +134,7 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   daily_summary: ["web", "meta", "voice"],
   transfer_live_calls: ["voice"],
   transfer_number: ["voice"],
+  transcript_retention: ["web", "meta", "voice"],
 };
 
 export type SettingContext = {
@@ -143,6 +154,8 @@ const STEP_UP_MESSAGE: Partial<Record<SettingKey, string>> = {
     "Your direct line is where calls go whenever AYA can't answer, so changing it needs Face ID or your screen lock on a device you've added.",
   transfer_number:
     "The transfer number is where AYA puts live calls through, so changing it needs Face ID or your screen lock on a device you've added.",
+  transcript_retention:
+    "Keeping transcripts for less time deletes the older ones for good, so it needs Face ID or your screen lock on a device you've added.",
 };
 
 /** setup's own wording for a number it can't read (lib/setup/settings.ts). */
@@ -182,7 +195,10 @@ export async function saveSetting(
         throw new Refusal("key", "That setting isn't part of your plan.");
       }
       const consequence = await write(tx, state, ctx, key, value, now);
-      const applies = appliesWhen(state.channels, SETTING_CHANNELS[key]);
+      // How long records are kept governs what is already held, live or not,
+      // so it never waits for a channel to open.
+      const applies =
+        key === "transcript_retention" ? null : appliesWhen(state.channels, SETTING_CHANNELS[key]);
       return applies ? `${consequence} ${applies}` : consequence;
     });
     return { ok: true, toast };
@@ -404,6 +420,42 @@ async function write(
         : "Live transfers off. When someone asks for a person, AYA takes their details for your team.";
     }
 
+    case "transcript_retention": {
+      const days = typeof value === "string" ? Number(value) : value;
+      if (!isRetentionDays(days)) throw new Refusal(key, "Choose 90, 30 or 7 days.");
+      const current = state.settings.transcriptRetentionDays;
+      if (days === current) return retentionLine(days);
+      const shortening = days < current;
+      if (shortening) requireStepUp(ctx, key);
+      // The history row is saveSetupSettings' (clinic_settings_history keeps
+      // every change of this field); the email is for a shortening only.
+      await save({ transcriptRetentionDays: days });
+      if (!shortening) return `${retentionLine(days)} Nothing already deleted comes back.`;
+      const [history] = await tx.db
+        .select({ id: clinicSettingsHistory.id })
+        .from(clinicSettingsHistory)
+        .where(
+          and(
+            eq(clinicSettingsHistory.clinicId, tx.clinicId),
+            eq(clinicSettingsHistory.field, "transcript_retention_days"),
+          ),
+        )
+        .orderBy(desc(clinicSettingsHistory.changedAt), desc(clinicSettingsHistory.id))
+        .limit(1);
+      if (history) {
+        await notifySettingChanged(tx, {
+          field: "transcript_retention_days",
+          before: null,
+          after: null,
+          days: { before: current, after: days },
+          historyId: history.id,
+          actorLabel: label,
+          at: now,
+        });
+      }
+      return retentionShortenedLine(days);
+    }
+
     case "transfer_number": {
       const raw = typeof value === "string" ? value.trim() : "";
       const current = state.settings.transferE164;
@@ -422,6 +474,24 @@ async function write(
 // -----------------------------------------------------------------------------
 // Helpers
 // -----------------------------------------------------------------------------
+
+function isRetentionDays(value: unknown): value is TranscriptRetentionDays {
+  return (TRANSCRIPT_RETENTION_DAYS_OPTIONS as readonly unknown[]).includes(value);
+}
+
+/** What a kept period means, in the clinic's words. */
+export function retentionLine(days: number): string {
+  return `Transcripts are kept for ${days} days, then deleted.`;
+}
+
+/**
+ * What shortening it does, and when: said before it is confirmed (the
+ * Records card) and again in the toast. The nightly purge deletes what is
+ * older, and nothing deleted comes back.
+ */
+export function retentionShortenedLine(days: number): string {
+  return `Transcripts older than ${days} days are deleted tonight. This can't be undone.`;
+}
 
 function requireBoolean(value: unknown, field: string): boolean {
   if (typeof value !== "boolean") throw new Refusal(field, "Choose on or off.");

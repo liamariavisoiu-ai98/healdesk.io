@@ -3,7 +3,13 @@ import type { ReactNode } from "react";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
 
-import { ChecklistSetting, ChoiceSetting, SwitchSetting, TextSetting } from "./controls";
+import {
+  ChecklistSetting,
+  ChoiceSetting,
+  RetentionSetting,
+  SwitchSetting,
+  TextSetting,
+} from "./controls";
 import { DisconnectPayments } from "./DisconnectPayments";
 
 /**
@@ -108,6 +114,36 @@ export function ChannelsCard({ view }: { view: SettingsView }) {
           </a>
         </p>
       ) : null}
+    </Card>
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Records
+// -----------------------------------------------------------------------------
+
+/**
+ * How long transcripts are kept (BAA 1.3.0 clause 11, "Practice may shorten
+ * these periods in its portal"). Beside the channels, because it governs what
+ * every channel leaves behind. Shortening needs a step-up and is confirmed in
+ * words first; lengthening needs neither.
+ */
+export function RecordsCard({ view }: { view: SettingsView }) {
+  const { records } = view;
+  return (
+    <Card
+      id="records"
+      title="Records"
+      intro="How long healdesk keeps the transcripts of your conversations."
+    >
+      <RetentionSetting
+        slug={view.slug}
+        settingKey="transcript_retention"
+        legend="Keep transcripts for"
+        line={`Shortening it deletes older transcripts at the next nightly clean-up, for good. ${SENSITIVE_HINT}`}
+        options={records.options}
+        initial={String(records.retentionDays)}
+      />
     </Card>
   );
 }

@@ -349,3 +349,122 @@ export function ChecklistSetting(props: {
     </fieldset>
   );
 }
+
+// -----------------------------------------------------------------------------
+// How long transcripts are kept
+// -----------------------------------------------------------------------------
+
+/**
+ * Records: 90, 30 or 7 days. A longer choice saves at once. A shorter one
+ * first says what it does and when ("Transcripts older than 7 days are
+ * deleted tonight. This can't be undone."), and saves only once confirmed;
+ * the server then asks for a step-up as for any sensitive change (plan Part
+ * D4), and the toast links to it.
+ */
+export function RetentionSetting(props: {
+  slug: string;
+  settingKey: string;
+  legend: string;
+  line?: string;
+  options: readonly { id: string; label: string; line: string; confirm: string | null }[];
+  initial: string;
+}) {
+  const save = useSave(props.slug);
+  const [value, setValue] = useState(props.initial);
+  const [pending, setPending] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const name = useId();
+  const lineId = useId();
+  const confirmId = useId();
+
+  async function commit(next: string) {
+    const before = value;
+    setValue(next);
+    setPending(null);
+    setBusy(true);
+    const result = await save(props.settingKey, Number(next));
+    if (!result.ok) setValue(before);
+    setBusy(false);
+  }
+
+  function choose(next: string) {
+    if (next === value) return;
+    const shorter = Number(next) < Number(value);
+    if (shorter) {
+      setPending(next);
+      return;
+    }
+    void commit(next);
+  }
+
+  // The sentence comes from the server (retentionShortenedLine), so the page
+  // and the toast say the same thing.
+  const confirmText = pending
+    ? (props.options.find((o) => o.id === pending)?.confirm ?? null)
+    : null;
+
+  return (
+    <fieldset className="grid gap-2 py-3" aria-describedby={props.line ? lineId : undefined}>
+      <legend className="font-semibold">{props.legend}</legend>
+      {props.line ? (
+        <p id={lineId} className="text-muted -mt-1 text-sm">
+          {props.line}
+        </p>
+      ) : null}
+      {props.options.map((option) => {
+        const id = `${name}-${option.id}`;
+        return (
+          <label
+            key={option.id}
+            htmlFor={id}
+            className="border-line flex min-h-11 cursor-pointer gap-3 rounded-xl border bg-white px-4 py-3"
+          >
+            <input
+              id={id}
+              type="radio"
+              name={name}
+              value={option.id}
+              checked={(pending ?? value) === option.id}
+              disabled={busy}
+              onChange={() => choose(option.id)}
+              className="mt-1 h-5 w-5 shrink-0"
+            />
+            <span>
+              <span className="block font-semibold">{option.label}</span>
+              <span className="text-muted block text-sm">{option.line}</span>
+            </span>
+          </label>
+        );
+      })}
+      {pending && confirmText ? (
+        <div
+          role="alertdialog"
+          aria-labelledby={confirmId}
+          className="border-line rounded-xl border px-4 py-3"
+        >
+          <p id={confirmId} className="font-semibold">
+            {confirmText}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void commit(pending)}
+              className="bg-ink min-h-11 rounded-full px-4 text-sm font-semibold text-white"
+            >
+              Shorten to {pending} days
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setPending(null)}
+              className="border-line min-h-11 rounded-full border px-4 text-sm font-semibold"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </fieldset>
+  );
+}

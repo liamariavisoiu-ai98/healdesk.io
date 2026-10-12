@@ -22,7 +22,7 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The Meta front door: a narrow agent, a deterministic guard, and a webhook
@@ -295,6 +295,7 @@ describeDb("the front door, end to end", () => {
 
   test("answers only a clinic whose front door is on, sends with the sealed token, and stores nothing the person wrote", async () => {
     const c = await seedClinic("meta");
+    await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     // A production clinic answers only with a billing row and a live channel
     // (the answer gate fails closed without them).
@@ -375,6 +376,7 @@ describeDb("the front door, end to end", () => {
     const PAGE = "523456789012345";
     const WA = "106540352242922";
     const c = await seedClinic("meta-platforms");
+    await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
@@ -437,6 +439,7 @@ describeDb("the front door, end to end", () => {
   test("a reply naming one of the clinic's services is replaced by the hand-off line, approved or not; the price without the name goes out", async () => {
     const pageId = "423456789012345";
     const c = await seedClinic("meta-names");
+    await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     // A production clinic answers only with a billing row and a live Meta
     // channel: the answer gate fails closed without them.

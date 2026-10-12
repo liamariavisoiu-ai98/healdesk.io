@@ -2980,7 +2980,8 @@ export async function commitRefund(
         resourceType: "entitlements",
         resourceId: billingClinicId,
         metadata: {
-          field: input.kind === "agreement_terminated" ? "termination_refund" : "first_period_refund",
+          field:
+            input.kind === "agreement_terminated" ? "termination_refund" : "first_period_refund",
           kind: input.kind,
           amountCents,
           remark,

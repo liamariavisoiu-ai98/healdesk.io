@@ -16,7 +16,7 @@ import { sendDueRecaps, weekKey } from "@/lib/scheduler/weekly-recap";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedConversation, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedConversation, seedEntitled } from "./setup/factories";
 
 /**
  * The delivery layer: who gets mail, and the ledger that makes every mailer
@@ -44,6 +44,7 @@ class FakeTransport implements EmailTransport {
 }
 
 async function makeProduction(clinicId: string, wentLiveAt: Date): Promise<void> {
+  await bindAgreementInEffect(clinicId);
   await getMigratorPool().query(
     `update clinics set data_classification = 'production', baa_signed_at = $2, went_live_at = $2 where id = $1`,
     [clinicId, wentLiveAt],

@@ -18,7 +18,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The Meta webhook in front of the answer gate (BD24, R18): a redelivered
@@ -102,6 +102,7 @@ describeDb("the Meta webhook and the answer gate", () => {
   /** A live production clinic on AYA Meta Chat, its plan started on 1 October, the Meta channel live. */
   async function liveClinic(label: string, pageId: string) {
     const c = await seedClinic(label);
+    await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
       [c.clinicId],

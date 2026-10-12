@@ -24,7 +24,7 @@ import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/report
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The booking hand-off (decisions of 21 and 23 September 2026, narrowed by
@@ -200,8 +200,11 @@ describeDb("the booking hand-off, end to end", () => {
     await closePools();
   });
 
-  async function liveClinic(label: string, externalId = PAGE_ID, platform: MetaPlatform = "messenger") {
+  async function liveClinic(label: string, externalId = PAGE_ID, platform: MetaPlatform = "messenger", opts: { agreement?: boolean } = {}) {
     const c = await seedClinic(label);
+    // Live under an agreement in effect, as go-live leaves a clinic: without
+    // one the answer gate and the database refuse it (drizzle/0062).
+    if (opts.agreement !== false) await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     // A production clinic answers only with a billing row and a live channel
     // (the answer gate fails closed without them).
@@ -505,7 +508,8 @@ describeDb("the booking hand-off, end to end", () => {
     delete process.env.GOOGLE_OAUTH_CLIENT_ID;
     delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
     try {
-      const c = await liveClinic("booking-fields", "923456789012345");
+      // No agreement at all, so its absence is one of the reasons.
+      const c = await liveClinic("booking-fields", "923456789012345", "messenger", { agreement: false });
       const mode = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => bookingModeFor(tx));
       expect(mode).toMatchObject({ mode: "manual", canOfferTimes: false });
       // Live and approved, so neither of those is a reason; everything that

@@ -16,7 +16,13 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedChannels, seedClinic, seedEntitled } from "./setup/factories";
+import {
+  bindAgreementInEffect,
+  inTenant,
+  seedChannels,
+  seedClinic,
+  seedEntitled,
+} from "./setup/factories";
 
 /**
  * Voice before Retell (BD25, R18, R25): Synthflow's `duration` becomes the
@@ -304,6 +310,7 @@ describeDb("the answer gate in front of the voice tools (BD25, R25)", () => {
   /** A production clinic, billed and live on voice, then suspended. */
   async function suspendedClinic(label: string, directLine: string | null) {
     const c = await seedClinic(label);
+    await bindAgreementInEffect(c.clinicId);
     await getMigratorPool().query(
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
       [c.clinicId],

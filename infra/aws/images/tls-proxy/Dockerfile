@@ -14,16 +14,17 @@
 # self-signed one is enough to encrypt the hop.
 #
 # The key and certificate are made fresh by the entrypoint at every start, in
-# memory, and are never part of the image: there is nothing in a layer, the
-# registry or a backup to leak, and nothing to rotate.
+# the task's own /tmp, and are never part of the image: there is nothing in a
+# layer, the registry or a backup to leak, and nothing to rotate.
 # =============================================================================
 
 FROM nginx:1.30.5-alpine@sha256:0985e772fb9f729e6fa0980da05fca5d9c468e870eed43071545afa9d2e27d94
 
 # The entrypoint needs openssl to make the certificate; the base image ships
-# without it. Not pinned to a package version: Alpine drops superseded
-# versions from its repository, so a pin would stop building, and the base is
-# already pinned by digest.
+# without it. Not pinned to a package version (hadolint's DL3018): Alpine
+# drops superseded versions from its repository, so a pin would stop
+# building, and the base is already pinned by digest.
+# hadolint ignore=DL3018
 RUN apk add --no-cache openssl
 
 COPY nginx.conf.template /etc/nginx/tls-proxy.conf.template
@@ -32,7 +33,8 @@ COPY --chmod=0755 healthcheck.sh /usr/local/bin/tls-proxy-healthcheck
 
 # nginx runs unprivileged: 8443 needs no capability, and everything it writes
 # (pid file, temp paths, key, certificate, rendered config) is in the runtime
-# directory the entrypoint makes, so the root filesystem can be read-only.
+# directory the entrypoint makes under /tmp. The root filesystem can be
+# read-only once /tmp is a writable volume (see the entrypoint).
 USER nginx
 EXPOSE 8443
 

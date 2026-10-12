@@ -76,8 +76,9 @@ http {
 
         # Longer than the load balancer's idle timeout, as AWS advises for
         # targets, so the balancer never sends a request on a connection this
-        # side has just closed (an intermittent 502). TLS_PROXY_KEEPALIVE_SECONDS
-        # sets it; the default, 130, suits alb_idle_timeout's default of 120.
+        # side has just closed (an intermittent 502). The task definition
+        # sets TLS_PROXY_KEEPALIVE_SECONDS from alb_idle_timeout (ecs.tf);
+        # without it the entrypoint uses 130, for the default of 120.
         keepalive_timeout __KEEPALIVE_SECONDS__s;
 
         # Relayed Stripe events reach 1 MB. The app enforces its own, smaller

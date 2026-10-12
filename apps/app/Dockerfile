@@ -74,6 +74,14 @@ ENV PORT=3001 \
     HOSTNAME=0.0.0.0 \
     NEXT_TELEMETRY_DISABLED=1
 
+# npm keeps its cache and debug logs under $HOME, which is /repo and belongs to
+# root, so `npm run` as the healdesk user (the migrate task, the operator
+# scripts) kept neither; and on every run it asks the npm registry whether a
+# newer npm exists, a call out of the VPC that nothing here needs. The task
+# definitions set the same two values.
+ENV NPM_CONFIG_CACHE=/tmp/npm-cache \
+    NPM_CONFIG_UPDATE_NOTIFIER=false
+
 # Run as an unprivileged user. The image has no shell-level secrets, but a
 # container that runs as root is the first thing every scanner flags.
 RUN groupadd --system healdesk && useradd --system --gid healdesk --home /repo healdesk
@@ -93,6 +101,7 @@ RUN groupadd --system healdesk && useradd --system --gid healdesk --home /repo h
 # The directory is made first because BuildKit gives any directory it creates
 # for a --chmod file that same mode, and nobody but root can enter a 0644 one.
 RUN mkdir -p /etc/ssl/rds
+# checkov:skip=CKV_DOCKER_4:ADD fetches the bundle by URL against a pinned --checksum, so a changed file fails the build; COPY cannot fetch.
 ADD --checksum=sha256:b1711d12bae51838581281e23b6cb97b1074016873b4dafc80ed14002462dd77 --chmod=0644 \
     https://truststore.pki.rds.amazonaws.com/us-east-1/us-east-1-bundle.pem /etc/ssl/rds/us-east-1-bundle.pem
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/rds/us-east-1-bundle.pem

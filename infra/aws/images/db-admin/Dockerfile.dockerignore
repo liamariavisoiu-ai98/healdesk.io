@@ -1,7 +1,8 @@
 # Build context for infra/aws/images/db-admin/Dockerfile, which is built from
 # the repo root. BuildKit reads this file instead of the root .dockerignore for
-# this Dockerfile, so the builder receives the two files the image copies and
+# this Dockerfile, so the builder receives the three files the image copies and
 # nothing else from the repository.
 *
 !apps/app/scripts/provision-roles.sql
 !infra/aws/images/db-admin/entrypoint.sh
+!infra/aws/images/db-admin/scram-verifier.py

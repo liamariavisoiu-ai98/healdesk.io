@@ -50,9 +50,46 @@ export function isMetaPlatform(value: unknown): value is MetaPlatform {
   return value === "messenger" || value === "instagram" || value === "whatsapp";
 }
 
+/** Each platform's account, as a refusal names it. */
+const ASSET_WORDS: Record<MetaPlatform, string> = {
+  messenger: "Facebook Page",
+  instagram: "Instagram account",
+  whatsapp: "WhatsApp number",
+};
+
+/**
+ * The Page, Instagram account or WhatsApp number is already connected to
+ * another practice on healdesk. Its message is for the person connecting.
+ */
+export class MetaAssetTakenError extends Error {
+  constructor(readonly platform: MetaPlatform) {
+    super(
+      `That ${ASSET_WORDS[platform]} is already connected to another practice on healdesk, so it can't be connected here too. Disconnect it there first, or reply to your setup email and we'll sort it out.`,
+    );
+    this.name = "MetaAssetTakenError";
+  }
+}
+
+/** The unique index that keeps one Meta asset on one clinic (drizzle/0062). */
+function isAssetTaken(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; current && depth < 5; depth += 1) {
+    const e = current as { code?: unknown; constraint?: unknown };
+    if (e.code === "23505" && e.constraint === "provider_connections_meta_asset_live_idx") return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 /**
  * Store one Meta channel for the tenant, replacing any earlier connection on
  * the same platform (`saveConnection` keeps one per provider).
+ *
+ * One asset, one clinic: a Page, Instagram account or WhatsApp number another
+ * clinic holds (not revoked) is refused by the database's unique index
+ * (drizzle/0062), and the refusal is a MetaAssetTakenError in plain words.
+ * Two clinics on one asset would have had every message routed to the older
+ * one: another practice's patients in its records.
  *
  * `secrets` are sealed with the token, never written in clear: today only a
  * WhatsApp number's registration PIN, which re-registering the number needs.
@@ -77,12 +114,18 @@ export async function attachMetaChannel(
     via?: "operator" | "facebook_login" | "embedded_signup";
   },
 ): Promise<string> {
-  const id = await saveConnection(tx.db, {
-    clinicId: tx.clinicId,
-    provider: META_PROVIDERS[input.platform],
-    credentials: { ...input.secrets, accessToken: input.accessToken },
-    metadata: { ...input.details, externalId: input.externalId, label: input.label ?? null },
-  });
+  let id: string;
+  try {
+    id = await saveConnection(tx.db, {
+      clinicId: tx.clinicId,
+      provider: META_PROVIDERS[input.platform],
+      credentials: { ...input.secrets, accessToken: input.accessToken },
+      metadata: { ...input.details, externalId: input.externalId, label: input.label ?? null },
+    });
+  } catch (error) {
+    if (isAssetTaken(error)) throw new MetaAssetTakenError(input.platform);
+    throw error;
+  }
   tx.audit.record({
     action: "create",
     resourceType: "provider_connection",

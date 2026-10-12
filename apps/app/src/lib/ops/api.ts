@@ -92,7 +92,13 @@ import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
 import { bookingRequestCounts } from "@/lib/meta/booking-requests";
-import { attachMetaChannel, isMetaPlatform, META_PROVIDERS, setMetaFrontDoor } from "@/lib/meta/channels";
+import {
+  attachMetaChannel,
+  isMetaPlatform,
+  META_PROVIDERS,
+  MetaAssetTakenError,
+  setMetaFrontDoor,
+} from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
@@ -3651,10 +3657,15 @@ async function opAttachMetaChannel(
   const accessToken = stringArg(args, "accessToken", 1024);
   if (!accessToken || accessToken.length < 20) return care.error("Paste the page or WhatsApp access token.");
   const label = stringArg(args, "label", 120);
-  await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => attachMetaChannel(tx, { platform, externalId, accessToken, label }),
-  );
+  try {
+    await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) => attachMetaChannel(tx, { platform, externalId, accessToken, label }),
+    );
+  } catch (error) {
+    if (error instanceof MetaAssetTakenError) return care.error(error.message);
+    throw error;
+  }
   await audit(operator, "meta_channel_attached", { clinicSlug: clinic.slug, platform });
   return care.updated();
 }

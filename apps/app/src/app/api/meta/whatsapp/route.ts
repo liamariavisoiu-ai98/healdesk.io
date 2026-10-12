@@ -1,7 +1,7 @@
 import { withinConnectAttemptLimit } from "@/lib/connections/attempt-limit";
 import { consumeConnectionLinkWithin, resolveConnectionLink } from "@/lib/connections/links";
 import { describeError, log } from "@/lib/log";
-import { attachMetaChannel } from "@/lib/meta/channels";
+import { attachMetaChannel, MetaAssetTakenError } from "@/lib/meta/channels";
 import { prepareWhatsApp } from "@/lib/meta/connect";
 import { LinkAlreadySpentError, META_CONNECT_ACTOR, metaApp, requestContextFrom } from "@/lib/meta/connect-http";
 import { withTenant } from "@/lib/tenant";
@@ -70,6 +70,10 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     if (error instanceof LinkAlreadySpentError) {
       return Response.json({ ok: false, error: "invalid_link" }, { status: 410 });
+    }
+    // Another practice holds this number: nothing saved.
+    if (error instanceof MetaAssetTakenError) {
+      return Response.json({ ok: false, error: "number_taken" }, { status: 409 });
     }
     log.error("Storing a clinic's WhatsApp channel failed", { clinicId: link.clinicId, error: describeError(error) });
     return Response.json({ ok: false, error: "meta_error" }, { status: 500 });

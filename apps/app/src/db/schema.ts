@@ -792,6 +792,13 @@ export const providerConnections = pgTable(
     uniqueIndex("provider_connections_google_account_live_idx")
       .on(t.provider, t.accountRef)
       .where(sql`${t.accountRef} is not null and ${t.status} <> 'revoked'`),
+    // One clinic per Meta Page, Instagram account or WhatsApp number while
+    // its connection is not revoked (drizzle/0062): with two, the webhook
+    // routed every message to the older clinic, whose staff and records
+    // then held another practice's patients. A revoked row frees the asset.
+    uniqueIndex("provider_connections_meta_asset_live_idx")
+      .on(t.provider, sql`(${t.metadata} ->> 'externalId')`)
+      .where(sql`${t.provider} like 'meta-%' and ${t.status} <> 'revoked'`),
     check(
       "provider_connections_account_ref_check",
       sql`${t.accountRef} is null or ${t.accountRef} ~ '^[0-9a-f]{64}$'`,

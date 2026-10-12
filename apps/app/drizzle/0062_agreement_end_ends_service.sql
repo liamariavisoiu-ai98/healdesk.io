@@ -1,4 +1,5 @@
 ALTER TABLE "baa_acceptances" ADD COLUMN "termination_reason" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "provider_connections_meta_asset_live_idx" ON "provider_connections" USING btree ("provider",("metadata" ->> 'externalId')) WHERE "provider_connections"."provider" like 'meta-%' and "provider_connections"."status" <> 'revoked';--> statement-breakpoint
 ALTER TABLE "baa_acceptances" ADD CONSTRAINT "baa_acceptances_termination_reason_check" CHECK ("baa_acceptances"."termination_reason" is null or ("baa_acceptances"."terminated_at" is not null and "baa_acceptances"."termination_reason" in ('practice_healdesk_breach', 'practice_subcontractor_objection', 'healdesk_practice_breach', 'change_in_law', 'services_ended')));--> statement-breakpoint
 
 -- =============================================================================
@@ -46,6 +47,16 @@ ALTER TABLE "baa_acceptances" ADD CONSTRAINT "baa_acceptances_termination_reason
 --     locations for the termination: which clinics to offboard and which
 --     billing clinics to cancel. clinics is tenant-isolated, so a service
 --     context cannot list them itself. Ids and dates only.
+--
+-- One more of the release's blockers rides in this migration:
+--
+--   * provider_connections_meta_asset_live_idx (generated above) keeps one
+--     Meta Page, Instagram account or WhatsApp number on one clinic while its
+--     connection is not revoked. With two, app_meta_channel (0036, 0061)
+--     routed every message to the older clinic: another practice's patients
+--     in its records. apps/app has held no real patient data, so no
+--     duplicate can stand in the way of the index; attachMetaChannel turns
+--     the refusal into words for the person connecting.
 --
 -- SECURITY DEFINER and the pinned search_path are restated on every
 -- CREATE OR REPLACE, which replaces them; the grants survive it. None of

@@ -1,5 +1,5 @@
 {
-  "id": "f93bb5d2-8cbc-4929-86dd-55f3ded71186",
+  "id": "5cc2330b-368e-4d50-b873-99465ba8ab59",
   "prevId": "8de5dd03-79c7-4867-91ce-0738c93fcc15",
   "version": "7",
   "dialect": "postgresql",
@@ -6685,6 +6685,28 @@
           ],
           "isUnique": true,
           "where": "\"provider_connections\".\"account_ref\" is not null and \"provider_connections\".\"status\" <> 'revoked'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "provider_connections_meta_asset_live_idx": {
+          "name": "provider_connections_meta_asset_live_idx",
+          "columns": [
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "(\"metadata\" ->> 'externalId')",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"provider_connections\".\"provider\" like 'meta-%' and \"provider_connections\".\"status\" <> 'revoked'",
           "concurrently": false,
           "method": "btree",
           "with": {}

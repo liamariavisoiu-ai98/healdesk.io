@@ -1524,7 +1524,11 @@ these is closed, by code, a page, a signed paper or a host setting, and
      amendment beside the request or conversation it amends (`amendments`,
      oldest first), and the accounting of disclosures shows each being
      written. The desk's view of a booking request (`/booking/<token>`)
-     lists its amendments under the request. The portal's export, and any
+     says how many amendments the request carries and to read them in the
+     export, and never their words: it opens with the emailed token alone,
+     no passkey, and the first version printed the text there (review of 12
+     October 2026). The request's name and number on that page are an older
+     gap, which M5's passkey closes. The portal's export, and any
      screen of it that shows a request or a conversation, must do the same
      (the note in `amendments.ts`).
    - Removal: an amendment goes with its record and at no other time, inside

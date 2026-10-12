@@ -747,8 +747,8 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * made. "Correct that information as Practice directs" alone promised a
    * change the database forbids. The amendment record (BAA 1.3.0 release
    * gate 8, apps/app drizzle/0060 and lib/patient-rights/amendments.ts) is
-   * what appends and links one, and both exports and the desk's view of a
-   * request carry it; `amendContact` corrects a contact in place, and both
+   * what appends and links one, both exports carry it, and the desk's view
+   * of a request says it is there; `amendContact` corrects a contact in place, and both
    * have the operator's path through the ops envelope (dpa.md, gap 22).
    *
    * The last sentence says what a deletion keeps (gate 6, 12 October 2026;

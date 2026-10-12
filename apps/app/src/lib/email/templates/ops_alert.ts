@@ -271,6 +271,12 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The agreement's termination is recorded and the assistant has stopped, but one step did not finish for the clinic below. For phase offboarding, start offboarding from its care page. For phase billing, cancel the subscription in Stripe at once, without proration: every ending stops the fees on the day. For phase billing_job_off, the cancellation is recorded but the billing-requests job that carries it out is switched off, so the subscription keeps billing: switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration.",
   },
+  // Raised by the hourly reconcile per practice and step it finished.
+  agreement_termination_finished_late: {
+    title: "A termination's last steps were finished late",
+    action:
+      "A recorded termination had a step that never ran, and the hourly reconcile has now finished it for the practice below: for phase offboarding it started its locations' offboarding, for phase billing it recorded the subscription's cancellation. Check the practice in the console. If its subscription billed in between, refund that period, and if the termination refunds fees, confirm that refund on its Billing page.",
+  },
   // Raised by a first-period refund (commitRefund) whose cancel_now waits on
   // the switched-off billing-requests job.
   refund_cancel_job_off: {

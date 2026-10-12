@@ -72,6 +72,7 @@ export type TerminationEffect =
 type Location = {
   clinicId: string;
   billingClinicId: string;
+  offboarding: boolean;
   destroyed: boolean;
 };
 
@@ -79,16 +80,105 @@ async function locationsOf(organizationId: string): Promise<Location[]> {
   const result = await unsafeDb.execute<{
     clinic_id: string;
     billing_clinic_id: string;
+    offboarding_started_at: Date | string | null;
     destroyed_at: Date | string | null;
   }>(
-    sql`select clinic_id, billing_clinic_id, destroyed_at
+    sql`select clinic_id, billing_clinic_id, offboarding_started_at, destroyed_at
           from app_organization_clinics(${organizationId}::text)`,
   );
   return result.rows.map((row) => ({
     clinicId: String(row.clinic_id),
     billingClinicId: String(row.billing_clinic_id),
+    offboarding: row.offboarding_started_at !== null,
     destroyed: row.destroyed_at !== null,
   }));
+}
+
+type Steps = { offboarded: number; cancellations: number; failures: number };
+
+/**
+ * The termination's two steps, for the locations and billing clinics given:
+ * start each location's offboarding, and record each billing clinic's
+ * cancellation, telling ops of each that fails, of a cancellation that waits
+ * on the switched-off billing-requests job, and, where clause 17 ¶3 refunds,
+ * that a refund is due. Each is tried on its own; never throws.
+ */
+async function endServicesFor(input: {
+  agreementId: string;
+  terminatedAt: Date;
+  reason: string | null;
+  locations: readonly Location[];
+  billingClinics: readonly string[];
+  actor: ActorContext;
+  request?: RequestContext;
+}): Promise<Steps> {
+  const { agreementId, terminatedAt, reason, actor, request } = input;
+  const steps: Steps = { offboarded: 0, cancellations: 0, failures: 0 };
+
+  for (const location of input.locations) {
+    // A destroyed clinic has nothing left to offboard; it was offboarded
+    // before it was destroyed.
+    if (location.destroyed) continue;
+    try {
+      const start = await withTenant({ clinicId: location.clinicId, actor, request }, (tx) =>
+        startOffboarding(tx, AGREEMENT_TERMINATED_REASON, terminatedAt),
+      );
+      steps.offboarded += 1;
+      await alertIfOffboardingStartedLate(location.clinicId, start);
+    } catch (error) {
+      steps.failures += 1;
+      log.error("termination could not start offboarding", {
+        clinicId: location.clinicId,
+        agreementId,
+        error: describeError(error),
+      });
+      await notifyOps("agreement_termination_incomplete", {
+        clinicId: location.clinicId,
+        agreementId,
+        phase: "offboarding",
+      });
+    }
+  }
+
+  const refundDue = terminationRefundsFees(reason);
+  // The cancellation is carried out only by the billing-requests job, which
+  // ships off; with it off the subscription keeps billing every period and
+  // nothing else would say so. A switch that can't be read counts as off:
+  // the alert is the safe side.
+  const jobOn =
+    input.billingClinics.length === 0 ||
+    (await billingRequestsSwitchedOn().catch(() => false));
+  for (const billingClinicId of input.billingClinics) {
+    try {
+      await withTenant({ clinicId: billingClinicId, actor, request }, (tx) =>
+        requestCancelForAgreementEnd(tx, billingClinicId),
+      );
+      steps.cancellations += 1;
+      if (!jobOn) {
+        await notifyOps("agreement_termination_incomplete", {
+          clinicId: billingClinicId,
+          agreementId,
+          phase: "billing_job_off",
+        });
+      }
+      if (refundDue) {
+        await notifyOps("agreement_refund_due", { clinicId: billingClinicId, agreementId });
+      }
+    } catch (error) {
+      steps.failures += 1;
+      log.error("termination could not record the cancellation", {
+        clinicId: billingClinicId,
+        agreementId,
+        error: describeError(error),
+      });
+      await notifyOps("agreement_termination_incomplete", {
+        clinicId: billingClinicId,
+        agreementId,
+        phase: "billing",
+      });
+    }
+  }
+  return steps;
 }
 
 export async function endServicesAfterTermination(input: {
@@ -108,73 +198,134 @@ export async function endServicesAfterTermination(input: {
     return { status: "agreement_in_effect" };
 
   const locations = await locationsOf(organizationId);
-  let offboarded = 0;
-  let cancellations = 0;
-  let failures = 0;
+  const steps = await endServicesFor({
+    agreementId,
+    terminatedAt,
+    reason,
+    locations,
+    billingClinics: [...new Set(locations.map((location) => location.billingClinicId))],
+    actor,
+    request,
+  });
+  return { status: "services_ended", ...steps, refundDue: terminationRefundsFees(reason) };
+}
 
-  for (const location of locations) {
-    // A destroyed clinic has nothing left to offboard; it was offboarded
-    // before it was destroyed.
-    if (location.destroyed) continue;
-    try {
-      const start = await withTenant({ clinicId: location.clinicId, actor, request }, (tx) =>
-        startOffboarding(tx, AGREEMENT_TERMINATED_REASON, terminatedAt),
-      );
-      offboarded += 1;
-      await alertIfOffboardingStartedLate(location.clinicId, start);
-    } catch (error) {
-      failures += 1;
-      log.error("termination could not start offboarding", {
-        clinicId: location.clinicId,
-        agreementId,
-        error: describeError(error),
-      });
-      await notifyOps("agreement_termination_incomplete", {
-        clinicId: location.clinicId,
-        agreementId,
-        phase: "offboarding",
-      });
-    }
-  }
+const RECONCILE_ACTOR = { type: "service", serviceName: "termination-reconcile" } as const;
 
-  const refundDue = terminationRefundsFees(reason);
-  const billingClinics = [...new Set(locations.map((location) => location.billingClinicId))];
-  // The cancellation is carried out only by the billing-requests job, which
-  // ships off; with it off the subscription keeps billing every period and
-  // nothing else would say so.
-  // A switch that can't be read counts as off: the alert is the safe side.
-  const jobOn =
-    billingClinics.length === 0 || (await billingRequestsSwitchedOn().catch(() => false));
-  for (const billingClinicId of billingClinics) {
+export type TerminationReconcileSummary = {
+  /** Practices whose termination had a step left undone. */
+  practices: number;
+  offboarded: number;
+  cancellations: number;
+  failures: number;
+};
+
+/**
+ * The termination's reconciler (the branch review's R5), hourly from the
+ * billing-reconcile job.
+ *
+ * endServicesAfterTermination runs in-process after terminated_at commits,
+ * with no durable marker of its own. A process killed in that gap leaves the
+ * agreement terminated, the assistant stopped and the database refusing new
+ * patient rows (both read the agreements themselves), but no location
+ * offboarding and the subscription billing, silently; and the console
+ * refuses a second termination. This finds every practice with a terminated
+ * agreement and none in effect where a location that isn't destroyed has
+ * not started offboarding, or a billing clinic whose subscription hasn't
+ * ended has no cancel_now recorded, and finishes those steps the way the
+ * termination would have, with its alerts (the refund due, the job off).
+ * Then it tells ops what it finished, per practice and step. Idempotent: a
+ * practice with nothing left undone costs a read and does nothing. A
+ * cancel_now that exists in any state is left to the billing requests' own
+ * re-arming and stuck alerts.
+ */
+export async function reconcileTerminations(): Promise<TerminationReconcileSummary> {
+  const summary: TerminationReconcileSummary = {
+    practices: 0,
+    offboarded: 0,
+    cancellations: 0,
+    failures: 0,
+  };
+  const ended = await unsafeDb.execute<{
+    organization_id: string;
+    agreement_id: string;
+    terminated_at: Date | string;
+    termination_reason: string | null;
+  }>(
+    sql`select distinct on (b.organization_id)
+               b.organization_id, b.id as agreement_id, b.terminated_at, b.termination_reason
+          from baa_acceptances b
+         where b.organization_id is not null
+           and b.terminated_at is not null
+           and not exists (select 1 from app_agreement_in_effect(b.organization_id))
+         order by b.organization_id, b.terminated_at desc, b.accepted_at desc`,
+  );
+  for (const row of ended.rows) {
+    const organizationId = String(row.organization_id);
+    const agreementId = String(row.agreement_id);
     try {
-      await withTenant({ clinicId: billingClinicId, actor, request }, (tx) =>
-        requestCancelForAgreementEnd(tx, billingClinicId),
-      );
-      cancellations += 1;
-      if (!jobOn) {
-        await notifyOps("agreement_termination_incomplete", {
-          clinicId: billingClinicId,
+      const locations = await locationsOf(organizationId);
+      const toOffboard = locations.filter((l) => !l.destroyed && !l.offboarding);
+      const toCancel: string[] = [];
+      for (const billingClinicId of new Set(locations.map((l) => l.billingClinicId))) {
+        if (await cancellationOwed(billingClinicId)) toCancel.push(billingClinicId);
+      }
+      if (toOffboard.length === 0 && toCancel.length === 0) continue;
+      summary.practices += 1;
+      const steps = await endServicesFor({
+        agreementId,
+        terminatedAt: new Date(row.terminated_at),
+        reason: row.termination_reason,
+        locations: toOffboard,
+        billingClinics: toCancel,
+        actor: RECONCILE_ACTOR,
+      });
+      summary.offboarded += steps.offboarded;
+      summary.cancellations += steps.cancellations;
+      summary.failures += steps.failures;
+      if (steps.offboarded > 0) {
+        await notifyOps("agreement_termination_finished_late", {
+          organizationId,
           agreementId,
-          phase: "billing_job_off",
+          phase: "offboarding",
+          count: steps.offboarded,
         });
       }
-      if (refundDue) {
-        await notifyOps("agreement_refund_due", { clinicId: billingClinicId, agreementId });
+      if (steps.cancellations > 0) {
+        await notifyOps("agreement_termination_finished_late", {
+          organizationId,
+          agreementId,
+          phase: "billing",
+          count: steps.cancellations,
+        });
       }
     } catch (error) {
-      failures += 1;
-      log.error("termination could not record the cancellation", {
-        clinicId: billingClinicId,
+      summary.failures += 1;
+      log.error("termination reconcile failed for a practice", {
+        organizationId,
         agreementId,
         error: describeError(error),
       });
-      await notifyOps("agreement_termination_incomplete", {
-        clinicId: billingClinicId,
-        agreementId,
-        phase: "billing",
-      });
     }
   }
+  return summary;
+}
 
-  return { status: "services_ended", offboarded, cancellations, failures, refundDue };
+/**
+ * Whether a terminated practice's billing clinic still needs its
+ * cancellation recorded: no cancel_now row in any state, and a subscription
+ * that hasn't already ended (no entitlements row means nothing to cancel).
+ */
+async function cancellationOwed(billingClinicId: string): Promise<boolean> {
+  return withTenant({ clinicId: billingClinicId, actor: RECONCILE_ACTOR }, async (tx) => {
+    const result = await tx.db.execute<{ owed: boolean }>(
+      sql`select (exists (select 1 from entitlements e
+                           where e.clinic_id = ${billingClinicId}::uuid
+                             and e.status not in ('canceled', 'purged'))
+                  and not exists (select 1 from billing_requests r
+                                   where r.clinic_id = ${billingClinicId}::uuid
+                                     and r.kind = 'cancel_now')) as owed`,
+    );
+    return result.rows[0]?.owed === true;
+  });
 }

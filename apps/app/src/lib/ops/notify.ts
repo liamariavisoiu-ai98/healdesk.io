@@ -106,6 +106,11 @@ export const OPS_EVENTS = [
   // (lib/agreements/termination.ts), once per billing clinic: the operator
   // previews and confirms the refund on its Billing page.
   "agreement_refund_due",
+  // The hourly billing reconcile finished a recorded termination's step that
+  // never ran (the process stopped between recording it and finishing):
+  // `phase` offboarding or billing, `count` how many (reconcileTerminations
+  // in lib/agreements/termination.ts).
+  "agreement_termination_finished_late",
   // A first-period refund under Terms § 5 recorded the plan's immediate
   // cancellation while the billing-requests job, its only executor, is
   // switched off (commitRefund in lib/billing/stripe-actions.ts).

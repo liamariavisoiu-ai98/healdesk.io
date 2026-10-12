@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { assistantMayAnswer } from "@/lib/billing/answering";
+import { reconcileBilling } from "@/lib/billing/reconcile";
 import { drainBillingRequests } from "@/lib/billing/requests";
 import { commitRefund, previewRefund } from "@/lib/billing/stripe-actions";
 import { assertPayloadAllowed } from "@/lib/email/lint";
@@ -575,6 +576,64 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       { stripe: quietWorld.stripe },
     );
     expect(notifyOps).not.toHaveBeenCalledWith("refund_cancel_job_off", expect.anything());
+  }, 180_000);
+
+  test("a termination whose process stopped before its steps ran is finished by the hourly reconcile, once, and ops is told", async () => {
+    const practice = await seedPractice("term-killed");
+    worldFor(practice);
+    // The termination committed, and the process died before
+    // endServicesAfterTermination ran: no offboarding, no cancellation.
+    await getMigratorPool().query(
+      `update baa_acceptances
+          set terminated_at = $2::date + interval '1 day' - interval '1 millisecond',
+              termination_reason = 'practice_healdesk_breach'
+        where id = $1`,
+      [practice.agreementId, TODAY_ON],
+    );
+    expect(await offboardingOf(practice.locationId)).toBeNull();
+    expect(await requestsOf(practice.billingClinicId)).toEqual([]);
+    // The console refuses a second termination, so nothing else would finish it.
+    expect(
+      await run("markAgreementTerminated", {
+        agreementId: practice.agreementId,
+        terminationDate: TODAY_ON,
+        terminationReason: "practice_healdesk_breach",
+      }),
+    ).toMatchObject({ status: "error", message: expect.stringMatching(/^Already recorded/) });
+    expect(await offboardingOf(practice.locationId)).toBeNull();
+
+    expect(await reconcileBilling(new Date())).toMatchObject({ terminationsFinished: 1 });
+    expect(await offboardingOf(practice.locationId)).not.toBeNull();
+    expect(await offboardingOf(practice.billingClinicId)).not.toBeNull();
+    expect(await requestsOf(practice.billingClinicId)).toEqual([
+      { kind: "cancel_now", reason: "ops", outcome: null },
+    ]);
+    expect(notifyOps).toHaveBeenCalledWith("agreement_termination_finished_late", {
+      organizationId: practice.organizationId,
+      agreementId: practice.agreementId,
+      phase: "offboarding",
+      count: 2,
+    });
+    expect(notifyOps).toHaveBeenCalledWith("agreement_termination_finished_late", {
+      organizationId: practice.organizationId,
+      agreementId: practice.agreementId,
+      phase: "billing",
+      count: 1,
+    });
+    // The alert the termination never got to raise.
+    expect(notifyOps).toHaveBeenCalledWith("agreement_refund_due", {
+      clinicId: practice.billingClinicId,
+      agreementId: practice.agreementId,
+    });
+
+    // Finished: the next pass leaves it, and every termination before it, alone.
+    notifyOps.mockClear();
+    expect(await reconcileBilling(new Date())).toMatchObject({ terminationsFinished: 0 });
+    expect(notifyOps).not.toHaveBeenCalledWith(
+      "agreement_termination_finished_late",
+      expect.anything(),
+    );
+    expect(await requestsOf(practice.billingClinicId)).toHaveLength(1);
   }, 180_000);
 
   test("who ended it and why is recorded once, with the date, and never changed", async () => {

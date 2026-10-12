@@ -387,7 +387,7 @@ describeDb("agreement kinds in the database (0051)", () => {
       code: "23514",
     });
 
-    // An unrecorded kind keeps 0001's rule, with 0062's agreement in effect,
+    // An unrecorded kind keeps 0001's rule, with 0063's agreement in effect,
     // and a synthetic clinic is never refused.
     const legacy = await seedUnder("legacy", {
       regime: "hipaa-if-covered",

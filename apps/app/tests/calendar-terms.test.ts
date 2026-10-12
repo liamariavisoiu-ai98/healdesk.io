@@ -549,11 +549,11 @@ describeDb("calendar terms at runtime", () => {
       await seedGoogleConnection(clinic.clinicId, { managed: true });
       expect(await permitted(clinic.clinicId, true)).toBe(true);
 
-      // 1.2.1 carries no calendar terms, so a location provisioned under it
+      // 1.2.2 carries no calendar terms, so a location provisioned under it
       // waits for an election, and none was recorded. Signed by its version
       // rather than as whatever is current, which 1.3.0 becomes at release.
       const legacyEmail = `owner-${randomUUID().slice(0, 8)}@legacy.test`;
-      const legacy = await sign(legacyEmail, { platform: "none" }, "1.2.1");
+      const legacy = await sign(legacyEmail, { platform: "none" }, "1.2.2");
       const legacyClinic = await provision(legacyEmail, legacy.agreementId);
       expect(await terms(legacyClinic.clinicId)).toMatchObject({
         kind: "needs_election",

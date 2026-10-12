@@ -56,15 +56,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const TOPICS = new Set(["start", "pricing", "discount", "terms", "sales_session", "other"]);
 
 /**
- * The setup link for the package AYA named, by its catalog name; /pricing
- * when she named none or one that does not exist, so the email never links
- * to a package the owner did not hear.
+ * The setup link for the package AYA named, by its catalog name; the buy
+ * flow with no package chosen when she named none or one that does not
+ * exist, so the email never links to a package the owner did not hear. (That
+ * fallback was /pricing until the owner disabled the page on 9 October 2026;
+ * the buy flow's first step shows every package and its price.)
  */
 function setupLink(packageName: string): { url: string; plan: string | null } {
   const plan = plans.find((p) => p.name.toLowerCase() === packageName.toLowerCase());
   return plan
     ? { url: `${site.url}/get-started?plan=${plan.id}`, plan: plan.name }
-    : { url: `${site.url}/pricing`, plan: null };
+    : { url: `${site.url}/get-started`, plan: null };
 }
 
 async function send(

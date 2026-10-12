@@ -61,6 +61,11 @@ output "transcript_bucket" {
   value       = var.enable_transcript_bucket ? local.transcript_bucket : null
 }
 
+output "export_bucket" {
+  description = "Where the patient-export task puts a leaving clinic's return bundle (exports.tf); run-task.sh prints the object's key."
+  value       = local.export_bucket
+}
+
 output "ses_configuration_set" {
   description = "The SES configuration set that requires TLS (HEALDESK_SES_CONFIGURATION_SET), while enable_ses is on; null otherwise."
   value       = var.enable_ses ? local.ses_configuration_set_name : null

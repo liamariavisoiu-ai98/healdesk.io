@@ -31,7 +31,7 @@ the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
 | C11     | Privacy §11 and `/data-deletion` say what the code does                                            | To build                                       |
 | C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | Built (568a56d)                                |
 | C13     | The booking engine (§6); HRC-04 at each write (§4)                                                 | Built; its alerts are §6's                     |
-| C14     | The harness wired to the engine, and the fixed lines                                               | To build                                       |
+| C14     | The harness wired to the engine, and the fixed lines                                               | Built; the demo clinic only                    |
 | C15     | Provisioning reads the signed acceptance                                                           | Built                                          |
 | C17     | The console's cards; `setBookingMode` and `directBookingAllowed` removed                           | Built                                          |
 | C18     | Elections and account changes from the portal (§2)                                                 | Built                                          |
@@ -577,8 +577,51 @@ lines.
 | Synthflow harness, demo clinics only | `voice:<call_id>`        | `<call_id>`                                                                         |
 
 The Retell process links its post-call record by its key prefix. Until Retell, the Synthflow routes
-are a test harness: for any clinic that is not a demo clinic, `slots`, `hold` and `book` answer 403
-`manual_booking`.
+are a test harness (C14, `lib/voice/tools.ts`): for any clinic that is not a demo clinic, `slots`,
+`hold` and `book` answer 403 `manual_booking`, and `request` answers 403 `not_available`, synthetic
+clinics in setup included. A request logged in the call raises only a booking alert, which reaches
+nobody before M5, and the post-call record would then link it and mail nobody; so such a clinic's
+requests reach its desk only through the Synthflow post-call webhook, which writes the request and
+mails the desk (`notifyDesk`). The plan's §7.13 table sent a synthetic clinic's request to
+`logRequest`; the coordinator chose otherwise on 12 October, so that a forwarding test call at a
+clinic still in setup reaches someone. Only the demo clinic reaches the engine.
+
+**What the Retell process takes from the harness** (C14): the rules the harness follows that the
+process must follow too, calling the same functions rather than copying them.
+
+- **Keys.** Its own, from the table: holder `retell:<call_id>`, booking key
+  `retell:<call_id>:<n>`.
+- **The post-call record.** `ingestCall` links every request the engine logged on the call to the
+  conversation, oldest first, matched by the exact call id (the harness's key) or by the prefix
+  `retell:<externalCallId>:`, with `starts_with` (a call id's underscores are LIKE wildcards). The
+  call id in the post-call payload must therefore be the raw id inside the keys.
+  `IngestResult.bookingRequestId` is the first of them. It creates no second request and mails
+  nothing for them: there is no post-call notify step, as every alert was raised when its request
+  was committed.
+- **The gate.** `voiceAnswerDecision`, outside any transaction, before `offerTimes` and before
+  `placeHold`, and passed to `bookConversation` as `gate`, which asks it after the replay (§9, item
+  13). Taking a request does not ask it: a request is what a refused call with no direct line falls
+  back to.
+- **One booking a call (the harness).** Its booking key is the call id, so before offering or
+  holding a time it asks `keyReusedFor`, and a call that has booked or passed a request hears the
+  one-per-call line rather than choose a time that could only end in `key_reused`. Retell's n grows
+  for each booking the caller asks for, so the process has no such limit.
+- **Times.** `voiceOffer` chooses at most three (plan §6.4): the earliest on each of the first three
+  days, or, with fewer days (a day the caller named), spread across each. A named `day` is
+  `YYYY-MM-DD` and `from` a date or an ISO time with its offset, both read on the clinic's clock;
+  `at` is an ISO time with its offset, as offered. Anything else is refused, never read on the
+  server's clock. The alternatives of a `slot_taken` carry the `provider_id` asked for.
+- **Lines.** Every answer is a fixed line from `lib/booking/lines.ts`, said as written:
+  `BOOKED_LINE` with `{when}` on the clinic's clock and the clinic's own service name, `HOLD_LINE`,
+  `slotGoneLine`, `REQUEST_TAKEN_LINE`, `DEPOSIT_HOLD_LINE`, `DEPOSIT_REQUEST_LINE`, the two
+  one-per-call lines, `IN_PROGRESS_LINE`, `NO_FREE_TIME_LINE` (nothing free on a day or after a time
+  the caller named; nothing free in the whole offer is `MANUAL_BOOKING_LINE`, and a request),
+  `MISSING_DETAIL_LINES`, and `TOOL_FAILURE_LINE` when Google does not answer or an engine call
+  throws, with the tool's audit row saying `error`. A deposit is said with `depositLine`, scope
+  `booking`; a call is never sent a link. `IN_PROGRESS_LINE`, `NO_FREE_TIME_LINE` and
+  `MISSING_DETAIL_LINES` were worded in C14, not by the plan, and wait for the owner's review.
+- **The budget.** The harness waits 8 seconds for Google (`BOOK_CALENDAR_BUDGET_MS`); a write still
+  in flight then is answered as a request and records its own outcome.
 
 **The engine API the Retell process calls** (C13; `holderKey` and `bookingKey` as in the table):
 
@@ -607,6 +650,8 @@ logRequest(clinicId, { channel: "voice", holderKey, bookingKey, firstName, phone
     preferredWindow, alternativeWindows?, service, fields?, now?, actor? })
   -> { kind: "request_logged"; replayed } | { kind: "key_reused"; first; firstStartsAt? }
    | { kind: "invalid"; field: "first_name" | "phone" | "preferred_window" }
+keyReusedFor(tx, bookingKey)                         // C14; inside the caller's tenant transaction
+  -> { kind: "key_reused"; first; firstStartsAt? } | null
 ```
 
 `request_logged`'s `reason` is one of `manual` (with the mode's `modeReasons`), `deposit_required`,

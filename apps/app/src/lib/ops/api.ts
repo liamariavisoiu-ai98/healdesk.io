@@ -1653,7 +1653,7 @@ export type MarkTerminatedState =
  * Every ending of the agreement ends the Services, and the Fees, on the same
  * day (BAA 1.3.0 clauses 1, 17 and 20). The operator records who ended it and
  * why, from the closed set in @healdesk/catalog, in the same write as the
- * date (both write-once, drizzle/0062), because the reason decides the
+ * date (both write-once, drizzle/0063), because the reason decides the
  * refund: clause 17 ¶3 refunds the fees paid for time after the day only
  * where the practice ended it because healdesk violated a material term, or
  * under the Subcontractors clause.
@@ -3545,7 +3545,7 @@ async function opMarkExportDelivered(
   );
   if (!delivered) {
     return care.error(
-      "No return bundle has been produced since offboarding started. Produce it on the app host (npm run patient-export -w @healdesk/app -- --clinic <id> --all), hand it over, then record the handover here.",
+      "No return bundle has been produced since offboarding started. Produce it in AWS CloudShell (bash run-task.sh patient-export <clinic id> \"<who asked>\"), hand it over, then record the handover here.",
     );
   }
   await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });

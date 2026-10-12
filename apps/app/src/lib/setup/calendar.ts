@@ -40,7 +40,8 @@ import type { SetupSettings } from "./settings";
  * (calendarConnectProblem: the OAuth client, sealing, the public origin), and
  * the location's calendar terms let healdesk write to a calendar. Everywhere
  * else, which before the calendar session's C19 is every clinic that signed
- * BAA 1.2.1 (its terms resolve to `needs_election`), the step says
+ * BAA 1.2.2, or any version before 1.3.0 (its terms resolve to
+ * `needs_election`), the step says
  * "Bookings arrive as requests your team confirms." with no button: a button
  * that goes nowhere breaks the rule that every link works the day it ships.
  */

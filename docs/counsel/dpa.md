@@ -118,15 +118,15 @@ destruction, and adds the processor terms state law asks for.
 | 8 | Google Calendar | BAA 1.3.0's chosen clause (see § 2) |
 | 9 | Safeguards | The Security Rule applied as if Client Information were ePHI; 1.2.1's second and third paragraphs (A4's email sentence included) |
 | 10 | Minimum necessary, and who receives Client Information | The booking catalogue as a ceiling (not 1.2.1's list: see § 6, gap 4), the animal's name and species for a vet, the opening-line disclosure, no call audio; then disclosure by category, the calendar as its clause or an election describes |
-| 11 | Subcontractors | 1.2.1's flow-down, without the HIPAA citations; Anthropic's retention in 1.2.1's words; the 24-hour notice |
-| 12 | Reporting incidents and breaches | BAA 1.3.0's one rule, without its HIPAA citations: immediately following discovery and within 24 hours, for all three; the law-enforcement delay; each notice itself the written report, added to promptly, with what Practice needs for its own notices |
+| 11 | Subcontractors | 1.2.1's flow-down, without the HIPAA citations; Anthropic's retention in 1.2.1's words; the current list given on Practice's written request (no public page, since 9 October 2026) and the 24-hour notice |
+| 12 | Reporting incidents and breaches | BAA 1.3.0's one rule, without its HIPAA citations: without unreasonable delay and in no case later than 60 calendar days after discovery, for all three (the spec's wording, owner, 9 October 2026; immediately and within 24 hours before that); the law-enforcement delay; each notice itself the written report, added to promptly, with what Practice needs for its own notices |
 | 13 | Clients' requests | Reconciled with clause 5: the ten-business-day help with any client's request stays, deletion is clause 5's item c, and a request made to healdesk itself, any request, is answered only in healdesk's reply (1.3.0, PT-24); a correction is made in healdesk's copy where the record can be changed, and otherwise appended and linked, as in 1.3.0's clause 14(b) (PT-17) |
 | 14 | Confidentiality | New; a veterinary paragraph |
 | 15 | Not authorised | 1.2.1's four prohibitions; Meta "is not healdesk's subcontractor and is not bound by this agreement" |
 | 16 | Assistance and audit | The records-to-HHS clause, made general; reconciled with clause 5: the state privacy laws' help is clause 5's, every other law's stays here |
 | 17 | Term | Written from the offboarding clock in the code (§ 4), not 1.2.1's "within thirty days"; terminating under the Subcontractors clause is "without penalty": the Services end that day, no Fees after, a refund of Fees paid for later time |
 | 18 | Liability | 1.2.1's allocation and Terms §§ 13–14, in state-law terms; the Term clause's refund outside the exclusion and the indemnity, as 1.3.0's |
-| 19 | Notices and law | 1.2.1's, without HIPAA; Delaware; the notice address is the practice's one address; an accepted calendar election is part of the entire agreement |
+| 19 | Notices and law | 1.2.1's, without HIPAA; Delaware; healdesk's notice email is hello@healdesk.io, as in BAA 1.2.2 (owner, 9 October 2026); the notice address is the practice's one address; an accepted calendar election is part of the entire agreement |
 
 Not carried: acting-in-your-place (164.504(e)(2)(ii)(H)) and records-to-HHS,
 which are HIPAA's; own-use's aggregation permission (§ 5).
@@ -153,12 +153,13 @@ Read in the code on 6 October 2026, at origin/main d652a0b.
 | From the covered notice, the assistant is paused until the BAA replaces the DPA (2) | The database refuses a DPA clinic's client data from the write that records `is_covered_entity` as anything but false (`app_clinic_accepts_phi`, drizzle/0051); `app_supersede_agreement` puts the BAA in force; the pause itself is `clinic_settings.ai_paused_at` | `apps/app/drizzle/0051_agreement_kinds.sql`; `apps/app/src/db/schema.ts` |
 | Anthropic's 30 days, two years when flagged, no training (11) | BAA 1.2.1's sentence, from Anthropic's own pages read 1 October 2026 (agreement-changes.md § 4); pinned by a test against the 1.2.1 rendering | `packages/catalog/src/baa.ts` |
 | 24 hours' notice by email, with the right to object (11) | `SUBPROCESSOR_NOTICE_HOURS = 24` | `packages/catalog/src/subprocessor-notice.ts` |
+| The current list of subcontractors "on Practice's written request to healdesk's email address in the Notices clause" (11) | No code: an operator answers from the internal register, the subprocessor table in `docs/hipaa-compliance.md`; the public page was removed on 9 October 2026 | `docs/hipaa-compliance.md`; `docs/policies/security-official.md` |
 
 Added on 7 October 2026, read at origin/main c926414:
 
 | Sentence (clause) | The code fact | Where |
 | --- | --- | --- |
-| Notice "immediately following discovery … and in any case within 24 hours", for a use or disclosure not permitted, a breach and a security incident (12) | The runbook works to 24 hours for all three, for every clinic. The console's `notifyDeadline` gives a not-covered clinic's breach a day ("immediately"), but improper use or disclosure and a security incident five business days, for every clinic; gate 5 (another branch) makes it 24 hours for every class and clinic, after which the text and the code agree. Until then the text is the stricter, and the runbook keeps it | `docs/incident-response.md`; `apps/app/src/lib/incidents/incidents.ts` |
+| Notice "without unreasonable delay and in no case later than 60 calendar days after discovery", for a use or disclosure not permitted, a breach and a security incident (12; "immediately following discovery … and in any case within 24 hours" until 9 October 2026) | The runbook and the console's `notifyDeadline` work to 24 hours for all three, for every clinic, since gate 5 (7 October 2026): an internal target, unpublished, far inside what the text promises. For a practice outside HIPAA, Cal. Civ. Code 1798.82(b)'s "immediately following discovery" binds healdesk whatever the text says, and the 24 hours meets it; the text alone no longer does (agreement-changes.md § 13) | `docs/incident-response.md`; `apps/app/src/lib/incidents/incidents.ts` |
 | The notice goes "by email to Practice's address in the Notices clause" (12) | The practice's one address: the signer's, which the checkout intent requires to be the buying address and provisioning makes the account's sign-in | as clause 19, above |
 | "in its reply to the client, tell them that healdesk cannot act on it" (13) | v1 is inbound only: no code path contacts a person after a conversation ends (CLAUDE.md, "Product rules"), so the reply is the one moment to say it; passing the request on is an operator's step | the product rules in the root CLAUDE.md |
 | "delete it as the clause headed … provides" (13); ten business days, raw copies, backups within 35 days (5, item c) | `eraseContact` deletes the person's contacts and conversations, but not their `webhook_events`, Meta drafts, matched booking requests or `chat_threads`, and keeps the number in `suppressions`; nothing reachable runs it. Gate 6 builds the erase path the shared clause promises | `apps/app/src/lib/retention/purge.ts`; agreement-changes.md § 12.14, gate 6 |
@@ -398,9 +399,12 @@ Added on 7 October 2026, read at origin/main c926414:
 13. **The Anthropic sentence describes a business associate agreement that is
     not yet signed** (brief.md risk 2). Gate A's `platform_compliance`
     attestation is what makes it true before the first DPA is signed.
-14. **The public notice period.** `/subprocessors` and `/trust` promise every
+14. **The public notice period.** `/subprocessors` and `/trust` promised every
     customer fifteen days (`POLICY.subprocessorNoticeDays`); the DPA gives
-    24 hours, as BAA 1.3.0 does (agreement-changes.md § 12.11, item 10).
+    24 hours, as BAA 1.3.0 does (agreement-changes.md § 12.11, item 10). The
+    owner removed `/subprocessors` on 9 October 2026: the list is now given
+    on written request, so only a public page that still states a notice
+    period has to match.
 15. **The telephone number kept after a deletion** (13, 17), left as it
     stands. Both sentences say the number of a client whose information was
     deleted is kept as the record of the request, as `eraseContact` keeps it
@@ -563,5 +567,5 @@ its trigger.
 - [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,
       11, 12, 14 and 19, Privacy § 12 and `/data-deletion` name only the BAA
       today, and a vet's clients are called patients.
-- [ ] `/subprocessors` and `/trust` say the same notice period as the
-      agreements in force (gap 14).
+- [ ] Any public page that states a notice period says the same as the
+      agreements in force (gap 14; `/subprocessors` is gone).

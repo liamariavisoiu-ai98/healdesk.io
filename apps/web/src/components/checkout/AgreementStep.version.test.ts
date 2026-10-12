@@ -126,19 +126,19 @@ function documentText(): string {
 }
 
 describe("the agreement step renders the version it signs (gate 11)", () => {
-  test("1.2.1, the signed version: BAA_EXPLAINER's bullets word for word, above 1.2.1, signing 1.2.1", async () => {
+  test("1.2.2, the signed version: BAA_EXPLAINER's bullets word for word, above 1.2.2, signing 1.2.2", async () => {
     const onSigned = vi.fn();
     await renderStep(onSigned);
 
     const page = container.textContent ?? "";
-    expect(page).toContain("Version 1.2.1");
+    expect(page).toContain("Version 1.2.2");
     for (const term of BAA_EXPLAINER.terms) expect(page).toContain(term.plain);
     expect(page).toContain("use it only");
     const text = documentText();
-    expect(text).toContain("Version 1.2.1 — executed electronically");
+    expect(text).toContain("Version 1.2.2 — executed electronically");
 
     const request = await sign();
-    expect(request.templateVersion).toBe("1.2.1");
+    expect(request.templateVersion).toBe("1.2.2");
     // The hash of what was on the screen, which the server compares with its own render.
     expect(request.displayedHash).toBe(hashBaaText(text));
     await vi.waitFor(() => expect(onSigned).toHaveBeenCalled());

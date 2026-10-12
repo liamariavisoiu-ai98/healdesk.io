@@ -301,7 +301,7 @@ describeDb("tenant isolation", () => {
     ).rejects.toMatchObject({ code: "23514" });
 
     // Signing the BAA opens the gate: an agreement in effect for the
-    // practice (drizzle/0062), and go-live's copy of when it was accepted.
+    // practice (drizzle/0063), and go-live's copy of when it was accepted.
     await bindAgreementInEffect(clinic.clinicId);
     await getMigratorPool().query(
       `update clinics set baa_signed_at = now() where id = $1`,

@@ -1,3 +1,4 @@
+import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
@@ -28,11 +29,17 @@ export const metadata: Metadata = {
  *
  * The clinic routes describe the v1 portal (docs/v1-product-spec.md, "Portal
  * map"), which is not built yet; the email route works today.
+ *
+ * Revised 9 October 2026 (LEGAL_VERSION 2026-10-09.1): every route is
+ * hello@healdesk.io, the one address, and the clinic and patient sections say
+ * that transcripts are deleted automatically after TRANSCRIPT_RETENTION_DAYS,
+ * the period the Business Associate Agreement states and apps/app's
+ * clinics.retention_media_days defaults to, or sooner if the clinic chooses.
  */
 export default function DataDeletionPage() {
   const email = (
-    <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
-      {ENTITY.privacyEmail}
+    <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+      {ENTITY.email}
     </a>
   );
   return (
@@ -69,7 +76,9 @@ export default function DataDeletionPage() {
           <li>
             <strong>Everything else.</strong> Conversations, bookings and the data we received from
             Google or Meta are deleted on your instruction, under your Business Associate Agreement
-            with us. Email {email} from the owner&apos;s address on the account. Our AI model
+            with us. Each conversation and its transcript is also deleted automatically{" "}
+            {TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if you choose a shorter
+            period in your portal. Email {email} from the owner&apos;s address on the account. Our AI model
             provider keeps conversation inputs for 30 days under its own agreement, which we cannot
             shorten, and may keep content its automated trust-and-safety systems flag, or that the
             law requires it to keep, for up to two years.
@@ -80,7 +89,9 @@ export default function DataDeletionPage() {
       <Section id="patients" title="If you messaged or called a clinic that uses healdesk">
         <p>
           The clinic you contacted controls the record of that conversation, and we act on its
-          instructions. Ask the clinic to delete it. If you would rather ask us, email {email},
+          instructions. Unless it has chosen a shorter period, the record and its transcript are
+          deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after the conversation. To have it
+          deleted sooner, ask the clinic. If you would rather ask us, email {email},
           say which clinic you contacted and on which channel, and we will pass the request to that
           clinic and tell you we have.
         </p>

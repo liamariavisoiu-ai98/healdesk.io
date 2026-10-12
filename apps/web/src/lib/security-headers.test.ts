@@ -176,8 +176,8 @@ describe("securityHeaders", () => {
     expect(header(production, "Cross-Origin-Opener-Policy")).toBe("same-origin");
   });
 
-  // The voice demo is scripted playback; the live call goes to the visitor's
-  // phone via Retell. Nothing in the browser may ask for a microphone.
+  // The site-wide default. Only the two pages with a browser call to an
+  // assistant opt in to the microphone (next.config.ts; tested below).
   it("denies camera, microphone, geolocation and payment", () => {
     const policy = header(production, "Permissions-Policy") ?? "";
     for (const feature of ["camera", "microphone", "geolocation", "payment"]) {
@@ -213,5 +213,22 @@ describe("readSecurityHeadersEnv", () => {
       cspReportUri: "https://example.com/csp",
       vercelEnv: "preview",
     });
+  });
+});
+
+describe("the routes that may open a microphone", () => {
+  // The homepage and the personalised demo carry a browser call to an
+  // assistant (owner, 9 October 2026, for the homepage); nothing else may
+  // even ask for the microphone.
+  it("are exactly the homepage and the personalised demo pages", async () => {
+    const { default: config } = await import("../../next.config");
+    const entries = (await config.headers?.()) ?? [];
+    const withMicrophone = entries
+      .filter((entry) =>
+        entry.headers.some((h) => h.key === "Permissions-Policy" && h.value.includes("microphone=(self)")),
+      )
+      .map((entry) => entry.source)
+      .sort();
+    expect(withMicrophone).toEqual(["/", "/demo/:path*"]);
   });
 });

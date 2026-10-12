@@ -385,7 +385,7 @@ run "production_defaults" {
   assert {
     condition = alltrue(flatten([
       for name in ["HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] : [
-        for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.migrate.container_definitions, aws_ecs_task_definition.db_bootstrap.container_definitions] :
+        for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.migrate.container_definitions, aws_ecs_task_definition.db_bootstrap.container_definitions] :
         !strcontains(definition, "\"${name}\"")
       ]
     ])) && !strcontains(aws_ecs_task_definition.web.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.worker.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.destroy_due.container_definitions, "MIGRATION_DATABASE_URL")
@@ -728,9 +728,70 @@ run "production_defaults" {
       aws_cloudtrail.main.is_multi_region_trail && aws_cloudtrail.main.enable_log_file_validation &&
       aws_cloudtrail.main.kms_key_id == aws_kms_key.main.arn &&
       aws_cloudtrail.main.event_selector[0].read_write_type == "All" &&
-      length(aws_cloudtrail.main.event_selector[0].data_resource) == 0
+      toset(flatten([for d in aws_cloudtrail.main.event_selector[0].data_resource : d.values])) == toset(["arn:aws:s3:::healdesk-production-exports-865780386982/"])
     )
-    error_message = "One multi-region, validated, KMS-encrypted trail of read and write events, with no data events while there is no transcript bucket."
+    error_message = "One multi-region, validated, KMS-encrypted trail of read and write events; with no transcript bucket, the export bucket's objects are its only data events."
+  }
+
+  # --- the export bucket and the patient-export task ---
+  assert {
+    condition = (
+      aws_s3_bucket.exports.bucket == "healdesk-production-exports-865780386982" &&
+      one(aws_s3_bucket_server_side_encryption_configuration.exports.rule).apply_server_side_encryption_by_default[0].sse_algorithm == "aws:kms" &&
+      one(aws_s3_bucket_server_side_encryption_configuration.exports.rule).apply_server_side_encryption_by_default[0].kms_master_key_id == aws_kms_key.main.arn &&
+      one(aws_s3_bucket_server_side_encryption_configuration.exports.rule).bucket_key_enabled &&
+      aws_s3_bucket_public_access_block.exports.block_public_acls && aws_s3_bucket_public_access_block.exports.block_public_policy &&
+      aws_s3_bucket_public_access_block.exports.ignore_public_acls && aws_s3_bucket_public_access_block.exports.restrict_public_buckets &&
+      one(aws_s3_bucket_ownership_controls.exports.rule).object_ownership == "BucketOwnerEnforced" &&
+      one(aws_s3_bucket_lifecycle_configuration.exports.rule).expiration[0].days == 7 &&
+      toset([for st in data.aws_iam_policy_document.exports_bucket.statement : st.sid]) == toset(["DenyAnythingWithoutTls", "DenyUploadsNotUnderKms"]) &&
+      alltrue([for st in data.aws_iam_policy_document.exports_bucket.statement : st.effect == "Deny"])
+    )
+    error_message = "The export bucket is SSE-KMS under our key with bucket keys, private, owner-enforced, TLS only, KMS-only uploads, and keeps an object at most 7 days."
+  }
+
+  assert {
+    condition = (
+      toset([for st in data.aws_iam_policy_document.export_task.statement : st.sid]) == toset(["PutReturnBundles", "S3UsesTheKeyForExports"]) &&
+      toset(one([for st in data.aws_iam_policy_document.export_task.statement : st if st.sid == "PutReturnBundles"]).actions) == toset(["s3:PutObject", "s3:AbortMultipartUpload"]) &&
+      toset(one([for st in data.aws_iam_policy_document.export_task.statement : st if st.sid == "PutReturnBundles"]).resources) == toset(["arn:aws:s3:::healdesk-production-exports-865780386982/clinic-*.json"]) &&
+      toset(flatten([for c in one([for st in data.aws_iam_policy_document.export_task.statement : st if st.sid == "S3UsesTheKeyForExports"]).condition : c.values if c.variable == "kms:ViaService"])) == toset(["s3.us-east-1.amazonaws.com"]) &&
+      toset(flatten([for c in one([for st in data.aws_iam_policy_document.export_task.statement : st if st.sid == "S3UsesTheKeyForExports"]).condition : c.values if c.variable == "kms:EncryptionContext:aws:s3:arn"])) == toset(["arn:aws:s3:::healdesk-production-exports-865780386982"]) &&
+      !strcontains(jsonencode(data.aws_iam_policy_document.app_task.statement), "exports")
+    )
+    error_message = "The export task's role may put clinic bundles in the export bucket, with the key only through S3 for that bucket, and nothing else; the app task role cannot touch the bucket."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_ecs_task_definition.patient_export.container_definitions)[0].command == ["node", "--import", "tsx", "scripts/patient-export.ts"] &&
+      jsondecode(aws_ecs_task_definition.patient_export.container_definitions)[0].workingDirectory == "/repo/apps/app" &&
+      jsondecode(aws_ecs_task_definition.patient_export.container_definitions)[0].secrets == [
+        { name = "DATABASE_URL", valueFrom = "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/app/DATABASE_URL" },
+      ] &&
+      {
+        for e in jsondecode(aws_ecs_task_definition.patient_export.container_definitions)[0].environment : e.name => e.value
+        } == {
+        AWS_REGION             = "us-east-1"
+        HEALDESK_EXPORT_BUCKET = "healdesk-production-exports-865780386982"
+        NODE_ENV               = "production"
+        NODE_EXTRA_CA_CERTS    = "/etc/ssl/rds/us-east-1-bundle.pem"
+      } &&
+      jsondecode(aws_ecs_task_definition.patient_export.container_definitions)[0].logConfiguration.options["awslogs-group"] == "/healdesk/production/patient-export" &&
+      aws_ecs_task_definition.patient_export.family == "healdesk-production-patient-export" &&
+      aws_ecs_task_definition.patient_export.task_role_arn == aws_iam_role.export_task.arn &&
+      aws_ecs_task_definition.patient_export.execution_role_arn == aws_iam_role.ecs_execution.arn
+    )
+    error_message = "patient-export runs scripts/patient-export.ts with the runtime URL as its only secret, the export bucket named, and the export task's role."
+  }
+
+  assert {
+    condition = (
+      contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-patient-export:*") &&
+      contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "PassOnlyTheTaskRoles"]).resources, aws_iam_role.export_task.arn) &&
+      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : strcontains(jsonencode(st.resources), "patient-export") if contains(st.actions, "ecs:RunTask")])
+    )
+    error_message = "The deploy role registers patient-export revisions and may pass the export task's role, but may never run one."
   }
 
   assert {
@@ -854,8 +915,8 @@ run "transcript_bucket_and_ses_on" {
   }
 
   assert {
-    condition     = toset(flatten([for d in aws_cloudtrail.main.event_selector[0].data_resource : d.values])) == toset(["arn:aws:s3:::healdesk-production-transcripts-865780386982/"])
-    error_message = "Every transcript object read and write is a CloudTrail data event."
+    condition     = toset(flatten([for d in aws_cloudtrail.main.event_selector[0].data_resource : d.values])) == toset(["arn:aws:s3:::healdesk-production-exports-865780386982/", "arn:aws:s3:::healdesk-production-transcripts-865780386982/"])
+    error_message = "Every export and transcript object read and write is a CloudTrail data event."
   }
 
   assert {

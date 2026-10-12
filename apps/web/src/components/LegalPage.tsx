@@ -3,7 +3,9 @@ import { Nav } from "@/components/Nav";
 import { ENTITY, LEGAL_LAST_UPDATED, LEGAL_VERSION, legalFactsComplete } from "@/lib/legal";
 
 /**
- * Shared frame for /privacy, /terms, /subprocessors, /trust and /data-deletion.
+ * Shared frame for /privacy, /terms and /data-deletion. (/subprocessors and
+ * /trust were retired on 9 October 2026: no vendor is named publicly, and
+ * /trust's content is the terms' closing annex.)
  *
  * One column of readable width, real headings, and a footer that prints the
  * version and date so a reader can tell which text they read. While the
@@ -48,8 +50,8 @@ export function LegalPage({
 
         <p className="text-muted border-line mt-14 border-t pt-6 text-xs">
           Version {LEGAL_VERSION} · last updated {LEGAL_LAST_UPDATED} · questions to{" "}
-          <a href={`mailto:${ENTITY.privacyEmail}`} className="underline underline-offset-2">
-            {ENTITY.privacyEmail}
+          <a href={`mailto:${ENTITY.email}`} className="underline underline-offset-2">
+            {ENTITY.email}
           </a>
         </p>
       </main>

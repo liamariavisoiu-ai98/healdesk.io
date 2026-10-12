@@ -1,10 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { POST } from "@/app/api/webhooks/voice/[clinicId]/route";
+import { createBookingRequest } from "@/lib/meta/booking-requests";
+import type { EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { withTenant } from "@/lib/tenant";
+import { ingestCall } from "@/lib/voice/ingest";
 import { readSynthflowPayload, VoicePayloadError } from "@/lib/voice/synthflow-payload";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedContact } from "./setup/factories";
 
 /**
  * The voice webhook: the one route that turns a phone call into a row.
@@ -230,6 +234,74 @@ describeDb("POST /api/webhooks/voice/[clinicId]", () => {
     expect(await again.json()).toEqual({ received: true, duplicate: true });
     const after = await inTenant(c.clinicId, (client) => client.query(`select id from conversations`));
     expect(after.rows).toHaveLength(1);
+  });
+
+  test("the post-call record links what the booking engine logged on the call, by its booking keys, and asks the desk nothing more", async () => {
+    const c = await seedClinic("voice-engine-link");
+    const contactId = await seedContact(c.clinicId, "+15550100123");
+    // A desk to mail, and a public origin for its link, so "nothing mailed"
+    // below is the ingest's choice and not a clinic with nowhere to send.
+    process.env.BETTER_AUTH_URL = "https://app.healdesk.test";
+    await inTenant(c.clinicId, (client) => client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [c.clinicId, "desk@example-clinic.test"]));
+    // What the engine leaves: the harness keys a call's one request by the
+    // call id; the Retell process keys each booking "retell:" + call id + ":" + n.
+    const keyed = async (key: string, bookedVia: "desk" | "agent_direct") =>
+      (await withTenant({ clinicId: c.clinicId, actor: { type: "service", serviceName: "test" } }, (tx) =>
+        createBookingRequest(tx, { channel: "voice", contactId, conversationId: null, preferredWindow: "Thursday afternoon", treatment: "Botox", vendorCallId: key, bookedVia }),
+      )).id;
+    const first = await keyed("retell:call_rt_1:1", "agent_direct");
+    const second = await keyed("retell:call_rt_1:2", "desk");
+    // Another call's keys: one sharing this call id's first characters, and
+    // one that LIKE 'retell:call_rt_1:%' would match, its underscores being
+    // LIKE's any-character.
+    const other = await keyed("retell:call_rt_10:1", "desk");
+    const wildcard = await keyed("retell:callXrtX1:1", "desk");
+    const harness = await keyed("call_h_1", "agent_direct");
+
+    const mailed: OutgoingEmail[] = [];
+    const transport: EmailTransport = {
+      name: "capture",
+      async send(_target, message) {
+        mailed.push(message);
+        return { status: "sent", messageId: `m-${mailed.length}` };
+      },
+    };
+    const retell = await ingestCall(readSynthflowPayload({ ...FIXTURE, call_id: "call_rt_1" }, c.clinicId), undefined, { transport });
+    expect(retell.bookingRequestId).toBe(first);
+    const viaHarness = await ingestCall(readSynthflowPayload({ ...FIXTURE, call_id: "call_h_1" }, c.clinicId), undefined, { transport });
+    expect(viaHarness.bookingRequestId).toBe(harness);
+    // A retried webhook answers with the same request.
+    const again = await ingestCall(readSynthflowPayload({ ...FIXTURE, call_id: "call_rt_1" }, c.clinicId), undefined, { transport });
+    expect(again).toMatchObject({ duplicate: true, conversationId: retell.conversationId, bookingRequestId: first });
+    // Every engine alert was raised when the request was committed: nothing is mailed for those calls.
+    expect(mailed).toEqual([]);
+    // The control: a call the engine logged nothing on is the webhook's to
+    // deliver, and it does mail this clinic's desk.
+    const unkeyed = await ingestCall(readSynthflowPayload({ ...FIXTURE, call_id: "call_desk_1" }, c.clinicId), undefined, { transport });
+    expect(unkeyed.bookingRequestId).not.toBeNull();
+    expect(mailed).toHaveLength(1);
+    expect(mailed[0]!.subject).toMatch(/^New booking request via /);
+
+    const rows = await inTenant(c.clinicId, async (client) => ({
+      requests: (await client.query<{ id: string; conversation_id: string | null }>(`select id, conversation_id from booking_requests`)).rows,
+      linked: (await client.query<{ resource_id: string; metadata: Record<string, unknown> }>(
+        `select resource_id, metadata from audit_log where resource_type = 'booking_request' and metadata->>'outcome' = 'conversation_linked' order by resource_id`,
+      )).rows,
+    }));
+    // No second request for an "outcome: booked" call, and the other calls' untouched.
+    expect(rows.requests).toHaveLength(6);
+    const linkedTo = Object.fromEntries(rows.requests.map((r) => [r.id, r.conversation_id]));
+    expect(linkedTo).toEqual({
+      [first]: retell.conversationId,
+      [second]: retell.conversationId,
+      [other]: null,
+      [wildcard]: null,
+      [harness]: viaHarness.conversationId,
+      [unkeyed.bookingRequestId!]: unkeyed.conversationId,
+    });
+    expect(rows.linked.map((r) => [r.resource_id, r.metadata.via]).sort()).toEqual(
+      [[first, "agent_direct"], [second, "desk"], [harness, "agent_direct"]].sort(),
+    );
   });
 
   test("one clinic's secret-less path cannot write into another clinic", async () => {

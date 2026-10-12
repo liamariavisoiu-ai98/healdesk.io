@@ -566,8 +566,11 @@ type Live = {
   refunds?: unknown[];
   /** customer.subscription.updated: the subscription as it stands. */
   subscription?: unknown;
-  /** customer.subscription.updated: when `subscription` was read, by the database's clock. */
-  subscriptionReadAt?: Date;
+  /**
+   * customer.subscription.updated: when `subscription` was read, by the
+   * database's clock, as its exact text (databaseNow says why not a Date).
+   */
+  subscriptionReadAt?: string;
   /** invoice.paid, for a first plan invoice only: the lookup key of its plan line's price. */
   planLookupKey?: string | null;
   /**
@@ -631,12 +634,19 @@ async function readLive(
  * Stripe's relay reaches whichever web process is free, and two processes'
  * own clocks can disagree by more than the moments between two reads of one
  * subscription.
+ *
+ * Returned as UTC text to the microsecond, never as a Date: a Date keeps
+ * milliseconds, so two reads inside one millisecond came back equal, and the
+ * stale-read guard, which skips only a read strictly older than the one
+ * applied, let the older read commit over the newer (auto-renew turned off
+ * and straight back on ended "scheduled"). The guard compares this text in
+ * SQL, where nothing rounds it.
  */
-async function databaseNow(): Promise<Date> {
-  const result = await unsafeDb.execute<{ now: Date | string }>(
-    sql`select clock_timestamp() as now`,
+async function databaseNow(): Promise<string> {
+  const result = await unsafeDb.execute<{ now: string }>(
+    sql`select to_char(clock_timestamp() at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as now`,
   );
-  return new Date(result.rows[0]!.now);
+  return result.rows[0]!.now;
 }
 
 /**
@@ -1614,10 +1624,19 @@ async function onSubscriptionUpdated(
   // and written in this transaction: the ledger's `processed` mark the guard
   // used before was written only after the commit, so a delivery waiting on
   // this lock could check before it existed.
+  // Compared in SQL, to the microsecond (databaseNow).
   const readAt = delivery.live.subscriptionReadAt ?? null;
   if (readAt) {
-    const syncedAt = row.stripeSubscriptionSyncedAt;
-    if (syncedAt && syncedAt.getTime() > readAt.getTime()) {
+    const [newer] = await tx.db
+      .select({ clinicId: entitlements.clinicId })
+      .from(entitlements)
+      .where(
+        and(
+          eq(entitlements.clinicId, tx.clinicId),
+          sql`${entitlements.stripeSubscriptionSyncedAt} > ${readAt}::timestamptz`,
+        ),
+      );
+    if (newer) {
       effects.ignored = "a later read of the subscription was already applied";
       return;
     }
@@ -1817,7 +1836,7 @@ function subscriptionEndedAt(subscription: unknown, delivery: Delivery): Date {
  * export by, and `destroyByOn`, the day the data is gone whatever happens. On
  * either rule the first is the date a day before day 29, when a run may
  * first destroy the data; the second is day 30's date on the thirty days (BAA
- * 1.2.1 and earlier) and day 90's on the export rule (BAA 1.3.0, DPA 1.0.0),
+ * 1.2.2 and earlier) and day 90's on the export rule (BAA 1.3.0, DPA 1.0.0),
  * a day after the latest the clinic can be due. Each is true however the
  * export goes, which a single date would not be.
  */

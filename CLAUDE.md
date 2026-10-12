@@ -216,9 +216,11 @@ checkov, cfn-lint and actionlint.
   still the local command. Migrations and `queue:install` run as the migrator
   in a one-off task before every rollout, and the two roles are created by
   another; `deploy-app.yml` starts both, and `infra/aws/scripts/run-task.sh`
-  runs either from a terminal. A third, `destroy-due` (the worker's container
-  running `scripts/destroy-due.ts`), is registered by every deploy and run
-  only by hand, after a restore (`docs/handover.md`, "Restoring").
+  runs either from a terminal. Two more are registered by every deploy and run
+  only by hand: `destroy-due` (the worker's container running
+  `scripts/destroy-due.ts`), after a restore (`docs/handover.md`,
+  "Restoring"); and `patient-export`, a leaving clinic's return bundle, put
+  in the export bucket (`infra/aws/exports.tf`) by its own task role.
 - **CI checks the Terraform, not the image.** The `infra` job in `ci.yml` runs
   `terraform fmt`, `init -lockfile=readonly`, `validate` and `test`. No CI job
   builds or runs the image; `deploy-app.yml` is the first thing that does, at
@@ -336,9 +338,12 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   provisional until measured. Copy says so and quotes the block and its price,
   never a per-unit rate; being provisional does not change what is billed.
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
-  Publishing City Free Zone, United Arab Emirates" appears in the site footer
-  and on the Terms and Privacy pages. The registered street address is not
-  known yet: it is never guessed, and it renders only once someone fills it in.
+  Publishing City Free Zone, United Arab Emirates" appears on the Terms and
+  Privacy pages. It is not in the site footer (owner, 9 October 2026): the
+  spec asked for it there for the Meta Business Verification submission,
+  which cleared on 4 October. The registered street address is
+  `ENTITY.registeredAddress` in `apps/web/src/lib/legal.ts`, off the trade
+  licence, and prints only on those two pages.
 
 ---
 
@@ -379,8 +384,10 @@ the spec edits the owner approved.
 - **Email** (the plan's Annex X):
   - patient-related mail is a pointer into the portal: never a name, number,
     time, service or any text from a conversation;
-  - one Resend account sends product mail from hello@healdesk.io and marketing
-    from noreply@healdesk.io, and every email can be replied to;
+  - one Resend account sends all of it, product and marketing mail alike, from
+    hello@healdesk.io, the only address (owner, 9 October 2026), and every
+    email can be replied to; the sender is the `HEALDESK_EMAIL_FROM`
+    environment variable;
   - F0's `billing_notices` is the one outbox and `report_deliveries` the ledger.
 - **Billing starts the day AYA first answers a patient, with no Stripe trial**:
   a $0 monthly line until then, swapped for the package price on the plain

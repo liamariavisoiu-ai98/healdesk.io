@@ -1,48 +1,213 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 
-import { Deck } from "@/components/Deck";
-import { OUTCOMES } from "@/lib/outcomes";
+import { OUTCOMES, type Outcome } from "@/lib/outcomes";
+import { REDUCED_MOTION } from "@/lib/use-media-query";
 
 /**
- * What changes in month one: the eight outcomes, as a ledger and a deck.
+ * What changes in month one: the eight outcomes, as the notifications on a
+ * clinic owner's lock screen.
  *
  * ## The shape, and where it came from
  *
- * The owner chose this over a marquee and over a card gallery on 23 September
- * 2026, then asked for it to look like the specialties section rather than
- * like a product mock. So the right-hand side is the niche deck itself
- * (Deck.tsx), dealt with photographs of one clinic instead of the niches, and
- * the header is the niche section's: centred eyebrow, the gradient hairline,
- * a serif heading. The pastel gradient panel and the fake app screen that the
- * first prototype had are gone; the photograph is the proof now.
+ * Until 9 October 2026 this was a ledger beside a deck of photographs, the
+ * niche section's deck dealt with one clinic's pictures. The owner asked for
+ * ten alternatives, never a carousel, and picked the notification wall,
+ * "but make it look more like iOS". So it is a lock screen: a blurred
+ * wallpaper, the date and a large 9:41, the eight outcomes stacked as iOS
+ * notifications from healdesk, newest first, each with its photograph as the
+ * thumbnail iOS gives a notification with an image, and the flashlight and
+ * camera buttons at the foot. The titles are the owner's other ask: what
+ * just happened, in as few words as make sense (lib/outcomes.ts).
  *
- * ## One number, two views
+ * All eight are on screen at once and readable without a touch, which was
+ * the point of the old ledger too: these are eight claims that belong
+ * together. Three columns on a desktop, two on a tablet, one on a phone.
  *
- * The ledger on the left and the deck on the right share `index`. Resting on
- * a line brings its card forward; stepping the deck, by drag, dot, arrow or
- * key, moves the highlight on the ledger. Neither is the control and the
- * other the display; both are both. A visitor who never touches anything has
- * still read all eight lines, which is the reason the ledger exists at all:
- * a deck shows one thing at a time, and these are eight claims that belong
- * on screen together.
+ * ## It arrives, and it opens (the owner, 12 October 2026)
  *
- * Below the xl breakpoint the ledger would be eight lines of serif squeezed
- * beside, or on a phone above, a deck that is already 390px tall, so it
- * collapses to the one active line under the deck, and the dots do the rest.
+ * When the lock screen scrolls into view the screen wakes (the wallpaper
+ * comes up, the clock fades in) and the notifications drop in one after
+ * another on a spring, the way they arrive on a phone. The cards are visible
+ * by default and only hidden once the script has armed them, below the fold,
+ * so no script, or a visitor who asks for less motion, simply has them.
  *
- * ## The card's click goes to the demo
+ * Pressing a notification opens it the way iOS opens one you press hard: it
+ * grows into a large card over the dimmed, blurred screen, its photograph
+ * enlarged, and says in practice how that outcome works in a clinic, with one
+ * plain example (`detail` in lib/outcomes.ts). The growth is the browser's
+ * view transition where it has one (every current Chrome, Edge and Safari,
+ * and Firefox from 144), which morphs the notification into the card and its
+ * thumbnail into the photograph, and a short pop where it has not. Escape,
+ * the Close button or a press outside closes it back into place.
  *
- * Same as a niche card. An outcome that opens the agent is a stronger promise
- * than a Confirm button that does nothing.
+ * The card opens inside the lock screen's own frame, not over the page (owner,
+ * 12 October 2026): the scrim is the lock screen's, clipped by its rounded
+ * corners, and the card is centred in a sticky stage, so on a phone, where the
+ * lock screen is taller than the screen, it still opens where the visitor is
+ * looking. A press anywhere outside the card closes it.
+ *
+ * It is not a native <dialog>: a dialog's backdrop is not part of what a view
+ * transition captures, so the scrim would pop in after the card had grown, and
+ * a dialog cannot be confined to a box. Instead this is its own overlay, with
+ * the roles a dialog gets (modal, named, focus kept inside it and returned to
+ * the notification), and the screen behind it made inert.
+ *
+ * The section header is unchanged: centred eyebrow, the gradient hairline,
+ * a serif heading, as the specialties have.
  */
-export function Outcomes({ onOpen }: { onOpen: () => void }) {
-  const [index, setIndex] = useState(0);
-  const select = useCallback((i: number) => setIndex(i), []);
 
-  const items = OUTCOMES.map((o) => ({ id: o.id, title: o.word, body: o.line, still: o.still }));
-  const active = OUTCOMES[index] ?? OUTCOMES[0]!;
+/** The lock screen's date, the Friday of the clock's 9:41: the day the owner chose this. */
+const DATE = "Friday, October 9";
+
+type Phase = "idle" | "armed" | "in";
+
+/** Names the browser morphs between: the notification and the card, and the picture in each. */
+const CARD = "notif";
+const PHOTO = "notif-photo";
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia(REDUCED_MOTION).matches;
+}
+
+/**
+ * Run a change to the page inside a view transition where there is one, and
+ * straight away where there is not.
+ *
+ * `set` names the elements the browser should morph from, before it looks at
+ * the page as it is; `change` makes the new page, and must take those names
+ * off the old elements, because two elements with one name end a transition
+ * before it starts; `after` runs once it is done.
+ */
+function transition(change: () => void, steps: { set?: () => void; after?: () => void } = {}): void {
+  if (typeof document.startViewTransition !== "function" || prefersReducedMotion()) {
+    flushSync(change);
+    steps.after?.();
+    return;
+  }
+  steps.set?.();
+  const run = document.startViewTransition(() => {
+    flushSync(change);
+  });
+  void run.finished.finally(() => steps.after?.());
+}
+
+export function Outcomes() {
+  const screen = useRef<HTMLDivElement>(null);
+  const sheet = useRef<HTMLDivElement>(null);
+  const [phase, setPhase] = useState<Phase>("idle");
+  const [openId, setOpenId] = useState<string | null>(null);
+  /** The notification the card grew from, which is where it goes back to and where focus returns. */
+  const source = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    const el = screen.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    if (window.matchMedia(REDUCED_MOTION).matches) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setPhase("in");
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.2 },
+    );
+    // Armed only while out of view, so nothing a visitor is looking at hides.
+    const box = el.getBoundingClientRect();
+    if (box.top > window.innerHeight) setPhase("armed");
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const open = useCallback((outcome: Outcome, button: HTMLButtonElement) => {
+    source.current = button;
+    const thumb = button.querySelector<HTMLElement>(".notification__thumb");
+    const name = (on: boolean) => {
+      button.style.viewTransitionName = on ? CARD : "";
+      if (thumb) thumb.style.viewTransitionName = on ? PHOTO : "";
+    };
+    transition(
+      () => {
+        setOpenId(outcome.id);
+        // The card has the names now.
+        name(false);
+      },
+      { set: () => name(true) },
+    );
+  }, []);
+
+  const close = useCallback(() => {
+    const button = source.current;
+    const thumb = button?.querySelector<HTMLElement>(".notification__thumb");
+    const name = (on: boolean) => {
+      if (button) button.style.viewTransitionName = on ? CARD : "";
+      if (thumb) thumb.style.viewTransitionName = on ? PHOTO : "";
+    };
+    // The card is named while it is open (below); on the way back the
+    // notification takes the names, so the browser morphs one into the other.
+    transition(
+      () => {
+        setOpenId(null);
+        name(true);
+      },
+      {
+        after: () => {
+          name(false);
+          // The screen behind the card is inert until it has gone.
+          button?.focus({ preventScroll: true });
+        },
+      },
+    );
+  }, []);
+
+  // While the card is open: Escape closes, Tab stays inside, and focus goes in.
+  useEffect(() => {
+    if (!openId) return;
+    const root = sheet.current;
+    root?.querySelector<HTMLElement>("[data-initial-focus]")?.focus({ preventScroll: true });
+    // If the lock screen is only part-way into view, the card may sit partly
+    // off the screen; bring in exactly as much as it needs (scroll-margin on
+    // .notice keeps it clear of the navbar).
+    const id = window.setTimeout(() => {
+      root?.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    }, 80);
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== "Tab" || !root) return;
+      const stops = [...root.querySelectorAll<HTMLElement>("button, a[href]")];
+      if (stops.length === 0) return;
+      const first = stops[0]!;
+      const last = stops[stops.length - 1]!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    // A press anywhere outside the card, on the lock screen's scrim or on the
+    // page beyond it, puts it away, as it does on a phone.
+    const onDown = (event: PointerEvent) => {
+      if (root && !root.contains(event.target as Node)) close();
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
+  }, [openId, close]);
+
+  const outcome = openId ? OUTCOMES.find((o) => o.id === openId) : undefined;
 
   return (
     <section id="outcomes" aria-labelledby="outcomes-heading" className="scroll-mt-24 pt-16 sm:pt-24">
@@ -61,68 +226,98 @@ export function Outcomes({ onOpen }: { onOpen: () => void }) {
         </h2>
       </div>
 
-      {/* The deck column is the card plus its tight fan, so the grid can be
-          told its width and the ledger takes the rest. */}
-      <div className="mt-12 grid items-center gap-10 xl:grid-cols-[minmax(0,1fr)_auto] xl:gap-12">
-        {/* The ledger, from xl up. At lg the deck and its fan left the ledger a
-            170px column, so below xl the deck stands alone with the active
-            line under it. */}
-        <ol className="border-line hidden border-t xl:block" aria-label="The eight outcomes">
-          {OUTCOMES.map((o, i) => {
-            const isActive = i === index;
-            return (
-              <li key={o.id} className="border-line border-b">
-                <button
-                  type="button"
-                  // pointermove, not mouseenter: mouseenter also fires when the
-                  // page scrolls under a stationary cursor, so the deck dealt
-                  // itself as a visitor scrolled past the list. Movement of the
-                  // pointer itself is the intent this reads. Selecting the same
-                  // index again is a no-op, so the repeat events cost nothing.
-                  onPointerMove={() => select(i)}
-                  onFocus={() => select(i)}
-                  onClick={() => select(i)}
-                  aria-current={isActive}
-                  className={[
-                    "grid w-full grid-cols-[18px_1fr] items-baseline gap-4 py-[18px] pr-2 text-left transition-colors duration-300",
-                    isActive ? "text-ink" : "text-muted hover:text-ink",
-                  ].join(" ")}
-                >
-                  <span
-                    aria-hidden
-                    className={[
-                      "inline-block size-2.5 translate-y-[-2px] rounded-full transition-all duration-300",
-                      isActive ? "bg-red scale-110" : "bg-line-strong",
-                    ].join(" ")}
-                  />
-                  <span className="font-display text-[clamp(18px,1.4vw,21.5px)] leading-[1.25] font-medium tracking-[-0.015em]">
-                    {o.line}
+      <div ref={screen} className="lockscreen mt-12" data-state={phase} data-open={outcome ? "" : undefined}>
+        <div aria-hidden className="lockscreen__wallpaper" />
+
+        <p className="lockscreen__date">{DATE}</p>
+        <p className="lockscreen__time" aria-hidden>
+          9:41
+        </p>
+
+        <ol className="lockscreen__wall" aria-label="Notifications from healdesk in month one" inert={outcome ? true : undefined}>
+          {OUTCOMES.map((o, i) => (
+            <li key={o.id}>
+              <button
+                type="button"
+                className="notification"
+                style={{ ["--i" as string]: i }}
+                aria-haspopup="dialog"
+                onClick={(event) => open(o, event.currentTarget)}
+              >
+                <img src="/icon.png" alt="" width={38} height={38} className="notification__icon" />
+                <span className="notification__text">
+                  <span className="notification__head">
+                    <span className="notification__title">{o.title}</span>
+                    <span className="notification__time">{o.time}</span>
                   </span>
-                </button>
-              </li>
-            );
-          })}
+                  <span className="notification__body">{o.line}</span>
+                </span>
+                <img src={o.still} alt="" width={720} height={990} loading="lazy" decoding="async" className="notification__thumb" />
+              </button>
+            </li>
+          ))}
         </ol>
 
-        <div className="flex flex-col items-center">
-          <Deck
-            items={items}
-            label="What changes in month one"
-            noun="outcome"
-            onOpen={onOpen}
-            index={index}
-            onIndexChange={select}
-            spread="tight"
-          />
-          {/* The phone's ledger: one line, the current one. */}
-          <p
-            aria-live="polite"
-            className="font-display text-ink mx-auto mt-6 max-w-[30ch] text-center text-[20px] leading-[1.25] font-medium tracking-[-0.015em] xl:hidden"
-          >
-            {active.line}
-          </p>
+        {/* The foot of a lock screen: the flashlight, the camera, the home bar. */}
+        <div aria-hidden className="lockscreen__foot">
+          <span className="lockscreen__button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+              <path d="M8 2.5h8v4l-2 3v12h-4v-12l-2-3z" />
+              <path d="M12 12.5v2.5" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="lockscreen__home" />
+          <span className="lockscreen__button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round">
+              <path d="M3.5 8h3.5l2-2.5h6l2 2.5h3.5v11h-17z" />
+              <circle cx="12" cy="13" r="3.6" />
+            </svg>
+          </span>
         </div>
+
+        {/* Inside the lock screen: its own scrim, its own corners. */}
+        {outcome ? (
+          <div className="notice-layer" data-pop={typeof document.startViewTransition === "function" ? undefined : ""}>
+            <div className="notice-stage">
+            <div ref={sheet} className="notice" role="dialog" aria-modal="true" aria-labelledby="notice-title" style={{ viewTransitionName: CARD }}>
+              <div className="notice__head">
+                <img src="/icon.png" alt="" width={30} height={30} className="notice__icon" />
+                <span className="notice__app">healdesk</span>
+                <span className="notice__time">{outcome.time}</span>
+              </div>
+              <img
+                src={outcome.still}
+                alt=""
+                width={720}
+                height={990}
+                className="notice__photo"
+                style={{ viewTransitionName: PHOTO }}
+              />
+              <div className="notice__body">
+                <h3 id="notice-title" className="notice__title">
+                  {outcome.title}
+                </h3>
+                <p className="notice__line">{outcome.line}</p>
+                <p className="notice__detail">{outcome.detail}</p>
+              </div>
+              <div className="notice__actions">
+                <a
+                  href="#aya"
+                  className="notice__button notice__button--primary"
+                  onClick={() => setOpenId(null)}
+                >
+                  Talk to AYA
+                </a>
+                <button type="button" className="notice__button" data-initial-focus onClick={close}>
+                  Close
+                </button>
+              </div>
+            </div>
+            </div>
+          </div>
+        ) : null}
       </div>
+
     </section>
   );
 }

@@ -17,7 +17,7 @@
 >   replaced by: no clinical content and no treatment names in any Meta
 >   message, and the adapter drops any send outside the window.
 > - **Google Calendar is the only booking write target.** No platform picker,
->   no attribution opt-in, no pasted credentials or `connect+` mailbox.
+>   no attribution opt-in, no pasted credentials or `hello+<slug>` read-only user.
 > - **Clinics sign in.** A portal (magic link, second factor before
 >   transcripts) and a four-step wizard replace "no login" and the monthly
 >   email report. Revenue attribution and the monthly revenue report are
@@ -407,7 +407,7 @@ The pattern differs by platform:
 **Read-only user platforms** (Acuity, Zenoti, Vagaro, Mindbody, PatientNow):
 > 1. "Open your [platform] settings" — deep link straight to the right page
 > 2. Numbered steps with a screenshot per step, one action each
-> 3. Copy-to-clipboard for the email address they must add: `connect+<clinic>@healdesk.io`
+> 3. Copy-to-clipboard for the email address they must add: `hello+<clinic>@healdesk.io`
 > 4. Paste the credential into our field
 > 5. **We test it live and show exactly what we can and can't see**
 

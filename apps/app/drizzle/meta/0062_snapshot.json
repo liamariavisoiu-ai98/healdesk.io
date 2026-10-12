@@ -1,5 +1,5 @@
 {
-  "id": "5cc2330b-368e-4d50-b873-99465ba8ab59",
+  "id": "59b9e2a9-5867-4b18-a562-7611a18424bb",
   "prevId": "8de5dd03-79c7-4867-91ce-0738c93fcc15",
   "version": "7",
   "dialect": "postgresql",
@@ -919,12 +919,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "termination_reason": {
-          "name": "termination_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "copy_sent_at": {
           "name": "copy_sent_at",
           "type": "timestamp with time zone",
@@ -1053,10 +1047,6 @@
         "baa_acceptances_terminated_after_accepted": {
           "name": "baa_acceptances_terminated_after_accepted",
           "value": "\"baa_acceptances\".\"terminated_at\" is null or \"baa_acceptances\".\"terminated_at\" >= \"baa_acceptances\".\"accepted_at\""
-        },
-        "baa_acceptances_termination_reason_check": {
-          "name": "baa_acceptances_termination_reason_check",
-          "value": "\"baa_acceptances\".\"termination_reason\" is null or (\"baa_acceptances\".\"terminated_at\" is not null and \"baa_acceptances\".\"termination_reason\" in ('practice_healdesk_breach', 'practice_subcontractor_objection', 'healdesk_practice_breach', 'change_in_law', 'services_ended'))"
         },
         "baa_acceptances_copy_evidence_complete": {
           "name": "baa_acceptances_copy_evidence_complete",
@@ -6685,28 +6675,6 @@
           ],
           "isUnique": true,
           "where": "\"provider_connections\".\"account_ref\" is not null and \"provider_connections\".\"status\" <> 'revoked'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "provider_connections_meta_asset_live_idx": {
-          "name": "provider_connections_meta_asset_live_idx",
-          "columns": [
-            {
-              "expression": "provider",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "(\"metadata\" ->> 'externalId')",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"provider_connections\".\"provider\" like 'meta-%' and \"provider_connections\".\"status\" <> 'revoked'",
           "concurrently": false,
           "method": "btree",
           "with": {}

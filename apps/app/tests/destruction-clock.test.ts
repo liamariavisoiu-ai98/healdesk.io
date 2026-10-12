@@ -41,9 +41,9 @@ import { sessionReach, setLocalZone, zoneShrinking, zoneStretching } from "./set
  * The destruction clock follows the clinic's own agreement (drizzle's
  * destruction_clock migration; lib/offboarding).
  *
- * BAA 1.2.1, the version every practice signs today, says "Within thirty
+ * BAA 1.2.2, the version every practice signs today, says "Within thirty
  * days of termination healdesk will return or destroy all PHI it holds for
- * Practice and retain no copies", as 1.2.0 and 1.1.0-draft do, and 1.0.0 and
+ * Practice and retain no copies", as 1.2.1, 1.2.0 and 1.1.0-draft do, and 1.0.0 and
  * 0.1.0-draft destroy "on termination". Until this change every clinic ran
  * on the DPA's rule, which waits up to ninety days for an export that has not
  * been delivered, so a 1.2.1 practice's patients could be held sixty days
@@ -63,10 +63,10 @@ const DAY = 24 * 60 * 60 * 1000;
 const ACTOR = { type: "service", serviceName: "test" } as const;
 
 /**
- * Every BAA version before 1.3.0, the drafts included: 1.1.0-draft to 1.2.1
+ * Every BAA version before 1.3.0, the drafts included: 1.1.0-draft to 1.2.2
  * say "within thirty days", and 1.0.0 and 0.1.0-draft "on termination".
  */
-const THIRTY_DAY_VERSIONS = ["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"];
+const THIRTY_DAY_VERSIONS = ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"];
 const EXPORT_RULE_VERSIONS = ["1.3.0", "dpa/1.0.0"];
 /**
  * A word for each version, for the labels clinics are seeded under. A label
@@ -117,7 +117,7 @@ describe("the version-to-rule map", () => {
     }
   });
 
-  test("1.2.1 and every earlier version keep the thirty days; 1.3.0 and the DPA the export rule; the namespaces are kept apart", () => {
+  test("1.2.2 and every earlier version keep the thirty days; 1.3.0 and the DPA the export rule; the namespaces are kept apart", () => {
     for (const version of THIRTY_DAY_VERSIONS) {
       expect(destructionRuleFor(version), version).toEqual({
         rule: "thirty_days",
@@ -267,7 +267,7 @@ describe("the dates each rule gives", () => {
 });
 
 describe("the export is owed to every leaving practice, asked for or not", () => {
-  // BAA 1.2.1 gives the export "on request", but Terms §7 promises every
+  // BAA 1.2.2 and 1.2.1 give the export "on request", but Terms §7 promises every
   // practice one within thirty days of the end, and the canceled email tells
   // it one is coming, so a practice has no reason to ask. Under the thirty
   // days the data goes at day 29 whatever the export, so a runbook that said
@@ -279,7 +279,7 @@ describe("the export is owed to every leaving practice, asked for or not", () =>
       fileURLToPath(new URL("../../../docs/handover.md", import.meta.url)),
       "utf8",
     );
-    const from = handover.indexOf("- BAA 1.2.1 and earlier, or no agreement on file");
+    const from = handover.indexOf("- BAA 1.2.2 and earlier, or no agreement on file");
     expect(from).toBeGreaterThan(-1);
     const bullet = handover.slice(from, handover.indexOf("\n- ", from + 1)).replace(/\s+/g, " ");
     expect(bullet).toContain("whether or not it asks");

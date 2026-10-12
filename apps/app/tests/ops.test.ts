@@ -773,6 +773,7 @@ describeDb("ops: the Google Calendar connection and the demo clinic", () => {
           await run("markAgreementTerminated", {
             agreementId: terminated.agreementId,
             terminationDate: new Date().toISOString().slice(0, 10),
+            terminationReason: "services_ended",
           }),
         ).toMatchObject({ status: "recorded" });
         expect(await statusOf(terminated.clinic.clinicId)).toEqual({

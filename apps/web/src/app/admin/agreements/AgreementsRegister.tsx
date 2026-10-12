@@ -2,6 +2,13 @@
 
 import { useState, useTransition } from "react";
 
+import {
+  AGREEMENT_TERMINATION_REASON_COPY,
+  AGREEMENT_TERMINATION_REASONS,
+  isAgreementTerminationReason,
+  type AgreementTerminationReason,
+} from "@healdesk/catalog";
+
 import type {
   AgreementQuery,
   AgreementRetention,
@@ -73,6 +80,7 @@ export type RegisterActions = {
   markTerminated: (
     agreementId: string,
     terminationDate: string,
+    terminationReason: AgreementTerminationReason,
   ) => Promise<OpsResult<TerminateOutcome>>;
   /**
    * Authorise this browser for one agreement's PDF, then let the browser fetch
@@ -657,6 +665,7 @@ function RowDetail({
   const [terminate, setTerminate] = useState<string | null>(null);
   const [step, setStep] = useState<"idle" | "date" | "confirm">("idle");
   const [date, setDate] = useState("");
+  const [reason, setReason] = useState<AgreementTerminationReason | "">("");
   const [pending, startTransition] = useTransition();
 
   const alreadyTerminated = row.retention.state === "terminated";
@@ -744,9 +753,36 @@ function RowDetail({
                 not a termination yet, and this cannot be corrected later.
               </span>
             </label>
+            <label className="min-w-[280px]">
+              <span className="text-muted text-[13.2px] font-bold tracking-[0.06em] uppercase">
+                Who ended it, and why
+              </span>
+              <select
+                value={reason}
+                onChange={(event) =>
+                  setReason(
+                    isAgreementTerminationReason(event.target.value)
+                      ? event.target.value
+                      : "",
+                  )
+                }
+                className="border-line focus:border-orange mt-1.5 w-full rounded-lg border bg-white px-3 py-2.5 text-sm"
+              >
+                <option value="">Choose one</option>
+                {AGREEMENT_TERMINATION_REASONS.map((value) => (
+                  <option key={value} value={value}>
+                    {AGREEMENT_TERMINATION_REASON_COPY[value].label}
+                  </option>
+                ))}
+              </select>
+              <span className="text-muted mt-1 block text-xs">
+                It decides whether the practice is refunded, and it cannot be
+                changed once recorded.
+              </span>
+            </label>
             <button
               type="button"
-              disabled={date === ""}
+              disabled={date === "" || reason === ""}
               onClick={() => setStep("confirm")}
               className="border-line-strong hover:border-ink rounded-full border px-5 py-2.5 text-sm font-bold transition-colors disabled:opacity-40"
             >
@@ -773,13 +809,27 @@ function RowDetail({
               clear the date afterwards: correcting a mistake means a database
               administrator. Check the year.
             </p>
+            <p className="text-muted mt-2 text-sm">
+              Unless another agreement still covers the practice, its service
+              ends with this one: the assistant stops answering, every location
+              starts offboarding, and the subscription is cancelled at once.{" "}
+              {reason !== "" &&
+              AGREEMENT_TERMINATION_REASON_COPY[reason].refundsFees
+                ? "The agreement refunds the fees paid for any time after this date: preview and confirm that refund on the clinic's Billing page."
+                : "Nothing is refunded for this ending."}
+            </p>
             <div className="mt-3 flex flex-wrap gap-3">
               <button
                 type="button"
                 disabled={pending}
                 onClick={() => {
+                  if (reason === "") return;
                   startTransition(async () => {
-                    const result = await actions.markTerminated(row.id, date);
+                    const result = await actions.markTerminated(
+                      row.id,
+                      date,
+                      reason,
+                    );
                     setTerminate(describeTermination(result));
                     // Leave the confirm panel open on failure so the reason
                     // sits next to the date that caused it.
@@ -872,7 +922,12 @@ function describeTermination(result: OpsResult<TerminateOutcome>): string {
   if (!result.ok) return result.message;
   if (result.data.status === "refused") return result.data.message;
 
-  const recorded = `Recorded as terminated on ${result.data.terminatedOn}. This record must now be kept until ${result.data.retainUntil}, and nothing deletes it when that date passes.`;
+  const ended = result.data.servicesEnded
+    ? result.data.refundDue
+      ? " The practice's service has ended and its subscription is being cancelled; preview and confirm its refund on the clinic's Billing page."
+      : " The practice's service has ended and its subscription is being cancelled; nothing is refunded."
+    : "";
+  const recorded = `Recorded as terminated on ${result.data.terminatedOn}. This record must now be kept until ${result.data.retainUntil}, and nothing deletes it when that date passes.${ended}`;
 
   return result.data.auditRecorded ? recorded : `${recorded} ${UNAUDITED}`;
 }

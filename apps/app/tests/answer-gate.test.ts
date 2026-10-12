@@ -58,6 +58,7 @@ function facts(
     channel: "voice",
     now: NOW,
     isSynthetic: false,
+    agreement: "in_effect",
     billing: billing === null ? null : { ...base, ...billing },
     channelRow: { enabled: true, liveAt: new Date("2026-10-02T00:00:00Z") },
     pause: { pausedAt: null, pausedUntil: null },

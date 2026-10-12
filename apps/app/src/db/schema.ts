@@ -26,6 +26,8 @@ import {
 
 import {
   type AgreementKind,
+  AGREEMENT_TERMINATION_REASONS,
+  type AgreementTerminationReason,
   ASSISTANT_LANGUAGES,
   ASSISTANT_TONES,
   type AssistantLanguage,
@@ -1898,6 +1900,16 @@ export const baaAcceptances = pgTable(
      * the retention clock, so no code path may.
      */
     terminatedAt: timestamp("terminated_at", { withTimezone: true }),
+    /**
+     * Who ended the agreement, and why: AGREEMENT_TERMINATION_REASONS in
+     * @healdesk/catalog, recorded with `terminatedAt` by the console's
+     * termination (BAA 1.3.0 clause 17 ¶3 refunds only two of them). Null
+     * while the agreement is in effect, and on an ending recorded before
+     * drizzle/0061 or by app_supersede_agreement(), which replaces an
+     * agreement rather than ending the Services. Write-once, and only in the
+     * write that records the termination (the transition guard, 0061).
+     */
+    terminationReason: text("termination_reason").$type<AgreementTerminationReason>(),
 
     /**
      * When the counterparty's own copy of the signed agreement was delivered.
@@ -1964,6 +1976,10 @@ export const baaAcceptances = pgTable(
     check(
       "baa_acceptances_terminated_after_accepted",
       sql`${t.terminatedAt} is null or ${t.terminatedAt} >= ${t.acceptedAt}`,
+    ),
+    check(
+      "baa_acceptances_termination_reason_check",
+      sql`${t.terminationReason} is null or (${t.terminatedAt} is not null and ${t.terminationReason} in (${sqlList(AGREEMENT_TERMINATION_REASONS)}))`,
     ),
     check(
       "baa_acceptances_copy_evidence_complete",

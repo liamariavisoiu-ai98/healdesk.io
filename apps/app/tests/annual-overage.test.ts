@@ -423,6 +423,33 @@ describeDb("annual overage", () => {
     ).toMatchObject({ status: "refused" });
   });
 
+  test("a cancelled subscription is not invoiced for the month it was cancelled in, however long after", async () => {
+    // A cancellation at once (a termination of the agreement, or a
+    // first-period refund) leaves the subscription's open month open for
+    // good: no renewal re-anchors the allowance window, so the month in
+    // which the Services ended never closes, and its overage is never
+    // invoiced, as cancel_now sends no final invoice on a monthly plan.
+    const clinic = await seedAnnual("overage-cancelled");
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update entitlements set status = 'canceled' where clinic_id = $1`, [clinic.clinicId]),
+    );
+    await insertUsage(clinic.clinicId, {
+      meter: "voice_minutes",
+      overAllowance: 40,
+      windowStart: OPEN,
+    });
+
+    const later = new Date(OPEN.getTime() + 75 * 24 * 60 * 60 * 1000);
+    expect(await invoiceAnnualOverage({ now: later })).toEqual({
+      clinics: 0,
+      invoiced: 0,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(world.fake.callsTo("invoices.create")).toHaveLength(0);
+    expect(await ledgerOf(clinic.clinicId)).toEqual([]);
+  });
+
   test("the job runs behind its switch", async () => {
     expect(await runAnnualOverageJob({ now: NOW })).toEqual({ status: "disabled" });
   });

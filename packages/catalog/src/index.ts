@@ -14,6 +14,7 @@
 
 export * from "./agreement-copy";
 export * from "./agreement-kind";
+export * from "./agreement-termination";
 export * from "./assistant-settings";
 export * from "./audience";
 export * from "./baa";

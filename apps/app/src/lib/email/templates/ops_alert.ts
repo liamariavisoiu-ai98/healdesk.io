@@ -252,6 +252,24 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Google refused healdesk's own OAuth client, or apps/app has none set (code oauth_client), or Google says the Calendar API is disabled in healdesk's Google Cloud project (code api_disabled). Until it is fixed no clinic can connect a calendar or keep one working, and the calendar watch moves each connection it checks to booking requests. Check the Calendar OAuth client and that the Google Calendar API is enabled in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store; a clinic whose connect failed can then try again.",
   },
+  // Raised by a recorded termination (lib/agreements/termination.ts) for each
+  // location it could not start offboarding (phase offboarding) and each
+  // billing clinic it could not record a cancellation for (phase billing).
+  // The termination itself is recorded, and the assistant has stopped.
+  agreement_termination_incomplete: {
+    title: "A terminated practice's service did not fully end",
+    action:
+      "The agreement's termination is recorded and the assistant has stopped, but one step failed for the clinic below. For phase offboarding, start offboarding from its care page. For phase billing, cancel the subscription in Stripe at once, without proration: every ending stops the fees on the day.",
+  },
+  // Raised by a recorded termination for each billing clinic when the
+  // practice ended the agreement because healdesk violated a material term,
+  // or under the Subcontractors clause: the two endings BAA 1.3.0 clause 17
+  // refunds.
+  agreement_refund_due: {
+    title: "A terminated practice is owed a refund",
+    action:
+      "The practice ended its agreement for a reason the agreement refunds: the fees it paid for any time after the termination day. On the clinic's Billing page, preview the termination refund, check it, and confirm it. The subscription is already being cancelled.",
+  },
 };
 
 /**

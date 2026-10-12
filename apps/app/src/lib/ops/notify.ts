@@ -92,6 +92,14 @@ export const OPS_EVENTS = [
   // Raised by the connect flow's code exchange (lib/connections/google-oauth.ts)
   // and by the calendar watch's probe, with `code` oauth_client or api_disabled.
   "google_oauth_client_rejected",
+  // A recorded termination (BAA 1.3.0 clause 17) could not start a
+  // location's offboarding or record its billing clinic's cancellation
+  // (lib/agreements/termination.ts); `phase` says which.
+  "agreement_termination_incomplete",
+  // A termination for one of the two reasons BAA 1.3.0 clause 17 ¶3 refunds
+  // (lib/agreements/termination.ts), once per billing clinic: the operator
+  // previews and confirms the refund on its Billing page.
+  "agreement_refund_due",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

@@ -1325,7 +1325,11 @@ export async function opReplayConnectEvent(
 // Refunds (Terms § 5) and auto-renew, through stripe-actions.ts
 // -----------------------------------------------------------------------------
 
-const REFUND_KINDS: readonly RefundKind[] = ["first_period_cancel", "guarantee"];
+const REFUND_KINDS: readonly RefundKind[] = [
+  "first_period_cancel",
+  "guarantee",
+  "agreement_terminated",
+];
 
 function refundKindArg(args: Record<string, unknown>): RefundKind | null {
   const kind = stringArg(args, "kind", 32);
@@ -1346,7 +1350,7 @@ export async function opPreviewRefund(
   const kind = refundKindArg(args);
   if (!kind) {
     return refusal(
-      "The refund is first_period_cancel (the first period, plan cancelled) or guarantee (one month's fee).",
+      "The refund is first_period_cancel (the first period, plan cancelled), guarantee (one month's fee) or agreement_terminated (the fees paid for time after the agreement ended).",
     );
   }
   const preview = await previewRefund({ clinicId: clinic.id, kind });
@@ -1366,9 +1370,11 @@ export async function opPreviewRefund(
 }
 
 /**
- * Refund under Terms § 5 (BD14, R15). The amount must equal the one the
- * preview showed, and stripe-actions.ts works it out again before refunding
- * anything; a repeat is refused because the two refunds never stack.
+ * Refund under Terms § 5 (BD14, R15), or the fees paid for time after a
+ * terminated agreement ended (BAA 1.3.0 clause 17 ¶3). The amount must equal
+ * the one the preview showed, and stripe-actions.ts works it out again before
+ * refunding anything; a repeat of a § 5 refund is refused because the two
+ * never stack, and a repeat of the termination refund reuses what was made.
  */
 export async function opCommitRefund(
   args: Record<string, unknown>,
@@ -1377,7 +1383,9 @@ export async function opCommitRefund(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return refusal(NO_CLINIC);
   const kind = refundKindArg(args);
-  if (!kind) return refusal("The refund is first_period_cancel or guarantee.");
+  if (!kind) {
+    return refusal("The refund is first_period_cancel, guarantee or agreement_terminated.");
+  }
   const confirmAmountCents = numberArg(args, "confirmAmountCents");
   if (
     confirmAmountCents === undefined ||

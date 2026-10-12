@@ -2211,6 +2211,38 @@
   }
 }
 
+/* The stage the browser stands in (12 October 2026): a warm wash that is
+   lightest at the foot, where the window comes up out of it. */
+.own-stage {
+  background: radial-gradient(120% 85% at 50% 0%, #ffe9db 0%, #fdf4ee 48%, #fbf9f7 100%);
+}
+
+/* What is in the window changes by rising into place, a short way. */
+.own-rise {
+  animation: own-rise 440ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes own-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* AYA's chat arrives in the visitor's corner on the lock screen's spring,
+   a beat after their site has appeared. */
+.own-widget {
+  transform-origin: 100% 100%;
+  animation: own-widget 640ms var(--notif-spring) 320ms both;
+}
+
+@keyframes own-widget {
+  from {
+    opacity: 0;
+    transform: translateY(22px) scale(0.92);
+  }
+}
+
 /* =============================================================================
    What changes in month one: an iOS lock screen (Outcomes.tsx)
    =============================================================================

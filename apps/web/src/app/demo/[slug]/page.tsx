@@ -8,6 +8,7 @@ import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
 import { CopyDemoLink, DemoCountdown, RefreshWhileBuilding } from "@/components/demo/DemoTimers";
 import { CoverageOffer } from "@/components/demo/CoverageOffer";
 import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
+import { readableOn } from "@/lib/demo/colour";
 import { weekSchedule } from "@/lib/demo/opening-hours";
 import type { ClinicProfile } from "@/lib/demo/profile";
 import { displayName, getDemoSession, isDemoExpired, isDemoSlug, profileOf } from "@/lib/demo/sessions";
@@ -48,14 +49,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 const FALLBACK_COLOUR = "#172a3a";
 
-/** Readable text on the clinic's colour: dark ink on a light brand, white on a dark one. */
-function inkOn(hex: string): string {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
-  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  return luminance > 0.45 ? "#172a3a" : "#ffffff";
-}
-
 function chipsFor(profile: ClinicProfile): string[] {
   // A treatment with a real figure, not the free consultation: "How much is
   // Complimentary Consultation?" asks a question the name already answers.
@@ -94,7 +87,7 @@ function Shell({
   return (
     <div
       className="bg-paper text-ink flex min-h-dvh flex-col"
-      style={{ ["--clinic" as string]: colour, ["--clinic-ink" as string]: inkOn(colour) }}
+      style={{ ["--clinic" as string]: colour, ["--clinic-ink" as string]: readableOn(colour) }}
     >
       {children}
     </div>

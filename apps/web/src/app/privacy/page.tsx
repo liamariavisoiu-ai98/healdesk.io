@@ -169,9 +169,13 @@ export default function PrivacyPage() {
           <li id="own-demo">
             {/* Added 9 Oct 2026 (LEGAL_VERSION 2026-10-09.1) with the
                 homepage's "See it in your own branding", and the personalised
-                demo's "Call us", which keeps the number you will call from. */}
+                demo's "Call us", which keeps the number you will call from.
+                The "Show me" sentence was added 12 Oct 2026 under the same
+                unpublished version, with the preview (api/own-demo/preview). */}
             <strong>If you ask for your own demo.</strong> &ldquo;See it in your own branding&rdquo;
-            on the homepage asks for your clinic&apos;s website and your email. We read the
+            on the homepage asks for your clinic&apos;s website and your email. &ldquo;Show
+            me&rdquo; first reads the website&apos;s front page once, to draw its name, logo and
+            colours in the preview, and keeps nothing from it. We read the
             website&apos;s public pages, and the practice&apos;s public business listing for its
             opening hours, and our AI model provider turns them into a private demo page in your
             clinic&apos;s name. We keep the website, your email and what was read with the demo,

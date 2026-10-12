@@ -43,6 +43,12 @@ export type ClinicBrand = {
   logoUrl: string | null;
   /** `#rrggbb`, from theme-color or the stylesheet's dominant saturated colour. */
   color: string | null;
+  /**
+   * Absolute https URL of the page's own share picture (og:image), which on a
+   * clinic's site is nearly always its hero photograph. Only the homepage's
+   * live preview reads it (`fetchBrandPreview`); a demo build leaves it unset.
+   */
+  image?: string | null;
 };
 
 export type ScrapeResult = {
@@ -145,11 +151,12 @@ export async function assertPublicUrl(url: URL): Promise<void> {
 }
 
 /**
- * GET with redirects followed by hand, each hop re-checked, the body capped.
- * Returns null for anything that is not a 2xx of the expected kind; the
- * crawler treats a missing page as missing, not as a reason to stop.
+ * GET with redirects followed by hand and each hop re-checked: the one place a
+ * visitor-supplied address is fetched from inside our infrastructure, so every
+ * reader below goes through it. Returns the final response, its body unread,
+ * or null for anything that is not a 2xx with a body.
  */
-async function safeFetch(start: URL, accept: "html" | "css"): Promise<{ url: URL; body: string } | null> {
+async function guardedGet(start: URL, accept: string, timeoutMs: number): Promise<{ url: URL; response: Response } | null> {
   let url = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertPublicUrl(url);
@@ -157,11 +164,8 @@ async function safeFetch(start: URL, accept: "html" | "css"): Promise<{ url: URL
     try {
       response = await fetch(url, {
         redirect: "manual",
-        headers: {
-          "User-Agent": USER_AGENT,
-          Accept: accept === "html" ? "text/html,application/xhtml+xml" : "text/css,*/*;q=0.1",
-        },
-        signal: AbortSignal.timeout(PAGE_TIMEOUT_MS),
+        headers: { "User-Agent": USER_AGENT, Accept: accept },
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch {
       return null;
@@ -178,13 +182,78 @@ async function safeFetch(start: URL, accept: "html" | "css"): Promise<{ url: URL
       continue;
     }
     if (!response.ok || !response.body) return null;
-    const type = response.headers.get("content-type") ?? "";
-    if (accept === "html" && !/html|xml/i.test(type)) return null;
-    const limit = accept === "html" ? MAX_PAGE_BYTES : MAX_CSS_BYTES;
-    const body = await readCapped(response.body, limit);
-    return { url, body };
+    return { url, response };
   }
   return null;
+}
+
+/**
+ * A page or stylesheet as text, the body capped. Returns null for anything
+ * that is not a 2xx of the expected kind; the crawler treats a missing page as
+ * missing, not as a reason to stop.
+ */
+async function safeFetch(
+  start: URL,
+  accept: "html" | "css",
+  timeoutMs = PAGE_TIMEOUT_MS,
+): Promise<{ url: URL; body: string } | null> {
+  const got = await guardedGet(start, accept === "html" ? "text/html,application/xhtml+xml" : "text/css,*/*;q=0.1", timeoutMs);
+  if (!got) return null;
+  const body = got.response.body!;
+  if (accept === "html" && !/html|xml/i.test(got.response.headers.get("content-type") ?? "")) {
+    body.cancel().catch(() => {});
+    return null;
+  }
+  return { url: got.url, body: await readCapped(body, accept === "html" ? MAX_PAGE_BYTES : MAX_CSS_BYTES) };
+}
+
+/** The whole body, or null if it runs past `limit`: half an image is no image. */
+async function readBytes(stream: ReadableStream<Uint8Array>, limit: number): Promise<Buffer | null> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > limit) return null;
+      chunks.push(value);
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  return Buffer.concat(chunks);
+}
+
+const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/svg+xml", "image/x-icon", "image/vnd.microsoft.icon"]);
+
+/**
+ * An image as a `data:` URI, or null. Bound by the same address checks as a
+ * page, by a byte limit it must fit inside whole, and by a list of image types
+ * the server must name itself: the URI carries that type, never whatever else
+ * the response claimed, so a page that answers "image" with HTML shows nothing.
+ * Returned inline so the visitor's browser never contacts the clinic's site
+ * and the homepage's Content-Security-Policy stays at `img-src 'self' data:`.
+ */
+async function fetchImageDataUri(src: string, limit: number, timeoutMs: number): Promise<string | null> {
+  try {
+    const got = await guardedGet(new URL(src), "image/avif,image/webp,image/png,image/jpeg,image/svg+xml,image/*;q=0.8", timeoutMs);
+    if (!got) return null;
+    const body = got.response.body!;
+    let type = (got.response.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+    if (type === "image/jpg") type = "image/jpeg";
+    const declared = Number(got.response.headers.get("content-length") ?? 0);
+    if (!IMAGE_TYPES.has(type) || declared > limit) {
+      body.cancel().catch(() => {});
+      return null;
+    }
+    const bytes = await readBytes(body, limit);
+    if (!bytes || bytes.length === 0) return null;
+    return `data:${type};base64,${(type === "image/svg+xml" ? Buffer.from(cleanSvg(bytes.toString("utf8"))) : bytes).toString("base64")}`;
+  } catch {
+    return null;
+  }
 }
 
 async function readCapped(stream: ReadableStream<Uint8Array>, limit: number): Promise<string> {
@@ -404,17 +473,22 @@ const THIRD_PARTY = /google|facebook|instagram|tiktok|twitter|youtube|yelp|trust
 function logoFromInlineSvg(html: string): string | null {
   const re = /<(?:div|a|span|h1|p|figure)\b[^>]*class\s*=\s*["'][^"']*logo[^"']*["'][^>]*>([\s\S]{0,800}?)(<svg\b[\s\S]*?<\/svg>)/gi;
   for (let m = re.exec(html); m; m = re.exec(html)) {
-    let svg = m[2]!;
+    const svg = m[2]!;
     if (svg.length > 30_000 || THIRD_PARTY.test(m[0]!.slice(0, 300))) continue;
-    svg = svg
-      .replace(/<script\b[\s\S]*?<\/script>/gi, "")
-      .replace(/<foreignObject\b[\s\S]*?<\/foreignObject>/gi, "")
-      .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*')/gi, "")
-      .replace(/(href|xlink:href)\s*=\s*("(?!#)[^"]*"|'(?!#)[^']*')/gi, "");
-    if (!/\sxmlns=/.test(svg)) svg = svg.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
-    return `data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`;
+    return `data:image/svg+xml;base64,${Buffer.from(cleanSvg(svg)).toString("base64")}`;
   }
   return null;
+}
+
+/** An SVG with its script, foreign content, handlers and outward links taken off, and its namespace set. */
+function cleanSvg(source: string): string {
+  let svg = source
+    .replace(/<script\b[\s\S]*?<\/script>/gi, "")
+    .replace(/<foreignObject\b[\s\S]*?<\/foreignObject>/gi, "")
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*')/gi, "")
+    .replace(/(href|xlink:href)\s*=\s*("(?!#)[^"]*"|'(?!#)[^']*')/gi, "");
+  if (!/\sxmlns=/.test(svg)) svg = svg.replace(/<svg\b/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  return svg;
 }
 
 function logoFromImages(html: string, base: URL): string | null {
@@ -487,7 +561,7 @@ export function dominantColour(css: string): string | null {
   return best && best[1] >= 2 ? best[0] : null;
 }
 
-async function brandColour(html: string, base: URL): Promise<string | null> {
+async function brandColour(html: string, base: URL, timeoutMs = PAGE_TIMEOUT_MS): Promise<string | null> {
   const declared = normaliseHex(metaContent(html, "theme-color") ?? metaContent(html, "msapplication-tilecolor"));
   if (declared && isBrandish(declared)) return declared;
 
@@ -499,11 +573,37 @@ async function brandColour(html: string, base: URL): Promise<string | null> {
     .filter((href): href is string => Boolean(href))
     .filter((href) => sameSite(new URL(href), base))
     .slice(0, 2);
-  for (const href of sheets) {
-    const sheet = await safeFetch(new URL(href), "css").catch(() => null);
-    if (sheet) css += `\n${sheet.body}`;
-  }
+  // Side by side: the live preview has a few seconds in all, not ten for each.
+  const fetched = await Promise.all(sheets.map((href) => safeFetch(new URL(href), "css", timeoutMs).catch(() => null)));
+  for (const sheet of fetched) if (sheet) css += `\n${sheet.body}`;
   return dominantColour(css);
+}
+
+/** The page's own share picture: its hero photograph, on nearly every clinic site. A vector is not one. */
+function imageFromMeta(html: string, base: URL): string | null {
+  for (const key of ["og:image:secure_url", "og:image", "twitter:image"]) {
+    const url = httpsUrl(metaContent(html, key), base);
+    if (url && !/\.svg(\?|#|$)/i.test(url)) return url;
+  }
+  return null;
+}
+
+/**
+ * The name, logo, picture and colour a page's `<head>` and markup give. What
+ * a demo build and the homepage's live preview both read the brand with, so
+ * the preview shows what the build will wear.
+ */
+export async function brandOf(html: string, base: URL, blocks: string[] = jsonLd(html), timeoutMs = PAGE_TIMEOUT_MS): Promise<ClinicBrand> {
+  return {
+    name: cleanSiteName(metaContent(html, "og:site_name") ?? nameFromJsonLd(blocks) ?? titleOf(html)),
+    logoUrl:
+      httpsUrl(logoFromJsonLd(blocks), base) ??
+      logoFromInlineSvg(html) ??
+      logoFromImages(html, base) ??
+      iconFromLinks(html, base),
+    image: imageFromMeta(html, base),
+    color: await brandColour(html, base, timeoutMs).catch(() => null),
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -543,15 +643,7 @@ async function plainCrawl(start: URL): Promise<PlainCrawl> {
     });
   }
 
-  const brand: ClinicBrand = {
-    name: cleanSiteName(metaContent(home.body, "og:site_name") ?? nameFromJsonLd(blocks) ?? titleOf(home.body)),
-    logoUrl:
-      httpsUrl(logoFromJsonLd(blocks), home.url) ??
-      logoFromInlineSvg(home.body) ??
-      logoFromImages(home.body, home.url) ??
-      iconFromLinks(home.body, home.url),
-    color: await brandColour(home.body, home.url).catch(() => null),
-  };
+  const brand = await brandOf(home.body, home.url, blocks);
   return { pages, brand, home: home.url, targets };
 }
 
@@ -705,6 +797,68 @@ export async function scrapeClinicSite(input: string): Promise<ScrapeResult> {
     source: renderedPages.length && plainPages.length ? "apify+fetch" : renderedPages.length ? "apify" : "fetch",
     apifyNote,
   };
+}
+
+// -----------------------------------------------------------------------------
+// The homepage's live preview
+// -----------------------------------------------------------------------------
+
+/** What "See it in your own branding" shows of a visitor's site before it asks for an email. */
+export type BrandPreview = {
+  /** The site's host without `www.`, always set. */
+  host: string;
+  name: string | null;
+  /** A `data:` URI, so the browser fetches nothing from the clinic. */
+  logoUrl: string | null;
+  /** A `data:` URI of the page's share picture. */
+  image: string | null;
+  color: string | null;
+};
+
+/** The whole preview, start to finish: a visitor is watching a progress line. */
+export const PREVIEW_BUDGET_MS = 8_000;
+const PREVIEW_PAGE_MS = 5_000;
+const PREVIEW_LOGO_BYTES = 150_000;
+const PREVIEW_IMAGE_BYTES = 350_000;
+
+/**
+ * The front page's brand, for the preview: the page alone (no crawl, no model,
+ * nothing stored), its logo and picture fetched through the same guard and
+ * returned inline. Whatever it cannot find comes back null, and one that runs
+ * out of time returns what it had, so the preview always has something to show.
+ *
+ * Throws `ScrapeError` only for an address that is not a public website; the
+ * caller turns that into a refusal. Everything after it fails soft.
+ */
+export async function fetchBrandPreview(input: string, budgetMs = PREVIEW_BUDGET_MS): Promise<BrandPreview> {
+  const start = parseWebsiteUrl(input);
+  await assertPublicUrl(start);
+  const result: BrandPreview = { host: start.hostname.replace(/^www\./, "").toLowerCase(), name: null, logoUrl: null, image: null, color: null };
+
+  const deadline = Date.now() + budgetMs;
+  const left = () => Math.max(300, deadline - Date.now());
+  const work = (async () => {
+    const home = await safeFetch(start, "html", Math.min(PREVIEW_PAGE_MS, left()));
+    if (!home) return;
+    const brand = await brandOf(home.body, home.url, jsonLd(home.body), left());
+    result.name = brand.name;
+    result.color = brand.color;
+    // Each lands as it arrives: a logo that hangs must not hold back a picture that is ready.
+    await Promise.all([
+      (async () => {
+        const logo = brand.logoUrl;
+        result.logoUrl = !logo || logo.startsWith("data:") ? logo : await fetchImageDataUri(logo, PREVIEW_LOGO_BYTES, left());
+      })(),
+      (async () => {
+        result.image = brand.image ? await fetchImageDataUri(brand.image, PREVIEW_IMAGE_BYTES, left()) : null;
+      })(),
+    ]);
+  })().catch(() => {});
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([work, new Promise<void>((resolve) => (timer = setTimeout(resolve, budgetMs)))]);
+  clearTimeout(timer);
+  return { ...result };
 }
 
 /** The logo picker without the network, for the tests. */

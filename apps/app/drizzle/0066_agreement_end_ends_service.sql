@@ -103,6 +103,13 @@ GRANT INSERT (id, user_id, document_version, document_hash, rendered_text, varia
               user_agent)
   ON baa_acceptances TO healdesk_app;--> statement-breakpoint
 REVOKE UPDATE (organization_id) ON clinics FROM healdesk_app;--> statement-breakpoint
+-- And no DELETE on clinics (the verification of 3a6de11). Deleting a
+-- terminated production clinic and inserting its id again as synthetic made
+-- the gate true for it, and the delete's cascades took the clinic's patient
+-- rows with no export, outside destruction's rules. No application path
+-- deletes a clinic: a clinic ends by offboarding and destruction, which keep
+-- the row and stamp it.
+REVOKE DELETE ON clinics FROM healdesk_app;--> statement-breakpoint
 
 CREATE OR REPLACE FUNCTION app_clinic_insert_guard()
 RETURNS trigger
@@ -137,6 +144,9 @@ BEGIN
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'clinics'::regclass, 'organization_id', 'UPDATE') THEN
     RAISE EXCEPTION 'healdesk_app can move a clinic to another organisation; the PHI gate would be theatre.';
+  END IF;
+  IF has_table_privilege('healdesk_app'::name, 'clinics'::regclass, 'DELETE') THEN
+    RAISE EXCEPTION 'healdesk_app can delete a clinic and insert it again; the PHI gate would be theatre.';
   END IF;
   IF NOT has_column_privilege('healdesk_app'::name, 'baa_acceptances'::regclass, 'document_hash', 'INSERT') THEN
     RAISE EXCEPTION 'healdesk_app cannot record a signature.';

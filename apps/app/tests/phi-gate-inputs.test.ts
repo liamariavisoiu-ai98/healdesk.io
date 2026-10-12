@@ -125,6 +125,19 @@ describeDb("the PHI gate's inputs, as the runtime role", () => {
     });
   });
 
+  test("a terminated practice cannot delete its clinic and insert it again as synthetic", async () => {
+    // The verification of 3a6de11 (r1-probe.sql, section 7): the delete took
+    // the clinic's patient rows with it, and the synthetic clinic born in its
+    // place took new ones under the old id.
+    const c = await terminatedPractice("gate-input-delete");
+    await expect(
+      asApp(c.clinicId, (q) => q.query(`delete from clinics where id = $1`, [c.clinicId])),
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(insertContact(c.clinicId, "+14155550114")).rejects.toMatchObject({
+      code: "23514",
+    });
+  });
+
   test("a clinic cannot be created already live", async () => {
     const other = await seedClinic("gate-input-live-org");
     await bindAgreementInEffect(other.clinicId);

@@ -163,6 +163,16 @@ describeDb("database audit (0031)", () => {
     ]);
   });
 
+  test("the runtime role cannot delete a clinic (0066)", async () => {
+    // A clinic ends by offboarding and destruction, which keep its row.
+    // Deleting one and inserting its id again as synthetic reopened the
+    // agreement gate, and the cascades took its patient rows with no export.
+    const { rows } = await getMigratorPool().query<{ deletable: boolean }>(
+      `select has_table_privilege('healdesk_app', 'clinics'::regclass, 'DELETE') as deletable`,
+    );
+    expect(rows[0]!.deletable).toBe(false);
+  });
+
   test("the runtime role inserts a signature unbound, and never the agreement gate's inputs (0066)", async () => {
     // INSERT on baa_acceptances is column-scoped: a signature is written
     // unbound by signAgreement and bound, terminated or given a reason only by

@@ -123,6 +123,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   });
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
+  // Its switch widens it rather than starting it: a clinic on BAA 1.3.0 or
+  // later, or the DPA, is purged every night, switch or not, and the switch
+  // adds every other clinic (lib/scheduler/retention-purge.ts).
   if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));
   // A closed allowance month is invoiced once; the job's own ledger
   // (overage_invoices, one row per window) makes a re-run a no-op.

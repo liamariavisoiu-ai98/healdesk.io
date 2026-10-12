@@ -342,7 +342,19 @@ has already run, holding the clinic's row locked all that time. The long-transac
 alarm in the AWS list is what catches it.
 `retention-purge` runs both nightly and writes one audit row per clinic with counts.
 The same purge deletes a messaging thread (`chat_threads`) once its last message is past
-the record clock. `baa_acceptances` has its own six-year floor.
+the record clock, a vendor payload (`webhook_events`) thirty days after it arrived once
+processed (or at the record clock, if shorter) and at the record clock if it was never
+processed, and an amendment with the record it amends. `lib/retention/purge.ts` lists
+each period as BAA 1.3.0's clause 11 states it.
+
+Which clinics: a clinic on BAA 1.3.0 or later, or the DPA, is purged every night whether
+the job's switch is on or not, because its agreement states the purge's periods
+(`purgeIsPromised`); the switch adds every other clinic, those on 1.2.1 or earlier and
+any with no agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
+ops console (Jobs), so the clinics still on 1.2.1, whose agreement promises ninety days
+too, are purged as well, and check that the next 03 UTC run's note no longer begins
+"Switched off". A sync run (phase two) holds a clinic's purge only while it is younger
+than six hours, so a crashed one cannot hold it for good. `baa_acceptances` has its own six-year floor.
 Vendor-side retention (Retell's per-agent setting) is a setting, not a delete we run:
 set it to the minimum and screenshot it. Deleting one person on request is the care
 page's "Delete a person" ("Deletion requests", below). Set the host's snapshot

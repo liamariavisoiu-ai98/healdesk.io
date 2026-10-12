@@ -1,18 +1,25 @@
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { purgeClinic, type PurgeResult } from "@/lib/retention/purge";
+import { purgeClinic, purgeIsPromised, type PurgeResult } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
 
-import { JOB_RETENTION_PURGE, runJob } from "./jobs";
+import { JOB_RETENTION_PURGE, runWideningJob } from "./jobs";
 
 /**
  * The nightly retention purge — every clinic, on its own two clocks.
  *
  * Same shape as the billing sweep: tenants are listed through the
  * SECURITY DEFINER overview function, each clinic gets its own tenant
- * transaction, one clinic's failure never stops the rest, and the whole
- * thing ships switched OFF (drizzle/0032) until an operator turns it on.
+ * transaction, and one clinic's failure never stops the rest.
+ *
+ * Which clinics: the job ships switched OFF (drizzle/0032), but its switch
+ * widens the run rather than starting it. A clinic whose agreement in effect
+ * is BAA 1.3.0 or later, or the DPA, is purged every night whatever the
+ * switch says, because that agreement states the purge's periods
+ * (purgeIsPromised; BAA 1.3.0 release gate 9). With the switch on, every
+ * other clinic is purged too; the owner turns it on at the release of 1.3.0
+ * (docs/handover.md).
  *
  * Nightly, because a retention window measured in days does not need to be
  * enforced to the minute, and a run that catches up after an outage deletes
@@ -27,14 +34,26 @@ export type RetentionSweepResult = {
   failures: { clinicId: string; reason: string }[];
 };
 
-async function clinicsForPurge(): Promise<{ id: string }[]> {
-  const result = await unsafeDb.execute<{ id: string }>(sql`select id from app_clinics_overview()`);
+/** Every clinic, with the version of the agreement it is on (app_agreement_in_effect), read outside any tenant. */
+async function clinicsForPurge(): Promise<{ id: string; baa_version: string | null }[]> {
+  const result = await unsafeDb.execute<{ id: string; baa_version: string | null }>(
+    sql`select id, baa_version from app_clinics_overview()`,
+  );
   const rows = (result as unknown as { rows?: unknown[] }).rows ?? result;
-  return rows as { id: string }[];
+  return rows as { id: string; baa_version: string | null }[];
 }
 
-export async function sweepRetention(now: Date = new Date()): Promise<RetentionSweepResult> {
-  const clinicList = await clinicsForPurge();
+/**
+ * Purge every clinic (the switch on), or only those whose agreement promises
+ * the purge (`onlyPromised`, the switch off).
+ */
+export async function sweepRetention(
+  now: Date = new Date(),
+  options: { onlyPromised?: boolean } = {},
+): Promise<RetentionSweepResult> {
+  const clinicList = (await clinicsForPurge()).filter(
+    (c) => !options.onlyPromised || purgeIsPromised(c.baa_version),
+  );
   const out: RetentionSweepResult = { clinicsConsidered: clinicList.length, results: [], failures: [] };
 
   for (const clinic of clinicList) {
@@ -56,10 +75,10 @@ export async function sweepRetention(now: Date = new Date()): Promise<RetentionS
 
 export async function runRetentionPurgeJob(options: { now?: Date } = {}) {
   const now = options.now ?? new Date();
-  return runJob(
+  return runWideningJob(
     JOB_RETENTION_PURGE,
-    async () => {
-      const sweep = await sweepRetention(now);
+    async (switchedOn) => {
+      const sweep = await sweepRetention(now, { onlyPromised: !switchedOn });
       const totals = sweep.results.reduce(
         (acc, r) => ({
           media: acc.media + r.mediaCleared,
@@ -78,6 +97,9 @@ export async function runRetentionPurgeJob(options: { now?: Date } = {}) {
         { media: 0, rows: 0, skipped: 0 },
       );
       return (
+        (switchedOn
+          ? ""
+          : "Switched off: only the clinics on BAA 1.3.0 or later, or the DPA. ") +
         `Purged ${sweep.clinicsConsidered} clinics: ${totals.media} media references cleared, ` +
         `${totals.rows} rows deleted` +
         (totals.skipped ? `, ${totals.skipped} skipped (sync running)` : "") +

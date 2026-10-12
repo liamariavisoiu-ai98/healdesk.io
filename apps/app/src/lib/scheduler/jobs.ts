@@ -194,6 +194,60 @@ export async function runJob(
 }
 
 /**
+ * Run a job whose switch widens what it does rather than deciding whether it
+ * runs, with runJob's lock.
+ *
+ * For the retention purge (retention-purge.ts): a clinic whose agreement
+ * states the purge's periods (BAA 1.3.0 and later, the DPA) is purged every
+ * night, because the agreement it signed does not wait for an operator to
+ * switch anything on; the switch adds every other clinic. `work` is told
+ * whether the switch is on. Every outcome is recorded on the job row, as
+ * runJob does, so a run with the switch off is visible as a run.
+ */
+export async function runWideningJob(
+  name: string,
+  work: (switchedOn: boolean) => Promise<string>,
+  now: Date = new Date(),
+): Promise<JobOutcome> {
+  const job = await getJob(name);
+  if (!job) throw new Error(`Unknown job: ${name}`);
+
+  if (PHASE_TWO_JOBS.has(name) && !env.phaseTwoAttribution()) {
+    await record(name, "disabled", "Phase two: not run in v1 (HEALDESK_PHASE_TWO_ATTRIBUTION is not \"true\").", now);
+    return { status: "disabled" };
+  }
+
+  if (job.runningSince && now.getTime() - job.runningSince.getTime() < STALE_LOCK_MS) {
+    return { status: "already-running", since: job.runningSince };
+  }
+
+  // runJob's conditional claim, without its `enabled` condition.
+  const claimed = await unsafeDb
+    .update(scheduledJobs)
+    .set({ runningSince: now })
+    .where(
+      sql`${scheduledJobs.name} = ${name}
+          and (${scheduledJobs.runningSince} is null
+               or ${scheduledJobs.runningSince} < ${new Date(now.getTime() - STALE_LOCK_MS)})`,
+    )
+    .returning({ name: scheduledJobs.name, enabled: scheduledJobs.enabled });
+  if (claimed.length === 0) {
+    return { status: "already-running", since: job.runningSince ?? now };
+  }
+
+  try {
+    const note = await work(claimed[0]!.enabled);
+    await record(name, "ok", note, now);
+    return { status: "ok", note };
+  } catch (error) {
+    // The message only, never the object, for the reason runJob gives.
+    const note = error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
+    await record(name, "failed", note, now);
+    return { status: "failed", note };
+  }
+}
+
+/**
  * Run a job that leases its own rows, behind its switch but without the lock.
  *
  * For the once-a-minute notices sender (lib/email/outbox.ts). runJob's lock is

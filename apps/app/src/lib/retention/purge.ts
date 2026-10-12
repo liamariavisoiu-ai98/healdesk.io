@@ -1,4 +1,5 @@
-import { and, eq, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { agreementKindOfVersion } from "@healdesk/catalog";
+import { and, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 
 import {
   appointments,
@@ -64,6 +65,43 @@ import type { TenantTx } from "@/lib/tenant";
  * directed (record_amendments, lib/patient-rights/amendments.ts) goes the
  * night the booking request or conversation it amends goes, and never before.
  *
+ * ## The periods, as BAA 1.3.0's clause 11 states them
+ *
+ * The record clock is the clinic's `retention_record_days`
+ * (TRANSCRIPT_RETENTION_DAYS, 90, unless the practice shortens it):
+ *
+ *   - a conversation, with its transcript reference: the record clock after
+ *     it took place (the media clock clears the reference sooner);
+ *   - an appointment: the record clock after its time;
+ *   - a booking request: the record clock after the latest of when it was
+ *     made, the time it was confirmed for and its appointment's time;
+ *   - a contact: while any of those of theirs is kept, and in any case the
+ *     record clock after it was last written;
+ *   - a messaging thread: the record clock after its last message;
+ *   - an amendment Practice directed: with the request or conversation it
+ *     amends, and never before;
+ *   - a vendor payload (webhook_events), the raw copy of a call or a
+ *     booking: once processed, thirty days after it arrived
+ *     (WEBHOOK_PAYLOAD_RETENTION_DAYS) or the record clock if that is
+ *     shorter; never processed (its signature failed, it named no call, or
+ *     every attempt to read it failed), the record clock, the period of the
+ *     conversation it would have become. Until BAA 1.3.0's release gate 9
+ *     (PT-28) a payload never processed was never deleted;
+ *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS).
+ *
+ * A backup copy of anything deleted here expires with the host's backups,
+ * within BACKUP_RETENTION_DAYS.
+ *
+ * ## Which clinics, and the switch
+ *
+ * The `retention-purge` job ships switched off (0032), like every job, and
+ * its switch is one for every clinic. A clinic bound to BAA 1.3.0 or later,
+ * or to the DPA, which state these periods as the purge runs them, is purged
+ * every night whether the switch is on or not (`purgeIsPromised`; release
+ * gate 9): the agreement it signed does not wait for an operator. The switch
+ * adds every other clinic, and the owner turns it on at the release of 1.3.0
+ * (docs/handover.md, "Retention and offboarding").
+ *
  * ## What the record clock never purges, and why
  *
  * `consent_records`, `suppressions` and `contact_attempts` are not on the
@@ -92,7 +130,21 @@ import type { TenantTx } from "@/lib/tenant";
  * nothing at all.
  */
 
+/**
+ * A processed vendor payload's period: thirty days after it arrived, or the
+ * clinic's record clock if that is shorter. Processed, it has done its work
+ * (the conversation, appointment or request it became is the record), and
+ * the copy is kept only to re-read a payload found to be misparsed.
+ */
 export const WEBHOOK_PAYLOAD_RETENTION_DAYS = 30;
+
+/**
+ * A sync run started longer ago than this is a crashed one, not one in
+ * flight: sync_runs is append-only by grant (0015), so a run that died
+ * leaves its row "running" for good, and without a bound it would hold the
+ * purge off that clinic forever.
+ */
+export const SYNC_HOLDS_PURGE_HOURS = 6;
 
 export type PurgeResult = {
   clinicId: string;
@@ -108,6 +160,32 @@ export type PurgeResult = {
   chatThreadsDeleted: number;
 };
 
+/**
+ * The BAA versions written before the purge's periods were promised as the
+ * purge runs them. Every version after them, released or not, and every DPA,
+ * states them (BAA 1.3.0 clause 11; the DPA's retention clause), so a new
+ * version is purged nightly from the day it is signed unless it is added
+ * here, by a decision recorded beside it.
+ */
+export const BAA_VERSIONS_BEFORE_THE_PURGE_PROMISE: ReadonlySet<string> = new Set([
+  "1.2.1",
+  "1.2.0",
+  "1.1.0-draft",
+  "1.0.0",
+  "0.1.0-draft",
+]);
+
+/**
+ * Whether the agreement a clinic is on (the version in effect,
+ * app_agreement_in_effect) promises the purge's periods, so that the nightly
+ * run purges it whatever the job's switch says. None, or an earlier BAA: no.
+ */
+export function purgeIsPromised(version: string | null): boolean {
+  if (version === null) return false;
+  if (agreementKindOfVersion(version) === "dpa") return true;
+  return !BAA_VERSIONS_BEFORE_THE_PURGE_PROMISE.has(version);
+}
+
 function daysAgo(now: Date, days: number): Date {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 }
@@ -115,9 +193,11 @@ function daysAgo(now: Date, days: number): Date {
 /**
  * One clinic, one transaction, on its own two clocks.
  *
- * Refuses to touch a clinic with a sync run in flight: the reconciler joins
- * appointments to transactions, and deleting one side of a pair it is about
- * to match creates the very exception the report then has to explain.
+ * Refuses to touch a clinic with a sync run in flight (phase two): the
+ * reconciler joins appointments to transactions, and deleting one side of a
+ * pair it is about to match creates the very exception the report then has
+ * to explain. Only a run started in the last SYNC_HOLDS_PURGE_HOURS holds it,
+ * so a crashed one cannot keep a clinic's records past its periods.
  */
 export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise<PurgeResult> {
   const result: PurgeResult = {
@@ -137,7 +217,13 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   const [running] = await tx.db
     .select({ id: syncRuns.id })
     .from(syncRuns)
-    .where(and(eq(syncRuns.clinicId, tx.clinicId), eq(syncRuns.status, "running")))
+    .where(
+      and(
+        eq(syncRuns.clinicId, tx.clinicId),
+        eq(syncRuns.status, "running"),
+        gt(syncRuns.startedAt, new Date(now.getTime() - SYNC_HOLDS_PURGE_HOURS * 60 * 60 * 1000)),
+      ),
+    )
     .limit(1);
   if (running) {
     result.skipped = "sync_running";
@@ -299,15 +385,21 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: contacts.id });
   result.contactsDeleted = orphaned.length;
 
-  // 4. Processed vendor payloads: raw bodies, PHI by the migration's own
-  //    admission, and useless once processed.
+  // 4. Vendor payloads: raw bodies, PHI by the migration's own admission. A
+  //    processed one at thirty days, or the record clock when the clinic
+  //    has shortened it below that, so no raw copy outlives the record it
+  //    became. One never processed at the record clock: the period of the
+  //    conversation it would have been (BAA 1.3.0 release gate 9).
+  const processedBefore = daysAgo(now, Math.min(WEBHOOK_PAYLOAD_RETENTION_DAYS, clinic.recordDays));
   const payloads = await tx.db
     .delete(webhookEvents)
     .where(
       and(
         eq(webhookEvents.clinicId, tx.clinicId),
-        sql`${webhookEvents.processedAt} is not null`,
-        lt(webhookEvents.receivedAt, daysAgo(now, WEBHOOK_PAYLOAD_RETENTION_DAYS)),
+        or(
+          and(sql`${webhookEvents.processedAt} is not null`, lt(webhookEvents.receivedAt, processedBefore)),
+          and(sql`${webhookEvents.processedAt} is null`, lt(webhookEvents.receivedAt, recordBefore)),
+        ),
       ),
     )
     .returning({ id: webhookEvents.id });

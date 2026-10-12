@@ -1,7 +1,7 @@
-import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
+import { BAA_TEMPLATES, DPA_TEMPLATES, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { eraseContact, purgeClinic } from "@/lib/retention/purge";
+import { eraseContact, purgeClinic, purgeIsPromised } from "@/lib/retention/purge";
 import { JOB_RETENTION_PURGE, getJob, setJobEnabled } from "@/lib/scheduler/jobs";
 import { runRetentionPurgeJob, sweepRetention } from "@/lib/scheduler/retention-purge";
 import { withTenant } from "@/lib/tenant";
@@ -199,19 +199,144 @@ describeDb("retention purge", () => {
     expect(await count(c.clinicId, "conversations")).toBe(1);
   });
 
-  test("the job ships off, and when on it sweeps every clinic", async () => {
-    expect((await getJob(JOB_RETENTION_PURGE))?.enabled).toBe(false);
-    expect((await runRetentionPurgeJob({ now })).status).toBe("disabled");
+  test("never-processed payloads go at the record clock, and processed ones at thirty days or the record clock if shorter", async () => {
+    const c = await seedClinic("purge-payloads");
+    const short = await seedClinic("purge-payloads-short");
+    await getMigratorPool().query(`update clinics set retention_record_days = 7 where id = $1`, [
+      short.clinicId,
+    ]);
+    const payload = (clinicId: string, deliveryId: string, daysOld: number, processed: boolean) =>
+      inTenant(clinicId, (client) =>
+        client.query(
+          `insert into webhook_events
+             (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
+           values ($1, 'synthflow', $2, $3, '{"lead":{"phone_number":"+15550150001"}}', $4, $5)`,
+          [
+            clinicId,
+            deliveryId,
+            processed,
+            processed ? new Date(now.getTime() - daysOld * DAY) : null,
+            new Date(now.getTime() - daysOld * DAY),
+          ],
+        ),
+      );
+    // The default record clock (90 days).
+    await payload(c.clinicId, "never-100", 100, false); // past the record clock: goes
+    await payload(c.clinicId, "never-60", 60, false); // inside it: stays
+    await payload(c.clinicId, "done-40", 40, true); // past thirty days: goes
+    await payload(c.clinicId, "done-20", 20, true); // stays
+    // A record clock of seven days: nothing raw outlives it, processed or not.
+    await payload(short.clinicId, "never-10", 10, false);
+    await payload(short.clinicId, "done-10", 10, true);
+    await payload(short.clinicId, "done-3", 3, true);
 
+    const left = async (clinicId: string) => {
+      await withTenant({ clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, now));
+      return inTenant(clinicId, async (client) =>
+        (
+          await client.query<{ delivery_id: string }>(
+            `select delivery_id from webhook_events order by delivery_id`,
+          )
+        ).rows.map((r) => r.delivery_id),
+      );
+    };
+    expect(await left(c.clinicId)).toEqual(["done-20", "never-60"]);
+    expect(await left(short.clinicId)).toEqual(["done-3"]);
+  });
+
+  test("a sync run that crashed does not hold the purge off a clinic for good", async () => {
+    const c = await seedClinic("purge-stale-sync");
+    await seedConversation(c.clinicId, { startedAt: new Date(now.getTime() - 200 * DAY) });
+    const run = async (startedHoursAgo: number) =>
+      inTenant(c.clinicId, async (client) => {
+        const { rows } = await client.query<{ id: string }>(
+          `insert into provider_connections
+             (clinic_id, provider, status, ciphertext, iv, auth_tag, wrapped_dek, key_version, aad_version)
+           values ($1, 'mindbody', 'active', 'x', 'x', 'x', 'x', 'v1', 1)
+           on conflict do nothing returning id`,
+          [c.clinicId],
+        );
+        const connection =
+          rows[0]?.id ??
+          (await client.query<{ id: string }>(`select id from provider_connections limit 1`)).rows[0]!.id;
+        await client.query(
+          `insert into sync_runs (clinic_id, connection_id, resource, status, started_at)
+           values ($1, $2, 'appointments', 'running', $3)`,
+          [c.clinicId, connection, new Date(now.getTime() - startedHoursAgo * 60 * 60 * 1000)],
+        );
+      });
+
+    // A run in flight, started an hour ago, holds it.
+    await run(1);
+    const held = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, now));
+    expect(held.skipped).toBe("sync_running");
+    expect(await count(c.clinicId, "conversations")).toBe(1);
+
+    // Two days later the same row is a crashed run's: the purge goes ahead.
+    const later = new Date(now.getTime() + 2 * DAY);
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      purgeClinic(tx, later),
+    );
+    expect(result.skipped).toBeNull();
+    expect(await count(c.clinicId, "conversations")).toBe(0);
+  });
+
+  test("the job ships off; off, it purges every clinic on BAA 1.3.0 or later or the DPA, and on, every clinic", async () => {
+    expect((await getJob(JOB_RETENTION_PURGE))?.enabled).toBe(false);
+    const bound = async (label: string, version: string | null) => {
+      const c = await seedClinic(label);
+      if (version) {
+        await getMigratorPool().query(
+          `insert into baa_acceptances
+             (organization_id, document_version, document_hash, rendered_text, variables, assent_label,
+              accepted_by_name, accepted_by_email, accepted_at, bound_at)
+           values ($1, $2, repeat('c', 64), 'AGREEMENT (test)', '{}'::jsonb, 'I agree', 'Alex Chen',
+                   'alex@purge.test', now() - interval '1 year', now() - interval '1 year')`,
+          [c.organizationId, version],
+        );
+      }
+      await seedConversation(c.clinicId, { startedAt: new Date(now.getTime() - 200 * DAY) });
+      return c.clinicId;
+    };
+    const v130 = await bound("purge-130", "1.3.0");
+    const dpa = await bound("purge-dpa", "dpa/1.0.0");
+    const v121 = await bound("purge-121", "1.2.1");
+    const none = await bound("purge-none", null);
+
+    // Switched off: the job runs all the same for the agreements that state
+    // the purge's periods, and only for them.
+    const off = await runRetentionPurgeJob({ now });
+    expect(off.status).toBe("ok");
+    expect(off.status === "ok" ? off.note : "").toMatch(/^Switched off: only the clinics on BAA 1\.3\.0/);
+    expect(await count(v130, "conversations")).toBe(0);
+    expect(await count(dpa, "conversations")).toBe(0);
+    expect(await count(v121, "conversations")).toBe(1);
+    expect(await count(none, "conversations")).toBe(1);
+
+    // Switched on (the ops step at release): every clinic.
     const { rows } = await getMigratorPool().query<{ id: string }>(
       `insert into "user" (id, name, email, email_verified, created_at, updated_at)
        values ('usr_purge_ops', 'Ops', 'ops-purge@healdesk.test', true, now(), now()) returning id`,
     );
     await setJobEnabled(JOB_RETENTION_PURGE, true, rows[0]!.id);
-    const outcome = await runRetentionPurgeJob({ now });
-    expect(outcome.status).toBe("ok");
+    const on = await runRetentionPurgeJob({ now });
+    expect(on.status).toBe("ok");
+    expect(await count(v121, "conversations")).toBe(0);
+    expect(await count(none, "conversations")).toBe(0);
     const sweep = await sweepRetention(now);
     expect(sweep.failures).toEqual([]);
     expect(sweep.clinicsConsidered).toBeGreaterThan(0);
+  });
+
+  test("which agreements promise the purge: BAA 1.3.0 and every later version, and the DPA; none of the earlier versions", () => {
+    for (const t of BAA_TEMPLATES) {
+      expect(purgeIsPromised(t.version), t.version).toBe(
+        !["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"].includes(t.version),
+      );
+    }
+    expect(purgeIsPromised("1.3.0")).toBe(true);
+    expect(purgeIsPromised("1.4.0")).toBe(true);
+    for (const t of DPA_TEMPLATES) expect(purgeIsPromised(t.version), t.version).toBe(true);
+    expect(purgeIsPromised(null)).toBe(false);
   });
 });

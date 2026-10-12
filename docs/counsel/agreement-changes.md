@@ -1533,7 +1533,24 @@ these is closed, by code, a page, a signed paper or a host setting, and
    request names them (`booking_requests.contact_id` is ON DELETE NO
    ACTION), so a returning person's Meta request, which writes no
    conversation, no longer goes by cascade when their older call ages out. A request is
-   kept for its own period, which clause 11 now states (§ 12.12).
+   kept for its own period, which clause 11 now states (§ 12.12). The rest
+   done on 12 October 2026 (`lib/retention/purge.ts`,
+   `lib/scheduler/retention-purge.ts`, pinned by `tests/retention.test.ts`):
+   - The purge runs for every clinic bound to BAA 1.3.0 or later, or to the
+     DPA, every night, whether the job's switch is on or not
+     (`purgeIsPromised`: every version but the five before 1.3.0, and every
+     DPA, read from the agreement in effect; `runWideningJob`, which keeps
+     runJob's lock and records each run). The switch, which 0032 ships off,
+     adds every other clinic. The owner switches it on at the release
+     (docs/handover.md, "Retention and offboarding"), so 1.2.1 clinics are
+     purged too. A sync run holds a clinic's purge only while it is younger
+     than six hours; one that crashed held it for good, since `sync_runs`
+     is append-only.
+   - A vendor payload never processed goes at the record clock, the period
+     clause 11 gives the conversation it would have become; one processed
+     goes at thirty days or the record clock if the practice has shortened
+     it below that, so no raw copy outlives its record. `purge.ts` lists
+     every period as clause 11 states it.
 10. **Payment links (PT-11, ICD-10, SL-08; package D).** Links only in website
     chat and on Meta, carrying only an amount, a generic description and a
     reference, metadata and statement descriptor included, and no payer

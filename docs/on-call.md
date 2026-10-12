@@ -23,7 +23,9 @@ Every job ships switched off and is enabled from the ops console when the first 
 clinic exists.
 
 Today's tick runs the billing sweep, the connection watchdog, the weekly recap, the
-retention purge (03 UTC), offboarding destruction (every hour, on every agreement's
+retention purge (03 UTC; it purges every clinic on BAA 1.3.0 or later, or the DPA, even
+while its switch is off, because those agreements state its periods, and the switch adds
+every other clinic), offboarding destruction (every hour, on every agreement's
 rule: each clinic is due a day before its thirty days, or on BAA 1.3.0 and the DPA
 without an export its ninety, are up, so it is gone before they are whatever hour it
 left) and the annual renewal reminder (09 UTC). It also still carries the monthly

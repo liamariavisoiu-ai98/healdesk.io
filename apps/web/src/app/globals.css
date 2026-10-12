@@ -3526,6 +3526,148 @@
   animation-timing-function: var(--ease-out);
 }
 
+/* --- The voice card, 12 October 2026 (VoiceCard.tsx) ---------------------
+   The owner's picks: iOS's segmented control, her face shrinking to the top
+   once a call is on and the call rising under it, captions, things to ask
+   her, iOS's round call buttons, a dial card, a switch for consent, and the
+   visitor's phone ringing. */
+
+/* The segmented control's pill, sliding to the way chosen: one column of the
+   control's grid wide (its padding and gap taken off), moved along by whole
+   widths of itself. */
+.voice-segments__pill {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc((100% - 8px) / var(--n));
+  border-radius: var(--radius-sm);
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transform: translateX(calc(var(--at) * 100%));
+  transition: transform var(--duration-slow) var(--ease-spring);
+}
+
+/* What the panel changes to rises into place. */
+.voice-rise {
+  animation: voice-rise var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes voice-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+/* Her face growing and shrinking with the call. */
+.voice-talk .aya-portrait,
+.voice-talk .aya-portrait > .aya-breathe {
+  transition:
+    width var(--duration-slow) var(--ease-spring),
+    height var(--duration-slow) var(--ease-spring);
+}
+
+/* Each new line of hers comes up softly. */
+.voice-caption__line {
+  display: inline-block;
+  animation: stream-word var(--duration-slow) var(--ease-out) both;
+}
+
+/* Things to ask her, drifting slowly past; still where motion is reduced. */
+.voice-asks {
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(to right, transparent, #000 10%, #000 90%, transparent);
+}
+
+.voice-asks__track {
+  animation: voice-asks 34s linear infinite;
+}
+
+.voice-asks:hover .voice-asks__track {
+  animation-play-state: paused;
+}
+
+@keyframes voice-asks {
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+/* The consent switch: iOS's, green when on. Still a checkbox underneath. */
+.voice-switch {
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: 9999px;
+  background: rgb(120 120 128 / 0.28);
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: background-color var(--duration-base) var(--ease-standard);
+}
+
+.voice-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform var(--duration-base) var(--ease-spring);
+}
+
+.voice-switch:checked {
+  background: #34c759;
+}
+
+.voice-switch:checked::after {
+  transform: translateX(16px);
+}
+
+.voice-switch:focus-visible {
+  outline: 3px solid var(--color-orange);
+  outline-offset: 2px;
+}
+
+/* The visitor's phone ringing: a buzz, and a ring running round it. */
+.voice-buzz {
+  animation: voice-buzz 1.4s var(--ease-in-out) infinite;
+}
+
+@keyframes voice-buzz {
+  0%,
+  40%,
+  100% {
+    transform: rotate(0);
+  }
+  5%,
+  15%,
+  25% {
+    transform: rotate(-12deg);
+  }
+  10%,
+  20%,
+  30% {
+    transform: rotate(12deg);
+  }
+}
+
+/* As long as a call takes to reach the phone (`--ring`, VoiceCard.tsx). */
+.voice-ring {
+  stroke-dasharray: 1;
+  animation: voice-ring var(--ring) linear both;
+}
+
+@keyframes voice-ring {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
 /* --- M6: the dots become the answer ------------------------------------- */
 
 .typing-dots {

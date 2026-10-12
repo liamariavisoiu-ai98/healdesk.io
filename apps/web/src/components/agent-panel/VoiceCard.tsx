@@ -6,6 +6,7 @@ import type { WebCallSession } from "retell-client-js-sdk";
 
 import { AyaPortrait, type CallVisualState } from "@/components/agent-panel/AyaPortrait";
 import { CALL_CONSENT } from "@/lib/consent";
+import { countryByIso, DIAL_COUNTRIES, formatNational, splitNumber, toInternational } from "@/lib/dial-countries";
 
 /**
  * The voice card, three ways to reach the assistant in AYA's voice: talk to
@@ -30,8 +31,13 @@ import { CALL_CONSENT } from "@/lib/consent";
  * in WebRTC code nobody needs until then) and is pointed at our own route for
  * its single control request (`fetch` override): the route builds the call
  * and holds the key, so nothing secret or steerable is in this bundle. The
- * microphone prompt happens on that click, as browsers require. No transcript
- * stream: that would need a key in the browser.
+ * microphone prompt happens on that click, as browsers require.
+ *
+ * Her words are captioned under her face as she says them (owner, 12 October
+ * 2026): the call's own data channel sends the conversation so far with each
+ * turn (`onUpdate`), and the card shows her last line. They are only shown:
+ * held in this component while the call runs and dropped when it ends, never
+ * sent or kept anywhere, so "Nothing is recorded" stays true.
  *
  * ## Call us
  *
@@ -50,7 +56,23 @@ import { CALL_CONSENT } from "@/lib/consent";
  * (api/callback). The phone field may be prefilled from the operator's
  * request; the tick never is. Do not make the box default-checked, do not
  * fold the agreement into the button, and do not shorten the label without
- * bumping its version (lib/consent.ts has the reasoning).
+ * bumping its version (lib/consent.ts has the reasoning). Since 12 October
+ * 2026 the box is drawn as a switch (still a checkbox, off until the visitor
+ * turns it on, beside the same words).
+ *
+ * ## The owner's picks of 12 October 2026
+ *
+ *   - The three ways are an iOS segmented control, a pill sliding to the one
+ *     chosen, each with its icon.
+ *   - Once a call connects her face shrinks to the top of the card and the
+ *     call rises under it: her captions, a strip of things to ask her, and
+ *     iOS's round call buttons (mute, captions, the red end).
+ *   - "Call us" is a dial card: the number large, a green call button, and on
+ *     a desktop a QR code that dials it from the visitor's phone.
+ *   - "Call me" has a country picker with each country's flag, writes the
+ *     number as it is typed (lib/dial-countries.ts), and once the call is
+ *     placed shows the visitor's phone ringing, a ring running round it,
+ *     until it is answered or the time it takes has passed.
  */
 
 type CallState = "idle" | "connecting" | "live" | "ended" | "error";
@@ -73,6 +95,87 @@ const STATE_WORDS: Record<Exclude<CallVisualState, "idle">, string> = {
   listening: "Listening",
   speaking: "Speaking",
 };
+
+/** Things to ask her while the call runs: what a patient would ask. */
+const ASK_HER = [
+  "What does a consultation cost?",
+  "Can I come in Thursday afternoon?",
+  "Do you take a deposit?",
+  "Are you open on Saturdays?",
+  "Can I speak to someone?",
+] as const;
+
+/** How long the "ringing" shows before it offers to try again: a call takes a few seconds to place and ring. */
+const RING_SECONDS = 40;
+
+const ICON = {
+  talk: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <path d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4" />
+    </svg>
+  ),
+  dial: (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z" />
+    </svg>
+  ),
+  callme: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.4 2.1L8.1 9.9a16 16 0 0 0 6 6l1.4-1.2a2 2 0 0 1 2.1-.4c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2Z" />
+      <path d="M16 2v6h6M22 2l-6 6" />
+    </svg>
+  ),
+  mic: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
+  ),
+  micOff: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+      <path d="M9 9v2a3 3 0 0 0 5.1 2.1M15 9.3V6a3 3 0 0 0-5.7-1.3M5 11a7 7 0 0 0 11.6 5.3M19 11a7 7 0 0 1-.5 2.5M12 18v3M3 3l18 18" />
+    </svg>
+  ),
+  captions: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden>
+      <rect x="3" y="5" width="18" height="14" rx="3" />
+      <path d="M10.5 10.2a2.5 2.5 0 1 0 0 3.6M17.5 10.2a2.5 2.5 0 1 0 0 3.6" strokeLinecap="round" />
+    </svg>
+  ),
+  end: (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 9c-2.2 0-4.3.4-6.2 1.1a1 1 0 0 0-.6.9v2.8a1 1 0 0 1-.8 1l-2.2.4a1 1 0 0 1-1.1-.6A3.4 3.4 0 0 1 1 13c.6-3 5.2-6 11-6s10.4 3 11 6c.1.6 0 1.1-.1 1.6a1 1 0 0 1-1.1.6l-2.2-.4a1 1 0 0 1-.8-1V11a1 1 0 0 0-.6-.9A17 17 0 0 0 12 9Z" />
+    </svg>
+  ),
+};
+
+/** One of iOS's round call buttons, its word under it. */
+function CallButton({
+  label,
+  onClick,
+  active = false,
+  danger = false,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  active?: boolean;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={danger ? undefined : active} className="voice-key group flex flex-col items-center gap-1.5">
+      <span
+        className={`grid size-14 place-items-center rounded-full transition-colors duration-fast [&_svg]:size-6 ${
+          danger ? "bg-[#ff3b30] text-white group-hover:bg-[#e6352b]" : active ? "bg-ink text-white" : "bg-black/[0.06] text-ink group-hover:bg-black/[0.1]"
+        }`}
+      >
+        {children}
+      </span>
+      <span className="text-muted text-[12.5px] font-semibold">{label}</span>
+    </button>
+  );
+}
 
 export function VoiceCard({
   name,
@@ -124,8 +227,17 @@ export function VoiceCard({
   const [level, setLevel] = useState(0);
   const sessionRef = useRef<WebCallSession | null>(null);
 
+  /** Her last line, captioned while the call runs. */
+  const [caption, setCaption] = useState("");
+  const [captions, setCaptions] = useState(true);
+  /** The demo line as a QR code that dials it, drawn when the tab opens. */
+  const [qr, setQr] = useState<string | null>(null);
+
   const [firstName, setFirstName] = useState("");
-  const [phone, setPhone] = useState(prefillPhone ?? "");
+  const [country, setCountry] = useState(() => splitNumber(prefillPhone).iso);
+  const [phone, setPhone] = useState(() => splitNumber(prefillPhone).national);
+  /** The call-me request went through this long ago: the ringing shows until RING_SECONDS. */
+  const [ringing, setRinging] = useState(false);
   const [consent, setConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState<string | null>(null);
@@ -145,12 +257,35 @@ export function VoiceCard({
   // Leaving the page ends the call rather than leaving the microphone open.
   useEffect(() => () => void sessionRef.current?.end().catch(() => {}), []);
 
+  // The QR code for the dial card, made in the browser the first time the tab is opened.
+  useEffect(() => {
+    if (mode !== "dial" || !demoLine || qr) return;
+    let alive = true;
+    void import("qrcode")
+      .then(({ toDataURL }) => toDataURL(`tel:${demoLine}`, { margin: 0, width: 240, color: { dark: "#172a3aff", light: "#ffffff00" } }))
+      .then((url) => {
+        if (alive) setQr(url);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [demoLine, mode, qr]);
+
+  // The visitor's phone, ringing, for as long as a call takes to reach it.
+  useEffect(() => {
+    if (sent === null) return;
+    const id = window.setTimeout(() => setRinging(false), RING_SECONDS * 1000);
+    return () => window.clearTimeout(id);
+  }, [sent]);
+
   const startCall = useCallback(async () => {
     if (locked || state === "connecting" || state === "live") return;
     setCallError(null);
     setElapsed(0);
     setMuted(false);
     setTalking(false);
+    setCaption("");
     setState("connecting");
     try {
       const { RetellClient } = await import("retell-client-js-sdk");
@@ -170,7 +305,13 @@ export function VoiceCard({
               setState((prev) => (prev === "error" ? prev : "ended"));
               setLevel(0);
               setTalking(false);
+              setCaption("");
             }
+          },
+          // Her last line, for the captions; only ever held here (see "Talk here").
+          onUpdate: (event) => {
+            const said = [...(event.transcript ?? [])].reverse().find((line) => line.role === "agent")?.content;
+            if (said) setCaption(said);
           },
           onAgentStartTalking: () => setTalking(true),
           onAgentStopTalking: () => {
@@ -212,6 +353,7 @@ export function VoiceCard({
     setState("ended");
     setLevel(0);
     setTalking(false);
+    setCaption("");
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -227,7 +369,7 @@ export function VoiceCard({
       event.preventDefault();
       if (submitting || locked) return;
       if (!consent) {
-        setFormError("Tick the box so we're allowed to call you.");
+        setFormError("Turn on the agreement so we're allowed to call you.");
         return;
       }
       setSubmitting(true);
@@ -237,7 +379,7 @@ export function VoiceCard({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            phone,
+            phone: toInternational(countryByIso(country), phone),
             name: firstName || undefined,
             consent: true,
             consentVersion: CALL_CONSENT.version,
@@ -250,13 +392,14 @@ export function VoiceCard({
           return;
         }
         setSent(data?.last4 ?? "");
+        setRinging(true);
       } catch {
         setFormError("Network error. Try again.");
       } finally {
         setSubmitting(false);
       }
     },
-    [callbackExtra, consent, firstName, locked, phone, submitting],
+    [callbackExtra, consent, country, firstName, locked, phone, submitting],
   );
 
   const registerCaller = useCallback(
@@ -294,122 +437,153 @@ export function VoiceCard({
     ...(demoLine ? [{ id: "dial" as const, label: "Call us", hint: "From your phone" }] : []),
     { id: "callme", label: "Call me", hint: "We ring you" },
   ];
+  const at = Math.max(0, tabs.findIndex((tab) => tab.id === mode));
+  const dialCountry = countryByIso(country);
 
   return (
     <div className="flex flex-1 flex-col">
-      <div className={`border-line grid gap-1 border-b p-2 ${tabs.length === 3 ? "grid-cols-3" : "grid-cols-2"}`} role="tablist" aria-label="Ways to call">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={mode === tab.id}
-            disabled={busy && tab.id !== "talk"}
-            onClick={() => setMode(tab.id)}
-            className={`rounded-sm px-2 py-2 text-center transition-colors disabled:opacity-50 ${mode === tab.id ? "bg-paper-2" : "hover:bg-paper-2/60"}`}
-          >
-            <span className={`block text-[14.4px] font-bold ${mode === tab.id ? "text-ink" : "text-muted"}`}>{tab.label}</span>
-            <span className="text-muted block text-[12px] font-medium">{tab.hint}</span>
-          </button>
-        ))}
+      {/* iOS's segmented control: a pill slides to the way chosen. */}
+      <div className="border-line border-b px-3 pt-3 pb-2.5">
+        <div
+          className="voice-segments relative grid rounded-sm bg-black/[0.055] p-1"
+          role="tablist"
+          aria-label="Ways to call"
+          style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`, ["--n" as string]: tabs.length, ["--at" as string]: at }}
+        >
+          <span aria-hidden className="voice-segments__pill" />
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={mode === tab.id}
+              disabled={busy && tab.id !== "talk"}
+              onClick={() => setMode(tab.id)}
+              className={`relative z-[1] flex items-center justify-center gap-1.5 rounded-sm px-2 py-2 text-[14px] font-semibold transition-colors duration-fast disabled:opacity-45 [&_svg]:size-[15px] ${
+                mode === tab.id ? "text-ink" : "text-muted hover:text-ink"
+              }`}
+            >
+              {ICON[tab.id]}
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <p className="text-muted mt-1.5 text-center text-[12.5px] font-medium">{tabs[at]?.hint}</p>
       </div>
 
       {mode === "talk" ? (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
-          <AyaPortrait size={210} level={level} state={visual} aura={aura} />
-          {portraitLabel ? <p className="text-muted mt-3 text-[13.2px] font-bold tracking-[0.1em] uppercase">{portraitLabel}</p> : null}
+        <div className="voice-talk flex flex-1 flex-col items-center px-6 pt-6 pb-6 text-center" data-busy={busy || undefined}>
+          {/* Her face: large while she waits, small at the top once the call is on. */}
+          <AyaPortrait size={busy ? 112 : 210} level={level} state={visual} aura={aura} />
 
-          {live || state === "connecting" || idleTitle ? (
-            <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">
-              {live ? `On the line with ${name}` : state === "connecting" ? "Connecting…" : `Call ${name}`}
-            </p>
-          ) : null}
-          <p className="text-muted mt-1.5 flex min-h-[1.5em] max-w-[34ch] items-center gap-2 text-[15px] font-medium" aria-live="polite">
-            {visual !== "idle" ? (
-              <span className="call-state text-[13.2px] font-bold tracking-[0.06em] uppercase" data-state={visual}>
-                {STATE_WORDS[visual]}
-              </span>
-            ) : null}
-            {live ? `${formatElapsed(elapsed)} · Ask what a patient would ask.` : null}
-          </p>
-
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            {live ? (
-              <>
-                <button
-                  type="button"
-                  onClick={toggleMute}
-                  className="border-line hover:border-line-strong text-ink rounded-full border px-4 py-2.5 text-[15.6px] font-bold transition-colors"
-                >
-                  {muted ? "Unmute" : "Mute"}
-                </button>
-                <button
-                  type="button"
-                  onClick={endCall}
-                  className="bg-red-deep rounded-full px-5 py-2.5 text-[15.6px] font-bold text-white transition-opacity hover:opacity-90"
-                >
-                  End call
-                </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                onClick={startCall}
-                disabled={locked || busy}
-                className="morph-btn rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
-                style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
-              >
-                <span className="morph-btn__label">{state === "connecting" ? "Connecting…" : state === "ended" ? "Call again" : "Talk now"}</span>
-                {/* Under the pointer the words give way to a phone that rings
-                    once, and come back when it leaves (owner, 12 October 2026). */}
-                {state === "connecting" ? null : (
-                  <span aria-hidden className="morph-btn__icon morph-btn__icon--ring">
-                    <svg viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z" />
-                    </svg>
+          {busy ? (
+            <div className="voice-rise flex w-full flex-1 flex-col items-center">
+              <p className="font-display text-ink mt-2 text-[21px] leading-tight font-medium tracking-[-0.02em]">
+                {live ? `On the line with ${name}` : "Connecting…"}
+              </p>
+              <p className="text-muted mt-1 flex min-h-[1.5em] items-center gap-2 text-[14px] font-medium" aria-live="polite">
+                {visual !== "idle" ? (
+                  <span className="call-state text-[12.5px] font-bold tracking-[0.06em] uppercase" data-state={visual}>
+                    {STATE_WORDS[visual]}
                   </span>
-                )}
-              </button>
-            )}
-          </div>
-          {callError ? (
-            <p className="text-red-deep mt-3 text-[15px] font-semibold" role="alert">
-              {callError}
-            </p>
+                ) : null}
+                {live ? formatElapsed(elapsed) : null}
+              </p>
+
+              {/* Her words, as she says them. */}
+              {live && captions ? (
+                <p className="voice-caption text-ink mt-3 min-h-[3.2em] max-w-[34ch] text-[15.5px] leading-[1.45] font-medium" aria-live="polite">
+                  {caption ? <span key={caption} className="voice-caption__line">{caption}</span> : <span className="text-muted">Say hello. Her words show here.</span>}
+                </p>
+              ) : null}
+
+              {/* What to ask her: what a patient would. */}
+              {live ? (
+                <div className="voice-asks mt-3 w-full overflow-hidden" aria-label="Things to ask her">
+                  <div className="voice-asks__track flex w-max gap-2">
+                    {[...ASK_HER, ...ASK_HER].map((ask, i) => (
+                      <span key={i} aria-hidden={i >= ASK_HER.length} className="border-line text-muted shrink-0 rounded-full border bg-white px-3 py-1 text-[12.5px] font-semibold whitespace-nowrap">
+                        {ask}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-auto flex items-start justify-center gap-7 pt-5">
+                <CallButton label={muted ? "Unmute" : "Mute"} onClick={toggleMute} active={muted}>
+                  {muted ? ICON.micOff : ICON.mic}
+                </CallButton>
+                <CallButton label="Captions" onClick={() => setCaptions((on) => !on)} active={captions}>
+                  {ICON.captions}
+                </CallButton>
+                <CallButton label="End" onClick={endCall} danger>
+                  {ICON.end}
+                </CallButton>
+              </div>
+            </div>
           ) : (
-            <p className="text-muted mt-3 text-[13.2px] font-medium">Uses your microphone. Nothing is recorded.</p>
+            <div className="voice-rise flex flex-col items-center">
+              {portraitLabel ? <p className="text-muted mt-3 text-[13.2px] font-bold tracking-[0.1em] uppercase">{portraitLabel}</p> : null}
+              {idleTitle ? (
+                <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">{`Call ${name}`}</p>
+              ) : null}
+              <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={startCall}
+                  disabled={locked || busy}
+                  className="morph-btn rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+                  style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
+                >
+                  <span className="morph-btn__label">{state === "ended" ? "Call again" : "Talk now"}</span>
+                  {/* Under the pointer the words give way to a phone that rings
+                      once, and come back when it leaves (owner, 12 October 2026). */}
+                  <span aria-hidden className="morph-btn__icon morph-btn__icon--ring">
+                    {ICON.dial}
+                  </span>
+                </button>
+              </div>
+              {callError ? (
+                <p className="text-red-deep mt-3 text-[15px] font-semibold" role="alert">
+                  {callError}
+                </p>
+              ) : (
+                <p className="text-muted mt-3 text-[13.2px] font-medium">Uses your microphone. Nothing is recorded.</p>
+              )}
+            </div>
           )}
         </div>
       ) : null}
 
       {mode === "dial" && demoLine ? (
-        <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
+        <div className="voice-rise flex flex-1 flex-col items-center justify-center px-6 py-7 text-center">
           {dialReady !== null ? (
-            <>
-              <p className="text-muted text-[14.4px] font-semibold">
-                {callerRoute ? `From the number ending ${dialReady}, call` : `Call ${name} from your phone`}
-              </p>
-              <a
-                href={`tel:${demoLine}`}
-                className="font-display mt-2 text-[34px] leading-tight font-semibold tracking-[-0.01em] underline-offset-4 hover:underline"
-              >
-                {formatUs(demoLine)}
-              </a>
-              <p className="text-muted mt-3 max-w-[36ch] text-[15px] font-medium">
-                {callerRoute
-                  ? `It answers as ${name}, the way it would answer your own line. Calls from any other number reach healdesk’s assistant.`
-                  : `${name} answers it the way she would answer your own line.`}
-              </p>
-              {callerRoute ? (
-                <button
-                  type="button"
-                  onClick={() => setDialReady(null)}
-                  className="text-muted hover:text-ink mt-3 text-[14.4px] font-bold transition-colors"
+            <div className="flex w-full flex-col items-center gap-6 lg:flex-row lg:justify-center lg:gap-8">
+              {/* The dial card: the number, large, and a green call button. */}
+              <div className="flex flex-col items-center">
+                <p className="text-muted text-[13.5px] font-semibold">
+                  {callerRoute ? `From the number ending ${dialReady}, call` : `Call ${name} from your phone`}
+                </p>
+                <a href={`tel:${demoLine}`} className="font-display text-ink mt-1.5 text-[32px] leading-tight font-semibold tracking-[-0.01em] tabular-nums">
+                  {formatUs(demoLine)}
+                </a>
+                <a
+                  href={`tel:${demoLine}`}
+                  aria-label={`Call ${formatUs(demoLine)}`}
+                  className="voice-key mt-4 grid size-16 place-items-center rounded-full bg-[#34c759] text-white shadow-md transition-transform duration-fast hover:scale-105 [&_svg]:size-7"
                 >
-                  Use a different number
-                </button>
-              ) : null}
-            </>
+                  {ICON.dial}
+                </a>
+              </div>
+              {/* On a desktop, a code the visitor's phone can scan to dial it. */}
+              <div className="hidden flex-col items-center lg:flex">
+                <span className="grid size-[132px] place-items-center rounded-md bg-white p-3 shadow-sm ring-1 ring-black/[0.06]">
+                  {qr ? <img src={qr} alt="" width={108} height={108} className="size-[108px]" /> : <span className="bg-paper-2 size-[108px] rounded-sm" />}
+                </span>
+                <p className="text-muted mt-2 text-[12.5px] font-semibold">Scan to call from your phone</p>
+              </div>
+            </div>
           ) : (
             <form onSubmit={registerCaller} className="w-full max-w-[380px]">
               <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Call {name} from your phone</p>
@@ -442,19 +616,47 @@ export function VoiceCard({
               ) : null}
             </form>
           )}
+          {dialReady !== null ? (
+            <p className="text-muted mt-6 max-w-[40ch] text-[14px] font-medium">
+              {callerRoute
+                ? `It answers as ${name}, the way it would answer your own line. Calls from any other number reach healdesk’s assistant.`
+                : `${name} answers it the way she would answer your own line.`}
+              {callerRoute ? (
+                <>
+                  {" "}
+                  <button type="button" onClick={() => setDialReady(null)} className="text-ink font-bold underline underline-offset-2">
+                    Use a different number
+                  </button>
+                </>
+              ) : null}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
       {mode !== "callme" ? null : sent !== null ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-5 py-6 text-center">
-          <p className="font-display text-[21px] leading-tight font-medium tracking-[-0.02em]">Calling you now.</p>
+        <div className="voice-rise flex flex-1 flex-col items-center justify-center gap-1.5 px-5 py-6 text-center">
+          {/* The visitor's phone, ringing, a ring running round it while the call reaches it. */}
+          <span className="relative grid size-24 place-items-center" aria-hidden>
+            {ringing ? (
+              <svg viewBox="0 0 96 96" className="absolute inset-0 -rotate-90">
+                <circle cx="48" cy="48" r="44" fill="none" stroke="rgb(0 0 0 / 0.07)" strokeWidth="4" />
+                <circle cx="48" cy="48" r="44" fill="none" strokeWidth="4" strokeLinecap="round" pathLength={1} className="voice-ring" style={{ stroke: "#34c759", ["--ring" as string]: `${RING_SECONDS}s` }} />
+              </svg>
+            ) : null}
+            <span className={`grid size-16 place-items-center rounded-full bg-[#34c759] text-white [&_svg]:size-7 ${ringing ? "voice-buzz" : ""}`}>{ICON.dial}</span>
+          </span>
+          <p className="font-display mt-2 text-[21px] leading-tight font-medium tracking-[-0.02em]">{ringing ? "Your phone is ringing…" : "Did it ring?"}</p>
           <p className="text-muted max-w-[36ch] text-[15px] font-medium">
-            {sent ? `Watch for a call to the number ending ${sent}. ` : ""}Say &ldquo;stop&rdquo; at any point and the call ends.
+            {ringing
+              ? `${name} is calling ${sent ? `the number ending ${sent}` : "you"}. Say “stop” at any point and the call ends.`
+              : "If it didn’t, check the number and try again."}
           </p>
           <button
             type="button"
             onClick={() => {
               setSent(null);
+              setRinging(false);
               setConsent(false);
             }}
             className="text-muted hover:text-ink mt-1 text-[15px] font-bold transition-colors"
@@ -463,10 +665,10 @@ export function VoiceCard({
           </button>
         </div>
       ) : (
-        <form onSubmit={requestCall} className="flex flex-1 flex-col justify-center px-5 py-6">
+        <form onSubmit={requestCall} className="voice-rise flex flex-1 flex-col justify-center px-5 py-6">
           <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Have it ring your phone</p>
           <p className="text-muted mt-0.5 text-[14px] font-medium">{ringNote}</p>
-          <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <div className="mt-3 flex flex-col gap-2">
             <input
               type="text"
               value={firstName}
@@ -476,36 +678,61 @@ export function VoiceCard({
               autoComplete="given-name"
               maxLength={80}
               disabled={locked}
-              className="border-line text-ink placeholder:text-muted min-w-0 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)] sm:w-[8.5rem]"
+              className="border-line text-ink placeholder:text-muted min-w-0 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
             />
-            <input
-              type="tel"
-              required
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 (555) 000-0000"
-              aria-label="Your phone number"
-              autoComplete="tel"
-              disabled={locked}
-              className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-sm border px-3.5 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
-            />
-            <button
-              type="submit"
-              disabled={locked || submitting || !consent || !phone.trim()}
-              className="shrink-0 rounded-sm px-5 py-2.5 text-[16px] font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
-              style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
-            >
-              {submitting ? "Calling…" : "Call me"}
-            </button>
+            <div className="border-line flex min-w-0 items-stretch overflow-hidden rounded-sm border transition-colors focus-within:border-[var(--clinic)]">
+              {/* The country: its flag and code, then the number as it is written there. */}
+              <label className="border-line relative flex shrink-0 items-center gap-1.5 border-r bg-black/[0.025] pr-2 pl-3">
+                <span aria-hidden className="text-[18px] leading-none">
+                  {dialCountry.flag}
+                </span>
+                <span aria-hidden className="text-ink text-[15px] font-semibold tabular-nums">
+                  +{dialCountry.code}
+                </span>
+                <svg aria-hidden viewBox="0 0 12 12" className="text-muted size-2.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="m2.5 4.5 3.5 3.5 3.5-3.5" />
+                </svg>
+                <select
+                  value={country}
+                  onChange={(e) => {
+                    setCountry(e.target.value);
+                    setPhone((value) => formatNational(countryByIso(e.target.value), value));
+                  }}
+                  disabled={locked}
+                  aria-label="Country"
+                  className="absolute inset-0 cursor-pointer opacity-0"
+                >
+                  {DIAL_COUNTRIES.map((c) => (
+                    <option key={c.iso} value={c.iso}>
+                      {c.flag} {c.name} (+{c.code})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <input
+                type="tel"
+                required
+                value={phone}
+                onChange={(e) => setPhone(formatNational(dialCountry, e.target.value))}
+                placeholder={dialCountry.code === "1" ? "(212) 000-0000" : "Phone number"}
+                aria-label="Your phone number"
+                autoComplete="tel-national"
+                inputMode="tel"
+                disabled={locked}
+                className="text-ink placeholder:text-muted min-w-0 flex-1 px-3.5 py-2.5 text-[16px] tabular-nums outline-none"
+              />
+            </div>
           </div>
-          <label className="mt-3 flex cursor-pointer gap-2.5">
+          <label className="mt-3 flex cursor-pointer items-start gap-3">
+            {/* A switch, off until the visitor turns it on: still the checkbox the consent rules ask for. */}
             <input
               type="checkbox"
+              role="switch"
               required
               checked={consent}
               disabled={locked}
               onChange={(e) => setConsent(e.target.checked)}
-              className="mt-px size-[14px] shrink-0 cursor-pointer accent-[var(--clinic)]"
+              className="voice-switch mt-0.5 shrink-0"
             />
             <span className="text-[13px] leading-[1.45] font-medium">
               {CALL_CONSENT.text}{" "}
@@ -515,6 +742,15 @@ export function VoiceCard({
               . {CALL_CONSENT.note}
             </span>
           </label>
+          <button
+            type="submit"
+            disabled={locked || submitting || !consent || !phone.trim()}
+            className="mt-4 flex h-12 items-center justify-center gap-2 rounded-sm px-5 text-[16px] font-bold transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45 [&_svg]:size-[18px]"
+            style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
+          >
+            {ICON.callme}
+            {submitting ? "Calling…" : "Call me"}
+          </button>
           {formError ? (
             <p className="text-red-deep mt-2.5 text-[15px] font-semibold" role="alert">
               {formError}

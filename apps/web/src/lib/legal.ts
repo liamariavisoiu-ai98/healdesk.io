@@ -162,20 +162,8 @@ export const POLICY = {
    * is kept for that and then purged (api/cron/purge-leads).
    */
   callConsentRetentionYears: 4,
-  /**
-   * The first business associate agreement version that gives 24 hours'
-   * notice of a new subprocessor that will handle patient information
-   * (SUBPROCESSOR_NOTICE_HOURS in the catalog's subprocessor-notice.ts, which
-   * the data protection agreement carries too). 1.2.0 and 1.2.1 give the days
-   * below; 1.0.0 and the 0.1.0 draft promise notice with no period, which the
-   * days below also meet. /subprocessors and /trust state both, because a
-   * clinic that signed 1.2.1 keeps its fifteen days until it accepts a later
-   * version; src/lib/subprocessor-notice-copy.test.ts checks both against the
-   * templates.
-   */
-  subprocessorNoticeHoursFromBaaVersion: "1.3.0",
-  /** Days of notice before a new subprocessor handles patient data, under a BAA earlier than the version above. */
-  earlierBaaSubprocessorNoticeDays: 15,
+  /** Days of notice before a new subprocessor that handles patient data goes live. */
+  subprocessorNoticeDays: 15,
 } as const;
 
 /**

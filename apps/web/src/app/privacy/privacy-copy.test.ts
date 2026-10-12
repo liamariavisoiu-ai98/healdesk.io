@@ -58,8 +58,10 @@ describe("the website read at checkout", () => {
  * information only in de-identified form and not to try to re-identify it".
  * Until 12 October 2026 nothing here said so. Its Google Calendar clause lets
  * a practice that books by provider choose one calendar per provider, where
- * section 11 said the clinic "chooses which calendar". And its reporting
- * clause gives 24 hours where section 9 said five calendar days.
+ * section 11 said the clinic "chooses which calendar". Section 9's breach
+ * clock is the one the owner decided on 12 October 2026, in 2acc070's words,
+ * where it said five calendar days: no public page promises the 24 hours
+ * apps/app keeps as an internal operating target.
  */
 describe("the commitments BAA 1.3.0 points at", () => {
   const text = pageText();
@@ -83,8 +85,11 @@ describe("the commitments BAA 1.3.0 points at", () => {
     expect(text).not.toContain("It uses other events on the calendar");
   });
 
-  test("section 9 gives the agreement's 24 hours", () => {
-    expect(text).toContain("and in any case within 24 hours of discovery");
-    expect(text).not.toContain("five calendar days");
+  test("section 9 gives the owner's breach clock, and no public 24 hours", () => {
+    expect(text).toContain(
+      "A breach of unsecured patient information, or any other security incident, is reported to the clinic without unreasonable delay and in no case later than 60 calendar days after discovery.",
+    );
+    expect(text).not.toMatch(/five (?:calendar|business) days/);
+    expect(text).not.toContain("within 24 hours of discovery");
   });
 });

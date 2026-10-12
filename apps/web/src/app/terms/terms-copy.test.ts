@@ -91,9 +91,10 @@ describe("the terms describe v1 as the spec defines it", () => {
     // content "only under a business associate agreement with healdesk signed
     // before any patient's information reaches it". That agreement is an
     // owner item and is not signed yet (release gate 17), so the terms may
-    // not describe it as in force (release gate 14).
+    // not describe it as in force (release gate 14). The page names no
+    // vendor (the owner's direction of 9 October 2026).
     expect(text).toContain(
-      "Anthropic receives the content of each conversation, to generate the agent's replies, only under a business associate agreement with us signed before any patient's information reaches it.",
+      "Our language-model provider receives the content of each conversation, to generate the agent's replies, only under a business associate agreement with us signed before any patient's information reaches it.",
     );
     expect(text).toContain(
       "We process no real patient information for your Practice until each business associate agreement in the chain is in place: yours with us, and ours with every vendor that will handle it, which are our hosting provider, our database provider, our voice provider and our language-model provider.",

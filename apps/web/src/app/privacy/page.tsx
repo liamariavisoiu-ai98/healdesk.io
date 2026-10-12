@@ -56,9 +56,12 @@ export const metadata: Metadata = {
  *     calendar names it reads so the clinic can choose; the three things
  *     Google's permission reaches that healdesk neither reads nor stores; and
  *     when the stored connection is deleted;
- *   - section 9 gives 1.3.0's 24 hours for a breach, a security incident or
- *     an impermissible use or disclosure, where it said five calendar days,
- *     and says a vendor signs before patient information reaches it, as a
+ *   - section 9's breach clock is the one the owner decided on 12 October
+ *     2026, in 2acc070's words: "without unreasonable delay and in no case
+ *     later than 60 calendar days after discovery", where it said five
+ *     calendar days. The 24 hours apps/app's incident deadline keeps is an
+ *     internal operating target, and no public page promises it. Section 9
+ *     also says a vendor signs before patient information reaches it, as a
  *     promise rather than a statement of fact.
  */
 export default function PrivacyPage() {
@@ -395,11 +398,9 @@ export default function PrivacyPage() {
           the telephone; and a message on Instagram, Messenger or WhatsApp travels through
           Meta&apos;s systems, which we do not control. Email that would carry patient information
           goes only over an encrypted connection, and is not sent if the receiving server cannot
-          accept one. A breach of unsecured patient information, a security incident, or a use or
-          disclosure of patient information the agreement does not permit is reported to the
-          clinic immediately after we discover it, and in any case within 24 hours of discovery;
-          routine unsuccessful attempts that compromise nothing, such as blocked sign-ins, are
-          reported once, in the agreement itself.
+          accept one. A breach of unsecured patient information, or any other security incident,
+          is reported to the clinic without unreasonable delay and in no case later than 60
+          calendar days after discovery.
         </p>
         <p>
           The product&apos;s servers and its database run in Amazon Web Services&apos; US East

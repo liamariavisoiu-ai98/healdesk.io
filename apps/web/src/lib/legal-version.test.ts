@@ -50,10 +50,10 @@ const PINNED = {
    */
   replaces: "2026-10-07.3",
   sha256: {
-    "/terms": "0e6b80f2ab5a5bbdf54ed2712faad98716d7e096a5ee384bdf0cbc21500b7ed7",
-    "/privacy": "97af43c5d18d5d9efd68d594981b3a8444938a6a9c0370eb96612bfe640bef5d",
-    "/subprocessors": "9a5830a1b540b58579001ee68121805065611cb98b128617ba0242d69a66e69d",
-    "/trust": "b87041273cf5c6956488baa7f2e3e8369282079fef3ef7252e17716d7d4a3573",
+    "/terms": "dce52b76e24e31aa6e75f36b00e33442b9335def4ee06174731cf219de71ec62",
+    "/privacy": "d2a602153d6779e2ec49246259aba9196ace16999368ebe1b3fa20f30e544590",
+    "/subprocessors": "fd5df59b5d16036300545efd9c648c8eb97e5ab69b8df97636c1535c2bf0c8f6",
+    "/trust": "3afd18cd5d363f861bca400dea22b94b952b069a2459f6cbeb82cfb9f5b52691",
     "/data-deletion": "c176eca3132e36d15ee7924b829b7d8c70c30e655bb1a068606d10289b1531be",
   },
 } as const;

@@ -401,11 +401,12 @@ Added on 7 October 2026, read at origin/main c926414:
 13. **The Anthropic sentence describes a business associate agreement that is
     not yet signed** (brief.md risk 2). Gate A's `platform_compliance`
     attestation is what makes it true before the first DPA is signed.
-14. **The public notice period.** `/subprocessors` and `/trust` promised every
+14. **The public notice period.** `/subprocessors` and `/trust` promise every
     customer fifteen days (`POLICY.subprocessorNoticeDays`); the DPA gives
     24 hours, as BAA 1.3.0 does (agreement-changes.md § 12.11, item 10).
-    Closed in LEGAL_VERSION 2026-10-12.1: both pages give 24 hours, and
-    fifteen days only to a clinic whose BAA is earlier than 1.3.0.
+    Superseded by the owner's decision of 12 October 2026: `/subprocessors`
+    is retired and the list given to a signed clinic on written request, and
+    `/trust` becomes an annex to the Terms (another branch's work).
 15. **The telephone number kept after a deletion** (13, 17), left as it
     stands. Both sentences say the number of a client whose information was
     deleted is kept as the record of the request, as `eraseContact` keeps it
@@ -575,5 +576,6 @@ its trigger.
 - [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,
       11, 12, 14 and 19, Privacy § 12 and `/data-deletion` name only the BAA
       today, and a vet's clients are called patients.
-- [x] `/subprocessors` and `/trust` say the same notice period as the
-      agreements in force (gap 14; LEGAL_VERSION 2026-10-12.1).
+- [ ] `/subprocessors` and `/trust` say the same notice period as the
+      agreements in force (gap 14). Superseded: the owner retired both pages
+      on 12 October 2026 (list on request; `/trust` into the Terms).

@@ -105,10 +105,12 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  *   - section 4's cancellation is the portal's Auto-renew switch (apps/app,
  *     Billing), or an email ops acts on; Stripe's portal has cancellation
  *     off (apps/web/scripts/stripe-account-settings.ts);
- *   - section 9 states Anthropic's agreement as 1.3.0's Subcontractors clause
- *     does, as a promise about when it is signed, and says no real patient
- *     information is processed until every agreement in the chain is in
- *     place; sections 9 and 14 say "consistently with" (ICD-16).
+ *   - section 9 states the language-model provider's agreement as 1.3.0's
+ *     Subcontractors clause states Anthropic's, as a promise about when it is
+ *     signed, and says no real patient information is processed until every
+ *     agreement in the chain is in place. It names no vendor, as the owner's
+ *     direction of 9 October 2026 has it; sections 9 and 14 say "consistently
+ *     with" (ICD-16).
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -456,10 +458,9 @@ export default function TermsPage() {
           our language-model provider.
         </p>
         <p>
-          <strong>The language model.</strong> Our language-model provider is Anthropic. Anthropic
-          receives the content of each conversation, to generate the agent&apos;s replies, only
-          under a business associate agreement with us signed before any patient&apos;s
-          information reaches it. Under that agreement it keeps conversation content for 30 days,
+          <strong>The language model.</strong> Our language-model provider receives the content of
+          each conversation, to generate the agent&apos;s replies, only under a business associate
+          agreement with us signed before any patient&apos;s information reaches it. Under that agreement it keeps conversation content for 30 days,
           for abuse detection and security, and then deletes it, except content its automated
           trust-and-safety systems flag or the law requires it to keep, which it may keep for up
           to two years; the service it provides under that agreement cannot run with shorter

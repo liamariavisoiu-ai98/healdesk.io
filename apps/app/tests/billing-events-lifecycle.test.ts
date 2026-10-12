@@ -8,6 +8,7 @@ import {
   planMeteredPrices,
   stripeLookupKey,
 } from "@healdesk/catalog";
+import { fakeGoogleCalendar, setGoogleFetch } from "@healdesk/connectors";
 import type Stripe from "stripe";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
@@ -30,7 +31,13 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic, seedEntitled, type SeedEntitledOptions } from "./setup/factories";
+import {
+  inTenant,
+  seedClinic,
+  seedEntitled,
+  seedGoogleConnection,
+  type SeedEntitledOptions,
+} from "./setup/factories";
 import { createStripeFake, stripeError, type StripeFake } from "./setup/stripe-fake";
 
 /**
@@ -1679,6 +1686,42 @@ describeDb("the deferred start's billing lifecycle", () => {
         },
       ]);
       expectLintClean(notices);
+    });
+
+    test("the clinic's Google Calendar is disconnected once the end is recorded, and its grant revoked (Q7)", async () => {
+      const { clinicId, ids } = await boughtClinic("ended-calendar", {
+        planStartedAt: new Date(NOW.getTime() - 40 * DAY_MS),
+      });
+      const google = fakeGoogleCalendar();
+      google.addAccount({
+        sub: "ended-calendar-owner",
+        email: "bookings@ended.test",
+        hd: "ended.test",
+      });
+      const { refreshToken } = google.grant({ sub: "ended-calendar-owner" });
+      setGoogleFetch(google.fetch);
+      try {
+        await seedGoogleConnection(clinicId, { refreshToken });
+        const deleted = {
+          ...subscription(ids, [{ lookupKey: stripeLookupKey(complete, "month") }], {
+            status: "canceled",
+          }),
+          ended_at: Math.floor(Date.now() / 1000) - 2 * DAY,
+          cancellation_details: { comment: null, feedback: null, reason: "cancellation_requested" },
+        };
+        await handleStripeEvent(event("customer.subscription.deleted", deleted), { now: NOW });
+
+        const { rows } = await inTenant(clinicId, (client) =>
+          client.query<{ status: string; last_error: string | null }>(
+            `select status, last_error from provider_connections where clinic_id = $1 and provider = 'google_calendar'`,
+            [clinicId],
+          ),
+        );
+        expect(rows).toEqual([{ status: "revoked", last_error: "offboarding" }]);
+        expect(google.grantOf(refreshToken)?.revoked).toBe(true);
+      } finally {
+        setGoogleFetch(undefined);
+      }
     });
 
     // The destruction clock (lib/offboarding, drizzle/0058): the email's days

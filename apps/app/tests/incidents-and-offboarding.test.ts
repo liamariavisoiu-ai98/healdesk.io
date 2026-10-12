@@ -1,3 +1,4 @@
+import { FAKE_GOOGLE_CLIENT, fakeGoogleCalendar, setGoogleFetch } from "@healdesk/connectors";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import {
@@ -22,7 +23,14 @@ import { amendContact, exportPatient } from "@/lib/patient-rights/export";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedContact, seedConversation } from "./setup/factories";
+import {
+  inTenant,
+  seedCalendarTerms,
+  seedClinic,
+  seedContact,
+  seedConversation,
+  seedGoogleConnection,
+} from "./setup/factories";
 
 /**
  * The three BAA promises that were words until Phase 6: the breach clock,
@@ -336,5 +344,62 @@ describeDb("incidents, exports and offboarding", () => {
     expect(overview.destroyedAt).not.toBeNull();
     // Destroyed once: the next day's job finds nothing.
     expect(await destroyDueClinics(new Date(Date.now() + DAY))).toEqual([]);
+  });
+
+  test("destruction disconnects a Google Calendar still connected first, revokes its grant, and keeps the calendar elections", async () => {
+    const google = fakeGoogleCalendar();
+    google.addAccount({
+      sub: "120000000000000000001",
+      email: "bookings@leaving.test",
+      hd: "leaving.test",
+    });
+    const { refreshToken } = google.grant({ sub: "120000000000000000001" });
+    setGoogleFetch(google.fetch);
+    const env = {
+      id: process.env.GOOGLE_OAUTH_CLIENT_ID,
+      secret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    };
+    process.env.GOOGLE_OAUTH_CLIENT_ID = FAKE_GOOGLE_CLIENT.clientId;
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = FAKE_GOOGLE_CLIENT.clientSecret;
+    try {
+      const leaving = await seedClinic("offboard-calendar");
+      await seedCalendarTerms(leaving);
+      await seedGoogleConnection(leaving.clinicId, { refreshToken });
+      await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
+        startOffboarding(tx, "operator"),
+      );
+      await getMigratorPool().query(
+        `update clinics
+            set offboarding_started_at = offboarding_started_at - interval '31 days',
+                destroy_after = destroy_after - interval '31 days'
+          where id = $1`,
+        [leaving.clinicId],
+      );
+      await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
+        markExportDelivered(tx, "handed over"),
+      );
+
+      const results = await destroyDueClinics();
+      expect(results.map((r) => r.clinicId)).toEqual([leaving.clinicId]);
+      expect(results[0]!.deleted.provider_connections).toBe(1);
+      expect(google.grantOf(refreshToken)?.revoked).toBe(true);
+
+      const left = await inTenant(leaving.clinicId, async (client) => ({
+        connections: (await client.query(`select id from provider_connections`)).rows.length,
+        elections: (await client.query(`select id from calendar_elections`)).rows.length,
+        disconnected: (
+          await client.query(
+            `select id from audit_log where metadata ->> 'disconnected' = 'offboarding'`,
+          )
+        ).rows.length,
+      }));
+      expect(left).toEqual({ connections: 0, elections: 1, disconnected: 1 });
+    } finally {
+      setGoogleFetch(undefined);
+      if (env.id === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+      else process.env.GOOGLE_OAUTH_CLIENT_ID = env.id;
+      if (env.secret === undefined) delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+      else process.env.GOOGLE_OAUTH_CLIENT_SECRET = env.secret;
+    }
   });
 });

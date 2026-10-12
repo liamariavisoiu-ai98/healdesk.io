@@ -5,7 +5,7 @@ import { NO_PLATFORM_ID } from "@healdesk/catalog";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { clinics, connectionLinks } from "@/db/schema";
+import { clinics, connectionLinks, type PendingCalendarElection } from "@/db/schema";
 import type { ActorContext, RequestContext } from "@/lib/audit";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -155,7 +155,8 @@ const LINK_ACTOR: ActorContext = {
  * the kind of confirmation a stranger holding a URL should not get.
  * `calendar` connects a location's Google Calendar and records its calendar
  * elections (drizzle/0057, which also gives it an audience and the owner's
- * flags); the page and the links' issuance arrive with the connect flow.
+ * flags): app/calendar/[token], minted and mailed by
+ * lib/connections/calendar-links.ts.
  */
 export type LinkPurpose = "connect" | "setup" | "meta" | "whatsapp" | "calendar";
 
@@ -182,6 +183,19 @@ export type ResolvedLink = {
    */
   specialty: string;
   purpose: LinkPurpose;
+  /** The link's own id: what an election or a Google sign-in started from it records. */
+  linkId: string;
+  /**
+   * Calendar links only (drizzle/0057); every other purpose is `recipients`
+   * with no flags. `owner` links were mailed to the practice owner alone:
+   * the change link (`allowsAccountChange`) and the confirm link
+   * (`pendingElection`).
+   */
+  audience: "recipients" | "owner";
+  allowsAccountChange: boolean;
+  pendingElection: PendingCalendarElection | null;
+  /** The lower-cased addresses it was mailed to, as frozen at issue. */
+  sentTo: string[] | null;
 };
 
 export type IssueLinkOptions = {
@@ -189,6 +203,16 @@ export type IssueLinkOptions = {
   expiresInDays?: number;
   /** Defaults to "connect". Set at issue and never changed. */
   purpose?: LinkPurpose;
+  /**
+   * Calendar links only, and frozen at issue like the purpose (the
+   * database refuses them on any other purpose, and refuses an account
+   * change or a pending election on a `recipients` link).
+   */
+  audience?: "recipients" | "owner";
+  /** Who it is mailed to: recorded before it is sent, never after. */
+  sentTo?: readonly string[] | null;
+  allowsAccountChange?: boolean;
+  pendingElection?: PendingCalendarElection | null;
 };
 
 export type IssueLinkContext = {
@@ -233,52 +257,77 @@ export async function issueConnectionLink(
   clinicId: string,
   opts: IssueLinkOptions,
   ctx: IssueLinkContext,
-): Promise<{ token: string; expiresAt: Date }> {
+): Promise<{ token: string; expiresAt: Date; linkId: string }> {
+  return withTenant({ clinicId, actor: ctx.actor, request: ctx.request }, (tx) =>
+    issueConnectionLinkWithin(tx, opts, ctx.actor),
+  );
+}
+
+/**
+ * The same mint, inside a tenant transaction the caller owns: for a link
+ * that must exist only if something else commits with it (the calendar
+ * page's continuation link, minted in the transaction that spends its
+ * parent). The clinic is the transaction's own.
+ */
+export async function issueConnectionLinkWithin(
+  tx: TenantTx,
+  opts: IssueLinkOptions,
+  actor: ActorContext,
+): Promise<{ token: string; expiresAt: Date; linkId: string }> {
   const days = clampTtlDays(opts.expiresInDays);
   const purpose: LinkPurpose = opts.purpose ?? "connect";
   const { token, hash } = generateLinkToken();
 
   // Attribution is taken from the audit actor rather than accepted as its own
   // argument, so the row and the audit entry cannot disagree about who did this.
-  const issuedBy = ctx.actor.type === "user" ? ctx.actor.userId : null;
+  const issuedBy = actor.type === "user" ? actor.userId : null;
+  const sentTo = opts.sentTo ? [...new Set(opts.sentTo.map((a) => a.trim().toLowerCase()))] : null;
 
-  const expiresAt = await withTenant(
-    { clinicId, actor: ctx.actor, request: ctx.request },
-    async (tx) => {
-      const [row] = await tx.db
-        .insert(connectionLinks)
-        .values({
-          clinicId,
-          tokenHash: hash,
-          // Computed by Postgres, against the same clock that later decides the
-          // link has expired. An app-side Date would let skew between the web
-          // process and the database silently shorten or extend the window.
-          expiresAt: sql`now() + make_interval(days => ${days})`,
-          issuedBy,
-          purpose,
-        })
-        .returning({
-          id: connectionLinks.id,
-          expiresAt: connectionLinks.expiresAt,
-        });
+  const [row] = await tx.db
+    .insert(connectionLinks)
+    .values({
+      clinicId: tx.clinicId,
+      tokenHash: hash,
+      // Computed by Postgres, against the same clock that later decides the
+      // link has expired. An app-side Date would let skew between the web
+      // process and the database silently shorten or extend the window.
+      expiresAt: sql`now() + make_interval(days => ${days})`,
+      issuedBy,
+      purpose,
+      audience: opts.audience ?? "recipients",
+      sentTo,
+      allowsAccountChange: opts.allowsAccountChange ?? false,
+      pendingElection: opts.pendingElection ?? null,
+    })
+    .returning({
+      id: connectionLinks.id,
+      expiresAt: connectionLinks.expiresAt,
+    });
 
-      if (!row) {
-        throw new Error("Failed to issue a connection link: no row returned.");
-      }
+  if (!row) {
+    throw new Error("Failed to issue a connection link: no row returned.");
+  }
 
-      tx.audit.record({
-        action: "create",
-        resourceType: "connection_link",
-        resourceId: row.id,
-        // No token, no digest, no clinic name. Only the shape of the grant.
-        metadata: { expiresInDays: days, purpose },
-      });
-
-      return row.expiresAt;
+  tx.audit.record({
+    action: "create",
+    resourceType: "connection_link",
+    resourceId: row.id,
+    // No token, no digest, no clinic name, no address: only the shape of the grant.
+    metadata: {
+      expiresInDays: days,
+      purpose,
+      ...(purpose === "calendar"
+        ? {
+            audience: opts.audience ?? "recipients",
+            allowsAccountChange: opts.allowsAccountChange ?? false,
+            pendingElection: Boolean(opts.pendingElection),
+            recipients: sentTo?.length ?? 0,
+          }
+        : {}),
     },
-  );
+  });
 
-  return { token, expiresAt };
+  return { token, expiresAt: row.expiresAt, linkId: row.id };
 }
 
 /**
@@ -317,6 +366,10 @@ export async function resolveConnectionLink(
         linkId: connectionLinks.id,
         usedAt: connectionLinks.usedAt,
         purpose: connectionLinks.purpose,
+        audience: connectionLinks.audience,
+        allowsAccountChange: connectionLinks.allowsAccountChange,
+        pendingElection: connectionLinks.pendingElection,
+        sentTo: connectionLinks.sentTo,
         // Evaluated by Postgres so expiry is judged by one clock — the same one
         // that stamped expires_at and that the consuming UPDATE will use.
         expired: sql<boolean>`${connectionLinks.expiresAt} <= now()`,
@@ -370,7 +423,87 @@ export async function resolveConnectionLink(
       attributionMode: row.attributionMode,
       specialty: row.specialty,
       purpose,
+      linkId: row.linkId,
+      audience: row.audience,
+      allowsAccountChange: row.allowsAccountChange,
+      pendingElection: row.pendingElection ?? null,
+      sentTo: row.sentTo ?? null,
     };
+  });
+}
+
+/**
+ * The calendar link's burn, inside the caller's transaction, answering which
+ * link it burned: the Google callback checks that it is the one its sign-in
+ * started from before it stores anything. Null for anything
+ * consumeConnectionLinkWithin would refuse.
+ */
+export async function consumeCalendarLinkWithin(
+  tx: TenantTx,
+  token: string,
+  ip: string | null,
+): Promise<string | null> {
+  const hash = hashIfWellFormed(token);
+  if (!hash) return null;
+  const [row] = await tx.db
+    .update(connectionLinks)
+    .set({ usedAt: sql`now()`, consumedIp: normaliseIp(ip) })
+    .where(
+      and(
+        eq(connectionLinks.tokenHash, hash),
+        eq(connectionLinks.purpose, "calendar"),
+        isNull(connectionLinks.usedAt),
+        gt(connectionLinks.expiresAt, sql`now()`),
+      ),
+    )
+    .returning({ id: connectionLinks.id });
+  tx.audit.record({
+    action: "update",
+    resourceType: "connection_link",
+    ...(row ? { resourceId: row.id } : {}),
+    metadata: row
+      ? { outcome: "consumed", purpose: "calendar" }
+      : { outcome: "rejected", reason: "not_consumable", purpose: "calendar" },
+  });
+  return row?.id ?? null;
+}
+
+/** How far back a spent or expired calendar link may still ask for a new one (plan §4.1). */
+export const CALENDAR_REISSUE_WINDOW_DAYS = 30;
+
+/**
+ * The clinic behind a calendar link that is spent or expired but was issued
+ * within CALENDAR_REISSUE_WINDOW_DAYS: the expired page's "Email a new link
+ * to the practice's calendar contacts". Null for anything else: an unknown
+ * or malformed token, another purpose, or an older link. The caller answers
+ * every case with the same sentence and mails the new link only to the
+ * practice's own addresses, so the holder of an old URL learns nothing and
+ * gains nothing but a link in the practice's inbox.
+ */
+export async function calendarLinkClinicForReissue(
+  token: string,
+  request?: RequestContext,
+): Promise<string | null> {
+  const hash = hashIfWellFormed(token);
+  if (!hash) return null;
+  const clinicId = await clinicForTokenHash(hash);
+  if (!clinicId) return null;
+  return withTenant({ clinicId, actor: LINK_ACTOR, request }, async (tx) => {
+    const [row] = await tx.db
+      .select({ id: connectionLinks.id })
+      .from(connectionLinks)
+      .where(
+        and(
+          eq(connectionLinks.tokenHash, hash),
+          eq(connectionLinks.purpose, "calendar"),
+          gt(
+            connectionLinks.createdAt,
+            sql`now() - make_interval(days => ${CALENDAR_REISSUE_WINDOW_DAYS})`,
+          ),
+        ),
+      )
+      .limit(1);
+    return row ? clinicId : null;
   });
 }
 

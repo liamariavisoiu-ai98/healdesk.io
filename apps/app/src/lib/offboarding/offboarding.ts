@@ -21,6 +21,7 @@ import {
   webhookEvents,
 } from "@/db/schema";
 import { recordSecurityEvent } from "@/lib/audit";
+import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
 import { notifyOpsOnce } from "@/lib/ops/notify";
@@ -579,6 +580,17 @@ export async function destroyDueClinics(now: Date = new Date()): Promise<Destruc
     }
     await alertBeforeThirtyDayDestruction(clinic.id, clinic.exportDeliveredAt, plan, now);
     if (!dueForDestruction(clinic, now)) continue;
+    // A Google Calendar connection still standing (the sweep when
+    // offboarding started missed it, or it came back) is disconnected first,
+    // and its grant revoked at Google when unused: the row's deletion below
+    // takes the token, but only the sweep can end the grant (plan §4.12). A
+    // sweep that fails is logged and destruction goes on: the deadline is the
+    // agreement's, and deleting the row still ends healdesk's use of the token.
+    try {
+      await sweepCalendarTerms([clinic.id], { actor });
+    } catch (error) {
+      log.warn("calendar sweep before destruction failed", { clinicId: clinic.id, error: describeError(error) });
+    }
     let result: DestructionResult;
     try {
       result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx));

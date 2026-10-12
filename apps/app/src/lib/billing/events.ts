@@ -24,6 +24,7 @@ import {
   type BillingStatus,
   type Entitlements,
 } from "@/db/schema";
+import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import type { NoticeKind } from "@/lib/email/kinds";
 import { linkProblem } from "@/lib/email/lint";
 import { log } from "@/lib/log";
@@ -381,6 +382,14 @@ export async function handleStripeEvent(
     const result = effects.ignored
       ? await finish(event.id, "ignored", clinicId, effects.ignored)
       : await finish(event.id, "processed", clinicId);
+    if (type === "customer.subscription.deleted") {
+      // The clinic is offboarding now, and its Google access ends when
+      // offboarding starts (owner decision Q7), not at destruction: its
+      // calendar is disconnected and the grant revoked at Google when no
+      // other location uses the account. After the commit, so an event that
+      // rolled back takes nothing away, and never thrown from.
+      await sweepCalendarTerms([resolved], { actor: STRIPE_WEBHOOK_ACTOR });
+    }
     return effects.critical ? { ...result, criticalNotice: true } : result;
   } catch (error) {
     const failures = await recordFailure(event.id, clinicId, error);

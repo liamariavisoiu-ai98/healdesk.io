@@ -136,7 +136,7 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure and O13, and the calendar's two", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -168,6 +168,8 @@ describe("the template registry", () => {
       "setup_closed",
       "calendar_stopped",
       "calendar_reconnected",
+      "calendar_link",
+      "calendar_election_recorded",
     ]);
   });
 
@@ -627,6 +629,12 @@ describe("the kind rules", () => {
     );
     for (const kind of NOTICE_KINDS) expect(isLinkEmail(kind), kind).toBe(false);
     expect(isLinkEmail("sign_in_link")).toBe(true);
+    // The calendar link carries a token; the election's copy never does.
+    expect(isLinkEmail("calendar_link")).toBe(true);
+    expect(isLinkEmail("calendar_election_recorded")).toBe(false);
+    expect(linkProblem(`${ORIGIN}/calendar/${TOKEN}`, "calendar_election_recorded")).toMatch(
+      /not a link email/,
+    );
   });
 
   test("a bounce on a sign-in kind locks a clinic out; one on an ops alert does not", () => {

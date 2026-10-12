@@ -91,6 +91,17 @@ export const CALENDAR_LIST_QUERY = Object.freeze({
   fields: "items(id,summary,primary,timeZone,accessRole)",
 });
 /**
+ * Added to the list for a location whose calendar terms are covered (HRC-04,
+ * owner decision of 6 October 2026): only the calendars of the connected
+ * account's own Workspace organisation. Google's owner role is not ownership,
+ * so without it a calendar another domain shares in with "make changes and
+ * manage sharing" is listed too, and a covered practice could book into a
+ * calendar outside its own Google agreement. Google applies it only to
+ * Workspace users; apps/app requires a Workspace account for covered terms
+ * before it asks.
+ */
+export const OWN_ORGANIZATION_QUERY = Object.freeze({ showOwnOrganizationOnly: "true" });
+/**
  * Google's default calendarList page. A page this full may continue past
  * what the mask lets us see, so it is refused (`too_many_calendars`) rather
  * than shown to the clinic with calendars silently missing. No practice owns
@@ -685,14 +696,23 @@ export class GoogleCalendarAdapter implements ConnectorAdapter {
    *
    * It needs the connection's credentials but not its calendar, so a clinic
    * whose stored choice has become unusable can still choose again.
+   *
+   * `ownOrganizationOnly` adds OWN_ORGANIZATION_QUERY: the list a covered
+   * location chooses from, and the one its every write is checked against.
    */
-  async listCalendars(context: ConnectorContext): Promise<Result<OwnedGoogleCalendar[]>> {
+  async listCalendars(
+    context: ConnectorContext,
+    options: { ownOrganizationOnly?: boolean } = {},
+  ): Promise<Result<OwnedGoogleCalendar[]>> {
     const ctx = "google listCalendars";
     const config = credentialsOf(context);
     if (!config.ok) return fail(config.error);
 
     const url = new URL(`${GOOGLE_CALENDAR_API}/users/me/calendarList`);
-    for (const [name, value] of Object.entries(CALENDAR_LIST_QUERY)) {
+    const query = options.ownOrganizationOnly
+      ? { ...CALENDAR_LIST_QUERY, ...OWN_ORGANIZATION_QUERY }
+      : CALENDAR_LIST_QUERY;
+    for (const [name, value] of Object.entries(query)) {
       url.searchParams.set(name, value);
     }
     const reply = await call(config.value, "read", {

@@ -3646,8 +3646,8 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   },
   // ⚖️ Drafted on 2026-10-06; not released, so not at [0], and signing
   // refuses it, taking only [0] or a released version inside its
-  // overlap. Provisioning's approval gate reads [0] too, not the bound
-  // acceptance's version, until plan C15, which must land before the
+  // overlap. Provisioning refuses a row signed under it too (plan C15: its
+  // approval gate reads the bound acceptance's own version) until the
   // release. Released by the owner after an audit of the full text (plan
   // C19): it then moves to [0] with a release date, and 1.2.1 stays signable
   // until the deadline in BAA_RELEASE_OVERLAP, unless the release raises

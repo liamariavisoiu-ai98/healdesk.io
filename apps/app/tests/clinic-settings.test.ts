@@ -78,6 +78,9 @@ describeDb("clinic settings", () => {
       depositHoldMinutes: row.deposit_hold_minutes,
       aiPausedAt: row.ai_paused_at,
       aiPausedUntil: row.ai_paused_until,
+      autoConfirmBookings: row.auto_confirm_bookings,
+      autoConfirmChangedAt: row.auto_confirm_changed_at,
+      autoConfirmChangedByLabel: row.auto_confirm_changed_by_label,
       directLineE164: row.direct_line_e164,
     }).toEqual({
       depositsEnabled: DEFAULT_CLINIC_SETTINGS.depositsEnabled,
@@ -87,8 +90,73 @@ describeDb("clinic settings", () => {
       depositHoldMinutes: DEFAULT_CLINIC_SETTINGS.depositHoldMinutes,
       aiPausedAt: null,
       aiPausedUntil: DEFAULT_CLINIC_SETTINGS.aiPausedUntil,
+      // Auto-confirm is on by default (spec), in drizzle/0057 as here.
+      autoConfirmBookings: true,
+      autoConfirmChangedAt: DEFAULT_CLINIC_SETTINGS.autoConfirmChangedAt,
+      autoConfirmChangedByLabel: DEFAULT_CLINIC_SETTINGS.autoConfirmChangedByLabel,
       directLineE164: null,
     });
+    expect(DEFAULT_CLINIC_SETTINGS.autoConfirmBookings).toBe(true);
+  });
+
+  test("switching Auto-confirm stamps who and when together and audits a boolean; re-saving moves neither", async () => {
+    const { clinicId } = await seedClinic("settings-auto-confirm");
+    const first = new Date("2026-10-08T09:00:00Z");
+    const later = new Date("2026-10-08T15:00:00Z");
+
+    const off = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(tx, { autoConfirmBookings: false }, actor.label, first),
+    );
+    expect(off).toMatchObject({
+      autoConfirmBookings: false,
+      autoConfirmChangedByLabel: actor.label,
+    });
+    expect(off.autoConfirmChangedAt?.getTime()).toBe(first.getTime());
+
+    // The same value, from a form that re-sends it with another field.
+    const resaved = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(
+        tx,
+        { autoConfirmBookings: false, depositHoldMinutes: 120 },
+        "someone-else@example-clinic.test",
+        later,
+      ),
+    );
+    expect(resaved.autoConfirmChangedAt?.getTime()).toBe(first.getTime());
+    expect(resaved.autoConfirmChangedByLabel).toBe(actor.label);
+
+    const on = await withTenant({ clinicId, actor }, (tx) =>
+      updateClinicSettings(
+        tx,
+        { autoConfirmBookings: true },
+        "someone-else@example-clinic.test",
+        later,
+      ),
+    );
+    expect(on).toMatchObject({
+      autoConfirmBookings: true,
+      autoConfirmChangedByLabel: "someone-else@example-clinic.test",
+    });
+    expect(on.autoConfirmChangedAt?.getTime()).toBe(later.getTime());
+
+    await expect(
+      withTenant({ clinicId, actor }, (tx) =>
+        updateClinicSettings(tx, { autoConfirmBookings: "off" as never }, actor.label),
+      ),
+    ).rejects.toMatchObject({ name: "ClinicSettingsError", field: "autoConfirmBookings" });
+
+    const audits = await inTenant(clinicId, async (c) => {
+      const { rows } = await c.query<{ metadata: Record<string, unknown> }>(
+        `select metadata from audit_log where clinic_id = $1 and resource_type = 'clinic_settings' order by occurred_at`,
+        [clinicId],
+      );
+      return rows.map((r) => r.metadata);
+    });
+    expect(audits).toEqual([
+      { fields: ["autoConfirm"], autoConfirm: false },
+      { fields: ["depositHoldMinutes"], depositHoldMinutes: 120 },
+      { fields: ["autoConfirm"], autoConfirm: true },
+    ]);
   });
 
   test("updates upsert, keep the fields they do not name, and stamp Pause AI from the actor and the clock", async () => {
@@ -149,7 +217,12 @@ describeDb("clinic settings", () => {
     const first = new Date("2026-10-05T09:00:00Z");
     const later = new Date("2026-10-05T15:00:00Z");
     await withTenant({ clinicId, actor }, (tx) =>
-      updateClinicSettings(tx, { aiPaused: true, directLineE164: "+14155550177" }, actor.label, first),
+      updateClinicSettings(
+        tx,
+        { aiPaused: true, directLineE164: "+14155550177" },
+        actor.label,
+        first,
+      ),
     );
 
     // A form re-sends the whole state with one field changed.

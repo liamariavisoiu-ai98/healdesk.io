@@ -14,11 +14,11 @@
 > **Since 9 October 2026 the version offered is BAA 1.2.2** (§ 13,
 > `docs/baa-v1.2.2.txt`), released by the owner without external counsel.
 >
-> **Since 13 October 2026 the version offered is BAA 1.3.0** (§ 12.15,
+> **Since 12 October 2026 the version offered is BAA 1.3.0** (§ 12.15,
 > `docs/baa-v1.3.0.txt`), with the calendar election, released by the owner
 > without external counsel after Claude's own audit of the full text against
-> the code. 1.2.2 stays the go-live floor and signs until 27 October 2026 for
-> a checkout opened before the release.
+> the code. No clinic had signed 1.2.2, so 1.3.0 replaced it outright: 1.2.2
+> is no longer signable, and 1.3.0 is the go-live floor.
 
 ## Contents
 
@@ -33,7 +33,7 @@
 9. [Clinics outside HIPAA: state-law terms instead of a separate DPA](#9-clinics-outside-hipaa)
 10. [Existing signers and subprocessor notice](#10-existing-signers-and-subprocessor-notice)
 11. [How a change ships (for the engineer)](#11-how-a-change-ships-for-the-engineer)
-12. [BAA 1.3.0: calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-calendar-terms-the-q8-clauses-and-24-hours-notice) (released 13 October 2026, § 12.15)
+12. [BAA 1.3.0: calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-calendar-terms-the-q8-clauses-and-24-hours-notice) (released 12 October 2026, § 12.15)
 13. [BAA 1.2.2: the list on request, one email address, the spec's breach wording](#13-baa-122-the-list-on-request-one-email-address-the-specs-breach-wording)
 14. [Review log](#review-log-2026-10-01)
 
@@ -408,7 +408,7 @@ nothing and removes the argument.
 
 ## 12. BAA 1.3.0: calendar terms, the Q8 clauses and 24 hours' notice
 
-> **Released 13 October 2026, and offered from that day (§ 12.15). Not legal
+> **Released 12 October 2026, and offered from that day (§ 12.15). Not legal
 > advice.** What follows down to § 12.14 records the draft as it stood
 > before the release, in the words of the day it was written; § 12.15 records
 > the release, the audit that preceded it and the two sentences it changed.
@@ -915,7 +915,7 @@ them.
 Frozen in `apps/app/tests/baa-golden.test.ts` and
 `packages/catalog/src/google-calendar-disclosure.test.ts`. Each edit before
 the release regenerated them in the same commit and is noted here; since the
-release of 13 October 2026 (§ 12.15) they never move. The table gives them as
+release of 12 October 2026 (§ 12.15) they never move. The table gives them as
 released.
 
 | Document and variant | SHA-256 |
@@ -1899,16 +1899,19 @@ them. The election and the disclosure did not move in that round. The DPA's
 golden hashes (`packages/catalog/src/dpa.test.ts`) and `docs/dpa-v1.0.0.txt`
 moved with the shared clauses.
 
-### 12.15 Release, 13 October 2026, and the audit before it
+### 12.15 Release, 12 October 2026, and the audit before it
 
 > **Not legal advice.** The owner released BAA 1.3.0 and
-> `calendar-election/1.0.0` on 13 October 2026, on the owner's own review and
+> `calendar-election/1.0.0` on 12 October 2026, on the owner's own review and
 > **without external counsel** (owner answer Q2; plan C19), after Claude's own
 > audit of the full text against the code on main. Counsel's approval, as the
 > owner reported it on 6 October (§ 12.14), covered the calendar version of
 > the BAA and the 24 hours' notice, and predates the merged and redrafted
 > text: what is released is the owner's decision on this audit, not a
-> lawyer's. The DPA and its election stay unreleased.
+> lawyer's. The owner decided the same day that 1.3.0 replaces 1.2.2
+> outright ("1.2.2 does not need to stay signable. Just replace it."): no
+> overlap, and the go-live floor rises to 1.3.0. The DPA and its election
+> stay unreleased.
 
 #### The audit (12 October 2026)
 
@@ -1959,25 +1962,30 @@ stands (§ 12.7).
 
 | Change | Where |
 | --- | --- |
-| 1.3.0 is `BAA_TEMPLATES[0]`, `publishedOn` 2026-10-13, `approvedByCounsel: true`, which records the owner's release (the flag's doc comment); checkout offers it and signing takes it | `packages/catalog/src/baa.ts` |
-| 1.2.2 is `BAA_TEMPLATES[1]`, frozen, and signable until `2026-10-27T00:00:00Z`, fourteen days after the release date (`BAA_RELEASE_OVERLAP`), so a checkout opened before the release, or a browser still holding the old signing screen, can finish; plan C20 empties the map once both production deployments are verified | `packages/catalog/src/baa.ts`; `signableTemplate` in `apps/app/src/lib/agreements.ts` |
-| The go-live floor stays 1.2.2 (below) | `MIN_ACCEPTABLE_BAA_VERSION` |
-| `calendar-election/1.0.0` released: `approvedByCounsel: true`, `publishedOn` 2026-10-13; an election under it now counts for every clinic, not only a demo clinic | `packages/catalog/src/calendar-terms.ts` |
-| `app_baa_version_acceptable()` accepts 1.3.0 and 1.2.2 and nothing else; `app_calendar_election_released()` lists `calendar-election/1.0.0` and nothing else (not the DPA's election); a DO block asserts both lists and that `app_destruction_rule()` gives 1.3.0 the export rule and 1.2.2 the thirty days | The `baa_release_1_3_0` migration in `apps/app/drizzle/` (numbered at integration, after main's `0065_destroy_deposit_payments`); parity tests in `apps/app/tests/database-audit.test.ts` |
+| 1.3.0 is `BAA_TEMPLATES[0]`, `publishedOn` 2026-10-12, `approvedByCounsel: true`, which records the owner's release (the flag's doc comment); checkout offers it and signing takes it | `packages/catalog/src/baa.ts` |
+| 1.2.2 is `BAA_TEMPLATES[1]`, frozen, and no longer signable: `BAA_RELEASE_OVERLAP` is empty, so a checkout or a browser still holding the 1.2.2 signing screen is refused and asked to reload and review the current version | `packages/catalog/src/baa.ts`; `signableTemplate` in `apps/app/src/lib/agreements.ts` |
+| The go-live floor rises to 1.3.0 (below): provisioning, the checkout's agreement check and go-live refuse a 1.2.2 signature | `MIN_ACCEPTABLE_BAA_VERSION` |
+| `calendar-election/1.0.0` released: `approvedByCounsel: true`, `publishedOn` 2026-10-12; an election under it now counts for every clinic, not only a demo clinic | `packages/catalog/src/calendar-terms.ts` |
+| `app_baa_version_acceptable()` accepts 1.3.0 and nothing else; `app_calendar_election_released()` lists `calendar-election/1.0.0` and nothing else (not the DPA's election); a DO block asserts both lists and that `app_destruction_rule()` gives 1.3.0 the export rule and 1.2.2 the thirty days | The `baa_release_1_3_0` migration in `apps/app/drizzle/` (numbered at integration, after main's `0065_destroy_deposit_payments`); parity tests in `apps/app/tests/database-audit.test.ts` |
 | The released review copy, with the variant clauses, the election and the disclosure in appendices | `docs/baa-v1.3.0.txt` (renamed from `docs/baa-v1.3.0-draft-calendar-clauses.txt`) |
 
-**The floor.** Kept at 1.2.2, although 1.3.0 is the first version with the
-Payments clause and the clause for a practice that is not a covered entity.
-Raising it would refuse go-live to every clinic that signed 1.2.2, and
-nothing yet lets one move to 1.3.0: `supersedeAgreement`
-(`apps/app/src/lib/agreements/kind.ts`) has no caller, and even with one a
-superseded first location would get no `agreement` election row, which only
-provisioning records (`recordAgreementTerms`) and the database allows only
-at sequence 1 (`calendar_elections_agreement_shape`, drizzle/0057), so 1.3.0's
-location paragraph would be untrue for that practice. A 1.2.2 location takes
-its calendar terms from its first calendar election, which this release
-makes possible for every clinic. Raising the floor waits for a re-sign path
-that records the first location's terms.
+**The floor.** Raised to 1.3.0, as 1.2.2's release raised it past 1.2.1
+(§ 13): 1.3.0 is the first version with the Payments clause and the clause
+for a practice that is not a covered entity, and 1.2.2's one Google Calendar
+clause is untrue for a practice whose booking system does not read Google
+Calendar. The release as prepared kept it at 1.2.2, because raising it would
+refuse go-live to every clinic that signed 1.2.2 and nothing lets one move to
+1.3.0: `supersedeAgreement` (`apps/app/src/lib/agreements/kind.ts`) has no
+caller, and a superseded first location would get no `agreement` election
+row, which only provisioning records (`recordAgreementTerms`) and the
+database allows only at sequence 1 (`calendar_elections_agreement_shape`,
+drizzle/0057). That reasoning protected clinics holding 1.2.2, and there are
+none: `apps/app` is deployed for no real clinic and no clinic has signed
+1.2.2. So it no longer applies, and the owner's decision of 12 October
+replaces 1.2.2 outright. Every clinic is now provisioned under 1.3.0 and
+takes its first location's calendar terms from the agreement itself; a
+location without them (a later location, or a superseded agreement) records
+a calendar election, which this release makes possible for every clinic.
 
 #### The release gates on the day
 

@@ -63,7 +63,7 @@ import {
  * what an election does after it, through the code paths production uses.
  * Every clinic, agreement and account here is synthetic.
  *
- * calendar-election/1.0.0 was released with BAA 1.3.0 (plan C19, 13 October
+ * calendar-election/1.0.0 was released with BAA 1.3.0 (plan C19, 12 October
  * 2026), so no BAA election is a draft any more. To show what a draft does,
  * and that a release never upgrades a row recorded as one, the BAA's form
  * can be swapped here for an unreleased later version (`draft.election`),
@@ -562,19 +562,19 @@ describeDb("calendar terms at runtime", () => {
       await seedGoogleConnection(clinic.clinicId, { managed: true });
       expect(await permitted(clinic.clinicId, true)).toBe(true);
 
-      // 1.2.2 carries no calendar terms, so a location provisioned under it
-      // waits for an election, and none was recorded. Signed by its version
-      // rather than as whatever is current, which 1.3.0 is since its release.
+      // 1.2.2 carries no calendar terms, and no location is provisioned under
+      // it any more: 1.3.0 replaced it outright and is the go-live floor (12
+      // October 2026), so every new location starts under signed terms. A
+      // location already bound to an agreement before 1.3.0 still waits for
+      // an election (`legacy_agreement`, above). Signed by its version rather
+      // than as whatever is current.
       const legacyEmail = `owner-${randomUUID().slice(0, 8)}@legacy.test`;
       const legacy = await sign(legacyEmail, { platform: "none" }, "1.2.2");
-      const legacyClinic = await provision(legacyEmail, legacy.agreementId);
-      expect(await terms(legacyClinic.clinicId)).toMatchObject({
-        kind: "needs_election",
-        reason: "legacy_agreement",
-        agreementId: legacy.agreementId,
-        electionId: null,
+      await expect(provision(legacyEmail, legacy.agreementId)).rejects.toMatchObject({
+        name: "ProvisioningError",
+        field: "agreementId",
+        message: expect.stringContaining("Version 1.2.2 of the business associate agreement can't be used"),
       });
-      expect(await electionRows(legacyClinic.clinicId)).toEqual([]);
     },
     SLOW,
   );

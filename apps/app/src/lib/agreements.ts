@@ -178,8 +178,9 @@ const MAX_ASSENT_LABEL = 200;
  *
  * Each defaults to the real one, and the endpoint passes none of them. They
  * are injectable because a release changes both the current template and the
- * overlap (1.3.0's, plan C19, listed 1.2.2 until its deadline), and because a
- * window that closes at a deadline cannot be tested against the wall clock.
+ * overlap (1.3.0's, plan C19, lists nothing: it replaced 1.2.2 outright), and
+ * because a window that closes at a deadline cannot be tested against the
+ * wall clock.
  * `current` stands in for a release, for a test that signs as if it had
  * happened; it decides what is signable, so nothing else may pass it.
  */

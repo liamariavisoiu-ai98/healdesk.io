@@ -47,7 +47,7 @@ import {
  * apps/app/src/lib/agreements.ts, from the signature request's answers), for
  * every combination the funnel can produce: every offered specialty, every
  * covered-entity answer, every booking system and every kind of Google
- * account. Since 13 October 2026 the current version is 1.3.0, whose
+ * account. Since 12 October 2026 the current version is 1.3.0, whose
  * calendar clause both answers choose.
  */
 
@@ -91,7 +91,7 @@ function serverRender(input: {
 
 /**
  * apps/app's signing as it built a document before plan C3, from the
- * picker's platform alone: what a 1.2.2 document, signed inside its overlap,
+ * picker's platform alone: what a 1.2.2 document, signed inside an overlap,
  * still names.
  */
 function legacyRender122(input: {
@@ -192,7 +192,7 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
     expect(render("mindbody")).toContain("Mindbody");
     expect(render("calendly")).toContain("Calendly");
     // A 1.2.2 screen, loaded before the release, rendered the platform the
-    // booking system implies, as the server signing it inside its overlap does.
+    // booking system implies, as the server signing it inside an overlap does.
     const v122 = baaAgreementCopy(getBaaTemplate("1.2.2")!);
     for (const system of ["mindbody", "calendly"] as const) {
       const preview = v122.render(input(system)).text;

@@ -60,7 +60,7 @@ import { wrap } from "./wrap";
  * (§12.15).
  *
  * Frozen since their release with BAA 1.3.0 and calendar-election/1.0.0 on
- * 2026-10-13 (plan C19; agreement-changes.md §12.15). The 1.3.0 golden hashes
+ * 2026-10-12 (plan C19; agreement-changes.md §12.15). The 1.3.0 golden hashes
  * and the election golden hash (apps/app/tests/baa-golden.test.ts) both
  * reproduce through these sentences, so a later wording is a new set of
  * sentences beside these, selected by version, never an edit to them. The
@@ -523,7 +523,7 @@ export function selectCalendarClause(input: {
  * else (plan §11.6): app_calendar_election_released() lists the released
  * versions, written out, and tests/database-audit.test.ts holds the two
  * lists together. calendar-election/1.0.0 was released with BAA 1.3.0 on
- * 2026-10-13 (plan C19), and the migration of that day added it there.
+ * 2026-10-12 (plan C19), and the migration of that day added it there.
  *
  * To revise: add a new entry at CALENDAR_ELECTIONS[0] with a new version.
  * Never edit an existing one; an election row's stored hash points at it.
@@ -547,8 +547,8 @@ export const CALENDAR_ELECTIONS: readonly CalendarElection[] = [
   // Newest first; currentCalendarElection() reads [0].
   {
     version: CALENDAR_ELECTION_VERSION,
-    publishedOn: "2026-10-13",
-    // Approved for release by the OWNER on 2026-10-13, with BAA 1.3.0, on the
+    publishedOn: "2026-10-12",
+    // Approved for release by the OWNER on 2026-10-12, with BAA 1.3.0, on the
     // owner's own review and without external counsel (plan C19; owner
     // answer Q2; agreement-changes.md §12.15). Drafted on 2026-10-06.
     approvedByCounsel: true,

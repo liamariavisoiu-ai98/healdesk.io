@@ -25,10 +25,12 @@ in 1.2.0 the same day, before any clinic had signed it; 1.2.1 corrected
 them. On 9 October 2026 the owner released 1.2.2, 1.2.1 with three changes
 (the subcontractor list on request, hello@healdesk.io as the only email
 address, the spec's 60-day breach wording; `agreement-changes.md` § 13),
-again before any clinic had signed. On 13 October 2026 the owner released
+again before any clinic had signed. On 12 October 2026 the owner released
 1.3.0, the calendar-dependent version, with the calendar election, after
 Claude's own audit of the full text against the code (`agreement-changes.md`
-§ 12.15); 1.3.0 is the version offered (`docs/baa-v1.3.0.txt`). The
+§ 12.15), and again before any clinic had signed, so 1.3.0 replaced 1.2.2
+outright: it is the only version offered (`docs/baa-v1.3.0.txt`) and the
+go-live floor. The
 reasoning: no clinic is live and no real patient data has been processed;
 the regulatory skeleton of the BAA is checkable against the text of 45 CFR
 164.504(e) and was checked; the open points that a lawyer would settle are

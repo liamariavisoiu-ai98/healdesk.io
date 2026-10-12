@@ -1,7 +1,28 @@
 import { CURRENT_BAA_VERSION, currentDpaTemplate, specialties } from "@healdesk/catalog";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { agreementMismatch } from "@/lib/checkout/intents";
+
+/**
+ * Standing in for the go-live floor as it stood before 1.3.0's release, which
+ * raised it past 1.2.2 (owner, 12 October 2026): a version in
+ * `floor.restored` is one isBaaVersionAcceptable accepts again, so the rule
+ * for a document before 1.3.0 can still be read. Every other test reads the
+ * real floor, under which a 1.2.2 signature is refused.
+ */
+const floor = vi.hoisted(() => ({ restored: [] as string[] }));
+vi.mock("@healdesk/catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
+  return {
+    ...actual,
+    isBaaVersionAcceptable: (version: string) =>
+      actual.isBaaVersionAcceptable(version) || floor.restored.includes(version),
+  };
+});
+
+afterEach(() => {
+  floor.restored = [];
+});
 
 /**
  * Whether a signed agreement is the document a purchase describes (plan Part
@@ -17,8 +38,8 @@ const nameOf = (id: string) => specialties.find((s) => s.id === id)!.name;
 
 /**
  * A 1.2.2 Business Associate Agreement's variables, as signAgreement stores
- * them: signed before 1.3.0's release, or inside its overlap, naming the
- * picker's platform and no calendar answer.
+ * them: signed before 1.3.0 replaced it, naming the picker's platform and no
+ * calendar answer.
  */
 const BAA_122 = {
   clinicLegalName: "Glow Med Spa LLC",
@@ -37,7 +58,7 @@ const BAA_122 = {
 };
 
 /**
- * A 1.3.0 one, the current version since 13 October 2026: it names the
+ * A 1.3.0 one, the current version since 12 October 2026: it names the
  * booking system, and carries both calendar answers beside the variant.
  */
 const BAA = {
@@ -62,8 +83,10 @@ describe("a Business Associate Agreement", () => {
   test("the document as signed, under the version being signed, passes", () => {
     expect(CURRENT_BAA_VERSION).toBe("1.3.0");
     expect(agreementMismatch(CURRENT_BAA_VERSION, BAA, PURCHASE)).toBeNull();
-    // 1.2.2 too, which is still the go-live floor.
+    // 1.2.2 too, while the floor admits it (below, it no longer does).
+    floor.restored = ["1.2.2"];
     expect(agreementMismatch("1.2.2", BAA_122, PURCHASE)).toBeNull();
+    floor.restored = [];
     // The name as signed: trimmed on both sides.
     expect(
       agreementMismatch(CURRENT_BAA_VERSION, BAA, {
@@ -102,6 +125,9 @@ describe("a Business Associate Agreement", () => {
   });
 
   test("names another booking platform (before 1.3.0, the one the booking system implies)", () => {
+    // Read under the floor as it stood before 1.3.0's release; under the real
+    // one a 1.2.2 signature is refused before any answer is compared.
+    floor.restored = ["1.2.2"];
     expect(
       agreementMismatch("1.2.2", BAA_122, {
         ...PURCHASE,
@@ -135,7 +161,8 @@ describe("a Business Associate Agreement", () => {
   });
 
   test("is of a template that may not be put in force: a draft, a superseded release, or none we know", () => {
-    for (const version of ["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "9.9.9"]) {
+    // 1.2.2 among them since 1.3.0 replaced it outright (12 October 2026).
+    for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "9.9.9"]) {
       expect(agreementMismatch(version, BAA_122, PURCHASE), version).toMatch(
         /can no longer be used/,
       );

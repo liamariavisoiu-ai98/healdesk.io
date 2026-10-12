@@ -493,32 +493,83 @@ export async function seedDemoClinic(label: string): Promise<SeededClinic> {
   };
 }
 
+export type LegacyClinicOptions = {
+  /** healdesk's demo clinic: `demo` entitlements, as provisioning's internal demo option writes them. */
+  demo?: boolean;
+  /** The practice's name, on the agreement and the clinic. */
+  name?: string;
+  /** The package bought. Default `complete`. */
+  plan?: string;
+  /** The buyer: the signatory and the clinic's one sign-in. */
+  contactName?: string;
+  contactEmail?: string;
+};
+
 /**
- * A demo clinic whose agreement is BAA 1.2.2, as a practice that signed before
- * 1.3.0's release (plan C19, 13 October 2026) has: no calendar terms until
- * its first calendar election (`needs_election`, `legacy_agreement`), so an
- * election or seedCalendarTerms takes sequence 1. Made by the same two calls
- * createDemoClinic makes, with 1.2.2 signed as if it were current, since
- * createDemoClinic signs the current version, which gives the location its
- * signed terms from the start.
+ * A clinic whose agreement is BAA 1.2.2: no calendar terms until its first
+ * calendar election (`needs_election`, `legacy_agreement`), so an election or
+ * seedCalendarTerms takes sequence 1. That is the state a location starts
+ * from whenever its agreement does not govern its calendar, which the
+ * election code still serves (a later location, a superseded agreement), and
+ * the state a 1.2.2 clinic was in before 1.3.0's release.
+ *
+ * Provisioning can no longer make it. 1.3.0 replaced 1.2.2 outright on 12
+ * October 2026 and is the go-live floor, so provisionClinic refuses a 1.2.2
+ * signature, and every 1.3.0 signature gives the location its signed terms at
+ * sequence 1. So 1.2.2 is signed for real (signAgreement, as if it were
+ * current), bound to the new organisation as the migrator, as
+ * calendar-terms.test.ts binds its pre-1.3.0 agreements, and the rest is what
+ * provisionClinic writes, by the writers it calls: the entitlements (`demo`,
+ * with no Stripe ids, for the demo clinic; otherwise the no-Stripe path, with
+ * its setup window), the package's channels, the owner's sign-in, the
+ * default script, the recipient, the setup seed and the welcome owed.
  */
-export async function seedLegacyDemoClinic(label: string): Promise<SeededClinic> {
-  const [{ BAA_ASSENT_LABEL, getBaaTemplate }, { signAgreement }, { provisionClinic }] =
-    await Promise.all([
-      import("@healdesk/catalog"),
-      import("@/lib/agreements"),
-      import("@/lib/provisioning"),
-    ]);
+export async function seedLegacyClinic(
+  label: string,
+  options: LegacyClinicOptions = {},
+): Promise<SeededClinic> {
+  const [
+    { BAA_ASSENT_LABEL, CHANNELS, emptyOnboarding, getBaaTemplate, getPlan, regimeFor },
+    { signAgreement },
+    { seedEntitlements },
+    { seedAgentConfig },
+    { addRecipient },
+    { setupDeadline },
+    { seedSetup },
+    { recordWelcomeOwed },
+    { withTenant },
+    { clinicChannels, entitlements },
+    { eq },
+  ] = await Promise.all([
+    import("@healdesk/catalog"),
+    import("@/lib/agreements"),
+    import("@/lib/billing/entitlements"),
+    import("@/lib/onboarding/agent-config"),
+    import("@/lib/reporting/recipients"),
+    import("@/lib/clinic/setup-window"),
+    import("@/lib/setup/seed"),
+    import("@/lib/setup/welcome-email"),
+    import("@/lib/tenant"),
+    import("@/db/schema"),
+    import("drizzle-orm"),
+  ]);
+  const demo = options.demo === true;
   const suffix = randomUUID().slice(0, 8);
-  const staffEmail = `ops-${label}-${suffix}@healdesk-demo.test`;
-  const name = `${label} Demo Practice ${suffix}`;
+  const staffEmail = (
+    options.contactEmail ??
+    (demo ? `ops-${label}-${suffix}@healdesk-demo.test` : `${label}-${suffix}@legacy-clinic.test`)
+  ).toLowerCase();
+  const contactName = options.contactName ?? (demo ? "Ops Operator" : "Alex Chen");
+  const name = options.name ?? `${label} ${demo ? "Demo Practice" : "Med Spa"} ${suffix}`;
+  const plan = getPlan(options.plan ?? "complete");
+  if (!plan) throw new Error(`seedLegacyClinic: no plan ${options.plan}`);
   const v122 = getBaaTemplate("1.2.2")!;
   const signed = await signAgreement(
     {
       clinicLegalName: name,
       specialty: "med-spa",
-      signatoryName: "Ops Operator",
-      signatoryTitle: "healdesk operator, for the demo clinic",
+      signatoryName: contactName,
+      signatoryTitle: demo ? "healdesk operator, for the demo clinic" : "Owner",
       signatoryEmail: staffEmail,
       isCoveredEntity: null,
       attributionMode: "estimated",
@@ -529,30 +580,78 @@ export async function seedLegacyDemoClinic(label: string): Promise<SeededClinic>
     {},
     { current: v122 },
   );
-  const provisioned = await provisionClinic(
-    {
-      clinicName: name,
-      specialty: "med-spa",
-      platform: "none",
-      plan: "complete",
-      contactName: "Ops Operator",
-      contactEmail: staffEmail,
-      agreementId: signed.agreementId,
-      idempotencyKey: `demo_${randomUUID()}`,
-    },
-    {},
-    { demo: true },
+
+  // As provisionClinic orders it: the organisation, the agreement bound to
+  // it, then the clinic, which takes its determination and kind from it.
+  const pool = getMigratorPool();
+  const organizationId = `org_${randomUUID().replace(/-/g, "")}`;
+  const slug = `${label}-legacy-${suffix}`;
+  await pool.query(
+    `insert into organization (id, name, slug, created_at) values ($1, $2, $3, now())`,
+    [organizationId, name, `${slug}-org`],
   );
-  if (!provisioned.ownerUserId) {
-    throw new Error("seedLegacyDemoClinic: provisioning made no owner sign-in.");
-  }
-  return {
-    clinicId: provisioned.clinicId,
-    organizationId: provisioned.organizationId,
-    slug: provisioned.clinicSlug,
-    staffUserId: provisioned.ownerUserId,
-    staffEmail,
-  };
+  const bound = await pool.query(
+    `update baa_acceptances set organization_id = $2, bound_at = now()
+      where id = $1 and organization_id is null`,
+    [signed.agreementId, organizationId],
+  );
+  if (bound.rowCount !== 1) throw new Error("seedLegacyClinic: the agreement was not bound.");
+  const { rows } = await pool.query<{ id: string }>(
+    `insert into clinics (organization_id, slug, name, specialty, onboarding, plan,
+                          is_covered_entity, regulatory_regime, agreement_kind)
+     values ($1, $2, $3, 'med-spa', $4::jsonb, $5, null, $6, 'baa')
+     returning id`,
+    [organizationId, slug, name, JSON.stringify(emptyOnboarding()), plan.id, regimeFor("med-spa")],
+  );
+  const clinicId = rows[0]!.id;
+
+  // The one sign-in, as provisioning's ensureOwner makes it.
+  const staffUserId = `usr_${randomUUID().replace(/-/g, "")}`;
+  await pool.query(
+    `insert into "user" (id, name, email, email_verified, created_at, updated_at)
+     values ($1, $2, $3, false, now(), now())`,
+    [staffUserId, contactName, staffEmail],
+  );
+  await pool.query(
+    `insert into member (id, organization_id, user_id, role, created_at)
+     values ($1, $2, $3, 'owner', now())`,
+    [`mem_${randomUUID().replace(/-/g, "")}`, organizationId, staffUserId],
+  );
+  await inTenant(clinicId, (client) =>
+    client.query(
+      `insert into clinic_memberships (clinic_id, user_id, role) values ($1, $2, 'owner')`,
+      [clinicId, staffUserId],
+    ),
+  );
+
+  await withTenant(
+    { clinicId, actor: { type: "service", serviceName: "provisioning" } },
+    async (tx) => {
+      await seedEntitlements(tx.db, clinicId, { plan, interval: "month", demo });
+      await tx.db
+        .update(entitlements)
+        .set({
+          boughtPlanId: plan.id,
+          setupDeadlineAt: demo ? null : setupDeadline(new Date(), "America/New_York"),
+        })
+        .where(eq(entitlements.clinicId, clinicId));
+      const bought = CHANNELS.filter((channel) => plan.channels[channel]);
+      if (bought.length > 0) {
+        await tx.db.insert(clinicChannels).values(bought.map((channel) => ({ clinicId, channel })));
+      }
+      await seedAgentConfig(tx, "med-spa", name);
+      await addRecipient(tx, { email: staffEmail, label: contactName, addedBy: "provisioning" });
+      // 1.2.2 names no booking system and no platform here, so nothing is seeded for it.
+      await seedSetup(tx, { specialty: "med-spa", seed: {} });
+      await recordWelcomeOwed(tx);
+    },
+  );
+  return { clinicId, organizationId, slug, staffUserId, staffEmail };
+}
+
+/** healdesk's demo clinic on BAA 1.2.2 (seedLegacyClinic), on which a draft election counts. */
+export async function seedLegacyDemoClinic(label: string): Promise<SeededClinic> {
+  return seedLegacyClinic(label, { demo: true });
 }
 
 /** Insert a contact as the migrator, inside a declared tenant. */

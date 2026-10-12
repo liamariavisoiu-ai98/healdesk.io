@@ -38,8 +38,11 @@ import {
  * Standing in for a version falling below the go-live floor after a clinic
  * signed it (a later release raising MIN_ACCEPTABLE_BAA_VERSION, or a
  * rollback): a version in `floor.withdrawn` is one isBaaVersionAcceptable no
- * longer accepts, and nothing else changes. BAA 1.3.0 is released (plan C19,
- * 13 October 2026) and accepted for real.
+ * longer accepts, and nothing else changes. And for the floor as it stood
+ * before a release raised it: a version in `floor.restored` is one it accepts
+ * again, so a test can provision a document from before that release. BAA
+ * 1.3.0 is released (plan C19, 12 October 2026), accepted for real, and the
+ * floor: 1.2.2 is refused for real.
  *
  * And for a booking system the catalogue reclassifies after a practice has
  * signed, as a vendor's written confirmation would (plan Q4): a system in
@@ -48,7 +51,7 @@ import {
  * chosen its clause by then, inside the catalogue, where this reaches
  * nothing.
  */
-const floor = vi.hoisted(() => ({ withdrawn: [] as string[] }));
+const floor = vi.hoisted(() => ({ withdrawn: [] as string[], restored: [] as string[] }));
 const catalogue = vi.hoisted(() => ({ readsGoogle: [] as string[] }));
 vi.mock("@healdesk/catalog", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@healdesk/catalog")>();
@@ -57,7 +60,8 @@ vi.mock("@healdesk/catalog", async (importOriginal) => {
   return {
     ...actual,
     isBaaVersionAcceptable: (version: string) =>
-      actual.isBaaVersionAcceptable(version) && !floor.withdrawn.includes(version),
+      (actual.isBaaVersionAcceptable(version) || floor.restored.includes(version)) &&
+      !floor.withdrawn.includes(version),
     bookingSyncFor: (id: unknown) => (reclassified(id) ? "live" : actual.bookingSyncFor(id)),
     selectCalendarClause: (input: Parameters<typeof actual.selectCalendarClause>[0]) => {
       if (!reclassified(input.bookingSystem)) return actual.selectCalendarClause(input);
@@ -133,7 +137,7 @@ type SignedAnswers = {
   /**
    * A version other than the current one, signed as if it were current: how
    * 1.2.0 was signed before 1.2.1 replaced it, 1.2.1 before 1.2.2, and 1.2.2
-   * before 1.3.0's release (or inside its overlap).
+   * before 1.3.0 replaced it.
    */
   version?: string;
   platform?: string;
@@ -269,6 +273,7 @@ describeDb("provisioning", () => {
 
   afterEach(() => {
     floor.withdrawn = [];
+    floor.restored = [];
     catalogue.readsGoogle = [];
   });
 
@@ -774,11 +779,23 @@ describeDb("provisioning", () => {
         platform: "none",
       }),
     });
+    const outrightEmail = "outright@gate.test";
+    const outright = validRequest({
+      clinicName: "Outright Gate Clinic",
+      contactEmail: outrightEmail,
+      // 1.2.2, released on 9 October and replaced outright by 1.3.0 on 12
+      // October before any clinic signed it: below the floor 1.3.0 raised.
+      agreementId: await signWith("Outright Gate Clinic", outrightEmail, {
+        version: "1.2.2",
+        platform: "none",
+      }),
+    });
 
     for (const [request, version] of [
       [draft, "1.1.0-draft"],
       [superseded, "1.2.0"],
       [replaced, "1.2.1"],
+      [outright, "1.2.2"],
     ] as const) {
       // A refusal, not a 500: the row never changes, so a retry would only
       // meet it again, and a paid purchase belongs with ops.
@@ -793,8 +810,9 @@ describeDb("provisioning", () => {
       expect(await written(request), version).toEqual({ clinics: 0, claims: 0, bound: false });
     }
 
-    // The version's own standing is all the gate asks: 1.3.0, released and
-    // current since 13 October 2026, provisions, with its calendar terms.
+    // The version's own standing is all the gate asks: 1.3.0, released,
+    // current and the floor since 12 October 2026, provisions, with its
+    // calendar terms.
     const releasedEmail = "released@gate.test";
     const released = validRequest({
       clinicName: "Released Gate Clinic",
@@ -832,7 +850,11 @@ describeDb("provisioning", () => {
     // anyone in it.
     // Each signature here is 1.2.2's by name, not whatever is current, so the
     // cases keep testing a document before 1.3.0 after the release moves
-    // 1.3.0 to BAA_TEMPLATES[0].
+    // 1.3.0 to BAA_TEMPLATES[0]. 1.2.2 is below the floor since that release
+    // (the approval gate test refuses it), so the floor stands as it did
+    // before it for these cases; a 1.3.0 signature's own case is the next
+    // test's "One Way Clinic".
+    floor.restored = ["1.2.2"];
     const email = "mismatch@platform.test";
     const agreementId = await signWith("Mismatch Clinic", email, {
       version: "1.2.2",

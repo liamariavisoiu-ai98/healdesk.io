@@ -103,8 +103,8 @@ const validSignRequest = (over: Record<string, unknown> = {}) =>
 
 /**
  * A request as main's checkout sent it while 1.2.2 was current: the picker's
- * platform and no calendar answer. 1.2.2 signs only inside its release
- * overlap since 1.3.0's release, so a test that signs one passes OPEN_1_2_2.
+ * platform and no calendar answer. 1.3.0 replaced 1.2.2 outright, with no
+ * overlap, so a test that signs one passes OPEN_1_2_2, an overlap of its own.
  */
 const request122 = (over: Record<string, unknown> = {}) =>
   validSignRequest({
@@ -122,7 +122,7 @@ const DATE = "2026-10-06";
  * picker's platform named by its catalogue name and "none" by nothing, the
  * specialty's display name, and the fixed values v1 never asks about. Main's
  * checkout built its preview this way and hashed it, so a signature on a
- * version before 1.3.0 (1.2.2, inside its release overlap) has to come out
+ * version before 1.3.0 (1.2.2, inside an overlap a test sets) has to come out
  * of the server byte for byte as the preview built it, or the displayed-hash
  * check refuses the buyer at the last step.
  */
@@ -149,10 +149,10 @@ function legacyVariables(request: SignAgreementRequest, effectiveDate: string): 
 /**
  * The release of 1.3.0 (plan C19), pinned so no test depends on the day it
  * runs: 1.3.0 current, as it really is, and an overlap of the test's own.
- * RELEASED_1_3 lists nothing, so nothing but 1.3.0 signs under it;
- * OPEN_1_2_2 lists 1.2.2 with a deadline no test reaches, as the real
- * overlap does until its own deadline (BAA_RELEASE_OVERLAP, read below
- * against fixed clocks).
+ * RELEASED_1_3 lists nothing, as the real overlap does (BAA_RELEASE_OVERLAP),
+ * so nothing but 1.3.0 signs under it; OPEN_1_2_2 lists 1.2.2 with a
+ * deadline no test reaches, standing in for an overlap the release did not
+ * give, so the tests of a version before 1.3.0 keep signing one.
  */
 const RELEASED_1_3 = {
   current: getBaaTemplate("1.3.0")!,
@@ -290,7 +290,7 @@ describe("rendering", () => {
   });
 
   test("the offered template is released, says so, and carries no draft wording", () => {
-    // 1.3.0 was released on 2026-10-13 on the owner's own review, without
+    // 1.3.0 was released on 2026-10-12 on the owner's own review, without
     // external counsel (the doc comment on approvedByCounsel in
     // packages/catalog/src/baa.ts records that). The document itself must
     // read as executable: a DRAFT line, or the 1.1.0 acceptance placeholder,
@@ -326,7 +326,7 @@ describe("the assent sentence", () => {
 
 /**
  * Every reachable agreement, enumerated, for 1.2.2: the version offered until
- * 1.3.0's release, still signable inside its overlap. 1.3.0's own matrix
+ * 1.3.0 replaced it outright on 12 October 2026. 1.3.0's own matrix
  * follows.
  *
  * This is the test that makes "the contract adapts to what they bought" and
@@ -506,7 +506,7 @@ function describeVariant(v: BaaVariables): string {
 
 /**
  * 1.3.0, enumerated the same way: the current version since its release on
- * 13 October 2026, whose whole matrix the release audit read rather than a
+ * 12 October 2026, whose whole matrix the release audit read rather than a
  * sample. The variables are built by buildBaaSelections, the one builder both
  * signing paths call, so this is the set the funnel can actually produce.
  *
@@ -644,7 +644,7 @@ describe("every 1.3.0 variant the funnel will produce", () => {
 
   test("is signable since its release, by the endpoint and a direct caller alike", () => {
     // Signing accepts the current template, whatever the overlap holds; 1.3.0
-    // is current since its release (plan C19, 13 October 2026).
+    // is current since its release (plan C19, 12 October 2026).
     const request = validSignRequest({
       templateVersion: V130,
       platform: undefined,
@@ -728,15 +728,13 @@ describe("the go-live floor", () => {
 
   test("refuses every superseded version, every draft, and anything unregistered", () => {
     // The drafts were never executable. 1.2.1 was released, but no clinic
-    // signed it and 1.2.2 raised the floor past it (9 October 2026). 1.3.0's
-    // release (13 October 2026) kept the floor at 1.2.2, because nothing yet
-    // moves a 1.2.2 signer onto 1.3.0 (agreement-changes.md §12.15), so both
-    // go live.
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.2.2");
-    for (const version of ["1.3.0", "1.2.2"]) {
-      expect(isBaaVersionAcceptable(version), version).toBe(true);
-    }
-    for (const version of ["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
+    // signed it and 1.2.2 raised the floor past it (9 October 2026). No
+    // clinic signed 1.2.2 either, and 1.3.0's release raised the floor past
+    // it in turn (owner, 12 October 2026; agreement-changes.md §12.15), so
+    // only 1.3.0 goes live.
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.3.0");
+    expect(isBaaVersionAcceptable("1.3.0")).toBe(true);
+    for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
       expect(isBaaVersionAcceptable(version), version).toBe(false);
     }
   });
@@ -935,11 +933,12 @@ describe("which agreement a request signs", () => {
 });
 
 /**
- * The current version signs; so does the released version a release
- * replaced, until the deadline in BAA_RELEASE_OVERLAP, because a release
- * reaches the two apps in two deploys (plan §2.2). Plan C19 made 1.3.0
- * current and listed 1.2.2 until 27 October 2026; these tests read that
- * against clocks of their own, and the rule against overlaps of their own.
+ * The current version signs; so does a released version a release lists in
+ * BAA_RELEASE_OVERLAP, until its deadline, because a release reaches the two
+ * apps in two deploys (plan §2.2). Plan C19 made 1.3.0 current and listed
+ * nothing: 1.3.0 replaced 1.2.2 outright (owner, 12 October 2026). These
+ * tests read that against clocks of their own, and the rule against overlaps
+ * of their own.
  */
 describe("which versions can be signed", () => {
   const release = (now: string, deadline = "2026-10-09T12:00:00Z"): SignableOptions => ({
@@ -948,29 +947,23 @@ describe("which versions can be signed", () => {
     now: new Date(now),
   });
 
-  test("the real release: 1.3.0 current, and 1.2.2 alone in the overlap until its deadline", () => {
-    // Set by the release (plan C19), and emptied once both production
-    // deployments are verified (plan C20). Read at fixed instants, so the
-    // test says the same before and after the deadline.
+  test("the real release: 1.3.0 current, and nothing in the overlap", () => {
+    // Set by the release (plan C19): no clinic had signed 1.2.2, so the owner
+    // let 1.3.0 replace it outright. Read at fixed instants, the release day
+    // among them, so nothing older signs at any time.
     expect(CURRENT_BAA_VERSION).toBe("1.3.0");
-    expect(BAA_RELEASE_OVERLAP).toEqual({ "1.2.2": "2026-10-27T00:00:00Z" });
+    expect(BAA_RELEASE_OVERLAP).toEqual({});
     const at = (now: string): SignableOptions => ({ now: new Date(now) });
     expect(signableTemplate(CURRENT_BAA_VERSION, at("2099-01-01T00:00:00Z"))).toBe(
       currentBaaTemplate(),
     );
-    expect(signableTemplate("1.2.2", at("2026-10-26T23:59:59.999Z")).version).toBe("1.2.2");
-    expect(refusal(() => signableTemplate("1.2.2", at("2026-10-27T00:00:00Z")))).toMatchObject({
-      message: expect.stringMatching(/has been updated/),
-      field: "templateVersion",
-    });
-    for (const version of ["1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
-      expect(
-        refusal(() => signableTemplate(version, at("2026-10-13T12:00:00Z"))),
-        version,
-      ).toMatchObject({
-        message: expect.stringMatching(/has been updated/),
-        field: "templateVersion",
-      });
+    for (const now of ["2026-10-12T12:00:00Z", "2026-10-26T12:00:00Z", "2099-01-01T00:00:00Z"]) {
+      for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+        expect(refusal(() => signableTemplate(version, at(now))), `${version} at ${now}`).toMatchObject({
+          message: expect.stringMatching(/has been updated/),
+          field: "templateVersion",
+        });
+      }
     }
   });
 
@@ -1084,20 +1077,14 @@ describe("which versions can be signed", () => {
       else expect(run, deadline).toThrow(/has been updated/);
     }
     // The real release and overlap, when none is given (the clock fixed):
-    // 1.3.0 is current, 1.2.2 signs until its deadline, and nothing older is
-    // listed, 1.2.1 included (no clinic signed it).
+    // 1.3.0 is current and nothing else is listed, 1.2.2 included (no clinic
+    // signed it, and 1.3.0 replaced it outright on 12 October 2026).
     expect(() => validateSignRequest(validSignRequest())).not.toThrow();
-    expect(() =>
-      validateSignRequest(replaced, { now: new Date("2026-10-26T12:00:00Z") }),
-    ).not.toThrow();
-    expect(() => validateSignRequest(replaced, { now: new Date("2026-10-27T00:00:00Z") })).toThrow(
-      /has been updated/,
-    );
-    for (const templateVersion of ["1.2.1", "1.2.0"]) {
+    for (const templateVersion of ["1.2.2", "1.2.1", "1.2.0"]) {
       expect(
         () =>
           validateSignRequest(request122({ templateVersion }), {
-            now: new Date("2026-10-13T12:00:00Z"),
+            now: new Date("2026-10-12T12:00:00Z"),
           }),
         templateVersion,
       ).toThrow(/has been updated/);
@@ -1107,8 +1094,8 @@ describe("which versions can be signed", () => {
 
 /**
  * The booking system and the Google account kind (plan §3.3; the C2
- * interface agreed with the funnel). A version before 1.3.0 (1.2.2, inside
- * its overlap, signed here under OPEN_1_2_2) takes either, as main's checkout
+ * interface agreed with the funnel). A version before 1.3.0 (1.2.2, signed
+ * here under OPEN_1_2_2, an overlap of the test's own) takes either, as main's checkout
  * sent only the phase-two `platform` before the funnel's M2; 1.3.0 needs both
  * calendar answers, and a platform only as the booking system's own; an
  * unknown value is refused whatever the version reads.
@@ -1405,11 +1392,11 @@ describe("the server's render", () => {
   });
 
   test("renders the version the request names when it may be signed, not whichever is current", () => {
-    // Inside the overlap after a release, a buyer who loaded 1.2.2 signs 1.2.2.
+    // Inside an overlap after a release, a buyer who loaded 1.2.2 signs 1.2.2.
     expect(prepareAgreement(request122(), DATE, OPEN_1_2_2).prepared.version).toBe("1.2.2");
     // What the endpoint refuses is refused here too, so a direct caller cannot
-    // render a draft or a superseded version for a row either: 1.2.2 once its
-    // overlap is over, and everything older.
+    // render a draft or a superseded version for a row either: 1.2.2 outside
+    // an overlap, and everything older.
     for (const templateVersion of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       const request = validSignRequest({
         templateVersion,
@@ -1670,8 +1657,9 @@ describeDb("signing", () => {
     // estimated one sign genuinely different contracts through the real API
     // path, and each row carries the clause list that produced it. Verified
     // reporting is phase two, so the flag that admits it is set for this test
-    // only (and cleared in the finally below). 1.2.2, inside its overlap,
-    // because 1.3.0 has no verified-reporting clause to sign.
+    // only (and cleared in the finally below). 1.2.2, inside an overlap the
+    // test sets (OPEN_1_2_2), because 1.3.0 has no verified-reporting clause
+    // to sign.
     process.env.HEALDESK_PHASE_TWO_ATTRIBUTION = "true";
     const verified = await signAgreement(
       request122({
@@ -1748,10 +1736,11 @@ describeDb("signing", () => {
     return rows[0]!.variables;
   }
 
-  test("a 1.2.2 checkout request inside the overlap still signs, against the hash its preview displayed", async () => {
+  test("a 1.2.2 checkout request inside an overlap still signs, against the hash its preview displayed", async () => {
     // Main's checkout sent the picker's platform for 1.2.2 and hashed a
-    // preview built as legacyVariables builds it, and a browser that loaded
-    // it before 1.3.0's release still may. The server renders through
+    // preview built as legacyVariables builds it, as a browser that loaded it
+    // before a release would while an overlap listed it (OPEN_1_2_2; the real
+    // release listed nothing). The server renders through
     // buildBaaSelections; a byte of drift would refuse this buyer at the last
     // step. Only Date is faked, and only for the call, so the effective date
     // is known without stalling the pg driver's own timers.
@@ -1900,7 +1889,7 @@ describeDb("signing", () => {
     expect(rows[0]!.document_version).toBe("1.3.0");
   });
 
-  test("inside the overlap after a release, the version it replaced signs as itself, and not after", async () => {
+  test("inside an overlap after a release, the version it replaced signs as itself, and not after", async () => {
     const request = request122({ clinicLegalName: "Overlap Clinic", platform: "calcom" });
     const open = OPEN_1_2_2;
     const signed = await signAgreement(request, {}, open);

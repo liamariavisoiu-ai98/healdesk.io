@@ -4,7 +4,6 @@ import {
   agreementPlatformFor,
   BAA_ASSENT_LABEL,
   CURRENT_BAA_VERSION,
-  getBaaTemplate,
   GOOGLE_CALENDAR_DISCLOSURE,
   renderGoogleCalendarDisclosure,
 } from "@healdesk/catalog";
@@ -60,7 +59,12 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedGoogleConnection, type SeedCalendarTermsInput } from "./setup/factories";
+import {
+  inTenant,
+  seedGoogleConnection,
+  seedLegacyClinic,
+  type SeedCalendarTermsInput,
+} from "./setup/factories";
 
 /**
  * Setup step 3 on the calendar session's functions (plan Part E, 3.1 and
@@ -168,36 +172,46 @@ type Clinic = {
  * A clinic as payment makes one: signed under BAA 1.3.0, the current version,
  * with `terms`'s two answers (Google Calendar in a Workspace under Google's
  * BAA unless they say otherwise), so provisioning records the location's
- * calendar terms from the signature (plan C15). With `terms` null, signed
- * under 1.2.2 instead, as a practice that signed before 1.3.0's release did:
- * no calendar terms until an election.
+ * calendar terms from the signature (plan C15). With `terms` null, a clinic
+ * on BAA 1.2.2 instead, as one bound before 1.3.0 replaced it: no calendar
+ * terms until an election. Provisioning refuses 1.2.2 since then, so that
+ * one is seedLegacyClinic's.
  */
 async function provisioned(
   label: string,
   terms: SeedCalendarTermsInput | null = {},
 ): Promise<Clinic> {
   const email = `${label}-${randomUUID().slice(0, 8)}@glowspa.test`;
-  const bookingSystem = terms?.bookingSystem ?? "google_calendar";
-  const platform = terms ? agreementPlatformFor(bookingSystem) : "none";
-  const v122 = getBaaTemplate("1.2.2")!;
-  const signed = await signAgreement(
-    {
-      clinicLegalName: "Glow Med Spa LLC",
-      specialty: "med-spa",
-      signatoryName: "Laura Owner",
-      signatoryEmail: email,
-      isCoveredEntity: false,
-      attributionMode: "estimated",
-      platform,
-      ...(terms
-        ? { bookingSystem, calendarAccount: terms.calendarAccount ?? "workspace_baa" }
-        : {}),
-      assentLabel: BAA_ASSENT_LABEL,
-      templateVersion: terms ? CURRENT_BAA_VERSION : v122.version,
-    },
-    {},
-    terms ? {} : { current: v122 },
-  );
+  if (!terms) {
+    const legacy = await seedLegacyClinic(label, {
+      name: "Glow Med Spa LLC",
+      plan: "web-voice",
+      contactName: "Laura Owner",
+      contactEmail: email,
+    });
+    return {
+      clinicId: legacy.clinicId,
+      organizationId: legacy.organizationId,
+      slug: legacy.slug,
+      name: "Glow Med Spa LLC",
+      userId: legacy.staffUserId,
+    };
+  }
+  const bookingSystem = terms.bookingSystem ?? "google_calendar";
+  const platform = agreementPlatformFor(bookingSystem);
+  const signed = await signAgreement({
+    clinicLegalName: "Glow Med Spa LLC",
+    specialty: "med-spa",
+    signatoryName: "Laura Owner",
+    signatoryEmail: email,
+    isCoveredEntity: false,
+    attributionMode: "estimated",
+    platform,
+    bookingSystem,
+    calendarAccount: terms.calendarAccount ?? "workspace_baa",
+    assentLabel: BAA_ASSENT_LABEL,
+    templateVersion: CURRENT_BAA_VERSION,
+  });
   const result = await provisionClinic({
     clinicName: "Glow Med Spa LLC",
     specialty: "med-spa",

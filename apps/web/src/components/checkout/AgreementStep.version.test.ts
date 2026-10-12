@@ -13,11 +13,12 @@ import { type AgreementResult, AgreementStep } from "./AgreementStep";
  * Everything the buyer reads is one version's: the "Version …" line, the
  * bullets of "Why you're signing this" and the document itself; and the
  * signature request names that same version and the hash of that same
- * document. Since its release on 13 October 2026 that is 1.3.0, the funnel's
+ * document. Since its release on 12 October 2026 that is 1.3.0, the funnel's
  * own entry, which must show 1.3.0's bullets above 1.3.0's text: never "use
  * it only" and "materially breach" above a clause that says more. 1.2.2,
- * which a screen loaded before the release may still show and the server
- * signs inside its overlap, is handed to the step as that screen held it
+ * which a screen loaded before the release may still show (the server signs
+ * it only inside an overlap, and 1.3.0's release gave it none), is handed to
+ * the step as that screen held it
  * (`baaAgreementCopy` for 1.2.2's template), with BAA_EXPLAINER's bullets
  * word for word.
  *
@@ -128,7 +129,7 @@ function documentText(): string {
 }
 
 describe("the agreement step renders the version it signs (gate 11)", () => {
-  test("1.2.2, signed inside its overlap: BAA_EXPLAINER's bullets word for word, above 1.2.2, signing 1.2.2", async () => {
+  test("1.2.2, as a screen loaded before the release held it: BAA_EXPLAINER's bullets word for word, above 1.2.2, signing 1.2.2", async () => {
     shown.version = "1.2.2";
     const onSigned = vi.fn();
     await renderStep(onSigned);

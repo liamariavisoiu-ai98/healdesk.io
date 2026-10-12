@@ -240,8 +240,8 @@ export type ExplainedClauseId =
  *
  * ⚖️ Every note here must stay true to the clause it explains, in every
  * version that renders that clause id. The signing screen renders the
- * current template (1.3.0 since its release on 13 October 2026; 1.2.2
- * before, and for a checkout opened before it), and three ids carry a
+ * current template (1.3.0 since its release on 12 October 2026, which
+ * replaced 1.2.2 outright; 1.2.2 before), and three ids carry a
  * different body in each: data-sources-none, minimum-necessary and
  * subcontractors. The pre-release audit of 6 October 2026 changed what each
  * of them says in 1.3.0 (the sources of patient information, the booking

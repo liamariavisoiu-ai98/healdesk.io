@@ -1,14 +1,13 @@
-healdesk Business Associate Agreement — version 1.3.0, rendered 13 October
+healdesk Business Associate Agreement — version 1.3.0, rendered 12 October
 2026, the day it was released. Approved for release by the owner, on the
 owner's own review and without external counsel, after Claude's audit of the
 full text against the code on main (plan C19, owner answer Q2;
 docs/counsel/agreement-changes.md §12.15). This is the version offered at
-checkout from 13 October 2026, replacing 1.2.2: validateSignRequest and
-signAgreement sign BAA_TEMPLATES[0], and 1.2.2 only until 27 October 2026
-(BAA_RELEASE_OVERLAP), so a checkout opened before the release can finish.
-1.2.2 stays the go-live floor (MIN_ACCEPTABLE_BAA_VERSION), so a practice that
-signed it goes live and takes its calendar terms from its first calendar
-election. Provisioning's approval gate reads the version the acceptance was
+checkout from 12 October 2026, replacing 1.2.2 outright: no clinic had signed
+1.2.2, so validateSignRequest and signAgreement sign BAA_TEMPLATES[0] and
+nothing else (BAA_RELEASE_OVERLAP is empty), and 1.3.0 is the go-live floor
+(MIN_ACCEPTABLE_BAA_VERSION), so provisioning and go-live refuse a 1.2.2
+signature. Provisioning's approval gate reads the version the acceptance was
 signed under (plan C15). The calendar election in Appendix B is released with
 it.
 
@@ -1343,7 +1342,7 @@ APPENDIX B — THE CALENDAR ELECTION (calendar-election/1.0.0)
 How a location's calendar terms change after signing, and how a second
 location, or a practice that signed before 1.3.0, gets calendar terms at all
 (plan §2.6). Section 2 is the calendar clause that applies, without the BAA's
-location paragraph. Released with this agreement on 13 October 2026, so an
+location paragraph. Released with this agreement on 12 October 2026, so an
 election under it counts for every clinic, not only a demo clinic (plan A10;
 app_calendar_election_released, in the baa_release_1_3_0 migration).
 Rendered for the sample practice electing a personal Google account; frozen

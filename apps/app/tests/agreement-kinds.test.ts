@@ -753,9 +753,12 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
   }
 
   test("a BAA clinic is stored with its regime, its kind and the answer it signed", async () => {
-    // 1.2.2, still the go-live floor, which carries no calendar terms, so the
-    // row needs no calendar answers to provision.
-    const baa = prepareBaa(getBaaTemplate("1.2.2")!, {
+    // 1.3.0, the current version and the go-live floor (1.2.2 is below it
+    // since 1.3.0 replaced it outright, 12 October 2026), so the row carries
+    // the two calendar answers and the clause they chose, as signing stores
+    // them, and provisioning records the location's terms from it.
+    const calendar = { bookingSystem: "none", calendarAccount: "workspace_baa" } as const;
+    const baa = prepareBaa(getBaaTemplate("1.3.0")!, {
       clinicLegalName: "Kind Clinic",
       specialty: "Med Spas, Dermatology & Aesthetics",
       signatoryName: "Alex Chen",
@@ -765,10 +768,11 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
       attributionMode: "estimated",
       connectedPlatform: null,
       outboundMessaging: false,
+      ...calendar,
     });
     const agreementId = await seedAcceptance({
       version: baa.version,
-      variables: { isCoveredEntity: false },
+      variables: { isCoveredEntity: false, ...calendar, appliedClauses: baa.clauseIds },
       text: baa.text,
     });
     const result = await provisionClinic(request({ agreementId }));

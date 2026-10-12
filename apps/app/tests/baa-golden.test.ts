@@ -10,6 +10,7 @@ import {
   getBaaTemplate,
   hashCalendarElection,
   hashDirectBookingAddendum,
+  MIN_ACCEPTABLE_BAA_VERSION,
   prepareBaa,
   renderCalendarElection,
   renderDirectBookingAddendum,
@@ -40,10 +41,10 @@ import { describe, expect, test } from "vitest";
  *   npx tsx -e 'import("@healdesk/catalog").then(...)' — or simply run this
  *   test and copy the "received" value for the NEW version only.
  *
- * 1.3.0 was released on 2026-10-13 and is what clinics sign; its hashes are
+ * 1.3.0 was released on 2026-10-12 and is what clinics sign; its hashes are
  * the record from that day on (docs/counsel/agreement-changes.md §12.12,
- * §12.15). 1.2.2 was released on 2026-10-09 and replaced by 1.3.0; it stays
- * signable inside its release overlap and is frozen like the rest. 1.2.1 was
+ * §12.15). 1.2.2 was released on 2026-10-09 and replaced outright by 1.3.0
+ * before any clinic signed it; it is frozen like the rest. 1.2.1 was
  * released on 2026-10-01 and replaced by 1.2.2 before any clinic signed it.
  * 1.0.0 and 0.1.0-draft have been signed; their hashes never move. 1.2.0 was
  * offered for part of 1 October and is frozen too. 1.1.0-draft was
@@ -89,7 +90,7 @@ const VARIANTS: Record<string, Partial<BaaVariables>> = {
 
 /** version → variant → sha256 of the assembled text. Append-only. */
 const GOLDEN: Record<string, Record<string, string>> = {
-  // Released on 2026-10-13 and offered from that day (agreement-changes.md
+  // Released on 2026-10-12 and offered from that day (agreement-changes.md
   // §12.15). Frozen from the release: these are the bytes clinics sign.
   // Moved while it was a draft by the pre-release audit's redraft of 6
   // October 2026 (§12.12, §12.14), on 7 October by clause 11's sentence
@@ -107,9 +108,9 @@ const GOLDEN: Record<string, Record<string, string>> = {
     // outboundMessaging.
     covered_outbound: "2235429b5b23f49ae004ad2d414bfba630e108bdd36f7793dd1712859844d607",
   },
-  // Released on 2026-10-09 and offered until 1.3.0 replaced it on 2026-10-13
-  // (agreement-changes.md §13). Frozen from the release: these are the bytes
-  // clinics signed, and sign inside the release overlap.
+  // Released on 2026-10-09 and offered until 1.3.0 replaced it on 2026-10-12
+  // (agreement-changes.md §13). No clinic signed it; frozen from the release
+  // all the same, as every released version is.
   "1.2.2": {
     covered_estimated: "e6cfb7356be47a223bf8802f8d762f78844e0106af29fe772ca03eab85621893",
     notcovered_estimated: "07551348644ed59f47dd0a8ae5ff66ccb6297334d9360a25a6ec70bb247f4127",
@@ -336,8 +337,8 @@ describe("1.1.0-draft: booking mode, calendar write and callbacks", () => {
 });
 
 /**
- * 1.2.2, offered from 9 October 2026 until 1.3.0 replaced it on 13 October,
- * and still signable inside its release overlap: what it must and must not
+ * 1.2.2, offered from 9 October 2026 until 1.3.0 replaced it outright on 12
+ * October, before any clinic signed it: what it must and must not
  * contain, pinned on every reachable variant. These are the product rules the
  * v1 spec puts into the agreement (docs/v1-product-spec.md, "HIPAA and BAA
  * position"), read out of the rendered text rather than the clause list,
@@ -358,13 +359,14 @@ describe("1.2.2: the agreement offered until 1.3.0's release", () => {
     { bookingMode: "direct", calendarWrite: { platform: "Cal.com" }, outboundMessaging: true },
   ];
 
-  test("was released, is replaced by 1.3.0, and signs only inside its overlap", () => {
+  test("was released, is replaced outright by 1.3.0, and is no longer signable", () => {
     expect(CURRENT_BAA_VERSION).toBe("1.3.0");
     expect(BAA_TEMPLATES[1]).toBe(v122());
     expect(v122().approvedByCounsel).toBe(true);
     expect(v122().publishedOn).toBe("2026-10-09");
-    // A checkout opened before 1.3.0's release can still finish (plan C19).
-    expect(BAA_RELEASE_OVERLAP).toEqual({ [V122]: "2026-10-27T00:00:00Z" });
+    // No overlap: no clinic had signed it, and the owner decided on 12
+    // October 2026 that 1.3.0 replaces it outright (plan C19).
+    expect(BAA_RELEASE_OVERLAP).not.toHaveProperty(V122);
     const text = render({}).text;
     expect(text).toContain("Version 1.2.2 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
@@ -635,7 +637,7 @@ describe("1.2.2 against 1.2.1: exactly the owner's three changes", () => {
 
 /**
  * 1.3.0, the calendar-dependent agreement (plan §2, owner decisions of 5 and 6
- * October 2026), released on 13 October 2026 (plan C19). Two answers choose
+ * October 2026), released on 12 October 2026 (plan C19). Two answers choose
  * its calendar clause: the booking system, whose sync direction decides
  * whether healdesk connects at all, and the kind of Google account, which
  * decides whether Google's business associate agreement covers the calendar.
@@ -664,7 +666,7 @@ const VARIANTS_1_3: Record<string, Partial<BaaVariables>> = {
   },
 };
 
-/** variant → sha256, for 1.3.0. Frozen from the release (13 October 2026), and recorded in §12.12. */
+/** variant → sha256, for 1.3.0. Frozen from the release (12 October 2026), and recorded in §12.12. */
 const GOLDEN_1_3: Record<string, string> = {
   uncovered_nobaa: "a37e8909d30fc42941efa331d03a714eedf69488e377da3165a1927cce8dc578",
   uncovered_personal: "9622fe3e337d3693e06b2873182535d9c12333be1182662761031aafeaa0c1f5",
@@ -702,15 +704,16 @@ describe("1.3.0: the calendar-dependent agreement", () => {
     });
   }
 
-  test("is the current template, released by the owner, with 1.2.2 signable only inside its overlap", () => {
+  test("is the current template, released by the owner, and replaced 1.2.2 outright", () => {
     expect(BAA_TEMPLATES[0]!.version).toBe(CURRENT_BAA_VERSION);
     expect(CURRENT_BAA_VERSION).toBe(V130);
     expect(BAA_TEMPLATES[1]!.version).toBe("1.2.2");
     expect(v130().approvedByCounsel).toBe(true);
-    expect(v130().publishedOn).toBe("2026-10-13");
-    // 1.2.2 until fourteen days after the release date (plan C19); plan C20
-    // empties it once both deployments are verified.
-    expect(BAA_RELEASE_OVERLAP).toEqual({ "1.2.2": "2026-10-27T00:00:00Z" });
+    expect(v130().publishedOn).toBe("2026-10-12");
+    // No overlap, and the go-live floor is 1.3.0: no clinic had signed 1.2.2
+    // (owner, 12 October 2026; plan C19).
+    expect(BAA_RELEASE_OVERLAP).toEqual({});
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V130);
     // Nothing in the text marks it a draft, so the release itself moved no
     // hash; the release audit's two text fixes did (§12.15).
     const text = render({}).text;
@@ -1277,7 +1280,7 @@ describe("calendar election freeze", () => {
   /** election version → sha256 of the rendered text. Append-only. */
   const GOLDEN_ELECTION: Record<string, string> = {
     // Moved in place by the pre-release audit's calendar edits (6 October
-    // 2026), while it was unreleased (§12.14). Released with BAA 1.3.0 on 13
+    // 2026), while it was unreleased (§12.14). Released with BAA 1.3.0 on 12
     // October 2026, which moved no byte of it (§12.15): frozen from then.
     "calendar-election/1.0.0": "63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa",
   };
@@ -1305,11 +1308,11 @@ describe("calendar election freeze", () => {
   });
 
   test("it is released with BAA 1.3.0, so an election under it counts for every clinic", () => {
-    // Released on 13 October 2026 (plan C19). Before, a draft election counted
+    // Released on 12 October 2026 (plan C19). Before, a draft election counted
     // only for a demo clinic (plan A10); the database's copy of the list,
     // app_calendar_election_released(), names it since the release migration
     // (tests/database-audit.test.ts holds the two together).
     expect(currentCalendarElection().approvedByCounsel).toBe(true);
-    expect(currentCalendarElection().publishedOn).toBe("2026-10-13");
+    expect(currentCalendarElection().publishedOn).toBe("2026-10-12");
   });
 });

@@ -479,9 +479,10 @@ describeDb("database audit (0031)", () => {
   test("app_mark_clinic_production refuses a superseded agreement, names its version, and writes nothing (0048)", async () => {
     // Until 0048 any bound version went live, 1.0.0 and unapproved drafts
     // included. Everything else is ready here, so the version is the refusal:
-    // superseded releases below the floor (1.2.2 since 0062; 1.3.0 and 1.2.2
-    // both go live since the 1.3.0 release), and older drafts and releases.
-    for (const [i, version] of ["1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"].entries()) {
+    // superseded releases below the floor (1.2.2 since 0062, 1.3.0 since the
+    // 1.3.0 release, which replaced 1.2.2 outright), and older drafts and
+    // releases.
+    for (const [i, version] of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"].entries()) {
       const { clinicId, organizationId } = await seedClinic(`superseded${i}`);
       await readyForGoLive(clinicId);
       await seedAcceptance(organizationId, version);
@@ -501,22 +502,20 @@ describeDb("database audit (0031)", () => {
     }
   });
 
-  test("app_mark_clinic_production takes 1.3.0 and 1.2.2 alike, the release having kept the floor at 1.2.2", async () => {
-    // 1.3.0's release (plan C19) left MIN_ACCEPTABLE_BAA_VERSION at 1.2.2:
-    // nothing yet moves a 1.2.2 signer onto 1.3.0, so a clinic signed under
-    // either goes live.
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.2.2");
-    for (const [i, version] of ["1.3.0", "1.2.2"].entries()) {
-      const { clinicId, organizationId } = await seedClinic(`acceptable${i}`);
-      await readyForGoLive(clinicId);
-      await seedAcceptance(organizationId, version);
-      await getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]);
-      const { rows } = await getMigratorPool().query(
-        `select data_classification from clinics where id = $1`,
-        [clinicId],
-      );
-      expect(rows[0], version).toEqual({ data_classification: "production" });
-    }
+  test("app_mark_clinic_production takes 1.3.0, the floor its release raised", async () => {
+    // 1.3.0's release (plan C19) raised MIN_ACCEPTABLE_BAA_VERSION to 1.3.0:
+    // no clinic had signed 1.2.2, so 1.3.0 replaced it outright (owner, 12
+    // October 2026), and the test above refuses a 1.2.2 clinic.
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.3.0");
+    const { clinicId, organizationId } = await seedClinic("acceptable");
+    await readyForGoLive(clinicId);
+    await seedAcceptance(organizationId, "1.3.0");
+    await getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]);
+    const { rows } = await getMigratorPool().query(
+      `select data_classification from clinics where id = $1`,
+      [clinicId],
+    );
+    expect(rows[0]).toEqual({ data_classification: "production" });
   });
 
   test("app_mark_clinic_production refuses a DPA clinic until the DPA's release gives go-live a kind-aware rule (0051)", async () => {

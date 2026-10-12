@@ -464,11 +464,11 @@ describe("the calendar election document", () => {
     expect(CALENDAR_ELECTIONS[0]).toBe(current);
     expect(getCalendarElection(current.version)).toBe(current);
     expect(getCalendarElection("calendar-election/0.0.0")).toBeUndefined();
-    // Released with BAA 1.3.0 on 2026-10-13 (plan C19), so an election under
+    // Released with BAA 1.3.0 on 2026-10-12 (plan C19), so an election under
     // it counts for every clinic, not only a demo clinic (plan A10); the
     // database's app_calendar_election_released() says the same.
     expect(current.approvedByCounsel).toBe(true);
-    expect(current.publishedOn).toBe("2026-10-13");
+    expect(current.publishedOn).toBe("2026-10-12");
   });
 
   test("names the practice, the location and the agreement, and carries the clause without the location paragraph", () => {

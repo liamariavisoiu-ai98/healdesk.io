@@ -398,6 +398,24 @@ describeDb("Settings", () => {
 
   test("how long transcripts are kept: lengthening is free; shortening needs a step-up, is stored, keeps its history and emails the clinic", async () => {
     // BAA 1.3.0 clause 11: "Practice may shorten these periods in its portal".
+    // The clinic's agreement in effect is put on BAA 1.2.2 here, as a clinic
+    // bound before 1.3.0 replaced it (12 October 2026) would be: provisioning
+    // refuses 1.2.2 since, so it is bound as the migrator, newer than the
+    // 1.3.0 the clinic was provisioned under. 1.2.2 states no purge periods,
+    // so the nightly clean-up waits for its switch. The next test binds a
+    // newer 1.3.0 again.
+    const [clinicRow] = await sql<{ organization_id: string }>(
+      `select organization_id from clinics where id = $1`,
+      [portal.clinicId],
+    );
+    await sql(
+      `insert into baa_acceptances
+         (organization_id, document_version, document_hash, rendered_text, variables, assent_label,
+          accepted_by_name, accepted_by_email, accepted_at, bound_at)
+       values ($1, '1.2.2', repeat('e', 64), 'AGREEMENT (test)', '{}'::jsonb, 'I agree', 'Alex Chen',
+               'alex@settings.test', now(), now())`,
+      [clinicRow!.organization_id],
+    );
     const stored = () =>
       inTenant(
         portal.clinicId,

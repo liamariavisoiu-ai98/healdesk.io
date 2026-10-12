@@ -496,7 +496,9 @@ signed in to `865780386982`:
 bash run-task.sh migrate        # migrations, then queue:install
 bash run-task.sh db-bootstrap   # init-secrets, then the two roles
 bash run-task.sh destroy-due    # after a restore only: "Restoring production" below
-bash run-task.sh patient-export <clinic id> "<who asked, and the ticket>"   # offboarding
+bash run-task.sh patient-export CLINIC_ID   # offboarding
+bash run-task.sh erase-person CLINIC_ID CONTACT_ID WHO_ASKED you@healdesk.io   # [RECEIVED_AT]
+bash run-task.sh amend-contact CLINIC_ID CONTACT_ID FIELDS_TO_CLEAR WHO_ASKED you@healdesk.io
 ```
 
 `destroy-due` is the worker's container (its environment, secrets and task role) running
@@ -511,11 +513,10 @@ offboarding", step 2) and puts it in the export bucket (`exports.tf`), because t
 with it. It is `scripts/patient-export.ts` with the runtime role's `DATABASE_URL` as its only
 secret and its own task role, which may put `clinic-*.json` objects in that bucket and do nothing
 else: not the app task role, so it cannot open a clinic's credentials, and the web tier and the
-worker cannot write to the bucket. It is the one run with overrides, three environment variables
-CloudTrail records: the clinic's id, who asked, and the object key
-`clinic-<id>-<UTC time>.json`. None is secret or a patient's: `run-task.sh` refuses a label shaped
-like an email address or a phone number, and a date written in digits reads as one, so dates go
-in words. A per-patient export (a patient-rights request) is **open** on this host: its phone number or
+worker cannot write to the bucket. It runs with three environment overrides, which CloudTrail
+records: the clinic's id, who asked (always `practice`: a whole clinic's bundle is the practice's,
+and nothing typed reaches the audit row) and the object key `clinic-<id>-<UTC time>.json`. None is
+secret or a patient's. A per-patient export (a patient-rights request) is **open** on this host: its phone number or
 email would travel in an override, so it is not offered; an override naming the contact's id
 instead would avoid that. The upload happens inside the export's transaction, so a failed upload leaves no
 audit row, and the care page refuses a handover until a bundle exists. On success `run-task.sh`
@@ -532,6 +533,17 @@ rm -f "$KEY"
 The bucket is SSE-KMS under the product key, TLS only, private and not versioned, so the delete
 is final; an object nobody deletes goes after 7 days. Every read and write of an object is a
 CloudTrail data event. Then record the handover on the clinic's care page.
+
+`erase-person` and `amend-contact` are the patient-rights operator scripts
+(`apps/app/scripts/ops-erase-person.ts`, `ops-amend-contact.ts`; `docs/handover.md`, "Deletion
+requests" and "Amendments"). On this host the person is named by a contact's id, found in the ops
+console first, never by a number, an address or a name: the scripts refuse typed patient data in
+production, and `run-task.sh` passes only the clinic's and contact's ids, who asked (`practice`,
+`person_via_practice` or `representative_via_practice`), the operator's work address, and for
+erasure the day the request came (an ISO date), for an amendment the fields to clear (`fullName`,
+`phone`, `email`; new values wait for the portal). Each has the runtime role's `DATABASE_URL`,
+erasure also `HEALDESK_IDENTIFIER_REF_KEY`, and no task role: neither calls an AWS service. Their
+result (the request id, counts, any deadline) is in the task's log stream, ids and numbers only.
 
 It borrows the web service's private subnets and security group (refusing if the service is
 missing or would give a public address), runs the family's newest ACTIVE revision that names a

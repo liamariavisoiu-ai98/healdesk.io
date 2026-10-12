@@ -32,16 +32,27 @@ export function CalendarScreen(
     systems: readonly { id: string; label: string }[];
     /** The manual-booking sentence for a system that does not read Google Calendar, per system. */
     manualNotices: Readonly<Record<string, string | null>>;
-    /** Auto-confirm and its "Right now" line for each answer the picker can hold ("" for none). */
-    lines: Readonly<Record<string, { autoConfirm: boolean; rightNow: string }>>;
+    /**
+     * Auto-confirm as saved, the "Right now" line from the location's booking
+     * mode, and what saving each answer the picker can hold does to the switch.
+     */
+    autoConfirm: {
+      on: boolean;
+      rightNow: string;
+      onceSaved: Readonly<Record<string, boolean>>;
+    };
   },
 ) {
   const [system, setSystem] = useState(props.bookingSystem ?? "");
   const [changing, setChanging] = useState(props.bookingSystem === null);
   const selectId = useId();
   const label = props.systems.find((s) => s.id === system)?.label;
-  const manual = system ? props.manualNotices[system] : null;
-  const line = props.lines[system] ?? props.lines[""];
+  // The line may already say it, when the location's terms name the same system.
+  const notice = system ? props.manualNotices[system] : null;
+  const manual = notice && !props.autoConfirm.rightNow.includes(notice) ? notice : null;
+  // Saving another answer can turn Auto-confirm on or off (saveSetupSettings).
+  const after =
+    system && system !== props.bookingSystem ? props.autoConfirm.onceSaved[system] : undefined;
 
   // An outcome is said once: the address loses `calendar=`, so a reload or a
   // Back does not say it again, and the step goes on from here.
@@ -130,14 +141,19 @@ export function CalendarScreen(
         <p className="flex items-center justify-between gap-3 text-sm font-semibold">
           <span>Auto-confirm bookings</span>
           <span className="shrink-0 rounded-full bg-paper-2 px-3 py-1 text-xs">
-            {line?.autoConfirm ? "On" : "Off"}
+            {props.autoConfirm.on ? "On" : "Off"}
           </span>
         </p>
         <p className="text-muted mt-1 text-sm">
           When it&rsquo;s on, AYA books straight into your calendar whenever she can. When
           it&rsquo;s off, every booking is a request your team confirms.
         </p>
-        {line ? <p className="mt-2 text-sm">{line.rightNow}</p> : null}
+        <p className="mt-2 text-sm">{props.autoConfirm.rightNow}</p>
+        {after !== undefined && after !== props.autoConfirm.on ? (
+          <p className="text-muted mt-2 text-sm">
+            Saving {label} turns Auto-confirm {after ? "on" : "off"}.
+          </p>
+        ) : null}
       </div>
     </ScreenShell>
   );

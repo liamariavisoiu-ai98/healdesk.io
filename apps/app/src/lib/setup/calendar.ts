@@ -1,14 +1,17 @@
 import {
   bookingSyncFor,
-  bookingSystemName,
   BOOKING_SYSTEMS,
   renderGoogleCalendarDisclosure,
-  type BookingSystemId,
   type CalendarAccount,
   type GoogleCalendarDisclosure,
 } from "@healdesk/catalog";
 
 import type { ActorContext } from "@/lib/audit";
+import {
+  effectiveBookingMode,
+  type BookingModeReasonCode,
+  type EffectiveBookingMode,
+} from "@/lib/booking/mode";
 import { calendarTermsFor } from "@/lib/booking/terms";
 import {
   calendarConnectProblem,
@@ -27,7 +30,8 @@ import type { SetupSettings } from "./settings";
  * functions in lib/connections/: whether Sign in with Google can work here,
  * the connection as getCalendarConnection reports it, what the callback's
  * `?calendar=<outcome>` says in words, and the "Right now: …" line under
- * Auto-confirm. The button's server action, which calls startGoogleConnect
+ * Auto-confirm, from the calendar session's effectiveBookingMode
+ * (lib/booking/mode.ts). The button's server action, which calls startGoogleConnect
  * with `returnTo: /c/<slug>/setup`, is app/c/[slug]/setup/calendar-actions.ts;
  * 3.2's named providers are lib/setup/providers.ts.
  *
@@ -217,61 +221,70 @@ export function noticeForRefusal(error: unknown): CalendarNotice {
 // -----------------------------------------------------------------------------
 
 /**
- * The "Right now: …" line under Auto-confirm (plan Part E 3.1).
- *
- * The calendar contract gives this line to the calendar session's
- * `effectiveBookingMode(clinicId) → { mode, reason, reasons }` (C9), whose
- * `reason` is the sentence it shows. C9 is not in this build, and neither is
- * the booking engine that would book straight into a calendar (C13), so
- * every booking AYA takes is a request today, whatever is connected; the
- * line says so, with the one reason it can see for itself that the clinic
- * set or can fix. Nothing here promises direct booking after a step.
- *
- * When C9 lands, `bookingLines` takes the mode's answer for the saved
- * system, and this function keeps only the preview of a system the picker
- * has changed but not saved.
+ * The reasons whose sentence already says that each booking is a request
+ * (the catalogue's manual-booking sentence, and Auto-confirm off): the line
+ * is that sentence alone. Every other sentence says only what stands in
+ * the way, so the line says first what it means for a booking.
  */
-export function rightNowLine(input: {
-  bookingSystem: BookingSystemId | null;
-  autoConfirm: boolean;
-  calendar: CalendarState;
-}): string {
-  const line = "Right now: your team confirms each booking AYA takes";
-  if (input.bookingSystem !== null && bookingSyncFor(input.bookingSystem) === "manual") {
-    return `${line} in ${bookingSystemName(input.bookingSystem) ?? "your booking system"}.`;
-  }
-  if (!input.autoConfirm) return `${line}, because Auto-confirm is off.`;
-  if (input.calendar === "broken") {
-    return `${line}, because your calendar connection stopped working.`;
-  }
-  return `${line}.`;
-}
-
-export type BookingLine = { autoConfirm: boolean; rightNow: string };
+const SAYS_REQUESTS: ReadonlySet<BookingModeReasonCode> = new Set([
+  "manual_booking_system",
+  "auto_confirm_off",
+]);
 
 /**
- * Auto-confirm and its "Right now" line for every answer the booking-system
- * picker can hold, keyed by its id ("" while none is chosen), so the screen
- * shows the line for the answer on screen. A system other than the saved one
- * decides Auto-confirm as saving it will (saveSetupSettings: on where it
- * reads Google Calendar, off where it does not).
+ * The "Right now: …" line under Auto-confirm (plan Part E 3.1): the
+ * calendar session's effectiveBookingMode (C9), whose `reason` is the first
+ * gate that leaves the location taking requests, in the clinic's words, and
+ * null exactly when AYA books straight into the calendar. The mode is
+ * derived fresh on every read, so the line is what is true as the page
+ * renders, whatever the step above it shows.
  */
-export function bookingLines(
+export function rightNowLine(mode: EffectiveBookingMode): string {
+  if (mode.mode === "direct" || mode.reason === null) {
+    return "Right now: AYA books straight into your calendar.";
+  }
+  if (SAYS_REQUESTS.has(mode.reason.code)) return `Right now: ${mode.reason.sentence}`;
+  return `Right now: your team confirms each booking AYA takes. ${mode.reason.sentence}`;
+}
+
+/** Auto-confirm as step 3.1 shows it. */
+export type AutoConfirmView = {
+  /** The clinic's switch, as saved. */
+  on: boolean;
+  /** effectiveBookingMode's answer now, as the "Right now" line. */
+  rightNow: string;
+  /**
+   * What the switch becomes once the picker's answer is saved, for each
+   * booking system it can hold: saveSetupSettings turns it on where a new
+   * system reads Google Calendar and off where it does not, and leaves it
+   * as it is for the system already saved.
+   */
+  onceSaved: Record<string, boolean>;
+};
+
+export function autoConfirmView(
   settings: Pick<SetupSettings, "bookingSystem" | "autoConfirmBookings">,
-  calendar: CalendarState,
-): Record<string, BookingLine> {
-  const lineFor = (system: BookingSystemId | null): BookingLine => {
-    const autoConfirm =
-      system === settings.bookingSystem
-        ? settings.autoConfirmBookings
-        : bookingSyncFor(system) === "live";
-    return {
-      autoConfirm,
-      rightNow: rightNowLine({ bookingSystem: system, autoConfirm, calendar }),
-    };
+  mode: EffectiveBookingMode,
+): AutoConfirmView {
+  return {
+    on: settings.autoConfirmBookings,
+    rightNow: rightNowLine(mode),
+    onceSaved: Object.fromEntries(
+      BOOKING_SYSTEMS.map((system) => [
+        system.id,
+        system.id === settings.bookingSystem
+          ? settings.autoConfirmBookings
+          : bookingSyncFor(system.id) === "live",
+      ]),
+    ),
   };
-  return Object.fromEntries([
-    ["", lineFor(settings.bookingSystem)],
-    ...BOOKING_SYSTEMS.map((system) => [system.id, lineFor(system.id)] as const),
-  ]);
+}
+
+/** Auto-confirm for the step, with the location's booking mode read now. */
+export async function autoConfirmFor(
+  clinicId: string,
+  settings: Pick<SetupSettings, "bookingSystem" | "autoConfirmBookings">,
+  options: { actor: ActorContext },
+): Promise<AutoConfirmView> {
+  return autoConfirmView(settings, await effectiveBookingMode(clinicId, options));
 }

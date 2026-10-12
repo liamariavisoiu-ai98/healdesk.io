@@ -22,16 +22,24 @@ import { ProvidersScreen } from "@/app/c/[slug]/setup/screens/CalendarScreens";
 import { CalendarStepView } from "@/app/c/[slug]/setup/screens/CalendarStepView";
 import { signAgreement } from "@/lib/agreements";
 import type { EmailToSend } from "@/lib/email/send";
-import { getCalendarConnection, MAX_PROVIDERS } from "@/lib/connections/google-calendar";
+import { effectiveBookingMode, setAutoConfirm } from "@/lib/booking/mode";
+import {
+  getCalendarConnection,
+  markCalendarBroken,
+  MAX_PROVIDERS,
+} from "@/lib/connections/google-calendar";
 import { completeGoogleSignIn } from "@/lib/connections/google-oauth";
 import { __setKeyWrapperForTests } from "@/lib/crypto/kms";
 import { provisionClinic } from "@/lib/provisioning";
 import {
+  autoConfirmFor,
+  autoConfirmView,
   CALENDAR_NOTICES,
   calendarNoticeWords,
   calendarStep,
   readCalendarNotice,
   requestedScreen,
+  type AutoConfirmView,
   type CalendarNotice,
   type CalendarStep,
 } from "@/lib/setup/calendar";
@@ -64,7 +72,8 @@ import {
  * to the step, every `?calendar=` outcome in words, reconnecting and
  * disconnecting behind the step-up, named providers saved through
  * saveProviders and setProviderServices with booking_detail following them,
- * and the tracker's calendar stage.
+ * the tracker's calendar stage, and Auto-confirm's "Right now" line on the
+ * calendar session's effectiveBookingMode.
  *
  * Google is the in-memory one, behind the connectors' fetch seam, and the
  * global fetch throws, as in the calendar session's own tests; every
@@ -243,8 +252,21 @@ async function redirected(run: () => Promise<unknown>): Promise<string> {
 
 const NO_ACTIONS = { connect: async () => {}, disconnect: async () => {} };
 
+const SAVED = { bookingSystem: "google_calendar", autoConfirmBookings: true } as const;
+
+/** Auto-confirm before any calendar is connected, as effectiveBookingMode words it. */
+const NOT_CONNECTED_LINE = autoConfirmView(SAVED, {
+  mode: "requests",
+  reason: { code: "calendar_not_connected", sentence: "Your Google Calendar isn't connected." },
+  reasons: [{ code: "calendar_not_connected", sentence: "Your Google Calendar isn't connected." }],
+});
+
 /** Step 3.1 as the page renders it, as text: entities decoded, so sentences compare as written. */
-function stepText(step: CalendarStep, notice: CalendarNotice | null = null): string {
+function stepText(
+  step: CalendarStep,
+  notice: CalendarNotice | null = null,
+  autoConfirm: AutoConfirmView = NOT_CONNECTED_LINE,
+): string {
   return decode(
     renderToStaticMarkup(
       createElement(CalendarStepView, {
@@ -253,7 +275,8 @@ function stepText(step: CalendarStep, notice: CalendarNotice | null = null): str
         skipCost: "bookings arrive as requests your team confirms.",
         step,
         notice,
-        settings: { bookingSystem: "google_calendar", autoConfirmBookings: true },
+        bookingSystem: SAVED.bookingSystem,
+        autoConfirm,
         timeZone: "America/New_York",
         actions: NO_ACTIONS,
       }),
@@ -771,6 +794,70 @@ describeDb("setup step 3 on the calendar functions", () => {
     },
     SLOW,
   );
+
+  test(
+    "Auto-confirm's Right now line is the location's booking mode as the page renders: not connected, connected, broken, switched off, and terms still to record",
+    async () => {
+      const clinic = await provisioned("wc-rightnow");
+      const actor = actorOf(clinic);
+      const line = async () => {
+        const state = await loadSetupState({
+          clinicId: clinic.clinicId,
+          userId: clinic.userId,
+          actor: SERVICE,
+        });
+        return autoConfirmFor(clinic.clinicId, state!.settings, { actor });
+      };
+      const requests = "Right now: your team confirms each booking AYA takes.";
+
+      const before = await line();
+      expect(before.on).toBe(true);
+      expect(before.rightNow).toBe(`${requests} Your Google Calendar isn't connected.`);
+      // The page shows it under the switch.
+      const step = await calendarStep({ id: clinic.clinicId, name: clinic.name }, { actor });
+      expect(stepText(step, null, before)).toContain(before.rightNow);
+
+      // Connected: the calendar is no longer what stands in the way, and the
+      // line names whatever is next, as effectiveBookingMode orders it.
+      const { connectionId, credentialVersion } = await seedGoogleConnection(clinic.clinicId, {
+        managed: true,
+        refreshToken: google.grant({ sub: WORKSPACE.sub }).refreshToken,
+      });
+      const connected = await line();
+      const mode = await effectiveBookingMode(clinic.clinicId, { actor });
+      expect(mode.mode).toBe("requests");
+      expect(mode.reasons.map((reason) => reason.code)).not.toContain("calendar_not_connected");
+      expect(connected.rightNow).toBe(`${requests} ${mode.reason!.sentence}`);
+      expect(connected.rightNow).not.toContain("Google Calendar");
+
+      // Google refuses the calendar: the same read says so at once.
+      await markCalendarBroken(clinic.clinicId, {
+        code: "calendar_not_found",
+        connectionId,
+        credentialVersion,
+      });
+      expect((await line()).rightNow).toBe(
+        `${requests} Your Google Calendar connection stopped working and needs reconnecting.`,
+      );
+
+      // The clinic's own switch, set through the calendar session's setAutoConfirm.
+      await setAutoConfirm(clinic.clinicId, false, actor);
+      expect((await line()).on).toBe(false);
+
+      // Terms not recorded yet (every 1.2.1 signature until C19): no button, and the line says why.
+      const legacy = await provisioned("wc-rightnow-legacy", null);
+      const legacyState = await loadSetupState({
+        clinicId: legacy.clinicId,
+        userId: legacy.userId,
+        actor: SERVICE,
+      });
+      expect(
+        (await autoConfirmFor(legacy.clinicId, legacyState!.settings, { actor: actorOf(legacy) }))
+          .rightNow,
+      ).toBe(`${requests} This location's calendar terms aren't in place yet.`);
+    },
+    SLOW,
+  );
 });
 
 describe("step 3 in words", () => {
@@ -880,16 +967,31 @@ describe("step 3 in words", () => {
     expect(personal).not.toContain("Manage third-party app access");
   });
 
-  test("a broken connection opens the reconnect at once, and the Right now line says why bookings are requests", () => {
+  test("a broken connection opens the reconnect at once", () => {
     const broken: CalendarStep = { ...notConnected(), connection: connectedView("error") };
     const page = stepText(broken);
     expect(page).toContain("Your calendar connection stopped working");
     expect(page).toContain("on October 8, 2026");
     expect(page).not.toContain("Reconnect, or use another Google account");
     expect(page).toContain("Sign in with Google");
+  });
+
+  test("Auto-confirm shows the switch as saved and the mode's line, and says what saving another booking system does to it", () => {
+    const page = stepText(notConnected());
+    expect(page).toMatch(/Auto-confirm bookings<\/span><span[^>]*>On<\/span>/);
     expect(page).toContain(
-      "Right now: your team confirms each booking AYA takes, because your calendar connection stopped working.",
+      "Right now: your team confirms each booking AYA takes. Your Google Calendar isn't connected.",
     );
+    // The picker holds the saved answer, so saving changes nothing.
+    expect(page).not.toContain("turns Auto-confirm");
+    expect(NOT_CONNECTED_LINE.onceSaved).toMatchObject({
+      google_calendar: true,
+      calendly: true,
+      mindbody: false,
+    });
+
+    const off = stepText(notConnected(), null, { ...NOT_CONNECTED_LINE, on: false });
+    expect(off).toMatch(/Auto-confirm bookings<\/span><span[^>]*>Off<\/span>/);
   });
 
   test("3.2 offers named providers only with calendars to give them", () => {

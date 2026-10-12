@@ -2,14 +2,13 @@ import { BOOKING_SYSTEMS, bookingSyncFor, manualBookingNotice } from "@healdesk/
 
 import { connectedOn } from "@/lib/connections/calendar-links";
 import {
-  bookingLines,
   calendarNoticeWords,
   calendarStateOf,
   noticeFits,
+  type AutoConfirmView,
   type CalendarNotice,
   type CalendarStep,
 } from "@/lib/setup/calendar";
-import type { SetupSettings } from "@/lib/setup/settings";
 
 import { CalendarConnect, type CalendarConnectActions } from "./CalendarConnect";
 import { CalendarScreen } from "./CalendarScreens";
@@ -18,9 +17,9 @@ import { CalendarScreen } from "./CalendarScreens";
  * Setup 3.1 as the clinic sees it, from calendarStep's answer: the Google
  * panel only where Sign in with Google can work, the outcome Google's return
  * carried in words (when it fits the calendar as it stands), the booking
- * system with Change, and Auto-confirm with its "Right now" line.
- * Server-rendered and synchronous, so the page awaits calendarStep and tests
- * render this with any step.
+ * system with Change, and Auto-confirm with its "Right now" line
+ * (autoConfirmFor, on effectiveBookingMode). Server-rendered and
+ * synchronous, so the page awaits both and tests render this with any step.
  */
 export function CalendarStepView(props: {
   slug: string;
@@ -28,7 +27,9 @@ export function CalendarStepView(props: {
   skipCost: string;
   step: CalendarStep;
   notice: CalendarNotice | null;
-  settings: Pick<SetupSettings, "bookingSystem" | "autoConfirmBookings">;
+  /** The booking system as saved. */
+  bookingSystem: string | null;
+  autoConfirm: AutoConfirmView;
   /** The clinic's time zone, for the day the calendar was connected. */
   timeZone: string;
   actions: CalendarConnectActions;
@@ -60,7 +61,7 @@ export function CalendarStepView(props: {
           />
         ) : null
       }
-      bookingSystem={props.settings.bookingSystem}
+      bookingSystem={props.bookingSystem}
       systems={BOOKING_SYSTEMS.map((system) => ({ id: system.id, label: system.label }))}
       manualNotices={Object.fromEntries(
         BOOKING_SYSTEMS.map((system) => [
@@ -68,7 +69,7 @@ export function CalendarStepView(props: {
           bookingSyncFor(system.id) === "manual" ? manualBookingNotice(system.label) : null,
         ]),
       )}
-      lines={bookingLines(props.settings, state)}
+      autoConfirm={props.autoConfirm}
     />
   );
 }

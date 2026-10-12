@@ -1,6 +1,17 @@
-import { CHANNEL_NAMES, CHANNELS, NEVER_SAY_DEFAULTS } from "@healdesk/catalog";
+import {
+  CHANNEL_NAMES,
+  CHANNELS,
+  manualBookingNotice,
+  NEVER_SAY_DEFAULTS,
+} from "@healdesk/catalog";
 import { afterEach, describe, expect, test } from "vitest";
 
+import {
+  BOOKING_MODE_REASON_CODES,
+  decideBookingMode,
+  effectiveOf,
+  type BookingModeReasonCode,
+} from "@/lib/booking/mode";
 import type { ChannelState } from "@/lib/channels/state";
 import {
   moveSetupDeadline,
@@ -11,7 +22,7 @@ import {
 import { copyProblems } from "@/lib/email/lint";
 import { validateAgentConfig } from "@/lib/onboarding/agent-config";
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
-import { bookingLines, rightNowLine } from "@/lib/setup/calendar";
+import { autoConfirmView, rightNowLine } from "@/lib/setup/calendar";
 import {
   actionLine,
   channelNextStep,
@@ -413,41 +424,76 @@ describe("Help", () => {
 });
 
 describe("Auto-confirm's Right now line", () => {
-  const live = { bookingSystem: "google_calendar" as const, autoConfirm: true };
+  // Every reason the booking mode can give, worded by the mode itself: a
+  // location with everything still to do, under terms not yet recorded.
+  const everything = decideBookingMode({
+    killSwitchOn: false,
+    autoConfirm: false,
+    terms: {
+      kind: "needs_election",
+      reason: "legacy_agreement",
+      allowsWrite: false,
+      agreementId: "00000000-0000-4000-8000-000000000002",
+      agreementVersion: "1.2.1",
+      electionId: null,
+      demo: false,
+    },
+    googleConfigured: false,
+    connection: null,
+    openingHoursKnown: false,
+    timezoneConfirmed: false,
+    offboarding: false,
+    production: false,
+    demo: false,
+    agentApproved: false,
+  });
+  const order = (code: BookingModeReasonCode) => BOOKING_MODE_REASON_CODES.indexOf(code);
+  /** The mode once everything before `code` is put right. */
+  const first = (code: BookingModeReasonCode) =>
+    effectiveOf({
+      mode: "manual",
+      reasons: everything.reasons.filter((reason) => order(reason.code) >= order(code)),
+    });
 
-  test("every booking is a request today, whatever is connected; the line names a reason only the clinic set or can fix", () => {
-    for (const calendar of ["requests_only", "not_connected", "connected"] as const) {
-      expect(rightNowLine({ ...live, calendar })).toBe(
-        "Right now: your team confirms each booking AYA takes.",
-      );
-    }
-    expect(rightNowLine({ ...live, calendar: "broken" })).toBe(
-      "Right now: your team confirms each booking AYA takes, because your calendar connection stopped working.",
+  test("it is the booking mode's first reason, after what that means for a booking unless the reason says so itself", () => {
+    expect(rightNowLine({ mode: "direct", reason: null, reasons: [] })).toBe(
+      "Right now: AYA books straight into your calendar.",
     );
-    expect(rightNowLine({ ...live, autoConfirm: false, calendar: "connected" })).toBe(
-      "Right now: your team confirms each booking AYA takes, because Auto-confirm is off.",
+    expect(rightNowLine(effectiveOf(everything))).toBe(
+      "Right now: your team confirms each booking AYA takes. This location's calendar terms aren't in place yet.",
     );
+    expect(rightNowLine(first("timezone_unconfirmed"))).toBe(
+      "Right now: your team confirms each booking AYA takes. Your time zone hasn't been confirmed.",
+    );
+    expect(rightNowLine(first("kill_switch_off"))).toBe(
+      "Right now: your team confirms each booking AYA takes. healdesk hasn't switched on live booking yet.",
+    );
+    // These two say it themselves.
+    expect(rightNowLine(first("auto_confirm_off"))).toBe(
+      "Right now: Auto-confirm is off, so your assistant takes each booking as a request for your staff to confirm.",
+    );
+    const mindbody = manualBookingNotice("mindbody");
     expect(
-      rightNowLine({ bookingSystem: "mindbody", autoConfirm: false, calendar: "connected" }),
-    ).toBe("Right now: your team confirms each booking AYA takes in Mindbody.");
-    expect(
-      rightNowLine({ bookingSystem: "other", autoConfirm: false, calendar: "connected" }),
-    ).toBe("Right now: your team confirms each booking AYA takes in your booking system.");
+      rightNowLine(
+        effectiveOf({
+          mode: "manual",
+          reasons: [{ code: "manual_booking_system", sentence: mindbody }],
+        }),
+      ),
+    ).toBe(`Right now: ${mindbody}`);
   });
 
-  test("the picker's answer on screen decides Auto-confirm as saving it would", () => {
-    const lines = bookingLines(
+  test("the switch as saved, and what saving another booking system would make it", () => {
+    const view = autoConfirmView(
       { bookingSystem: "google_calendar", autoConfirmBookings: false },
-      "not_connected",
+      effectiveOf(everything),
     );
+    expect(view.on).toBe(false);
     // The saved system keeps the clinic's own switch; another follows its sync.
-    expect(lines.google_calendar!.autoConfirm).toBe(false);
-    expect(lines.calendly!.autoConfirm).toBe(true);
-    expect(lines.mindbody).toEqual({
-      autoConfirm: false,
-      rightNow: "Right now: your team confirms each booking AYA takes in Mindbody.",
-    });
-    expect(lines[""]).toEqual(lines.google_calendar);
+    expect(view.onceSaved.google_calendar).toBe(false);
+    expect(view.onceSaved.calendly).toBe(true);
+    expect(view.onceSaved.mindbody).toBe(false);
+    expect(view.rightNow).toBe(rightNowLine(effectiveOf(everything)));
   });
 });
 

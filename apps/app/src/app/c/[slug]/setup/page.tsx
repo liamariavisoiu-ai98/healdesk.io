@@ -17,6 +17,7 @@ import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import {
+  autoConfirmFor,
   calendarStep,
   readCalendarNotice,
   requestedScreen,
@@ -450,13 +451,17 @@ async function CalendarStep({
   notice: CalendarNotice | null;
   actor: ActorContext;
 }) {
-  const step = await calendarStep({ id: state.clinic.id, name: state.clinic.name }, { actor });
+  const [step, autoConfirm] = await Promise.all([
+    calendarStep({ id: state.clinic.id, name: state.clinic.name }, { actor }),
+    autoConfirmFor(state.clinic.id, state.settings, { actor }),
+  ]);
   return (
     <CalendarStepView
       {...common}
       step={step}
       notice={notice}
-      settings={state.settings}
+      bookingSystem={state.settings.bookingSystem}
+      autoConfirm={autoConfirm}
       timeZone={state.clinic.timezone}
       actions={{ connect: connectCalendar, disconnect: disconnectCalendar }}
     />

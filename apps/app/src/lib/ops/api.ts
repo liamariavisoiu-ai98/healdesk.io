@@ -3615,7 +3615,7 @@ async function opMarkExportDelivered(
   );
   if (!delivered) {
     return care.error(
-      "No return bundle has been produced since offboarding started. Produce it in AWS CloudShell (bash run-task.sh patient-export <clinic id> \"<who asked>\"), hand it over, then record the handover here.",
+      "No return bundle has been produced since offboarding started. Produce it in AWS CloudShell (bash run-task.sh patient-export <clinic id>), hand it over, then record the handover here.",
     );
   }
   await audit(operator, "offboarding_export_delivered", { clinicSlug: clinic.slug });

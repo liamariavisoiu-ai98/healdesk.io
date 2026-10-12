@@ -231,6 +231,8 @@ describeDb("care operations", () => {
     );
     expect(unproduced.status).toBe("error");
     expect(unproduced.message).toMatch(/No return bundle has been produced/);
+    // As run-task.sh takes it: the clinic's id, and nothing else (C19).
+    expect(unproduced.message).toContain("(bash run-task.sh patient-export <clinic id>)");
     expect(await stamp()).toBeNull();
 
     // Produced, as the patient-export script does: still nothing stamped.

@@ -928,6 +928,70 @@ describeDb("deletion on request", () => {
     ).rejects.toMatchObject({ code: "42501" });
   });
 
+  test("against the runtime role the evidence function's checks are advisory, and its audit row is the bound", async () => {
+    // Third review, 12 October 2026. The runtime role can blank a live
+    // contact's phone for the length of one call, past "a contact still
+    // carries it", and can mint its own record holding references, which
+    // then stands as a restore record in later transactions. Neither gets
+    // past the audit row, and the migration says so.
+    const c = await seedClinic("erase-evidence-bypass");
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const carried = await seedContact(c.clinicId, "+15550137101");
+    await inTenant(c.clinicId, async (client) => {
+      await evidence(client, c.clinicId, "+15550137101", hourAgo);
+      await evidence(client, c.clinicId, "+15550137102", hourAgo);
+    });
+
+    const minted = await committedAsApp(c.clinicId, async (q) => {
+      const { rows } = await q.query<{ id: string }>(
+        `insert into erasure_requests (clinic_id, requested_by, received_at, due_by, restore_refs)
+         values ($1, 'practice', now(), now() + interval '14 days', array['minted']) returning id`,
+        [c.clinicId],
+      );
+      await q.query(`update contacts set phone = null where id = $1`, [carried]);
+      const deleted = (
+        await q.query<{ suppressions_deleted: number }>(
+          `select * from app_erase_contact_evidence($1::uuid, array['+15550137101']::text[])`,
+          [rows[0]!.id],
+        )
+      ).rows[0]!;
+      await q.query(`update contacts set phone = '+15550137101' where id = $1`, [carried]);
+      return { id: rows[0]!.id, deleted };
+    });
+    expect(minted.deleted.suppressions_deleted).toBe(1);
+
+    const later = await committedAsApp(c.clinicId, (q) =>
+      q.query<{ suppressions_deleted: number }>(
+        `select * from app_erase_contact_evidence($1::uuid, array['+15550137102']::text[])`,
+        [minted.id],
+      ),
+    );
+    expect(later.rows[0]!.suppressions_deleted).toBe(1);
+
+    const audit = await inTenant(c.clinicId, async (client) =>
+      (
+        await client.query<{ path: string; n: number }>(
+          `select metadata->>'path' as path, result_count as n from audit_log
+            where resource_type = 'person_erasure_evidence' and resource_id = $1
+            order by occurred_at, id`,
+          [minted.id],
+        )
+      ).rows,
+    );
+    expect(audit).toEqual([
+      { path: "erasure", n: 3 },
+      { path: "restore", n: 3 },
+    ]);
+
+    const { rows } = await getMigratorPool().query<{ comment: string }>(
+      `select obj_description('app_erase_contact_evidence(uuid, text[])'::regprocedure, 'pg_proc') as comment`,
+    );
+    expect(rows[0]!.comment).toMatch(/advisory/);
+    expect(rows[0]!.comment).toMatch(/blank a contact''?s phone for one call/);
+    expect(rows[0]!.comment).toMatch(/insert a record with references/);
+    expect(rows[0]!.comment).toMatch(/the audit row is the bound/);
+  });
+
   test("a deletion by address alone erases every contact carrying the person's number too, whole", async () => {
     // C1 has the number and the address; C2, a call matched only by the
     // number, has a conversation. Asked by the address, the first version

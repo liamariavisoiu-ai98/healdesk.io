@@ -135,10 +135,18 @@ describe("the hero's logos", () => {
 
   test("no showcase names a treatment, least of all on a Meta channel", () => {
     // CLAUDE.md, "No treatment name in a payment description, a Meta message
-    // or the support chat": the Instagram question stops at "with…".
+    // or the support chat": the Instagram question asks for a clinician.
     const treatments = /botox|filler|lip|laser|ivf|egg|implant|veneer|semaglutide|glp|hair|facial|peel|liposuction|rhinoplasty/i;
     for (const logo of HERO_LOGOS) {
       for (const line of logo.showcase) expect(line.text, logo.name).not.toMatch(treatments);
+    }
+  });
+
+  test("the Instagram message and the call come in after hours, and their cards say so", () => {
+    for (const scene of ["instagram", "call"]) {
+      const logo = HERO_LOGOS.find((l) => l.scene === scene)!;
+      expect(logo.afterHours, scene).toBe(true);
+      expect(logo.showcase[0]!.text, scene).toMatch(/^After hours/);
     }
   });
 

@@ -38,6 +38,22 @@ export function HeroScene({ logo }: { logo: HeroLogo }) {
   }
 }
 
+/**
+ * The tag on a card whose example happens while the clinic is shut (owner, 12
+ * October 2026: the Instagram message and the call should read as after
+ * hours): a moon, rising as the card opens, and the words.
+ */
+export function AfterHours() {
+  return (
+    <span className="portrait__after">
+      <svg viewBox="0 0 16 16" aria-hidden>
+        <path d="M13.6 10.1A6.1 6.1 0 0 1 5.9 2.4a6.1 6.1 0 1 0 7.7 7.7z" />
+      </svg>
+      After hours
+    </span>
+  );
+}
+
 /** A check that draws itself. */
 function Check({ className = "" }: { className?: string }) {
   return (
@@ -81,16 +97,19 @@ function WebChat() {
   );
 }
 
-/** Instagram's direct messages: a "New messages" divider, the question, the reply. */
+/**
+ * Instagram's direct messages: a "New messages" divider with the time it came
+ * in, late on a Friday, the question, the reply.
+ */
 function Instagram() {
   return (
     <span className="sc sc-ig">
       <span className="sc-ig__divider">
-        <span>New messages</span>
+        <span>New messages · Fri 11:48 PM</span>
       </span>
       <span className="sc-ig__them">
         <span className="sc-ig__avatar" aria-hidden />
-        <span className="sc-ig__bubble">Can I get a consultation with…?</span>
+        <span className="sc-ig__bubble">Can I get a consultation with Dr. John Doe?</span>
       </span>
       <span className="sc-ig__me">Consultation booked · Sat 10:30 AM</span>
     </span>
@@ -137,7 +156,10 @@ function WhatsApp() {
   );
 }
 
-/** The phone line: a live call, its timer running and its voice moving, then the booking. */
+/**
+ * The phone line, after hours, forwarded to her: a live call, its timer
+ * running and its voice moving, then the booking.
+ */
 function Call() {
   return (
     <span className="sc sc-call">

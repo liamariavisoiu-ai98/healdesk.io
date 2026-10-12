@@ -1875,12 +1875,41 @@
   }
 }
 
+.portrait__card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .portrait__card-name {
   color: var(--color-muted);
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* "After hours": night-blue, with a moon that rises as the card opens. */
+.portrait__after {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 6px;
+  border-radius: 9999px;
+  background: #1b2440;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.portrait__after svg {
+  width: 10px;
+  height: 10px;
+  fill: #ffd98a;
 }
 
 /* --- The cards' scenes (HeroScenes.tsx) ----------------------------------
@@ -2343,6 +2372,15 @@
     animation-delay: 180ms;
   }
 
+  /* After hours: the tag fades in with the card, its moon rising into it. */
+  .portrait__node[data-shown] .portrait__after {
+    animation: sc-fade var(--duration-base) var(--ease-standard) 60ms both;
+  }
+
+  .portrait__node[data-shown] .portrait__after svg {
+    animation: sc-moon var(--duration-slower) var(--ease-out) 120ms both;
+  }
+
   /* Instagram: the divider opens from its middle, the question slides in,
      the reply pops up from its corner. */
   .portrait__node[data-shown] .sc-ig__divider::before,
@@ -2498,6 +2536,13 @@
 
   .portrait__node[data-shown] .sc-stripe__done .sc-type {
     animation: sc-type var(--duration-slow) var(--ease-out) 1450ms both;
+  }
+}
+
+@keyframes sc-moon {
+  from {
+    opacity: 0;
+    transform: translateY(5px) rotate(-35deg);
   }
 }
 

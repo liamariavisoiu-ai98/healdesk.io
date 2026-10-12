@@ -135,7 +135,8 @@ export function onOrbit(group: LogoGroup, angle: number): { x: number; y: number
  * nothing else (the auto-confirm switch turns a booking into a request staff
  * approve), sends a deposit link in chat, and on a call books and flags the
  * deposit rather than taking it. No treatment is named anywhere, and none in
- * a Meta channel above all, where the question stops at "with…".
+ * a Meta channel above all, where the question asks for a clinician by name
+ * (an invented one) rather than for a procedure.
  */
 export type ShowcaseLine = { text: string };
 
@@ -173,6 +174,11 @@ export type HeroLogo = {
    * above, for a logo too near the photo's right edge for a card beside it.
    */
   card?: "above";
+  /**
+   * Whether its example happens while the clinic is shut, which its card
+   * says with an "After hours" tag (owner, 12 October 2026).
+   */
+  afterHours?: true;
   showcase: readonly ShowcaseLine[];
 };
 
@@ -195,7 +201,11 @@ const LOGOS: readonly Omit<HeroLogo, "at">[] = [
     group: "messages",
     angle: -165.3,
     scene: "instagram",
-    showcase: [{ text: "New message: Can I get a consultation with…?" }, { text: "Consultation booked · Sat 10:30 AM" }],
+    afterHours: true,
+    showcase: [
+      { text: "After hours, Fri 11:48 PM, new message: Can I get a consultation with Dr. John Doe?" },
+      { text: "Consultation booked · Sat 10:30 AM" },
+    ],
   },
   // The owner's file is Facebook's "f"; the channel it stands for is Messenger.
   {
@@ -226,7 +236,8 @@ const LOGOS: readonly Omit<HeroLogo, "at">[] = [
     group: "messages",
     angle: -196.2,
     scene: "call",
-    showcase: [{ text: "On a call, 0:42" }, { text: "Consultation booked, deposit flagged for your team" }],
+    afterHours: true,
+    showcase: [{ text: "After hours, on a call, 0:42" }, { text: "Consultation booked, deposit flagged for your team" }],
   },
   // A request rather than a booking: what the card shows with "Auto-confirm
   // bookings" off, when staff approve each one (owner, 12 October 2026).

@@ -16,7 +16,7 @@ import {
   type LogoGroup,
   type Orbit,
 } from "@/lib/integrations";
-import { HeroScene } from "@/components/HeroScenes";
+import { AfterHours, HeroScene } from "@/components/HeroScenes";
 import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
@@ -388,7 +388,10 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
                     </span>
                     {/* Said by the button's own name; drawn here for the eye. */}
                     <span className="portrait__card" data-scene={logo.scene} aria-hidden>
-                      <span className="portrait__card-name">{capital(logo.name)}</span>
+                      <span className="portrait__card-head">
+                        <span className="portrait__card-name">{capital(logo.name)}</span>
+                        {logo.afterHours ? <AfterHours /> : null}
+                      </span>
                       <HeroScene logo={logo} />
                     </span>
                   </span>

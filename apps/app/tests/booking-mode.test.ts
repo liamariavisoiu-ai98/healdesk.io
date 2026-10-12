@@ -309,6 +309,10 @@ describe("the booking mode's rules (decideBookingMode)", () => {
       expect(sentence, code).not.toMatch(/HEALDESK_|GOOGLE_OAUTH|HIPAA|_/);
     }
   });
+
+  test("there is no other booking mode: the direct-booking addendum's gate is gone (plan C17)", async () => {
+    expect(await import("@/lib/booking/mode")).not.toHaveProperty("directBookingAllowed");
+  });
 });
 
 describeDb("the booking mode, read from the database", () => {

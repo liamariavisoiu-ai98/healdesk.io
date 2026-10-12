@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
-import { directBookingAllowed } from "@/lib/booking/mode";
+import { bookingModeFor } from "@/lib/booking/mode";
 import { metaChannelGreeting } from "@/lib/compliance/disclosure";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
@@ -483,18 +483,39 @@ describeDb("the booking hand-off, end to end", () => {
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from suppressions`))).rows).toHaveLength(0);
   });
 
-  test("direct booking names every closed gate (§E.1)", async () => {
-    const c = await liveClinic("booking-fields", "923456789012345");
-    const check = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => directBookingAllowed(tx));
-    expect(check.ok).toBe(false);
-    if (!check.ok) {
-      expect(check.reason).toBe("env_off");
-      expect(check.missing).toEqual([
-        expect.stringMatching(/HEALDESK_DIRECT_BOOKING_ENABLED/),
-        expect.stringMatching(/addendum has not been approved/),
-        expect.stringMatching(/not elected direct booking/),
-        expect.stringMatching(/No active, writable calendar connection/),
+  test("a live Meta clinic with no calendar terms takes requests, and its booking mode names every reason (plan §8)", async () => {
+    // The owner's kill switch and healdesk's Google client, both unset, as on any
+    // deployment before the owner switches them on.
+    const saved = {
+      killSwitch: process.env.HEALDESK_DIRECT_BOOKING_ENABLED,
+      googleId: process.env.GOOGLE_OAUTH_CLIENT_ID,
+      googleSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    };
+    delete process.env.HEALDESK_DIRECT_BOOKING_ENABLED;
+    delete process.env.GOOGLE_OAUTH_CLIENT_ID;
+    delete process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+    try {
+      const c = await liveClinic("booking-fields", "923456789012345");
+      const mode = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => bookingModeFor(tx));
+      expect(mode).toMatchObject({ mode: "manual", canOfferTimes: false });
+      // Live and approved, so neither of those is a reason; everything that
+      // stands between it and booking straight into a calendar is.
+      expect(mode.reasons.map((r) => r.code)).toEqual([
+        "no_agreement",
+        "google_not_configured",
+        "timezone_unconfirmed",
+        "opening_hours_unknown",
+        "kill_switch_off",
       ]);
+    } finally {
+      for (const [key, value] of [
+        ["HEALDESK_DIRECT_BOOKING_ENABLED", saved.killSwitch],
+        ["GOOGLE_OAUTH_CLIENT_ID", saved.googleId],
+        ["GOOGLE_OAUTH_CLIENT_SECRET", saved.googleSecret],
+      ] as const) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     }
   });
 

@@ -6,7 +6,7 @@ import { eq } from "drizzle-orm";
 
 import { agentConfigs, clinics, type DepositPolicy } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
-import { voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
+import { servicesEnded, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import {
   clinicDefaultDepositUsd,
   depositDecision,
@@ -83,9 +83,12 @@ import { spokenFieldList, spokenPhone, spokenSlot } from "./spoken";
  *
  * B's answer gate (lib/billing/answering.ts voiceAnswerDecision) is asked
  * before any time is offered or held, and for a booking after its replay,
- * as the engine's `gate`. `request` does not ask it: taking a request is
- * what a refused call with no direct line falls back to, so a patient
- * calling a clinic always reaches someone (CLAUDE.md, "Failure").
+ * as the engine's `gate`. `request` asks it only for one thing: taking a
+ * request is what a refused call with no direct line falls back to, so a
+ * patient calling a clinic always reaches someone (CLAUDE.md, "Failure"),
+ * except once the Services have ended (servicesEnded: no agreement, or the
+ * subscription over), when nothing may take the caller's details and the
+ * call is closed with a fixed line (answer_mode "closed").
  *
  * What the future Retell process should take from here: the engine calls
  * with its own keys ("retell:" + call id, and "retell:" + call id + ":" + n
@@ -179,8 +182,10 @@ export async function handleVoiceTool(request: Request, clinicIdParam: string, t
     if (tool === "book") {
       reply = await voiceToolBook(call);
     } else if (tool === "request") {
-      // Not gated: a request is what a refused call falls back to (see the header).
-      reply = await voiceToolRequest(call);
+      // A request is what a refused call falls back to (see the header), so
+      // the gate stops it only once the Services have ended.
+      const gate = await voiceAnswerDecision(clinicId, call.now);
+      reply = gate.decision === "pass_through" && servicesEnded(gate.reason) ? await closedRequest(call, gate.reason) : await voiceToolRequest(call);
     } else {
       // The answer gate (BD22, BD25), outside any transaction, for the
       // tools that decide what the assistant does on this call: `context` at
@@ -198,6 +203,25 @@ export async function handleVoiceTool(request: Request, clinicIdParam: string, t
     log.error("voice tool failed", { clinicId, op: tool, error: describeError(error) });
     return Response.json({ error: "The tool could not be completed." }, { status: 500 });
   }
+}
+
+/**
+ * The Services have ended (no agreement in effect, or the subscription over)
+ * and the clinic has no direct line: the runtime says this and ends the
+ * call, with no assistant, nothing listened to and nothing taken down. Not
+ * the assistant's voice: a fixed line, so it makes no claim to be one.
+ */
+export const CLOSED_LINE =
+  "Thank you for calling. This line isn't being answered here at the moment. Please try the practice again later, or contact them another way.";
+
+const CLOSED_REPLY: ToolReply = { status: 403, body: { error: "closed", say: CLOSED_LINE } };
+
+/** A request on a call to a clinic whose Services have ended: refused, with its audit row, codes only. */
+async function closedRequest(call: ToolCall, reason: string): Promise<ToolReply> {
+  await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx) => {
+    tx.audit.record({ action: "create", resourceType: "voice_tool_request", resourceId: tx.clinicId, metadata: { callRef: call.callRef, outcome: "refused", reason } });
+  });
+  return CLOSED_REPLY;
 }
 
 /** A hold, a booking or a request for a clinic that has left. */
@@ -282,11 +306,15 @@ export type VoiceContextReply = {
    * What the agent does with this call (BD25): "assistant" answers it;
    * "pass_through" transfers it to `transfer_number`, the clinic's direct
    * line, because the answer gate refused (billing, the channel, the pause,
-   * coverage or "Stop and fall back").
+   * coverage or "Stop and fall back"); "closed" says `closed_line` and ends
+   * the call, with no assistant, because the Services have ended and there
+   * is no direct line to send it to (servicesEnded).
    */
-  answer_mode: "assistant" | "pass_through";
+  answer_mode: "assistant" | "pass_through" | "closed";
   /** The direct line, E.164, only for "pass_through"; null otherwise. */
   transfer_number: string | null;
+  /** Only for "closed": the fixed line said before the call ends; null otherwise. */
+  closed_line: string | null;
 };
 
 /**
@@ -306,6 +334,7 @@ export type VoiceContextReply = {
 async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<ToolReply> {
   const refused = gate.decision === "pass_through";
   const transferTo = gate.decision === "pass_through" ? gate.directLine : null;
+  const closed = gate.decision === "pass_through" && transferTo === null && servicesEnded(gate.reason);
   const reply = await withTenant({ clinicId: call.clinicId, actor: TOOL_ACTOR }, async (tx): Promise<VoiceContextReply | null> => {
     const [clinic] = await tx.db
       .select({ specialty: clinics.specialty, requirements: clinics.bookingRequirements, phone: clinics.publishedPhoneE164 })
@@ -318,7 +347,7 @@ async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<T
     const direct = !refused && mode.demo && mode.mode === "live";
     const canOfferTimes = !refused && mode.demo && mode.canOfferTimes;
     const reasons = mode.demo ? mode.reasons.map((r) => r.code as string) : ["harness_demo_only"];
-    const answerMode = transferTo ? "pass_through" : "assistant";
+    const answerMode = transferTo ? "pass_through" : closed ? "closed" : "assistant";
     tx.audit.record({
       action: "read",
       resourceType: "voice_tool_context",
@@ -331,10 +360,13 @@ async function voiceToolContext(call: ToolCall, gate: AnswerDecision): Promise<T
       can_offer_times: canOfferTimes,
       hold_seconds: HOLD_SECONDS,
       booking_mode_reasons: reasons,
-      deposit_line: await voiceDepositLine(tx, agent?.depositPolicy ?? null),
-      clinic_phone_spoken: clinic.phone ? spokenPhone(clinic.phone) : "",
+      // A closed call says nothing but its line: no deposit rule, and not
+      // the published number, which is the very line forwarded here.
+      deposit_line: closed ? "" : await voiceDepositLine(tx, agent?.depositPolicy ?? null),
+      clinic_phone_spoken: !closed && clinic.phone ? spokenPhone(clinic.phone) : "",
       answer_mode: answerMode,
       transfer_number: transferTo,
+      closed_line: closed ? CLOSED_LINE : null,
     };
   });
   if (!reply) return { status: 404, body: { error: "Unknown endpoint." } };

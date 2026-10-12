@@ -11,10 +11,10 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 
 import { availableSlotsFor, deskSpanFree } from "@/lib/booking/availability";
 import { sweepDeskWrites, writeToCalendar } from "@/lib/booking/calendar";
-import { holdSpan } from "@/lib/booking/holds";
+import { holderRefOf, holdSpan } from "@/lib/booking/holds";
 import { decideBookingRequest, resolveBookingRequest } from "@/lib/meta/booking-requests";
 
-import { asApp, sha256Hex } from "./setup/calendar-db";
+import { asApp } from "./setup/calendar-db";
 import {
   closePools,
   getMigratorPool,
@@ -982,7 +982,7 @@ describeDb("the desk path and the Google write (C12)", () => {
       // …but not off its own holder's.
       const mine = await availableSlotsFor(f.clinicId, {
         days: 3,
-        holderRef: sha256Hex("voice:other"),
+        holderRef: holderRefOf(f.clinicId, "voice:other"),
       });
       expect(
         mine.status === "ok" && mine.slots.some((s) => s.at.getTime() === someSlot.at.getTime()),

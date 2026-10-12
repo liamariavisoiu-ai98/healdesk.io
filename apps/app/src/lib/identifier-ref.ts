@@ -16,7 +16,9 @@ import { env } from "@/lib/env";
  * back. So the reference is an HMAC-SHA256 under a key that lives only in the
  * environment (HEALDESK_IDENTIFIER_REF_KEY, see env.ts on why it must never
  * be rotated without a re-key plan), and a copy of the database alone reveals
- * nothing.
+ * nothing. slot_holds names who holds a time the same way (kind
+ * `slot_holder`, lib/booking/holds.ts holderRefOf, which leaves the prefix
+ * off for that column's CHECK).
  *
  * Construction, version 1:
  *
@@ -43,13 +45,20 @@ import { env } from "@/lib/env";
  * request only to delete the person again after a restore, and never used to
  * find anyone for any other purpose.
  */
-export type IdentifierRefKind = "chat_party" | "meta_message" | "call" | "chat_conversation" | "erasure";
+export type IdentifierRefKind =
+  | "chat_party"
+  | "meta_message"
+  | "call"
+  | "chat_conversation"
+  | "slot_holder"
+  | "erasure";
 
 export const IDENTIFIER_REF_KINDS: readonly IdentifierRefKind[] = [
   "chat_party",
   "meta_message",
   "call",
   "chat_conversation",
+  "slot_holder",
   "erasure",
 ];
 

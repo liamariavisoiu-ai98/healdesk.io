@@ -1,6 +1,7 @@
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { touchChatThread } from "@/lib/chat/threads";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
@@ -127,13 +128,21 @@ export async function POST(request: Request): Promise<Response> {
       const sentAt = message.sentAt ?? now;
 
       // 1 and 2: a redelivery stops here, before anything is counted or
-      // answered; otherwise the message joins its conversation.
+      // answered; otherwise the message joins its conversation. A clinic that
+      // has left (offboarding started, or destroyed) keeps nothing new, not
+      // even the keyed references (lib/clinic/leaving.ts).
       const thread = await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
+        if (await clinicHasLeft(tx)) return "left" as const;
         if (message.messageId && !(await claimMetaMessage(tx, message.platform, message.messageId))) {
           return null;
         }
         return touchChatThread(tx, { channel: message.platform, partyId: message.senderId, sentAt });
       });
+      if (thread === "left") {
+        log.warn("meta message refused: the clinic has left", { clinicId: owner.clinicId });
+        skipped += 1;
+        continue;
+      }
       if (!thread) {
         skipped += 1;
         continue;

@@ -875,26 +875,29 @@ export async function signAgreement(
     );
   }
 
-  const [row] = await unsafeDb
-    .insert(baaAcceptances)
-    .values({
-      organizationId: null,
-      userId: null,
-      documentVersion: prepared.version,
-      documentHash: prepared.hash,
-      renderedText: prepared.text,
-      variables: prepared.stored,
-      // The full sentence beside the checkbox, re-derived from the validated
-      // clinic name rather than copied from the request. validateSignRequest
-      // has already proved the client displayed the published label.
-      assentLabel: prepared.assentSentence,
-      acceptedByName: prepared.signatoryName,
-      acceptedByEmail: email,
-      acceptedByTitle: prepared.signatoryTitle,
-      ipAddress: context.ipAddress ?? null,
-      userAgent: context.userAgent ?? null,
-    })
-    .returning({ id: baaAcceptances.id, acceptedAt: baaAcceptances.acceptedAt });
+  // Raw SQL naming only the columns it writes: the runtime role may insert
+  // no organization_id, bound_at, terminated_at or termination_reason
+  // (column-scoped INSERT, drizzle/0063), and Drizzle's insert names every
+  // column, even the ones it leaves at their defaults. A signature is
+  // unbound until provisioning binds it through app_bind_agreement().
+  //
+  // The assent label is the full sentence beside the checkbox, re-derived
+  // from the validated clinic name rather than copied from the request.
+  // validateSignRequest has already proved the client displayed the
+  // published label.
+  const inserted = await unsafeDb.execute<{ id: string; accepted_at: Date | string }>(sql`
+    insert into baa_acceptances
+      (user_id, document_version, document_hash, rendered_text, variables, assent_label,
+       accepted_by_name, accepted_by_email, accepted_by_title, ip_address, user_agent)
+    values
+      (null, ${prepared.version}, ${prepared.hash}, ${prepared.text},
+       ${JSON.stringify(prepared.stored)}::jsonb, ${prepared.assentSentence},
+       ${prepared.signatoryName}, ${email}, ${prepared.signatoryTitle},
+       ${context.ipAddress ?? null}, ${context.userAgent ?? null})
+    returning id, accepted_at`);
+  const row = inserted.rows[0]
+    ? { id: inserted.rows[0].id, acceptedAt: new Date(inserted.rows[0].accepted_at) }
+    : undefined;
 
   const acceptance = row!;
 

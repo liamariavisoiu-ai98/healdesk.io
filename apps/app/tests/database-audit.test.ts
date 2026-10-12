@@ -144,8 +144,9 @@ describeDb("database audit (0031)", () => {
     const locked = rows.filter((r) => !r.ok).map((r) => r.attname).sort();
     // The BAA gate's two (0031), the agreement-kind gate's two (0051), the
     // offboarding and record-clock columns (0054), the client number every
-    // sealed credential is labelled with (migration A, 0057), and the
-    // export's delivery, which the destruction floor reads (0058).
+    // sealed credential is labelled with (migration A, 0057), the export's
+    // delivery, which the destruction floor reads (0058), and the
+    // organisation, which the agreement gate reads (0063).
     expect(locked).toEqual([
       "agreement_kind",
       "baa_signed_at",
@@ -155,6 +156,7 @@ describeDb("database audit (0031)", () => {
       "destroyed_at",
       "export_delivered_at",
       "offboarding_started_at",
+      "organization_id",
       "regulatory_regime",
       "retention_record_days_previous",
       "retention_record_days_shortened_at",

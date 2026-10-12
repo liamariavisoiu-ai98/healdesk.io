@@ -66,6 +66,80 @@ ALTER TABLE "baa_acceptances" ADD CONSTRAINT "baa_acceptances_termination_reason
 
 GRANT UPDATE (termination_reason) ON baa_acceptances TO healdesk_app;--> statement-breakpoint
 
+-- -----------------------------------------------------------------------------
+-- The gate's inputs are not the runtime role's to write (review R1)
+-- -----------------------------------------------------------------------------
+-- app_clinic_accepts_phi() (below) reads two things: the clinic's
+-- organisation, and whether that organisation has an agreement in effect.
+-- The runtime role could write both, and so reopen the gate it is held by:
+-- it could INSERT a baa_acceptances row already bound to its own
+-- organisation (organization_id and bound_at set, terminated_at null), and
+-- it could UPDATE clinics.organization_id to another practice's, moving the
+-- clinic under that practice's agreement, its billing group and its answer
+-- gate. Neither is a path the application uses: a signature is inserted
+-- unbound (lib/agreements.ts, signAgreement) and bound only by
+-- app_bind_agreement() (0031); a clinic is created in its organisation by
+-- provisioning and never moved. So:
+--
+--   * INSERT on baa_acceptances becomes column-scoped, without
+--     organization_id, bound_at, terminated_at and termination_reason (the
+--     generated agreement_kind and retention_eligible_at are nobody's to
+--     write);
+--   * UPDATE (organization_id) on clinics is revoked;
+--   * a new clinic is born synthetic with no baa_signed_at: going live is
+--     app_mark_clinic_production()'s alone, and a clinic inserted as
+--     production, which the table-wide INSERT grant allowed, would have had
+--     the gate's other input in hand from the start (0058's insert guard,
+--     with that added);
+--   * the posture block at the foot fails the migration that widens any of
+--     these again.
+REVOKE INSERT ON baa_acceptances FROM healdesk_app;--> statement-breakpoint
+GRANT INSERT (id, user_id, document_version, document_hash, rendered_text, variables, assent_label,
+              accepted_by_name, accepted_by_email, accepted_by_title, accepted_at, ip_address,
+              user_agent)
+  ON baa_acceptances TO healdesk_app;--> statement-breakpoint
+REVOKE UPDATE (organization_id) ON clinics FROM healdesk_app;--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION app_clinic_insert_guard()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF NEW.offboarding_started_at IS NOT NULL
+     OR NEW.destroy_after IS NOT NULL
+     OR NEW.destroyed_at IS NOT NULL
+     OR NEW.export_delivered_at IS NOT NULL
+     OR NEW.retention_record_days_previous IS NOT NULL
+     OR NEW.retention_record_days_shortened_at IS NOT NULL THEN
+    RAISE EXCEPTION 'clinics: a new clinic carries no offboarding date, no export delivery and no record-clock history; app_start_offboarding, app_mark_export_delivered, app_mark_clinic_destroyed and the clinics_record_clock trigger write them'
+      USING ERRCODE = '42501';
+  END IF;
+  IF NEW.data_classification IS DISTINCT FROM 'synthetic' OR NEW.baa_signed_at IS NOT NULL THEN
+    RAISE EXCEPTION 'clinics: a new clinic is synthetic and unsigned; only app_mark_clinic_production() takes a clinic live'
+      USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END
+$$;--> statement-breakpoint
+
+DO $$
+BEGIN
+  IF has_column_privilege('healdesk_app'::name, 'baa_acceptances'::regclass, 'organization_id', 'INSERT')
+     OR has_column_privilege('healdesk_app'::name, 'baa_acceptances'::regclass, 'bound_at', 'INSERT')
+     OR has_column_privilege('healdesk_app'::name, 'baa_acceptances'::regclass, 'terminated_at', 'INSERT')
+     OR has_column_privilege('healdesk_app'::name, 'baa_acceptances'::regclass, 'termination_reason', 'INSERT') THEN
+    RAISE EXCEPTION 'healdesk_app can INSERT a bound or terminated agreement; the PHI gate would be theatre.';
+  END IF;
+  IF has_column_privilege('healdesk_app'::name, 'clinics'::regclass, 'organization_id', 'UPDATE') THEN
+    RAISE EXCEPTION 'healdesk_app can move a clinic to another organisation; the PHI gate would be theatre.';
+  END IF;
+  IF NOT has_column_privilege('healdesk_app'::name, 'baa_acceptances'::regclass, 'document_hash', 'INSERT') THEN
+    RAISE EXCEPTION 'healdesk_app cannot record a signature.';
+  END IF;
+END
+$$;--> statement-breakpoint
+
 -- 0025's guard with one clause added for termination_reason. Every other
 -- clause is unchanged.
 CREATE OR REPLACE FUNCTION app_baa_acceptance_transition_guard()

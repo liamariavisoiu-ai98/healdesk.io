@@ -169,7 +169,7 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
       {view.deletionRequests.length ? (
         <ul className="mt-3 grid gap-3">
           {view.deletionRequests.map((r) => (
-            <li key={r.id} className="border-line rounded-xl border px-4 py-3">
+            <li key={r.id} className="border-line rounded-sm border px-4 py-3">
               <div className="flex flex-wrap items-baseline gap-2">
                 <span className="font-semibold">Asked by {r.requestedBy}</span>
                 <span className="text-muted text-xs">

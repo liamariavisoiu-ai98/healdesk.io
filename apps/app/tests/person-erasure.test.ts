@@ -293,6 +293,36 @@ async function asApp<T>(clinicId: string, fn: (c: Client) => Promise<T>): Promis
   }
 }
 
+/**
+ * Move a deletion's record `ms` into the past, as the owner with the guard
+ * off for the length of one transaction: the record's clock is the
+ * database's, so a test cannot hand the expiry a later "now" and has to age
+ * the record instead.
+ */
+async function backdateErasure(clinicId: string, erasureId: string, ms: number): Promise<void> {
+  const owner = await getMigratorPool().connect();
+  try {
+    await owner.query("begin");
+    await owner.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+    await owner.query(`alter table erasure_requests disable trigger erasure_requests_guard`);
+    await owner.query(
+      `update erasure_requests
+          set erased_at = erased_at - make_interval(secs => $2),
+              received_at = received_at - make_interval(secs => $2),
+              due_by = due_by - make_interval(secs => $2)
+        where id = $1`,
+      [erasureId, ms / 1000],
+    );
+    await owner.query(`alter table erasure_requests enable trigger erasure_requests_guard`);
+    await owner.query("commit");
+  } catch (error) {
+    await owner.query("rollback").catch(() => {});
+    throw error;
+  } finally {
+    owner.release();
+  }
+}
+
 /** Rows in each table the erase path reaches, as the owner inside the tenant. */
 async function tableCounts(clinicId: string): Promise<Record<string, number>> {
   return inTenant(clinicId, async (client) => {
@@ -726,17 +756,18 @@ describeDb("deletion on request", () => {
             )
           ).rows[0],
       );
-    const erasedAt = (await row())!.erased_at;
     const window = BACKUP_RETENTION_DAYS * DAY;
+    const hour = 60 * 60 * 1000;
 
     // An hour inside the window: the references stay.
-    await expireErasureRecords(new Date(erasedAt.getTime() + window - 60 * 60 * 1000));
+    await backdateErasure(c.clinicId, erased.erasureId, window - hour);
+    await expireErasureRecords();
     expect((await row())!.refs).toBeGreaterThan(0);
 
-    // At the window's end (the database keeps microseconds, a Date only
-    // milliseconds, so one more): emptied, and the row stays only because
+    // Past the window's end: emptied, and the row stays only because
     // Retell's step is outstanding, holding nothing that points at the person.
-    await expireErasureRecords(new Date(erasedAt.getTime() + window + 1));
+    await backdateErasure(c.clinicId, erased.erasureId, 2 * hour);
+    await expireErasureRecords();
     expect((await row())!.refs).toBe(0);
     let view = data<CareView>(
       await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR),
@@ -759,7 +790,7 @@ describeDb("deletion on request", () => {
         OPERATOR,
       ),
     );
-    await expireErasureRecords(new Date(erasedAt.getTime() + window + 1));
+    await expireErasureRecords();
     expect(await row()).toBeUndefined();
     view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
     expect(view.deletionRequests).toEqual([]);
@@ -795,11 +826,8 @@ describeDb("deletion on request", () => {
       ),
     );
     if (earlier.status !== "erased") throw new Error("not erased");
-    await inTenant(c.clinicId, (client) =>
-      client.query(`update erasure_requests set restore_refs = '{}' where id = $1`, [
-        earlier.erasureId,
-      ]),
-    );
+    await backdateErasure(c.clinicId, earlier.erasureId, (BACKUP_RETENTION_DAYS + 1) * DAY);
+    await expireErasureRecords();
     await expect(
       asApp(c.clinicId, (q) => q.query(erase, [earlier.erasureId])),
     ).rejects.toMatchObject({ code: "42501" });
@@ -917,6 +945,67 @@ describeDb("deletion on request", () => {
     expect(refs).toBe(241);
   });
 
+  test("the record's clock is the database's: the runtime role can neither empty it early, delete it, nor fake a stamp", async () => {
+    const c = await seedClinic("erase-clock-sql");
+    const erased = data<ErasePersonOutcome>(
+      await runOperation(
+        "erasePerson",
+        { clinicId: c.clinicId, phone: "+15550139001", requestedBy: "practice" },
+        OPERATOR,
+      ),
+    );
+    if (erased.status !== "erased") throw new Error("not erased");
+    const id = erased.erasureId;
+
+    // The first version let the runtime role do each of these at once.
+    for (const statement of [
+      `update erasure_requests set restore_refs = '{}' where id = '${id}'`,
+      `delete from erasure_requests where id = '${id}'`,
+    ]) {
+      await expect(asApp(c.clinicId, (q) => q.query(statement)), statement).rejects.toMatchObject({
+        code: "42501",
+      });
+    }
+    // A step "stamped" with something that is not a stamp counts for nothing.
+    await expect(
+      asApp(c.clinicId, (q) =>
+        q.query(`update erasure_requests set vendor_steps = '{"retell": false}' where id = $1`, [id]),
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
+    // Not even the owner empties the references inside the backup window.
+    await expect(
+      inTenant(c.clinicId, (client) =>
+        client.query(`update erasure_requests set restore_refs = '{}' where id = $1`, [id]),
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
+    // The expiry inside the window does nothing.
+    expect(
+      (await asApp(c.clinicId, (q) => q.query(`select * from app_expire_erasure_records()`))).rows[0],
+    ).toEqual({ emptied: 0, deleted: 0 });
+
+    // A real stamp is timestamped by the database, whatever the writer sent.
+    await asApp(c.clinicId, async (q) => {
+      await q.query(
+        `update erasure_requests
+            set vendor_steps = vendor_steps || '{"retell": {"at": "2020-01-01T00:00:00Z", "by": "ops@healdesk.test", "how": "deleted"}}'
+          where id = $1`,
+        [id],
+      );
+      const { rows } = await q.query<{ at: string }>(
+        `select vendor_steps -> 'retell' ->> 'at' as at from erasure_requests where id = $1`,
+        [id],
+      );
+      expect(Math.abs(new Date(rows[0]!.at).getTime() - Date.now())).toBeLessThan(60_000);
+    });
+
+    // The window in SQL is the catalog's.
+    const { rows } = await getMigratorPool().query<{ src: string }>(
+      `select prosrc as src from pg_proc where proname in ('app_expire_erasure_records', 'app_erasure_request_guard')`,
+    );
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.src).toContain(`interval '${BACKUP_RETENTION_DAYS} days'`);
+  });
+
   test("the runtime role cannot choose when the record's clock starts", async () => {
     const c = await seedClinic("erase-stamp");
     const app = await getAppPool().connect();
@@ -1017,9 +1106,9 @@ describeDb("deletion on request", () => {
   });
 
   test("nothing reads the record to decide whether to contact anyone", () => {
-    // The table and its model are touched in three places: the schema, the
-    // erase path that writes, expires and re-applies it, and destruction,
-    // which deletes it. The console reads it only through
+    // The table and its model are touched in two places: the schema, and the
+    // erase path that writes, expires and re-applies it. Destruction deletes
+    // it through app_destroy_erasure_requests(). The console reads it only through
     // listErasureRequests, which returns no reference to anyone. A contact
     // decision (lib/compliance) reading it would have to be added here.
     const root = join(__dirname, "..", "src");
@@ -1040,8 +1129,6 @@ describeDb("deletion on request", () => {
       )
       .map((f) => relative(root, f))
       .sort();
-    expect(readers).toEqual(
-      ["db/schema.ts", "lib/offboarding/offboarding.ts", "lib/patient-rights/erasure.ts"].sort(),
-    );
+    expect(readers).toEqual(["db/schema.ts", "lib/patient-rights/erasure.ts"].sort());
   });
 });

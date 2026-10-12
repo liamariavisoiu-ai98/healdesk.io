@@ -791,6 +791,7 @@ export async function stampErasureVendorStep(
     .limit(1);
   if (!row) return "not_found";
   if (row.vendorSteps[input.step]) return "already_stamped";
+  // `at` is overwritten with the database's clock by erasure_requests_guard.
   const stamp: ErasureVendorStamp = { at: new Date().toISOString(), by: input.by, how: input.how };
   await tx.db
     .update(erasureRequests)
@@ -819,40 +820,25 @@ const EXPIRY_ACTOR = { type: "service", serviceName: "erasure-expiry" } as const
  * every subcontractor step is stamped. Not behind a switch, because the
  * agreement's "no longer than it needs one" does not wait for one. It runs in
  * the worker, which a restore keeps stopped, so references a restore still
- * needs are never emptied while it is in progress.
+ * needs are never emptied while it is in progress. The clock is the
+ * database's (app_expire_erasure_records, drizzle/0059): the runtime role
+ * can neither empty the references sooner nor delete a record itself, and a
+ * step counts as stamped only with a stamp the database timestamped.
  */
-export async function expireErasureRecords(
-  now: Date = new Date(),
-): Promise<{ emptied: number; deleted: number; failures: number }> {
-  const cutoff = new Date(now.getTime() - BACKUP_RETENTION_DAYS * DAY_MS);
-  const allStamped = textArray(ERASURE_VENDOR_STEPS.map((s) => s.id));
+export async function expireErasureRecords(): Promise<{
+  emptied: number;
+  deleted: number;
+  failures: number;
+}> {
   const out = { emptied: 0, deleted: 0, failures: 0 };
   for (const clinic of await listClinics()) {
     if (clinic.destroyedAt) continue;
     try {
       const result = await withTenant({ clinicId: clinic.id, actor: EXPIRY_ACTOR }, async (tx) => {
-        const emptied = await tx.db
-          .update(erasureRequests)
-          .set({ restoreRefs: sql`'{}'::text[]` })
-          .where(
-            and(
-              eq(erasureRequests.clinicId, tx.clinicId),
-              lte(erasureRequests.erasedAt, cutoff),
-              sql`cardinality(${erasureRequests.restoreRefs}) > 0`,
-            ),
-          )
-          .returning({ id: erasureRequests.id });
-        const deleted = await tx.db
-          .delete(erasureRequests)
-          .where(
-            and(
-              eq(erasureRequests.clinicId, tx.clinicId),
-              lte(erasureRequests.erasedAt, cutoff),
-              sql`${erasureRequests.vendorSteps} ?& ${allStamped}`,
-            ),
-          )
-          .returning({ id: erasureRequests.id });
-        return { emptied: emptied.length, deleted: deleted.length };
+        const { rows } = await tx.db.execute<{ emptied: number; deleted: number }>(
+          sql`select * from app_expire_erasure_records()`,
+        );
+        return { emptied: rows[0]?.emptied ?? 0, deleted: rows[0]?.deleted ?? 0 };
       });
       out.emptied += result.emptied;
       out.deleted += result.deleted;

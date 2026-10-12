@@ -2389,8 +2389,11 @@ export type ErasureRequester = (typeof ERASURE_REQUESTERS)[number];
  * bring the person back has expired, and the row goes then too unless a
  * subcontractor step is still outstanding, in which case it stays, holding
  * nothing about the person, until the operator stamps it. The hourly expiry
- * does both (expireErasureRecords); it runs in the worker, which a restore
- * keeps stopped, so a restore in progress keeps the references it needs.
+ * does both (expireErasureRecords, through app_expire_erasure_records), by
+ * the database's clock: the runtime role can neither empty the references
+ * nor delete a row, and a guard refuses an early emptying from any role. It
+ * runs in the worker, which a restore keeps stopped, so a restore in
+ * progress keeps the references it needs.
  * `erased_at` is the database's clock at the insert (a trigger), so the
  * expiry cannot be put off by the writer. Destruction deletes the clinic's
  * rows with the rest of its data.

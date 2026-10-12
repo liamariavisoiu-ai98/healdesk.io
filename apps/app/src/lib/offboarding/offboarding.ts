@@ -11,7 +11,6 @@ import {
   clinicSetupScreens,
   contacts,
   conversations,
-  erasureRequests,
   metaBookingDrafts,
   metaInboundMessages,
   providerConnections,
@@ -522,8 +521,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // counts and keyed references to the people deleted, kept to delete them
   // again after a restore. A restore after this re-runs the destruction,
   // which takes those people with everyone else, so no record of them needs
-  // to outlast it.
-  await del("erasure_requests", () => tx.db.delete(erasureRequests).where(eq(erasureRequests.clinicId, c)).returning({ id: erasureRequests.id }));
+  // to outlast it. The app role cannot delete one (the record's clock is the
+  // database's), so app_destroy_erasure_requests() does, on the same floor.
+  const erasures = await tx.db.execute<{ n: number }>(sql`select app_destroy_erasure_requests(${c}::uuid) as n`);
+  deleted.erasure_requests = erasures.rows[0]?.n ?? 0;
   // sync_runs and connection_links are append-only by grant (0015, 0024):
   // operational history with no patient in it, kept as the record of what
   // ran. The credentials go with the connection row below.

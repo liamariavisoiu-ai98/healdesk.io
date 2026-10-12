@@ -96,7 +96,7 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // never kept more than an hour past the window; a restore keeps the worker,
   // and so this, stopped until the deletions are applied again.
   await record("erasure-expiry", async () => {
-    const r = await expireErasureRecords(now);
+    const r = await expireErasureRecords();
     return {
       status: r.failures ? "failed" : "ok",
       note: `${r.emptied} emptied, ${r.deleted} deleted${r.failures ? `, ${r.failures} failed` : ""}`,

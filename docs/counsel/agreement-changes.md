@@ -1419,7 +1419,15 @@ these is closed, by code, a page, a signed paper or a host setting, and
      nothing of the person, until the step is stamped). The sweep runs in
      the worker, which a restore keeps stopped, so a restore in progress
      keeps the references it needs. Destruction deletes the records with the
-     rest of the clinic (`app_mark_clinic_destroyed` checks them).
+     rest of the clinic (`app_mark_clinic_destroyed` checks them). That clock
+     is the database's: the runtime role cannot empty the references, delete
+     a record or write a stamp that counts, so the expiry and destruction
+     run through definers (`app_expire_erasure_records`, on the 35 days by
+     the database's clock; `app_destroy_erasure_requests`, on
+     `app_destruction_due`), the guard refuses an early emptying from any
+     role, and a step counts as stamped only with a stamp the guard wrote and
+     timestamped. The first version held all of that only in TypeScript
+     (review of 12 October 2026).
    - Nothing reads the record for a contact decision (a test lists the
      modules that touch the table). Readers of `suppressions` after the
      change: `canContact`, the outbound gate, which in v1 refuses before it

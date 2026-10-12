@@ -52,8 +52,9 @@ CREATE INDEX "erasure_requests_clinic_idx" ON "erasure_requests" USING btree ("c
 --     the deletion can be cleaned again; the hourly expiry empties them
 --     BACKUP_RETENTION_DAYS (35) after the deletion, when the last backup
 --     that held the person has expired, and deletes the row then unless a
---     subcontractor step is still outstanding. Nothing reads the table for a
---     contact decision.
+--     subcontractor step is still outstanding. That clock is the database's
+--     (app_expire_erasure_records(), the guard), not the runtime role's.
+--     Nothing reads the table for a contact decision.
 --   * The erasure no longer writes suppressions. The person's own
 --     suppressions, consent records and contact attempts go with them,
 --     through app_erase_contact_evidence(), since the runtime role has no
@@ -88,13 +89,13 @@ CREATE INDEX "erasure_requests_clinic_idx" ON "erasure_requests" USING btree ("c
 -- written last: `deleted` may change in the transaction that wrote the row,
 -- and in no other (the guard below).
 --
--- Safe to apply in place: a new table and one new function; the one
+-- Safe to apply in place: a new table and three new functions; the one
 -- redefinition adds a table to a list. apps/app has only ever held synthetic
 -- and seed data (CLAUDE.md, "Until BAA coverage is in place").
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- The table: tenant-scoped, forced, and append-only but for two columns
+-- The table: tenant-scoped, forced, and append-only but for three columns
 -- -----------------------------------------------------------------------------
 ALTER TABLE erasure_requests ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE erasure_requests FORCE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -102,29 +103,45 @@ CREATE POLICY erasure_requests_tenant_isolation ON erasure_requests
   FOR ALL USING (clinic_id = app_current_clinic_id()) WITH CHECK (clinic_id = app_current_clinic_id());--> statement-breakpoint
 
 -- 0003's default privileges handed the runtime role all four verbs. It keeps
--- SELECT and INSERT (the erase path, the console), DELETE (the hourly expiry
--- and destruction), and UPDATE of the three columns the record changes after
--- it is written: the counts, set once in the transaction that wrote it, the
--- references, which are only ever emptied, and the subcontractor stamps,
--- which are only ever added (the trigger below says so to every role).
+-- SELECT and INSERT (the erase path, the console), and UPDATE of the two
+-- columns it changes after the insert: the counts, set once in the
+-- transaction that wrote the row, and the subcontractor stamps, which are
+-- only ever added (the trigger below says so to every role). It has no
+-- DELETE and no UPDATE of the references: the record's own clock is the
+-- database's, through app_expire_erasure_records() and
+-- app_destroy_erasure_requests() below. The first version let the runtime
+-- role empty the references at once, delete the row, or "stamp" a step with
+-- `false`, which the expiry counted as stamped, so the clock the comments
+-- promised held only in TypeScript.
 REVOKE ALL ON erasure_requests FROM healdesk_app;--> statement-breakpoint
-GRANT SELECT, INSERT, DELETE ON erasure_requests TO healdesk_app;--> statement-breakpoint
-GRANT UPDATE (deleted, restore_refs, vendor_steps) ON erasure_requests TO healdesk_app;--> statement-breakpoint
+GRANT SELECT, INSERT ON erasure_requests TO healdesk_app;--> statement-breakpoint
+GRANT UPDATE (deleted, vendor_steps) ON erasure_requests TO healdesk_app;--> statement-breakpoint
 
 -- erased_at is the database's clock at the insert, whatever the writer sent:
 -- the references' expiry runs from it, so a writer that could choose it could
 -- keep them as long as it liked. After the insert: the counts written in the
 -- same transaction (erasePerson records the request before it deletes, and
--- the counts once it has), references only ever emptied, stamps only ever
--- added, and nothing else moved.
+-- the counts once it has), references emptied only once the backup window
+-- (BACKUP_RETENTION_DAYS, 35) has passed since erased_at, stamps only ever
+-- added, each an object naming who did it and how, timestamped here by the
+-- database, and nothing else moved. That binds every role, the definers
+-- below included.
 CREATE OR REPLACE FUNCTION app_erasure_request_guard()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
 AS $$
+DECLARE
+  step text;
+  stamp jsonb;
 BEGIN
   IF TG_OP = 'INSERT' THEN
     NEW.erased_at := clock_timestamp();
+    IF NEW.vendor_steps IS DISTINCT FROM '{}'::jsonb THEN
+      RAISE EXCEPTION 'erasure_requests: a request is recorded with every subcontractor step outstanding'
+        USING ERRCODE = '42501';
+    END IF;
     RETURN NEW;
   END IF;
   IF NEW.id IS DISTINCT FROM OLD.id
@@ -140,20 +157,117 @@ BEGIN
     RAISE EXCEPTION 'erasure_requests: the counts are written in the transaction that recorded the request, and never after'
       USING ERRCODE = '42501';
   END IF;
-  IF NEW.restore_refs IS DISTINCT FROM OLD.restore_refs AND cardinality(NEW.restore_refs) > 0 THEN
-    RAISE EXCEPTION 'erasure_requests: restore references are only ever emptied'
-      USING ERRCODE = '42501';
+  IF NEW.restore_refs IS DISTINCT FROM OLD.restore_refs THEN
+    IF cardinality(NEW.restore_refs) > 0 THEN
+      RAISE EXCEPTION 'erasure_requests: restore references are only ever emptied'
+        USING ERRCODE = '42501';
+    END IF;
+    IF OLD.erased_at > clock_timestamp() - interval '35 days' THEN
+      RAISE EXCEPTION 'erasure_requests: restore references are kept for the 35-day backup window after the deletion'
+        USING ERRCODE = '42501';
+    END IF;
   END IF;
   IF NOT (NEW.vendor_steps @> OLD.vendor_steps) THEN
     RAISE EXCEPTION 'erasure_requests: a subcontractor step, once stamped, stays stamped'
       USING ERRCODE = '42501';
   END IF;
+  FOR step IN SELECT jsonb_object_keys(NEW.vendor_steps) LOOP
+    CONTINUE WHEN OLD.vendor_steps ? step;
+    stamp := NEW.vendor_steps -> step;
+    IF jsonb_typeof(stamp) IS DISTINCT FROM 'object'
+       OR jsonb_typeof(stamp -> 'by') IS DISTINCT FROM 'string'
+       OR jsonb_typeof(stamp -> 'how') IS DISTINCT FROM 'string'
+       OR btrim(stamp ->> 'by') = '' OR btrim(stamp ->> 'how') = '' THEN
+      RAISE EXCEPTION 'erasure_requests: a subcontractor step is stamped with who did it and how'
+        USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.vendor_steps := jsonb_set(NEW.vendor_steps, ARRAY[step, 'at'], to_jsonb(clock_timestamp()));
+  END LOOP;
   RETURN NEW;
 END
 $$;--> statement-breakpoint
 CREATE TRIGGER erasure_requests_guard
   BEFORE INSERT OR UPDATE ON erasure_requests
   FOR EACH ROW EXECUTE FUNCTION app_erasure_request_guard();--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
+-- The record's own clock, by the database's
+-- -----------------------------------------------------------------------------
+-- Hourly, from the worker (expireErasureRecords in
+-- lib/patient-rights/erasure.ts), which a restore keeps stopped: once 35 days
+-- (BACKUP_RETENTION_DAYS) have passed since erased_at, by the database's
+-- clock, the references are emptied, and the row goes too once every
+-- subcontractor step carries a stamp the guard wrote (an object, with its
+-- `at` from the database). 35 is written here as a number; a test holds it
+-- to BACKUP_RETENTION_DAYS in @healdesk/catalog.
+CREATE OR REPLACE FUNCTION app_expire_erasure_records(OUT emptied integer, OUT deleted integer)
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  cutoff timestamptz := clock_timestamp() - interval '35 days';
+BEGIN
+  IF tenant IS NULL THEN
+    RAISE EXCEPTION 'app_expire_erasure_records: no tenant; the expiry runs inside each clinic''s own transaction'
+      USING ERRCODE = '42501';
+  END IF;
+
+  UPDATE erasure_requests er
+     SET restore_refs = '{}'::text[]
+   WHERE er.clinic_id = tenant
+     AND er.erased_at <= cutoff
+     AND cardinality(er.restore_refs) > 0;
+  GET DIAGNOSTICS emptied = ROW_COUNT;
+
+  DELETE FROM erasure_requests er
+   WHERE er.clinic_id = tenant
+     AND er.erased_at <= cutoff
+     AND cardinality(er.restore_refs) = 0
+     AND jsonb_typeof(er.vendor_steps -> 'retell') = 'object'
+     AND jsonb_typeof(er.vendor_steps -> 'retell' -> 'at') = 'string';
+  GET DIAGNOSTICS deleted = ROW_COUNT;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_expire_erasure_records() FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_expire_erasure_records() TO healdesk_app;--> statement-breakpoint
+
+-- Destruction deletes the clinic's records with the rest of its data, on the
+-- guard app_destroy_booking_requests() and app_destroy_contact_evidence()
+-- (0058) share: the tenant's own clinic, once app_destruction_due() says the
+-- rule of the agreement its service ended under allows it.
+CREATE OR REPLACE FUNCTION app_destroy_erasure_requests(target_clinic uuid)
+RETURNS integer
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+SET TimeZone = 'UTC'
+AS $$
+DECLARE
+  tenant uuid := app_current_clinic_id();
+  gone integer;
+BEGIN
+  IF tenant IS NULL OR target_clinic IS DISTINCT FROM tenant THEN
+    RAISE EXCEPTION 'app_destroy_erasure_requests: clinic % is not the tenant of this transaction', target_clinic
+      USING ERRCODE = '42501';
+  END IF;
+  IF NOT app_destruction_due(target_clinic) THEN
+    RAISE EXCEPTION 'Clinic % is not due for destruction; refusing to delete its records of deletion requests.', target_clinic
+      USING ERRCODE = 'check_violation',
+            HINT = 'Destruction is due by the rule of the agreement the service ended under (app_destruction_due), by the database''s clock.';
+  END IF;
+
+  DELETE FROM erasure_requests er WHERE er.clinic_id = target_clinic;
+  GET DIAGNOSTICS gone = ROW_COUNT;
+  RETURN gone;
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_destroy_erasure_requests(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_destroy_erasure_requests(uuid) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- A person's suppressions, consent records and contact attempts
@@ -288,7 +402,11 @@ $$;--> statement-breakpoint
 COMMENT ON TABLE erasure_requests IS
   'One person''s deletion request, recorded without the person: who asked (one of three, never typed), when it arrived, the ten-business-day deadline, when the deletion ran, the counts, and the operator''s stamp for each subcontractor step. restore_refs are keyed references to what the deletion found, used only to delete the person again after a restore and emptied 35 days (BACKUP_RETENTION_DAYS) after the deletion, when the row goes too unless a subcontractor step is still outstanding. Never read for a contact decision. erased_at is stamped by the database at the insert.';--> statement-breakpoint
 COMMENT ON COLUMN erasure_requests.restore_refs IS
-  'identifierRef values (erasure kind for "phone:"/"email:" values, chat_party for messaging threads) naming what the deletion found, so reapplyErasures can find the person again in a database restored to a point before it. Only ever emptied: by the hourly expiry, BACKUP_RETENTION_DAYS after erased_at.';--> statement-breakpoint
+  'identifierRef values (erasure kind for "phone:"/"email:" values, chat_party for messaging threads) naming what the deletion found, so reapplyErasures can find the person again in a database restored to a point before it. Only ever emptied, and not before BACKUP_RETENTION_DAYS (35) after erased_at (erasure_requests_guard): by the hourly expiry, app_expire_erasure_records(). The runtime role cannot write it after the insert.';--> statement-breakpoint
+COMMENT ON FUNCTION app_expire_erasure_records() IS
+  'The record''s clock, by the database''s: empties the tenant''s restore references 35 days (BACKUP_RETENTION_DAYS) after erased_at, and deletes a record then once every subcontractor step carries a stamp the guard wrote. For expireErasureRecords, hourly. Returns the two counts.';--> statement-breakpoint
+COMMENT ON FUNCTION app_destroy_erasure_requests(uuid) IS
+  'Deletes every record of a deletion request at the tenant''s own clinic, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contact_evidence(uuid, text[]) IS
   'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
@@ -310,13 +428,13 @@ BEGIN
   SELECT string_agg(a.attname, ', ') INTO offending
     FROM pg_attribute a
    WHERE a.attrelid = 'erasure_requests'::regclass AND a.attnum > 0 AND NOT a.attisdropped
-     AND a.attname NOT IN ('deleted', 'restore_refs', 'vendor_steps')
+     AND a.attname NOT IN ('deleted', 'vendor_steps')
      AND has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE');
   IF offending IS NOT NULL THEN
-    RAISE EXCEPTION 'healdesk_app can UPDATE an erasure_requests column other than deleted, restore_refs and vendor_steps: %', offending;
+    RAISE EXCEPTION 'healdesk_app can UPDATE an erasure_requests column other than deleted and vendor_steps: %', offending;
   END IF;
-  IF has_table_privilege('healdesk_app'::name, 'erasure_requests'::regclass, 'TRUNCATE, REFERENCES, TRIGGER') THEN
-    RAISE EXCEPTION 'healdesk_app holds TRUNCATE, REFERENCES or TRIGGER on erasure_requests.';
+  IF has_table_privilege('healdesk_app'::name, 'erasure_requests'::regclass, 'DELETE, TRUNCATE, REFERENCES, TRIGGER') THEN
+    RAISE EXCEPTION 'healdesk_app holds DELETE, TRUNCATE, REFERENCES or TRIGGER on erasure_requests; the record''s clock is the definers''.';
   END IF;
 
   IF has_table_privilege('healdesk_app'::name, 'suppressions'::regclass, 'DELETE')
@@ -333,6 +451,8 @@ BEGIN
   END IF;
 
   IF has_function_privilege('public', 'app_erase_contact_evidence(uuid, text[])', 'EXECUTE')
+     OR has_function_privilege('public', 'app_expire_erasure_records()', 'EXECUTE')
+     OR has_function_privilege('public', 'app_destroy_erasure_requests(uuid)', 'EXECUTE')
      OR has_function_privilege('public', 'app_mark_clinic_destroyed(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'A SECURITY DEFINER function of this migration is executable by PUBLIC.';
   END IF;
@@ -340,14 +460,23 @@ BEGIN
   SELECT string_agg(p.proname, ', ') INTO offending
     FROM pg_proc p
    WHERE p.oid IN ('app_erase_contact_evidence(uuid, text[])'::regprocedure,
+                   'app_expire_erasure_records()'::regprocedure,
+                   'app_destroy_erasure_requests(uuid)'::regprocedure,
                    'app_mark_clinic_destroyed(uuid)'::regprocedure,
                    'app_erasure_request_guard()'::regprocedure)
      AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) c WHERE c LIKE 'search_path=%');
   IF offending IS NOT NULL THEN
     RAISE EXCEPTION 'Function(s) without a pinned search_path: %', offending;
   END IF;
-  IF NOT ('TimeZone=UTC' = ANY (coalesce((SELECT p.proconfig FROM pg_proc p WHERE p.oid = 'app_mark_clinic_destroyed(uuid)'::regprocedure), ARRAY[]::text[]))) THEN
-    RAISE EXCEPTION 'app_mark_clinic_destroyed lost its TimeZone pin (drizzle/0058).';
+  SELECT string_agg(p.proname, ', ') INTO offending
+    FROM pg_proc p
+   WHERE p.oid IN ('app_mark_clinic_destroyed(uuid)'::regprocedure,
+                   'app_expire_erasure_records()'::regprocedure,
+                   'app_destroy_erasure_requests(uuid)'::regprocedure,
+                   'app_erasure_request_guard()'::regprocedure)
+     AND NOT ('TimeZone=UTC' = ANY (coalesce(p.proconfig, ARRAY[]::text[])));
+  IF offending IS NOT NULL THEN
+    RAISE EXCEPTION 'Function(s) that lost or lack the UTC pin (drizzle/0058): %', offending;
   END IF;
 END;
 $$;

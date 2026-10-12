@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, test } from "vitest";
 
-import { HERO_LOGOS, LABEL, ORBIT_CENTRE, ORBITS, PHOTO, TRADEMARKS, onOrbit } from "@/lib/integrations";
+import { HERO_LOGOS, LABEL, ORBIT_CENTRE, ORBITS, PHOTO, TRADEMARKS, onOrbit, orbitOf, storyOrder } from "@/lib/integrations";
 
 /**
  * The hero's logos, guarded where they can drift apart.
@@ -128,7 +128,7 @@ describe("the hero's logos", () => {
     }
   });
 
-  test("on their own orbits, all around her: Messages & Calls on her left, Bookings and Payments on her right", () => {
+  test("on their own circles, all around her: Messages & Calls on her left, Bookings and Payments on her right", () => {
     for (const logo of HERO_LOGOS) {
       expect(logo.at).toEqual(onOrbit(logo.group, logo.angle));
       expect(logo.at.x < 50, logo.name).toBe(logo.group === "messages");
@@ -136,22 +136,45 @@ describe("the hero's logos", () => {
     const order = HERO_LOGOS.map((logo) => GROUPS.indexOf(logo.group));
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(new Set(order).size).toBe(GROUPS.length);
-    // Concentric, the inner inside the outer all the way round.
-    for (const [inner, outer] of [[ORBITS[0]!, ORBITS[1]!], [ORBITS[1]!, ORBITS[2]!]] as const) {
-      expect(outer.rx).toBeGreaterThan(inner.rx);
-      expect(outer.ry).toBeGreaterThan(inner.ry);
-    }
-    expect(ORBIT_CENTRE.x).toBeGreaterThan(FACE.x - FACE.rx);
-    expect(ORBIT_CENTRE.x).toBeLessThan(FACE.x + FACE.rx);
   });
 
-  test("each group's logos run along its orbit from its chip to the arc's tail, in order", () => {
+  test("a place is the same to the last digit wherever it is worked out, so server and browser agree", () => {
+    for (const logo of HERO_LOGOS) {
+      for (const value of [logo.at.x, logo.at.y]) expect(Math.round(value * 1e4) / 1e4).toBe(value);
+    }
+    for (const orbit of ORBITS) {
+      const at = onOrbit(orbit.group, orbit.chip);
+      expect(Math.round(at.x * 1e4) / 1e4).toBe(at.x);
+      expect(Math.round(at.y * 1e4) / 1e4).toBe(at.y);
+    }
+  });
+
+  test("the orbits are true circles about one point: every logo and chip is its radius from the centre", () => {
+    const radii = ORBITS.map((orbit) => orbit.r);
+    expect(new Set(radii).size).toBe(radii.length);
+    // The same point for all three, and on her head: between her cheeks.
+    expect(ORBIT_CENTRE.x).toBeGreaterThan(FACE.x - FACE.rx);
+    expect(ORBIT_CENTRE.x).toBeLessThan(FACE.x + FACE.rx);
+    const distance = (at: { x: number; y: number }) => Math.hypot(px(at).x - ORBIT_CENTRE.x, px(at).y - ORBIT_CENTRE.y);
+    for (const logo of HERO_LOGOS) {
+      expect(distance(logo.at), logo.name).toBeCloseTo(orbitOf(logo.group).r, 1);
+    }
+    for (const { orbit, box } of chips) {
+      expect(Math.hypot(box.x - ORBIT_CENTRE.x, box.y - ORBIT_CENTRE.y), orbit.title).toBeCloseTo(orbit.r, 1);
+    }
+    // Far enough apart that a ring's logos cannot touch the next ring's.
+    const sorted = [...radii].sort((a, b) => a - b);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i]! - sorted[i - 1]!).toBeGreaterThan(1.3 * DESKTOP_LOGO);
+  });
+
+  test("each group's logos run along its circle from its chip to the lit stretch's tail, in order", () => {
     for (const orbit of ORBITS) {
       const angles = HERO_LOGOS.filter((logo) => logo.group === orbit.group).map((logo) => logo.angle);
       const away = angles.map((angle) => (angle - orbit.chip) * Math.sign(orbit.tail - orbit.chip));
       expect(away.every((d) => d > 0), orbit.group).toBe(true);
       expect(away).toEqual([...away].sort((a, b) => a - b));
       expect(Math.abs(orbit.tail - orbit.chip)).toBeGreaterThan(Math.max(...away));
+      expect(Math.abs(orbit.tail - orbit.chip)).toBeLessThan(180);
     }
   });
 
@@ -172,15 +195,24 @@ describe("the hero's logos", () => {
     }
   });
 
-  test("no two logos touch, with room between them for a card's pointer", () => {
+  test("no two logos touch, with a gap between them as wide as a third of one", () => {
     for (const [i, a] of HERO_LOGOS.entries()) {
       for (const b of HERO_LOGOS.slice(i + 1)) {
         const p = px(a.at);
         const q = px(b.at);
         expect(Math.hypot(p.x - q.x, p.y - q.y), `${a.name} and ${b.name}`).toBeGreaterThan(
-          Math.max(1.5 * DESKTOP_LOGO, 1.05 * LOGO),
+          Math.max(1.3 * DESKTOP_LOGO, 1.05 * LOGO),
         );
       }
     }
+  });
+
+  test("the story the hero plays on its own gives every logo its card once, a group at a time in booking order", () => {
+    const order = storyOrder();
+    expect([...order].sort()).toEqual(HERO_LOGOS.map((logo) => logo.name).sort());
+    const groupOf = (name: string) => HERO_LOGOS.find((logo) => logo.name === name)!.group;
+    // Messages, Bookings, Payments, then Messages, Bookings again as Payments runs out.
+    expect(order.slice(0, 3).map(groupOf)).toEqual(["messages", "bookings", "payments"]);
+    expect(order.slice(3, 5).map(groupOf)).toEqual(["messages", "bookings"]);
   });
 });

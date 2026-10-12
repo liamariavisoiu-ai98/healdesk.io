@@ -9,12 +9,15 @@ import {
   ORBITS,
   PHOTO,
   onOrbit,
+  pointOnOrbit,
   showcaseText,
+  storyOrder,
   type HeroLogo,
   type LogoGroup,
   type Orbit,
   type ShowcaseLine,
 } from "@/lib/integrations";
+import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
  * The hero's picture: AYA, smiling, in the healdesk headset, and the logos of
@@ -32,11 +35,13 @@ import {
  *
  * ## Three orbits, and the chips that fan out (the owner's pick, 9 October)
  *
- * Three concentric orbits ring her head, one per group: Messages & Calls
+ * Three concentric circles ring her head, one per group (the owner asked on
+ * 12 October 2026 for true circles; they were ovals): Messages & Calls
  * (website chat, Instagram, Messenger, WhatsApp and her phone line) down the
- * wall on her left, Bookings down the wall on her right, Payments low on the
- * right. Each orbit's stretch starts at a chip with its title, and as the page
- * opens the logos fan out of their chip along the orbit to their places,
+ * wall on her left, Bookings on the right, Payments low on the right. Each
+ * circle is drawn whole and faint, so three rings read as three rings, with
+ * its group's stretch lit from a chip with its title, and as the page opens
+ * the logos fan out of their chip along the circle to their places,
  * then drift gently along it. Resting on a chip, or focusing it, lights its
  * orbit, dims the other two, spreads its logos a little and plays their
  * cards in turn; resting on a logo, focusing it or tapping it plays its own.
@@ -141,6 +146,12 @@ const ORBIT_TIME: Record<LogoGroup, number> = { messages: 12, bookings: 16, paym
 const DRIFT_DEGREES = 3;
 /** How long each card shows while a chip plays its group's in turn. */
 const CARD_MS = 1600;
+/** Between the cards the hero plays on its own, once the logos have fanned out. */
+const AUTOPLAY_MS = 2600;
+const FIRST_CARD_MS = 2400;
+/** How long after a visitor lets go of a logo or a chip the cards stay theirs. */
+const RESUME_MS = 4000;
+const STORY = storyOrder();
 
 function toPx(at: { x: number; y: number }) {
   return { x: (at.x / 100) * PHOTO.width, y: (at.y / 100) * PHOTO.height };
@@ -173,11 +184,11 @@ function motion(logo: HeroLogo, orbit: Orbit, i: number) {
 
 /** An orbit's drawn stretch, from its chip to its tail, in the photo's pixels. */
 function arcPath(orbit: Orbit) {
-  const from = toPx(onOrbit(orbit.group, orbit.chip));
-  const to = toPx(onOrbit(orbit.group, orbit.tail));
+  const from = pointOnOrbit(orbit.group, orbit.chip);
+  const to = pointOnOrbit(orbit.group, orbit.tail);
   const sweep = orbit.tail > orbit.chip ? 1 : 0;
   const large = Math.abs(orbit.tail - orbit.chip) > 180 ? 1 : 0;
-  return { from, to, d: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} A ${orbit.rx} ${orbit.ry} 0 ${large} ${sweep} ${to.x.toFixed(1)} ${to.y.toFixed(1)}` };
+  return { from, to, d: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} A ${orbit.r} ${orbit.r} 0 ${large} ${sweep} ${to.x.toFixed(1)} ${to.y.toFixed(1)}` };
 }
 
 function Mark({ mark }: { mark: ShowcaseLine["mark"] }) {
@@ -206,25 +217,22 @@ function Mark({ mark }: { mark: ShowcaseLine["mark"] }) {
   return null;
 }
 
-/**
- * Where a logo's card opens: away from the photo's nearer edge, or under the
- * logo for the two at the top of their orbits, whose chips are beside them.
- */
-function cardSide(logo: HeroLogo): "left" | "right" | "below" {
-  if (logo.at.y < 14) return "below";
-  return logo.at.x < 50 ? "right" : "left";
-}
-
 const capital = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 
-export function HeroPortrait() {
+export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
   const stage = useRef<HTMLDivElement>(null);
   const resting = useResting(stage);
+  const wide = useMediaQuery("(min-width: 1280px)");
+  const reduce = useMediaQuery(REDUCED_MOTION);
   /** The logo whose card shows, from a hover, a focus or a tap. */
   const [picked, setPicked] = useState<string | null>(null);
   /** The chip being rested on or focused, whose group's cards play in turn. */
   const [group, setGroup] = useState<LogoGroup | null>(null);
   const [turn, setTurn] = useState(0);
+  /** The card the hero is playing on its own. */
+  const [auto, setAuto] = useState<string | null>(null);
+  const busy = useRef(false);
+  const holdUntil = useRef(0);
 
   useEffect(() => {
     if (!group) return;
@@ -232,18 +240,66 @@ export function HeroPortrait() {
     return () => window.clearInterval(id);
   }, [group]);
 
+  // Whether a visitor has hold of a card, for the timer below to read.
+  useEffect(() => {
+    busy.current = picked !== null || group !== null;
+  });
+
+  /**
+   * The cards play themselves while the hero is the first thing on screen:
+   * from 1280px, with motion allowed, in reach, and while the copy is still
+   * down (`autoplay`; a card over the headline would be in its way). A
+   * visitor's hover, focus, tap or chip takes over at once, and the hero
+   * waits RESUME_MS after they let go. A hidden tab plays nothing.
+   */
+  const playing = autoplay && wide && !reduce && !resting;
+  useEffect(() => {
+    if (!playing) return;
+    let step = 0;
+    let timer: number;
+    const tick = () => {
+      if (busy.current || Date.now() < holdUntil.current || document.hidden) {
+        setAuto(null);
+      } else {
+        setAuto(STORY[step % STORY.length] ?? null);
+        step += 1;
+      }
+      timer = window.setTimeout(tick, AUTOPLAY_MS);
+    };
+    timer = window.setTimeout(tick, FIRST_CARD_MS);
+    return () => {
+      window.clearTimeout(timer);
+      setAuto(null);
+    };
+  }, [playing]);
+
   const members = group ? HERO_LOGOS.filter((logo) => logo.group === group) : [];
-  const shown = group ? (members[turn % members.length]?.name ?? null) : picked;
+  const shown = group ? (members[turn % members.length]?.name ?? null) : (picked ?? (playing ? auto : null));
+  const lit = group ?? HERO_LOGOS.find((logo) => logo.name === shown)?.group;
+
+  /** A visitor took hold of a card, or let go: the hero's own turn is over for now. */
+  const took = useCallback(() => {
+    holdUntil.current = Date.now() + RESUME_MS;
+    setAuto(null);
+  }, []);
 
   /** Start a chip's group from its first card, or stop it. */
-  const play = useCallback((next: LogoGroup | null) => {
-    setTurn(0);
-    setGroup(next);
-  }, []);
-  const setShown = useCallback((next: string | null | ((current: string | null) => string | null)) => {
-    setGroup(null);
-    setPicked(next);
-  }, []);
+  const play = useCallback(
+    (next: LogoGroup | null) => {
+      took();
+      setTurn(0);
+      setGroup(next);
+    },
+    [took],
+  );
+  const setShown = useCallback(
+    (next: string | null | ((current: string | null) => string | null)) => {
+      took();
+      setGroup(null);
+      setPicked(next);
+    },
+    [took],
+  );
 
   const hover = useCallback(
     (event: React.PointerEvent, name: string | null) => {
@@ -256,7 +312,7 @@ export function HeroPortrait() {
 
   return (
     <>
-      <div ref={stage} role="group" aria-label={LABEL} className="portrait" data-paused={resting || undefined} data-group={group ?? undefined}>
+      <div ref={stage} role="group" aria-label={LABEL} className="portrait" data-paused={resting || undefined} data-group={group ?? undefined} data-lit={lit}>
         <img
           src="/brand/aya-hero.webp"
           alt=""
@@ -287,6 +343,7 @@ export function HeroPortrait() {
             const { d } = arcPath(orbit);
             return (
               <g key={orbit.group} className="portrait__orbit" data-group={orbit.group}>
+                <circle cx={ORBIT_CENTRE.x} cy={ORBIT_CENTRE.y} r={orbit.r} className="portrait__ring" vectorEffect="non-scaling-stroke" />
                 <path d={d} pathLength={1} className="portrait__orbit-shade" vectorEffect="non-scaling-stroke" />
                 <path d={d} pathLength={1} className="portrait__orbit-line" stroke={`url(#orbit-fade-${orbit.group})`} vectorEffect="non-scaling-stroke" />
               </g>
@@ -317,7 +374,7 @@ export function HeroPortrait() {
                       </button>
                     </span>
                     {/* Said by the button's own name; drawn here for the eye. */}
-                    <span className="portrait__card" data-side={cardSide(logo)} aria-hidden>
+                    <span className="portrait__card" aria-hidden>
                       <span className="portrait__card-name">{capital(logo.name)}</span>
                       {logo.showcase.map((line, n) => (
                         <span key={line.text} className="portrait__card-line" style={{ ["--n" as string]: n }}>

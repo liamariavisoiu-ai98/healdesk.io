@@ -46,6 +46,11 @@ import { site } from "@/lib/site";
  * very top they unlock and follow the cursor again, and the next scroll down
  * locks them again. A page loaded already scrolled opens locked.
  *
+ * Nothing else on the hero says that moving the cursor down does anything, so
+ * a small pill at its foot does, "Move your cursor down", until the copy has
+ * come up once. Meanwhile the logos' cards play on their own, one at a time
+ * (HeroPortrait), so the hero is not still while it waits.
+ *
  * `data-reveal` on the section is that state: "hidden", "shown" or
  * "locked". globals.css acts on it only from 1280px and only where the
  * pointer is fine and hovers; anywhere else (a phone, a tablet, a touch
@@ -72,8 +77,13 @@ const SCROLL_KEYS = new Set(["PageDown", " ", "ArrowDown", "End"]);
  * Read from the events themselves rather than from React state, so a burst
  * of pointer moves costs one comparison each and a render only on a change.
  */
-function useReveal(hero: React.RefObject<HTMLElement | null>, copy: React.RefObject<HTMLElement | null>): Reveal {
+function useReveal(
+  hero: React.RefObject<HTMLElement | null>,
+  copy: React.RefObject<HTMLElement | null>,
+): { reveal: Reveal; seen: boolean } {
   const [reveal, setReveal] = useState<Reveal>("hidden");
+  /** The copy has come up at least once this visit: the cue has done its job. */
+  const [seen, setSeen] = useState(false);
 
   useEffect(() => {
     const el = hero.current;
@@ -88,6 +98,7 @@ function useReveal(hero: React.RefObject<HTMLElement | null>, copy: React.RefObj
       if (next === state) return;
       state = next;
       setReveal(next);
+      if (next !== "hidden") setSeen(true);
     };
     const follow = () => {
       if (!follows.matches || !atTop()) set("locked");
@@ -151,14 +162,14 @@ function useReveal(hero: React.RefObject<HTMLElement | null>, copy: React.RefObj
     };
   }, [hero, copy]);
 
-  return reveal;
+  return { reveal, seen };
 }
 
 export function HeroStage() {
   const buy = useBuy();
   const heroRef = useRef<HTMLElement>(null);
   const copyRef = useRef<HTMLDivElement>(null);
-  const reveal = useReveal(heroRef, copyRef);
+  const { reveal, seen } = useReveal(heroRef, copyRef);
 
   return (
     <section ref={heroRef} aria-labelledby="hero-heading" className="hero" data-reveal={reveal}>
@@ -217,8 +228,18 @@ export function HeroStage() {
       </div>
 
       <div className="hero__frame">
-        <HeroPortrait />
+        <HeroPortrait autoplay={reveal === "hidden"} />
       </div>
+
+      {/* Says what moving the cursor down does, until it has done it. Not for
+          a screen reader (the copy is in the page throughout) and not for a
+          touch screen (CSS shows it only with a pointer that hovers). */}
+      <p aria-hidden className="hero__cue" data-show={(reveal === "hidden" && !seen) || undefined}>
+        Move your cursor down
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </p>
 
       {/* The white the copy sits on, rising from the bottom with it: over
           the photo, under the logos and the copy. */}

@@ -1101,10 +1101,19 @@
     z-index: 10;
   }
 
-  /* Above the chips, so a card is never under one. */
+  /* Above the chips and the copy, so a card is never under either: the logos
+     are clear of the copy's box (integrations.test.ts), so only a card ever
+     overlaps it, and only for as long as a visitor holds it. */
   .portrait__logos {
-    z-index: 4;
+    z-index: 12;
   }
+}
+
+/* The cue: the copy is down until the cursor comes to the bottom third, and
+   nothing else on the hero says so. A small pill at the foot, until the first
+   time it comes up. */
+.hero__cue {
+  display: none;
 }
 
 /* Following the cursor: only where there is one that hovers. */
@@ -1129,6 +1138,51 @@
 
   .hero[data-reveal="hidden"] .hero__copy > div {
     pointer-events: none;
+  }
+
+  .hero__cue {
+    position: absolute;
+    left: 50%;
+    bottom: 26px;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 14px 9px 18px;
+    border: 1px solid rgb(255 255 255 / 0.9);
+    border-radius: 9999px;
+    background: rgb(255 255 255 / 0.82);
+    -webkit-backdrop-filter: blur(14px) saturate(1.4);
+    backdrop-filter: blur(14px) saturate(1.4);
+    box-shadow:
+      0 1px 2px rgb(23 42 58 / 0.1),
+      0 12px 28px -14px rgb(23 42 58 / 0.5);
+    color: var(--color-ink);
+    font-size: 13.5px;
+    font-weight: 650;
+    white-space: nowrap;
+    pointer-events: none;
+    translate: -50% 0;
+    opacity: 0;
+    transition: opacity 300ms ease;
+  }
+
+  /* Waits for the logos to have fanned out, then stays until the first reveal. */
+  .hero__cue[data-show] {
+    opacity: 1;
+    transition-delay: 1800ms;
+  }
+
+  .hero__cue svg {
+    width: 16px;
+    height: 16px;
+    animation: hero-cue 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes hero-cue {
+  50% {
+    transform: translateY(3px);
   }
 }
 
@@ -1283,12 +1337,23 @@
   z-index: 2;
   width: 100%;
   height: 100%;
-  overflow: visible;
+  /* The rings run past the photo; they end where it does, and fade as it does. */
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent);
+  mask-image: linear-gradient(to bottom, #000 82%, transparent);
   pointer-events: none;
 }
 
 .portrait__orbit {
   transition: opacity 400ms ease;
+}
+
+/* The whole circle, faint: what makes three arcs read as three rings. */
+.portrait__ring {
+  fill: none;
+  stroke: rgb(23 42 58 / 0.1);
+  stroke-width: 1;
+  stroke-linecap: round;
 }
 
 .portrait__orbit path {
@@ -1311,6 +1376,13 @@
 .portrait[data-group="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
 .portrait[data-group="bookings"] .portrait__orbit[data-group="bookings"] .portrait__orbit-line,
 .portrait[data-group="payments"] .portrait__orbit[data-group="payments"] .portrait__orbit-line {
+  stroke-width: 2.6;
+}
+
+/* The orbit of the card showing, whether a visitor chose it or the hero did. */
+.portrait[data-lit="messages"] .portrait__orbit[data-group="messages"] .portrait__orbit-line,
+.portrait[data-lit="bookings"] .portrait__orbit[data-group="bookings"] .portrait__orbit-line,
+.portrait[data-lit="payments"] .portrait__orbit[data-group="payments"] .portrait__orbit-line {
   stroke-width: 2.6;
 }
 
@@ -1470,24 +1542,12 @@
     transform 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.portrait__card[data-side="right"] {
+/* Always out to the right: the logos on her left open over her hair, the ones
+   on her right over the wall beyond them, and none over her face. */
+.portrait__card {
   left: calc(100% + 12px);
   --card-from: -6px;
   transform-origin: left center;
-}
-
-.portrait__card[data-side="left"] {
-  right: calc(100% + 12px);
-  --card-from: 6px;
-  transform-origin: right center;
-}
-
-/* The top logos' cards open under them, clear of their chip. */
-.portrait__card[data-side="below"] {
-  top: calc(100% + 10px);
-  left: 50%;
-  transform: translate(-50%, -6px) scale(0.96);
-  transform-origin: top center;
 }
 
 .portrait__node[data-shown] .portrait__card {
@@ -1495,9 +1555,6 @@
   transform: translate(0, -50%);
 }
 
-.portrait__node[data-shown] .portrait__card[data-side="below"] {
-  transform: translate(-50%, 0);
-}
 
 .portrait__card-name {
   color: var(--color-muted);

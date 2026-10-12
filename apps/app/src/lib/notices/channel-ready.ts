@@ -55,7 +55,8 @@ export async function queueChannelReady(
         and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.channel, input.channel)),
       )
       .limit(1);
-    if (!isWaitingOnReadyStep(input.channel, row)) return false;
+    if (!row?.readyAt || !isWaitingOnReadyStep(input.channel, row)) return false;
+    const readyAt = row.readyAt;
     const [clinic] = await tx.db
       .select({
         slug: clinics.slug,
@@ -72,7 +73,7 @@ export async function queueChannelReady(
         savepoint,
         tx.clinicId,
         "channel_ready",
-        `channel_ready:${input.channel}:${row.readyAt!.toISOString()}`,
+        `channel_ready:${input.channel}:${readyAt.toISOString()}`,
         {
           channel: "voice",
           ayaNumberE164: input.ayaNumberE164,

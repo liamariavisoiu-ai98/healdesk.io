@@ -140,13 +140,14 @@ variable "db_backup_retention_days" {
 
 variable "kms_require_lock_labels" {
   description = <<-EOT
-    Turn on the task role's lock-label rule (docs/design/google-calendar-2026-10-05.md §5):
-    the app's own KMS calls must carry healdesk:clinic and healdesk:login. Only once the
-    calendar branch's C6b (4693a4e, "Lock every sealed credential's data key to its clinic
-    and login") is on main and in the deployed image; before that every seal and open fails.
+    The task role's lock-label rule (docs/design/google-calendar-2026-10-05.md §5): the
+    app's own KMS calls must carry healdesk:clinic and healdesk:login. On since the calendar
+    build's C6b (4693a4e, "Lock every sealed credential's data key to its clinic and login")
+    reached main, which every image from then on carries. Turn it off only to deploy an older
+    image, which seals and opens without the labels and would be refused.
   EOT
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "ses_domain" {

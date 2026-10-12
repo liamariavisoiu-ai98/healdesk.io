@@ -136,14 +136,19 @@ describe("AwsKmsKeyWrapper", () => {
 
   test("loads @aws-sdk/client-kms on first use, not before, and once", async () => {
     const wrapper = new AwsKmsKeyWrapper(KEY_ARN);
+    const label = { clinic: "3", login: "meta-messenger" };
+    const context = { "healdesk:clinic": "3", "healdesk:login": "meta-messenger" };
+
+    // A label that is not whole is refused before anything is loaded.
+    await expect(wrapper.generateDek({ clinic: "3", login: "" })).rejects.toThrow(/healdesk:login/);
     expect(wire.kms.loads).toBe(0);
 
-    const { dek, wrapped } = await wrapper.generateDek();
+    const { dek, wrapped } = await wrapper.generateDek(label);
     expect(wire.kms.loads).toBe(1);
     expect(wrapped.keyVersion).toBe(`kms:${KEY_ARN}`);
 
-    expect((await wrapper.unwrapDek(wrapped)).equals(dek)).toBe(true);
-    await wrapper.wrapExisting(dek);
+    expect((await wrapper.unwrapDek(wrapped, label)).equals(dek)).toBe(true);
+    await wrapper.wrapExisting(dek, label);
     expect(wire.kms.loads).toBe(1);
 
     expect(wire.kms.sent.map((s) => s.command)).toEqual([
@@ -151,8 +156,14 @@ describe("AwsKmsKeyWrapper", () => {
       "DecryptCommand",
       "EncryptCommand",
     ]);
-    expect(wire.kms.sent[0]!.input).toEqual({ KeyId: KEY_ARN, KeySpec: "AES_256" });
+    expect(wire.kms.sent[0]!.input).toEqual({
+      KeyId: KEY_ARN,
+      KeySpec: "AES_256",
+      EncryptionContext: context,
+    });
     expect(wire.kms.sent[1]!.input.KeyId).toBe(KEY_ARN);
+    expect(wire.kms.sent[1]!.input.EncryptionContext).toEqual(context);
+    expect(wire.kms.sent[2]!.input.EncryptionContext).toEqual(context);
   });
 });
 

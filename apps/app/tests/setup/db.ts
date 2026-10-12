@@ -68,7 +68,9 @@ export async function truncateAll(): Promise<void> {
   // for the identity-plane tables 0043 added without foreign keys
   // (checkout_intents, stripe_connect_events, stripe_connect_states).
   // billing_requests (0050) cascades from clinics, and is named anyway beside
-  // the rest of the billing ledger.
+  // the rest of the billing ledger. 0057's tables all hang off clinics
+  // (google_oauth_states by target_clinic_id), so the cascade empties them,
+  // and RESTART IDENTITY puts clinics_client_number_seq back to its start.
   await pool.query(`
     truncate table
       billing_events, billing_transitions, billing_requests, entitlements,
@@ -92,7 +94,7 @@ export async function truncateAll(): Promise<void> {
       ('annual-renewal-reminder', 'Daily; emails the billing contact 30 days before an annual renewal, once per period', false),
       ('weekly-recap', 'Hourly check; sends each live clinic a 7-day recap on its own Monday morning, and a first one on day 7', false),
       ('nightly-sync', 'Daily at 02:00 UTC; enqueues a sync per active connection, staggered; reconcile on the 1st', false),
-      ('offboarding-destroy', 'Daily; destroys the patient data of clinics whose destroy_after has passed and whose export was delivered', false),
+      ('offboarding-destroy', 'Hourly; destroys each offboarded clinic''s patient data when the agreement its service ended under says: under BAA 1.2.1 and earlier from day 29, export or not; under BAA 1.3.0 and the DPA from day 29 once the export is delivered (from the delivery when later) and from day 89 without it', false),
       ('usage-meter-report', 'Hourly; reports overage on monthly plans to Stripe''s meters', false),
       ('annual-overage-invoice', 'Daily at 05 UTC; invoices annual plans'' overage per closed month', false),
       ('usage-alerts', 'Hourly; queues the 80% and 100% allowance emails', false),
@@ -103,6 +105,7 @@ export async function truncateAll(): Promise<void> {
       ('billing-reconcile', 'Hourly; records any plan start, step-up or setup closure that is due but missing, steps up waiting channels after 30 days with a reminder a week before, and re-arms requests that can now go through', false),
       ('card-expiring', 'Daily at 07 UTC; queues the card-expiring email when the card on file expires before a renewal due within 30 days', false),
       ('dmarc-review', 'Daily at 08 UTC; on the 14th day after Resend first sent as healdesk.io, raises one ops alert, ever, to read the DMARC reports and move the record from p=none to p=quarantine', false),
+      ('calendar-watch', 'Every 5 minutes on its own queue: forces a refresh and one free/busy probe per Google Calendar connection, disconnects what the terms no longer cover, flips a broken one to manual booking and alerts the clinic and ops once, resolves unconfirmed writes and owed desk notices, purges spent holds and OAuth states', false),
       ('setup-reminders', 'Hourly; while none of a clinic''s channels is live, queues the setup reminder due on day 5, 10, 15, 20, 25 or 30 of its setup window, counted back from the window''s last day, in the clinic''s daytime', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);

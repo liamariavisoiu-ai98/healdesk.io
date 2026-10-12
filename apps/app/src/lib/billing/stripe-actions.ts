@@ -787,7 +787,7 @@ export async function changePlan(
   let releaseOnExit = true;
   try {
     const outcome = claim.isStarted
-      ? await changeStartedPlan(stripe, claim, group.inService, billingClinicId, owner, actor)
+      ? await changeStartedPlan(stripe, claim, group.inService, billingClinicId, owner, actor, now)
       : await chargePlanChangeDelta(stripe, claim, null, billingClinicId, owner, actor);
     if (!outcome.ok) {
       // Refused or declined before anything was charged: the change is over.
@@ -958,6 +958,7 @@ async function changeStartedPlan(
   billingClinicId: string,
   owner: string,
   actor: ActorContext,
+  now: Date,
 ): Promise<StripeOutcome> {
   const subscription = await retrieveSubscription(stripe, claim.row.stripeSubscriptionId as string);
   const current = packageItemOf(subscription);
@@ -994,7 +995,9 @@ async function changeStartedPlan(
   const expected = expectedMeteredKeys(claim.newPlan.id, claim.interval) ?? [];
   const metered = await meteredItemParams(meteredItemChanges(subscription, expected), { stripe });
   const targetPrice = await priceForLookupKey(stripeLookupKey(target, claim.interval), { stripe });
-  const sinceSeconds = Math.floor(Date.now() / 1000);
+  // On the caller's clock, like the rest of this change: an invoice is ours only if
+  // Stripe created it after this moment, give or take the window in invoiceUrlRaisedSince.
+  const sinceSeconds = Math.floor(now.getTime() / 1000);
 
   if (targetPrice.id !== current.priceId || claim.interval !== current.interval) {
     const setupProduct =
@@ -1603,6 +1606,7 @@ export async function addLocation(
         billingClinicId,
         owner,
         actor,
+        now,
       );
       if (charge.status === "declined") {
         await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
@@ -1676,6 +1680,7 @@ async function chargeLocation(
   billingClinicId: string,
   owner: string,
   actor: ActorContext,
+  now: Date,
 ): Promise<LocationCharge> {
   const subscription = await retrieveSubscription(stripe, claim.row.stripeSubscriptionId as string);
   if (hasEnded(subscription)) {
@@ -1720,7 +1725,9 @@ async function chargeLocation(
       message: "Your plan is still being set up in Stripe. Try again in a few minutes.",
     };
   }
-  const sinceSeconds = Math.floor(Date.now() / 1000);
+  // On the caller's clock, like the rest of this change: an invoice is ours only if
+  // Stripe created it after this moment, give or take the window in invoiceUrlRaisedSince.
+  const sinceSeconds = Math.floor(now.getTime() / 1000);
   await renewLease(billingClinicId, owner, actor);
   try {
     const updated = (await stripe.subscriptions.update(

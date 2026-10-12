@@ -14,6 +14,7 @@ import { user } from "@/db/auth-schema";
 import { userBackupCodes, userFactors } from "@/db/schema";
 import { recordSecurityEvent } from "@/lib/audit";
 import { open, seal, type CredentialIdentity } from "@/lib/crypto/envelope";
+import { FIXED_LOCK_LABELS } from "@/lib/crypto/kms";
 import { env } from "@/lib/env";
 import { log } from "@/lib/log";
 import { notifyDeviceChange } from "@/lib/notices/device-changes";
@@ -258,6 +259,14 @@ function secretIdentity(userId: string, factorId: string): CredentialIdentity {
   return { clinicId: `user:${userId}`, credentialId: `user_factors:${factorId}` };
 }
 
+/**
+ * The lock label for every sign-in's secret: users / user-totp. Fixed, because
+ * a sign-in is not a clinic and has no client number (a membership can change,
+ * so it cannot lend one); the AAD above still ties each secret to its sign-in
+ * and its row.
+ */
+const SECRET_LABEL = FIXED_LOCK_LABELS.userTotp;
+
 export type RequestMeta = { ipAddress?: string | null; userAgent?: string | null };
 
 export type EnrolTotpResult =
@@ -295,7 +304,7 @@ export async function enrolTotp(input: {
   if (step === null) return { ok: false, reason: "code_incorrect" };
 
   const factorId = randomUUID();
-  const sealed = await seal(secret, secretIdentity(input.userId, factorId));
+  const sealed = await seal(secret, secretIdentity(input.userId, factorId), SECRET_LABEL);
   const codes = newBackupCodeSet();
   try {
     await unsafeDb.transaction(async (tx) => {
@@ -517,7 +526,7 @@ async function spendTotpCode(userId: string, code: string, at: Date): Promise<bo
 
   let secret: string;
   try {
-    secret = await open(row.sealed, secretIdentity(userId, row.id));
+    secret = await open(row.sealed, secretIdentity(userId, row.id), SECRET_LABEL);
   } catch (error) {
     // The row or the key changed under us. Never the ciphertext or the error's
     // cause, which carries the underlying crypto error.

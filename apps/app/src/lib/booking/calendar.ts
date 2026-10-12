@@ -1,12 +1,13 @@
 import {
   canWriteBookings,
   getAdapter,
+  GOOGLE_CALENDAR_PROVIDER,
   type CanonicalSlot,
   type ConnectorAdapter,
   type ConnectorContext,
   type ConnectorError,
 } from "@healdesk/connectors";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, ne } from "drizzle-orm";
 
 import { appointments, bookingRequests, clinics, contacts, providerConnections, type CalendarWriteStatus, type PhiBasis } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
@@ -93,12 +94,26 @@ export type WritableConnection = {
  * that is policy rather than plumbing — a lawful basis for the vendor to hold
  * a name, a service and a time is recorded on the row. A credential with no
  * `phi_basis` is a read-only connection to us, whatever the API allows.
+ *
+ * Never the Google Calendar connection, whose adapter has the write side
+ * too: whether healdesk may write there is the location's calendar terms
+ * (lib/booking/terms.ts), not a basis on the row, and this path asks neither
+ * the terms nor the database's app_calendar_write_permitted(). The
+ * terms-aware Google target replaces this function with the desk path's
+ * rework (plan §8.3, C12); until then a Google row is never this path's.
  */
 export async function writableConnection(tx: TenantTx): Promise<WritableConnection | null> {
   const rows = await tx.db
     .select({ id: providerConnections.id, provider: providerConnections.provider, metadata: providerConnections.metadata, phiBasis: providerConnections.phiBasis })
     .from(providerConnections)
-    .where(and(eq(providerConnections.clinicId, tx.clinicId), eq(providerConnections.status, "active"), isNotNull(providerConnections.phiBasis)))
+    .where(
+      and(
+        eq(providerConnections.clinicId, tx.clinicId),
+        eq(providerConnections.status, "active"),
+        isNotNull(providerConnections.phiBasis),
+        ne(providerConnections.provider, GOOGLE_CALENDAR_PROVIDER),
+      ),
+    )
     .orderBy(providerConnections.createdAt);
   for (const row of rows) {
     const adapter = getAdapter(row.provider);

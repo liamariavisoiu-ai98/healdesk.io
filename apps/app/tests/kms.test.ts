@@ -15,6 +15,7 @@ import {
   kmsClientConfig,
   kmsKeyArnProblem,
   __setKeyWrapperForTests,
+  type LockLabel,
 } from "@/lib/crypto/kms";
 
 import { fakeKms, restoreKeyEnvironment, setKeyEnvironment, TEST_KEY_ARN } from "./setup/kms";
@@ -36,6 +37,13 @@ afterEach(() => {
 });
 
 const OTHER_KEY_ARN = "arn:aws:kms:us-east-1:111122223333:key/0987dcba-09ba-87dc-65fe-0987654321ba";
+
+/** A clinic credential's lock label, and the encryption context KMS receives for it. */
+const LABEL: LockLabel = { clinic: "12", login: "google_calendar" };
+const CONTEXT = { "healdesk:clinic": "12", "healdesk:login": "google_calendar" };
+
+/** What the key self-check seals under: ops / self-check. */
+const SELF_CHECK_CONTEXT = { "healdesk:clinic": "ops", "healdesk:login": "self-check" };
 
 /** A KMS configuration that passes every check, for tests that vary one thing. */
 const KMS_CONFIGURED = {
@@ -274,46 +282,52 @@ describe("the KMS client: a named region, bounded calls, one retry", () => {
 // -----------------------------------------------------------------------------
 
 describe("AwsKmsKeyWrapper against a stand-in for KMSClient", () => {
-  test("seal and open: one GenerateDataKey and one Decrypt, each naming the key by its full ARN", async () => {
+  test("seal and open: one GenerateDataKey and one Decrypt, each naming the key by its full ARN and carrying the label", async () => {
     const kms = fakeKms();
     __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
     const identity = { clinicId: randomUUID(), credentialId: randomUUID() };
 
-    const sealed = await seal("a-throwaway-value", identity);
+    const sealed = await seal("a-throwaway-value", identity, LABEL);
     expect(sealed.keyVersion).toBe(`kms:${TEST_KEY_ARN}`);
-    expect(await open(sealed, identity)).toBe("a-throwaway-value");
+    expect(await open(sealed, identity, LABEL)).toBe("a-throwaway-value");
 
     expect(kms.calls).toEqual([
-      { command: "GenerateDataKey", keyId: TEST_KEY_ARN, keySpec: "AES_256" },
-      { command: "Decrypt", keyId: TEST_KEY_ARN },
+      {
+        command: "GenerateDataKey",
+        keyId: TEST_KEY_ARN,
+        keySpec: "AES_256",
+        encryptionContext: CONTEXT,
+      },
+      { command: "Decrypt", keyId: TEST_KEY_ARN, encryptionContext: CONTEXT },
     ]);
   });
 
-  test("Encrypt: a data key already in hand is wrapped under the same key and comes back intact", async () => {
+  test("Encrypt: a data key already in hand is wrapped under the same key and label and comes back intact", async () => {
     const kms = fakeKms();
     const wrapper = new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client });
     const dek = randomBytes(32);
 
-    const wrapped = await wrapper.wrapExisting(dek);
+    const wrapped = await wrapper.wrapExisting(dek, LABEL);
     expect(wrapped.keyVersion).toBe(`kms:${TEST_KEY_ARN}`);
-    expect(await wrapper.unwrapDek(wrapped)).toEqual(dek);
+    expect(await wrapper.unwrapDek(wrapped, LABEL)).toEqual(dek);
 
     expect(kms.calls).toEqual([
-      { command: "Encrypt", keyId: TEST_KEY_ARN },
-      { command: "Decrypt", keyId: TEST_KEY_ARN },
+      { command: "Encrypt", keyId: TEST_KEY_ARN, encryptionContext: CONTEXT },
+      { command: "Decrypt", keyId: TEST_KEY_ARN, encryptionContext: CONTEXT },
     ]);
   });
 
   test("rewrap leaves a payload already under the key alone, and asks KMS nothing", async () => {
     const kms = fakeKms();
     __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
-    const sealed = await seal("a-throwaway-value", {
-      clinicId: randomUUID(),
-      credentialId: randomUUID(),
-    });
+    const sealed = await seal(
+      "a-throwaway-value",
+      { clinicId: randomUUID(), credentialId: randomUUID() },
+      LABEL,
+    );
     const before = kms.calls.length;
 
-    expect(await rewrap(sealed)).toBe(sealed);
+    expect(await rewrap(sealed, LABEL)).toBe(sealed);
     expect(kms.calls).toHaveLength(before);
   });
 
@@ -322,11 +336,15 @@ describe("AwsKmsKeyWrapper against a stand-in for KMSClient", () => {
     const ours = new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client });
     const other = new AwsKmsKeyWrapper(OTHER_KEY_ARN, { client: kms.client });
 
-    const { wrapped } = await ours.generateDek();
-    await expect(other.unwrapDek(wrapped)).rejects.toMatchObject({
+    const { wrapped } = await ours.generateDek(LABEL);
+    await expect(other.unwrapDek(wrapped, LABEL)).rejects.toMatchObject({
       name: "IncorrectKeyException",
     });
-    expect(kms.calls.at(-1)).toEqual({ command: "Decrypt", keyId: OTHER_KEY_ARN });
+    expect(kms.calls.at(-1)).toEqual({
+      command: "Decrypt",
+      keyId: OTHER_KEY_ARN,
+      encryptionContext: CONTEXT,
+    });
   });
 });
 
@@ -340,7 +358,12 @@ describe("AwsKmsKeyWrapper against a stand-in for KMSClient", () => {
  */
 async function localKms() {
   const prefix = Buffer.from("test-endpoint-wrap:");
-  const requests: { target: string; keyId: unknown; keySpec?: unknown }[] = [];
+  const requests: {
+    target: string;
+    keyId: unknown;
+    keySpec?: unknown;
+    encryptionContext?: unknown;
+  }[] = [];
   let refusal: string | undefined;
 
   const server = createServer((req, res) => {
@@ -350,12 +373,13 @@ async function localKms() {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}") as Record<
         string,
         string | undefined
-      >;
+      > & { EncryptionContext?: Record<string, string> };
       const target = String(req.headers["x-amz-target"] ?? "");
       requests.push({
         target,
         keyId: body.KeyId,
         ...(body.KeySpec ? { keySpec: body.KeySpec } : {}),
+        ...(body.EncryptionContext ? { encryptionContext: body.EncryptionContext } : {}),
       });
 
       const answer = (status: number, payload: object) => {
@@ -428,15 +452,26 @@ describe("the real SDK, through the wrapper's own client, against KMS's protocol
       AWS_PROFILE: undefined,
     });
 
-  test("the self-check passes, and the key's ARN is what goes on the wire", async () => {
+  test("the self-check passes, and the key's ARN and the lock label are what go on the wire", async () => {
     configure();
     kms.refuseWith(undefined);
     kms.requests.length = 0;
 
     expect(await selfCheckCredentialKey()).toEqual({ ok: true, at: expect.any(String) });
+    // The SDK's own serialisation: the label reaches KMS as EncryptionContext
+    // on both calls, which is what the task role's policy reads.
     expect(kms.requests).toEqual([
-      { target: "TrentService.GenerateDataKey", keyId: TEST_KEY_ARN, keySpec: "AES_256" },
-      { target: "TrentService.Decrypt", keyId: TEST_KEY_ARN },
+      {
+        target: "TrentService.GenerateDataKey",
+        keyId: TEST_KEY_ARN,
+        keySpec: "AES_256",
+        encryptionContext: SELF_CHECK_CONTEXT,
+      },
+      {
+        target: "TrentService.Decrypt",
+        keyId: TEST_KEY_ARN,
+        encryptionContext: SELF_CHECK_CONTEXT,
+      },
     ]);
   });
 
@@ -514,14 +549,14 @@ describe("selfCheckCredentialKey()", () => {
     expect(new Date(result.at).toISOString()).toBe(result.at);
   });
 
-  test("passes through KMS with two calls, both naming the key, and keeps nothing", async () => {
+  test("passes through KMS with two calls, both naming the key and its label, and keeps nothing", async () => {
     const kms = fakeKms();
     __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
 
     expect(await selfCheckCredentialKey()).toEqual({ ok: true, at: expect.any(String) });
-    expect(kms.calls.map((call) => [call.command, call.keyId])).toEqual([
-      ["GenerateDataKey", TEST_KEY_ARN],
-      ["Decrypt", TEST_KEY_ARN],
+    expect(kms.calls.map((call) => [call.command, call.keyId, call.encryptionContext])).toEqual([
+      ["GenerateDataKey", TEST_KEY_ARN, SELF_CHECK_CONTEXT],
+      ["Decrypt", TEST_KEY_ARN, SELF_CHECK_CONTEXT],
     ]);
   });
 

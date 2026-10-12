@@ -6,6 +6,8 @@ import type { ActorContext } from "@/lib/audit";
 import {
   CONNECTION_LINK_TTL_DAYS,
   MAX_CONNECTION_LINK_TTL_DAYS,
+  calendarLinkClinicForReissue,
+  consumeCalendarLinkWithin,
   consumeConnectionLink,
   consumeConnectionLinkWithin,
   issueConnectionLink,
@@ -633,6 +635,246 @@ describeDb("connection links", () => {
         ),
       ),
     ).rejects.toMatchObject({ code: "42501" });
+  });
+
+  /* ------------------------------------------------------- calendar links */
+
+  test("a calendar token opens and burns only as a calendar link, and no other token opens a calendar page", async () => {
+    // 0057's fifth purpose. The column is in both the resolver's comparison
+    // and the burn's predicate, so isolation must hold in both directions:
+    // a calendar link spent on the credential wizard, or a connect link on
+    // the calendar page, would each hand one page's capability to the other.
+    const clinic = await seedConnectableClinic("link-calendar");
+    const others = ["connect", "setup", "meta", "whatsapp"] as const;
+
+    const calendar = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar" },
+      { actor, request: {} },
+    );
+    for (const purpose of others) {
+      expect(await resolveConnectionLink(calendar.token, {}, purpose), purpose).toBeNull();
+      expect(await consumeConnectionLink(calendar.token, null, purpose), purpose).toBe(false);
+    }
+    expect((await resolveConnectionLink(calendar.token, {}, "calendar"))?.purpose).toBe("calendar");
+    expect(await consumeConnectionLink(calendar.token, null, "calendar")).toBe(true);
+    expect(await consumeConnectionLink(calendar.token, null, "calendar")).toBe(false);
+
+    for (const purpose of others) {
+      const { token } = await issueConnectionLink(
+        clinic.clinicId,
+        { purpose },
+        { actor, request: {} },
+      );
+      expect(await resolveConnectionLink(token, {}, "calendar"), purpose).toBeNull();
+      expect(await consumeConnectionLink(token, null, "calendar"), purpose).toBe(false);
+      // The refused calendar burn did not spend it for its own page.
+      expect((await resolveConnectionLink(token, {}, purpose))?.purpose, purpose).toBe(purpose);
+    }
+  });
+
+  test("only a calendar link carries an owner audience, an account change or a pending election", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-shape");
+    const insert = (columns: string, values: string) =>
+      asTenant(clinic.clinicId, (c) =>
+        c.query(
+          `insert into connection_links (clinic_id, token_hash, expires_at${columns})
+           values ($1, $2, now() + interval '3 days'${values})`,
+          [clinic.clinicId, randomBytes(32)],
+        ),
+      );
+    const pending = `'{"bookingSystem":"google_calendar","calendarAccount":"personal","documentVersion":"calendar-election/1.0.0","documentHash":"${"a".repeat(64)}"}'::jsonb`;
+
+    // Every other purpose keeps 0024's plain shape.
+    await expect(insert(", purpose, audience", ", 'connect', 'owner'")).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_calendar_only_flags",
+    });
+    await expect(
+      insert(", purpose, allows_account_change", ", 'setup', true"),
+    ).rejects.toMatchObject({
+      code: "23514",
+    });
+    await expect(
+      insert(", purpose, pending_election", `, 'meta', ${pending}`),
+    ).rejects.toMatchObject({
+      code: "23514",
+    });
+    // A calendar link's change and confirm powers belong to the owner alone.
+    await expect(
+      insert(", purpose, audience, allows_account_change", ", 'calendar', 'recipients', true"),
+    ).rejects.toMatchObject({ code: "23514", constraint: "connection_links_account_change_owner" });
+    await expect(
+      insert(", purpose, audience, pending_election", `, 'calendar', 'recipients', ${pending}`),
+    ).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_pending_election_owner",
+    });
+    await expect(
+      insert(", purpose, audience, pending_election", ", 'calendar', 'owner', '[]'::jsonb"),
+    ).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_pending_election_owner",
+    });
+    await expect(insert(", purpose, audience", ", 'calendar', 'everyone'")).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_audience_check",
+    });
+    await expect(insert(", purpose", ", 'calendar-ish'")).rejects.toMatchObject({
+      code: "23514",
+      constraint: "connection_links_purpose_known",
+    });
+
+    // The shapes the plan uses all fit: a recipients link, an owner change
+    // link and an owner confirm link, each with the addresses it went to.
+    await insert(", purpose, sent_to", ", 'calendar', '{front@clinic.test}'");
+    await insert(
+      ", purpose, audience, allows_account_change, sent_to",
+      ", 'calendar', 'owner', true, '{owner@clinic.test}'",
+    );
+    await insert(
+      ", purpose, audience, pending_election, sent_to",
+      `, 'calendar', 'owner', ${pending}, '{owner@clinic.test}'`,
+    );
+  });
+
+  test("a calendar link's purpose, audience, recipients and flags are fixed when it is minted", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-frozen");
+    const linkId = await inTenant(clinic.clinicId, async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into connection_links (clinic_id, token_hash, expires_at, purpose, audience, allows_account_change, sent_to)
+         values ($1, $2, now() + interval '3 days', 'calendar', 'owner', true, '{owner@clinic.test}')
+         returning id`,
+        [clinic.clinicId, randomBytes(32)],
+      );
+      return rows[0]!.id;
+    });
+
+    // The runtime role holds no UPDATE on any of them...
+    const { rows: grants } = await getAppPool().query<{ column: string; updatable: boolean }>(
+      `select c as column, has_column_privilege(current_user, 'connection_links', c, 'UPDATE') as updatable
+         from unnest(array['purpose', 'audience', 'sent_to', 'allows_account_change', 'pending_election']) as c`,
+    );
+    expect(grants.filter((g) => g.updatable)).toEqual([]);
+
+    // ...and the trigger refuses the schema owner too, on an unspent link.
+    for (const assignment of [
+      `audience = 'recipients', allows_account_change = false`,
+      `allows_account_change = false`,
+      `sent_to = '{someone@else.test}'`,
+      `pending_election = '{}'::jsonb`,
+      `purpose = 'connect', audience = 'recipients', allows_account_change = false`,
+    ]) {
+      await expect(
+        inTenant(clinic.clinicId, (client) =>
+          client.query(`update connection_links set ${assignment} where id = $1`, [linkId]),
+        ),
+        assignment,
+      ).rejects.toMatchObject({ code: "42501" });
+    }
+
+    // Consumption is untouched by the freeze.
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(`update connection_links set used_at = now() where id = $1`, [linkId]),
+    );
+  });
+
+  test("the library mints a calendar link with its audience, recipients and flags, and reads them back", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-library");
+    const pending = {
+      bookingSystem: "google_calendar" as const,
+      calendarAccount: "personal" as const,
+      documentVersion: "calendar-election/1.0.0",
+      documentHash: "c".repeat(64),
+    };
+    const confirm = await issueConnectionLink(
+      clinic.clinicId,
+      {
+        purpose: "calendar",
+        expiresInDays: 3,
+        audience: "owner",
+        sentTo: [" Owner@Clinic.TEST ", "owner@clinic.test"],
+        pendingElection: pending,
+      },
+      { actor, request: {} },
+    );
+    expect(await resolveConnectionLink(confirm.token, {}, "calendar")).toMatchObject({
+      linkId: confirm.linkId,
+      audience: "owner",
+      allowsAccountChange: false,
+      pendingElection: pending,
+      sentTo: ["owner@clinic.test"],
+    });
+    // Every other purpose stays plain, and its recipients unrecorded.
+    const connect = await issueConnectionLink(clinic.clinicId, {}, { actor, request: {} });
+    expect(await resolveConnectionLink(connect.token)).toMatchObject({
+      audience: "recipients",
+      allowsAccountChange: false,
+      pendingElection: null,
+      sentTo: null,
+    });
+    // The database refuses a change link that is not the owner's.
+    const refused: unknown = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar", audience: "recipients", allowsAccountChange: true },
+      { actor, request: {} },
+    ).catch((error: unknown) => error);
+    let constraint: unknown = null;
+    for (
+      let e = refused as { constraint?: unknown; cause?: unknown } | undefined;
+      e;
+      e = e.cause as typeof e
+    ) {
+      constraint ??= e.constraint ?? null;
+    }
+    expect(constraint).toBe("connection_links_account_change_owner");
+  });
+
+  test("the calendar burn names the link it spent, and only a calendar link; a re-issue finds only a recent calendar link", async () => {
+    const clinic = await seedConnectableClinic("link-calendar-burn");
+    const calendar = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar" },
+      { actor, request: {} },
+    );
+    const connect = await issueConnectionLink(clinic.clinicId, {}, { actor, request: {} });
+    const burn = (token: string) =>
+      withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
+        consumeCalendarLinkWithin(tx, token, "203.0.113.9"),
+      );
+    expect(await burn(connect.token)).toBeNull();
+    expect(await resolveConnectionLink(connect.token)).not.toBeNull();
+    expect(await burn(calendar.token)).toBe(calendar.linkId);
+    expect(await burn(calendar.token)).toBeNull();
+    expect(await burn("not a token")).toBeNull();
+
+    // A spent calendar link may still ask for a new one; nothing else may.
+    expect(await calendarLinkClinicForReissue(calendar.token)).toBe(clinic.clinicId);
+    expect(await calendarLinkClinicForReissue(connect.token)).toBeNull();
+    expect(await calendarLinkClinicForReissue("Q".repeat(43))).toBeNull();
+    // Older than thirty days: no.
+    const old = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "calendar" },
+      { actor, request: {} },
+    );
+    // Issued 31 days ago and spent: the issuance facts are frozen, so the
+    // schema owner moves them with the table's triggers off, as the days would.
+    await inTenant(clinic.clinicId, async (client) => {
+      await client.query(`alter table connection_links disable trigger user`);
+      try {
+        await client.query(
+          `update connection_links
+              set created_at = now() - interval '31 days', expires_at = now() - interval '24 days',
+                  used_at = now() - interval '30 days'
+            where id = $1`,
+          [old.linkId],
+        );
+      } finally {
+        await client.query(`alter table connection_links enable trigger user`);
+      }
+    });
+    expect(await calendarLinkClinicForReissue(old.token)).toBeNull();
   });
 
   /* ---------------------------------------------------------------- the token */

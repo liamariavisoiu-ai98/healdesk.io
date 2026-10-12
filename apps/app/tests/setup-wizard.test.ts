@@ -1576,9 +1576,9 @@ describeDb("the setup wizard", () => {
     test("destruction deletes the wizard's progress and keeps the settings history", async () => {
       const clinic = await provisionDirect("destroy");
       await saveSetupScreen(contextOf(clinic), "urgent", { urgentHelp: "(512) 555-0103" });
-      // Destruction runs only once offboarding started thirty days ago by the
-      // database's clock (app_start_offboarding), so start it and move the
-      // stamps back as the migrator, which owns the table.
+      // Destruction runs only once the clinic is due by its agreement's rule,
+      // by the database's clock (app_destruction_due, drizzle/0058), so start
+      // it and move the stamps back as the migrator, which owns the table.
       await withTenant({ clinicId: clinic.clinicId, actor: SERVICE }, (tx) =>
         startOffboarding(tx, "operator"),
       );

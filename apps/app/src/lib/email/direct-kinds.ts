@@ -95,6 +95,18 @@ export const DIRECT_KIND_REGISTRY = {
     ledger: true,
     toSomeoneNamed: true,
   }),
+  /**
+   * The calendar backend's link (plan §4.1): connect a location's Google
+   * Calendar, change the Google account it uses (the owner's), or confirm an
+   * election that widens what reaches Google (the owner's). Mailed only to
+   * the practice's own address, with a token minted at send time.
+   */
+  calendar_link: direct("CAL1", "transactional", "plan", { linkEmail: true, locksOut: false }),
+  /** The practice's copy of a calendar election it recorded (plan §2.6). No link. */
+  calendar_election_recorded: direct("CAL2", "transactional", "plan", {
+    linkEmail: false,
+    locksOut: false,
+  }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;

@@ -3,6 +3,8 @@ import type { NoticeKind, NoticeOwner } from "../kinds";
 
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
 import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
+import { CALENDAR_ELECTION_RECORDED_ENTRY } from "./calendar_election_recorded";
+import { CALENDAR_LINK_ENTRY } from "./calendar_link";
 import { CANCEL_REVERSED_ENTRY } from "./cancel_reversed";
 import { CANCEL_SCHEDULED_ENTRY } from "./cancel_scheduled";
 import { CANCELED_ENTRY } from "./canceled";
@@ -100,6 +102,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   setting_changed: SETTING_CHANGED_ENTRY,
   channel_ready: CHANNEL_READY_ENTRY,
   steps_sent: STEPS_SENT_ENTRY,
+  // The calendar backend's two (plan §2.6, §4.1).
+  calendar_link: CALENDAR_LINK_ENTRY,
+  calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
 };
 
 export type PendingTemplate = {
@@ -148,6 +153,8 @@ export const PENDING_TEMPLATES: Record<
     | "setting_changed"
     | "channel_ready"
     | "steps_sent"
+    | "calendar_link"
+    | "calendar_election_recorded"
     | BillingTemplatedKind
   >,
   PendingTemplate

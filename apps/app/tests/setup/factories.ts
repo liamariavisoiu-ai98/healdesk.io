@@ -1,4 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+
+import type { BookingSystemId, CalendarAccount } from "@healdesk/catalog";
 
 import { getMigratorPool } from "./db";
 
@@ -289,6 +291,148 @@ export async function seedChannels(clinicId: string, rows: readonly SeedChannelR
       })),
     );
   });
+}
+
+// -----------------------------------------------------------------------------
+// The Google Calendar connection and calendar terms (plan C7), written
+// through the libraries, so a fixture is what production would write.
+// tests/setup/calendar-db.ts keeps the SQL-level fixtures the schema suites
+// use to exercise the database's own checks.
+// -----------------------------------------------------------------------------
+
+export type SeedCalendarTermsInput = {
+  /** Default "google_calendar": a system that reads Google, so live. */
+  bookingSystem?: BookingSystemId;
+  /** Default "workspace_baa": covered. */
+  calendarAccount?: CalendarAccount;
+};
+
+/**
+ * A location set up at signing under 1.3.0's calendar terms: a bound
+ * acceptance carrying the calendar clause the catalogue derives from the two
+ * answers (as the migrator, standing in for provisioning's definer
+ * function), and the location's first terms recorded from it by
+ * recordAgreementTerms, the call provisioning makes (C15), on the runtime
+ * role inside the tenant.
+ */
+export async function seedCalendarTerms(
+  clinic: Pick<SeededClinic, "clinicId" | "organizationId">,
+  input: SeedCalendarTermsInput = {},
+): Promise<{
+  agreementId: string;
+  electionId: string;
+  termsKind: "covered" | "uncovered" | "not_used";
+}> {
+  const [{ bindCalendarAgreement }, { recordAgreementTerms }, { withTenant }] = await Promise.all([
+    import("./calendar-db"),
+    import("@/lib/booking/elections"),
+    import("@/lib/tenant"),
+  ]);
+  const agreement = await bindCalendarAgreement(clinic, input);
+  const recorded = await withTenant(
+    { clinicId: clinic.clinicId, actor: { type: "service", serviceName: "test-fixture" } },
+    (tx) => recordAgreementTerms(tx, agreement.agreementId),
+  );
+  if (!recorded) throw new Error("seedCalendarTerms: the agreement carried no calendar clause.");
+  return {
+    agreementId: agreement.agreementId,
+    electionId: recorded.electionId,
+    termsKind: agreement.termsKind,
+  };
+}
+
+export type SeedGoogleConnectionInput = {
+  /** metadata.managed: a Workspace account (true, the default) or a personal one (false). */
+  managed?: boolean;
+  /** Default: a fresh account reference, sha256 of a synthetic subject. */
+  accountRef?: string;
+  /** Default "active". */
+  status?: "pending" | "active" | "degraded" | "error";
+  /** Default "synthetic-refresh-token". Never a real token. */
+  refreshToken?: string;
+};
+
+/**
+ * A Google Calendar connection as the connect flow stores one: the refresh
+ * token sealed by saveConnection under the clinic's lock label, the account
+ * reference, and the metadata the booking mode reads, then healthy. Seeding
+ * again re-saves the same row, as a reconnect does. `credentialVersion` is
+ * what a caller that read this token hands back with Google's answer
+ * (markCalendarBroken).
+ */
+export async function seedGoogleConnection(
+  clinicId: string,
+  input: SeedGoogleConnectionInput = {},
+): Promise<{ connectionId: string; accountRef: string; credentialVersion: string }> {
+  const [
+    { saveConnection },
+    { googleCalendarConnection },
+    { withTenant },
+    { providerConnections },
+    { eq },
+    { GOOGLE_CALENDAR_DISCLOSURE },
+  ] = await Promise.all([
+    import("@/lib/connections/store"),
+    import("@/lib/connections/google-calendar"),
+    import("@/lib/tenant"),
+    import("@/db/schema"),
+    import("drizzle-orm"),
+    import("@healdesk/catalog"),
+  ]);
+  const managed = input.managed ?? true;
+  const accountRef =
+    input.accountRef ??
+    createHash("sha256").update(`google:synthetic-${randomUUID()}`, "utf8").digest("hex");
+  const seeded = await withTenant(
+    { clinicId, actor: { type: "service", serviceName: "test-fixture" } },
+    async (tx) => {
+      const id = await saveConnection(tx.db, {
+        clinicId,
+        provider: "google_calendar",
+        credentials: { refresh_token: input.refreshToken ?? "synthetic-refresh-token" },
+        metadata: {
+          calendarId: "primary",
+          managed,
+          ...(managed ? { hostedDomain: "radiance.test" } : {}),
+          disclosureVersion: GOOGLE_CALENDAR_DISCLOSURE.version,
+          connectedVia: "test-fixture",
+        },
+        accountRef,
+      });
+      await tx.db
+        .update(providerConnections)
+        .set({ status: input.status ?? "active", lastVerifiedAt: new Date() })
+        .where(eq(providerConnections.id, id));
+      const row = await googleCalendarConnection(tx);
+      if (row?.id !== id) throw new Error("seedGoogleConnection: the connection was not saved.");
+      return { connectionId: id, credentialVersion: row.credentialVersion };
+    },
+  );
+  return { ...seeded, accountRef };
+}
+
+/**
+ * healdesk's demo clinic, made the way scripts/demo-clinic.ts makes it
+ * (createDemoClinic: the agreement signed, then provisioning's internal
+ * demo option), under a unique synthetic name and operator address.
+ */
+export async function seedDemoClinic(label: string): Promise<SeededClinic> {
+  const { createDemoClinic } = await import("@/lib/onboarding/demo-clinic");
+  const suffix = randomUUID().slice(0, 8);
+  const staffEmail = `ops-${label}-${suffix}@healdesk-demo.test`;
+  const demo = await createDemoClinic({
+    name: `${label} Demo Practice ${suffix}`,
+    operatorEmail: staffEmail,
+    operatorName: "Ops Operator",
+  });
+  if (!demo.ownerUserId) throw new Error("seedDemoClinic: provisioning made no owner sign-in.");
+  return {
+    clinicId: demo.clinicId,
+    organizationId: demo.organizationId,
+    slug: demo.clinicSlug,
+    staffUserId: demo.ownerUserId,
+    staffEmail,
+  };
 }
 
 /** Insert a contact as the migrator, inside a declared tenant. */

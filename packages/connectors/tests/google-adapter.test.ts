@@ -6,6 +6,7 @@ import {
   GOOGLE_CALENDAR_PROVIDER,
   googleCalendarAdapter as adapter,
   MAX_FREEBUSY_WINDOW_MS,
+  OWN_ORGANIZATION_QUERY,
   probeGoogleToken,
 } from "../src/google/adapter";
 import {
@@ -711,6 +712,31 @@ describe("listCalendars (addendum, calendar-list scope)", () => {
       reason: "scope_lost",
     });
     expect(endpoints()).toEqual(["token"]);
+  });
+
+  test("asked for the account's own organisation, it leaves out what another domain or a consumer shares in (HRC-04)", async () => {
+    const own = google.addCalendar(SUB, { summary: "Front desk" });
+    google.addCalendar(SUB, { summary: "Partner clinic", organization: "partner.example" });
+    google.addCalendar(SUB, { summary: "A personal calendar", organization: null });
+
+    const everyOwned = succeeded(await adapter.listCalendars(contextFor()));
+    expect(everyOwned.map((calendar) => calendar.summary)).toEqual([
+      ACCOUNT_EMAIL,
+      "Front desk",
+      "Partner clinic",
+      "A personal calendar",
+    ]);
+
+    const ownOnly = succeeded(
+      await adapter.listCalendars(contextFor(), { ownOrganizationOnly: true }),
+    );
+    expect(ownOnly.map((calendar) => calendar.id)).toEqual([ACCOUNT_EMAIL, own]);
+    const [, request] = requestsTo("calendarList");
+    expect(Object.fromEntries(request?.url.searchParams ?? [])).toEqual({
+      ...CALENDAR_LIST_QUERY,
+      ...OWN_ORGANIZATION_QUERY,
+    });
+    expect(OWN_ORGANIZATION_QUERY).toEqual({ showOwnOrganizationOnly: "true" });
   });
 
   test("works without a calendar target, so a clinic whose stored choice broke can choose again", async () => {

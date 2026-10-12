@@ -221,11 +221,20 @@ RDS instance, not after, because the first item cannot be added later.
   (`pg_stat_activity.xact_start`), because one held open is the way left around the
   record clock's day and offboarding's thirty days (see "Retention and offboarding").
 - *KMS:* one customer-managed key; a task-role policy limited to `GenerateDataKey`,
-  `Decrypt` and `Encrypt` on it; `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID`
-  in every task definition, the key ID as the key's full ARN
-  (`arn:aws:kms:us-east-1:<account>:key/<key id>`), since an alias, a bare ID, a
-  multi-Region key or another region is refused; `AWS_REGION` unset or `us-east-1`, since
-  the KMS client falls back to us-east-1 and refuses any other region;
+  `Decrypt` and `Encrypt` on it, in the two statements written out in
+  `docs/design/google-calendar-2026-10-05.md` §5: the application's own calls, each only
+  with both lock-label keys and no other in the encryption context and with no
+  `kms:ViaService`; and S3's calls, `GenerateDataKey` and `Decrypt` only, through S3
+  (`kms:ViaService` `s3.us-east-1.amazonaws.com`) and for the transcript bucket alone
+  (`kms:EncryptionContext:aws:s3:arn`), since S3's SSE-KMS calls below carry no label and
+  the first statement alone would refuse every transcript upload and download; a key
+  policy that names the task role in no statement of its own, only the account statement
+  that lets IAM decide, since a key-policy statement naming it without these conditions
+  (the console's default "key users") would let every call through;
+  `HEALDESK_KMS_PROVIDER=aws-kms` and `HEALDESK_KMS_KEY_ID` in every task definition, the
+  key ID as the key's full ARN (`arn:aws:kms:us-east-1:<account>:key/<key id>`), since an
+  alias, a bare ID, a multi-Region key or another region is refused; `AWS_REGION` unset or
+  `us-east-1`, since the KMS client falls back to us-east-1 and refuses any other region;
   `@aws-sdk/client-kms` is a dependency of apps/app and ships in the image (fixed 6 October
   2026); the worker's start-up log line ("credential key self-check passed") to confirm
   the task role reaches the key (the read-only ops operation `getCredentialKeyStatus` asks
@@ -338,15 +347,46 @@ set it to the minimum and screenshot it. Single-patient erasure is `eraseContact
 `apps/app/src/lib/retention/purge.ts`. Set the host's snapshot retention to 35 days.
 
 When Stripe sends `customer.subscription.deleted` (or an operator starts it), the clinic
-gets `offboarding_started_at` and a `destroy_after` thirty days out, both stamped by the
-database (`app_start_offboarding()`); the runtime role cannot write either. In between:
-switch the clinic's voice agent off at the vendor and send it the forwarding-removal
-codes, so its calls fall through to its own line; produce the return bundle with
-`npm run patient-export -w @healdesk/app -- --clinic <id> --all --requested-by "…"`, hand
-it over, and record it on the care page. `offboarding-destroy` deletes every patient row
-once `destroy_after` has passed and the export is recorded (or 90 days after the start),
-revokes the connections, and writes one security event. Export first, then destroy; the
-BAA obligations persist until it is done.
+gets `offboarding_started_at`, the end of its service, and a `destroy_after` thirty days
+on, both stamped by the database (`app_start_offboarding()`); the runtime role cannot
+write either. For a Stripe deletion the end is the subscription's own (`ended_at`), which
+the database accepts up to a week back, so a deletion processed late still starts the
+clock when the practice left; one processed more than a week late starts it a week back
+and raises the `offboarding_started_late` ops alert. When the data goes is the rule of
+the agreement the service ended under, terminated since or not (`destructionPlan` in
+`apps/app/src/lib/offboarding/offboarding.ts`; `app_destruction_due()` in drizzle/0058 is
+the same rule as the database's floor):
+
+- BAA 1.2.1 and earlier, or no agreement on file: day 29, whatever the export, so the data
+  is gone before the thirty days the agreement gives. Every leaving practice is owed its
+  export whether or not it asks (Terms §7; the canceled email tells it one is coming,
+  though these agreements give it only "on request"), so deliver it and record the
+  handover before then; ops is alerted at day 21 when none is recorded
+  (`export_undelivered_before_destruction`).
+- BAA 1.3.0 and the DPA: day 29 once the export is recorded as delivered, its delivery
+  when that is later, and day 89 whatever happens, each a day inside the thirty days and
+  the ninety that BAA 1.3.0 states. Record the delivery by day 29: one recorded later is
+  destroyed at the next hourly run, which in the thirtieth day's last hour can fall after
+  the thirty days.
+
+The destruction steps, in order:
+
+1. Switch the clinic's voice agent off at the vendor and send it the forwarding-removal
+   codes, so its calls fall through to its own line.
+2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
+   <id> --all --requested-by "…"`, hand it over, and record the handover on the care
+   page. Producing it records nothing: the care page refuses the record until a bundle
+   has been produced since offboarding started, and the stamp is the database's, at the
+   moment of the record (`app_mark_export_delivered()`).
+3. Delete the clinic's calls and agent in Retell's console by the time its data is
+   destroyed here, and record it on the care page ("Record Retell deletion"). Nothing in
+   apps/app reaches Retell; the care page shows the step outstanding, with its deadline,
+   until it is recorded, after destruction too.
+4. `offboarding-destroy` runs every hour and, on the day the rule gives, deletes every
+   patient row, suppressions, consent records and contact attempts included, revokes the
+   connections, and writes one security event and one `clinic data destroyed` log line.
+
+Export first, then destroy; the agreement's obligations persist until it is done.
 
 ### Restoring
 
@@ -378,6 +418,26 @@ inside each clinic's tenant as 0054's backfill does (`booking_requests` is FORCE
 request loaded without its key could be deleted and written again with another decision.
 `tests/booking-request-destruction.test.ts` runs these steps.
 
+A restore brings back every clinic as it was at the point restored to, so a clinic
+destroyed since comes back with its patients. After any restore, of any kind, destruction
+runs again before the service reopens:
+
+1. Keep the web tier, the worker and the voice process stopped.
+2. Read the `clinic data destroyed` log lines written after the point restored to (the
+   log groups never expire). Each names a clinic and the dates it was destroyed on:
+   `serviceEndedAt`, and `exportDeliveredAt` when its export had been delivered. For each
+   clinic named that comes back without `destroyed_at`, the owner, as the migrator, puts
+   back any of those dates the restore lost: `offboarding_started_at` to `serviceEndedAt`
+   and `destroy_after` thirty days later, and `export_delivered_at` to
+   `exportDeliveredAt`. With its dates back it is due again by the rule it was destroyed
+   under; without them it would not be offboarding at all, or, on BAA 1.3.0 or the DPA
+   without its delivery, not due again until day 89.
+3. Run `npm run destroy-due -w @healdesk/app` against the restored database with the
+   runtime role's `DATABASE_URL`. It destroys every clinic that is due, on every rule at
+   once, whether or not the `offboarding-destroy` job is switched on, and exits non-zero
+   while any clinic is still due.
+4. Only then reopen the service.
+
 ### Logs
 
 Every log line on the PHI side goes through `apps/app/src/lib/log.ts`, and
@@ -400,17 +460,23 @@ task name, a queue name or a resource tag.
   `tests/database-audit.test.ts` fails until the grant is added.
 - **Nothing writes the two gate columns except `app_mark_clinic_production()`**, and
   nothing binds an agreement except `app_bind_agreement()`. Both are `SECURITY DEFINER`.
-  Likewise only `app_start_offboarding()` and `app_mark_clinic_destroyed()` write
-  `offboarding_started_at`, `destroy_after` and `destroyed_at`, from the database's clock,
-  because `app_destroy_booking_requests()` reads them as its floor. A guard in a
+  Likewise only `app_start_offboarding()`, `app_mark_export_delivered()` and
+  `app_mark_clinic_destroyed()` write `offboarding_started_at`, `destroy_after`,
+  `export_delivered_at` and `destroyed_at`, from the database's clock, because
+  `app_destruction_due()` reads them as the floor under the deletes. A guard in a
   `SECURITY DEFINER` function binds nothing if it reads a column the runtime role can write,
   and that includes a column on another table and one it can set on INSERT: a new clinic
-  is refused the three dates (`clinics_insert_guard`), and `app_purge_booking_requests()`
+  is refused the four dates (`clinics_insert_guard`), and `app_purge_booking_requests()`
   reads a request's own frozen dates and the record clock in force, not an appointment's
   time or the setting alone. Where the runtime role can make a delete happen at all, make
   sure it cannot put the row back: `booking_request_keys` refuses a deleted request's id
   or token hash, and it is written at insert, so a re-insert racing the delete is refused
-  too.
+  too. Nor may a guard's days depend on its caller: any role may set its own session's
+  `TimeZone`, and Postgres counts `interval 'N days'` and `make_interval(days => n)` in
+  that zone, so one with offsets 334 hours apart once turned the destruction clock's seven
+  days into twenty-one. The functions that count days for the destruction clock, its floor
+  and the record clock carry `SET TimeZone = 'UTC'` (drizzle/0058), and the tests call each
+  under such a zone; a new guard that counts days needs the same.
 
 `apps/app/tests/rls-drift.test.ts` asks the catalog which tables carry a `clinic_id` and
 demands each one have row-level security enabled **and forced**. If it goes red, someone

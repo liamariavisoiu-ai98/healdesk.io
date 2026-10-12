@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
+import { AwsKmsKeyWrapper, __setKeyWrapperForTests } from "@/lib/crypto/kms";
 import {
   burnRecoveryCode,
   enrolAdminTotp,
@@ -19,6 +20,7 @@ import {
   hasTestDatabase,
   runMigrations,
 } from "./setup/db";
+import { fakeKms, sealAsVersionOne, TEST_KEY_ARN } from "./setup/kms";
 
 /**
  * The administrator's second factor.
@@ -602,5 +604,44 @@ describeDb("admin second factor", () => {
     expect(JSON.stringify(state)).not.toContain(secret);
     expect(state.enrolled).toBe(true);
     expect(state.enrolledAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  test("the secret is sealed and opened under the lock label ops / admin-code", async () => {
+    const kms = fakeKms();
+    __setKeyWrapperForTests(new AwsKmsKeyWrapper(TEST_KEY_ARN, { client: kms.client }));
+    try {
+      const { secret } = await enrol();
+      expect(await verifyAdminTotpCode(codeFor(secret, currentStep()))).toMatchObject({
+        ok: true,
+      });
+    } finally {
+      __setKeyWrapperForTests(undefined);
+    }
+
+    const context = { "healdesk:clinic": "ops", "healdesk:login": "admin-code" };
+    expect(kms.calls.map((call) => [call.command, call.encryptionContext])).toEqual([
+      ["GenerateDataKey", context],
+      ["Decrypt", context],
+    ]);
+    const { rows } = await getMigratorPool().query<{ version: string }>(
+      "select secret_ciphertext ->> 'aadVersion' as version from admin_totp where id = 1",
+    );
+    expect(rows[0]?.version).toBe("2");
+  });
+
+  test("a secret enrolled before lock labels still verifies, since nothing can re-seal it", async () => {
+    const { secret } = proposeAdminTotp("healdesk.io@gmail.com");
+    // The identity admin-totp.ts binds its one row to, sealed as before labels.
+    const sealed = await sealAsVersionOne(
+      secret,
+      { clinicId: "healdesk-admin", credentialId: "admin_totp:1" },
+      { kekBase64: process.env.HEALDESK_LOCAL_KEK! },
+    );
+    await getMigratorPool().query(
+      "insert into admin_totp (id, secret_ciphertext) values (1, $1::jsonb)",
+      [JSON.stringify(sealed)],
+    );
+
+    expect(await verifyAdminTotpCode(codeFor(secret, currentStep()))).toMatchObject({ ok: true });
   });
 });

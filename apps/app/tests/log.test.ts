@@ -53,6 +53,87 @@ describe("log", () => {
     );
   });
 
+  test("Google's OAuth material never reaches the console, whatever field or message carries it", () => {
+    // Synthetic values in each of the shapes Google issues (plan §12), built
+    // from parts so this file holds nothing a secret scanner reads as one.
+    const secrets = {
+      access: ["ya29", "a0AfB_byC-synthetic_ACCESS", "token-123"].join("."),
+      refresh: ["1", "", "0gSyntheticRefresh-Token_456"].join("/"),
+      code: ["4", "0AQSTgQSyntheticAuthCode_789"].join("/"),
+      idToken: ["eyJhbGciOiJSUzI1NiJ9", "eyJzdWIiOiJzeW50aGV0aWMifQ", "c2lnbmF0dXJl"].join("."),
+      secret: ["GOCSPX", "SyntheticClientSecret_0"].join("-"),
+    };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    log.error(`token refresh failed for ${secrets.refresh}`, {
+      reason: `Bearer ${secrets.access}; code=${secrets.code} id_token=${secrets.idToken}`,
+      error: `client_secret ${secrets.secret} rejected`,
+      connectionId: "0c1d2e3f-0000-4000-8000-000000000000",
+    });
+    const line = String(spy.mock.calls[0]![0]);
+    for (const [name, value] of Object.entries(secrets)) {
+      expect(line, name).not.toContain(value);
+    }
+    expect(line).toContain("[token redacted]");
+    expect(line).toContain("Bearer [token redacted]");
+    expect(line).toContain("0c1d2e3f-0000-4000-8000-000000000000");
+    expect(describeError(new Error(`invalid_grant for ${secrets.refresh}`))).toBe(
+      "Error: invalid_grant for [token redacted]",
+    );
+    // Ordinary words that share a prefix with one of those shapes are left alone.
+    expect(scrub("status=401 scope=calendar.events.owned v4/events eyJ")).toBe(
+      "status=401 scope=calendar.events.owned v4/events eyJ",
+    );
+  });
+
+  test("Google's OAuth material is caught form- and URL-encoded too, as its token, revoke and callback traffic carries it", () => {
+    // Synthetic, and built from parts, as above.
+    const refresh = ["1", "", "0gSyntheticRefresh-Token_456"].join("/");
+    const code = ["4", "0AQSTgQSyntheticAuthCode_789"].join("/");
+    const secret = ["GOCSPX", "SyntheticClientSecret_0"].join("-");
+    const verifier = ["synthetic", "code", "verifier", "0123456789abcdef"].join("-");
+    const opaque = ["opaque", "access", "value", "42"].join("_");
+
+    // The refresh exchange, the code exchange and the revocation, as the
+    // connectors send them (packages/connectors/src/google/oauth.ts).
+    const refreshBody = new URLSearchParams({
+      client_id: "synthetic-client.apps.googleusercontent.test",
+      client_secret: secret,
+      refresh_token: refresh,
+      grant_type: "refresh_token",
+    }).toString();
+    const codeBody = new URLSearchParams({
+      code,
+      code_verifier: verifier,
+      redirect_uri: "https://app.healdesk.test/api/calendar/google/callback",
+      grant_type: "authorization_code",
+    }).toString();
+    const revokeBody = new URLSearchParams({ token: refresh }).toString();
+    // Google's redirect back, as a path with no scheme: the code URL-encoded.
+    const callback = `/api/calendar/google/callback?code=${encodeURIComponent(code)}&state=abc`;
+    // A token of no shape Google is known to issue, named by its parameter.
+    const named = `access_token=${opaque}&token_type=Bearer`;
+
+    for (const text of [refreshBody, codeBody, revokeBody, callback, named]) {
+      const out = scrub(text);
+      for (const value of [refresh, code, secret, verifier, opaque]) {
+        expect(out, text).not.toContain(value);
+        expect(out, text).not.toContain(encodeURIComponent(value));
+      }
+    }
+    expect(scrub(revokeBody)).toBe("token=[token redacted]");
+    expect(scrub(callback)).toBe("/api/calendar/google/callback?code=[token redacted]&state=abc");
+    expect(scrub(named)).toBe("access_token=[token redacted]&token_type=Bearer");
+    expect(scrub(refreshBody)).toContain("refresh_token=[token redacted]&grant_type=refresh_token");
+
+    // And through the logger, in a message and a field alike.
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    log.warn(`google token exchange refused: ${refreshBody}`, { reason: codeBody });
+    const line = String(spy.mock.calls[0]![0]);
+    for (const value of [refresh, code, secret, verifier]) {
+      expect(line).not.toContain(encodeURIComponent(value));
+    }
+  });
+
   test("describeError keeps the name and message and drops the rest", () => {
     const error = new Error("connect ECONNREFUSED for owner@clinic.test");
     expect(describeError(error)).toBe("Error: connect ECONNREFUSED for [email redacted]");

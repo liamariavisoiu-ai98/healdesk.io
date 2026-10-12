@@ -40,8 +40,9 @@ import {
  * a page holds stretch to the tallest. The headline is still the pitch for a
  * scanner: src/lib/reviews.ts is written to that, and caps the quote's length.
  *
- * Every reviewer has the same avatar, their initials, rather than a photograph
- * for some and initials for the rest. On a phone, where a page is one card,
+ * Every reviewer has a round avatar at the foot of the card: their own
+ * photograph where they gave one, their initials where they did not, in the
+ * same circle and ring (Portrait). On a phone, where a page is one card,
  * the row of fifteen dots is a thin bar that fills as the pages go by.
  *
  * ## Why the page count is measured rather than assumed
@@ -180,16 +181,30 @@ function initials(name: string): string {
 }
 
 /**
- * One avatar for every reviewer: their initials on a soft tint (owner, 12
- * October 2026). It used to be a photograph for some and initials for the
- * rest, which read as two kinds of reviewer.
+ * The reviewer's face: their own photograph where they uploaded one, and
+ * their initials on a soft tint where they did not, in the same circle and
+ * the same hairline ring, so the two read as one kind of avatar. The owner
+ * asked on 12 October 2026 for one avatar style and, the same day, for the
+ * faces back: initials alone lost the people.
  */
-function Monogram({ review, size }: { review: Review; size: number }) {
-  return (
+function Portrait({ review, size }: { review: Review; size: number }) {
+  const box = { width: size, height: size };
+  return review.photo ? (
+    <img
+      src={`/reviews/${review.photo}.jpg`}
+      alt=""
+      width={size}
+      height={size}
+      style={box}
+      loading="lazy"
+      decoding="async"
+      className="ring-line shrink-0 rounded-full object-cover ring-1"
+    />
+  ) : (
     <span
       aria-hidden
-      style={{ width: size, height: size }}
-      className="bg-tint-peach text-ink grid shrink-0 place-items-center rounded-full text-[14.5px] font-semibold tracking-[0.02em]"
+      style={box}
+      className="bg-tint-peach text-ink ring-line grid shrink-0 place-items-center rounded-full text-[14.5px] font-semibold tracking-[0.02em] ring-1"
     >
       {initials(review.name)}
     </span>
@@ -228,7 +243,7 @@ function ReviewCard({ review, column }: { review: Review; column: number }) {
         </blockquote>
 
         <figcaption className="mt-auto flex items-center gap-3 pt-6">
-          <Monogram review={review} size={40} />
+          <Portrait review={review} size={40} />
           <span className="min-w-0">
             <span className="block text-[16.2px] leading-tight font-semibold">{review.name}</span>
             <span className="text-muted mt-0.5 block text-[14.4px] leading-snug font-medium">{attribution(review)}</span>

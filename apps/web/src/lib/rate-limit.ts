@@ -3,7 +3,7 @@ import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRec
 
 /**
  * Fixed-window rate limiter: per-instance memory, plus a shared row for each
- * of the four site-wide daily spend caps.
+ * of the site-wide daily spend caps.
  *
  * ## What is shared and what is not, and why
  *
@@ -21,11 +21,13 @@ import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRec
  * The counters that bound the BILL rather than a visitor are different:
  * `chat:global:day` (api/chat and the personalised demo's chat),
  * `callback:global:day` (api/callback), `site-read:global:day`
- * (api/clinic-site) and `webcall:global:day` (the personalised demo's browser
- * calls) cap model turns, voice calls and website reads per UTC day across
- * the whole site, and a cap that resets on every cold start is not a cap.
- * Those four, and only those (`GLOBAL_CAP_KEYS`), are backed by the
- * `counters` tab of the marketing Sheet.
+ * (api/clinic-site), `webcall:global:day` (the personalised demo's browser
+ * calls), `voice-demo-webcall:global:day` (the homepage's browser calls to
+ * AYA) and `own-demo:global:day` (demos visitors ask for on the homepage,
+ * each a crawl and a model call) cap model turns, voice calls, website reads
+ * and demo builds per UTC day across the whole site, and a cap that resets on
+ * every cold start is not a cap. Those, and only those (`GLOBAL_CAP_KEYS`),
+ * are backed by the `counters` tab of the marketing Sheet.
  *
  * ## How the shared path works, and what it gets wrong on purpose
  *
@@ -69,12 +71,17 @@ export type RateLimitResult = {
  * 2026) caps the personalised demo's browser calls (api/demo/[slug]/retell),
  * which spend the same voice minutes a dialled call does, under their own
  * ceiling so a busy demo week cannot use up the homepage's "call me".
+ * `voice-demo-webcall:global:day` (9 October 2026) caps the homepage's own
+ * browser calls to AYA (api/voice-demo/retell), under a third ceiling for
+ * the same reason.
  */
 export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "chat:global:day",
   "callback:global:day",
   "site-read:global:day",
   "webcall:global:day",
+  "voice-demo-webcall:global:day",
+  "own-demo:global:day",
 ]);
 
 export function isGlobalCapKey(key: string): boolean {

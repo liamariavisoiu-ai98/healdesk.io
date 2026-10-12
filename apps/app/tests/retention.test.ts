@@ -117,7 +117,7 @@ describeDb("retention purge", () => {
   });
 
   test("both clocks default to the 90 days the agreement states", async () => {
-    // BAA 1.2.1 and 1.3.0: "healdesk keeps transcripts and conversation
+    // BAA 1.2.1, 1.2.2 and 1.3.0: "healdesk keeps transcripts and conversation
     // records for 90 days". The record clock defaulted to 730 until 0048, so
     // a clinic that never changed it kept its records eight times as long.
     const c = await seedClinic("purgeDefaults");
@@ -505,6 +505,7 @@ describeDb("retention purge", () => {
     const v130 = await bound("purge-130", "1.3.0");
     const dpa = await bound("purge-dpa", "dpa/1.0.0");
     const v121 = await bound("purge-121", "1.2.1");
+    const v122 = await bound("purge-122", "1.2.2");
     const none = await bound("purge-none", null);
 
     // Switched off: the job runs all the same for the agreements that state
@@ -515,6 +516,7 @@ describeDb("retention purge", () => {
     expect(await count(v130, "conversations")).toBe(0);
     expect(await count(dpa, "conversations")).toBe(0);
     expect(await count(v121, "conversations")).toBe(1);
+    expect(await count(v122, "conversations")).toBe(1);
     expect(await count(none, "conversations")).toBe(1);
 
     // Switched on (the ops step at release): every clinic.
@@ -526,6 +528,7 @@ describeDb("retention purge", () => {
     const on = await runRetentionPurgeJob({ now });
     expect(on.status).toBe("ok");
     expect(await count(v121, "conversations")).toBe(0);
+    expect(await count(v122, "conversations")).toBe(0);
     expect(await count(none, "conversations")).toBe(0);
     const sweep = await sweepRetention(now);
     expect(sweep.failures).toEqual([]);
@@ -535,7 +538,7 @@ describeDb("retention purge", () => {
   test("which agreements promise the purge: BAA 1.3.0 and every later version, and the DPA; none of the earlier versions", () => {
     for (const t of BAA_TEMPLATES) {
       expect(purgeIsPromised(t.version), t.version).toBe(
-        !["1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"].includes(t.version),
+        !["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"].includes(t.version),
       );
     }
     expect(purgeIsPromised("1.3.0")).toBe(true);

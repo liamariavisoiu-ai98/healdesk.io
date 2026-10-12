@@ -22,8 +22,10 @@ export const metadata: Metadata = {
  * chat app drops the trailing segment. The person arriving here was sent by
  * something that promised a product, so this page has to look like the
  * product, with the same navbar and the same footer as everywhere else, and
- * offer the three places they were most likely trying to reach. The tone is
- * AYA's: the whole pitch is that she picks up, so the one thing this page
+ * offer the places they were most likely trying to reach: AYA herself, and
+ * the buy flow, which shows the packages and their prices. (A third button
+ * went to /pricing until the owner disabled that page on 9 October 2026.)
+ * The tone is AYA's: the whole pitch is that she picks up, so the one thing this page
  * must not do is sound like a machine that has given up. The headline is not
  * an absolute: until 3 October 2026 it said she "never misses a call", a
  * promise broader than the first-month guarantee, which provides for a miss
@@ -48,7 +50,7 @@ export default function NotFound() {
           </h1>
           <p className="text-muted mt-5 text-[20.4px] font-medium">
             The link you followed is missing a piece, or points somewhere that
-            has moved. Everything on the site is one of these.
+            has moved. Everything on the site starts from one of these.
           </p>
 
           <div className="mt-9 flex flex-wrap items-center gap-4">
@@ -57,12 +59,6 @@ export default function NotFound() {
               className="bg-brand-gradient shadow-brand inline-flex items-center justify-center rounded-full px-7 py-3.5 text-base font-bold text-white transition-transform duration-200 hover:-translate-y-0.5"
             >
               Meet {site.agent}
-            </a>
-            <a
-              href="/pricing"
-              className="border-line text-ink hover:border-orange inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-base font-bold transition-transform duration-200 hover:-translate-y-px"
-            >
-              Pricing
             </a>
             <a
               href={site.cta.primary.href}

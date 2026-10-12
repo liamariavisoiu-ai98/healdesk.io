@@ -50,11 +50,14 @@ describe("incident clocks", () => {
   });
 
   test("a breach, a security incident and an improper use or disclosure are told within 24 hours at every clinic; a complaint gets two business days", () => {
-    // BAA 1.3.0's reporting clause: immediately following discovery and in
-    // any case within 24 hours, one rule for every practice (§12.14, gate 5,
-    // PT-14). It replaced 1.2.1's five calendar days for a breach and five
-    // business days for the other two, which 24 hours also meets. A Friday
-    // discovery is due on Saturday: the clock does not wait for the week.
+    // healdesk's internal target, one rule for every practice (§12.14, gate
+    // 5, PT-14): 24 hours from discovery. Since 9 October 2026 the agreements
+    // promise less (BAA 1.2.2 and the 1.3.0 and DPA drafts: without
+    // unreasonable delay and in no case later than 60 calendar days; 1.2.1:
+    // five calendar days for a breach and five business days for the other
+    // two), and 24 hours meets every one of them; it is not published. A
+    // Friday discovery is due on Saturday: the clock does not wait for the
+    // week.
     const friday = new Date("2026-09-11T15:00:00Z");
     for (const cls of ["breach", "security_incident", "improper_use_or_disclosure"] as const) {
       for (const covered of [true, false, null]) {

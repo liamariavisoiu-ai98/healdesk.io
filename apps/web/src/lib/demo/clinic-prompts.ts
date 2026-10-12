@@ -1,5 +1,6 @@
 import { CLINICAL_BOUNDARIES, HEALDESK_PRODUCT_FACTS } from "@/lib/demo-prompt";
 
+import { greetingLead } from "./greeting";
 import { profileToKnowledge, type ClinicProfile } from "./profile";
 import { SLOANE_PHONE_STYLE } from "./sloane-voice";
 
@@ -48,10 +49,7 @@ export function demoModeLine(clinicName: string): string {
 
 /** The first message in the chat panel, before anyone types. */
 export function chatGreeting(clinicName: string): string {
-  return (
-    `Hi! I'm ${clinicName}'s AI assistant. Ask me anything a patient would: treatments, prices, ` +
-    "hours, how to book. This is a demo, so please don't share real patient details."
-  );
+  return `${greetingLead(clinicName)} This is a demo, so please don't share real patient details.`;
 }
 
 export function buildClinicChatPrompt(profile: ClinicProfile): string {

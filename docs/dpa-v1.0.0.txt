@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 4eab8af181b000f0a22da31e486c2aa682aeec2d691c0008b36b37351f5f6a19).
+(SHA-256 595f69fb02a7b7b50da681c13d394414a5977d09eb66226e78752b0c6a7a9ec7).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -49,7 +49,7 @@ BETWEEN
   practice
   Viixi FZC, a company registered under the Sharjah Publishing City Free Zone,
   United Arab Emirates ("healdesk"), of 800 N King Street, Suite 304-1426,
-  Wilmington, DE 19801, United States, and by email to legal@healdesk.io
+  Wilmington, DE 19801, United States, and by email to hello@healdesk.io
 
 SIGNED FOR PRACTICE BY
   Alex Chen, Owner
@@ -412,19 +412,20 @@ EFFECTIVE 6 October 2026
   never trains on that content, and healdesk may not use Client Information to
   train, fine-tune or evaluate any model, its own or a third party's.
 
-  healdesk keeps a current list of its subcontractors at
-  healdesk.io/subprocessors and will give Practice at least 24 hours' notice
-  by email before adding one that will handle the information this agreement
-  protects. The notice goes to Practice's address in the Notices clause and
-  names the subcontractor, what it will receive and why. If Practice objects
-  on reasonable grounds before the change takes effect, Practice may terminate
+  healdesk will give Practice its current list of its subcontractors on
+  Practice's written request to healdesk's email address in the Notices
+  clause, and will give Practice at least 24 hours' notice by email before
+  adding one that will handle the information this agreement protects. The
+  notice goes to Practice's address in the Notices clause and names the
+  subcontractor, what it will receive and why. If Practice objects on
+  reasonable grounds before the change takes effect, Practice may terminate
   this agreement without penalty.
 
 12. REPORTING INCIDENTS AND BREACHES
 
   healdesk will notify Practice, by email to Practice's address in the Notices
-  clause, immediately following discovery of any of the following, and in any
-  case within 24 hours of discovery:
+  clause, of any of the following without unreasonable delay and in no case
+  later than 60 calendar days after discovery:
 
     a. any use or disclosure of Client Information that this agreement does
        not permit, by healdesk or by a subcontractor;
@@ -444,12 +445,10 @@ EFFECTIVE 6 October 2026
   have known. Anything else this clause covers is discovered when healdesk
   becomes aware of it.
 
-  Twenty-four hours is deliberately short, to leave Practice time to meet any
-  duty it has under state breach-notification law to notify the people
-  affected. healdesk delays a notice only where a law enforcement official
-  states that the notice would impede a criminal investigation or damage
-  national security. It then delays it only for as long as the law that
-  applies provides, and gives it as soon as that delay ends.
+  healdesk delays a notice only where a law enforcement official states that
+  the notice would impede a criminal investigation or damage national
+  security. It then delays it only for as long as the law that applies
+  provides, and gives it as soon as that delay ends.
 
   Each notice is also a written report, sent to the same address and as
   complete as healdesk can then make it, and healdesk will add to the report
@@ -620,7 +619,7 @@ EFFECTIVE 6 October 2026
 
   Notices under this agreement are in writing. To healdesk: 800 N King Street,
   Suite 304-1426, Wilmington, DE 19801, United States, and by email to
-  legal@healdesk.io. To Practice: the email address of the signatory above,
+  hello@healdesk.io. To Practice: the email address of the signatory above,
   which is also the address of Practice's healdesk account, and any other
   notice address Practice later gives healdesk in writing. Incident reports
   may additionally be given by telephone to Practice, but the written notice

@@ -73,18 +73,23 @@ import { wrap } from "./wrap";
  *     booking is for called a client (`CALENDAR_PERSON_NOUNS`), except the
  *     word the event itself carries, quoted as the event writes it, then the
  *     location paragraph, as 1.3.0 does;
- *   - the notice of a new subcontractor is subprocessor-notice.ts's sentence,
- *     24 hours by email with the right to object (owner, 6 October 2026),
- *     and "without penalty" in it has the effect BAA 1.3.0 gives it, in this
- *     document's Term, Liability and Definitions clauses;
- *   - the incident and breach notice is 1.3.0's one rule, 24 hours for all
- *     three, and "calendar election" is defined as 1.3.0's clause 1 defines
- *     it; the election form that names this agreement is
- *     dpa-calendar-election.ts, built from calendar-terms.ts's pieces;
+ *   - the subcontractor list on request and the notice of a new
+ *     subcontractor are subprocessor-notice.ts's sentence, 24 hours by email
+ *     with the right to object (owner, 6 October 2026), the list on written
+ *     request rather than at a URL (owner, 9 October 2026), and "without
+ *     penalty" in it has the effect BAA 1.3.0 gives it, in this document's
+ *     Term, Liability and Definitions clauses;
+ *   - the incident and breach notice is 1.3.0's one rule, without
+ *     unreasonable delay and in no case later than 60 calendar days after
+ *     discovery for all three (the spec's wording; owner, 9 October 2026),
+ *     and "calendar election" is defined as 1.3.0's clause 1 defines it; the
+ *     election form that names this agreement is dpa-calendar-election.ts,
+ *     built from calendar-terms.ts's pieces;
  *   - Anthropic's retention is 1.2.1's sentence, word for word, from
  *     "retains conversation content for 30 days" to "never trains on that
  *     content" (`ANTHROPIC_RETENTION`);
- *   - the party, its notice address and Delaware law are `AGREEMENT_PARTY`.
+ *   - the party, its notice address and Delaware law are `AGREEMENT_PARTY`,
+ *     as BAA 1.2.2 prints them: hello@healdesk.io is the notice email.
  *
  * ## What it deliberately does not vary on
  *
@@ -624,8 +629,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
 
   /**
    * 1.2.1's three paragraphs in this document's words: the flow-down, the
-   * model provider with 1.2.1's retention sentence, and the notice, which is
-   * the shared 24-hour sentence. Client Information reaches Anthropic in the
+   * model provider with 1.2.1's retention sentence, and the list on request
+   * and the notice, which are the shared sentence (24 hours' notice of a new
+   * subcontractor). Client Information reaches Anthropic in the
    * same HIPAA-ready account as PHI does, which is why the BAA is named.
    */
   {
@@ -658,19 +664,22 @@ const CLAUSES_1_0: readonly DpaClause[] = [
 
   /**
    * BAA 1.3.0's one rule for every practice, in this document's words and
-   * without its HIPAA citations (owner, 6 October 2026; agreement-changes.md
-   * §12.14): notice immediately following discovery and in any case within
-   * 24 hours, of a use or disclosure this agreement does not permit, a breach
-   * and a security incident alike, which also meets the "immediately
-   * following discovery" Cal. Civ. Code 1798.82(b) asks of a business that
-   * holds data it does not own. A law-enforcement delay is honoured only as
-   * the law that applies provides. The notice is itself the written report,
-   * as complete as healdesk can then make it and added to promptly, with
-   * what Practice needs for its own notices; the shared state-law clause's
-   * item f sends a state-law breach of security here, and the definition of
-   * a breach includes one. The incident console's deadline is 24 hours for
-   * every clinic on another branch (§12.14, gate 5), so the text and the code
-   * agree.
+   * without its HIPAA citations (agreement-changes.md §12.14, §13): notice
+   * without unreasonable delay and in no case later than 60 calendar days
+   * after discovery, of a use or disclosure this agreement does not permit, a
+   * breach and a security incident alike, so a breach never gets a looser
+   * deadline than a lesser incident. That is the product spec's wording
+   * (owner, 9 October 2026), replacing the 24 hours decided on 6 October;
+   * the 24 hours stays the incident console's internal target (apps/app
+   * lib/incidents), unpublished. ⚖️ The 60 days alone does not meet the
+   * "immediately following discovery" Cal. Civ. Code 1798.82(b) asks of a
+   * business that holds data it does not own; that statute binds healdesk
+   * whatever the text says, and the internal 24 hours meets it. A
+   * law-enforcement delay is honoured only as the law that applies provides.
+   * The notice is itself the written report, as complete as healdesk can then
+   * make it and added to promptly, with what Practice needs for its own
+   * notices; the shared state-law clause's item f sends a state-law breach of
+   * security here, and the definition of a breach includes one.
    */
   {
     id: "incidents",
@@ -679,8 +688,8 @@ const CLAUSES_1_0: readonly DpaClause[] = [
     body: () =>
       wrap(
         `healdesk will notify Practice, by email to Practice's address in the Notices clause, ` +
-          `immediately following discovery of any of the following, and in any case within 24 ` +
-          `hours of discovery:`,
+          `of any of the following without unreasonable delay and in no case later than 60 ` +
+          `calendar days after discovery:`,
       ) +
       "\n\n" +
       [
@@ -708,11 +717,10 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ) +
       "\n\n" +
       wrap(
-        `Twenty-four hours is deliberately short, to leave Practice time to meet any duty it has ` +
-          `under state breach-notification law to notify the people affected. healdesk delays a ` +
-          `notice only where a law enforcement official states that the notice would impede a ` +
-          `criminal investigation or damage national security. It then delays it only for as long ` +
-          `as the law that applies provides, and gives it as soon as that delay ends.`,
+        `healdesk delays a notice only where a law enforcement official states that the notice ` +
+          `would impede a criminal investigation or damage national security. It then delays it ` +
+          `only for as long as the law that applies provides, and gives it as soon as that delay ` +
+          `ends.`,
       ) +
       "\n\n" +
       wrap(
@@ -771,10 +779,13 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * `preferred_window`), and the record of a conversation is kept as it was
    * made. "Correct that information as Practice directs" alone promised a
    * change the database forbids. The amendment record (BAA 1.3.0 release
-   * gate 8, apps/app drizzle/0063 and lib/patient-rights/amendments.ts) is
+   * gate 8, apps/app drizzle/0064 and lib/patient-rights/amendments.ts) is
    * what appends and links one, both exports carry it, and the desk's view
-   * of a request says it is there; `amendContact` corrects a contact in place, and both
-   * have the operator's path through the ops envelope (dpa.md, gap 22).
+   * of a request says it is there; `amendContact` corrects a contact in
+   * place. The operator runs both from apps/app's own scripts
+   * (`ops:amend-record`, `ops:amend-contact`), never through the ops
+   * envelope; on the AWS host only a field cleared by contact id, until the
+   * portal (M5) takes the correction's text (dpa.md, gap 22).
    *
    * The last sentence says what a deletion keeps (gate 6, 12 October 2026;
    * dpa.md, gap 15). Until then it said the client's telephone number was kept
@@ -934,7 +945,7 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * the owner. After destruction nothing of a client is left: since gates 6
    * and 7 a deletion keeps no telephone number, and destruction deletes the
    * suppressions and the records of deletion requests with the rest
-   * (destroyClinicData, apps/app drizzle/0058 and 0062), so the exception for
+   * (destroyClinicData, apps/app drizzle/0058 and 0063), so the exception for
    * a deleted client's number is gone (dpa.md, gap 15).
    */
   {
@@ -1046,7 +1057,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
   },
 
   /**
-   * 1.2.1's boilerplate without HIPAA. The practice's notice address is its
+   * 1.2.2's boilerplate without HIPAA: healdesk's notice address carries
+   * hello@healdesk.io, its only email address (owner, 9 October 2026). The
+   * practice's notice address is its
    * one address (owner, 6 October 2026): the signatory's email, which a
    * checkout intent requires to be the buying address and provisioning makes
    * the account's sign-in. An accepted calendar election is part of the

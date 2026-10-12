@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { BuyButton } from "@/components/BuyModal";
-import { HealdeskSoul } from "@/components/HealdeskSoul";
+import { ChatSkins, type SkinMessage } from "@/components/agent-panel/ChatSkins";
 import { track } from "@/lib/analytics";
 import { campaignCode } from "@/lib/attribution";
 import {
@@ -15,17 +14,23 @@ import {
 import { DEMO_AGENT } from "@/lib/demo-agent";
 import { site } from "@/lib/site";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = SkinMessage;
 
-const SEND_ICON = (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-    <line x1="12" y1="19" x2="12" y2="5" />
-    <polyline points="5 12 12 5 19 12" />
-  </svg>
-);
+/** AYA's avatar in the thread: the healdesk "h". */
+const AVATAR = "/icon.png";
 
 /**
  * Live chat against Claude, via /api/chat.
+ *
+ * ## Drawn like the personalised demo's
+ *
+ * Since 9 October 2026 the card is the shared ChatSkins inside the shared
+ * AgentPanel (components/agent-panel), so it looks exactly like the chat on a
+ * clinic's personalised demo, the Website, WhatsApp, Instagram and Messenger
+ * boxes included, in healdesk's colour (owner's request). What is this card's
+ * own is the conversation: the email gate below, the route's pause, and the
+ * analytics. The boxes only dress the thread; /api/chat never hears which one
+ * is showing.
  *
  * ## One agent, no picker
  *
@@ -56,15 +61,6 @@ export function ChatDemo() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
-  /**
-   * One heartbeat of the header orb while an answer is streaming, in ms.
-   *
-   * Measured, not chosen: see `noteChunk`. Null between turns, which drops the
-   * orb back to its resting rate.
-   */
-  const [beatMs, setBeatMs] = useState<number | null>(null);
-  const lastChunkAt = useRef(0);
-  const chunkGap = useRef(0);
   const [error, setError] = useState<string | null>(null);
   /**
    * The route said 503: no model key, or the daily cap. That is not a retry
@@ -82,14 +78,8 @@ export function ChatDemo() {
   const [gateError, setGateError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
 
-  const threadRef = useRef<HTMLDivElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-
-  useEffect(() => {
-    const thread = threadRef.current;
-    if (thread) thread.scrollTop = thread.scrollHeight;
-  }, [messages, streaming, needsEmail]);
 
   // The composer is replaced by the email field, so move the caret with it.
   useEffect(() => {
@@ -105,39 +95,9 @@ export function ChatDemo() {
    * first attempt and the retry after the email, the visitor's turn is already
    * in `messages` at that point and appending again would double it.
    */
-  /**
-   * Turn the arrival rate of streamed chunks into a heartbeat.
-   *
-   * A chunk lands every 30 to 150ms depending on how fast the model is going,
-   * which is far too quick to beat on directly, so the gap is smoothed and
-   * multiplied up. The exponential average is weighted towards history rather
-   * than the newest sample: one slow packet should not make the orb lurch.
-   *
-   * The clamp is the honest part. Below 260ms a heartbeat stops reading as a
-   * heartbeat and becomes a flicker; above 900ms it has stopped following
-   * anything. Everything in between genuinely tracks the answer.
-   */
-  const noteChunk = useCallback(() => {
-    const now = performance.now();
-    const previous = lastChunkAt.current;
-    lastChunkAt.current = now;
-    if (!previous) return;
-
-    const gap = now - previous;
-    chunkGap.current = chunkGap.current ? chunkGap.current * 0.7 + gap * 0.3 : gap;
-
-    const next = Math.min(Math.max(chunkGap.current * 6, 260), 900);
-    // Only re-render when it has moved enough to see. Without this the orb
-    // takes a new animation-duration on every packet, which restarts the
-    // keyframe and leaves it twitching in place instead of beating.
-    setBeatMs((current) => (current && Math.abs(current - next) < 60 ? current : next));
-  }, []);
-
   const runTurn = useCallback(async (next: Message[]) => {
     setError(null);
-    lastChunkAt.current = 0;
-    chunkGap.current = 0;
-    setMessages([...next, { role: "assistant", content: "" }]);
+    setMessages([...next, { role: "assistant", content: "", at: Date.now() }]);
     setStreaming(true);
 
     const controller = new AbortController();
@@ -150,7 +110,7 @@ export function ChatDemo() {
         // No specialtyId: one agent, every specialty. It works out which one it
         // is talking to from the conversation, which is also why every visitor
         // here shares one cached system prompt.
-        body: JSON.stringify({ messages: next }),
+        body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }),
         signal: controller.signal,
       });
 
@@ -196,15 +156,11 @@ export function ChatDemo() {
 
           if (event.type === "text" && event.text) {
             const chunk = event.text;
-            noteChunk();
             setMessages((current) => {
               const updated = [...current];
               const last = updated[updated.length - 1];
               if (last?.role === "assistant") {
-                updated[updated.length - 1] = {
-                  role: "assistant",
-                  content: last.content + chunk,
-                };
+                updated[updated.length - 1] = { ...last, content: last.content + chunk };
               }
               return updated;
             });
@@ -226,17 +182,16 @@ export function ChatDemo() {
       });
     } finally {
       setStreaming(false);
-      setBeatMs(null);
       abortRef.current = null;
     }
-  }, [noteChunk]);
+  }, []);
 
   const send = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed || streaming || needsEmail) return;
       setInput("");
-      void runTurn([...messages, { role: "user", content: trimmed }]);
+      void runTurn([...messages, { role: "user", content: trimmed, at: Date.now() }]);
     },
     [messages, needsEmail, runTurn, streaming],
   );
@@ -279,200 +234,90 @@ export function ChatDemo() {
     [email, marketingConsent, messages, runTurn],
   );
 
-  const showChips = messages.length === 0;
-
-  return (
-    <div className="flex h-[540px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_32px_64px_-36px_rgb(23_42_58/0.45)] sm:h-[600px]">
-      <div className="border-line flex items-center gap-2.5 border-b px-[18px] py-3.5">
-        {/* Alive from first paint, faster while she is composing. The tempo
-            is the real streaming rate, so a stalled answer stalls the orb. */}
-        <HealdeskSoul
-          mode={streaming ? "typing" : "idle"}
-          beatMs={beatMs ?? undefined}
-          size={26}
-          label={streaming ? `${site.agent} is typing` : undefined}
-        />
-        <span className="text-sm font-bold">Website chat &amp; DMs</span>
-        {/* The badge tells the truth about the route. A 503 from /api/chat
-            (no model key, cap reached) used to leave "Live AI" up over a
-            panel that could not answer, which is the one moment the label
-            most needs to be right. */}
-        <span className="text-muted ml-auto text-[15px] font-semibold">
-          {paused ? "Demo paused" : "Live AI · ask anything"}
-        </span>
-      </div>
-
-      <div
-        ref={threadRef}
-        className="scroll-subtle flex flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-5"
-        aria-live="polite"
-      >
-        <Bubble role="assistant">{DEMO_AGENT.greeting}</Bubble>
-
-        {/* An assistant turn with nothing in it yet renders nothing at all.
-            It used to hold a placeholder, which put a piece of chrome in the
-            thread pretending to be a message and pulled the eye away from the
-            header, where the orb is already saying the same thing. */}
-        {messages.map((message, index) =>
-          message.content ? (
-            <Bubble key={index} role={message.role}>
-              {message.content}
-            </Bubble>
-          ) : null,
-        )}
-
-        {error ? (
-          <p className="text-red-deep px-1 text-[15.6px] font-semibold">{error}</p>
-        ) : null}
-      </div>
-
-      {showChips ? (
-        <div className="flex flex-wrap gap-2 px-[18px] pb-3">
-          {DEMO_AGENT.chips.map((chip) => (
-            <button
-              key={chip}
-              type="button"
-              onClick={() => send(chip)}
-              className="border-line hover:border-orange hover:text-ink text-muted rounded-full border bg-white px-3.5 py-2 text-[15.6px] font-semibold transition-colors"
-            >
-              {chip}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {needsEmail ? (
-        <form onSubmit={unlock} className="border-line border-t px-[18px] py-4">
-          <p className="text-[16.2px] font-semibold">
-            Where should {site.agent} send her answer?
-          </p>
-          <p className="text-muted mt-1 text-[15px] font-medium">
-            Drop your email and she&apos;ll reply right here.
-          </p>
-
-          <div className="border-line focus-within:border-orange mt-3 flex items-center gap-2 rounded-full border py-1.5 pr-1.5 pl-4 transition-colors">
-            <input
-              ref={emailRef}
-              type="email"
-              required
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="you@yourclinic.com"
-              aria-label="Work email"
-              autoComplete="email"
-              className="text-ink placeholder:text-muted min-w-0 flex-1 bg-transparent text-[17.4px] outline-none"
-            />
-            <button
-              type="submit"
-              disabled={unlocking}
-              className="bg-brand-gradient rounded-full px-4 py-2 text-[15.6px] font-bold text-white transition-opacity disabled:opacity-50"
-            >
-              {unlocking ? "…" : "Send"}
-            </button>
-          </div>
-
-          {gateError ? (
-            <p className="text-red-deep mt-2 text-[15.6px] font-semibold" role="alert">
-              {gateError}
-            </p>
-          ) : (
-            <p className="text-muted mt-2 text-[13.2px] leading-relaxed">
-              {CHAT_EMAIL_NOTE}
-            </p>
-          )}
-
-          {/* Collection notice and the SEPARATE marketing opt-in. The box is
-              unticked by default and is never required: unlocking the demo is
-              the service asked for, not consent to be marketed to. The label
-              is rendered verbatim from the constant the server stores. */}
-          <p className="text-muted mt-3 text-[12.6px] leading-relaxed">
-            {GATE_NOTICE}{" "}
-            <a href="/privacy" className="text-red-deep underline underline-offset-2">
-              Privacy policy
-            </a>
-          </p>
-          <label className="mt-2 flex cursor-pointer items-start gap-2 text-[13.2px] leading-relaxed">
-            <input
-              type="checkbox"
-              checked={marketingConsent}
-              onChange={(event) => setMarketingConsent(event.target.checked)}
-              className="accent-red-deep mt-[3px] h-4 w-4 shrink-0"
-            />
-            <span className="text-ink">{MARKETING_CONSENT_LABEL}</span>
-          </label>
-        </form>
-      ) : (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            send(input);
-          }}
-          className="border-line flex items-center gap-2.5 border-t px-3.5 py-3"
-        >
-          <input
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask about treatments, pricing, or healdesk…"
-            aria-label="Message the assistant"
-            autoComplete="off"
-            className="text-ink placeholder:text-muted min-w-0 flex-1 bg-transparent text-[17.4px] outline-none"
-          />
-          <button
-            type="submit"
-            disabled={streaming || paused || !input.trim()}
-            aria-label="Send message"
-            className="bg-brand-gradient grid size-[38px] shrink-0 place-items-center rounded-full text-white transition-transform duration-150 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45 [&_svg]:size-[17px]"
-          >
-            {SEND_ICON}
-          </button>
-        </form>
-      )}
-      {/* Permanent, under the input. This site holds no patient information
-          and the demo is for clinic staff, so the panel says so where the
-          typing happens (privacy § 2 says the same). */}
-      <p className="text-muted border-line border-t px-[18px] py-2 text-xs font-medium">
-        A demo for clinic staff. Please don&apos;t type patient information.
+  const emailAsk = needsEmail ? (
+    <form onSubmit={unlock} className="border-line border-t px-4 py-4">
+      <p className="text-[16.2px] font-semibold">
+        Where should {site.agent} send her answer?
+      </p>
+      <p className="text-muted mt-1 text-[15px] font-medium">
+        Drop your email and she&apos;ll reply right here.
       </p>
 
-      {/* The conversion step, where the conviction actually happens. It carries
-          the email already given to the gate, so the buyer meets a form that is
-          partly answered rather than a blank one on another page. */}
-      <div className="border-line flex items-center gap-3 border-t px-[18px] py-3">
-        <span className="text-muted text-[15px] font-semibold">
-          {/* Not "answering your line": that is the phone panel's question, and
-              it was on both. This one covers what this panel actually
-              demonstrates, which is the website widget and the Meta inbox. */}
-          Want her on your site and your DMs?
-        </span>
-        <BuyButton
-          variant="quiet"
-          className="ml-auto shrink-0 !px-4 !py-2 !text-[15.6px]"
-          prefill={{ email: email.trim() || undefined }}
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          ref={emailRef}
+          type="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@yourclinic.com"
+          aria-label="Work email"
+          autoComplete="email"
+          className="border-line text-ink placeholder:text-muted min-w-0 flex-1 rounded-full border px-4 py-2.5 text-[16px] outline-none transition-colors focus:border-[var(--clinic)]"
         />
+        <button
+          type="submit"
+          disabled={unlocking}
+          className="shrink-0 rounded-full px-5 py-2.5 text-[15.6px] font-bold transition-opacity disabled:opacity-45"
+          style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
+        >
+          {unlocking ? "…" : "Send"}
+        </button>
       </div>
-    </div>
-  );
-}
 
-function Bubble({
-  role,
-  children,
-}: {
-  role: "user" | "assistant";
-  children: React.ReactNode;
-}) {
-  const isAgent = role === "assistant";
+      {gateError ? (
+        <p className="text-red-deep mt-2 text-[15.6px] font-semibold" role="alert">
+          {gateError}
+        </p>
+      ) : (
+        <p className="text-muted mt-2 text-[13.2px] leading-relaxed">
+          {CHAT_EMAIL_NOTE}
+        </p>
+      )}
+
+      {/* Collection notice and the SEPARATE marketing opt-in. The box is
+          unticked by default and is never required: unlocking the demo is
+          the service asked for, not consent to be marketed to. The label
+          is rendered verbatim from the constant the server stores. */}
+      <p className="text-muted mt-3 text-[12.6px] leading-relaxed">
+        {GATE_NOTICE}{" "}
+        <a href="/privacy" className="text-red-deep underline underline-offset-2">
+          Privacy policy
+        </a>
+      </p>
+      <label className="mt-2 flex cursor-pointer items-start gap-2 text-[13.2px] leading-relaxed">
+        <input
+          type="checkbox"
+          checked={marketingConsent}
+          onChange={(event) => setMarketingConsent(event.target.checked)}
+          className="accent-red-deep mt-[3px] h-4 w-4 shrink-0"
+        />
+        <span className="text-ink">{MARKETING_CONSENT_LABEL}</span>
+      </label>
+    </form>
+  ) : null;
+
   return (
-    <div
-      className={[
-        "max-w-[82%] rounded-2xl px-[15px] py-[11px] text-[17.4px] leading-[1.42] whitespace-pre-wrap",
-        isAgent
-          ? "bg-paper-2 text-ink self-start rounded-bl-[5px]"
-          : "bg-brand-gradient self-end rounded-br-[5px] text-white",
-      ].join(" ")}
-    >
-      {children}
-    </div>
+    <ChatSkins
+      name={site.agent}
+      logoUrl={AVATAR}
+      // The greeting is the thread's first line on screen; it is never sent
+      // to the model.
+      messages={[{ role: "assistant", content: DEMO_AGENT.greeting }, ...messages]}
+      chips={paused ? [] : DEMO_AGENT.chips}
+      onSend={send}
+      input={input}
+      onInput={setInput}
+      streaming={streaming}
+      disabled={paused}
+      disabledPlaceholder="The demo is paused"
+      placeholder="Ask about treatments, pricing, or healdesk…"
+      aiNotice={`Messages are answered by ${site.agent}, an AI assistant.`}
+      error={error}
+      composer={emailAsk}
+      // The line under the field that said this is a demo for clinic staff,
+      // and not to type patient information, went at the owner's request on
+      // 12 October 2026. Privacy section 2 still says it.
+    />
   );
 }
-

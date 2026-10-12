@@ -188,7 +188,7 @@ export type ErasureCounts = {
   suppressions: number;
   consentRecords: number;
   contactAttempts: number;
-  /** Amendments of the requests and conversations deleted (record_amendments, drizzle/0063). */
+  /** Amendments of the requests and conversations deleted (record_amendments, drizzle/0064). */
   amendments: number;
   /** Their slot holds, let go and deleted (clearHoldsForErasure, lib/booking/holds.ts). */
   holds: number;
@@ -624,7 +624,7 @@ function add(counts: ErasureCounts, contact: ErasureResult): void {
  * under the record of the request (`erasureId`): the definer that deletes
  * the person's suppressions, consent records and contact attempts refuses
  * without one written in this transaction or still holding its restore
- * references (drizzle/0062).
+ * references (drizzle/0063).
  */
 async function eraseSurveyed(
   tx: TenantTx,
@@ -972,7 +972,7 @@ const EXPIRY_ACTOR = { type: "service", serviceName: "erasure-expiry" } as const
  * agreement's "no longer than it needs one" does not wait for one. It runs in
  * the worker, which a restore keeps stopped, so references a restore still
  * needs are never emptied while it is in progress. The clock is the
- * database's (app_expire_erasure_records, drizzle/0062): the runtime role
+ * database's (app_expire_erasure_records, drizzle/0063): the runtime role
  * can neither empty the references sooner nor delete a record itself, and a
  * step counts as stamped only with a stamp the database timestamped.
  */

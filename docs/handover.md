@@ -408,9 +408,9 @@ each period as BAA 1.3.0's clause 11 states it.
 
 Which clinics: a clinic on BAA 1.3.0 or later, or the DPA, is purged every night whether
 the job's switch is on or not, because its agreement states the purge's periods
-(`purgeIsPromised`); the switch adds every other clinic, those on 1.2.1 or earlier and
+(`purgeIsPromised`); the switch adds every other clinic, those on 1.2.2 or earlier and
 any with no agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
-ops console (Jobs), so the clinics still on 1.2.1, whose agreement promises ninety days
+ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
 too, are purged as well, and check that the next 03 UTC run's note no longer begins
 "Switched off". A sync run (phase two) holds a clinic's purge only while it is younger
 than six hours, so a crashed one cannot hold it for good, and the purge runs again at
@@ -432,7 +432,7 @@ the agreement the service ended under, terminated since or not (`destructionPlan
 `apps/app/src/lib/offboarding/offboarding.ts`; `app_destruction_due()` in drizzle/0058 is
 the same rule as the database's floor):
 
-- BAA 1.2.1 and earlier, or no agreement on file: day 29, whatever the export, so the data
+- BAA 1.2.2 and earlier, or no agreement on file: day 29, whatever the export, so the data
   is gone before the thirty days the agreement gives. Every leaving practice is owed its
   export whether or not it asks (Terms §7; the canceled email tells it one is coming,
   though these agreements give it only "on request"), so deliver it and record the
@@ -637,7 +637,7 @@ over the calendar's.
 
 An amendment lives exactly as long as the record it amends: the erasure, the purge and
 destruction delete it with that record, in the same function, and nothing deletes it
-on its own (drizzle/0063). The portal (M5) must show amendments beside every record it
+on its own (drizzle/0064). The portal (M5) must show amendments beside every record it
 shows or exports.
 
 ### Reaching the app's shell
@@ -678,11 +678,11 @@ data-only load into a migrated schema (`pg_restore --data-only`, or a `\copy` of
 table) fires two BEFORE INSERT triggers from 0054 that refuse it: `clinics_insert_guard`
 refuses every offboarded or destroyed clinic, and `booking_requests_keys_once` refuses
 every booking request whose key is already there, which is all of them, since
-`booking_request_keys` sorts ahead of `booking_requests` in a dump. A third, 0062's
+`booking_request_keys` sorts ahead of `booking_requests` in a dump. A third, 0063's
 `erasure_requests_guard`, does not refuse but restamps every deletion request's
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
-person gave before the deletion and after it; 0063's `record_amendments_guard` likewise
+person gave before the deletion and after it; 0064's `record_amendments_guard` likewise
 restamps every amendment's `recorded_at`. For such a load the owner disables all four
 by name, loads every table, `booking_request_keys` included, and enables them again, in
 one transaction:

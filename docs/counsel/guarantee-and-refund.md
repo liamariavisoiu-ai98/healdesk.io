@@ -4,7 +4,9 @@
 > Residual risks are listed in the Review log. Not legal advice.**
 >
 > The live wording is `GUARANTEE_TEXT` in `apps/web/src/lib/legal.ts`,
-> rendered into terms § 5 and, once built, the pricing page. This file records
+> rendered into terms § 5 and, in full beside the prices, into checkout's
+> Review and pay step. There is no pricing page since 9 October 2026; read
+> "/pricing" below as that step (see "No pricing page"). This file records
 > what was decided, why, and the tightened text the constant should carry
 > (see "Changes against the shipped constant").
 
@@ -33,6 +35,20 @@ decision 5 names, a flat "never refundable" reached by FTC Act § 5 or a card di
 stands and is on counsel's list. Billing now starts on the plan start, the day the assistant
 first answers a patient, so the guarantee's first month, the 14-day refund window and renewal
 all run from that day: the first month's fee is charged on it.
+
+**No pricing page, from 9 October 2026.** The owner disabled `/pricing`
+(it now redirects to the homepage) and took its footer link out. The
+guarantee is still advertised where the claim is made: checkout's Review and
+pay step (`apps/web/src/components/checkout/ReviewStep.tsx`) renders
+`GUARANTEE_TEXT` in full, heading and every paragraph, beside the package's
+price, setup fee, allowance and overage and before the buyer can pay. So rule
+1 below (16 CFR 239.3(b): identical text, in full, where the claim is made)
+now holds at that step instead of under a plan table, and
+`apps/web/src/components/guarantee-copy.test.ts` holds Review and pay and
+terms § 5 to the same words, with nothing above the block but its heading.
+`GUARANTEE_TEXT` stays in `legal.ts` for both. Any other surface that later
+mentions the guarantee must render the same block in full, or say nothing
+about it.
 
 ## The adopted text
 
@@ -269,7 +285,9 @@ session).
   `LEGAL_LAST_UPDATED`. `apps/web/src/app/terms/terms-copy.test.ts` asserts
   the current strings and must change with them.
 - `/pricing`: render `GUARANTEE_TEXT` in full under the plan table. Until it
-  does, the page must not mention the guarantee at all.
+  does, the page must not mention the guarantee at all. (Done, then
+  superseded on 9 October 2026: the page is gone, and Review and pay renders
+  the block; see "No pricing page".)
 - `apps/app`: a routed/answered counter per channel, shown on the portal's
   Home screen; a "miss recorded" email to the account owner (channel, date
   and time only, so it stays `phiClass: "none"`); the finding and refund

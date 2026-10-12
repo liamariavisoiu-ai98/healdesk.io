@@ -4,38 +4,53 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { WebCallSession } from "retell-client-js-sdk";
 
-import { AyaPortrait } from "@/components/demo/AyaPortrait";
+import { AyaPortrait, type CallVisualState } from "@/components/agent-panel/AyaPortrait";
 import { CALL_CONSENT } from "@/lib/consent";
 
 /**
- * The personalised demo's voice half, three ways to reach the clinic's AI
- * assistant, in Sloane's voice: talk to it from the browser, call the demo
- * line from your own phone, or have it ring you.
+ * The voice card, three ways to reach the assistant in AYA's voice: talk to
+ * it from the browser, call the demo line from your own phone, or have it
+ * ring you.
  *
- * ## Call us
+ * It was the personalised demo's ("Peachy", components/demo/ClinicVoicePanel.tsx
+ * on the demo/port branch), where it answers as the clinic. On 9 October 2026
+ * the owner asked for the homepage's card to look exactly like it, so both
+ * pages draw this one and differ only in what the props say: whose voice it
+ * is, which route starts the browser call, whether the demo line needs the
+ * caller's number first, and what the call-me request carries.
  *
- * The prospect says which number they will call from, it is saved on the
- * demo (api/demo/[slug]/caller), and when that number rings the demo line
- * the line's inbound webhook (api/voice-demo/inbound) answers as this clinic.
- * Any other caller reaches healdesk's own assistant, as before. Nothing is
- * dialled by us, so there is no consent tick on this tab.
+ * AYA's face sits where a phone icon would, and tells the call as it goes
+ * (the owner's M2, AyaPortrait.tsx): a light sweeping across her while it
+ * connects, a cool tint and ripples while she listens, her ring swelling with
+ * her voice while she speaks, and the same state in words beside her.
  *
- * ## Talk now
+ * ## Talk here
  *
  * The Retell browser SDK is loaded only when the button is pressed (it pulls
  * in WebRTC code nobody needs until then) and is pointed at our own route for
  * its single control request (`fetch` override): the route builds the call
- * from the stored demo and holds the key, so nothing secret or steerable is
- * in this bundle. The microphone prompt happens on that click, as browsers
- * require. No transcript stream: that would need a key in the browser.
+ * and holds the key, so nothing secret or steerable is in this bundle. The
+ * microphone prompt happens on that click, as browsers require. No transcript
+ * stream: that would need a key in the browser.
+ *
+ * ## Call us
+ *
+ * On the personalised demo the prospect first says which number they will
+ * call from; it is saved on the demo (`callerRoute`, api/demo/[slug]/caller),
+ * and when that number rings the demo line the line's inbound webhook
+ * (api/voice-demo/inbound) answers as their clinic. Any other caller reaches
+ * AYA, which is all the homepage needs, so there the tab is just the number.
+ * Nothing is dialled by us, so there is no consent tick on this tab.
  *
  * ## Call me
  *
- * The same consent shape as the homepage's voice demo, because it is the same
- * legal act: an AI voice ringing a number somebody typed. Unticked by
- * default, a sibling of the button, the exact words of CALL_CONSENT, and the
- * server refuses without them (api/callback). The phone field may be
- * prefilled from the operator's request; the tick never is.
+ * The same consent shape everywhere, because it is the same legal act: an AI
+ * voice ringing a number somebody typed. Unticked by default, a sibling of the
+ * button, the exact words of CALL_CONSENT, and the server refuses without them
+ * (api/callback). The phone field may be prefilled from the operator's
+ * request; the tick never is. Do not make the box default-checked, do not
+ * fold the agreement into the button, and do not shorten the label without
+ * bumping its version (lib/consent.ts has the reasoning).
  */
 
 type CallState = "idle" | "connecting" | "live" | "ended" | "error";
@@ -53,29 +68,50 @@ function formatElapsed(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export function ClinicVoicePanel({
-  slug,
-  clinicName,
-  prefillPhone,
+const STATE_WORDS: Record<Exclude<CallVisualState, "idle">, string> = {
+  connecting: "Connecting",
+  listening: "Listening",
+  speaking: "Speaking",
+};
+
+export function VoiceCard({
+  name,
+  portraitLabel,
+  callRoute,
+  callerRoute,
   demoLine,
-  ayaVideo = null,
-  locked,
+  ringNote,
+  callbackExtra,
+  prefillPhone = null,
+  locked = false,
 }: {
-  slug: string;
-  clinicName: string;
-  prefillPhone: string | null;
+  /** Whose line it answers: the clinic's name, or AYA. */
+  name: string;
+  /** Under her face: "AYA · Peachy Studio's AI assistant". */
+  portraitLabel: string;
+  /**
+   * The route the SDK's control request goes to, before the path the SDK
+   * would have used on Retell ("/v3/create-web-call").
+   */
+  callRoute: string;
+  /** Where "Call us" saves the caller's number first. Without it, the tab is just the number. */
+  callerRoute?: string;
   /** The demo line, E.164, or null when none is configured (the tab is then hidden). */
   demoLine: string | null;
-  /** A looping clip of AYA for the portrait, when one is published (see AyaPortrait). */
-  ayaVideo?: string | null;
-  locked: boolean;
+  /** Under "Have it ring your phone": why it is calling, and that it never dials a patient. */
+  ringNote: string;
+  /** Anything else the call-me request carries, e.g. the demo's slug. */
+  callbackExtra?: Record<string, string>;
+  prefillPhone?: string | null;
+  locked?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("talk");
   const [dialFrom, setDialFrom] = useState(prefillPhone ?? "");
   const [dialSaving, setDialSaving] = useState(false);
-  const [dialReady, setDialReady] = useState<string | null>(null);
+  const [dialReady, setDialReady] = useState<string | null>(callerRoute ? null : "");
   const [dialError, setDialError] = useState<string | null>(null);
   const [state, setState] = useState<CallState>("idle");
+  const [talking, setTalking] = useState(false);
   const [callError, setCallError] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -108,13 +144,14 @@ export function ClinicVoicePanel({
     setCallError(null);
     setElapsed(0);
     setMuted(false);
+    setTalking(false);
     setState("connecting");
     try {
       const { RetellClient } = await import("retell-client-js-sdk");
       const client = new RetellClient({
         // Never sent to Retell: our route sets the real Authorization header.
         key: "proxied",
-        fetch: (url, init) => fetch(`/api/demo/${slug}/retell${new URL(String(url)).pathname}`, init),
+        fetch: (url, init) => fetch(`${callRoute}${new URL(String(url)).pathname}`, init),
       });
       const session = client.createWebCall({
         // Ignored by our route, which picks the agent server-side.
@@ -126,7 +163,13 @@ export function ClinicVoicePanel({
             if (status === "ended") {
               setState((prev) => (prev === "error" ? prev : "ended"));
               setLevel(0);
+              setTalking(false);
             }
+          },
+          onAgentStartTalking: () => setTalking(true),
+          onAgentStopTalking: () => {
+            setTalking(false);
+            setLevel(0);
           },
           onAudio: (samples) => {
             let sum = 0;
@@ -145,6 +188,7 @@ export function ClinicVoicePanel({
                     : "The call couldn't connect. Try again in a moment.",
             );
             setState("error");
+            setTalking(false);
           },
         },
       });
@@ -154,13 +198,14 @@ export function ClinicVoicePanel({
       setCallError("The call couldn't start in this browser. Try Chrome, Safari or Edge.");
       setState("error");
     }
-  }, [locked, slug, state]);
+  }, [callRoute, locked, state]);
 
   const endCall = useCallback(async () => {
     await sessionRef.current?.end().catch(() => {});
     sessionRef.current = null;
     setState("ended");
     setLevel(0);
+    setTalking(false);
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -190,7 +235,7 @@ export function ClinicVoicePanel({
             name: firstName || undefined,
             consent: true,
             consentVersion: CALL_CONSENT.version,
-            demoSlug: slug,
+            ...callbackExtra,
           }),
         });
         const data = (await response.json().catch(() => null)) as { error?: string; last4?: string } | null;
@@ -205,17 +250,17 @@ export function ClinicVoicePanel({
         setSubmitting(false);
       }
     },
-    [consent, firstName, locked, phone, slug, submitting],
+    [callbackExtra, consent, firstName, locked, phone, submitting],
   );
 
   const registerCaller = useCallback(
     async (event: React.FormEvent) => {
       event.preventDefault();
-      if (dialSaving || locked) return;
+      if (!callerRoute || dialSaving || locked) return;
       setDialSaving(true);
       setDialError(null);
       try {
-        const response = await fetch(`/api/demo/${slug}/caller`, {
+        const response = await fetch(callerRoute, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ phone: dialFrom }),
@@ -232,11 +277,12 @@ export function ClinicVoicePanel({
         setDialSaving(false);
       }
     },
-    [dialFrom, dialSaving, locked, slug],
+    [callerRoute, dialFrom, dialSaving, locked],
   );
 
   const live = state === "live";
   const busy = state === "connecting" || live;
+  const visual: CallVisualState = state === "connecting" ? "connecting" : live ? (talking ? "speaking" : "listening") : "idle";
   const tabs: { id: Mode; label: string; hint: string }[] = [
     { id: "talk", label: "Talk here", hint: "In your browser" },
     ...(demoLine ? [{ id: "dial" as const, label: "Call us", hint: "From your phone" }] : []),
@@ -263,63 +309,69 @@ export function ClinicVoicePanel({
       </div>
 
       {mode === "talk" ? (
-      <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
-        <AyaPortrait size={210} level={level} live={live} videoSrc={ayaVideo} />
-        <p className="text-muted mt-3 text-[13.2px] font-bold tracking-[0.1em] uppercase">AYA · {clinicName}&rsquo;s AI assistant</p>
+        <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
+          <AyaPortrait size={210} level={level} state={visual} />
+          <p className="text-muted mt-3 text-[13.2px] font-bold tracking-[0.1em] uppercase">{portraitLabel}</p>
 
-        <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">
-          {live ? `On the line with ${clinicName}` : state === "connecting" ? "Connecting…" : `Call ${clinicName}`}
-        </p>
-        <p className="text-muted mt-1.5 max-w-[34ch] text-[15px] font-medium">
-          {live ? `${formatElapsed(elapsed)} · Ask what a patient would ask.` : null}
-        </p>
+          <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">
+            {live ? `On the line with ${name}` : state === "connecting" ? "Connecting…" : `Call ${name}`}
+          </p>
+          <p className="text-muted mt-1.5 flex min-h-[1.5em] max-w-[34ch] items-center gap-2 text-[15px] font-medium" aria-live="polite">
+            {visual !== "idle" ? (
+              <span className="call-state text-[13.2px] font-bold tracking-[0.06em] uppercase" data-state={visual}>
+                {STATE_WORDS[visual]}
+              </span>
+            ) : null}
+            {live ? `${formatElapsed(elapsed)} · Ask what a patient would ask.` : null}
+          </p>
 
-        <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-          {live ? (
-            <>
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {live ? (
+              <>
+                <button
+                  type="button"
+                  onClick={toggleMute}
+                  className="border-line hover:border-line-strong text-ink rounded-full border px-4 py-2.5 text-[15.6px] font-bold transition-colors"
+                >
+                  {muted ? "Unmute" : "Mute"}
+                </button>
+                <button
+                  type="button"
+                  onClick={endCall}
+                  className="bg-red-deep rounded-full px-5 py-2.5 text-[15.6px] font-bold text-white transition-opacity hover:opacity-90"
+                >
+                  End call
+                </button>
+              </>
+            ) : (
               <button
                 type="button"
-                onClick={toggleMute}
-                className="border-line hover:border-line-strong text-ink rounded-full border px-4 py-2.5 text-[15.6px] font-bold transition-colors"
+                onClick={startCall}
+                disabled={locked || busy}
+                className="rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+                style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
               >
-                {muted ? "Unmute" : "Mute"}
+                {state === "connecting" ? "Connecting…" : state === "ended" ? "Call again" : "Talk now"}
               </button>
-              <button
-                type="button"
-                onClick={endCall}
-                className="bg-red-deep rounded-full px-5 py-2.5 text-[15.6px] font-bold text-white transition-opacity hover:opacity-90"
-              >
-                End call
-              </button>
-            </>
+            )}
+          </div>
+          {callError ? (
+            <p className="text-red-deep mt-3 text-[15px] font-semibold" role="alert">
+              {callError}
+            </p>
           ) : (
-            <button
-              type="button"
-              onClick={startCall}
-              disabled={locked || busy}
-              className="rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
-              style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
-            >
-              {state === "connecting" ? "Connecting…" : state === "ended" ? "Call again" : "Talk now"}
-            </button>
+            <p className="text-muted mt-3 text-[13.2px] font-medium">Uses your microphone. Nothing is recorded.</p>
           )}
         </div>
-        {callError ? (
-          <p className="text-red-deep mt-3 text-[15px] font-semibold" role="alert">
-            {callError}
-          </p>
-        ) : (
-          <p className="text-muted mt-3 text-[13.2px] font-medium">Uses your microphone. Nothing is recorded.</p>
-        )}
-      </div>
-
       ) : null}
 
       {mode === "dial" && demoLine ? (
         <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
           {dialReady !== null ? (
             <>
-              <p className="text-muted text-[14.4px] font-semibold">From the number ending {dialReady}, call</p>
+              <p className="text-muted text-[14.4px] font-semibold">
+                {callerRoute ? `From the number ending ${dialReady}, call` : `Call ${name} from your phone`}
+              </p>
               <a
                 href={`tel:${demoLine}`}
                 className="font-display mt-2 text-[34px] leading-tight font-semibold tracking-[-0.01em] underline-offset-4 hover:underline"
@@ -327,19 +379,23 @@ export function ClinicVoicePanel({
                 {formatUs(demoLine)}
               </a>
               <p className="text-muted mt-3 max-w-[36ch] text-[15px] font-medium">
-                It answers as {clinicName}, the way it would answer your own line. Calls from any other number reach healdesk&rsquo;s assistant.
+                {callerRoute
+                  ? `It answers as ${name}, the way it would answer your own line. Calls from any other number reach healdesk’s assistant.`
+                  : `${name} answers it the way she would answer your own line.`}
               </p>
-              <button
-                type="button"
-                onClick={() => setDialReady(null)}
-                className="text-muted hover:text-ink mt-3 text-[14.4px] font-bold transition-colors"
-              >
-                Use a different number
-              </button>
+              {callerRoute ? (
+                <button
+                  type="button"
+                  onClick={() => setDialReady(null)}
+                  className="text-muted hover:text-ink mt-3 text-[14.4px] font-bold transition-colors"
+                >
+                  Use a different number
+                </button>
+              ) : null}
             </>
           ) : (
             <form onSubmit={registerCaller} className="w-full max-w-[380px]">
-              <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Call {clinicName} from your phone</p>
+              <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Call {name} from your phone</p>
               <p className="text-muted mt-1.5 text-[15px] font-medium">Tell us the number you&rsquo;ll call from, and we&rsquo;ll recognise you.</p>
               <div className="mt-4 flex gap-2">
                 <input
@@ -373,7 +429,7 @@ export function ClinicVoicePanel({
       ) : null}
 
       {mode !== "callme" ? null : sent !== null ? (
-        <div className="border-line flex flex-col items-center gap-1.5 border-t px-5 py-6 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-5 py-6 text-center">
           <p className="font-display text-[21px] leading-tight font-medium tracking-[-0.02em]">Calling you now.</p>
           <p className="text-muted max-w-[36ch] text-[15px] font-medium">
             {sent ? `Watch for a call to the number ending ${sent}. ` : ""}Say &ldquo;stop&rdquo; at any point and the call ends.
@@ -392,9 +448,7 @@ export function ClinicVoicePanel({
       ) : (
         <form onSubmit={requestCall} className="flex flex-1 flex-col justify-center px-5 py-6">
           <p className="font-display text-ink text-[23px] leading-tight font-medium tracking-[-0.02em]">Have it ring your phone</p>
-          <p className="text-muted mt-0.5 text-[14px] font-medium">
-            One demo call, because you asked. Live, it only answers: it never dials a patient.
-          </p>
+          <p className="text-muted mt-0.5 text-[14px] font-medium">{ringNote}</p>
           <div className="mt-3 flex flex-col gap-2 sm:flex-row">
             <input
               type="text"

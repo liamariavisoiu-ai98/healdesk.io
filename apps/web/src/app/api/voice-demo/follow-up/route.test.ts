@@ -139,10 +139,11 @@ describe("what the agent is told", () => {
     expect(String(sent[1]!.body.text)).toContain("/get-started?plan=web-voice");
   });
 
-  test("start: a package she did not name exactly links to pricing, never to a guess", async () => {
+  test("start: a package she did not name exactly links to the buy flow with none chosen, never to a guess", async () => {
     await post({ topic: "start", email: "sam@radiance.com", recommended_package: "the big one" });
-    expect(String(sent[0]!.body.text)).toContain("/pricing");
+    expect(String(sent[0]!.body.text)).toMatch(/\/get-started\n/);
     expect(String(sent[0]!.body.text)).not.toContain("get-started?plan=");
+    expect(String(sent[0]!.body.text)).not.toContain("/pricing");
   });
 
   test("start: if their email fails, AYA is told so and the team is not told otherwise", async () => {

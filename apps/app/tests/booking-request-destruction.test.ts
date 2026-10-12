@@ -736,7 +736,7 @@ describeDb("booking requests at destruction, erasure and purge", () => {
     // state the runtime role cannot write. Gate 6's first version added a
     // fourth, app_erase_thread_requests, which took every request a
     // messaging thread had sent, whoever each named: erasing a child took the
-    // requests their parent had made for themselves. It is gone (drizzle/0062),
+    // requests their parent had made for themselves. It is gone (drizzle/0063),
     // and a person's deletion reaches only the requests that name them.
     const { rows } = await getMigratorPool().query<{ proname: string }>(
       `select p.proname

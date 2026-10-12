@@ -181,8 +181,15 @@ export type PurgeResult = {
  * which states them since 12 October 2026, docs/counsel/dpa.md gap 2), so a
  * new version is purged nightly from the day it is signed unless it is added
  * here, by a decision recorded beside it.
+ *
+ * 1.2.2 (released 9 October 2026, after this list was drawn up) is here
+ * because its retention sentence is 1.2.1's own clause object (CLAUSES_1_2_2
+ * in @healdesk/catalog takes every clause but three from 1.2.1, and none of
+ * the three is about retention), so it promises the purge no more than 1.2.1
+ * does; it follows 1.2.1 at destruction too (app_destruction_rule, 0062).
  */
 export const BAA_VERSIONS_BEFORE_THE_PURGE_PROMISE: ReadonlySet<string> = new Set([
+  "1.2.2",
   "1.2.1",
   "1.2.0",
   "1.1.0-draft",
@@ -392,7 +399,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   }
   // An amended appointment goes with its amendments, in one call, at the
   // earlier of this job's cutoff and the database's own, as the booking
-  // requests above (app_purge_amended_appointments, drizzle/0063). Its time
+  // requests above (app_purge_amended_appointments, drizzle/0064). Its time
   // is one the runtime role and a sync can move, so an amendment never goes
   // on its own: only with the appointment it amends.
   const amendedAppointments = await tx.db.execute<{ n: number }>(
@@ -403,7 +410,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
   // An amended conversation goes with its amendments, in one call: the
   // runtime role may delete a conversation but not an amendment, and no
   // conversation goes while one of its amendments remains (record_amendments,
-  // a foreign key with no delete action, drizzle/0063), so
+  // a foreign key with no delete action, drizzle/0064), so
   // app_purge_amended_conversations() takes the two together, at the earlier
   // of this job's cutoff and the database's own, as the booking requests
   // above, whose amendments go inside app_purge_booking_requests(). An
@@ -586,7 +593,7 @@ export type ErasureResult = {
   appointmentsDeleted: number;
   transactionsDeleted: number;
   draftsDeleted: number;
-  /** Amendments of the requests and conversations deleted (drizzle/0063). */
+  /** Amendments of the requests and conversations deleted (drizzle/0064). */
   amendmentsDeleted: number;
 };
 
@@ -697,7 +704,7 @@ export async function eraseContact(tx: TenantTx, request: ErasureRequest): Promi
     // to them, someone else's request on one of their appointments included,
     // so a request leaves only with the person it names. The amendments of
     // the requests and conversations it deletes go first, in the same call
-    // (record_amendments, drizzle/0063): an amendment leaves only with what
+    // (record_amendments, drizzle/0064): an amendment leaves only with what
     // it amends.
     const [erased] = (
       await tx.db.execute<{

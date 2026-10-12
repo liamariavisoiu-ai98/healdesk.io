@@ -112,8 +112,8 @@ export type SignAgreementRequest = {
   /**
    * The phase-two platform id today's checkout picker sends (`platforms`,
    * "none" included). A version before 1.3.0 names it in its data-sources
-   * clause, as it always has, so a 1.2.1 document keeps the bytes the
-   * picker's preview hashed. 1.3.0 names the booking system instead, and
+   * clause, as it always has, so a 1.2.2 document (or any before 1.3.0)
+   * keeps the bytes the picker's preview hashed. 1.3.0 names the booking system instead, and
    * takes a platform only as that system's own phase-two platform.
    * Optional because `bookingSystem` can stand in for it: main's checkout
    * sends this until the funnel's M2 ships, and M2 sends `bookingSystem`.
@@ -814,7 +814,7 @@ function prepareSigning(
       // ids, only the name the document gives the platform, which is why
       // they are kept here: the booking system is what provisioning is to
       // read into the clinic row (plan C15) rather than asking again, and
-      // the platform is what named a 1.2.1 document. 1.3.0's variables carry
+      // the platform is what named a 1.2.x document. 1.3.0's variables carry
       // the booking system and the account kind already, as these same
       // values, and a platform beside them has been checked to be the
       // booking system's own (checkAnswersFor).

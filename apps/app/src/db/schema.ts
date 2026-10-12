@@ -962,7 +962,7 @@ export const conversations = pgTable(
     // alone would index-scan then re-filter. That's the common path, not the rare one.
     index("conversations_contact_idx").on(t.clinicId, t.contactId),
     // The target of record_amendments' (clinic_id, conversation_id) key, which
-    // is what keeps an amendment on a record of its own clinic (drizzle/0063).
+    // is what keeps an amendment on a record of its own clinic (drizzle/0064).
     unique("conversations_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -1112,7 +1112,7 @@ export const appointments = pgTable(
       .on(t.clinicId, t.externalSource, t.externalAppointmentId)
       .where(sql`${t.externalAppointmentId} is not null`),
     // The target of record_amendments' (clinic_id, appointment_id) key, which
-    // is what keeps an amendment on a record of its own clinic (drizzle/0063).
+    // is what keeps an amendment on a record of its own clinic (drizzle/0064).
     unique("appointments_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -1472,11 +1472,13 @@ export const incidents = pgTable(
     discoveredAt: timestamp("discovered_at", { withTimezone: true }).notNull(),
     /**
      * From the class: discovery plus 24 hours for a breach, a security
-     * incident and an improper use or disclosure, at every clinic (BAA
-     * 1.3.0's reporting clause, which 1.2.1's five days are met by too), or
-     * the state-law clause's "immediately following discovery" for a breach
-     * at a clinic that is not a covered entity, if that is ever earlier; two
-     * business days to a first reply for a service complaint. Set when the
+     * incident and an improper use or disclosure, at every clinic, or the
+     * state-law "immediately following discovery" for a breach at a clinic
+     * that is not a covered entity, if that is ever earlier; two business
+     * days to a first reply for a service complaint. The 24 hours is
+     * healdesk's internal target, unpublished: it meets every agreement's
+     * deadline (60 calendar days at most in BAA 1.2.2 and the 1.3.0 and DPA
+     * drafts since 9 October 2026; five days in 1.2.1 and before). Set when the
      * incident is opened: rows opened before 7 October 2026 keep the five-day
      * clocks they were opened with (lib/incidents/incidents.ts).
      */
@@ -1660,7 +1662,7 @@ export const bookingRequests = pgTable(
     // The thread a Meta request lives on, for the window check.
     index("booking_requests_thread_idx").on(t.clinicId, t.platform, t.senderId),
     // The target of record_amendments' (clinic_id, booking_request_id) key,
-    // which is what keeps an amendment on a record of its own clinic (0063).
+    // which is what keeps an amendment on a record of its own clinic (0064).
     unique("booking_requests_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
@@ -2495,7 +2497,7 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
  * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
  * BAA gate. Each target is a foreign key that carries clinic_id with the
  * record's id, so an amendment can only point at a record of its own clinic.
- * Append-only (drizzle/0063): the runtime role may INSERT and SELECT, no role
+ * Append-only (drizzle/0064): the runtime role may INSERT and SELECT, no role
  * may UPDATE, `recorded_at` is the database's clock at the insert, and the
  * foreign keys have no delete action, so an amendment leaves only with the
  * record it amends, inside the functions that delete that record (erasure,

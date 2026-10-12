@@ -66,7 +66,7 @@ import { withTenant } from "@/lib/tenant";
  * hour its service ended the next hourly run has its data gone before the
  * limit passes, with most of a day to spare for a worker that was down.
  *
- *   - BAA 1.2.1, 1.2.0 and 1.1.0-draft say "Within thirty days of
+ *   - BAA 1.2.2, 1.2.1, 1.2.0 and 1.1.0-draft say "Within thirty days of
  *     termination healdesk will return or destroy all PHI it holds for
  *     Practice and retain no copies, and will give Practice, on request
  *     before that date, an export". 1.0.0 and 0.1.0-draft say "On
@@ -200,7 +200,7 @@ export const UNDELIVERED_EXPORT_ALERT_DAYS = 21;
 export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
 
 /**
- * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.1 and
+ * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.2 and
  * earlier). export_or_ninety: from day 29 if the export was delivered by
  * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
  * DPA 1.0.0). Every hourly run destroys on either rule.
@@ -220,6 +220,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
     "1.3.0": "export_or_ninety",
+    "1.2.2": "thirty_days",
     "1.2.1": "thirty_days",
     "1.2.0": "thirty_days",
     "1.1.0-draft": "thirty_days",
@@ -493,7 +494,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
-  // The amendments Practice directed (drizzle/0063), before the requests and
+  // The amendments Practice directed (drizzle/0064), before the requests and
   // conversations they amend: neither can go while one remains, and the app
   // role cannot delete one, so app_destroy_record_amendments() deletes every
   // one of this tenant's, on the requests' own floor.
@@ -517,7 +518,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
   await del("contacts", () => tx.db.delete(contacts).where(eq(contacts.clinicId, c)).returning({ id: contacts.id }));
   await del("webhook_events", () => tx.db.delete(webhookEvents).where(eq(webhookEvents.clinicId, c)).returning({ id: webhookEvents.id }));
-  // The records of the clinic's deletion requests (drizzle/0062): dates,
+  // The records of the clinic's deletion requests (drizzle/0063): dates,
   // counts and keyed references to the people deleted, kept to delete them
   // again after a restore. A restore after this re-runs the destruction,
   // which takes those people with everyone else, so no record of them needs

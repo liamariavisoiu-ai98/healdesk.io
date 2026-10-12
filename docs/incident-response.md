@@ -8,20 +8,23 @@ deadline is computed at open and the console lists what is overdue.
 
 | Class | Definition | Clinic must be told by | Source |
 | --- | --- | --- | --- |
-| Security incident | Attempted or successful unauthorised access, use, disclosure, modification or destruction of information, or interference with operations — whether or not PHI was involved (e.g. a credential leak, a suspicious login, a bug that exposed one clinic's rows to another), including anything a state breach-notification law treats as a breach of the security of the data | **24 hours** from becoming aware (immediately following it) | BAA clause "Reporting breaches and security incidents" (c) |
-| Improper use or disclosure | PHI used or disclosed in a way the BAA does not permit, by us or a subprocessor (e.g. a report that carried a patient name; the agent reading appointment details to the wrong caller) | **24 hours** from becoming aware (immediately following it) | BAA (a) |
-| Breach | Acquisition, access, use or disclosure of **unsecured** PHI not permitted by the Privacy Rule that compromises its security or privacy, per 45 CFR 164.402, after the four-factor risk assessment | **24 hours** from discovery (immediately following it) — far inside the 60 days 164.410 allows, on purpose, so the clinic's own 60-day clock to notify patients is not eaten by ours | BAA (b) |
+| Security incident | Attempted or successful unauthorised access, use, disclosure, modification or destruction of information, or interference with operations — whether or not PHI was involved (e.g. a credential leak, a suspicious login, a bug that exposed one clinic's rows to another), including anything a state breach-notification law treats as a breach of the security of the data | **24 hours** from becoming aware (immediately following it); the BAA's outer limit is 60 calendar days | BAA clause "Reporting breaches and security incidents" (c) |
+| Improper use or disclosure | PHI used or disclosed in a way the BAA does not permit, by us or a subprocessor (e.g. a report that carried a patient name; the agent reading appointment details to the wrong caller) | **24 hours** from becoming aware (immediately following it); the BAA's outer limit is 60 calendar days | BAA (a) |
+| Breach | Acquisition, access, use or disclosure of **unsecured** PHI not permitted by the Privacy Rule that compromises its security or privacy, per 45 CFR 164.402, after the four-factor risk assessment | **24 hours** from discovery (immediately following it) — far inside the 60 calendar days the BAA and 164.410 allow, on purpose, so the clinic's own 60-day clock to notify patients is not eaten by ours | BAA (b) |
 | Service complaint | "Your AI mishandled a call yesterday." Not a BAA clock; a service promise | First reply within 2 business days | Terms of service |
 
-BAA 1.2.1 allows five business days for (a) and (c) and five calendar days
-for (b); BAA 1.3.0 gives 24 hours for all three, to every clinic whatever its
-covered-entity status, which also meets the state laws that require notice
-immediately following discovery (Cal. Civ. Code 1798.82(b)). Notify every
-clinic within 24 hours, whichever version it signed: that meets them all.
-Since 7 October 2026 the console's `notify_by` is discovery plus 24 hours for
-all three classes at every clinic (release gate 5 of 1.3.0,
-[counsel/agreement-changes.md](./counsel/agreement-changes.md) §12.14). An
-incident opened before then keeps the five-day deadline it was opened with:
+BAA 1.2.1 allowed five business days for (a) and (c) and five calendar days
+for (b). Since BAA 1.2.2 (owner, 9 October 2026), and in the 1.3.0 and DPA
+drafts, the agreement promises all three "without unreasonable delay and in no
+case later than 60 calendar days" after discovery, the product spec's wording,
+and the public pages say the same. That is the outer limit, not the target.
+Notify every clinic within 24 hours of discovery, whichever version it signed:
+that meets every version, keeps a covered clinic's own 60-day clock to notify
+patients clear of ours, and is what still meets the state laws that require
+notice immediately following discovery (Cal. Civ. Code 1798.82(b)), now that
+the agreement no longer says so. Since 7 October 2026 the console's
+`notify_by` is discovery plus 24 hours for all three classes at every clinic.
+An incident opened before then keeps the five-day deadline it was opened with:
 work to 24 hours from discovery for it too, not to the console.
 
 A service complaint becomes one of the first three the moment the investigation

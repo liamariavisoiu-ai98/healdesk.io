@@ -48,7 +48,7 @@ ALTER TABLE "baa_acceptances" ADD CONSTRAINT "baa_acceptances_termination_reason
 --     billing clinics to cancel. clinics is tenant-isolated, so a service
 --     context cannot list them itself. Ids and dates only.
 --
--- One more of the release's blockers rides in this migration:
+-- Two more of the release's blockers ride in this migration:
 --
 --   * provider_connections_meta_asset_live_idx (generated above) keeps one
 --     Meta Page, Instagram account or WhatsApp number on one clinic while its
@@ -57,6 +57,7 @@ ALTER TABLE "baa_acceptances" ADD CONSTRAINT "baa_acceptances_termination_reason
 --     in its records. apps/app has held no real patient data, so no
 --     duplicate can stand in the way of the index; attachMetaChannel turns
 --     the refusal into words for the person connecting.
+--   * the incident-deadlines job's row, seeded on (at the foot).
 --
 -- SECURITY DEFINER and the pinned search_path are restated on every
 -- CREATE OR REPLACE, which replaces them; the grants survive it. None of
@@ -245,3 +246,17 @@ COMMENT ON FUNCTION app_clinic_phi_update_permitted(uuid) IS
   'May a patient row already held be changed: app_clinic_accepts_phi(), or, once the clinic is offboarding, the same rule without the agreement in effect, so destruction''s cascades and the purge still run after a termination. Enforced on UPDATE by app_enforce_baa_gate (0062).';--> statement-breakpoint
 COMMENT ON FUNCTION app_organization_clinics(text) IS
   'The locations of one organisation, with their billing clinic and offboarding dates: what a recorded termination offboards and cancels (0062). Ids and dates only.';
+--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
+-- A missed incident deadline raises an alert (BAA 1.3.0 release gate 5)
+-- -----------------------------------------------------------------------------
+-- overdueIncidents (lib/incidents/incidents.ts) had no caller, so an incident
+-- past its 24-hour notice deadline sat in the console unremarked. The hourly
+-- incident-deadlines job raises one ops alert, ever, per such incident, with
+-- ids only. Seeded ON, unlike every other job: it only alerts, it sends
+-- nothing to a clinic, and a deadline nobody is told about is the failure it
+-- exists to prevent.
+INSERT INTO scheduled_jobs (name, cadence, enabled) VALUES
+  ('incident-deadlines', 'Hourly; raises one ops alert, ever, for each open incident whose 24-hour notice deadline has passed with no notice recorded', true)
+ON CONFLICT (name) DO NOTHING;

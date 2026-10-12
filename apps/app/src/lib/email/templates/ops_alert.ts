@@ -265,6 +265,13 @@ const WORDING: Record<OpsEvent, Wording> = {
   // practice ended the agreement because healdesk violated a material term,
   // or under the Subcontractors clause: the two endings BAA 1.3.0 clause 17
   // refunds.
+  // Raised once per incident by the hourly incident-deadlines job, with the
+  // clinic's and the incident's ids.
+  incident_notice_overdue: {
+    title: "An incident's notice deadline has passed",
+    action:
+      "The agreement promises the practice notice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, and none is recorded for the incident below. Send the notice to the practice's notice address now, following docs/incident-response.md, then record it on the incident in the console.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:

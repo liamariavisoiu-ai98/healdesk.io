@@ -14,6 +14,7 @@ import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
 import { runConnectionHealthJob } from "./connection-health";
 import { runDmarcReviewJob } from "./dmarc-review";
+import { runIncidentDeadlinesJob } from "./incident-deadlines";
 import { heartbeat } from "./jobs";
 import { runMonthlyReportJob } from "./monthly-report";
 import { runNightlySyncJob } from "./nightly-sync";
@@ -92,6 +93,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
   // rule, and why").
   await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
+  // Every hour: an incident whose 24-hour notice deadline has passed with no
+  // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5).
+  await record("incident-deadlines", () => runIncidentDeadlinesJob({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

@@ -462,6 +462,8 @@ describeDb("delivery", () => {
           // The welcome email's backstop: a sweep, not a switched job, because
           // the welcome it retries goes unswitched at every provisioning.
           "welcome-email",
+          // Missed incident deadlines (drizzle/0062), hourly behind its switch.
+          "incident-deadlines",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

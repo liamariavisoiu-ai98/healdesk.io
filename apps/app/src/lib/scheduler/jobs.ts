@@ -87,6 +87,13 @@ export const JOB_SETUP_REMINDERS = "setup-reminders";
  */
 export const JOB_CALENDAR_WATCH = "calendar-watch";
 /**
+ * The incident deadlines (BAA 1.3.0 release gate 5), seeded ON by
+ * drizzle/0062, because it only alerts: hourly from the tick, one ops alert,
+ * ever, per open incident whose 24-hour notice deadline has passed with no
+ * notice recorded (lib/scheduler/incident-deadlines.ts).
+ */
+export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

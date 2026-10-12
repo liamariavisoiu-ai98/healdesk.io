@@ -1,7 +1,7 @@
 import { findClinicalContent } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
-import { agentConfigs } from "@/db/schema";
+import { agentConfigs, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { clinicDefaultDepositUsd } from "@/lib/billing/deposits";
 import {
@@ -97,6 +97,7 @@ export async function saveKnowledge(
         state.clinic.specialty,
         state.clinic.timezone,
         now,
+        await writeOptions(tx),
       );
       await practiceQuestionsSeam(tx, section);
       const applies = appliesWhen(state.channels);
@@ -115,11 +116,21 @@ export async function saveKnowledge(
 }
 
 /**
- * Knowledge's edits keep an existing approval of the agent's words: they
- * apply at once, and AYA stays on while the practice questions check them
- * again (Part F3). The wizard's own writes clear it (lib/setup/knowledge.ts).
+ * Once the clinic has gone live, Knowledge's edits keep the approval of the
+ * agent's words: they apply at once, and AYA stays on while the practice
+ * questions check them again (Part F3). Before go-live they clear it, as the
+ * wizard's own writes do (lib/setup/knowledge.ts): go-live requires the
+ * approval (lib/onboarding/go-live.ts), and one given before an edit must
+ * not carry words nobody has checked into the first patient conversation.
  */
-const PORTAL_WRITE: KnowledgeWriteOptions = { keepApproval: true };
+async function writeOptions(tx: TenantTx): Promise<KnowledgeWriteOptions> {
+  const [clinic] = await tx.db
+    .select({ wentLiveAt: clinics.wentLiveAt })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  return { keepApproval: clinic?.wentLiveAt != null };
+}
 
 async function write(
   tx: TenantTx,
@@ -128,6 +139,7 @@ async function write(
   specialty: string,
   timeZone: string,
   now: Date,
+  options: KnowledgeWriteOptions,
 ): Promise<string> {
   switch (section) {
     case "practice":
@@ -146,7 +158,7 @@ async function write(
 
     case "policies": {
       const policies = validatePolicies(body.policies);
-      await savePolicies(tx, policies, now, PORTAL_WRITE);
+      await savePolicies(tx, policies, now, options);
       return policies.length === 1 ? "One policy saved." : `${policies.length} policies saved.`;
     }
 
@@ -160,7 +172,7 @@ async function write(
           ? { ...service, depositUsd: 0 }
           : service,
       );
-      await saveServices(tx, services, now, PORTAL_WRITE);
+      await saveServices(tx, services, now, options);
       return services.length === 1
         ? "One service saved. AYA quotes only the prices listed here."
         : `${services.length} services saved. AYA quotes only the prices listed here.`;
@@ -168,13 +180,13 @@ async function write(
 
     case "promotions": {
       const promotions = validatePromotions(body.promotions);
-      await savePromotions(tx, promotions, now, PORTAL_WRITE);
+      await savePromotions(tx, promotions, now, options);
       return promotions ? "Promotions saved." : "Promotions cleared: AYA has none to mention.";
     }
 
     case "quick_answers": {
       const answers = validateQuickAnswers(body.quickAnswers);
-      await saveQuickAnswers(tx, answers, now, PORTAL_WRITE);
+      await saveQuickAnswers(tx, answers, now, options);
       return answers.length === 1
         ? "One quick answer saved."
         : `${answers.length} quick answers saved.`;
@@ -182,7 +194,7 @@ async function write(
 
     case "never_say": {
       const phrases = validateNeverSay(body.neverSay);
-      await saveNeverSay(tx, phrases, now, PORTAL_WRITE);
+      await saveNeverSay(tx, phrases, now, options);
       return phrases.length === 1
         ? "One phrase AYA never says."
         : `${phrases.length} phrases AYA never says.`;
@@ -192,7 +204,7 @@ async function write(
       // The clinical defaults back at the top, with the clinic's own after them.
       const { neverSay } = await readKnowledge(tx.db, tx.clinicId);
       const restored = neverSayWithDefaults(neverSay);
-      await saveNeverSay(tx, restored, now, PORTAL_WRITE);
+      await saveNeverSay(tx, restored, now, options);
       return "The defaults are back on the never-say list, with your own phrases after them.";
     }
 

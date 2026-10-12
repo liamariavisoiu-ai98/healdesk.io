@@ -502,8 +502,9 @@ export async function saveNeverSay(
  * How a write treats the approval of the agent's words. The setup wizard
  * clears it, as every edit before go-live always has, so an approval given
  * on the onboarding call is given again after the clinic changes what was
- * approved. Knowledge in the portal keeps it (`keepApproval`): its edits
- * apply at once and never take AYA offline (plan Part F3), and a cleared
+ * approved. Knowledge in the portal keeps it once the clinic has gone live
+ * (`keepApproval`): its edits apply at once and never take AYA offline (plan
+ * Part F3), and a cleared
  * approval would strip the Meta channels of the clinic's services and prices
  * (lib/meta/front-door.ts) and turn direct booking into requests
  * (lib/booking/mode.ts, agent_not_approved). The version still moves on, so

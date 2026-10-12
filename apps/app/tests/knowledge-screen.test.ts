@@ -319,7 +319,7 @@ describeDb("Knowledge", () => {
     });
   });
 
-  test("an edit keeps the approval of AYA's words, so a live clinic's Meta channels and direct booking carry on; the wizard's own edits still clear it", async () => {
+  test("a live clinic's edit keeps the approval of AYA's words, so its Meta channels and direct booking carry on; before go-live, and in the wizard, an edit clears it", async () => {
     const approval = async () =>
       (
         await inTenant(
@@ -346,6 +346,23 @@ describeDb("Knowledge", () => {
           clinic.clinicId,
         ]);
       });
+    const setLive = (live: boolean) =>
+      inTenant(clinic.clinicId, (c) =>
+        c.query(`update clinics set went_live_at = ${live ? "now()" : "null"} where id = $1`, [
+          clinic.clinicId,
+        ]),
+      );
+
+    // Before go-live, an approval given on the call is given again after an
+    // edit: go-live requires it, and it was given to the words before.
+    await setLive(false);
+    await approve();
+    expect(await save("promotions", { promotions: "Free consultations in April." })).toMatchObject({
+      ok: true,
+    });
+    expect(await approval()).toMatchObject({ approved: false, clinic_approved: false });
+
+    await setLive(true);
     await approve();
     const before = await approval();
     expect(before).toMatchObject({ approved: true, clinic_approved: true });
@@ -365,8 +382,8 @@ describeDb("Knowledge", () => {
       clinic_approved: true,
     });
 
-    // The wizard's services screen, before go-live, still asks for the
-    // approval to be given again.
+    // The wizard's services screen still asks for the approval to be given
+    // again.
     const { saveServices, validateServices } = await import("@/lib/setup/knowledge");
     await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
       saveServices(
@@ -375,6 +392,7 @@ describeDb("Knowledge", () => {
       ),
     );
     expect(await approval()).toMatchObject({ approved: false, clinic_approved: false });
+    await setLive(false);
   });
 
   test("never-say is the clinic's to edit, and Restore the defaults puts the clinical ones back first", async () => {

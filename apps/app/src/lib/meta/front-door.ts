@@ -10,7 +10,6 @@ import { describeError, log } from "@/lib/log";
 import { parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
-import type { EmailTransport } from "@/lib/reporting/deliver";
 import type { TenantTx } from "@/lib/tenant";
 
 import {
@@ -20,10 +19,10 @@ import {
   isComplete,
   mergeDraft,
   missingPieces,
-  notifyDesk,
   requestReceivedLine,
   type BookingFields,
   type BookingThread,
+  type CreatedBookingRequest,
 } from "./booking-requests";
 import { touchMetaThread } from "./channels";
 import { openMetaConversation, type MetaConversation } from "./greeting";
@@ -602,10 +601,19 @@ export type FrontDoorAnswer = {
    * up, and the first reply the person did get would open without it.
    */
   greetingToRecord: MetaConversation | null;
+  /**
+   * The booking request this message created, for the caller to email the
+   * desk about with notifyDeskAfterCommit (lib/meta/booking-requests.ts)
+   * once the transaction that created it has committed. Null when no request
+   * came of it. Emailed any sooner, a send that failed afterwards rolled the
+   * request back with the email already gone, and the claimed message id
+   * kept a redelivery from making it again: the request was lost.
+   */
+  deskNotice: CreatedBookingRequest | null;
 };
 
-/** An answer while it is being written: the greeting's record is settled last. */
-type Draft = Omit<FrontDoorAnswer, "greetingToRecord">;
+/** An answer while it is being written: the greeting's record and the desk's email are settled last. */
+type Draft = Omit<FrontDoorAnswer, "greetingToRecord" | "deskNotice">;
 
 type ThreadInput = BookingThread & { connectionId: string | null };
 
@@ -624,7 +632,6 @@ export async function answerFrontDoor(
     text: string;
     responder: FrontDoorResponder | null;
     thread?: ThreadInput;
-    transport?: EmailTransport;
     now?: Date;
   },
 ): Promise<FrontDoorAnswer | null> {
@@ -643,6 +650,7 @@ export async function answerFrontDoor(
 
   let answer: Draft;
   let extracted: BookingFields | null = null;
+  let deskNotice: CreatedBookingRequest | null = null;
   let wants = false;
   const screened = screenInbound(input.text);
   if (screened === "urgent") {
@@ -684,7 +692,9 @@ export async function answerFrontDoor(
         fields: merged,
         lastInboundAt: now,
       });
-      await notifyDesk(tx, created, { channel: "meta", platform: thread.platform }, { transport: input.transport });
+      // The desk is emailed by the caller, after this transaction commits
+      // (FrontDoorAnswer.deskNotice), never from inside it.
+      deskNotice = created;
       answer = { text: requestReceivedLine(facts.clinicName, merged.firstName), source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
     } else {
       answer = {
@@ -708,7 +718,7 @@ export async function answerFrontDoor(
   }
 
   recordAnswer(tx, input.platform, answer);
-  return { ...answer, greetingToRecord };
+  return { ...answer, greetingToRecord, deskNotice };
 }
 
 function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void {

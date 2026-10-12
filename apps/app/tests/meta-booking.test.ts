@@ -558,6 +558,44 @@ describeDb("the booking hand-off, end to end", () => {
     }
   });
 
+  test("the desk is emailed only after the request has committed, and a reply that fails to send loses neither", async () => {
+    const externalId = "693456789012345";
+    const c = await liveClinic("booking-after-commit", externalId);
+    // What the desk's email could see when it went: the request, committed,
+    // read from another connection.
+    const seenAtSend: number[] = [];
+    const committedTransport: EmailTransport = {
+      name: "capture-after-commit",
+      async send(target, message) {
+        const rows = await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`));
+        seenAtSend.push(rows.rows.length);
+        mailed.push({ target, message });
+        return { status: "sent", messageId: `m-${mailed.length}` };
+      },
+    };
+    const failing: MetaSender = async () => {
+      throw new Error("Graph API 500");
+    };
+    __setMetaRuntimeForTests(
+      async () => json("Got it — the practice will call you.", { wants: true, first_name: "Rae", phone: "+14155550191", window: "Saturday afternoon" }),
+      failing,
+      committedTransport,
+    );
+    const res = await post(inbound("Rae, 415 555 0191, Saturday afternoon please", "user-after-commit", externalId));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, answered: 0, skipped: 1 });
+
+    // The reply never went, but the request stands and the desk was told, once, after it committed.
+    const requests = await inTenant(c.clinicId, (client) =>
+      client.query<{ desk_notified_at: Date | null }>(`select desk_notified_at from booking_requests`),
+    );
+    expect(requests.rows).toHaveLength(1);
+    expect(requests.rows[0]!.desk_notified_at).not.toBeNull();
+    expect(mailed).toHaveLength(1);
+    expect(seenAtSend).toEqual([1]);
+    expect(mailed[0]!.message.text).toMatch(/\/booking\/[A-Za-z0-9_-]{43}/);
+  });
+
   test("a stop word on a thread is a message like any other: nothing is suppressed, because nothing is ever sent outside the conversation", async () => {
     const c = await liveClinic("booking-stop", "823456789012345");
     __setMetaRuntimeForTests(async () => json("Of course — call the practice whenever suits you.", { wants: false }), sender, transport);

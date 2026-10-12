@@ -559,6 +559,30 @@ export async function notifyDesk(
   return { status: "sent", recipients: sent };
 }
 
+/**
+ * notifyDesk for a request whose transaction has committed, in a transaction
+ * of its own: the Meta front door's way to email the desk (the webhook calls
+ * it after the answer's transaction, whatever became of the reply), so the
+ * email never goes for a request that then rolls back. Never throws: an email
+ * that fails here leaves `desk_notified_at` unset, and the request waits in
+ * the care view, where the owed notices are picked up.
+ */
+export async function notifyDeskAfterCommit(
+  clinicId: string,
+  created: { id: string; token: string },
+  via: { channel: BookingChannel; platform: MetaPlatform | null },
+  deps: { transport?: EmailTransport; actor?: ActorContext } = {},
+): Promise<void> {
+  const actor = deps.actor ?? DESK_NOTICE_ACTOR;
+  try {
+    await withTenant({ clinicId, actor }, (tx) => notifyDesk(tx, created, via, { transport: deps.transport }));
+  } catch (error) {
+    log.error("booking request notice not sent after commit", { clinicId, requestId: created.id, error: describeError(error) });
+  }
+}
+
+const DESK_NOTICE_ACTOR: ActorContext = { type: "agent", serviceName: "meta-front-door" };
+
 async function deskRecipients(tx: TenantTx): Promise<{ email: string }[]> {
   return tx.db
     .select({ email: reportRecipients.email })

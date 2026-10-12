@@ -1,9 +1,10 @@
+import { SUBPROCESSOR_NOTICE_HOURS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
 import { ENTITY, POLICY } from "@/lib/legal";
 import { site } from "@/lib/site";
-import { PHI_SUBPROCESSORS, SCOPED_SUBPROCESSORS, SUBPROCESSORS } from "@/lib/subprocessors";
+import { PHI_SUBPROCESSORS, SUBPROCESSORS } from "@/lib/subprocessors";
 
 export const metadata: Metadata = {
   alternates: { canonical: "/trust" },
@@ -38,6 +39,18 @@ export const metadata: Metadata = {
  * provider's two-year exception; and the vendor check before production
  * described as the operator's check it is, not as something the software
  * enforces.
+ *
+ * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
+ * (release gate 13, docs/counsel/agreement-changes.md § 12.14). Section 3
+ * gives the Subcontractors clause's 24 hours, with the fifteen days an
+ * agreement earlier than 1.3.0 keeps, and no longer counts Meta as a scoped
+ * row of the register: the clinic's Instagram, Messenger and WhatsApp
+ * accounts are its own, as 1.3.0 says, and section 4 covers them. Section 5
+ * gives the clause headed "Reporting breaches and security incidents" in
+ * place of five calendar days for a breach and five business days for an
+ * incident: immediately following discovery and in any case within 24 hours,
+ * which apps/app's incident deadline applies to every clinic, whichever
+ * version it signed (agreement-changes.md § 12.14, gate 5).
  */
 /** Small counts read better as words in prose. Past ten, the digit is fine. */
 const WORDS: Record<number, string> = {
@@ -130,21 +143,27 @@ export default function TrustPage() {
           {signed} {signed === 1 ? "has" : "have"} a countersigned Business Associate Agreement with
           us; {pending} {pending === 1 ? "is" : "are"} pending. The full register, with what each
           receives and the status of each agreement, is at{" "}
-          <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>, and
-          we tell every customer at least {POLICY.subprocessorNoticeDays} days before a vendor is
-          added.{" "}
-          {SCOPED_SUBPROCESSORS.length === 1
-            ? "One more sits in the patient's path with no agreement possible, and is kept away from clinical content by design (section 4)."
-            : `${SCOPED_SUBPROCESSORS.length} more sit in the patient's path with no agreement possible, and are kept away from clinical content by design (section 4).`}{" "}
-          {SUBPROCESSORS.length - PHI_SUBPROCESSORS.length - SCOPED_SUBPROCESSORS.length} further
-          vendors serve this website, the demo and billing and never receive patient information.
+          <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>.
+          Before a new vendor handles patient information, we email every clinic at its notice
+          address at least {SUBPROCESSOR_NOTICE_HOURS} hours in advance, naming the vendor, what it
+          will receive and why; a clinic whose business associate agreement is a version earlier
+          than {POLICY.subprocessorNoticeHoursFromBaaVersion} gets at least{" "}
+          {POLICY.earlierBaaSubprocessorNoticeDays} days&apos; notice instead.{" "}
+          {SUBPROCESSORS.length - PHI_SUBPROCESSORS.length} further vendors serve this
+          website, the demo and billing and never receive patient information.
+        </p>
+        <p>
+          Your Google Calendar, your payment processor and your Instagram, Messenger and WhatsApp
+          accounts are in the patient&apos;s path too. They are yours, connected under your own
+          accounts, not vendors of ours, and section 4 says how we handle each.
         </p>
       </Section>
 
       <Section id="no-baa" title="4. Where there is no agreement, and how we handle it">
         <ul className="list-disc space-y-3 pl-6">
           <li>
-            <strong>Instagram, Messenger and WhatsApp.</strong> Meta signs no Business Associate
+            <strong>Instagram, Messenger and WhatsApp.</strong> These are your own accounts with
+            Meta, which you connect only if you choose to. Meta signs no Business Associate
             Agreement for any messaging product, and no vendor in front of Meta can change that.
             So these channels are scoped to carry nothing clinical. A patient&apos;s message
             travels through Meta because that is where the patient wrote to you. Anything clinical
@@ -183,11 +202,24 @@ export default function TrustPage() {
 
       <Section id="breach" title="5. If something goes wrong">
         <p>
-          We tell the clinic within five calendar days of discovering a breach of unsecured
-          patient information — well inside the sixty days the rule allows, on purpose, so the
-          clinic's own clock to notify its patients is not consumed by ours — and within five
-          business days of any security incident, whether or not it turns out to be a breach. Who
-          pays for what follows is in the agreement, not in small print: the cost of notifying
+          We tell the clinic, by email to its notice address, immediately after we discover a
+          breach of unsecured patient information, a security incident, or a use or disclosure of
+          patient information that the agreement does not permit, and in any case within 24 hours
+          of discovery. For a breach, 24 hours is deliberately far inside the sixty days the rule
+          allows, because the clinic&apos;s own clock to notify its patients may run from our
+          discovery rather than from our notice. Routine unsuccessful attempts that compromise
+          nothing, such as blocked sign-ins and port scans, are reported once, in the agreement
+          itself, and we summarise them on request.
+        </p>
+        <p>
+          The notice is also our written report, as complete as we can then make it, and we add to
+          it as we learn more. The list of the people affected travels by secure transfer, never in
+          the email itself. We delay a notice only where a law enforcement official states that it
+          would impede a criminal investigation or damage national security, and then only for as
+          long as the law provides.
+        </p>
+        <p>
+          Who pays for what follows is in the agreement, not in small print: the cost of notifying
           patients and regulators sits with the clinic, and we carry no liability insurance. We say
           both plainly so a clinic can size its own cover.
         </p>

@@ -82,6 +82,33 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  * or conversations, not per unit, and section 3's table prints each package's
  * block prices from the catalog (`overageBlockPrices`, the prices Stripe
  * bills), marked provisional until measured.
+ *
+ * Revised on 12 October 2026 as LEGAL_VERSION 2026-10-12.1, for BAA 1.3.0
+ * (release gate 14, docs/counsel/agreement-changes.md § 12.14):
+ *   - section 1 defines the "Data Agreement": the Business Associate
+ *     Agreement, or the data protection agreement a Practice signs in its
+ *     place, and gives it 1.3.0's (and the DPA's) precedence on termination
+ *     and fees;
+ *   - sections 4, 7 and 15 give the rule the owner confirmed on 12 October
+ *     2026, which 1.3.0's Term clause (third paragraph) and Subcontractors
+ *     clause state for the BAA: every ending of the Data Agreement ends the
+ *     subscription and the service, and stops fees, the same day; a refund is
+ *     owed only where the Practice terminates for our violation of a material
+ *     term or under the Subcontractors clause, and is the prorated unused
+ *     part of the paid subscription period (the rest of the year on an annual
+ *     plan), never the setup fee or overage already billed, and nothing
+ *     before the plan starts; any other ending refunds nothing. The Terms
+ *     give it whichever version a Practice signed, and to a DPA Practice,
+ *     whose agreement refunds only the objection today (docs/counsel/dpa.md,
+ *     gap 17). Sections 13 and 14 leave that refund outside the exclusion and
+ *     the indemnity, as 1.3.0's Liability clause does;
+ *   - section 4's cancellation is the portal's Auto-renew switch (apps/app,
+ *     Billing), or an email ops acts on; Stripe's portal has cancellation
+ *     off (apps/web/scripts/stripe-account-settings.ts);
+ *   - section 9 states Anthropic's agreement as 1.3.0's Subcontractors clause
+ *     does, as a promise about when it is signed, and says no real patient
+ *     information is processed until every agreement in the chain is in
+ *     place; sections 9 and 14 say "consistently with" (ICD-16).
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -102,7 +129,11 @@ export default function TermsPage() {
         <p>
           Patient information is governed by the separate <strong>Business Associate Agreement</strong>{" "}
           you sign at checkout. Where the two conflict on anything about patient information, the
-          Business Associate Agreement controls (section 9).
+          Business Associate Agreement controls (section 9). In these terms your{" "}
+          <strong>Data Agreement</strong> means that Business Associate Agreement or, for a
+          Practice that signs our data protection agreement in its place, that agreement. Where
+          these terms and your Data Agreement differ about terminating it and what then happens to
+          the service and your fees, your Data Agreement controls (section 15).
         </p>
       </Section>
 
@@ -264,18 +295,25 @@ export default function TermsPage() {
           that date. It continues to renew until you cancel.
         </p>
         <p>
-          <strong>To cancel:</strong> open the billing portal from the link in any invoice email and
-          choose "cancel at end of period", or email{" "}
+          <strong>To cancel:</strong> in your portal, open Billing and turn Auto-renew off, or
+          email{" "}
           <a href={`mailto:${ENTITY.supportEmail}`} className="underline underline-offset-2">
             {ENTITY.supportEmail}
           </a>{" "}
-          from the address on the account. Cancellation takes effect at the end of the period you
-          have paid for; the agent keeps working until then; nothing further is charged. You can
-          reverse a cancellation any time before that date. If you cancel before your plan
+          from the address on the account and we will turn it off for you. Cancellation takes
+          effect at the end of the period you have paid for; the agent keeps working until then;
+          nothing further is charged. You can reverse a cancellation, by turning Auto-renew back
+          on, any time before that date. If you cancel before your plan
           starts, it never starts: the agent does not begin answering patients, nothing more is
           charged, the setup fee is not refunded, and your account closes at the end of the
           current month of your subscription, or when your 30 days to finish setup end if that is
           sooner.
+        </p>
+        <p>
+          <strong>Ending your Data Agreement is different.</strong> If your Data Agreement ends,
+          however it ends, your subscription ends with it on the same day, not at the end of the
+          period you have paid for, and no fees accrue for any time after that day. Section 15
+          says when the unused part of what you have paid is refunded.
         </p>
         <p>
           <strong>Annual plans.</strong> We email you at least 30 days before an annual renewal
@@ -331,9 +369,11 @@ export default function TermsPage() {
 
       <Section id="end" title="7. When the service ends">
         <p>
-          When your subscription ends for any reason: the agent stops answering at the end of the
-          paid period, and from then forwarded calls are passed straight through to your direct
-          line (section 8) rather than answered. That pass-through continues for at least{" "}
+          When your subscription ends for any reason: the agent stops answering when it ends, which
+          is at the end of the paid period, or on the day your Data Agreement ends if that comes
+          first (section 15), and from then forwarded calls are passed straight through to your
+          direct line (section 8) rather than answered. That pass-through continues for at
+          least{" "}
           {POLICY.forwardingPassThroughDays} days after the service ends or until you remove call
           forwarding, whichever is first; we tell you how to remove it, at once and again in
           writing, so calls reach your Practice exactly as they did before. We revoke our access to
@@ -402,18 +442,29 @@ export default function TermsPage() {
           sign at checkout is the agreement required by 45 CFR 164.502(e); where it is not, we apply
           the same terms to the same information anyway. That agreement controls over these terms
           for everything about patient information: what we may do with it, how we protect it, what
-          we report, and what happens to it when you leave. It allocates liability for patient
-          information in the same way as sections 13 and 14 of these terms. The list of companies
-          that process it for us, and whether each has signed with us, is at{" "}
+          we report, and what happens to it when you leave. It also controls on terminating it and
+          what then happens to the service and your fees (section 15). It allocates liability for
+          patient information consistently with sections 13 and 14 of these terms. The list of
+          companies that process it for us, and whether each has signed with us, is at{" "}
           <a href="/subprocessors" className="underline underline-offset-2">/subprocessors</a>.
         </p>
         <p>
-          <strong>The language model.</strong> The provider of the language model that generates
-          the agent's replies receives the content of each conversation to do so. Under its
-          business associate agreement with us it keeps that content for 30 days, for abuse
-          detection, and then deletes it, except content its automated trust-and-safety systems
-          flag or the law requires it to keep, which it may keep for up to two years; it never
-          trains on it. The Business Associate Agreement states the same.
+          <strong>No real patient information before every agreement is in place.</strong> We
+          process no real patient information for your Practice until each business associate
+          agreement in the chain is in place: yours with us, and ours with every vendor that will
+          handle it, which are our hosting provider, our database provider, our voice provider and
+          our language-model provider.
+        </p>
+        <p>
+          <strong>The language model.</strong> Our language-model provider is Anthropic. Anthropic
+          receives the content of each conversation, to generate the agent&apos;s replies, only
+          under a business associate agreement with us signed before any patient&apos;s
+          information reaches it. Under that agreement it keeps conversation content for 30 days,
+          for abuse detection and security, and then deletes it, except content its automated
+          trust-and-safety systems flag or the law requires it to keep, which it may keep for up
+          to two years; the service it provides under that agreement cannot run with shorter
+          retention, and it never trains on that content. The Business Associate Agreement states
+          the same.
         </p>
         <p>
           <strong>Meta channels.</strong> Instagram, Messenger and WhatsApp are operated by Meta,
@@ -480,7 +531,8 @@ export default function TermsPage() {
           These limits do not apply to our wilful misconduct or gross negligence, to your
           indemnity obligations in section 14, or to any liability that cannot be excluded or
           limited by law. The first-month guarantee refund in section 5 is not limited by this
-          section. We carry no liability insurance; you should size your own cover accordingly.
+          section, and neither is the refund section 15 gives when you terminate your Data
+          Agreement. We carry no liability insurance; you should size your own cover accordingly.
         </p>
       </Section>
 
@@ -495,10 +547,11 @@ export default function TermsPage() {
           handles for you, instructions you gave us, your responsibilities in sections 8 and 9, or a
           claim by a patient, a regulator or any other third party. This indemnity applies to the
           fullest extent the law allows, including where the claim alleges negligence on our part.
+          It does not extend to a claim for the refund section 15 gives.
         </p>
         <p>
           <strong>We</strong> give you no indemnity. The Business Associate Agreement allocates
-          liability for patient information in the same way as this section and section 13.
+          liability for patient information consistently with this section and section 13.
           Nothing in these terms or in the Business Associate Agreement shifts to you a civil
           money penalty a regulator imposes on us for our own conduct, or changes what either of
           us owes a regulator directly.
@@ -518,6 +571,23 @@ export default function TermsPage() {
           creates a legal or security risk, telling you why. Either party may terminate for a
           material breach the other does not cure within 30 days of written notice. Sections 5, 7
           and 9 to 20 survive termination.
+        </p>
+        <p>
+          <strong>When your Data Agreement ends.</strong> However your Data Agreement ends, your
+          subscription and the service end on the same day, and no fees accrue for any time after
+          that day. Forwarded calls are then passed through to your direct line as section 7
+          describes.
+        </p>
+        <p>
+          A refund is owed only where you terminate your Data Agreement because we have violated
+          a material term of it, or under its Subcontractors clause after objecting to a new
+          subprocessor. We then refund the fees you have paid for the time after that day: the
+          prorated unused part of the subscription period you have paid for, which on an annual
+          plan is the rest of the year. The refund never includes the setup fee or usage above the
+          allowance already billed, and if your plan has not started (section 3) there is nothing
+          to refund. It is returned to the payment method you paid with. Where we terminate your
+          Data Agreement because of your breach, or it ends in any other way, this section refunds
+          nothing.
         </p>
       </Section>
 

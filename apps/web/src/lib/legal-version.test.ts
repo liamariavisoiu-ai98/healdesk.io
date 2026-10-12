@@ -38,8 +38,8 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  */
 
 const PINNED = {
-  version: "2026-10-07.3",
-  lastUpdated: "7 October 2026",
+  version: "2026-10-12.1",
+  lastUpdated: "12 October 2026",
   /**
    * The version these pages replace: the last one that went out, which was
    * main's live text when this one was numbered. A note may cite it, an earlier
@@ -48,12 +48,12 @@ const PINNED = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-07.2",
+  replaces: "2026-10-07.3",
   sha256: {
-    "/terms": "1cbfad0d644ad28ce848f71001646daa2489d5d980a688606f6f272cb436a0db",
-    "/privacy": "8387af806847184ae33b3f68b0f2fd585ad3e7bcc5c4b56cc612804a88306905",
-    "/subprocessors": "fd5df59b5d16036300545efd9c648c8eb97e5ab69b8df97636c1535c2bf0c8f6",
-    "/trust": "3afd18cd5d363f861bca400dea22b94b952b069a2459f6cbeb82cfb9f5b52691",
+    "/terms": "0e6b80f2ab5a5bbdf54ed2712faad98716d7e096a5ee384bdf0cbc21500b7ed7",
+    "/privacy": "97af43c5d18d5d9efd68d594981b3a8444938a6a9c0370eb96612bfe640bef5d",
+    "/subprocessors": "9a5830a1b540b58579001ee68121805065611cb98b128617ba0242d69a66e69d",
+    "/trust": "b87041273cf5c6956488baa7f2e3e8369282079fef3ef7252e17716d7d4a3573",
     "/data-deletion": "c176eca3132e36d15ee7924b829b7d8c70c30e655bb1a068606d10289b1531be",
   },
 } as const;

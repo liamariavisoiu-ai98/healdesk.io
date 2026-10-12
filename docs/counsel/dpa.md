@@ -380,6 +380,9 @@ Added on 7 October 2026, read at origin/main c926414:
     plan's "Data Agreement" definition (A6) is what makes them read for a DPA
     practice; until it lands, Terms § 7's "destroy … when and as the Business
     Associate Agreement says" points a DPA practice at the wrong document.
+    LEGAL_VERSION 2026-10-12.1 defines it in Terms § 1 and uses it where the
+    agreement ends (§§ 4, 7, 13, 14 and 15); the other sentences still name
+    the BAA.
 11. **Go-live refuses every DPA practice today.** Main's 0048 made
     `app_mark_clinic_production` accept only the BAA versions on
     `app_baa_version_acceptable()`'s allow-list, and `goLivePreconditions`
@@ -398,9 +401,11 @@ Added on 7 October 2026, read at origin/main c926414:
 13. **The Anthropic sentence describes a business associate agreement that is
     not yet signed** (brief.md risk 2). Gate A's `platform_compliance`
     attestation is what makes it true before the first DPA is signed.
-14. **The public notice period.** `/subprocessors` and `/trust` promise every
+14. **The public notice period.** `/subprocessors` and `/trust` promised every
     customer fifteen days (`POLICY.subprocessorNoticeDays`); the DPA gives
     24 hours, as BAA 1.3.0 does (agreement-changes.md § 12.11, item 10).
+    Closed in LEGAL_VERSION 2026-10-12.1: both pages give 24 hours, and
+    fifteen days only to a clinic whose BAA is earlier than 1.3.0.
 15. **The telephone number kept after a deletion** (13, 17), left as it
     stands. Both sentences say the number of a client whose information was
     deleted is kept as the record of the request, as `eraseContact` keeps it
@@ -421,6 +426,13 @@ Added on 7 October 2026, read at origin/main c926414:
     penalty" promises, and leaves its termination for a material breach
     without a refund term. Recommended for the owner: the same refund, which
     would also say that terminating for breach ends the Services that day.
+    The owner decided it on 12 October 2026, for the BAA and the DPA alike:
+    every ending ends the Services and stops Fees that day; a refund only
+    where Practice terminates for healdesk's violation of a material term or
+    under the Subcontractors clause, of the prorated unused paid period,
+    never the setup fee or overage already billed. Terms § 15 gives it to a
+    DPA practice from LEGAL_VERSION 2026-10-12.1; the DPA's own Term clause
+    still has to say so before release.
 18. **"Services" and "Fees" are left to the Terms, which define neither**
     (ICD-19, ICD-32 for the BAA). The Term clause's refund and the new
     precedence over the Terms read the words as the Terms use them; BAA
@@ -563,5 +575,5 @@ its trigger.
 - [ ] The Terms read for a DPA practice (A6, "Data Agreement"): §§ 1, 7, 9,
       11, 12, 14 and 19, Privacy § 12 and `/data-deletion` name only the BAA
       today, and a vet's clients are called patients.
-- [ ] `/subprocessors` and `/trust` say the same notice period as the
-      agreements in force (gap 14).
+- [x] `/subprocessors` and `/trust` say the same notice period as the
+      agreements in force (gap 14; LEGAL_VERSION 2026-10-12.1).

@@ -1471,6 +1471,39 @@ these is closed, by code, a page, a signed paper or a host setting, and
     the same day, with the refund clause 17 gives (HRC-07, SUB-03); §9 and
     §14 may say "consistently with" for "in the same way" (ICD-16).
 
+Gates 12 to 14 are written in LEGAL_VERSION 2026-10-12.1, to ship in the same
+push as the release (12 October 2026):
+
+- 12: `/privacy` § 14 makes clause 8's commitment in clause 8's terms, for a
+  clinic whose agreement allows de-identification (1.2.1 also does, more
+  loosely; the DPA allows none), and § 11 follows clause 6: the calendar or
+  one per provider, the main calendar until one is chosen, the calendar names
+  read, the three things not read, and when the token is deleted. § 9's five
+  calendar days became 24 hours.
+- 13: `/subprocessors` and `/trust` give 24 hours, and fifteen days for a
+  clinic whose agreement is earlier than 1.3.0 (1.0.0 and the 0.1.0 draft
+  name no period, which fifteen days meets), to the notice address, naming
+  the vendor, what it receives and why. Meta's row is a note beside the
+  calendar and the payment processor, the register has two kinds of row, and
+  `/trust` § 3 counts no scoped vendor. `/trust` § 5 gives clause 12's 24
+  hours where it said five calendar days for a breach and five business days
+  for an incident. Retell's region stays "Not yet confirmed" (gate 15).
+- 14: Terms § 9 states Anthropic's agreement as clause 13 does and says no
+  real patient information is processed until every agreement in the chain
+  is in place; §§ 9 and 14 say "consistently with". Terms § 1 defines the
+  "Data Agreement" (the BAA, or the DPA in its place), and §§ 4, 7 and 15
+  give the owner's refund rule of 12 October 2026, which clause 17's third
+  paragraph states for the BAA: every ending stops the subscription and fees
+  that day; a refund only where Practice terminates for healdesk's violation
+  of a material term or under the Subcontractors clause, of the prorated
+  unused paid period (the rest of the year on an annual plan), never the
+  setup fee or overage already billed, and nothing before the plan starts;
+  otherwise none. §§ 13 and 14 keep it outside the exclusion and the
+  indemnity, as clause 18 does. Terms § 4's cancellation is the portal's
+  Auto-renew switch, since Stripe's portal has cancellation off. The code
+  that ends the subscription and refunds on termination (blocker 1 of the
+  C19 audit, refund kind `agreement_terminated`) is another branch's.
+
 **Paper and settings**
 
 15. Retell's US region and encryption at rest confirmed in writing, and its

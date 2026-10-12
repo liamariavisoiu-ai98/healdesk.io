@@ -8,23 +8,27 @@
  * docs/hipaa-compliance.md, corrected against what has actually been signed
  * and against docs/v1-product-spec.md ("Vendor position, vendor by vendor").
  *
- * Three kinds of row, and the page says which is which:
+ * Two kinds of row, and the page says which is which:
  *
  *   1. `handlesPhi: true`: receives patient information and works under a
  *      Business Associate Agreement with us. `baa` says whether it is signed.
  *   2. `handlesPhi: false`, `baa.state: "not-needed"`: never receives patient
  *      information. It hosts or measures this website, or sends email that
  *      carries none.
- *   3. `handlesPhi: false`, `baa.state: "none-by-design"`: in the patient's
- *      path, but no agreement exists or ever will, so the product keeps
- *      clinical content away from it by scoping rather than paperwork. Meta
- *      (Instagram, Messenger, WhatsApp) carries the patient's own messages,
- *      kept non-clinical.
  *
- * Two things in the patient's path have no row, because they are the
- * clinic's own vendors, not ours: its Google Calendar, and the payment
- * processor account a deposit is taken through. The page says so above the
- * register.
+ * Three things in the patient's path have no row, because they are the
+ * clinic's own services, which it connects under its own accounts, not our
+ * subcontractors (BAA 1.3.0's clause headed "Where Practice is not a covered
+ * entity"): its Google Calendar, the payment processor account a deposit is
+ * taken through, and its Instagram, Messenger and WhatsApp accounts. The page
+ * says so above the register, in a note for each.
+ *
+ * Change of 12 October 2026 (LEGAL_VERSION 2026-10-12.1, release gate 13 of
+ * docs/counsel/agreement-changes.md § 12.14): Meta is no longer a row. It
+ * was the one row of a third kind, "none-by-design", in the patient's path
+ * with no agreement possible; it is now the note beside the calendar and the
+ * payment processor, scoped rather than covered, as BAA 1.3.0's clause headed
+ * "What healdesk is not authorised to do" describes it.
  *
  * `baa` is a fact about paper, not a hope. "pending" means the agreement has
  * not yet been requested; "requested" means it has, with the date; "signed"
@@ -85,9 +89,7 @@ export type BaaStatus =
   | { state: "requested"; on: string }
   /** Not yet requested. No patient information is sent until it is signed. */
   | { state: "pending" }
-  | { state: "not-needed"; because: string }
-  /** In the patient's path with no agreement possible; kept non-clinical. */
-  | { state: "none-by-design"; because: string };
+  | { state: "not-needed"; because: string };
 
 export type Subprocessor = {
   name: string;
@@ -150,19 +152,6 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
       because: "A separate organisation from the product's, with no BAA: the demo is for clinic owners and staff, not a patient channel, the website read sends only a clinic's own public pages, and no patient information is sent to it.",
     },
     scope: "marketing-site",
-  },
-  {
-    name: "Meta (Instagram, Messenger, WhatsApp)",
-    purpose: "Carries the messages patients send to a clinic's Instagram account, Facebook Page and WhatsApp number, and the assistant's replies",
-    data: "The patient's own messages and the identifiers Meta attaches to them (on WhatsApp, their phone number). Clinical content is caught when it arrives and not stored, and replies carry no treatment names",
-    region: "Meta's own infrastructure; not region-pinned",
-    handlesPhi: false,
-    baa: {
-      state: "none-by-design",
-      because:
-        "Meta signs no BAA for any messaging product. These channels are kept free of clinical content: anything clinical is moved to a call or the clinic's own secure route.",
-    },
-    scope: "product",
   },
   {
     name: "Stripe",
@@ -247,8 +236,3 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
 ] as const;
 
 export const PHI_SUBPROCESSORS = SUBPROCESSORS.filter((s) => s.handlesPhi);
-
-/** In the patient's path with no agreement possible, kept non-clinical by design. */
-export const SCOPED_SUBPROCESSORS = SUBPROCESSORS.filter(
-  (s) => s.baa.state === "none-by-design",
-);

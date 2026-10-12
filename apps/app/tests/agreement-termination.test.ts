@@ -144,6 +144,14 @@ async function requestsOf(clinicId: string) {
   );
 }
 
+/** The billing-requests job's switch: it ships off (drizzle/0050), and truncateAll seeds it off. */
+async function setBillingRequestsJob(enabled: boolean): Promise<void> {
+  await getMigratorPool().query(
+    `update scheduled_jobs set enabled = $1 where name = 'billing-requests'`,
+    [enabled],
+  );
+}
+
 /**
  * A started monthly practice: the billing clinic, a second location answering
  * calls, both live under one bound agreement, and Stripe holding the
@@ -252,10 +260,12 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     await truncateAll();
   }, 180_000);
 
-  beforeEach(() => {
+  beforeEach(async () => {
     notifyOps.mockClear();
     delete process.env.HEALDESK_OPS_EMAIL;
     delete process.env.HEALDESK_ADMIN_EMAIL;
+    // On, as it is in service: the tests of it being off switch it off.
+    await setBillingRequestsJob(true);
   });
 
   afterAll(async () => {
@@ -333,6 +343,11 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       clinicId: practice.billingClinicId,
       agreementId: practice.agreementId,
     });
+    // With the billing-requests job on, nothing is incomplete.
+    expect(notifyOps).not.toHaveBeenCalledWith(
+      "agreement_termination_incomplete",
+      expect.anything(),
+    );
 
     // The worker cancels at once, with no proration and no final invoice.
     expect(await drainBillingRequests({ now: new Date(), stripe: world.stripe })).toMatchObject({
@@ -500,6 +515,66 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       .filter((refund) => refund.payment_intent === `pi_${invoice.id}`)
       .reduce((sum, refund) => sum + (refund.amount as number), 0);
     expect(refunded).toBe(PACKAGE_CENTS);
+  }, 180_000);
+
+  test("a cancellation recorded while the billing-requests job is off tells ops at once, from a termination and from a first-period refund", async () => {
+    await setBillingRequestsJob(false);
+
+    // A termination: the cancel_now is recorded, and ops hears it will not go.
+    const ended = await seedPractice("term-job-off");
+    worldFor(ended);
+    await run("markAgreementTerminated", {
+      agreementId: ended.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "change_in_law",
+    });
+    expect(await requestsOf(ended.billingClinicId)).toEqual([
+      { kind: "cancel_now", reason: "ops", outcome: null },
+    ]);
+    expect(notifyOps).toHaveBeenCalledWith("agreement_termination_incomplete", {
+      clinicId: ended.billingClinicId,
+      agreementId: ended.agreementId,
+      phase: "billing_job_off",
+    });
+
+    // A first-period refund under § 5, with no termination: the same gap.
+    const refunded = await seedPractice("refund-job-off");
+    const world = worldFor(refunded);
+    thisPeriodInvoice(world);
+    notifyOps.mockClear();
+    expect(
+      await commitRefund(
+        {
+          clinicId: refunded.billingClinicId,
+          kind: "first_period_cancel",
+          confirmAmountCents: PACKAGE_CENTS,
+          reason: "First period under § 5",
+          actorLabel: OPERATOR.email,
+        },
+        { stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "refunded", isCancelRequested: true });
+    expect(notifyOps).toHaveBeenCalledWith("refund_cancel_job_off", {
+      clinicId: refunded.billingClinicId,
+    });
+
+    // With the job on, neither alert.
+    await setBillingRequestsJob(true);
+    notifyOps.mockClear();
+    const quiet = await seedPractice("refund-job-on");
+    const quietWorld = worldFor(quiet);
+    thisPeriodInvoice(quietWorld);
+    await commitRefund(
+      {
+        clinicId: quiet.billingClinicId,
+        kind: "first_period_cancel",
+        confirmAmountCents: PACKAGE_CENTS,
+        reason: "First period under § 5",
+        actorLabel: OPERATOR.email,
+      },
+      { stripe: quietWorld.stripe },
+    );
+    expect(notifyOps).not.toHaveBeenCalledWith("refund_cancel_job_off", expect.anything());
   }, 180_000);
 
   test("who ended it and why is recorded once, with the date, and never changed", async () => {

@@ -553,6 +553,18 @@ async function setupClosureSwitchedOn(): Promise<boolean> {
 }
 
 /**
+ * Whether the billing-requests job, the only thing that carries a recorded
+ * request out on Stripe, is switched on. It ships off (drizzle/0050), and
+ * while it is off a recorded `cancel_now` waits and the subscription keeps
+ * billing; its stuck and dead-letter alerts come from the same job, so they
+ * are silent too. A caller that records a cancellation the customer is owed
+ * at once (a termination, a first-period refund) asks this and tells ops.
+ */
+export async function billingRequestsSwitchedOn(): Promise<boolean> {
+  return (await getJob(JOB_BILLING_REQUESTS))?.enabled === true;
+}
+
+/**
  * The clock a drain runs on: the `now` it was started with, moving forward
  * with real time. Every lease, wait and outcome stamp is taken from it, so a
  * test that pins `now` gets the same answers every run, and a drain that

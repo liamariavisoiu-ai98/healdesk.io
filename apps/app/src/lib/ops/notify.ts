@@ -97,13 +97,19 @@ export const OPS_EVENTS = [
   // and by the calendar watch's probe, with `code` oauth_client or api_disabled.
   "google_oauth_client_rejected",
   // A recorded termination (BAA 1.3.0 clause 17) could not start a
-  // location's offboarding or record its billing clinic's cancellation
-  // (lib/agreements/termination.ts); `phase` says which.
+  // location's offboarding or record its billing clinic's cancellation, or
+  // recorded the cancellation while the billing-requests job that carries
+  // it out is switched off (lib/agreements/termination.ts); `phase` says
+  // which.
   "agreement_termination_incomplete",
   // A termination for one of the two reasons BAA 1.3.0 clause 17 ¶3 refunds
   // (lib/agreements/termination.ts), once per billing clinic: the operator
   // previews and confirms the refund on its Billing page.
   "agreement_refund_due",
+  // A first-period refund under Terms § 5 recorded the plan's immediate
+  // cancellation while the billing-requests job, its only executor, is
+  // switched off (commitRefund in lib/billing/stripe-actions.ts).
+  "refund_cancel_job_off",
   // An open incident past healdesk's internal 24-hour notice target with no
   // notice recorded (BAA 1.3.0 release gate 5; the agreements promise 60
   // calendar days), once per incident, by the hourly incident-deadlines job

@@ -71,7 +71,7 @@ import {
 } from "./metered-items";
 import { enqueueNotice, type NoticePayloads } from "./notices";
 import { priceForLookupKey } from "./prices";
-import { rearmBillingRequest, requestCancelNow } from "./requests";
+import { billingRequestsSwitchedOn, rearmBillingRequest, requestCancelNow } from "./requests";
 import { recordBillingNote } from "./state-machine";
 import { getStripe, stripeConfigured } from "./stripe-client";
 import {
@@ -3048,6 +3048,17 @@ export async function commitRefund(
       await releaseStripeMutationLease(tx.db, billingClinicId, owner);
     });
     releaseOnExit = false;
+    // The cancel_now just recorded is carried out only by the billing-requests
+    // job, which ships off. A termination has already told ops if it is
+    // (lib/agreements/termination.ts); a first-period refund tells them here,
+    // or the plan it refunded keeps billing.
+    // A switch that can't be read counts as off: the alert is the safe side.
+    if (
+      input.kind === "first_period_cancel" &&
+      !(await billingRequestsSwitchedOn().catch(() => false))
+    ) {
+      await notifyOps("refund_cancel_job_off", { clinicId: billingClinicId });
+    }
     return { status: "refunded", amountCents, refundedAt: now.toISOString(), isCancelRequested };
   } catch (error) {
     log.warn("refund not completed", { clinicId: billingClinicId, code: stripeErrorCode(error) });

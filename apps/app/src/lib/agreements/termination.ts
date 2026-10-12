@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import type { ActorContext, RequestContext } from "@/lib/audit";
-import { requestCancelForAgreementEnd } from "@/lib/billing/requests";
+import { billingRequestsSwitchedOn, requestCancelForAgreementEnd } from "@/lib/billing/requests";
 import { describeError, log } from "@/lib/log";
 import { alertIfOffboardingStartedLate, startOffboarding } from "@/lib/offboarding/offboarding";
 import { notifyOps } from "@/lib/ops/notify";
@@ -35,7 +35,10 @@ import { agreementInEffectFor } from "./in-effect";
  *     whose worker cancels the subscription at once and without proration
  *     (lib/billing/requests.ts), retrying with the billing requests' backoff
  *     until it goes, and telling ops when it is stuck for a day or
- *     dead-lettered. Every ending stops the Fees on the day;
+ *     dead-lettered. That worker is the billing-requests job, which ships
+ *     off: while it is off, ops is told at once (phase billing_job_off) to
+ *     switch it on or cancel in Stripe. Every ending stops the Fees on the
+ *     day;
  *   - where clause 17 ¶3 refunds (the practice ended it because healdesk
  *     violated a material term, or under the Subcontractors clause), ops is
  *     told once per billing clinic that a refund is due
@@ -136,12 +139,25 @@ export async function endServicesAfterTermination(input: {
 
   const refundDue = terminationRefundsFees(reason);
   const billingClinics = [...new Set(locations.map((location) => location.billingClinicId))];
+  // The cancellation is carried out only by the billing-requests job, which
+  // ships off; with it off the subscription keeps billing every period and
+  // nothing else would say so.
+  // A switch that can't be read counts as off: the alert is the safe side.
+  const jobOn =
+    billingClinics.length === 0 || (await billingRequestsSwitchedOn().catch(() => false));
   for (const billingClinicId of billingClinics) {
     try {
       await withTenant({ clinicId: billingClinicId, actor, request }, (tx) =>
         requestCancelForAgreementEnd(tx, billingClinicId),
       );
       cancellations += 1;
+      if (!jobOn) {
+        await notifyOps("agreement_termination_incomplete", {
+          clinicId: billingClinicId,
+          agreementId,
+          phase: "billing_job_off",
+        });
+      }
       if (refundDue) {
         await notifyOps("agreement_refund_due", { clinicId: billingClinicId, agreementId });
       }

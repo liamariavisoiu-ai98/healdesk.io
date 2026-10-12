@@ -261,13 +261,22 @@ const WORDING: Record<OpsEvent, Wording> = {
       "Google refused healdesk's own OAuth client, or apps/app has none set (code oauth_client), or Google says the Calendar API is disabled in healdesk's Google Cloud project (code api_disabled). Until it is fixed no clinic can connect a calendar or keep one working, and the calendar watch moves each connection it checks to booking requests. Check the Calendar OAuth client and that the Google Calendar API is enabled in the Google Cloud project, and GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET in the apps/app secret store; a clinic whose connect failed can then try again.",
   },
   // Raised by a recorded termination (lib/agreements/termination.ts) for each
-  // location it could not start offboarding (phase offboarding) and each
-  // billing clinic it could not record a cancellation for (phase billing).
-  // The termination itself is recorded, and the assistant has stopped.
+  // location it could not start offboarding (phase offboarding), each
+  // billing clinic it could not record a cancellation for (phase billing),
+  // and each billing clinic whose cancellation is recorded while the
+  // billing-requests job is off (phase billing_job_off). The termination
+  // itself is recorded, and the assistant has stopped.
   agreement_termination_incomplete: {
     title: "A terminated practice's service did not fully end",
     action:
-      "The agreement's termination is recorded and the assistant has stopped, but one step failed for the clinic below. For phase offboarding, start offboarding from its care page. For phase billing, cancel the subscription in Stripe at once, without proration: every ending stops the fees on the day.",
+      "The agreement's termination is recorded and the assistant has stopped, but one step did not finish for the clinic below. For phase offboarding, start offboarding from its care page. For phase billing, cancel the subscription in Stripe at once, without proration: every ending stops the fees on the day. For phase billing_job_off, the cancellation is recorded but the billing-requests job that carries it out is switched off, so the subscription keeps billing: switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration.",
+  },
+  // Raised by a first-period refund (commitRefund) whose cancel_now waits on
+  // the switched-off billing-requests job.
+  refund_cancel_job_off: {
+    title: "A refunded plan is still billing",
+    action:
+      "A first-period refund under the Terms was issued and the plan's cancellation recorded, but the billing-requests job that carries it out is switched off, so the subscription keeps billing. Switch billing-requests on in the console, or cancel the subscription in Stripe at once, without proration.",
   },
   // Raised by a recorded termination for each billing clinic when the
   // practice ended the agreement because healdesk violated a material term,

@@ -54,17 +54,66 @@ queue, or the worker will not start, and for pg-boss's own cron queue
 (`__pgboss__send-it`), without which no schedule fires: neither this minute clock nor
 the hourly tick. A worker whose job rows never show a `last_run_at` is the symptom.
 
-v1 adds jobs that are not built yet: the Google Calendar token watch, knowledge re-audits
-when a clinic's knowledge changes, the monthly re-scrape diff, the demo-sandbox purge
-(7 to 14 days), the 14-day zero-inbound flag for an active voice plan, the 48-hour
-zero-interaction flag, the 48-hour channel-not-live reminder to the clinic, and the daily
-summary email to the clinic. None of these contacts a patient; v1 sends patients nothing
-after a conversation ends.
+The calendar watch (`calendar-watch`, `lib/scheduler/calendar-watch.ts`) runs every five
+minutes from its own pg-boss queue, also `calendar-watch`, behind its job row's switch,
+which ships off. Switch it on from the console when the first clinic connects a Google
+Calendar; until then, a calendar whose access was removed is noticed only when something
+asks Google about it. Each run first disconnects every location whose calendar terms
+ended, whose Google account no longer matches them, or that is offboarding, before it
+opens a single token (each grant no other location holds is then revoked at Google). A
+location whose terms could not be checked is left alone that run, its token unopened.
+Then, for each connected calendar, one forced token refresh and one free/busy query, and
+nothing else:
 
-**An hourly tick is not "the moment a connection breaks".** The calendar token watch
-catches expiry ahead of time, but a write that fails on authorisation must also flip the
-clinic to manual booking mode in the same turn, from the tool layer, without waiting for
-the worker.
+- a definitive refusal (access removed in Google, an administrator's block, a lost scope,
+  the calendar forbidden or gone) breaks the connection, and the location takes booking
+  requests at once; the clinic is emailed once (O13) and ops hears of it in the run's
+  `calendar_broken` alert;
+- three misses in a row (timeouts, Google errors, rate limits) degrade it to requests
+  (`calendar_degraded`), and the first good answer brings it back
+  (`calendar_recovered`). The clinic is not emailed for either;
+- Google refusing healdesk's own OAuth client, or saying the Calendar API is disabled,
+  degrades each connection it checks and raises `google_oauth_client_rejected` every
+  run, which mails at most once an hour. Fix the Google Cloud project or apps/app's
+  secrets, not the clinics: the next good answer restores each one.
+
+**What ops receives.** A run sends at most one email for each kind of change:
+`calendar_broken`, `calendar_degraded` and `calendar_recovered`. Each counts the
+connections it is about, names them when there is just one, and carries the run's id as
+**Job id**. To list the connections behind a count, search the worker's log for that
+`jobId`: each change has a line with its clinic and connection ids. Every run's changes
+are a new email, so a second wave of failures, or a connection that degrades again after
+recovering, is mailed even inside the hour. Alerts about a condition that persists
+(`google_oauth_client_rejected`, `calendar_watch_incomplete`, `calendar_watch_failed`)
+mail at most once an hour while it lasts. Every run also writes a `calendar_watch`
+security event with its counts and id, so a gap in those rows means the watch did not
+run.
+
+A run that has not checked every connection after four minutes stops starting checks,
+alerts `calendar_watch_incomplete`, and checks the rest first next run. A run in which a
+step threw (a check, a location's terms check, telling a clinic, or the run itself)
+alerts `calendar_watch_failed` and is recorded `failed` on its job row; pg-boss does not
+re-run it at once, because a re-run would count another miss against every connection
+Google was slow for. The next run, five minutes later, is the retry. Its lock goes stale
+after ten minutes, not an hour.
+
+**Installing the watch, in each environment:** run `npm run queue:install -w
+@healdesk/app` as the migrator, **then restart the worker**, then switch the job on. The
+restart is not optional: the worker registers its clocks only when it starts, so a
+worker started before the install has logged `queue clock not running` with
+`"job":"calendar-watch"`, and runs everything else without the watch until it restarts.
+
+v1 adds jobs that are not built yet: knowledge re-audits when a clinic's knowledge
+changes, the monthly re-scrape diff, the demo-sandbox purge (7 to 14 days), the 14-day
+zero-inbound flag for an active voice plan, the 48-hour zero-interaction flag, the
+48-hour channel-not-live reminder to the clinic, and the daily summary email to the
+clinic. None of these contacts a patient; v1 sends patients nothing after a conversation
+ends.
+
+**Five minutes is not "the moment a connection breaks".** The calendar watch catches a
+removed access within one run, but a write that fails on authorisation must also flip
+the location to manual booking in the same turn, from the tool layer
+(`markCalendarBroken`), without waiting for the worker.
 
 ## The signals
 
@@ -73,7 +122,8 @@ the worker.
 | Heartbeat | `/api/health` → `heartbeatAgeSeconds`; ops console job list, row `heartbeat` | under 3,700 s | over 2 hours: the worker is down or stuck |
 | Queue | `/api/health` → `queue.oldestPendingSeconds`, `queue.failed` | pending under 1 h, failed 0 | pending over 2 h or failed rising: a handler is throwing; read `log.error` lines with `queue error` |
 | Email | `/api/health` → `email.lateCriticalNotices` and `reasons`; ops alert emails (`ops_alerts`); the job list, row `billing-notices` | 0 late | any late: a critical email is still unsent ten minutes after it was due. `/api/health` answers 503 with `"reasons": ["critical_notice_undelivered"]` and ops is emailed once per notice. Check Resend and the job's note, then call the clinic |
-| Jobs | ops console job list: `last_run_status` and `last_run_note` | `ok` | `failed` twice in a row, or `already-running` for over an hour (a stale lock is reclaimed after 60 min) |
+| Jobs | ops console job list: `last_run_status` and `last_run_note` | `ok` | `failed` twice in a row, or `already-running` for over an hour (a stale lock is reclaimed after 60 min; 10 min for `calendar-watch`) |
+| Calendar watch | ops alert emails (`calendar_broken`, `calendar_degraded`, `calendar_recovered`, `google_oauth_client_rejected`, `calendar_watch_incomplete`, `calendar_watch_failed`); the job list, row `calendar-watch`, whose note counts each run's checks, breakages, misses, skips and failures and ends with the run's id | `ok` every five minutes once switched on | `google_oauth_client_rejected`: at once, every clinic is affected. `calendar_watch_failed`, or `failed` on the job row, twice in a row: read the worker's `calendar watch` error lines. `calendar_watch_incomplete` on most runs. No `last_run_at` ten minutes after switching it on: the queue was not installed or the worker not restarted (look for `queue clock not running` with `calendar-watch`) |
 | Voice endpoint | Not built. Needs its own liveness check, and Retell's call log for calls that reached no endpoint | — | Any forwarded call that did not reach the endpoint and did not fall through to the clinic |
 | Meta webhooks | The audit rows the front door writes per answered message, the `front door` lines in the logs, and any delivery failures Meta reports for the app | Messages answered | Meta reports failed deliveries, model calls fail, or a clinic with a connected channel goes quiet |
 

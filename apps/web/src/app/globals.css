@@ -2893,6 +2893,20 @@
   text-wrap: balance;
 }
 
+/* A heading inside a section, under its own heading: the same face at about
+   half the size, at Fraunces' text optical size rather than its display cut,
+   so it reads as part of the section and not as the start of another (owner,
+   12 October 2026, of "See it in your own branding"). */
+@utility heading-sub {
+  max-width: 640px;
+  font-family: var(--font-display);
+  font-size: clamp(26px, 2.5vw, 36px);
+  font-weight: 400;
+  line-height: 1.12;
+  letter-spacing: -0.018em;
+  text-wrap: balance;
+}
+
 @utility btn-outline {
   display: inline-flex;
   align-items: center;

@@ -326,12 +326,16 @@ function fullYear(written: string): number {
 }
 
 /**
- * A numeric token: a clock time, a date, a day of the month or a year. A
- * year before `now`'s is no time to book, and next to a day and a month it
- * is shaped like a date of birth, so it is refused.
+ * A numeric token: a clock time, a date, a day of the month or a year,
+ * whose year, when it has one, is this year or next (see `bookable`).
  */
 function numericIsTime(token: string, now: Date): boolean {
   const thisYear = now.getUTCFullYear();
+  // A booking is this year or next. Any other year is no time to book, and
+  // beside a day and a month it is shaped like a date of birth: a past one
+  // ("10/21/1985"), and a two-digit one read in this century ("03/12/90"
+  // as 2090).
+  const bookable = (year: number) => year >= thisYear && year <= thisYear + 1;
   const t = token.replace(/(?:am|pm|st|nd|rd|th|ish|h)$/, "");
   // A clock time with minutes: 5:30, 5.30, 17:45.
   let m = /^(\d{1,2})[:.](\d{2})$/.exec(t);
@@ -341,14 +345,14 @@ function numericIsTime(token: string, now: Date): boolean {
   // A date: 10/21, 21-10, 10/21/26, 2026-10-21. A range of hours ("2-4") has the same shape.
   m = /^(\d{1,2})[/.-](\d{1,2})(?:[/.-](\d{2}|\d{4}))?$/.exec(t);
   if (m) {
-    if (m[3] !== undefined && fullYear(m[3]) < thisYear) return false;
+    if (m[3] !== undefined && !bookable(fullYear(m[3]))) return false;
     return Number(m[1]) <= 31 && Number(m[2]) <= 31;
   }
   m = /^(\d{4})-\d{1,2}-\d{1,2}$/.exec(t);
-  if (m) return Number(m[1]) >= thisYear;
+  if (m) return bookable(Number(m[1]));
   // A year, or a time without its colon: 2026, 1030. Three digits ("250")
   // are neither.
-  if (/^(19|20)\d{2}$/.test(t)) return Number(t) >= thisYear;
+  if (/^(19|20)\d{2}$/.test(t)) return bookable(Number(t));
   m = /^(\d{2})(\d{2})$/.exec(t);
   if (m) return Number(m[1]) <= 23 && Number(m[2]) < 60;
   return false;

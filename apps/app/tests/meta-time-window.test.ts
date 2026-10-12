@@ -44,6 +44,7 @@ describe("the closed time grammar", () => {
     "12/10",
     `10/21/${NEXT_YEAR}`,
     `${NEXT_YEAR}-10-21`,
+    `10/21/${String(NEXT_YEAR).slice(2)}`,
     "Friday 3ish",
     "Thursday evening, or Friday morning",
     "mornings before 11",
@@ -111,6 +112,12 @@ describe("the closed time grammar", () => {
     "2 weeks after",
     "4 weeks after the last time",
     "after 250",
+    // A two-digit year read in this century, or a year past next: shaped
+    // like a date of birth, never like a booking (the verification of 3a6de11).
+    "03/12/90",
+    "12/03/1990",
+    `10/21/${NEXT_YEAR + 5}`,
+    `${NEXT_YEAR + 5}-10-21`,
   ])("%s is refused", (window) => {
     expect(isTimeWindow(window)).toBe(false);
     expect(windowIsClean(window, META)).toBe(false);

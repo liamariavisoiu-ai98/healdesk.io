@@ -181,6 +181,14 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Deliver this practice's export, and record the handover on its care page, before the time below: Terms §7 promises every leaving practice its export within 30 days of the end, whether or not it asks. Its data is destroyed at that time whether or not the export was delivered, because its agreement gives thirty days, or it has none on file.",
   },
+  // The same, from day 21, for a clinic whose agreement (BAA 1.3.0, the DPA)
+  // promises the export within thirty days and destroys the data once it is
+  // delivered, or at the ninety days without it.
+  export_due_undelivered: {
+    title: "A leaving practice's export is due and not delivered",
+    action:
+      "Deliver this practice's export, and record the handover on its care page, before the export deadline below: its agreement promises the export within thirty days of the end, without being asked. Its data is destroyed once the export is delivered, and at the destruction time below whether or not it was.",
+  },
   // Raised once by the Stripe webhook (lib/billing/events.ts) when a
   // subscription's end was processed more than a week after it happened, so
   // the database started the clock a week back and no further. Its facts are

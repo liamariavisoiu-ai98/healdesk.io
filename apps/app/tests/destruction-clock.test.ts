@@ -738,7 +738,7 @@ describeDb("the destruction clock in the database", () => {
     }
   }, 120_000);
 
-  test("from day 21 ops is told once, for a clinic on the thirty days with no export delivered, and never otherwise", async () => {
+  test("from day 21 ops is told once, at its own rule's deadline, for a clinic with no export delivered, and never otherwise", async () => {
     const flat = await offboard("clock-alert-flat", "1.2.1");
     const none = await offboard("clock-alert-none", null);
     const delivered = await offboard("clock-alert-delivered", "1.2.1");
@@ -767,6 +767,21 @@ describeDb("the destruction clock in the database", () => {
     }
     for (const c of [delivered, early, v130, dpa]) {
       expect(await alertsFor("export_undelivered_before_destruction", c.clinicId)).toEqual([]);
+    }
+    // BAA 1.3.0 and the DPA promise the export within thirty days, unasked:
+    // ops hears at day 21 too, with that deadline and the ninety days' end.
+    for (const c of [v130, dpa]) {
+      const started = (await stamps(c.clinicId)).offboarding_started_at!;
+      expect(await alertsFor("export_due_undelivered", c.clinicId)).toEqual([
+        {
+          clinicId: c.clinicId,
+          exportDueAt: new Date(started.getTime() + THIRTY_DAY_LIMIT_DUE_DAYS * DAY).toISOString(),
+          destroyAt: new Date(started.getTime() + NINETY_DAY_LIMIT_DUE_DAYS * DAY).toISOString(),
+        },
+      ]);
+    }
+    for (const c of [flat, none, delivered, early]) {
+      expect(await alertsFor("export_due_undelivered", c.clinicId)).toEqual([]);
     }
     // One row, one email: the repeats are counted on it, not sent.
     const { rows } = await getMigratorPool().query<{ n: number }>(

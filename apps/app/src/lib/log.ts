@@ -89,6 +89,7 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   // about a customer's contract, never about a patient.
   "serviceEndedAt",
   "exportDeliveredAt",
+  "exportDueAt",
   "destroyAt",
   // Counters.
   "count",

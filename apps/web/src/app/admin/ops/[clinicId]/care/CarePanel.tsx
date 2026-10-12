@@ -245,7 +245,7 @@ function Amendments({ view }: { view: CareView }) {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="border-line mt-8 rounded-2xl border bg-white p-5">
+    <section className="border-line mt-8 rounded-md border bg-white p-5">
       <h2 className="text-[13.2px] font-bold tracking-[0.06em] uppercase">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
@@ -262,7 +262,7 @@ function RecipientRow({
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
   return (
-    <li className="border-line flex flex-wrap items-center gap-3 rounded-xl border px-4 py-2 text-sm">
+    <li className="border-line flex flex-wrap items-center gap-3 rounded-sm border px-4 py-2 text-sm">
       <span className="min-w-0 flex-1">
         <span className="font-semibold">{recipient.email}</span>
         {recipient.label ? <span className="text-muted ml-2">{recipient.label}</span> : null}
@@ -309,11 +309,11 @@ function AddRecipientForm({ onAdd }: { onAdd: Actions["addRecipient"] }) {
     >
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Email</span>
-        <input name="email" type="email" required className="border-line mt-1 rounded-lg border px-3 py-2" />
+        <input name="email" type="email" required className="border-line mt-1 rounded-sm border px-3 py-2" />
       </label>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Label (optional)</span>
-        <input name="label" maxLength={120} placeholder="Front desk" className="border-line mt-1 rounded-lg border px-3 py-2" />
+        <input name="label" maxLength={120} placeholder="Front desk" className="border-line mt-1 rounded-sm border px-3 py-2" />
       </label>
       <button type="submit" disabled={pending} className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white">
         Add recipient
@@ -329,7 +329,7 @@ function IncidentRow({ incident, actions }: { incident: CareView["incidents"][nu
   const resolved = Boolean(incident.resolvedAt);
   const overdue = !incident.notifiedAt && !resolved && incident.notifyBy < new Date().toISOString().slice(0, 16).replace("T", " ");
   return (
-    <li className={`border-line rounded-xl border px-4 py-3 text-sm ${resolved ? "opacity-70" : ""}`}>
+    <li className={`border-line rounded-sm border px-4 py-3 text-sm ${resolved ? "opacity-70" : ""}`}>
       <div className="flex flex-wrap items-baseline gap-2">
         <span className="font-semibold">{CLASS_LABELS[incident.class].split(" (")[0]}</span>
         <span className="text-muted text-xs">discovered {incident.discoveredAt} · opened by {incident.openedBy}</span>
@@ -408,7 +408,7 @@ function OpenIncidentForm({ onOpen }: { onOpen: Actions["openIncident"] }) {
       <p className="text-xs font-bold uppercase">Open an incident</p>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Class</span>
-        <select name="class" className="border-line mt-1 w-full rounded-lg border px-3 py-2">
+        <select name="class" className="border-line mt-1 w-full rounded-sm border px-3 py-2">
           {INCIDENT_CLASSES.map((c) => (
             <option key={c} value={c}>{CLASS_LABELS[c]}</option>
           ))}
@@ -416,16 +416,16 @@ function OpenIncidentForm({ onOpen }: { onOpen: Actions["openIncident"] }) {
       </label>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Summary — ids and counts, no patient</span>
-        <textarea name="summary" required maxLength={2000} rows={3} className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+        <textarea name="summary" required maxLength={2000} rows={3} className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
       </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-sm">
           <span className="text-muted block text-xs font-bold uppercase">Conversation id (optional)</span>
-          <input name="conversationId" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <input name="conversationId" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
         <label className="text-sm">
           <span className="text-muted block text-xs font-bold uppercase">Discovered (optional; default now)</span>
-          <input name="discoveredAt" type="datetime-local" className="border-line mt-1 w-full rounded-lg border px-3 py-2" />
+          <input name="discoveredAt" type="datetime-local" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
         </label>
       </div>
       <div>
@@ -502,7 +502,7 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
           </li>
           <li>
             Produce the return bundle on the app host:
-            <code className="ml-1 rounded bg-black/5 px-1.5 py-0.5 text-xs">npm run patient-export -w @healdesk/app -- --clinic {c.id} --all --requested-by &quot;offboarding&quot;</code>
+            <code className="ml-1 rounded-sm bg-black/5 px-1.5 py-0.5 text-xs">npm run patient-export -w @healdesk/app -- --clinic {c.id} --all --requested-by &quot;offboarding&quot;</code>
             {" "}and hand it over by the channel in docs/incident-response.md. Then record the handover here: producing it records nothing.
           </li>
           <li>

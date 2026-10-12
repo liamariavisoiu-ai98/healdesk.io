@@ -24,9 +24,17 @@
 /**
  * What a tool does for the clinic, and so which orbit its logo sits on
  * (owner, 9 October 2026): the places a patient writes in or calls, the
- * calendars a booking lands in or blocks, and the deposit.
+ * calendar a booking lands in, the calendars that read it, and the deposit.
+ *
+ * "synced" was split out of "bookings" on 12 October 2026 (owner): with
+ * Cal.com, Calendly and HighLevel beside Google Calendar under one
+ * "Bookings" chip, they read as places AYA books into. v1 writes bookings to
+ * Google Calendar and nothing else (CLAUDE.md, "Booking and payment"); the
+ * three are calendars a clinic keeps in sync with it, which see the slot as
+ * taken. So Bookings is Google Calendar alone, and the three have their own
+ * stretch of the same circle under a chip that says what they are.
  */
-export type LogoGroup = "messages" | "bookings" | "payments";
+export type LogoGroup = "messages" | "bookings" | "synced" | "payments";
 
 /** The hero photo, in pixels. Every place below is in these pixels. */
 export const PHOTO = { width: 1672, height: 941 } as const;
@@ -36,15 +44,16 @@ export const PHOTO = { width: 1672, height: 941 } as const;
  * orbits mixed with the chips that fan out"): true circles, about one point
  * under her chin, so they ring her head and pass beside her shoulders. The
  * owner asked on 12 October 2026 for perfect circles; the first version drew
- * flattened ovals. Each group has its own circle and its own stretch of it,
- * starting at its chip. Angles are in degrees, clockwise from three o'clock,
+ * flattened ovals. Each group has its own stretch of a circle, starting at
+ * its chip; Bookings and the calendars synced with it share the inner one,
+ * so the synced calendars stay exactly where they stood (12 October 2026). Angles are in degrees, clockwise from three o'clock,
  * as the screen draws them; `tail` is where the lit stretch fades out past the
  * last logo, and `dir` is which way along the circle the logos run from the
  * chip.
  *
  * Messages & Calls (five logos) is on the outer circle because that is the
- * only one whose far left is clear of the copy's box; Bookings is on the
- * inner and Payments on the middle. The places were found by search against
+ * only one whose far left is clear of the copy's box; Bookings and the
+ * synced calendars are on the inner and Payments on the middle. The places were found by search against
  * her face, the headset, the copy's box at every desktop size from 1280×720
  * to 2560×1440, the photo's edges and each other, then rounded, and
  * src/lib/integrations.test.ts pins the result.
@@ -65,7 +74,12 @@ export type Orbit = {
 
 export const ORBITS: readonly Orbit[] = [
   { group: "messages", title: "Messages & Calls", r: 760, chip: -146, tail: -209 },
-  { group: "bookings", title: "Bookings", r: 481, chip: -50.7, tail: 52 },
+  // Bookings and the calendars synced with it share the inner circle, one
+  // stretch each: Bookings from its chip down to just past Google Calendar,
+  // and the synced calendars' chip between Google Calendar and Cal.com, its
+  // stretch running on past HighLevel to where Bookings' tail used to be.
+  { group: "bookings", title: "Bookings", r: 481, chip: -50.7, tail: -16 },
+  { group: "synced", title: "Synced with Google", r: 481, chip: -12, tail: 52 },
   { group: "payments", title: "Payments", r: 647, chip: 8, tail: 40 },
 ];
 
@@ -129,7 +143,7 @@ const MESSAGE: readonly ShowcaseLine[] = [
   { text: "Received 9:41 PM", mark: "received" },
   { text: "Replied 9:41 PM", mark: "replied" },
 ];
-const BLOCKED: readonly ShowcaseLine[] = [{ text: "Slot blocked · Thu 3:00 PM" }];
+const BLOCKED: readonly ShowcaseLine[] = [{ text: "Synced from Google Calendar" }, { text: "Slot blocked · Thu 3:00 PM" }];
 
 const LOGOS: readonly Omit<HeroLogo, "at">[] = [
   { name: "website chat", src: "/integrations/website-chat.webp", mark: null, group: "messages", angle: -155, showcase: MESSAGE },
@@ -155,9 +169,9 @@ const LOGOS: readonly Omit<HeroLogo, "at">[] = [
     angle: -22,
     showcase: [{ text: "Consultation booked · Thu 3:00 PM" }],
   },
-  { name: "Cal.com", src: "/integrations/cal-com.webp", mark: "Cal.com", group: "bookings", angle: -1.9, showcase: BLOCKED },
-  { name: "Calendly", src: "/integrations/calendly.webp", mark: "Calendly", group: "bookings", angle: 18.2, showcase: BLOCKED },
-  { name: "HighLevel", src: "/integrations/highlevel.webp", mark: "HighLevel", group: "bookings", angle: 38.3, showcase: BLOCKED },
+  { name: "Cal.com", src: "/integrations/cal-com.webp", mark: "Cal.com", group: "synced", angle: -1.9, showcase: BLOCKED },
+  { name: "Calendly", src: "/integrations/calendly.webp", mark: "Calendly", group: "synced", angle: 18.2, showcase: BLOCKED },
+  { name: "HighLevel", src: "/integrations/highlevel.webp", mark: "HighLevel", group: "synced", angle: 38.3, showcase: BLOCKED },
   {
     name: "Stripe",
     src: "/integrations/stripe.webp",
@@ -168,18 +182,19 @@ const LOGOS: readonly Omit<HeroLogo, "at">[] = [
   },
 ];
 
-/** On their orbits, in order: Messages & Calls, then Bookings, then Payments. */
+/** On their orbits, in order: Messages & Calls, Bookings, the synced calendars, Payments. */
 export const HERO_LOGOS: readonly HeroLogo[] = LOGOS.map((logo) => ({ ...logo, at: onOrbit(logo.group, logo.angle) }));
 
 /**
  * The order the hero plays the cards in on its own, while nobody is hovering
  * (owner, 12 October 2026: the cards were hover-only, so most visitors never
  * read them): one logo from each group in turn, Messages & Calls, Bookings,
- * Payments, which is the order a booking happens in, then the next logo of
- * each, until every logo has had its card. A group with fewer logos drops out.
+ * Payments, which is the order a booking happens in, then the calendars that
+ * see the booking, then the next logo of each, until every logo has had its
+ * card. A group with fewer logos drops out.
  */
 export function storyOrder(logos: readonly HeroLogo[] = HERO_LOGOS): string[] {
-  const groups: LogoGroup[] = ["messages", "bookings", "payments"];
+  const groups: LogoGroup[] = ["messages", "bookings", "payments", "synced"];
   const lists = groups.map((group) => logos.filter((logo) => logo.group === group));
   const order: string[] = [];
   for (let i = 0; order.length < logos.length; i++) {
@@ -196,7 +211,7 @@ export function showcaseText(logo: HeroLogo): string {
 export const LABEL =
   "AYA, linked to the clinic's phone line, website chat, Instagram, Messenger and WhatsApp, to " +
   "Google Calendar for bookings, to Cal.com, Calendly and HighLevel " +
-  "through that calendar, and to the clinic's own Stripe account for " +
+  "only as calendars kept in sync with it, and to the clinic's own Stripe account for " +
   "deposits in chat.";
 
 /**

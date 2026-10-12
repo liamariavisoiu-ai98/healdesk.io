@@ -242,7 +242,7 @@ export function AgreementsRegister({
         /* The table scrolls inside this box. The page itself must never scroll
            sideways: an operator who has to pan the whole document to read a
            retention date will misread it. */
-        <div className="border-line mt-4 overflow-x-auto rounded-2xl border bg-white">
+        <div className="border-line mt-4 overflow-x-auto rounded-md border bg-white">
           <table className="w-full min-w-[1040px] border-collapse text-sm">
             <caption className="sr-only">
               Signed business associate agreements
@@ -313,7 +313,7 @@ function FilterRow({
     <form
       method="get"
       action={REGISTER_PATH}
-      className="border-line bg-paper-2/60 mt-5 flex flex-wrap items-end gap-3 rounded-2xl border p-4"
+      className="border-line bg-paper-2/60 mt-5 flex flex-wrap items-end gap-3 rounded-md border p-4"
     >
       <Field label="Search" className="min-w-[220px] flex-1">
         <input
@@ -322,7 +322,7 @@ function FilterRow({
           defaultValue={filters.query ?? ""}
           maxLength={200}
           placeholder="Clinic, signatory, email or fingerprint"
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
       </Field>
 
@@ -332,7 +332,7 @@ function FilterRow({
           name="from"
           defaultValue={filters.signedFrom ?? ""}
           max={today}
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
       </Field>
 
@@ -342,7 +342,7 @@ function FilterRow({
           name="to"
           defaultValue={filters.signedTo ?? ""}
           max={today}
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
       </Field>
 
@@ -354,7 +354,7 @@ function FilterRow({
           defaultValue={filters.version ?? ""}
           maxLength={64}
           placeholder="Any version"
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
         <datalist id="agreement-versions">
           {versions.map((version) => (
@@ -367,7 +367,7 @@ function FilterRow({
         <select
           name="status"
           defaultValue={filters.status ?? ""}
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         >
           {/* The three partition the register: an agreement that has ended and
               is still inside the six-year floor is "terminated", and one past
@@ -390,7 +390,7 @@ function FilterRow({
                 ? "missing"
                 : ""
           }
-          className="border-line focus:border-orange w-full rounded-lg border bg-white px-3 py-2 text-sm"
+          className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         >
           <option value="">Either</option>
           <option value="sent">Delivered</option>
@@ -737,7 +737,7 @@ function RowDetail({
                 value={date}
                 max={today}
                 onChange={(event) => setDate(event.target.value)}
-                className="border-line focus:border-orange mt-1.5 w-full rounded-lg border bg-white px-3 py-2.5 text-sm"
+                className="border-line focus:border-orange mt-1.5 w-full rounded-sm border bg-white px-3 py-2.5 text-sm"
               />
               <span className="text-muted mt-1 block text-xs">
                 A date that has already passed. Notice of a future end date is
@@ -756,7 +756,7 @@ function RowDetail({
         ) : null}
 
         {step === "confirm" ? (
-          <div className="border-red/40 bg-red/[0.06] mt-3 rounded-xl border p-4">
+          <div className="border-red/40 bg-red/[0.06] mt-3 rounded-sm border p-4">
             <p className="text-sm font-bold">
               This starts a six-year retention clock, and this console cannot
               stop it.
@@ -912,7 +912,7 @@ export function RegisterLoading() {
     <div
       role="status"
       aria-busy="true"
-      className="border-line text-muted mt-8 rounded-2xl border bg-white p-6 text-sm"
+      className="border-line text-muted mt-8 rounded-md border bg-white p-6 text-sm"
     >
       <p className="font-semibold">Reading the register…</p>
       <p className="mt-1 max-w-[62ch]">
@@ -940,7 +940,7 @@ export function RegisterError({
   return (
     <div
       role="status"
-      className="border-red/30 bg-red/[0.06] mt-8 rounded-2xl border p-6"
+      className="border-red/30 bg-red/[0.06] mt-8 rounded-md border p-6"
     >
       <p className="text-sm font-bold">Could not load the register.</p>
       <p className="mt-1 max-w-[62ch] text-sm">{failure.message}</p>
@@ -992,7 +992,7 @@ function queryString(filters: AgreementQuery): string {
 
 function EmptyPanel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="border-line text-muted mt-4 rounded-2xl border bg-white p-6 text-sm">
+    <p className="border-line text-muted mt-4 rounded-md border bg-white p-6 text-sm">
       {children}
     </p>
   );

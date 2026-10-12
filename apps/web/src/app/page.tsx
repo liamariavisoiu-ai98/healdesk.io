@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
 import { BuyModalProvider } from "@/components/BuyModal";
+import { ClosingCta } from "@/components/ClosingCta";
 import { Footer } from "@/components/Footer";
 import { HeroStage } from "@/components/HeroStage";
 import { HomeExperience } from "@/components/HomeExperience";
@@ -38,8 +39,9 @@ export const metadata: Metadata = {
 /**
  * The homepage, and the whole site's argument.
  *
- * Six things in order: the claim, AYA working, what changes in month one,
- * the specialties we know, what clinics say, and a way to ask. Pricing and contact
+ * Seven things in order: the claim, AYA working, what changes in month one,
+ * the specialties we know, what clinics say, a way to ask, and the two ways
+ * in once more. Pricing and contact
  * are their own pages but are reachable only from the footer, so nothing
  * competes with the demo for a visitor's first click.
  *
@@ -80,6 +82,9 @@ export default function HomePage() {
 
         <KnowMore />
 
+        {/* The two ways in once more, for whoever read to the end (owner,
+            12 October 2026). No prices: those are in the buy flow. */}
+        <ClosingCta />
       </main>
 
       <Footer />

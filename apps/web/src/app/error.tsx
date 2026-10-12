@@ -74,13 +74,13 @@ export default function ErrorPage({
             <button
               type="button"
               onClick={() => retry()}
-              className="bg-brand-gradient shadow-brand inline-flex items-center justify-center rounded-full px-7 py-3.5 text-base font-bold text-white transition-transform duration-200 hover:-translate-y-0.5"
+              className="bg-brand-gradient shadow-sm inline-flex items-center justify-center rounded-full px-7 py-3.5 text-base font-bold text-white transition-transform duration-fast hover:-translate-y-0.5"
             >
               Try again
             </button>
             <a
               href="/contact"
-              className="border-line text-ink hover:border-orange inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-base font-bold transition-transform duration-200 hover:-translate-y-px"
+              className="border-line text-ink hover:border-orange inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-base font-bold transition-transform duration-fast hover:-translate-y-px"
             >
               Contact us
             </a>

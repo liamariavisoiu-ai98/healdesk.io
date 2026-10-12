@@ -281,7 +281,7 @@ export function EnrollForm({
               setError(null);
               setStage({ name: "ready" });
             }}
-            className="bg-brand-gradient shadow-brand mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-200 hover:-translate-y-0.5"
+            className="bg-brand-gradient shadow-sm mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5"
           >
             Start again
           </button>
@@ -309,7 +309,7 @@ export function EnrollForm({
 
         {stage.codes.length > 0 ? (
           <>
-            <ul className="border-line mt-4 grid grid-cols-2 gap-x-4 gap-y-2 rounded-xl border bg-white p-4 font-mono text-[16.8px]">
+            <ul className="border-line mt-4 grid grid-cols-2 gap-x-4 gap-y-2 rounded-sm border bg-white p-4 font-mono text-[16.8px]">
               {stage.codes.map((entry) => (
                 <li key={entry} className="tracking-[0.06em]">
                   {entry}
@@ -319,7 +319,7 @@ export function EnrollForm({
             <button
               type="button"
               onClick={() => void copyCodes(stage.codes)}
-              className="text-muted hover:text-ink mt-2 rounded text-[15.6px] font-semibold underline underline-offset-2 transition-colors"
+              className="text-muted hover:text-ink mt-2 rounded-sm text-[15.6px] font-semibold underline underline-offset-2 transition-colors"
             >
               Copy all
             </button>
@@ -352,7 +352,7 @@ export function EnrollForm({
           type="button"
           disabled={!saved}
           onClick={onDone}
-          className="bg-brand-gradient shadow-brand mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-200 hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+          className="bg-brand-gradient shadow-sm mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
         >
           Continue to admin
         </button>
@@ -376,7 +376,7 @@ export function EnrollForm({
               alt="QR code holding the same setup key that is printed beside it"
               width={132}
               height={132}
-              className="border-line shrink-0 rounded-xl border bg-white p-2"
+              className="border-line shrink-0 rounded-sm border bg-white p-2"
             />
           ) : (
             <p className="text-muted text-[15.6px]">
@@ -423,7 +423,7 @@ export function EnrollForm({
               aria-invalid={error !== null || undefined}
               aria-describedby={error !== null ? "admin-enroll-error" : undefined}
               className={[
-                "text-ink mt-2 w-full rounded-xl border bg-white px-4 py-3 font-mono text-[21.6px] tracking-[0.3em] transition-colors",
+                "text-ink mt-2 w-full rounded-sm border bg-white px-4 py-3 font-mono text-[21.6px] tracking-[0.3em] transition-colors",
                 error !== null ? "border-red" : "border-line focus:border-orange",
               ].join(" ")}
             />
@@ -432,7 +432,7 @@ export function EnrollForm({
           <button
             type="submit"
             disabled={busy || code.trim().length === 0}
-            className="bg-brand-gradient shadow-brand mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-200 hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+            className="bg-brand-gradient shadow-sm mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
           >
             {busy ? "Checking…" : "Turn it on"}
           </button>
@@ -454,7 +454,7 @@ export function EnrollForm({
           type="button"
           disabled={busy}
           onClick={() => void begin()}
-          className="text-muted hover:text-ink mt-1 rounded text-[15.6px] font-semibold underline underline-offset-2 transition-colors disabled:opacity-40"
+          className="text-muted hover:text-ink mt-1 rounded-sm text-[15.6px] font-semibold underline underline-offset-2 transition-colors disabled:opacity-40"
         >
           Start again with a new key
         </button>
@@ -473,7 +473,7 @@ export function EnrollForm({
         type="button"
         disabled={busy}
         onClick={() => void begin()}
-        className="bg-brand-gradient shadow-brand mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-200 hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+        className="bg-brand-gradient shadow-sm mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
       >
         {busy ? "Preparing…" : "I am ready"}
       </button>
@@ -518,7 +518,7 @@ function Panel({
   }, [announce]);
 
   return (
-    <section className="border-line mt-8 rounded-2xl border bg-white p-5">
+    <section className="border-line mt-8 rounded-md border bg-white p-5">
       <h2
         ref={heading}
         tabIndex={announce ? -1 : undefined}

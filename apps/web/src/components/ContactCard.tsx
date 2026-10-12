@@ -55,7 +55,7 @@ export function ContactCard() {
   }, []);
 
   return (
-    <div className="border-line rounded-[22px] border bg-white p-7 sm:p-8">
+    <div className="border-line rounded-md border bg-white p-7 sm:p-8">
       {/* The mailbox sits above the form on purpose. It is the route that
           always works, including when the transport is misconfigured and the
           form refuses, see the note in api/contact/route.ts. It had a "Talk to
@@ -104,7 +104,7 @@ export function ContactCard() {
             rows={4}
             placeholder="What would you like to know?"
             aria-label="Message"
-            className="border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-xl border px-4 py-3 text-[17.4px] outline-none transition-colors"
+            className="border-line focus:border-orange text-ink placeholder:text-muted w-full resize-y rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
           />
           {/* Permanent, not a tooltip. The message reaches us as ordinary
               email through a vendor that signs no BAA, and this marketing
@@ -136,7 +136,7 @@ export function ContactCard() {
           <button
             type="submit"
             disabled={status === "sending"}
-            className="bg-brand-gradient shadow-brand w-full rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-200 hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
+            className="bg-brand-gradient shadow-sm w-full rounded-full px-6 py-3.5 text-[18px] font-bold text-white transition-transform duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-50"
           >
             {status === "sending" ? "Sending…" : "Send it over"}
           </button>
@@ -167,7 +167,7 @@ function Input({
       aria-label={placeholder}
       autoComplete={autoComplete}
       required={required}
-      className="border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-xl border px-4 py-3 text-[17.4px] outline-none transition-colors"
+      className="border-line focus:border-orange text-ink placeholder:text-muted w-full rounded-sm border px-4 py-3 text-[17.4px] outline-none transition-colors"
     />
   );
 }

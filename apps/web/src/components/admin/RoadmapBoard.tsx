@@ -148,7 +148,7 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
     // Two different facts, and the board states whichever one is true rather
     // than describing both and asking the reader to work it out.
     return (
-      <div className="border-line rounded-2xl border border-dashed px-5 py-8 text-center">
+      <div className="border-line rounded-md border border-dashed px-5 py-8 text-center">
         <p className="font-display text-[21.6px] font-medium">
           {ok ? "Nothing queued" : "The roadmap could not be read"}
         </p>
@@ -164,7 +164,7 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
   return (
     <div>
       {/* Summary strip, every number here is the server's, not a re-count. */}
-      <div className="border-line flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border bg-white px-4 py-3.5">
+      <div className="border-line flex flex-wrap items-center gap-x-6 gap-y-3 rounded-md border bg-white px-4 py-3.5">
         <p className="flex items-baseline gap-2">
           <span className="font-figure text-brand-gradient text-[31.2px] leading-none font-semibold tabular-nums">
             {totals.tasks}
@@ -255,7 +255,7 @@ export function RoadmapBoard({ ok, groups, totals }: RoadmapBoardProps) {
       </div>
 
       {selected.size === 0 ? (
-        <p className="border-line text-muted mt-4 rounded-2xl border border-dashed px-5 py-6 text-center text-[16.2px] font-medium">
+        <p className="border-line text-muted mt-4 rounded-md border border-dashed px-5 py-6 text-center text-[16.2px] font-medium">
           Every status is switched off, so nothing is listed. That is the filter,
           not the roadmap.
         </p>
@@ -297,7 +297,7 @@ function GroupPanel({
   const hiddenCount = group.tasks.length - tasks.length;
 
   return (
-    <section className="border-line overflow-hidden rounded-2xl border bg-white">
+    <section className="border-line overflow-hidden rounded-md border bg-white">
       <button
         type="button"
         onClick={onToggle}

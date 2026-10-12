@@ -13,7 +13,7 @@ import { HERO_LOGOS, LABEL, ORBIT_CENTRE, ORBITS, PHOTO, TRADEMARKS, onOrbit, or
  * that every logo's file is served, that the label names every logo, that
  * the footer attributes every mark, along with the channel name a mark stands
  * for when the two differ (Facebook's "f" for Messenger), that the logos sit
- * on their three orbits all around her as the owner asked, each group's
+ * on their orbits all around her as the owner asked, each group's
  * stretch starting at its chip, and that the places on the photo keep every
  * logo and chip on it, off her face, out of the copy's box at every desktop
  * size, and clear of each other.
@@ -50,7 +50,7 @@ const HEADSET = { left: 1000, right: 1175, top: 260, bottom: 570 };
 const COPY = { left: 0.1 * PHOTO.width, right: 0.485 * PHOTO.width, top: 0.42 * PHOTO.height };
 const VISIBLE_BOTTOM = 0.9 * PHOTO.height;
 
-const GROUPS = ["messages", "bookings", "payments"] as const;
+const GROUPS = ["messages", "bookings", "synced", "payments"] as const;
 
 const px = (at: { x: number; y: number }) => ({
   x: (at.x / 100) * PHOTO.width,
@@ -128,7 +128,7 @@ describe("the hero's logos", () => {
     }
   });
 
-  test("on their own circles, all around her: Messages & Calls on her left, Bookings and Payments on her right", () => {
+  test("on their circles, all around her: Messages & Calls on her left, Bookings, the synced calendars and Payments on her right", () => {
     for (const logo of HERO_LOGOS) {
       expect(logo.at).toEqual(onOrbit(logo.group, logo.angle));
       expect(logo.at.x < 50, logo.name).toBe(logo.group === "messages");
@@ -150,8 +150,18 @@ describe("the hero's logos", () => {
   });
 
   test("the orbits are true circles about one point: every logo and chip is its radius from the centre", () => {
-    const radii = ORBITS.map((orbit) => orbit.r);
-    expect(new Set(radii).size).toBe(radii.length);
+    const radii = [...new Set(ORBITS.map((orbit) => orbit.r))];
+    // A circle per group, except that Bookings and the calendars synced with
+    // it share one (12 October 2026), a stretch each that does not overlap.
+    for (const r of radii) {
+      const on = ORBITS.filter((orbit) => orbit.r === r);
+      if (on.length > 1) expect(on.map((orbit) => orbit.group).sort()).toEqual(["bookings", "synced"]);
+    }
+    const [a, b] = ORBITS.filter((orbit) => orbit.r === orbitOf("bookings").r).map((orbit) => [
+      Math.min(orbit.chip, orbit.tail),
+      Math.max(orbit.chip, orbit.tail),
+    ]);
+    expect(a![1]! < b![0]! || b![1]! < a![0]!).toBe(true);
     // The same point for all three, and on her head: between her cheeks.
     expect(ORBIT_CENTRE.x).toBeGreaterThan(FACE.x - FACE.rx);
     expect(ORBIT_CENTRE.x).toBeLessThan(FACE.x + FACE.rx);
@@ -211,8 +221,10 @@ describe("the hero's logos", () => {
     const order = storyOrder();
     expect([...order].sort()).toEqual(HERO_LOGOS.map((logo) => logo.name).sort());
     const groupOf = (name: string) => HERO_LOGOS.find((logo) => logo.name === name)!.group;
-    // Messages, Bookings, Payments, then Messages, Bookings again as Payments runs out.
-    expect(order.slice(0, 3).map(groupOf)).toEqual(["messages", "bookings", "payments"]);
-    expect(order.slice(3, 5).map(groupOf)).toEqual(["messages", "bookings"]);
+    // Messages, Bookings, Payments, then the calendars that see the booking;
+    // then Messages and the synced calendars again, as Bookings and Payments,
+    // a logo each, run out.
+    expect(order.slice(0, 4).map(groupOf)).toEqual(["messages", "bookings", "payments", "synced"]);
+    expect(order.slice(4, 6).map(groupOf)).toEqual(["messages", "synced"]);
   });
 });

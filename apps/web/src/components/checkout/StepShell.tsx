@@ -51,7 +51,7 @@ export function StepShell({
             <button
               type="button"
               onClick={onBack}
-              className="text-muted hover:text-ink -ml-2 min-h-11 rounded-md px-2 text-sm font-semibold transition-colors"
+              className="text-muted hover:text-ink -ml-2 min-h-11 rounded-sm px-2 text-sm font-semibold transition-colors"
             >
               ← Back
             </button>
@@ -88,7 +88,7 @@ export function StepShell({
             aria-label={`Step ${step} of ${totalSteps}`}
           >
             <span
-              className="bg-brand-gradient h-full transition-[width] duration-500 ease-panel"
+              className="bg-brand-gradient h-full transition-[width] duration-slow ease-out"
               style={{ width: `${(step / totalSteps) * 100}%` }}
             />
           </div>
@@ -148,7 +148,7 @@ export function PrimaryButton({
       type={type}
       disabled={disabled}
       onClick={onClick}
-      className="bg-brand-gradient-deep shadow-brand inline-flex min-h-12 items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-200 motion-safe:hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
+      className="bg-brand-gradient-deep shadow-sm inline-flex min-h-12 items-center gap-2 rounded-full px-8 py-4 text-base font-bold text-white transition-all duration-fast motion-safe:hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40"
     >
       {children}
     </button>
@@ -175,9 +175,9 @@ export function ChoiceCard({
       onClick={onSelect}
       aria-pressed={selected}
       className={[
-        "group relative w-full rounded-2xl border p-5 text-left transition-all duration-200",
+        "group relative w-full rounded-md border p-5 text-left transition-all duration-fast",
         selected
-          ? "border-red bg-orange/[0.06] shadow-brand"
+          ? "border-red bg-orange/[0.06] shadow-sm"
           : "border-line hover:border-line-strong bg-white",
       ].join(" ")}
     >
@@ -282,7 +282,7 @@ export function RadioGroup<T extends string>({
               key={option.id}
               className={[
                 "relative grid min-h-11 grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 border transition-colors has-[:focus-visible]:outline-3 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-orange",
-                layout === "chips" ? "rounded-full px-4 py-2.5" : "rounded-xl px-4 py-3",
+                layout === "chips" ? "rounded-full px-4 py-2.5" : "rounded-sm px-4 py-3",
                 option.disabled
                   ? "border-line cursor-not-allowed bg-paper-2 opacity-60"
                   : checked
@@ -372,7 +372,7 @@ export function TextField({
         aria-invalid={invalid || undefined}
         aria-describedby={hint ? `${id}-hint` : undefined}
         className={[
-          "text-ink placeholder:text-muted mt-2 w-full rounded-xl border px-4 py-3 outline-none transition-colors disabled:opacity-50",
+          "text-ink placeholder:text-muted mt-2 w-full rounded-sm border px-4 py-3 outline-none transition-colors disabled:opacity-50",
           readOnly ? "bg-paper-2" : "bg-white",
           invalid ? "border-red" : "border-line focus:border-orange",
           // The type size is the caller's when it styles the input at all, so

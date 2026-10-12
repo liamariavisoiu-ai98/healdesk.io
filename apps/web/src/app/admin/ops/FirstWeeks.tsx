@@ -64,7 +64,7 @@ function HealthRow({ row, onTouch }: { row: ClinicHealth; onTouch: Parameters<ty
   const [problem, setProblem] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   return (
-    <li className="border-line rounded-xl border bg-white px-4 py-3 text-sm">
+    <li className="border-line rounded-sm border bg-white px-4 py-3 text-sm">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <span className="font-semibold">{row.name}</span>
         <span className="text-muted text-xs">day {row.daysLive} · live since {row.wentLiveOn}{row.plan ? ` · ${row.plan}` : ""}</span>

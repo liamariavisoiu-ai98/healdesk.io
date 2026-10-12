@@ -16,8 +16,9 @@ import { summarize, type Review, type ReviewSummary } from "@/lib/reviews";
  * rewritten to what v1 does (Mindbody and Boulevard clinics get booking
  * requests). Two still say what the product does not measure, by the owner's
  * choice: Andre S.'s lower cost per booked consult, and Lauren P.'s consults
- * "recovered". Nicole T.'s "patient's preferred time" and "doing it job" are
- * as the owner wrote them, on purpose: leave them.
+ * "recovered". Nicole T.'s "patient's preferred time" and "doing it job",
+ * and Alyssa B.'s "downing in voicemails", are as the owner wrote them, on
+ * purpose: leave them.
  *
  * The owner chose on 3 October 2026 to show this set on the live site while
  * PUBLISHED is empty, on one condition: the wall renders it with `examples`
@@ -87,7 +88,7 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
       "If you're on Boulevard like us, know going in that it won't book into it. It takes the patient's " +
       "preferred time and alerts the desk, and we confirm in Boulevard ourselves. But to be honest, it " +
       "actually suited us since nobody had to learn a new booking system and instead they just stopped " +
-      "drowning in voicemails. Great product overall.",
+      "downing in voicemails. Great product overall.",
     name: "Alyssa B.",
     jobTitle: "Practice Manager",
     state: "CO",

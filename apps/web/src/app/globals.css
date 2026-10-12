@@ -3377,6 +3377,155 @@
   }
 }
 
+/* --- The chat card, 12 October 2026 (ChatSkins.tsx, ChatCards.tsx) -------
+   The owner's picks for the demo's chat: one app morphing into the next, the
+   answer streaming in word by word, each app's receipts, the suggestions as a
+   row that swipes, cards under answers about booking and deposits, and a
+   frosted header that casts a shadow once the thread runs under it. */
+
+/* The header: glass over the thread, in each app's own colour. */
+.chat-head {
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  backdrop-filter: blur(18px) saturate(1.6);
+  transition: box-shadow var(--duration-base) var(--ease-standard);
+}
+
+.chat-head[data-skin="website"]:has([data-tone="light"]) {
+  background: rgb(255 255 255 / 0.8);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.chat-head[data-skin="website"]:has([data-tone="brand"]) {
+  background: color-mix(in srgb, var(--clinic) 90%, transparent);
+}
+
+.chat-head[data-skin="whatsapp"] {
+  background: rgb(0 128 105 / 0.93);
+}
+
+.chat-head[data-skin="instagram"] {
+  background: rgb(255 255 255 / 0.82);
+  border-bottom: 1px solid rgb(219 219 219 / 0.8);
+}
+
+.chat-head[data-skin="messenger"] {
+  background: rgb(255 255 255 / 0.82);
+}
+
+.chat-head[data-scrolled] {
+  box-shadow: var(--shadow-sm);
+}
+
+/* A word arriving: up out of a blur, once, as it lands. */
+.stream-word {
+  animation: stream-word var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes stream-word {
+  from {
+    opacity: 0;
+    filter: blur(4px);
+  }
+}
+
+/* A receipt changing, "Sent" to "Seen": in, quietly. */
+.receipt-in {
+  animation: receipt-in var(--duration-base) var(--ease-out) both;
+}
+
+@keyframes receipt-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+/* WhatsApp's ticks turning blue. */
+.wa-ticks {
+  transition: color var(--duration-slow) var(--ease-standard);
+}
+
+/* The suggestions: a row that swipes, its ends fading out. */
+.chip-rail__track {
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 28px), transparent);
+  cursor: grab;
+}
+
+.chip-rail__track::-webkit-scrollbar {
+  display: none;
+}
+
+.chip-rail__track[data-dragging] {
+  cursor: grabbing;
+  scroll-snap-type: none;
+}
+
+.chip-rail__chip {
+  scroll-snap-align: start;
+}
+
+/* A card under an answer, and each step inside one: in on the spring. */
+.chat-card-in {
+  animation: chat-card-in var(--duration-slow) var(--ease-spring) both;
+}
+
+@keyframes chat-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+/* The 60-second hold, running down: a real period, not a timing, so it is
+   the card's own (`--hold`, ChatCards.tsx), not a duration token. */
+.chat-hold-ring {
+  stroke-dasharray: 1;
+  animation: chat-hold var(--hold) linear both;
+}
+
+@keyframes chat-hold {
+  to {
+    stroke-dashoffset: 1;
+  }
+}
+
+.chat-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 9999px;
+  animation: chat-spin 0.8s linear infinite;
+}
+
+@keyframes chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* One app into the next: the header, the thread, the composer and the box's
+   highlight each morph, and the page itself does not cross-fade under them. */
+:root.chat-morph::view-transition-old(root),
+:root.chat-morph::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+::view-transition-group(*.chat-morph) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(*.chat-morph),
+::view-transition-new(*.chat-morph) {
+  animation-duration: var(--duration-slow);
+  animation-timing-function: var(--ease-out);
+}
+
 /* --- M6: the dots become the answer ------------------------------------- */
 
 .typing-dots {

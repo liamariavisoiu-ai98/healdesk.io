@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import type Stripe from "stripe";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { assistantMayAnswer } from "@/lib/billing/answering";
+import { handleStripeEvent } from "@/lib/billing/events";
 import { reconcileBilling } from "@/lib/billing/reconcile";
 import { drainBillingRequests } from "@/lib/billing/requests";
 import { commitRefund, previewRefund } from "@/lib/billing/stripe-actions";
@@ -46,10 +48,15 @@ const DAY = 24 * 60 * 60 * 1000;
 const LINE = "+14155550100";
 const s = (date: Date) => Math.floor(date.getTime() / 1000);
 
+/**
+ * The run's clock, read once and passed as `now` to every call that takes
+ * one, so a run that crosses UTC midnight stays on one day: the refund's
+ * proration, the § 5 window and the fake Stripe all count from it. Only the
+ * database's own now() moves on, and nothing here compares to it closely.
+ */
+const NOW = new Date();
 /** Today's UTC midnight: the termination is recorded for today, as an operator would. */
-const TODAY = new Date(
-  Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()),
-);
+const TODAY = new Date(Date.UTC(NOW.getUTCFullYear(), NOW.getUTCMonth(), NOW.getUTCDate()));
 const TODAY_ON = TODAY.toISOString().slice(0, 10);
 /** A monthly period of thirty days that started eleven days ago: 18 of its 30 days are after tomorrow's start. */
 const PERIOD_START = new Date(TODAY.getTime() - 11 * DAY);
@@ -132,6 +139,15 @@ async function offboardingOf(clinicId: string): Promise<Date | null> {
   return rows[0]!.offboarding_started_at;
 }
 
+/** A clinic's offboarding clock: when it started and when destruction is due. */
+async function clockOf(clinicId: string) {
+  const { rows } = await getMigratorPool().query<{
+    offboarding_started_at: Date | null;
+    destroy_after: Date | null;
+  }>(`select offboarding_started_at, destroy_after from clinics where id = $1`, [clinicId]);
+  return rows[0]!;
+}
+
 async function requestsOf(clinicId: string) {
   return inTenant(
     clinicId,
@@ -158,13 +174,14 @@ async function setBillingRequestsJob(enabled: boolean): Promise<void> {
  * calls, both live under one bound agreement, and Stripe holding the
  * subscription's paid invoices.
  */
-async function seedPractice(label: string) {
+async function seedPractice(label: string, options: { interval?: "month" | "year" } = {}) {
   const billing = await seedClinic(label);
   const locationId = await seedLocation(billing.organizationId, billing.clinicId, `${label}-loc`);
   const agreementId = await bindAgreement(billing.organizationId, 60);
   await makeProduction([billing.clinicId, locationId]);
   const ids = await seedEntitled(billing.clinicId, {
     planId: "complete",
+    interval: options.interval ?? "month",
     planStartedAt: PERIOD_START,
     planStartAppliedAt: PERIOD_START,
     firstInvoice: {
@@ -205,7 +222,7 @@ function worldFor(practice: { customerId: string; subscriptionId: string }): Str
     periodStart: s(PERIOD_START),
     periodEnd: s(PERIOD_END),
     customerDefaultPm: "pm_customer",
-    nowSeconds: s(new Date()),
+    nowSeconds: s(NOW),
   });
   world.addPaidSubscriptionInvoice({
     created: s(new Date(PERIOD_START.getTime() - 5 * DAY)),
@@ -351,6 +368,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     );
 
     // The worker cancels at once, with no proration and no final invoice.
+    // The request is due from the database's now(), later than NOW.
     expect(await drainBillingRequests({ now: new Date(), stripe: world.stripe })).toMatchObject({
       processed: 1,
       failed: 0,
@@ -363,6 +381,34 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       cancellation_details: { comment: "hd_agreement_terminated" },
     });
 
+    // Stripe's customer.subscription.deleted for that cancellation arrives
+    // after the termination: the account is canceled, and the offboarding
+    // clock the termination started does not move.
+    const clock = await clockOf(practice.billingClinicId);
+    expect(
+      await handleStripeEvent(
+        {
+          id: `evt_deleted_${practice.billingClinicId.slice(0, 8)}`,
+          object: "event",
+          api_version: "2026-08-26.dahlia",
+          created: s(NOW) + 60,
+          livemode: false,
+          pending_webhooks: 1,
+          request: null,
+          type: "customer.subscription.deleted",
+          data: {
+            object: {
+              ...world.state.subscription,
+              ended_at: s(NOW) + 30,
+              cancellation_details: { comment: "hd_agreement_terminated", reason: null },
+            },
+          },
+        } as unknown as Stripe.Event,
+        { now: NOW },
+      ),
+    ).toMatchObject({ clinicId: practice.billingClinicId });
+    expect(await clockOf(practice.billingClinicId)).toEqual(clock);
+
     // The operator previews the refund: this period's package line, from the
     // day after the termination to the period's end (18 of its 30 days),
     // capped by the fee the payment has left after the guarantee refund.
@@ -371,7 +417,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     const expected = Math.min(unused, PACKAGE_CENTS - 50_000);
     const preview = await previewRefund(
       { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
-      { stripe: world.stripe },
+      { now: NOW, stripe: world.stripe },
     );
     expect(preview).toEqual({
       status: "ok",
@@ -390,7 +436,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
         reason: "Terminated for our breach, clause 17",
         actorLabel: OPERATOR.email,
       },
-      { stripe: world.stripe },
+      { now: NOW, stripe: world.stripe },
     );
     expect(committed).toMatchObject({
       status: "refunded",
@@ -441,10 +487,21 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     // A second preview or confirmation is refused with the day it was made,
     // rather than reading as a second refund: no second refund, billing note
     // or audit row.
-    const refundedOn = new Date().toISOString().slice(0, 10);
+    // The day the database recorded it, whatever the clock says now.
+    const refundedOn = await inTenant(
+      practice.billingClinicId,
+      async (c) =>
+        (
+          await c.query<{ on: string }>(
+            `select to_char(created_at at time zone 'UTC', 'YYYY-MM-DD') as on
+               from billing_transitions where clinic_id = $1 and reason = 'refund_agreement_terminated'`,
+            [practice.billingClinicId],
+          )
+        ).rows[0]!.on,
+    );
     const again = await previewRefund(
       { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
-      { stripe: world.stripe },
+      { now: NOW, stripe: world.stripe },
     );
     expect(again).toEqual({
       status: "refused",
@@ -459,7 +516,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
           reason: "Retried",
           actorLabel: OPERATOR.email,
         },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toEqual({
       status: "refused",
@@ -501,7 +558,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
           reason: "Terminated for our breach, clause 17",
           actorLabel: OPERATOR.email,
         },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({ status: "refunded", amountCents: unused });
 
@@ -512,7 +569,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     expect(
       await previewRefund(
         { clinicId: practice.billingClinicId, kind: "first_period_cancel" },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({ status: "ok", amountCents: left });
     expect(
@@ -524,7 +581,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
           reason: "First period under § 5",
           actorLabel: OPERATOR.email,
         },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({ status: "refunded", amountCents: left });
 
@@ -573,7 +630,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
           reason: "First period under § 5",
           actorLabel: OPERATOR.email,
         },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({ status: "refunded", isCancelRequested: true });
     expect(notifyOps).toHaveBeenCalledWith("refund_cancel_job_off", {
@@ -594,7 +651,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
         reason: "First period under § 5",
         actorLabel: OPERATOR.email,
       },
-      { stripe: quietWorld.stripe },
+      { now: NOW, stripe: quietWorld.stripe },
     );
     expect(notifyOps).not.toHaveBeenCalledWith("refund_cancel_job_off", expect.anything());
   }, 180_000);
@@ -623,7 +680,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     ).toMatchObject({ status: "error", message: expect.stringMatching(/^Already recorded/) });
     expect(await offboardingOf(practice.locationId)).toBeNull();
 
-    expect(await reconcileBilling(new Date())).toMatchObject({ terminationsFinished: 1 });
+    expect(await reconcileBilling(NOW)).toMatchObject({ terminationsFinished: 1 });
     expect(await offboardingOf(practice.locationId)).not.toBeNull();
     expect(await offboardingOf(practice.billingClinicId)).not.toBeNull();
     expect(await requestsOf(practice.billingClinicId)).toEqual([
@@ -649,7 +706,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
 
     // Finished: the next pass leaves it, and every termination before it, alone.
     notifyOps.mockClear();
-    expect(await reconcileBilling(new Date())).toMatchObject({ terminationsFinished: 0 });
+    expect(await reconcileBilling(NOW)).toMatchObject({ terminationsFinished: 0 });
     expect(notifyOps).not.toHaveBeenCalledWith(
       "agreement_termination_finished_late",
       expect.anything(),
@@ -691,7 +748,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     });
 
     // Nor does the hourly reconcile follow it.
-    await reconcileBilling(new Date());
+    await reconcileBilling(NOW);
     expect(await requestsOf(other.billingClinicId)).toEqual([]);
   }, 180_000);
 
@@ -717,7 +774,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     expect(
       await previewRefund(
         { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({ status: "ok", amountCents: unused });
     expect(
@@ -729,14 +786,14 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
           reason: "Finishing the refund",
           actorLabel: OPERATOR.email,
         },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({ status: "refunded", amountCents: unused });
     expect(world.fake.callsTo("refunds.create")).toHaveLength(0);
     expect(
       await previewRefund(
         { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({ status: "refused", message: expect.stringMatching(/^Already refunded on/) });
   }, 180_000);
@@ -768,7 +825,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
     expect(
       await previewRefund(
         { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
-        { stripe: world.stripe },
+        { now: NOW, stripe: world.stripe },
       ),
     ).toMatchObject({
       status: "ok",
@@ -783,7 +840,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
         reason: "Subcontractor objection",
         actorLabel: OPERATOR.email,
       },
-      { stripe: world.stripe },
+      { now: NOW, stripe: world.stripe },
     );
     // Only the card payment was refunded through Stripe.
     expect(
@@ -791,6 +848,118 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
         .callsTo("refunds.create")
         .map((call) => (call.args[0] as { payment_intent: string }).payment_intent),
     ).toEqual([`pi_${card.id}`]);
+  }, 180_000);
+
+  test("on an annual plan the termination refunds the rest of the year, by the line's own period", async () => {
+    const practice = await seedPractice("term-annual", { interval: "year" });
+    const world = worldFor(practice);
+    const YEAR_END = new Date(PERIOD_START.getTime() + 365 * DAY);
+    const YEAR_CENTS = 860_400;
+    world.addPaidSubscriptionInvoice({
+      created: s(PERIOD_START),
+      lines: [
+        {
+          lookupKey: "healdesk_web-voice_year_860400",
+          amount: YEAR_CENTS,
+          periodStart: s(PERIOD_START),
+          periodEnd: s(YEAR_END),
+        },
+      ],
+    });
+    await run("markAgreementTerminated", {
+      agreementId: practice.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "practice_healdesk_breach",
+    });
+    // From the start of the day after the termination to the year's end: 353 of its 365 days.
+    const expected = Math.trunc((YEAR_CENTS * 353) / 365);
+    expect(
+      await previewRefund(
+        { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
+        { now: NOW, stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "ok", amountCents: expected });
+  }, 180_000);
+
+  test("a plan change in the period counts its credit and its charge, each by its own period", async () => {
+    const practice = await seedPractice("term-change");
+    const world = worldFor(practice);
+    thisPeriodInvoice(world);
+    // Six days ago the practice moved up a package: the old price's unused
+    // 25 days credited, the new price's charged, on one invoice.
+    const CHANGE = new Date(TODAY.getTime() - 6 * DAY);
+    const NEW_CENTS = 119_700;
+    const credit = -Math.trunc((PACKAGE_CENTS * 25) / 30);
+    const charge = Math.trunc((NEW_CENTS * 25) / 30);
+    world.addPaidSubscriptionInvoice({
+      created: s(CHANGE),
+      lines: [
+        {
+          lookupKey: "healdesk_web-voice_month_89700",
+          amount: credit,
+          periodStart: s(CHANGE),
+          periodEnd: s(PERIOD_END),
+          proration: true,
+        },
+        {
+          lookupKey: "healdesk_complete_month_119700",
+          amount: charge,
+          periodStart: s(CHANGE),
+          periodEnd: s(PERIOD_END),
+          proration: true,
+        },
+      ],
+    });
+    await run("markAgreementTerminated", {
+      agreementId: practice.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "practice_healdesk_breach",
+    });
+    // The first invoice's 18 of 30 days; the change's lines 18 of their 25,
+    // the credit counting against the charge on its own invoice.
+    const expected =
+      Math.trunc((PACKAGE_CENTS * 18) / 30) +
+      Math.trunc((credit * 18) / 25) +
+      Math.trunc((charge * 18) / 25);
+    expect(
+      await previewRefund(
+        { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
+        { now: NOW, stripe: world.stripe },
+      ),
+    ).toMatchObject({ status: "ok", amountCents: expected });
+  }, 180_000);
+
+  test("a renewal paid after the termination comes back in full", async () => {
+    const practice = await seedPractice("term-renewal");
+    const world = worldFor(practice);
+    thisPeriodInvoice(world);
+    await run("markAgreementTerminated", {
+      agreementId: practice.agreementId,
+      terminationDate: TODAY_ON,
+      terminationReason: "practice_healdesk_breach",
+    });
+    // The next period's renewal, paid before the cancellation went through.
+    world.addPaidSubscriptionInvoice({
+      created: s(NOW) + 60,
+      billingReason: "subscription_cycle",
+      lines: [
+        {
+          lookupKey: "healdesk_web-voice_month_89700",
+          amount: PACKAGE_CENTS,
+          periodStart: s(PERIOD_END),
+          periodEnd: s(new Date(PERIOD_END.getTime() + 30 * DAY)),
+        },
+      ],
+    });
+    expect(
+      await previewRefund(
+        { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
+        { now: NOW, stripe: world.stripe },
+      ),
+    ).toMatchObject({
+      status: "ok",
+      amountCents: Math.trunc((PACKAGE_CENTS * 18) / 30) + PACKAGE_CENTS,
+    });
   }, 180_000);
 
   test("who ended it and why is recorded once, with the date, and never changed", async () => {
@@ -860,7 +1029,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
       expect(
         await previewRefund(
           { clinicId: practice.billingClinicId, kind: "agreement_terminated" },
-          { stripe: world.stripe },
+          { now: NOW, stripe: world.stripe },
         ),
       ).toMatchObject({ status: "refused", message: expect.stringMatching(/not refunded/) });
     }

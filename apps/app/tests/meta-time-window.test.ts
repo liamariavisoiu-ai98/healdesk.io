@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 
-import { cleanAlternatives, cleanBookingFields, windowIsClean } from "@/lib/meta/booking-requests";
+import {
+  cleanAlternatives,
+  cleanBookingFields,
+  requestReceivedLine,
+  windowIsClean,
+} from "@/lib/meta/booking-requests";
+import { guardReply } from "@/lib/meta/front-door";
 import { isTimeWindow } from "@/lib/meta/time-window";
 
 /**
@@ -148,5 +154,47 @@ describe("the closed time grammar", () => {
     expect(cleanAlternatives(["the week after my sister's wedding", "Friday after 2"], [])).toEqual(
       ["the week after my sister's wedding", "Friday after 2"],
     );
+  });
+});
+
+describe("the first name a Meta request keeps and says back", () => {
+  // The C19 re-audit's B1: any letters-and-spaces string under 40 characters
+  // was kept, and said back unguarded ("Thanks, Botox!").
+  test.each([
+    "Maria with diabetes",
+    "Sue HIV",
+    "Cancer Patient",
+    "Diabetic Jane",
+    "Maria semaglutide",
+    "Botox",
+    "Maria pregnant",
+    "Pregnant Sue",
+    "Chemo",
+    "Biopsy",
+    "Ann Surgery",
+    "Maria IVF",
+    "Ozempic Ann",
+    "Maria (pregnant)",
+    "Maria Ann Lopez",
+    "Sue has HIV",
+  ])("%j is dropped", (name) => {
+    expect(cleanBookingFields({ first_name: name }).firstName).toBeNull();
+  });
+
+  test.each(["Maria", "Maria Lopez", "José", "Mary-Jane", "O'Brien", "Ann"])(
+    "%j is kept",
+    (name) => {
+      expect(cleanBookingFields({ first_name: name }).firstName).toBe(name);
+    },
+  );
+
+  test("the request line says a name back only when the reply guard passes it", () => {
+    const context = { clinicName: "Glow Clinic", serviceNames: ["Neurotoxin"] };
+    expect(guardReply(requestReceivedLine("Glow Clinic", "Maria"), context)).toEqual({ ok: true });
+    expect(guardReply(requestReceivedLine("Glow Clinic", "Botox"), context)).toMatchObject({
+      ok: false,
+    });
+    expect(requestReceivedLine("Glow Clinic", null)).toMatch(/^Thanks! I've passed that along/);
+    expect(guardReply(requestReceivedLine("Glow Clinic", null), context)).toEqual({ ok: true });
   });
 });

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { BOOKING_FIELDS, findClinicalContent, resolveBookingRequirements, type BookingField, type BookingFieldId } from "@healdesk/catalog";
+import { BOOKING_FIELDS, findClinicalContent, namesMetaTreatment, resolveBookingRequirements, type BookingField, type BookingFieldId } from "@healdesk/catalog";
 import { GOOGLE_CALENDAR_PROVIDER, googleCalendarAdapter, toE164 } from "@healdesk/connectors";
 import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
@@ -155,14 +155,38 @@ const META_WINDOW = { ...META_SCREEN, timeGrammar: true } as const;
 export function cleanBookingFields(
   raw: { first_name?: unknown; phone?: unknown; window?: unknown; alternatives?: unknown; alt_windows?: unknown } | null | undefined,
 ): BookingFields {
-  const name = cleanText(raw?.first_name, 40);
-  const firstName = name && /^[\p{L}][\p{L}' -]*$/u.test(name) && findClinicalContent({ name }, META_SCREEN).length === 0 ? name : null;
+  const firstName = cleanFirstName(raw?.first_name);
   const phoneRaw = cleanText(raw?.phone, 32);
   const phone = phoneRaw ? (toE164(phoneRaw) ?? null) : null;
   const window = cleanText(raw?.window, 120);
   const preferredWindow = window && windowIsClean(window, META_WINDOW) ? window : null;
   const alternativeWindows = cleanAlternatives(raw?.alternatives ?? raw?.alt_windows, preferredWindow ? [preferredWindow] : [], META_WINDOW);
   return { firstName, phone, preferredWindow, alternativeWindows };
+}
+
+/** Words that join a name to something else: "Maria with diabetes", "Sue has HIV". */
+const NAME_JOINERS = /\b(with|has|have|had|and|or|from|for|the|my|is|am|who|was)\b/i;
+
+/** A word about a person's health that a name never is: "Cancer Patient", "Diabetic Jane", "Maria pregnant". */
+const NAME_HEALTH =
+  /\b(patients?|diabet\w*|pregnan\w*|cancer|hiv|aids|chemo\w*|biops\w*|tumou?rs?|herpes|hepatitis|covid|sick|ill|disabled|std|sti|injur\w*|allerg\w*|asthma\w*|epilep\w*|dementia|autis\w*)\b/i;
+
+/**
+ * A first name, made safe to keep and to say back (the C19 re-audit's B1):
+ * one or two words of letters, apostrophes and hyphens ("Maria", "Maria
+ * Lopez", "Mary-Jane", "O'Brien", "José"); never joined to anything else
+ * ("Maria with diabetes"); and never a word about health or treatment,
+ * whether the catalogue's clinical and condition screens, the treatment
+ * vocabulary or the window's refused words catch it ("Sue HIV", "Cancer
+ * Patient", "Diabetic Jane", "Maria semaglutide", "Botox"). Anything else is
+ * dropped, and the name is asked for again.
+ */
+export function cleanFirstName(raw: unknown): string | null {
+  const name = cleanText(raw, 40);
+  if (!name || !/^[\p{L}][\p{L}'’-]*(?: [\p{L}][\p{L}'’-]*)?$/u.test(name)) return null;
+  if (NAME_JOINERS.test(name) || NAME_HEALTH.test(name) || WINDOW_REFUSED.test(name)) return null;
+  if (findClinicalContent({ name }, META_SCREEN).length > 0 || namesMetaTreatment(name)) return null;
+  return name;
 }
 
 function cleanText(v: unknown, max: number): string | null {
@@ -614,9 +638,15 @@ async function deliverToDesk(
   return sent;
 }
 
-/** What the person is told once the request exists. Fixed text; a name, never a number or a time. */
-export function requestReceivedLine(clinicName: string, firstName: string): string {
-  return `Thanks, ${firstName}! I've passed that along to ${clinicName}, and they'll give you a call on the number you gave to settle on a time. If you'd rather not wait, you're always welcome to call the practice directly.`;
+/**
+ * What the person is told once the request exists. Fixed text; a name, never
+ * a number or a time. The name is said back only when the reply guard passes
+ * the line with it (front-door.ts); otherwise the line goes without it
+ * (`firstName` null).
+ */
+export function requestReceivedLine(clinicName: string, firstName: string | null): string {
+  const thanks = firstName ? `Thanks, ${firstName}!` : "Thanks!";
+  return `${thanks} I've passed that along to ${clinicName}, and they'll give you a call on the number you gave to settle on a time. If you'd rather not wait, you're always welcome to call the practice directly.`;
 }
 
 export type BookingDecision = "accepted" | "declined" | "confirmed" | "rescheduling";

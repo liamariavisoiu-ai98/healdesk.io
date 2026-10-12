@@ -1077,7 +1077,11 @@ export async function answerFrontDoor(
       // The desk is emailed by the caller, after this transaction commits
       // (FrontDoorAnswer.deskNotice), never from inside it.
       deskNotice = created;
-      answer = { text: requestReceivedLine(facts.clinicName, merged.firstName), source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
+      // The name goes back only through the reply guard; refused, the line
+      // goes without it.
+      const named = requestReceivedLine(facts.clinicName, merged.firstName);
+      const received = guardReply(named, guardContextFor(facts)).ok ? named : requestReceivedLine(facts.clinicName, null);
+      answer = { text: received, source: "booking", guard: answer.guard, screened: null, booking: "requested", greeted: false };
     } else {
       answer = {
         ...answer,

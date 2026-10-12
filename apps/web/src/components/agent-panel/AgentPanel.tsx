@@ -48,27 +48,30 @@ export function AgentPanel({
   title,
   name,
   logoUrl,
+  mark,
   overlay,
   children,
 }: {
   /** What kind of assistant, in small capitals: "AI voice agent". */
   label: string;
-  /** What it answers: "Your phone line". */
-  title: string;
+  /** What it answers: "Your phone line". Left out, the label stands alone. */
+  title?: string;
   /** Whose assistant it is, for the mark. */
   name: string;
   logoUrl: string | null;
+  /** Drawn in place of the mark: the homepage's cards carry the animated soul. */
+  mark?: ReactNode;
   /** Laid over the whole card, e.g. the demo page's "Archived". */
   overlay?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="border-line relative flex flex-col overflow-hidden rounded-3xl border bg-white shadow-[0_1px_2px_rgb(23_42_58/0.06),0_12px_40px_-12px_rgb(23_42_58/0.18)]">
-      <div className="border-line flex items-center gap-3 border-b px-5 py-3.5">
-        <AgentMark name={name} logoUrl={logoUrl} size={28} />
+      <div className={`border-line flex items-center gap-3 border-b px-5 ${mark ? "py-3" : "py-3.5"}`}>
+        {mark ?? <AgentMark name={name} logoUrl={logoUrl} size={28} />}
         <div className="min-w-0">
           <p className="text-muted text-[12px] font-bold tracking-[0.1em] uppercase">{label}</p>
-          <p className="truncate text-[15.6px] font-semibold">{title}</p>
+          {title ? <p className="truncate text-[15.6px] font-semibold">{title}</p> : null}
         </div>
       </div>
       {children}

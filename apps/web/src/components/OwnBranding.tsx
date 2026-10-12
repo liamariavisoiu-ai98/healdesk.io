@@ -152,8 +152,8 @@ export function OwnBranding() {
           See it in your own branding
         </h3>
         <p className="text-muted mx-auto mt-3 max-w-[52ch] text-[clamp(16px,1.15vw,18px)] leading-[1.55] font-medium">
-          Type your clinic&rsquo;s website. We build your own free AI assistant from it, with your
-          name, colours and services, and email you the link.
+          Type your clinic&rsquo;s website. We build your own AYA from it, free, and email you the
+          link.
         </p>
       </div>
 
@@ -242,8 +242,8 @@ export function OwnBranding() {
                   Send me my own free AI assistant in my own branding
                 </p>
                 <p className="mt-1 text-[13.5px] leading-snug text-[#6e6e73]">
-                  Built from <span className="font-semibold text-[#1d1d1f]">{hostOf(domain) || "your website"}</span>. We email
-                  you the link when it&rsquo;s built, usually within a few minutes.
+                  Built from <span className="font-semibold text-[#1d1d1f]">{hostOf(domain) || "your website"}</span>. The
+                  link arrives by email when it&rsquo;s ready.
                 </p>
               </div>
             </div>
@@ -285,9 +285,9 @@ export function OwnBranding() {
               </p>
             ) : (
               <p id={`${ids}-email-note`} className="mt-2 text-[12.5px] leading-snug text-[#6e6e73]">
-                One email with your link, because you asked.{" "}
+                One email, with your link.{" "}
                 <a href="/privacy#own-demo" className="underline underline-offset-2">
-                  What we do with it
+                  How we use it
                 </a>
               </p>
             )}
@@ -320,8 +320,8 @@ export function OwnBranding() {
                   Building {hostOf(domain)}&rsquo;s assistant…
                 </p>
                 <p className="text-muted mx-auto mt-2 max-w-[44ch] text-[15.5px] font-medium">
-                  Check <span className="text-ink font-semibold">{email.trim()}</span>. The link arrives when
-                  it&rsquo;s ready, usually within a few minutes. Questions? Write to{" "}
+                  We&rsquo;ll email <span className="text-ink font-semibold">{email.trim()}</span> the link when it&rsquo;s
+                  ready. Questions:{" "}
                   <a href={`mailto:${site.email}`} className="text-ink font-semibold underline underline-offset-2">
                     {site.email}
                   </a>

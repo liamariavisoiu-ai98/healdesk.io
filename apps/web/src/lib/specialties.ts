@@ -36,7 +36,7 @@ export type Specialty = {
    * the front desk. Generic benefit copy here would be worse than nothing,
    * because the whole section is an expertise claim.
    *
-   * Every figure is an approximate industry range, and the footer says so.
+   * Every figure is an approximate industry range; the contact page says so.
    * Nothing here may assert a capability the product does not have.
    */
   expertise: string;

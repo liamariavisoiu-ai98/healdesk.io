@@ -67,7 +67,7 @@ export const site = {
    */
   description:
     "healdesk answers every call, chat and DM for high-ticket elective clinics, " +
-    "day or night, and books appointments straight into your calendar.",
+    "day or night, and books the appointment into your calendar.",
 
   /**
    * The line in the bar above the hero headline, after jasper.ai's "NEW"
@@ -83,7 +83,7 @@ export const site = {
    */
   announcement: {
     tag: "New",
-    text: "Instagram, Messenger and WhatsApp, now available alongside your phone and website chat.",
+    text: "AYA now answers Instagram, Messenger and WhatsApp too.",
     cta: "Get AYA",
   },
 

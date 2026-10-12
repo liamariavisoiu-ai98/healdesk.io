@@ -45,66 +45,59 @@ const FAQS = [
     q: `What does ${site.agent} actually do?`,
     a:
       "She answers your phone, website chat, Instagram, Messenger and " +
-      "WhatsApp, day or night. She answers treatment and pricing questions " +
-      "from your own menu, works out whether someone is ready for a consult, " +
-      "and books them straight into your calendar during the conversation. " +
-      "The calls that used to ring out get answered instead. She only ever " +
-      "answers: she never calls, texts or messages a patient first.",
+      "WhatsApp, day or night. She answers treatment and price questions " +
+      "from your own menu, books consultations into your calendar during " +
+      "the conversation, and picks up the calls that used to ring out. She " +
+      "only answers: she never contacts a patient first.",
   },
   {
     q: "Where does she book?",
     a:
-      "Into your Google Calendar, live, while the patient is still in the " +
-      "conversation. Link your booking system to that calendar: Calendly and " +
-      "Cal.com (and Google Calendar on its own) then stop offering the slot. " +
-      "Mindbody only syncs one way, so for Mindbody, and for Boulevard until " +
-      "Boulevard confirms otherwise, your staff confirm each booking in your " +
-      "own system, and we tell you which applies before you buy. Deposits: in " +
-      "website chat, Instagram, Messenger and WhatsApp she sends your own " +
-      "checkout link while the patient is still there; on the phone she books " +
-      "and flags the deposit for your desk to collect.",
+      "Into your Google Calendar, live, during the conversation. Link " +
+      "Calendly or Cal.com to that calendar and they stop offering the " +
+      "slot. Mindbody syncs one way and Boulevard is unconfirmed, so for " +
+      "those your staff confirm each booking in your own system; we tell " +
+      "you which applies before you buy. In chat she sends your own " +
+      "checkout link for a deposit. On the phone she books and flags the " +
+      "deposit for your desk.",
   },
   {
     q: "What do we have to log into?",
     a:
       "A small portal, used when you want it. Your clinic has one sign-in, " +
       "at the one email address it uses with us (a shared inbox such as " +
-      "info@ is fine), and you sign in from an emailed link, with no " +
-      "password needed. Each phone or computer you use adds its own Face ID " +
-      "or other passkey, which opening a conversation or a booking asks " +
-      "for. Switches, not settings, change how she behaves. Every " +
-      "conversation and every booking she made is there. Everything else is " +
-      "done for you.",
+      "info@ is fine), from an emailed link with no password. Each device " +
+      "adds its own passkey, which opening a conversation or booking asks " +
+      "for. Switches change how she behaves. Every conversation and " +
+      "booking is there.",
   },
   {
     q: "How long until she's live?",
     a:
-      "About fifteen minutes of your time, then each channel goes live on its " +
-      "own. Website chat, once the one-line snippet is on your site. Instagram " +
-      "and Messenger, as soon as you connect them. WhatsApp, once your " +
-      "WhatsApp account has a payment method on it: Meta bills you directly " +
-      "for WhatsApp messages, including replies from 1 October 2026, and we " +
-      "do not resell them. Your phone, once call forwarding is set on your " +
-      "line.",
+      "About fifteen minutes of your time, then each channel goes live on " +
+      "its own: website chat once the snippet is on your site, Instagram " +
+      "and Messenger once you connect them, your phone once call " +
+      "forwarding is set. WhatsApp goes live once its account has a " +
+      "payment method: Meta bills you directly for WhatsApp messages, " +
+      "replies included from 1 October 2026, and we don't resell them.",
   },
   {
     q: "Do we have to give her every call?",
     a:
-      "No. You choose: all calls, overflow and after hours, or after hours " +
-      "only. Your published number never changes; your line forwards the " +
-      "calls you pick to her. If you have a full-time receptionist, start on " +
-      "after hours only and widen it once you trust her.",
+      "No. You choose all calls, overflow and after hours, or after hours " +
+      "only. Your published number never changes: your line forwards the " +
+      "calls you pick. With a full-time receptionist, start on after " +
+      "hours only and widen it when you trust her.",
   },
   {
     q: "Will she give medical advice?",
     a:
-      "Never, and that is the design rather than a limitation. Anything " +
-      "clinical (safety, side effects, recovery, whether someone is a " +
-      "candidate) gets no answer from her: she books a consultation with " +
-      "your provider instead. A report of a complication or an urgent " +
-      "symptom never reaches the AI: it gets a fixed response and an " +
-      "immediate alert to your on-call contact. She takes only what a " +
-      "receptionist would write on a callback slip.",
+      "Never, by design. Anything clinical (safety, side effects, recovery, " +
+      "whether someone is a candidate) gets a consultation with your " +
+      "provider, not an answer. A complication or urgent symptom never " +
+      "reaches the AI: it gets a fixed response and an immediate alert to " +
+      "your on-call contact. She takes only what a receptionist would " +
+      "write on a callback slip.",
   },
   {
     // The footer's "How we handle patient data" strip, moved here as its own
@@ -122,28 +115,25 @@ const FAQS = [
         "systems flag them or the law requires it to keep them.",
     ],
     a:
-      "Meta signs no BAA, so she keeps Instagram, Messenger and WhatsApp " +
-      "conversations non-clinical. No third party has audited us: these are " +
-      "our own commitments, and we will walk you through the architecture " +
-      "behind any of them.",
+      "Meta signs no BAA, so Instagram, Messenger and WhatsApp stay " +
+      "non-clinical. No third party has audited us: these are our own " +
+      "commitments, and we'll walk you through the architecture behind " +
+      "any of them.",
   },
   {
     q: "How would we know it's working?",
     a:
       "Your portal's Home screen and a weekly email show conversations " +
-      "handled, appointments booked, calls answered that would otherwise have " +
-      "rung out, and deposits collected, plus the booked value of those " +
-      "appointments at your own prices. Nothing about a patient is ever sent " +
-      "to an advertising platform.",
+      "handled, appointments booked, calls answered that would have rung " +
+      "out, and deposits collected, plus the booked value at your own " +
+      "prices. Nothing about a patient goes to an advertising platform.",
   },
   {
     q: "Can we hear her before we commit?",
     a:
-      "Yes. Talk to her in the chat panel above, play the example call, or " +
-      "put your number into the phone panel and she'll call you once, " +
-      "because you asked. Talk to her the way a patient would. That one demo " +
-      "call is the only call she ever places: for your clinic she answers, " +
-      "and never dials out.",
+      "Yes. Talk to her in the cards above, in your browser or by phone, or " +
+      "have her call you once. That demo call is the only call she ever " +
+      "places: for your clinic she only answers.",
   },
 ] as const satisfies readonly Faq[];
 

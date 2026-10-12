@@ -13,10 +13,9 @@ import type { Specialty } from "@/lib/specialties";
  * the one agent, and here are the phones she already knows". The name of the
  * file is the old one, kept so the history follows it.
  *
- * The pricing disclaimer that used to sit under the deck has gone. The demos
- * still quote figures, so the claim has to live somewhere: it is in the
- * footer, on every page, as "Pricing figures shown in demos are approximate
- * industry ranges, not quotes." Do not remove that one too.
+ * The pricing disclaimer that used to sit under the deck moved to the footer,
+ * and left it on 12 October 2026, at the owner's request. The demos still
+ * quote figures; the contact page says they are ranges, not quotes.
  */
 export function NicheCarousel({
   specialties,

@@ -29,10 +29,9 @@ export const DEMO_AGENT = {
    * disclosure a clinic cannot switch off.
    */
   greeting:
-    `Hi. I'm ${site.agent}, healdesk's AI assistant: the front desk healdesk runs for clinics. ` +
-    "Med spas, surgery, fertility, dental, derm, weight loss. I answer for " +
-    "all of them, and I work out which one I'm on from the call. Ask me " +
-    "anything a patient would ask, or anything you'd ask a supplier.",
+    `Hi, I'm ${site.agent}, healdesk's AI assistant. I answer for med spas, surgery, ` +
+    "fertility, dental, derm and weight loss clinics. Ask me anything a " +
+    "patient would, or anything you'd ask a supplier.",
 
   /**
    * Two operator questions and one compliance question.

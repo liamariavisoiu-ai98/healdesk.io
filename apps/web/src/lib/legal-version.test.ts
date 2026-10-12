@@ -54,7 +54,7 @@ const PINNED = {
   replaces: "2026-10-07.3",
   sha256: {
     "/terms": "1d4010e246acc3d41607bd9b6770716a8ca2641449d3bf3aef7b1c1564dd3421",
-    "/privacy": "d506f3ddce7210a870387ad5694f7e4d9c6e43a9d689cab4a185a517fbbce7fd",
+    "/privacy": "813d2e4fc336004da5683360c677ce82de8ff365f81f49857537e9022116c4f2",
     "/data-deletion": "9b1c6df0b56d48387f37e67f3fc86c9a1b77faebdd6d598b76534ef202f65628",
   },
 } as const;

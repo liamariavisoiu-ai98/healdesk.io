@@ -4,6 +4,7 @@ import { useCallback } from "react";
 
 import { AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { ChatDemo } from "@/components/ChatDemo";
+import { HealdeskSoul } from "@/components/HealdeskSoul";
 import { NicheCarousel } from "@/components/NicheCarousel";
 import { Outcomes } from "@/components/Outcomes";
 import { OwnBranding } from "@/components/OwnBranding";
@@ -45,9 +46,6 @@ import { specialties } from "@/lib/specialties";
  * cards now, white on the page, in healdesk's red.
  */
 
-/** AYA's mark on her cards: the healdesk "h". */
-const MARK = "/icon.png";
-
 export function HomeExperience() {
   /** Reel click: go and talk to her. There is nothing to select any more. */
   const goToDemo = useCallback(() => {
@@ -73,10 +71,9 @@ export function HomeExperience() {
             One assistant, every channel, 24/7
           </h2>
           <p className="text-muted mx-auto mt-4 max-w-[60ch] text-[clamp(17px,1.25vw,19px)] leading-[1.55] font-medium">
-            {site.agent} answers your website chat, Instagram, Facebook Messenger, WhatsApp and
-            your phone line, day and night. She manages bookings straight into your calendar
-            while the patient is still there, and in chat she sends a deposit link through your
-            own checkout. Talk to her below, or have her call you.
+            {site.agent} answers your phone, website chat, Instagram, Facebook Messenger and
+            WhatsApp, 24/7. She books into your calendar during the conversation, and in chat
+            sends a deposit link through your own checkout. Try her below.
           </p>
         </div>
 
@@ -89,10 +86,10 @@ export function HomeExperience() {
           className="grid grid-cols-1 gap-5 lg:grid-cols-2"
           style={{ ["--clinic" as string]: "var(--color-red)", ["--clinic-ink" as string]: "#ffffff" }}
         >
-          <AgentPanel label="AI voice agent" title="Your phone line" name={site.agent} logoUrl={MARK}>
+          <AgentPanel label="AI voice agent" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
             <VoiceDemo />
           </AgentPanel>
-          <AgentPanel label="Website chat & DMs" title="Your website, Instagram, Messenger and WhatsApp" name={site.agent} logoUrl={MARK}>
+          <AgentPanel label="Website chat & Meta DMs" name={site.agent} logoUrl={null} mark={<HealdeskSoul size={36} />}>
             <ChatDemo />
           </AgentPanel>
         </div>

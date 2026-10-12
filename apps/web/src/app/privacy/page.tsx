@@ -173,16 +173,12 @@ export default function PrivacyPage() {
             <strong>If you ask for your own demo.</strong> &ldquo;See it in your own branding&rdquo;
             on the homepage asks for your clinic&apos;s website and your email. We read the
             website&apos;s public pages, and the practice&apos;s public business listing for its
-            opening hours, and our AI model provider turns what we read into the demo: a private
-            page with your clinic&apos;s name, logo, colours, services and prices on it. We keep the
-            website, your email and what was read with the demo, and email you its link once, when
-            it is ready. A copy of your request, the website and your email, goes to our team, who
-            may reply to you about it; it is not added to a marketing list. Your IP address is used
-            only to limit how many demos can be asked for (Technical data, below). If, on the demo&apos;s page,
-            you tell us the number you will call the demo line from, we keep it with the demo so
-            the line answers as your clinic when you call; we never call it unless you ask us to
-            and tick the box above. A demo is live for {DEMO_LIFETIME_DAYS} days; section 6 says
-            when it is deleted, with everything kept with it.
+            opening hours, and our AI model provider turns them into a private demo page in your
+            clinic&apos;s name. We keep the website, your email and what was read with the demo,
+            and email you its link once. Our team gets a copy of the request and may reply; it is
+            not added to a marketing list. If you tell us the number you will call the demo line
+            from, we keep it with the demo so the line answers as your clinic. A demo is live for{" "}
+            {DEMO_LIFETIME_DAYS} days; section 6 says when it is deleted.
           </li>
           <li>
             <strong>Contact form submissions</strong> — your name, your clinic's name if you give

@@ -30,6 +30,10 @@ import { site } from "@/lib/site";
  *   page, no public vendor list, and Trust is the closing annex of the Terms.
  * - The trademark line is the last and quietest thing on the page, below the
  *   copyright, rather than beside it.
+ *
+ * And on 12 October 2026 the sentence after the copyright, "Pricing figures
+ * shown in demos are approximate industry ranges, not quotes.", went at the
+ * owner's request. The contact page still carries its own version of it.
  */
 export function Footer() {
   return (
@@ -41,8 +45,7 @@ export function Footer() {
           </a>
           <p className="text-muted mt-4 text-sm font-medium">
             An AI front desk for high-ticket elective clinics. Every call, chat
-            and DM answered, and the appointment booked while the patient is
-            still there.
+            and DM answered, and the appointment booked.
           </p>
         </div>
 
@@ -73,8 +76,7 @@ export function Footer() {
 
       <div className="border-line mx-auto max-w-[1240px] space-y-2 border-t px-5 py-6 sm:px-8 lg:px-14">
         <p className="text-muted text-xs">
-          © {new Date().getFullYear()} {site.name}. Pricing figures shown in demos
-          are approximate industry ranges, not quotes.
+          © {new Date().getFullYear()} {site.name}.
         </p>
         {/* The homepage's hero carries these logos; lib/integrations.ts keeps
             this line in step with them. Google's brand guidelines and Stripe's

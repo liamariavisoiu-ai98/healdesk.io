@@ -165,6 +165,9 @@ function DeletionRequests({ view, actions }: { view: CareView; actions: Actions 
         apps/app, never on this page: <code>{PATIENT_ENTRY_SCRIPTS.erase}</code>, on the AWS host by contact id, through
         run-task.sh only, with this clinic&rsquo;s id ({view.clinic.id}) in <code>HEALDESK_ERASURE_CLINIC_ID</code>{" "}
         (<a className="underline" href={`${HANDOVER_URL}#deletion-requests`}>handover, &ldquo;Deletion requests&rdquo;</a>).
+        A deletion reaches this location only: run it for each of the practice&rsquo;s locations the person may have
+        used. This page shows no contact ids, and nothing on the AWS host turns a number into one until the
+        practice&rsquo;s portal (M5).
       </p>
       {view.deletionRequests.length ? (
         <ul className="mt-3 grid gap-3">

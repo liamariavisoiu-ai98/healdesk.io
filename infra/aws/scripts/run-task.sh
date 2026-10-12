@@ -141,7 +141,7 @@ fi
 # drawn from a character set that needs no quoting in JSON.
 if [ "$1" = erase-person ] || [ "$1" = amend-contact ]; then
   is_uuid "$2" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
-  is_uuid "$3" || fail "the contact id must be the contact's uuid (the ops console shows it); a person is never named by their number, address or name here"
+  is_uuid "$3" || fail "the contact id must be the contact's uuid, from the practice's own records (nothing on AWS turns a number into one until the M5 portal); a person is never named by their number, address or name here"
   clinic_id=$(lower "$2")
   contact_id=$(lower "$3")
 fi

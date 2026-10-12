@@ -1546,6 +1546,33 @@ describeDb("deletion on request", () => {
     });
   });
 
+  test("the runbook runs a deletion per location, says nothing on AWS turns a number into a contact id before M5, and keeps real calls off Synthflow", () => {
+    // The calendar session's re-audit (C19, 12 October 2026): a deletion
+    // reaches one clinic (one location); the runbook and run-task.sh said the
+    // ops console shows a contact's id, which it does not; and Synthflow,
+    // which still carries the demo calls, has no deletion step.
+    const repo = join(__dirname, "..", "..", "..");
+    const handover = readFileSync(join(repo, "docs", "handover.md"), "utf8");
+    const section = handover.slice(
+      handover.indexOf("### Deletion requests"),
+      handover.indexOf("### Amendments"),
+    ).replace(/\s+/g, " ");
+    expect(section).toMatch(/Run it for each location/);
+    expect(section).toMatch(/run it once for every location the person may have used/);
+    expect(section).toMatch(/Nothing on AWS turns a number into a contact id yet/);
+    expect(section).toMatch(/waits for M5/);
+    expect(section).toMatch(/no real patient call may go through Synthflow/);
+    const runTask = readFileSync(join(repo, "infra", "aws", "scripts", "run-task.sh"), "utf8");
+    expect(runTask).not.toMatch(/contact's uuid \(the ops console shows it\)/);
+    expect(handover.replace(/\s+/g, " ")).not.toMatch(/the ops console shows (it|a contact)/i);
+    // And the jobs paragraph no longer says every job ships switched off:
+    // heartbeat and incident-deadlines ship on, and two jobs widen.
+    expect(handover).not.toMatch(/Every job ships switched off/);
+    expect(handover.replace(/\s+/g, " ")).toMatch(
+      /`retention-purge` and `offboarding-destroy` run for every clinic whose agreement states what they do, whatever their switch/,
+    );
+  });
+
   test("nothing reads the record to decide whether to contact anyone", () => {
     // The table and its model are touched in two places: the schema, and the
     // erase path that writes, expires and re-applies it. Destruction deletes

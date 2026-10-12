@@ -405,11 +405,18 @@ async function makeProduction(clinicId: string): Promise<void> {
   );
 }
 
+/**
+ * A location of the billing clinic's practice: in its organisation, pointing
+ * at it. The gate follows a pointer only inside the practice.
+ */
 async function makeLocation(locationId: string, billingClinicId: string): Promise<void> {
-  await getMigratorPool().query(`update clinics set billing_clinic_id = $2 where id = $1`, [
-    locationId,
-    billingClinicId,
-  ]);
+  await getMigratorPool().query(
+    `update clinics
+        set billing_clinic_id = $2,
+            organization_id = (select organization_id from clinics where id = $2)
+      where id = $1`,
+    [locationId, billingClinicId],
+  );
 }
 
 async function setDirectLine(clinicId: string, line: string | null): Promise<void> {

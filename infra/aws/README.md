@@ -77,7 +77,7 @@ Why each piece is shaped the way it is:
   `*.elb.amazonaws.com` name, so the TLS origin Vercel calls needs a name of ours. And a separate
   host lets the ALB keep the server-to-server routes off the origin every browser uses, and makes
   a leak of the internal name into a browser detectable.
-- **Encrypted all the way to the app.** Clinics' BAA (1.2.1, 1.2.2 and the 1.3.0 draft) promises encryption
+- **Encrypted all the way to the app.** Clinics' BAA (1.2.1, 1.2.2 and 1.3.0) promises encryption
   wherever healdesk controls both ends, which includes the load balancer to the task, and 1.3.0
   makes it a release gate. Next's standalone server speaks plain HTTP, so the web task runs the
   `tls-proxy` sidecar: a fresh key and self-signed certificate at every start, written under
@@ -902,7 +902,7 @@ data only until every link of the chain is in place.
 
 | Link or gate | State |
 | --- | --- |
-| Clinic to healdesk | Built: accepted inline at checkout (BAA 1.2.2, the floor since 12 October 2026; 1.3.0 drafted, not released) |
+| Clinic to healdesk | Built: accepted inline at checkout (BAA 1.3.0, released and the floor since 12 October 2026) |
 | healdesk to Retell | **Not done.** Self-sign the BAA and DPA; per-agent retention at the minimum, PII controls on, recording off, each screenshotted; Retell's US region and encryption at rest confirmed in writing (release gate 15). The product's Retell endpoint is not built either |
 | healdesk to Anthropic | **Not done.** A separate HIPAA-ready organisation (the setting is organisation-wide and one-way); 30-day retention disclosed, no zero-retention request (gate 17). Only that organisation's key ever goes into `app/ANTHROPIC_API_KEY` |
 | healdesk to the database | RDS under the AWS BAA, once this module is applied with the settings above |

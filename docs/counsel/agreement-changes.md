@@ -1418,7 +1418,13 @@ these is closed, by code, a page, a signed paper or a host setting, and
      reply counts what was kept (`kept`), never naming anyone. One case
      stays: a request the person sent from their own WhatsApp for someone
      else carries their WhatsApp id, which is their number, as its sender,
-     and stays as the other person's record.
+     and stays as the other person's record. Known limits, as specified and
+     recorded in docs/handover.md ("Deletion requests"): the closure is one
+     step (C1 {P, E1}, C2 {P, E2}, C3 {E2}: erasing E1 leaves C3 and E2's
+     payloads); a Meta request reuses a contact by number, so a parent
+     booking for a child with the parent's own number is one contact; and
+     the amendment identifier check misses wide separators, slashes and
+     spelled-out numbers, and refuses runs like "1200 1300 1400".
    - `eraseContact` no longer writes `suppressions`, and its comment says
      why. The request is recorded in `erasure_requests` without the number:
      who asked (one of three, chosen, never typed: the first version took

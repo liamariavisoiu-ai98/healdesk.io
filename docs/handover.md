@@ -554,6 +554,22 @@ country's "+" code, with spaces, dots, dashes or brackets between the digits; an
 country's number is found only in its international form.
 Tell the practice when it asks about a call it believes had no caller ID.
 
+Known limits, as specified (second review, 12 October 2026):
+
+- **One step, not a chain.** The person's numbers and addresses are the ones given and
+  those on the contacts they match, and no further. Contacts C1 {number P, address E1},
+  C2 {P, E2} and C3 {E2}: erasing E1 takes C1 and C2 (through P) whole, but not C3, and
+  not the raw payloads that carry only E2. Run a second deletion for E2 if the practice
+  says it is the same person.
+- **A Meta request reuses a contact by number.** A parent who books for a child with
+  the parent's own number makes one contact for both (`lib/meta/booking-requests.ts`),
+  so erasing either takes the other's requests with that contact.
+- **Amendment words** are refused when they carry ten digits or more with up to two
+  separators between them, or an address. A number written with wider separators ("555
+  - 013 - 0001"), with slashes or in words gets through, and a run of figures such as
+  "1200 1300 1400" is refused. Never write a number into an amendment; correct the
+  contact instead.
+
 What is kept: one `erasure_requests` row, with who asked (one of three), the dates, the
 counts and the subcontractor stamps, and no number, address or name; and, for 35 days,
 the practice's message in the mailbox (step 6). Its `restore_refs` are keyed

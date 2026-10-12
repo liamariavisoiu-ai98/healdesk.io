@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { requirePortal } from "@/lib/portal/access";
+import { depositShown, readClinicDefaultDeposit } from "@/lib/portal/knowledge";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { formatPhone } from "@/lib/setup/help";
@@ -66,6 +67,10 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
   const promotionsSold = page.state.channels.some(
     (c) => c.channel === "voice" || c.channel === "web",
   );
+  const clinicDefaultDeposit = await readClinicDefaultDeposit(
+    portal.clinicId,
+    page.actorContext,
+  );
 
   return (
     <PortalShell {...shell}>
@@ -114,12 +119,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
                   maxPrice: input.maxPrice === null ? "" : String(input.maxPrice),
                   unit: input.unit ?? "",
                   duration: input.durationMinutes === null ? "" : String(input.durationMinutes),
-                  deposit:
-                    input.depositUsd !== null &&
-                    input.depositUsd !== undefined &&
-                    input.depositUsd > 0
-                      ? String(input.depositUsd)
-                      : "",
+                  deposit: depositShown(input.depositUsd, clinicDefaultDeposit),
                   depositUsd: input.depositUsd ?? null,
                 };
               })}

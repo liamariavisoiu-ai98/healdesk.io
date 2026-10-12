@@ -195,7 +195,7 @@ export type ServiceRow = {
   duration: string;
   /** The deposit as typed, in Knowledge's column. The wizard asks on its own screen. */
   deposit?: string;
-  /** The deposit as stored: carried through by the wizard, and what a blank means in Knowledge. */
+  /** The deposit as stored, carried through by the wizard; Knowledge sends what is typed. */
   depositUsd: number | null;
 };
 
@@ -226,11 +226,13 @@ function num(value: string): number | null {
 
 /**
  * The rows as the server validates them (lib/setup/knowledge.ts
- * validateServices). With `withDeposit`, the typed deposit is sent. A blank
- * one is no deposit (0, which BD27 reads as none even when the clinic has a
- * default) when the service had one of its own, and stays as it was
- * otherwise, so saving prices never quietly turns a clinic default into
- * "none". Without it, the stored deposit is carried through unchanged.
+ * validateServices). With `withDeposit`, the typed deposit is sent, and a
+ * blank one, which reads "None", is no deposit: 0, which BD27 reads as none
+ * even when the clinic has a default, on every row, new ones included, as
+ * the wizard's Deposits screen stores it. Knowledge shows a row that follows
+ * the clinic default with that amount typed in, so a row left as it was keeps
+ * its deposit. Without `withDeposit`, the stored deposit is carried through
+ * unchanged.
  */
 export function servicesPayload(rows: readonly ServiceRow[], withDeposit: boolean) {
   return rows
@@ -246,10 +248,8 @@ export function servicesPayload(rows: readonly ServiceRow[], withDeposit: boolea
     }));
 }
 
-function typedDeposit(row: ServiceRow): number | null {
-  const typed = num(row.deposit ?? "");
-  if (typed !== null) return typed;
-  return row.depositUsd === null ? null : 0;
+function typedDeposit(row: ServiceRow): number {
+  return num(row.deposit ?? "") ?? 0;
 }
 
 export function ServicesEditor(props: {

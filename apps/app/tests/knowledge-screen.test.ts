@@ -231,7 +231,8 @@ describeDb("Knowledge", () => {
     const deposit = (name: string) =>
       effectiveDepositUsd({ service: findService(facts.services, name), policy: facts.policy });
     expect(deposit("Consultation")).toBe(75);
-    expect(deposit("Hydrafacial")).toBeNull();
+    // A row with no deposit is none, stored as 0, never the clinic default.
+    expect(deposit("Hydrafacial")).toBe(0);
     const after = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
       getDepositSettings(tx),
     );
@@ -252,6 +253,69 @@ describeDb("Knowledge", () => {
       ok: false,
       field: "services[0]",
       message: expect.stringContaining("recovery or aftercare"),
+    });
+  });
+
+  test("a deposit left as None asks for none, even when the clinic has a default; a row that follows the default shows it", async () => {
+    await inTenant(clinic.clinicId, async (c) => {
+      await c.query(
+        `update agent_configs
+            set deposit_policy = '{"required":true,"amountUsd":50}'::jsonb,
+                services = '[{"name":"Peel","priceKind":"exact","priceFromUsd":120,"priceToUsd":120,"durationMinutes":45}]'::jsonb
+          where clinic_id = $1`,
+        [clinic.clinicId],
+      );
+    });
+    const deposits = async () => {
+      const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        readClinicDepositFacts(tx),
+      );
+      return (name: string) =>
+        effectiveDepositUsd({ service: findService(facts.services, name), policy: facts.policy });
+    };
+    // Peel has no deposit of its own, so it follows the clinic's $50, and the
+    // page shows that $50 rather than "None".
+    expect((await deposits())("Peel")).toBe(50);
+    const { default: KnowledgePage } = await import("@/app/c/[slug]/knowledge/page");
+    const html = renderToStaticMarkup(
+      await KnowledgePage({ params: Promise.resolve({ slug: portal.clinicSlug }) }),
+    );
+    expect(html).toMatch(/aria-label="Service 1 deposit in dollars, empty for none"[^>]*value="50"/);
+
+    // The form as the clinic sends it: Peel cleared to "None", and a new row
+    // whose deposit was never touched.
+    const { emptyServiceRow, servicesPayload } = await import("@/app/c/[slug]/editors");
+    const rows = [
+      {
+        ...emptyServiceRow(),
+        name: "Peel",
+        price: "120",
+        duration: "45",
+        deposit: "",
+        depositUsd: null,
+      },
+      { ...emptyServiceRow(), name: "Brow tint", price: "35", duration: "20" },
+    ];
+    expect(await save("prices", { services: servicesPayload(rows, true) })).toMatchObject({
+      ok: true,
+    });
+    const after = await deposits();
+    expect(after("Peel")).toBe(0);
+    expect(after("Brow tint")).toBe(0);
+
+    // A request that leaves the deposit out entirely is no deposit too.
+    expect(
+      await save("prices", {
+        services: [
+          { name: "Peel", priceKind: "exact", price: 120, durationMinutes: 45, depositUsd: null },
+        ],
+      }),
+    ).toMatchObject({ ok: true });
+    expect((await deposits())("Peel")).toBe(0);
+    await inTenant(clinic.clinicId, async (c) => {
+      await c.query(`update agent_configs set deposit_policy = null where clinic_id = $1`, [
+        clinic.clinicId,
+      ]);
     });
   });
 

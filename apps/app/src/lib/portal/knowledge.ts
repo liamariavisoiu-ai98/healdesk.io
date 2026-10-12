@@ -1,6 +1,9 @@
 import { findClinicalContent } from "@healdesk/catalog";
+import { eq } from "drizzle-orm";
 
+import { agentConfigs } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { clinicDefaultDepositUsd } from "@/lib/billing/deposits";
 import {
   KnowledgeError,
   neverSayWithDefaults,
@@ -140,7 +143,15 @@ async function write(
     }
 
     case "prices": {
-      const services = validateServices(body.services, specialty);
+      // Every row here shows its deposit, and a blank one reads "None": no
+      // deposit, stored as 0, which BD27 reads as none even when the clinic
+      // has a default (null would mean that default). The wizard's Deposits
+      // screen stores "None" the same way (lib/setup/save.ts).
+      const services = validateServices(body.services, specialty).map((service) =>
+        service.depositUsd === null || service.depositUsd === undefined
+          ? { ...service, depositUsd: 0 }
+          : service,
+      );
       await saveServices(tx, services, now);
       return services.length === 1
         ? "One service saved. AYA quotes only the prices listed here."
@@ -181,6 +192,32 @@ async function write(
       await saveHours(tx, { hours: body.hours, closures: body.closures }, timeZone, now);
       return "Hours saved. AYA tells people when you're open, and phone follows them.";
   }
+}
+
+/**
+ * The deposit Knowledge shows on a price row, in dollars, or "" for none: the
+ * service's own amount, or, for a row that follows the clinic default
+ * (`depositUsd` null, BD27), that default, so the screen shows what AYA asks
+ * for and saving the row as it stands keeps it. A 0 is none.
+ */
+export function depositShown(own: number | null | undefined, clinicDefault: number | null): string {
+  if (own !== null && own !== undefined) return own > 0 ? String(own) : "";
+  return clinicDefault !== null && clinicDefault > 0 ? String(clinicDefault) : "";
+}
+
+/** The clinic default deposit (agent_configs.deposit_policy), or null when it has none. */
+export async function readClinicDefaultDeposit(
+  clinicId: string,
+  actor: ActorContext,
+): Promise<number | null> {
+  return withTenant({ clinicId, actor }, async (tx) => {
+    const [row] = await tx.db
+      .select({ policy: agentConfigs.depositPolicy })
+      .from(agentConfigs)
+      .where(eq(agentConfigs.clinicId, tx.clinicId))
+      .limit(1);
+    return clinicDefaultDepositUsd(row?.policy);
+  });
 }
 
 /**

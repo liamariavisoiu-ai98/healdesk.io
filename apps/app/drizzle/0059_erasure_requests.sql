@@ -135,8 +135,20 @@ AS $$
 DECLARE
   step text;
   stamp jsonb;
+  destroyed timestamptz;
 BEGIN
   IF TG_OP = 'INSERT' THEN
+    -- A destroyed clinic holds no one to delete, and a record written for it
+    -- would outlive the destruction: the expiry skips destroyed clinics, so
+    -- its references would be kept for good. The clinic's row is read FOR
+    -- SHARE, and app_mark_clinic_destroyed() locks it FOR UPDATE before it
+    -- checks the tables empty (0060), so an erasure racing the destruction
+    -- either lands before the check, which then refuses, or sees the stamp.
+    SELECT c.destroyed_at INTO destroyed FROM clinics c WHERE c.id = NEW.clinic_id FOR SHARE;
+    IF destroyed IS NOT NULL THEN
+      RAISE EXCEPTION 'erasure_requests: clinic % was destroyed on %; there is no one left to delete', NEW.clinic_id, destroyed
+        USING ERRCODE = '42501';
+    END IF;
     NEW.erased_at := clock_timestamp();
     IF NEW.vendor_steps IS DISTINCT FROM '{}'::jsonb THEN
       RAISE EXCEPTION 'erasure_requests: a request is recorded with every subcontractor step outstanding'

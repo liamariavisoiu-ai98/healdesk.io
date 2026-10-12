@@ -482,8 +482,8 @@ REVOKE ALL ON FUNCTION app_destroy_record_amendments(uuid) FROM PUBLIC;--> state
 GRANT EXECUTE ON FUNCTION app_destroy_record_amendments(uuid) TO healdesk_app;--> statement-breakpoint
 
 -- 0059's definition, the last before this one, with record_amendments added to
--- the tables it requires empty. Every table it checked before, it still
--- checks. tests/booking-request-destruction.test.ts reads the list from this
+-- the tables it requires empty, and the clinic's row locked before the
+-- checks. Every table it checked before, it still checks. tests/booking-request-destruction.test.ts reads the list from this
 -- source and holds it to every table with a clinic_id.
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
 RETURNS timestamptz
@@ -501,6 +501,12 @@ BEGIN
     RAISE EXCEPTION 'app_mark_clinic_destroyed: clinic % is not the tenant of this transaction', target_clinic
       USING ERRCODE = '42501';
   END IF;
+
+  -- The clinic's row first, FOR UPDATE, so a deletion request recorded
+  -- concurrently (erasure_requests_guard reads the row FOR SHARE) either
+  -- commits before the checks below, which then see it and refuse, or waits
+  -- for the stamp and is refused itself. Review of 12 October 2026.
+  PERFORM 1 FROM clinics c WHERE c.id = target_clinic FOR UPDATE;
 
   IF NOT app_destruction_due(target_clinic) THEN
     RAISE EXCEPTION 'Clinic % is not due for destruction; refusing to mark it destroyed.', target_clinic

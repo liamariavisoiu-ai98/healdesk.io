@@ -1006,6 +1006,34 @@ describeDb("deletion on request", () => {
     for (const row of rows) expect(row.src).toContain(`interval '${BACKUP_RETENTION_DAYS} days'`);
   });
 
+  test("a destroyed clinic takes no new deletion record, whoever writes it", async () => {
+    // expireErasureRecords skips destroyed clinics, so a record written after
+    // destruction would keep its references for good. The ops envelope
+    // checked destroyed_at outside the transaction, and nothing in the
+    // database refused the insert.
+    const c = await seedClinic("erase-destroyed");
+    await getMigratorPool().query(`update clinics set destroyed_at = now() where id = $1`, [
+      c.clinicId,
+    ]);
+    const insert = `insert into erasure_requests (clinic_id, requested_by, received_at, due_by)
+                    values ($1, 'practice', now(), now() + interval '14 days')`;
+    await expect(asApp(c.clinicId, (q) => q.query(insert, [c.clinicId]))).rejects.toMatchObject({
+      code: "42501",
+      message: expect.stringMatching(/destroyed/),
+    });
+    await expect(inTenant(c.clinicId, (q) => q.query(insert, [c.clinicId]))).rejects.toMatchObject({
+      code: "42501",
+    });
+    const refused = data<ErasePersonOutcome>(
+      await runOperation(
+        "erasePerson",
+        { clinicId: c.clinicId, phone: "+15550139101", requestedBy: "practice" },
+        OPERATOR,
+      ),
+    );
+    expect(refused.status).toBe("error");
+  });
+
   test("the runtime role cannot choose when the record's clock starts", async () => {
     const c = await seedClinic("erase-stamp");
     const app = await getAppPool().connect();

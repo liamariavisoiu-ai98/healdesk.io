@@ -12,6 +12,7 @@ import {
   clinics,
   connectionLinks,
   providerConnections,
+  recordAmendments,
   reportDeliveries,
   scheduledJobs,
   type PhiBasis,
@@ -86,6 +87,14 @@ import {
 } from "@/lib/ops/calendar-ops";
 import { readMetaPlatformSwitches, setMetaPlatformEnabled } from "@/lib/channels/meta-platforms";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
+import {
+  ERASURE_STEP_OUTCOMES,
+  isErasureStepOutcome,
+  isErasureVendorStep,
+  listErasureRequests,
+  stampErasureVendorStep,
+  type ErasureVendorStepId,
+} from "@/lib/patient-rights/erasure";
 import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
@@ -300,6 +309,14 @@ const OPERATIONS = [
   "startOffboarding",
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
+  // Deletion on request (lib/patient-rights/erasure.ts; BAA 1.3.0 release gate
+  // 6): the subcontractor step's stamp, a closed outcome, never typed. The
+  // deletion itself, and amendments and corrections (release gate 8), take a
+  // patient's identifiers or words in, so they are not operations here at
+  // all: they run in apps/app's own shell (lib/ops/patient-entry.ts, npm run
+  // ops:erase-person, ops:amend-record, ops:amend-contact), and nothing of a
+  // patient crosses apps/web (review of 12 October 2026).
+  "markErasureVendorDeleted",
   // The billing panel (lib/ops/billing.ts; build spec §7 E, R35): one clinic's
   // subscription, usage, switches and the billing engine's ledgers, and the
   // support actions on them. Ids, counts, cents and codes; never a payload.
@@ -397,6 +414,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "startOffboarding",
   "markExportDelivered",
   "markVoiceVendorDataDeleted",
+  "markErasureVendorDeleted",
   // The billing panel's writes. getClinicBilling and previewRefund are reads:
   // the preview asks Stripe and writes nothing but its audit row.
   "setOverageMode",
@@ -900,6 +918,8 @@ export async function runOperation(
       return opMarkExportDelivered(args, operator);
     case "markVoiceVendorDataDeleted":
       return opMarkVoiceVendorDataDeleted(args, operator);
+    case "markErasureVendorDeleted":
+      return opMarkErasureVendorDeleted(args, operator);
     case "getClinicBilling":
       return opGetClinicBilling(args, operator);
     case "previewRefund":
@@ -3126,6 +3146,30 @@ export type CareView = {
       how: string | null;
     } | null;
   };
+  /**
+   * The clinic's deletion requests (lib/patient-rights/erasure.ts), newest
+   * first: who asked (one of three, as the console says it), the dates, the counts and each
+   * subcontractor step, outstanding until stamped, with the deadline. Never a
+   * number, an address or a reference to one.
+   */
+  /**
+   * How many amendments the practice has directed at this clinic, and how
+   * many contact corrections: counts only. Both are entered in apps/app's
+   * shell (lib/ops/patient-entry.ts), never here.
+   */
+  patientRights: { amendments: number; corrections: number };
+  deletionRequests: {
+    id: string;
+    requestedBy: string;
+    receivedAt: string;
+    dueBy: string;
+    erasedAt: string;
+    deleted: Record<string, number>;
+    /** When the record's restore references are emptied; null once they have been. */
+    restoreRecordUntil: string | null;
+    /** `how` is the closed outcome's label (ERASURE_STEP_OUTCOMES), never typed text. */
+    steps: { id: string; label: string; stampedAt: string | null; stampedBy: string | null; how: string | null }[];
+  }[];
   recipients: { email: string; label: string | null; addedBy: string; addedAt: string }[];
   deliveries: {
     kind: string;
@@ -3174,6 +3218,15 @@ async function opGetClinicCare(
         .limit(DELIVERY_ROWS);
       const incidents = await listIncidents(tx);
       tx.audit.record({ action: "read", resourceType: "incident", resultCount: incidents.length, metadata: { purpose: "care_view" } });
+      const deletionRequests = await listErasureRequests(tx);
+      const [amendmentCount] = await tx.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(recordAmendments)
+        .where(eq(recordAmendments.clinicId, tx.clinicId));
+      const [correctionCount] = await tx.db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(auditLog)
+        .where(and(eq(auditLog.clinicId, tx.clinicId), eq(auditLog.resourceType, "contact_amendment")));
       return {
         clinic: {
           id: clinic.id,
@@ -3205,6 +3258,23 @@ async function opGetClinicCare(
               }
             : null,
         },
+        patientRights: { amendments: amendmentCount?.n ?? 0, corrections: correctionCount?.n ?? 0 },
+        deletionRequests: deletionRequests.map((d) => ({
+          id: d.id,
+          requestedBy: d.requestedBy,
+          receivedAt: d.receivedAt.toISOString(),
+          dueBy: d.dueBy.toISOString(),
+          erasedAt: d.erasedAt.toISOString(),
+          deleted: d.deleted,
+          restoreRecordUntil: d.restoreRecordUntil?.toISOString() ?? null,
+          steps: d.steps.map((step) => ({
+            id: step.id,
+            label: step.label,
+            stampedAt: step.stamp?.at ?? null,
+            stampedBy: step.stamp?.by ?? null,
+            how: step.stamp ? (isErasureStepOutcome(step.stamp.how) ? ERASURE_STEP_OUTCOMES[step.stamp.how] : "Recorded") : null,
+          })),
+        })),
         recipients: recipients.map((r) => ({
           email: r.email,
           label: r.label,
@@ -3513,6 +3583,39 @@ async function opMarkVoiceVendorDataDeleted(
   return care.updated();
 }
 
+// -----------------------------------------------------------------------------
+// Deletion on request: the subcontractor steps
+// -----------------------------------------------------------------------------
+
+/**
+ * The operator's stamp that a subcontractor deleted what it held about the
+ * person, in its own console. Once per step. How it went is one of a closed
+ * set (ERASURE_STEP_OUTCOMES), never typed: the stamp outlives the person,
+ * and a line typed here could name them. The deletion itself, and
+ * amendments and corrections, are not operations of this envelope: they run
+ * in apps/app's shell (lib/ops/patient-entry.ts), so no patient's identifier
+ * or words cross apps/web.
+ */
+async function opMarkErasureVendorDeleted(args: Record<string, unknown>, operator: Operator): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const erasureId = stringArg(args, "erasureId");
+  if (!erasureId || !UUID_SHAPED.test(erasureId)) return care.error("Which deletion request?");
+  const step = stringArg(args, "step", 40);
+  if (!isErasureVendorStep(step)) return care.error("Which subcontractor step?");
+  const how = stringArg(args, "how", 40);
+  if (!isErasureStepOutcome(how)) {
+    return care.error(`How did it go? One of: ${Object.keys(ERASURE_STEP_OUTCOMES).join(", ")}.`);
+  }
+  const outcome = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    (tx) => stampErasureVendorStep(tx, { erasureId, step: step as ErasureVendorStepId, by: operator.email, how }),
+  );
+  if (outcome === "not_found") return care.error("No such deletion request at this clinic.");
+  if (outcome === "already_stamped") return care.error("That step is already recorded.");
+  await audit(operator, "erasure_vendor_step_recorded", { clinicSlug: clinic.slug, erasureId, step, how });
+  return care.updated();
+}
 
 // -----------------------------------------------------------------------------
 // Phase 8: forwarding test, first-weeks health, human touches

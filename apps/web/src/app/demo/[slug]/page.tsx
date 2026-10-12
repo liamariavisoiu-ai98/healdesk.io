@@ -160,7 +160,7 @@ export default async function DemoPage({ params }: Props) {
         </div>
       ) : (
         <div
-          className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-2.5 text-center text-[15px] font-semibold shadow-[0_2px_12px_rgb(0_0_0/0.12)] sm:px-8"
+          className="sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-2.5 text-center text-[15px] font-semibold shadow-sm sm:px-8"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
           <span className="flex items-center gap-2">
@@ -262,7 +262,7 @@ export default async function DemoPage({ params }: Props) {
         </div>
 
         {/* The training disclaimer, in the brief's words: what demo mode cannot do yet. */}
-        <aside className="border-line mt-6 rounded-2xl border bg-white px-5 py-4 text-center">
+        <aside className="border-line mt-6 rounded-md border bg-white px-5 py-4 text-center">
           <p className="text-[15.6px] leading-[1.5] font-medium">&ldquo;{demoModeLine(name)}&rdquo;</p>
         </aside>
 

@@ -247,6 +247,14 @@ const WORDING: Record<OpsEvent, Wording> = {
   // checks meet the same refusal (code oauth_client, also when apps/app has
   // no client set) or Google says the Calendar API is disabled for the
   // project (code api_disabled): every clinic is affected until it is fixed.
+  // Raised by the nightly retention purge for each clinic whose purge threw
+  // (`phase` clinic, its id), and once when a run could not purge at all
+  // (`phase` run). Ids and the step only; the error is in the worker's log.
+  retention_purge_failed: {
+    title: "The retention purge failed",
+    action:
+      "The nightly retention purge could not finish for the clinic below, or for every clinic. Until it runs, that clinic keeps conversations, transcripts and raw payloads past the periods its agreement states. Read the worker's error lines for the retention purge and the job's note in the console's job list, fix the cause, then let the next run, at 03 or 09 UTC, catch up: it deletes everything that came due meanwhile.",
+  },
   google_oauth_client_rejected: {
     title: "Google refused healdesk's OAuth client",
     action:

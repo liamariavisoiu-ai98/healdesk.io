@@ -88,12 +88,22 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "serviceEndedAt",
   "exportDeliveredAt",
   "destroyAt",
+  // A deletion request's id (erasure_requests, lib/patient-rights/erasure.ts):
+  // a random uuid naming the request, never the person.
+  "erasureId",
+  // An amendment's id (record_amendments, lib/patient-rights/amendments.ts)
+  // and a corrected contact's id: random uuids, logged so a restore can find
+  // the amendments and corrections it lost; never their words.
+  "amendmentId",
+  "contactId",
   // Counters.
   "count",
   "written",
   "matched",
   "exceptions",
   "deleted",
+  // What a deletion kept because it is someone else's (lib/patient-rights/erasure.ts): a count.
+  "kept",
   "attempts",
   "failures",
   "processed",

@@ -47,7 +47,7 @@ export function CookieNotice() {
       role="region"
       aria-label="Cookie notice"
       aria-live="polite"
-      className="border-line fixed inset-x-3 bottom-3 z-40 mx-auto max-w-[720px] rounded-2xl border bg-white p-4 shadow-lg sm:inset-x-6 sm:p-5"
+      className="border-line fixed inset-x-3 bottom-3 z-40 mx-auto max-w-[720px] rounded-md border bg-white p-4 shadow-lg sm:inset-x-6 sm:p-5"
     >
       <p className="text-ink text-[15px] leading-relaxed">
         We measure page views and funnel steps to see what works — no ads, no

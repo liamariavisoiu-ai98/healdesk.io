@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 
 import {
   AGREEMENT_PARTY,
+  BACKUP_RETENTION_DAYS,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   STATE_LAW_CLAUSE_HEADING,
+  TRANSCRIPT_RETENTION_DAYS,
   stateLawClauseBody,
 } from "./baa";
 import {
@@ -563,8 +565,18 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * (booking-requirements.ts: the locked four and the five a practice may
    * switch on), stated as a ceiling, plus the animal's name and species the
    * owner allowed for a veterinary practice on 6 October 2026. Email is not
-   * on it: the catalogue excludes it. Then who receives Client Information,
-   * by category, which the state-law terms ask a processor to limit.
+   * on it: the catalogue excludes it. Then how long healdesk keeps what it
+   * holds during the term, and who receives Client Information, by category,
+   * which the state-law terms ask a processor to limit.
+   *
+   * The periods are BAA 1.3.0 clause 11's, in this document's words, and the
+   * nightly purge's (apps/app src/lib/retention/purge.ts), which runs for
+   * every DPA practice whatever its switch (purgeIsPromised, release gate 9).
+   * Until 12 October 2026 the DPA stated none during the term (dpa.md, gap
+   * 2) while its practices were purged at 90 days. Where 1.3.0 says
+   * "Practice may shorten these periods in its portal", this says what the
+   * portal does: its Settings shortens transcripts, to 30 or 7 days, and no
+   * other period (clinic_settings.transcript_retention_days).
    */
   {
     id: "minimum-necessary",
@@ -588,6 +600,20 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `number. On every channel its opening line says that it is an AI assistant and, on a ` +
           `call, that the call is transcribed; Practice cannot switch that statement off or edit ` +
           `it out. No call audio is kept at all.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} ` +
+          `days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} ` +
+          `days after the appointment's time. It keeps each booking request for ` +
+          `${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was ` +
+          `confirmed for and its appointment's time. A client's contact details are kept while any ` +
+          `conversation, appointment record or booking request of theirs is kept, and in any case ` +
+          `until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded ` +
+          `or changed. Practice may shorten the period for transcripts in its portal. A backup copy ` +
+          `of anything healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the ` +
+          `deletion. The clause headed "Term, termination, and what happens to the information" ` +
+          `governs what is held after the Services end.`,
       ) +
       "\n\n" +
       wrap(
@@ -752,15 +778,31 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * no-rewrite trigger in drizzle/0039 refuses a new `treatment` or
    * `preferred_window`), and the record of a conversation is kept as it was
    * made. "Correct that information as Practice directs" alone promised a
-   * change the database forbids. Nothing appends a correction yet, and
-   * `amendContact` has no operator path: the amendment record is the BAA's
-   * release gate 8, and the DPA's too (dpa.md, gap 22).
+   * change the database forbids. The amendment record (BAA 1.3.0 release
+   * gate 8, apps/app drizzle/0064 and lib/patient-rights/amendments.ts) is
+   * what appends and links one, both exports carry it, and the desk's view
+   * of a request says it is there; `amendContact` corrects a contact in
+   * place. The operator runs both from apps/app's own scripts
+   * (`ops:amend-record`, `ops:amend-contact`), never through the ops
+   * envelope; on the AWS host only a field cleared by contact id, until the
+   * portal (M5) takes the correction's text (dpa.md, gap 22).
    *
-   * The telephone-number sentence is left as it stands, for gates 6 and 7 to
-   * change (§12.14): what a deletion leaves today is what `eraseContact`
-   * (apps/app lib/retention/purge.ts) leaves, the number on the suppression
-   * list. Where it and item c differ, item c governs, by the shared clause's
-   * own precedence sentence.
+   * The last sentence says what a deletion keeps (gate 6, 12 October 2026;
+   * dpa.md, gap 15). Until then it said the client's telephone number was kept
+   * as the record of the request, as `eraseContact` kept it in
+   * `suppressions`. The record is now `erasure_requests` (apps/app
+   * lib/patient-rights/erasure.ts): who asked, the dates, the counts and the
+   * subcontractor stamps, with no number, address or name, and keyed
+   * references (one-way HMACs, never the details) emptied BACKUP_RETENTION_DAYS
+   * after the deletion, used only by `reapplyErasures` after a restore. It
+   * says the same as item c of the shared clause, more particularly. Who
+   * asked is one of three, chosen, never typed (12 October 2026), so no name
+   * reaches the record or its audit row. And it says what else is kept and
+   * for how long: the practice's own message asking for the deletion, which
+   * names the client, kept in healdesk's mailbox for the same 35 days as the
+   * fallback a restore after a total loss needs (docs/handover.md, "Deletion
+   * requests" and "Restoring"), then deleted. Until then the sentence said
+   * only that the record held no number, while the runbook kept the message.
    */
   {
     id: "requests",
@@ -775,8 +817,13 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `changed, healdesk corrects its own copy. Where a record must stay as it was made, such ` +
           `as a booking request or the record of a conversation, healdesk appends the correction ` +
           `to it and links the two. Every later use and export of that record then carries the ` +
-          `correction. The telephone number of a client whose information is deleted is kept ` +
-          `only as the record that the deletion was asked for.`,
+          `correction. When a client's information is deleted, healdesk keeps a record of the ` +
+          `request that holds no telephone number, email address or name. For the ` +
+          `${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information ` +
+          `back, the record also holds one-way keyed references to the client's numbers, ` +
+          `addresses and messaging accounts, and healdesk keeps Practice's own message asking ` +
+          `for the deletion, both used only to delete the information again if a backup is ` +
+          `restored; then both are removed.`,
       ) +
       "\n\n" +
       wrap(
@@ -888,14 +935,29 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * "within thirty days", which that clock keeps only when the export has
    * been delivered by then (agreement-changes.md § 12.11, item 8).
    *
-   * "Without penalty", which the shared notice of a new subcontractor
-   * promises (subprocessor-notice.ts), has the effect BAA 1.3.0's Term clause
-   * gives it (§12.14, HRC-07, SUB-03): the Services end the same day, no Fees
-   * accrue after it, and Fees paid for later time are refunded, a refund the
-   * Liability clause does not limit and Practice's indemnity does not reach.
-   * 1.3.0 also refunds a termination for healdesk's violation; this clause's
-   * termination for a material breach is left as it was, and is flagged for
-   * the owner. The telephone-number sentence is left for gates 6 and 7.
+   * Ending it, and the refund, are the owner's rule of 12 October 2026, which
+   * BAA 1.3.0's Term clause (third paragraph) and the Terms (§ 15, in the
+   * next legal version, on legal/130-pages) state too (dpa.md, gap 17): every termination
+   * ends the Services and stops the Fees the same day; a refund only where
+   * Practice terminates for healdesk's violation of a material term or under
+   * the Subcontractors clause, and only of the prorated unused part of the
+   * paid subscription period, never the setup fee or overage already billed,
+   * and nothing before the plan starts; any other ending refunds nothing.
+   * This document names no plan, price or fee (dpa.test.ts), so it says "a
+   * fee for setting up the Services" and "subscription", and leaves the
+   * annual plan's "rest of the year" to Terms § 15; the prorated unused part
+   * of the period paid for is the same thing.
+   * That is the effect "without penalty", which the shared notice of a new
+   * subcontractor promises (subprocessor-notice.ts), has here, as in 1.3.0
+   * (§12.14, HRC-07, SUB-03), and the Liability clause does not limit the
+   * refund nor Practice's indemnity reach it. Until then this clause refunded
+   * only a termination under the Subcontractors clause. A business associate
+   * agreement replacing this one is not a termination: the Services go on
+   * under it. After destruction nothing of a client is left: since gates 6
+   * and 7 a deletion keeps no telephone number, and destruction deletes the
+   * suppressions and the records of deletion requests with the rest
+   * (destroyClinicData, apps/app drizzle/0058 and 0063), so the exception for
+   * a deleted client's number is gone (dpa.md, gap 15).
    */
   {
     id: "term",
@@ -911,13 +973,22 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `ends this agreement, subject to the rest of this clause. A business associate ` +
           `agreement that replaces this agreement under the clause on Practice's status ends it ` +
           `too: the Client Information healdesk then holds is governed by that agreement from its ` +
-          `effective date, and nothing is destroyed because of the replacement.`,
+          `effective date, the Services go on under it, and nothing is destroyed because of the ` +
+          `replacement.`,
       ) +
       "\n\n" +
       wrap(
-        `Terminating this agreement under the Subcontractors clause is without penalty to ` +
-          `Practice: the Services end on the same day, no Fees accrue for any time after that ` +
-          `day, and healdesk refunds any Fees Practice has paid for that time.`,
+        `Terminating this agreement, however it is terminated, ends the Services on the same ` +
+          `day, and no Fees accrue for any time after that day. Where Practice terminates because ` +
+          `healdesk has violated a material term of this agreement, or under the Subcontractors ` +
+          `clause, healdesk refunds the Fees Practice has paid for the time after that day: the ` +
+          `prorated unused part of the subscription period Practice has paid for. The refund ` +
+          `never includes a fee for setting up the Services or usage above the allowance already ` +
+          `billed, and there is nothing to refund if Practice's subscription has not started under ` +
+          `the Terms. Where healdesk terminates because Practice has ` +
+          `materially breached this agreement, or this agreement ends in any other way, nothing ` +
+          `is refunded. Terminating under the Subcontractors clause is therefore without penalty ` +
+          `to Practice.`,
       ) +
       "\n\n" +
       wrap(
@@ -936,9 +1007,8 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       wrap(
         `Destruction deletes the conversations, bookings, booking requests and contact details ` +
           `healdesk holds for Practice, and the credentials Practice connected through healdesk. ` +
-          `After it, healdesk holds no Client Information for Practice except the telephone ` +
-          `number of any client who asked to have their information deleted, kept only as the ` +
-          `record of that request. Copies in encrypted database backups are deleted as those ` +
+          `After it, healdesk holds no Client Information for Practice. Copies in encrypted ` +
+          `database backups are deleted as those ` +
           `backups expire. healdesk will also have its subcontractors delete what they hold for ` +
           `Practice, except what the Subcontractors clause says Anthropic may keep. What is in ` +
           `systems Practice controls, such as its calendar, is Practice's own.`,

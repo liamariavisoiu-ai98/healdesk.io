@@ -74,7 +74,7 @@ export default async function BookingRequestPage({ params, searchParams }: { par
   const req: ResolvedBookingRequest | null = await resolveBookingRequest(token, request);
   if (!req) redirect("/booking/invalid");
 
-  const when = req.createdAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const when = req.createdAt.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: req.timeZone });
   const via = channelLabel(req.channel, req.platform);
   const open = req.status === "requested";
   const acceptedPending = req.status === "accepted";
@@ -128,6 +128,16 @@ export default async function BookingRequestPage({ params, searchParams }: { par
           ))}
         </dl>
       ) : null}
+      {req.amendmentCount ? (
+        // The practice's amendments: the request stays as it was made, and
+        // every later use of it carries them (BAA 1.3.0 clause 14(b)). This
+        // page opens with the emailed token alone, so it says how many and
+        // where to read them, never what they say.
+        <p className="mt-3 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
+          {req.amendmentCount === 1 ? "1 amendment" : `${req.amendmentCount} amendments`} at your practice&rsquo;s direction. Read
+          {req.amendmentCount === 1 ? " it" : " them"} in the patient&rsquo;s export before you act on this request.
+        </p>
+      ) : null}
 
       {direct ? (
         <Decided req={req} query={query} />
@@ -169,7 +179,7 @@ function Proposed({ req, query }: { req: ResolvedBookingRequest; query: Params }
         : query.followup === "outside_window"
           ? "Their message thread's 24-hour window has closed, so nothing was sent there."
           : null;
-  const lapses = req.rescheduleExpiresAt?.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+  const lapses = req.rescheduleExpiresAt?.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: req.timeZone });
   return (
     <div className="mt-6 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
       <p className="text-[13px] font-bold tracking-[0.06em] text-[color:var(--color-muted)] uppercase">Proposed</p>
@@ -188,10 +198,10 @@ function Proposed({ req, query }: { req: ResolvedBookingRequest; query: Params }
 }
 
 function Decided({ req, query }: { req: ResolvedBookingRequest; query: Params }) {
-  const when = req.decidedAt?.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
-  const slot = req.confirmedFor?.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" });
+  const when = req.decidedAt?.toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short", timeZone: req.timeZone });
+  const slot = req.confirmedFor?.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short", timeZone: req.timeZone });
   const direct = req.status === "confirmed" && (req.decidedByLabel ?? "").startsWith("assistant");
-  const heldFor = req.heldFor?.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short" });
+  const heldFor = req.heldFor?.toLocaleString("en-US", { dateStyle: "full", timeStyle: "short", timeZone: req.timeZone });
   const relayed =
     req.channel !== "meta"
       ? null

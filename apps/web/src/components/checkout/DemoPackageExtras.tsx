@@ -29,14 +29,14 @@ export type DemoCheckout = {
 /** The offer, unmissable: the demo's own clock, the one the checkout's coupon honours. */
 export function DemoOfferBanner({ endsAt }: { endsAt: string }) {
   return (
-    <div className="bg-brand-gradient shadow-brand mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl px-5 py-4 text-white">
+    <div className="bg-brand-gradient shadow-sm mb-5 flex flex-wrap items-center justify-between gap-3 rounded-md px-5 py-4 text-white">
       <span>
         <span className="block text-[12px] font-bold tracking-[0.12em] uppercase opacity-85">Demo offer</span>
         <span className="font-display block text-[24px] leading-tight font-semibold">
           {DEMO_SETUP_CREDIT.percentOfSetupFee}% off your setup fee
         </span>
       </span>
-      <span className="rounded-xl bg-white/15 px-3 py-2 text-[14.4px] font-semibold">
+      <span className="rounded-sm bg-white/15 px-3 py-2 text-[14.4px] font-semibold">
         Ends in <DemoCountdown expiresAt={endsAt} />
       </span>
     </div>
@@ -60,7 +60,7 @@ export function RoiPanel({
   const field = (key: "priceUsd" | "missedCallsPerWeek" | "missedMessagesPerWeek", label: string, hint: string, prefix?: string) => (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-bold tracking-[0.04em] uppercase">{label}</span>
-      <span className="border-line focus-within:border-orange flex items-center gap-1 rounded-xl border bg-white px-3 py-2">
+      <span className="border-line focus-within:border-orange flex items-center gap-1 rounded-sm border bg-white px-3 py-2">
         {prefix ? <span className="text-muted font-semibold">{prefix}</span> : null}
         <input
           type="number"
@@ -75,7 +75,7 @@ export function RoiPanel({
     </label>
   );
   return (
-    <div className="border-line mt-5 rounded-2xl border bg-white p-5">
+    <div className="border-line mt-5 rounded-md border bg-white p-5">
       <p className="text-[15.6px] font-bold">
         {inputs.repeat
           ? `A ${inputs.repeat.patient} is worth ≈ ${usd.format(patientValuePerYear(inputs) ?? 0)} a year to ${clinicName}.`

@@ -24,9 +24,17 @@
 /**
  * What a tool does for the clinic, and so which orbit its logo sits on
  * (owner, 9 October 2026): the places a patient writes in or calls, the
- * calendars a booking lands in or blocks, and the deposit.
+ * calendar a booking lands in, the calendars that read it, and the deposit.
+ *
+ * "synced" was split out of "bookings" on 12 October 2026 (owner): with
+ * Cal.com, Calendly and HighLevel beside Google Calendar under one
+ * "Bookings" chip, they read as places AYA books into. v1 writes bookings to
+ * Google Calendar and nothing else (CLAUDE.md, "Booking and payment"); the
+ * three are calendars a clinic keeps in sync with it, which see the slot as
+ * taken. So Bookings is Google Calendar alone, and the three have their own
+ * stretch of the same circle under a chip that says what they are.
  */
-export type LogoGroup = "messages" | "bookings" | "payments";
+export type LogoGroup = "messages" | "bookings" | "synced" | "payments";
 
 /** The hero photo, in pixels. Every place below is in these pixels. */
 export const PHOTO = { width: 1672, height: 941 } as const;
@@ -36,15 +44,16 @@ export const PHOTO = { width: 1672, height: 941 } as const;
  * orbits mixed with the chips that fan out"): true circles, about one point
  * under her chin, so they ring her head and pass beside her shoulders. The
  * owner asked on 12 October 2026 for perfect circles; the first version drew
- * flattened ovals. Each group has its own circle and its own stretch of it,
- * starting at its chip. Angles are in degrees, clockwise from three o'clock,
+ * flattened ovals. Each group has its own stretch of a circle, starting at
+ * its chip; Bookings and the calendars synced with it share the inner one,
+ * so the synced calendars stay exactly where they stood (12 October 2026). Angles are in degrees, clockwise from three o'clock,
  * as the screen draws them; `tail` is where the lit stretch fades out past the
  * last logo, and `dir` is which way along the circle the logos run from the
  * chip.
  *
  * Messages & Calls (five logos) is on the outer circle because that is the
- * only one whose far left is clear of the copy's box; Bookings is on the
- * inner and Payments on the middle. The places were found by search against
+ * only one whose far left is clear of the copy's box; Bookings and the
+ * synced calendars are on the inner and Payments on the middle. The places were found by search against
  * her face, the headset, the copy's box at every desktop size from 1280×720
  * to 2560×1440, the photo's edges and each other, then rounded, and
  * src/lib/integrations.test.ts pins the result.
@@ -65,7 +74,12 @@ export type Orbit = {
 
 export const ORBITS: readonly Orbit[] = [
   { group: "messages", title: "Messages & Calls", r: 760, chip: -146, tail: -209 },
-  { group: "bookings", title: "Bookings", r: 481, chip: -50.7, tail: 52 },
+  // Bookings and the calendars synced with it share the inner circle, one
+  // stretch each: Bookings from its chip down to just past Google Calendar,
+  // and the synced calendars' chip between Google Calendar and Cal.com, its
+  // stretch running on past HighLevel to where Bookings' tail used to be.
+  { group: "bookings", title: "Bookings", r: 481, chip: -50.7, tail: -16 },
+  { group: "synced", title: "Synced with Google", r: 481, chip: -12, tail: 52 },
   { group: "payments", title: "Payments", r: 647, chip: 8, tail: 40 },
 ];
 
@@ -100,12 +114,33 @@ export function onOrbit(group: LogoGroup, angle: number): { x: number; y: number
 }
 
 /**
- * What a logo shows when it is hovered, focused or tapped, in the owner's
- * words of 9 October 2026: a message received and replied to, with WhatsApp's
- * grey tick and blue double tick, a call answered and booked, a slot booked
- * or blocked, a deposit paid. Never a treatment, a name or a price list.
+ * What a logo shows when it is hovered, focused or tapped: a small scene
+ * drawn in that channel's or that tool's own look, one example per logo
+ * (owner, 12 October 2026; until then every message channel shared one
+ * "Received / Replied" card with WhatsApp's ticks, which Instagram and
+ * Messenger do not have). HeroScenes.tsx draws them; `showcase` is the same
+ * example in words, which a screen reader hears as the logo's name.
+ *
+ * Every line is a thing v1 does: she answers, books into Google Calendar and
+ * nothing else (the auto-confirm switch turns a booking into a request staff
+ * approve), sends a deposit link in chat, and on a call books and flags the
+ * deposit rather than taking it. No treatment is named anywhere, and none in
+ * a Meta channel above all, where the question stops at "with…".
  */
-export type ShowcaseLine = { text: string; mark?: "received" | "replied" | "paid" };
+export type ShowcaseLine = { text: string };
+
+/** Which scene a logo's card plays (HeroScenes.tsx). */
+export type SceneKind =
+  | "web"
+  | "instagram"
+  | "messenger"
+  | "whatsapp"
+  | "call"
+  | "gcal"
+  | "calcom"
+  | "calendly"
+  | "highlevel"
+  | "stripe";
 
 export type HeroLogo = {
   /** What the logo stands for, as the label names it. */
@@ -122,64 +157,106 @@ export type HeroLogo = {
   angle: number;
   /** Its centre on the photo, in percent of its width and height, from `angle`. */
   at: { x: number; y: number };
+  scene: SceneKind;
+  /**
+   * Where the card opens from 1280px: out to the right (the default), or
+   * above, for a logo too near the photo's right edge for a card beside it.
+   */
+  card?: "above";
   showcase: readonly ShowcaseLine[];
 };
 
-const MESSAGE: readonly ShowcaseLine[] = [
-  { text: "Received 9:41 PM", mark: "received" },
-  { text: "Replied 9:41 PM", mark: "replied" },
-];
-const BLOCKED: readonly ShowcaseLine[] = [{ text: "Slot blocked · Thu 3:00 PM" }];
+const SYNCED: readonly ShowcaseLine[] = [{ text: "Synced from Google Calendar" }, { text: "Thu 3:00 PM blocked" }];
 
 const LOGOS: readonly Omit<HeroLogo, "at">[] = [
-  { name: "website chat", src: "/integrations/website-chat.webp", mark: null, group: "messages", angle: -155, showcase: MESSAGE },
-  { name: "Instagram", src: "/integrations/instagram.webp", mark: "Instagram", group: "messages", angle: -165.3, showcase: MESSAGE },
+  {
+    name: "website chat",
+    src: "/integrations/website-chat.webp",
+    mark: null,
+    group: "messages",
+    angle: -155,
+    scene: "web",
+    showcase: [{ text: "Asked about pricing" }, { text: "Consultation booked · Thu 3:00 PM" }],
+  },
+  {
+    name: "Instagram",
+    src: "/integrations/instagram.webp",
+    mark: "Instagram",
+    group: "messages",
+    angle: -165.3,
+    scene: "instagram",
+    showcase: [{ text: "New message: Can I get a consultation with…?" }, { text: "Consultation booked · Sat 10:30 AM" }],
+  },
   // The owner's file is Facebook's "f"; the channel it stands for is Messenger.
-  { name: "Messenger", src: "/integrations/facebook.webp", mark: "Facebook", group: "messages", angle: -175.6, showcase: MESSAGE },
-  { name: "WhatsApp", src: "/integrations/whatsapp.webp", mark: "WhatsApp", group: "messages", angle: -185.9, showcase: MESSAGE },
+  {
+    name: "Messenger",
+    src: "/integrations/facebook.webp",
+    mark: "Facebook",
+    group: "messages",
+    angle: -175.6,
+    scene: "messenger",
+    showcase: [{ text: "Message seen" }, { text: "Opening hours answered" }],
+  },
+  {
+    name: "WhatsApp",
+    src: "/integrations/whatsapp.webp",
+    mark: "WhatsApp",
+    group: "messages",
+    angle: -185.9,
+    scene: "whatsapp",
+    showcase: [{ text: "Received at 11:02 PM" }, { text: "Replied at 11:02 PM" }],
+  },
   // The clinic's own line, forwarded to her (owner, 9 October 2026), drawn as
   // the iPhone's Phone icon (owner, 12 October 2026), which makes it Apple's.
+  // On a call she cannot take a deposit: she books, and flags it for staff.
   {
     name: "phone line",
     src: "/integrations/phone-line.svg",
     mark: "Apple",
     group: "messages",
     angle: -196.2,
-    showcase: [{ text: "Call answered 9:41 PM" }, { text: "Consultation booked" }],
+    scene: "call",
+    showcase: [{ text: "On a call, 0:42" }, { text: "Consultation booked, deposit flagged for your team" }],
   },
+  // A request rather than a booking: what the card shows with "Auto-confirm
+  // bookings" off, when staff approve each one (owner, 12 October 2026).
   {
     name: "Google Calendar",
     src: "/integrations/google-calendar.webp",
     mark: "Google Calendar",
     group: "bookings",
     angle: -22,
-    showcase: [{ text: "Consultation booked · Thu 3:00 PM" }],
+    scene: "gcal",
+    showcase: [{ text: "Thu 3:00 PM: request sent for staff approval" }],
   },
-  { name: "Cal.com", src: "/integrations/cal-com.webp", mark: "Cal.com", group: "bookings", angle: -1.9, showcase: BLOCKED },
-  { name: "Calendly", src: "/integrations/calendly.webp", mark: "Calendly", group: "bookings", angle: 18.2, showcase: BLOCKED },
-  { name: "HighLevel", src: "/integrations/highlevel.webp", mark: "HighLevel", group: "bookings", angle: 38.3, showcase: BLOCKED },
+  { name: "Cal.com", src: "/integrations/cal-com.webp", mark: "Cal.com", group: "synced", angle: -1.9, scene: "calcom", showcase: SYNCED },
+  { name: "Calendly", src: "/integrations/calendly.webp", mark: "Calendly", group: "synced", angle: 18.2, scene: "calendly", showcase: SYNCED },
+  { name: "HighLevel", src: "/integrations/highlevel.webp", mark: "HighLevel", group: "synced", angle: 38.3, scene: "highlevel", showcase: SYNCED },
   {
     name: "Stripe",
     src: "/integrations/stripe.webp",
     mark: "Stripe",
     group: "payments",
     angle: 26.6,
-    showcase: [{ text: "Deposit link sent" }, { text: "$100 · Paid", mark: "paid" }],
+    scene: "stripe",
+    card: "above",
+    showcase: [{ text: "Deposit paid" }, { text: "Slot confirmed" }],
   },
 ];
 
-/** On their orbits, in order: Messages & Calls, then Bookings, then Payments. */
+/** On their orbits, in order: Messages & Calls, Bookings, the synced calendars, Payments. */
 export const HERO_LOGOS: readonly HeroLogo[] = LOGOS.map((logo) => ({ ...logo, at: onOrbit(logo.group, logo.angle) }));
 
 /**
  * The order the hero plays the cards in on its own, while nobody is hovering
  * (owner, 12 October 2026: the cards were hover-only, so most visitors never
  * read them): one logo from each group in turn, Messages & Calls, Bookings,
- * Payments, which is the order a booking happens in, then the next logo of
- * each, until every logo has had its card. A group with fewer logos drops out.
+ * Payments, which is the order a booking happens in, then the calendars that
+ * see the booking, then the next logo of each, until every logo has had its
+ * card. A group with fewer logos drops out.
  */
 export function storyOrder(logos: readonly HeroLogo[] = HERO_LOGOS): string[] {
-  const groups: LogoGroup[] = ["messages", "bookings", "payments"];
+  const groups: LogoGroup[] = ["messages", "bookings", "payments", "synced"];
   const lists = groups.map((group) => logos.filter((logo) => logo.group === group));
   const order: string[] = [];
   for (let i = 0; order.length < logos.length; i++) {
@@ -196,7 +273,7 @@ export function showcaseText(logo: HeroLogo): string {
 export const LABEL =
   "AYA, linked to the clinic's phone line, website chat, Instagram, Messenger and WhatsApp, to " +
   "Google Calendar for bookings, to Cal.com, Calendly and HighLevel " +
-  "through that calendar, and to the clinic's own Stripe account for " +
+  "only as calendars kept in sync with it, and to the clinic's own Stripe account for " +
   "deposits in chat.";
 
 /**

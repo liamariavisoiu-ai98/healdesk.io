@@ -345,7 +345,7 @@ export function AgreementStep({
       headingRef={headingRef}
     >
       {notice ? (
-        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-xl border px-4 py-3 text-[15.6px] font-semibold">
+        <p className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
           {notice}
         </p>
       ) : null}
@@ -358,7 +358,7 @@ export function AgreementStep({
 
   if (!choice.ok || !copy) {
     return shell(
-      <p className="border-line rounded-2xl border bg-white px-5 py-6 text-[15.6px]">
+      <p className="border-line rounded-md border bg-white px-5 py-6 text-[15.6px]">
         We can&apos;t offer an agreement for this practice here. Go back and check your
         specialty, or email{" "}
         <a href={`mailto:${site.email}`} className="font-semibold underline underline-offset-4">
@@ -372,7 +372,7 @@ export function AgreementStep({
   // ---------------- Already signed, for these very answers ----------------
   if (signed && !signedWithoutCopy) {
     return shell(
-      <section className="border-line rounded-2xl border bg-white">
+      <section className="border-line rounded-md border bg-white">
         <div className="border-line flex flex-wrap items-center justify-between gap-3 border-b px-5 py-3">
           <span className="text-sm font-bold">
             <span aria-hidden className="text-red-deep">✓ </span>
@@ -401,7 +401,7 @@ export function AgreementStep({
   return shell(
     <>
       {/* ---------------- Why ---------------- */}
-      <section className="border-line bg-paper-2/50 rounded-2xl border p-5 sm:p-6">
+      <section className="border-line bg-paper-2/50 rounded-md border p-5 sm:p-6">
         <h2 className="font-display text-[22.8px] leading-tight font-medium">
           {copy.explainer.heading}
         </h2>
@@ -465,12 +465,12 @@ export function AgreementStep({
           Hidden until the question is answered, because the answer changes a
           paragraph of the contract. Inline below 640px, in a scroll box above. */}
       {!hasDocument ? (
-        <p className="border-line text-muted mt-8 rounded-2xl border border-dashed px-5 py-6 text-center text-sm">
+        <p className="border-line text-muted mt-8 rounded-md border border-dashed px-5 py-6 text-center text-sm">
           Answer the question above and your agreement will appear here.
         </p>
       ) : (
         <section className="mt-8">
-          <div className="border-line rounded-2xl border bg-white">
+          <div className="border-line rounded-md border bg-white">
             <div className="border-line flex items-center justify-between gap-3 border-b px-5 py-3">
               <span className="text-sm font-bold">{copy.title}</span>
               <span className="text-muted text-xs font-semibold">Version {versionLabel(copy.version)}</span>
@@ -560,7 +560,7 @@ export function AgreementStep({
         {/* Interface copy beside the agreement, not part of it: v1 only
             answers, so nothing is placed in the clinic's name and there is
             nothing for it to warrant. */}
-        <div className="border-line bg-paper-2/50 mt-6 rounded-xl border p-4">
+        <div className="border-line bg-paper-2/50 mt-6 rounded-sm border p-4">
           <p className="text-[15.6px] font-bold">Inbound only</p>
           <p className="text-muted mt-1.5 text-[15.6px] leading-relaxed">
             healdesk only answers. It never calls or texts your patients, and sends no
@@ -571,7 +571,7 @@ export function AgreementStep({
         </div>
 
         {!copy.released ? (
-          <p className="border-red/30 bg-red/[0.06] mt-4 rounded-xl border px-4 py-3 text-[15.6px] font-semibold">
+          <p className="border-red/30 bg-red/[0.06] mt-4 rounded-sm border px-4 py-3 text-[15.6px] font-semibold">
             This agreement is a draft pending legal review. Until it is finalised, accounts are
             created for synthetic data only and cannot receive real patient information.
           </p>
@@ -582,7 +582,7 @@ export function AgreementStep({
             ref={noticeRef}
             tabIndex={-1}
             role="status"
-            className="border-line bg-paper-2/50 mt-5 rounded-2xl border p-5 outline-none"
+            className="border-line bg-paper-2/50 mt-5 rounded-md border p-5 outline-none"
           >
             <p className="text-[15.6px] font-bold">✓ Your agreement is signed and on file.</p>
             <div className="mt-3 flex gap-2.5">

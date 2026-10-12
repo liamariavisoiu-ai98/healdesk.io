@@ -226,6 +226,7 @@ export function NicheMosaic({
             title={s.name}
             body={s.hook}
             still={NICHE_MEDIA[s.id]!.still}
+            placeholder={NICHE_MEDIA[s.id]!.blur}
             video={NICHE_MEDIA[s.id]!.video}
             onActivate={onOpen}
             compact

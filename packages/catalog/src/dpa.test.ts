@@ -4,12 +4,14 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
 import {
+  BACKUP_RETENTION_DAYS,
   getBaaTemplate,
   PAYMENTS_CLAUSE_BODY,
   PAYMENTS_CLAUSE_HEADING,
   prepareBaa,
   STATE_LAW_CLAUSE_HEADING,
   stateLawClauseBody,
+  TRANSCRIPT_RETENTION_DAYS,
   type BaaVariables,
 } from "./baa";
 import {
@@ -97,14 +99,14 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
 
 /** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
 const GOLDEN: Record<string, string> = {
-  sample: "10b6feef5a2218d8c3fe625b9f3cb5bff3b2f40744a5ce03179d7c5ce79662de",
-  notcovered_live_covered: "90a48c419c6f4b411df4feef900f2e13f8b228f4c5899a529fb6d5b9f8446a7f",
-  notcovered_live_uncovered: "4fde981e73606b52af2a0f39af26931850e0e8c34be87781a54ac74e95897cc8",
-  notcovered_live_personal: "5f4f2331ad1030c285acce87908320faa8bca118fa486cebcb31ecf0850a8e7e",
-  notcovered_notused_other: "2c745b572696f1f29063eec51dce36e479cfddcdb8fa6ea21b04d0b5e74c7e53",
-  vet_live_covered: "2284042eb8df86bc096fe4390068041ef294e5c65be00dbc5f15101b3ca9788a",
-  vet_live_personal: "29a9d00ce132092fe3b0530d63cf18ac0f251332328a5c43b23c21cfb46f7fc3",
-  vet_notused_mindbody: "a12e3426f2a821545117c29c98af5dea82c4d485659414a8b1e75fd434c35874",
+  sample: "ff3e7acf0f37364ab85a352008fbbc1632e41f2f584514f5fde2fb6b4d9b3b3b",
+  notcovered_live_covered: "293b770db110266cfe54ff8ebd06c771d3acf8eb6d2aaf0e33d5d5bfec27fd46",
+  notcovered_live_uncovered: "e529128d1eb4f915348b3d0c8d3c0c6483b17c51deb278e1cb4047b2bae0d3f2",
+  notcovered_live_personal: "66617caa4f393408e94ae2abbbbf15273ef22b7d919f05df9243ae0ded2f8dce",
+  notcovered_notused_other: "fe5020388e9890c09a85fa813ff19406005533a732e20ad23c4cba3575b04e61",
+  vet_live_covered: "a0642c9c4dff59ca91e4a454b8caa194bfaca51fb6bbd22aa1b2f602ae3410fe",
+  vet_live_personal: "723a41894d8bf9197bee2d2d8d0640ca4daca1a9b58696e23d6d435c43e21458",
+  vet_notused_mindbody: "ddf159354863b2cfd45f4fe49595b55bdafdb97165aaa22be2615488ea264aaf",
 };
 
 const template = () => currentDpaTemplate();
@@ -545,9 +547,12 @@ describe("what the DPA says", () => {
     expect(term).toContain(
       "at the first run once thirty days have passed since the Services ended, if the export has been delivered by then; otherwise at the first run after the export is delivered; and in any case at the first run once ninety days have passed since the Services ended, whether or not the export has been delivered.",
     );
+    // Nothing of a client outlives destruction: since gates 6 and 7 a
+    // deletion keeps no number, and destruction takes the rest.
     expect(term).toContain(
-      "healdesk holds no Client Information for Practice except the telephone number of any client who asked to have their information deleted",
+      "After it, healdesk holds no Client Information for Practice. Copies in encrypted database backups are deleted as those backups expire.",
     );
+    expect(term).not.toMatch(/telephone number/);
     expect(term).toContain("nothing is destroyed because of the replacement");
     // Not the BAA's "within thirty days" destruction, which the code keeps only with the export delivered.
     expect(term).not.toMatch(/within thirty days of termination healdesk will return or destroy/i);
@@ -682,9 +687,27 @@ describe("the DPA's pre-release text", () => {
     const text = render({}).text;
     const term = unwrap(section(text, "Term, termination, and what happens to the information"));
     expect(term).toContain("Practice may also terminate it under the Subcontractors clause.");
+    // The owner's rule of 12 October 2026, as 1.3.0's Term clause and Terms § 15 state it:
+    // every termination ends the Services and the Fees that day; only Practice's termination
+    // for healdesk's violation, or under the Subcontractors clause, is refunded, and only the
+    // unused part of the paid period (dpa.md, gap 17).
     expect(term).toContain(
-      "Terminating this agreement under the Subcontractors clause is without penalty to Practice: the Services end on the same day, no Fees accrue for any time after that day, and healdesk refunds any Fees Practice has paid for that time.",
+      "Terminating this agreement, however it is terminated, ends the Services on the same day, and no Fees accrue for any time after that day.",
     );
+    expect(term).toContain(
+      "Where Practice terminates because healdesk has violated a material term of this agreement, or under the Subcontractors clause, healdesk refunds the Fees Practice has paid for the time after that day: the prorated unused part of the subscription period Practice has paid for.",
+    );
+    expect(term).toContain(
+      "The refund never includes a fee for setting up the Services or usage above the allowance already billed, and there is nothing to refund if Practice's subscription has not started under the Terms.",
+    );
+    expect(term).toContain(
+      "Where healdesk terminates because Practice has materially breached this agreement, or this agreement ends in any other way, nothing is refunded.",
+    );
+    expect(term).toContain(
+      "Terminating under the Subcontractors clause is therefore without penalty to Practice.",
+    );
+    // A replacing business associate agreement is not a termination: nothing stops.
+    expect(term).toContain("the Services go on under it, and nothing is destroyed because of the replacement.");
     expect(unwrap(section(text, "Liability, and who indemnifies whom"))).toContain(
       "Nothing in this clause limits the refund the Term clause provides, and Practice's indemnity below does not extend to a claim for it.",
     );
@@ -780,14 +803,43 @@ describe("the DPA's pre-release text", () => {
     }
   });
 
-  test("the telephone-number sentences are left as they were, for gates 6 and 7", () => {
+  test("a deletion keeps a record of the request without the client's number, and its keyed references only for the backup window", () => {
+    // Gates 6 and 7 (12 October 2026): the number no longer stays in
+    // suppressions, and destruction takes everything, so neither clause
+    // keeps a deleted client's number any more.
     const text = render({}).text;
-    expect(unwrap(section(text, "Clients' requests"))).toContain(
-      "The telephone number of a client whose information is deleted is kept only as the record that the deletion was asked for.",
+    const requests = unwrap(section(text, "Clients' requests"));
+    expect(requests).toContain(
+      `When a client's information is deleted, healdesk keeps a record of the request that holds no telephone number, email address or name. For the ${BACKUP_RETENTION_DAYS} days in which a backup could still bring the information back, the record also holds one-way keyed references to the client's numbers, addresses and messaging accounts, and healdesk keeps Practice's own message asking for the deletion, both used only to delete the information again if a backup is restored; then both are removed.`,
     );
-    expect(unwrap(section(text, "Term, termination, and what happens to the information"))).toContain(
-      "After it, healdesk holds no Client Information for Practice except the telephone number of any client who asked to have their information deleted, kept only as the record of that request.",
+    expect(requests).not.toMatch(/telephone number of a client whose information is deleted is kept/);
+    expect(unwrap(section(text, "Term, termination, and what happens to the information"))).not.toMatch(
+      /except the telephone number/,
     );
+  });
+});
+
+describe("retention during the term", () => {
+  // BAA 1.3.0 clause 11's periods, which the nightly purge runs for every
+  // DPA practice; until 12 October 2026 the DPA stated none (dpa.md, gap 2).
+  test("states the purge's periods, and what the portal can shorten, on every variant", () => {
+    for (const [name, overrides] of Object.entries(VARIANTS)) {
+      const minimum = unwrap(
+        section(render(overrides).text, "Minimum necessary, and who receives Client Information"),
+      );
+      expect(minimum, name).toContain(
+        `healdesk keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time.`,
+      );
+      expect(minimum, name).toContain(
+        `It keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time.`,
+      );
+      // Only what the portal does: its Settings shortens transcripts alone.
+      expect(minimum, name).toContain("Practice may shorten the period for transcripts in its portal.");
+      expect(minimum, name).not.toMatch(/shorten these periods/);
+      expect(minimum, name).toContain(
+        `A backup copy of anything healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion.`,
+      );
+    }
   });
 });
 

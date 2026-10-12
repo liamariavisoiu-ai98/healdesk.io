@@ -7,6 +7,7 @@ import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
+import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 
@@ -87,6 +88,20 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // defaults stamped as its booking requirement set. Same shape as the sweep
   // above: a pure function of the clock over rows that already exist.
   await record("booking-requirements-defaults", async () => ({ status: "ok", note: `${await applyBookingRequirementDefaults(now)} defaulted` }));
+  // The record of a deletion request keeps its keyed references for the
+  // BACKUP_RETENTION_DAYS a backup can bring the person back, and goes with
+  // them once every subcontractor step is stamped (lib/patient-rights/
+  // erasure.ts). Not a switched job: BAA 1.3.0's "for no longer than it needs
+  // one" does not wait for a switch that ships off. Hourly, so a reference is
+  // never kept more than an hour past the window; a restore keeps the worker,
+  // and so this, stopped until the deletions are applied again.
+  await record("erasure-expiry", async () => {
+    const r = await expireErasureRecords();
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.emptied} emptied, ${r.deleted} deleted${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // Every hour, on either rule: a clinic is due at day 29 (on BAA 1.3.0 or
   // the DPA once its export is delivered, or at the delivery when later) or
   // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
@@ -108,7 +123,15 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   });
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));
-  if (hour === 3) await record("retention-purge", () => runRetentionPurgeJob({ now }));
+  // Its switch widens it rather than starting it: a clinic on BAA 1.3.0 or
+  // later, or the DPA, is purged every night, switch or not, and the switch
+  // adds every other clinic (lib/scheduler/retention-purge.ts). It runs again
+  // at 09: a sync run younger than six hours holds a clinic's purge
+  // (SYNC_HOLDS_PURGE_HOURS), and the nightly sync starts at 02, so a clinic
+  // whose sync is slow or crashed is skipped at 03 every night; at 09 its
+  // hold has run out and it is purged the same day. A second run deletes
+  // only what has come due since, so it costs nothing to run for everyone.
+  if (hour === 3 || hour === 9) await record("retention-purge", () => runRetentionPurgeJob({ now }));
   // A closed allowance month is invoiced once; the job's own ledger
   // (overage_invoices, one row per window) makes a re-run a no-op.
   if (hour === 5) await record("annual-overage-invoice", () => runAnnualOverageJob({ now }));

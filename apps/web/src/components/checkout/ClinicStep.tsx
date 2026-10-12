@@ -114,7 +114,7 @@ export function ClinicStep({
     >
       {error ? (
         <p
-          className="border-red/30 bg-red/[0.06] mb-6 rounded-xl border px-4 py-3 text-[15.6px] font-semibold"
+          className="border-red/30 bg-red/[0.06] mb-6 rounded-sm border px-4 py-3 text-[15.6px] font-semibold"
           role="alert"
         >
           {error.message}
@@ -123,7 +123,7 @@ export function ClinicStep({
 
       <div className="grid gap-8">
         {confirmed ? (
-          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white px-5 py-4">
+          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-5 py-4">
             <span>
               <span className="block text-[15.6px] font-bold">{state.clinicName}</span>
               <span className="text-muted block text-sm">{state.website.replace(/^https?:\/\//, "").replace(/\/$/, "")}</span>
@@ -180,7 +180,7 @@ export function ClinicStep({
               first: a practice without a website takes its bookings by
               phone. Then the Meta bot, for one whose patients message it. */}
           {conflict && plan ? (
-            <div className="border-red/30 bg-red/[0.04] mt-4 rounded-2xl border p-5">
+            <div className="border-red/30 bg-red/[0.04] mt-4 rounded-md border p-5">
               <RadioGroup<string>
                 name="no-website-package"
                 layout="cards"
@@ -225,7 +225,7 @@ export function ClinicStep({
               well: the region is in the page before it has anything to say. */}
           <div role="status" aria-live="polite" className="mt-3">
             {consequence ? (
-              <div className="border-line rounded-xl border bg-white px-4 py-3 text-sm">
+              <div className="border-line rounded-sm border bg-white px-4 py-3 text-sm">
                 <p className="font-medium">{consequence.text}</p>
                 {consequence.setup ? (
                   <p className="text-muted mt-2">

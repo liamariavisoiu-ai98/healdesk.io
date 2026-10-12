@@ -241,6 +241,51 @@ locals {
     }
   }
 
+  # The patient-rights operator scripts the handover's "Deletion requests"
+  # and "Amendments" run (apps/app/scripts/ops-erase-person.ts and
+  # ops-amend-contact.ts), one family each, run only from a terminal with
+  # infra/aws/scripts/run-task.sh. On this host the person is named by a
+  # contact's id, never a phone number, an address or a name: the scripts
+  # refuse typed patient data under NODE_ENV=production, and run-task.sh
+  # passes only ids, a closed "who asked", the fields to clear and the
+  # operator's work address as overrides. They call no AWS service, so they
+  # have no task role, like migrate. Erasure keys its record of the request
+  # with HEALDESK_IDENTIFIER_REF_KEY, so it gets that secret too.
+  ops_script_containers = {
+    for name, spec in {
+      "erase-person" = {
+        script  = "scripts/ops-erase-person.ts"
+        secrets = ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"]
+      }
+      "amend-contact" = {
+        script  = "scripts/ops-amend-contact.ts"
+        secrets = ["DATABASE_URL"]
+      }
+      } : name => {
+      name             = "app"
+      image            = local.app_image
+      essential        = true
+      command          = ["node", "--import", "tsx", spec.script]
+      workingDirectory = "/repo/apps/app"
+
+      environment = [
+        { name = "NODE_ENV", value = "production" },
+        { name = "NODE_EXTRA_CA_CERTS", value = local.rds_ca_bundle },
+      ]
+      secrets = [for k in spec.secrets : { name = k, valueFrom = local.app_secret_arns[k] }]
+
+      linuxParameters = { initProcessEnabled = true }
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = merge(local.log_driver_options, {
+          awslogs-group         = aws_cloudwatch_log_group.app[name].name
+          awslogs-stream-prefix = name
+        })
+      }
+    }
+  }
+
   # Migrations then the queue install, as healdesk_migrator, before every
   # service update. It gets the migrator URL and nothing else: no app
   # secrets, no KMS settings, no task role. npm keeps its cache and logs under
@@ -400,6 +445,26 @@ resource "aws_ecs_task_definition" "patient_export" {
   task_role_arn            = aws_iam_role.export_task.arn
 
   container_definitions = jsonencode([local.patient_export_container])
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "X86_64"
+  }
+
+  #checkov:skip=CKV_AWS_336:tsx compiles the script at start and writes its cache under /tmp, as the worker does; a read-only root needs a writable /tmp mount the image does not provide yet. It runs once, by hand, as a non-root user.
+}
+
+resource "aws_ecs_task_definition" "ops_script" {
+  for_each = local.ops_script_containers
+
+  family                   = local.task_families[replace(each.key, "-", "_")]
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = "512"
+  memory                   = "1024"
+  execution_role_arn       = aws_iam_role.ecs_execution.arn
+
+  container_definitions = jsonencode([each.value])
 
   runtime_platform {
     operating_system_family = "LINUX"

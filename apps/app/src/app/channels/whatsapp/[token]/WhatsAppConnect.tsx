@@ -49,6 +49,8 @@ const ERRORS: Record<string, string> = {
   not_configured: "Connecting WhatsApp isn't switched on yet.",
   bad_request: "Meta's window didn't send everything we need. Please try again.",
   meta_error: "Meta didn't finish setting up the number. Nothing was saved, and your link still works. Try again in a minute.",
+  number_taken:
+    "That WhatsApp number is already connected to another practice on healdesk, so it can't be connected here too. Nothing was saved. Disconnect it there first, or reply to your setup email and we'll sort it out.",
 };
 
 type Phase = "loading" | "ready" | "working" | "failed";

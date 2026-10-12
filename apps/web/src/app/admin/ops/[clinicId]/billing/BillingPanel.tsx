@@ -949,28 +949,37 @@ function Refund({
 }) {
   const preview = useCall();
   const commit = useCall();
-  const [kind, setKind] = useState<RefundKind>("first_period_cancel");
+  // A § 5 refund already issued closes § 5, not the termination refund
+  // (BAA 1.3.0 clause 17), which apps/app caps by what each payment has left.
+  const sectionFiveOpen = !e.firstPeriodRefundedAt;
+  const [kind, setKind] = useState<RefundKind>(
+    sectionFiveOpen ? "first_period_cancel" : "agreement_terminated",
+  );
   const [shown, setShown] = useState<Extract<RefundPreviewOutcome, { status: "ok" }> | null>(null);
   const [typed, setTyped] = useState("");
   const [reason, setReason] = useState("");
-  if (e.firstPeriodRefundedAt) {
-    return (
-      <p className="text-sm">
-        A refund under § 5 was issued {e.firstPeriodRefundedAt}. The two refunds do not stack, and
-        the setup fee is never refunded.
-      </p>
-    );
-  }
   const matches = shown !== null && typedCents(typed) === shown.amountCents;
   return (
     <div className="grid gap-3 text-sm">
+      {sectionFiveOpen ? (
+        <p className="text-muted text-xs">
+          The first-period refund pays back the first period in full and cancels the plan at once;
+          the guarantee pays one month&rsquo;s fee and keeps the plan.
+          {view.flags.refundWindowOpen
+            ? ` The 14-day window is open until ${view.flags.refundEligibleUntil}.`
+            : " The 14-day window is not open."}{" "}
+          The setup fee is never refunded.
+        </p>
+      ) : (
+        <p>
+          A refund under § 5 was issued {e.firstPeriodRefundedAt}. The two refunds do not stack, and
+          the setup fee is never refunded.
+        </p>
+      )}
       <p className="text-muted text-xs">
-        The first-period refund pays back the first period in full and cancels the plan at once; the
-        guarantee pays one month&rsquo;s fee and keeps the plan.
-        {view.flags.refundWindowOpen
-          ? ` The 14-day window is open until ${view.flags.refundEligibleUntil}.`
-          : " The 14-day window is not open."}{" "}
-        The setup fee is never refunded.
+        The termination refund is owed only when the practice ended its agreement because healdesk
+        violated a material term, or under the Subcontractors clause: the subscription fees paid for
+        time after the termination day, never the setup fee or overage.
       </p>
       <div className="flex flex-wrap items-end gap-3">
         <label>
@@ -978,14 +987,26 @@ function Refund({
           <select
             value={kind}
             onChange={(event) => {
-              setKind(event.target.value === "guarantee" ? "guarantee" : "first_period_cancel");
+              const value = event.target.value;
+              setKind(
+                value === "guarantee" || value === "agreement_terminated"
+                  ? value
+                  : "first_period_cancel",
+              );
               setShown(null);
               setTyped("");
             }}
             className={INPUT}
           >
-            <option value="first_period_cancel">First period, plan cancelled</option>
-            <option value="guarantee">Guarantee: one month&rsquo;s fee</option>
+            {sectionFiveOpen ? (
+              <>
+                <option value="first_period_cancel">First period, plan cancelled</option>
+                <option value="guarantee">Guarantee: one month&rsquo;s fee</option>
+              </>
+            ) : null}
+            <option value="agreement_terminated">
+              Agreement terminated: the fees after it ended
+            </option>
           </select>
         </label>
         <button
@@ -1024,9 +1045,25 @@ function Refund({
           <p>
             <strong>{money(shown.amountCents)}</strong> back to the card
             {shown.cancelsPlan ? ", and the plan is cancelled at once" : ", and the plan is kept"}.
-            Plan started {shown.planStartedOn ?? "?"}; this refund&rsquo;s window ends{" "}
-            {shown.windowEndsOn ?? "?"}.
+            {shown.kind === "agreement_terminated" ? (
+              <>
+                The agreement ended {shown.windowEndsOn ?? "?"}; the fees paid for time after that
+                day come back.
+              </>
+            ) : (
+              <>
+                Plan started {shown.planStartedOn ?? "?"}; this refund&rsquo;s window ends{" "}
+                {shown.windowEndsOn ?? "?"}.
+              </>
+            )}
           </p>
+          {shown.settleByHand ? (
+            <p>
+              <strong>Also owed, to settle by hand: {money(shown.settleByHand.amountCents)}</strong>,
+              paid outside Stripe&rsquo;s card payments, so it can&rsquo;t go back to the card and
+              isn&rsquo;t in the amount above. Invoices: {shown.settleByHand.invoiceIds.join(", ")}.
+            </p>
+          ) : null}
           <label>
             <span className="text-muted block text-xs font-bold uppercase">
               Type the amount to confirm ({money(shown.amountCents)})

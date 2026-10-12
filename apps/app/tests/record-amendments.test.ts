@@ -514,7 +514,7 @@ describeDb("the amendment record", () => {
     const onOther = await amendOp(c.clinicId, "booking_request", otherRequest, "Someone else's.");
 
     const patient = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportPatient(tx, { phone: "+15550143001", requestedBy: "the practice, ticket 2202" }),
+      exportPatient(tx, { phone: "+15550143001", requestedBy: "person_via_practice" }),
     );
     const byId = Object.fromEntries(
       patient.bookingRequests.map((r) => [r.id, r.amendments.map((a) => a.id)]),
@@ -535,7 +535,7 @@ describeDb("the amendment record", () => {
     ).toEqual([onRequest, second, onCall].sort());
 
     const clinic = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportClinic(tx, "offboarding, the practice's notice"),
+      exportClinic(tx, "practice"),
     );
     const all = Object.fromEntries(
       clinic.bookingRequests.map((r) => [r.id, r.amendments.map((a) => a.id)]),
@@ -739,13 +739,13 @@ describeDb("the amendment record", () => {
 
     // Both exports carry it beside the appointment.
     const patient = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportPatient(tx, { phone: "+15550149001", requestedBy: "the practice" }),
+      exportPatient(tx, { phone: "+15550149001", requestedBy: "practice" }),
     );
     expect(
       Object.fromEntries(patient.appointments.map((a) => [a.id, a.amendments.map((x) => x.id)])),
     ).toEqual({ [fresh.appointmentId!]: [onFresh], [old.appointmentId!]: [onOld] });
     const clinic = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      exportClinic(tx, "the practice"),
+      exportClinic(tx, "practice"),
     );
     expect(clinic.appointments.find((a) => a.id === fresh.appointmentId)!.amendments[0]!.amendment).toBe(
       "The treatment was a consultation, with Dr Okafor, at 10:30.",

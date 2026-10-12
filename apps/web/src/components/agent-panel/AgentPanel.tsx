@@ -52,7 +52,7 @@ export function AgentPanel({
   overlay,
   children,
 }: {
-  /** What kind of assistant, in small capitals: "AI voice agent". */
+  /** What kind of assistant, in small capitals: "Voice agent". */
   label: string;
   /** What it answers: "Your phone line". Left out, the label stands alone. */
   title?: string;

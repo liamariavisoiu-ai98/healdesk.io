@@ -1,6 +1,6 @@
 import { consumeConnectionLinkWithin, resolveConnectionLink } from "@/lib/connections/links";
 import { describeError, log } from "@/lib/log";
-import { attachMetaChannel } from "@/lib/meta/channels";
+import { attachMetaChannel, MetaAssetTakenError } from "@/lib/meta/channels";
 import { prepareMetaLogin } from "@/lib/meta/connect";
 import {
   LinkAlreadySpentError,
@@ -76,6 +76,10 @@ export async function GET(request: Request): Promise<Response> {
     });
   } catch (error) {
     if (error instanceof LinkAlreadySpentError) return invalid();
+    // Another practice holds this Page or Instagram account: nothing saved.
+    if (error instanceof MetaAssetTakenError) {
+      return back(error.platform === "instagram" ? "instagram_taken" : "page_taken");
+    }
     log.error("Storing a clinic's Meta channels failed", { clinicId: link.clinicId, error: describeError(error) });
     return back("meta_error");
   }

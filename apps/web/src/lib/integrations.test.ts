@@ -135,10 +135,18 @@ describe("the hero's logos", () => {
 
   test("no showcase names a treatment, least of all on a Meta channel", () => {
     // CLAUDE.md, "No treatment name in a payment description, a Meta message
-    // or the support chat": the Instagram question stops at "with…".
+    // or the support chat": the Instagram question asks for a clinician.
     const treatments = /botox|filler|lip|laser|ivf|egg|implant|veneer|semaglutide|glp|hair|facial|peel|liposuction|rhinoplasty/i;
     for (const logo of HERO_LOGOS) {
       for (const line of logo.showcase) expect(line.text, logo.name).not.toMatch(treatments);
+    }
+  });
+
+  test("the Instagram message and the call come in after hours, and their cards say so", () => {
+    for (const scene of ["instagram", "call"]) {
+      const logo = HERO_LOGOS.find((l) => l.scene === scene)!;
+      expect(logo.afterHours, scene).toBe(true);
+      expect(logo.showcase[0]!.text, scene).toMatch(/^After hours/);
     }
   });
 
@@ -172,18 +180,29 @@ describe("the hero's logos", () => {
 
   test("the orbits are true circles about one point: every logo and chip is its radius from the centre", () => {
     const radii = [...new Set(ORBITS.map((orbit) => orbit.r))];
-    // A circle per group, except that Bookings and the calendars synced with
-    // it share one (12 October 2026), a stretch each that does not overlap.
+    // Two circles (12 October 2026): Bookings and the calendars synced with
+    // it share the inner one, Messages & Calls and Payments the outer, a
+    // stretch each that does not overlap.
+    expect(radii).toHaveLength(2);
+    expect(orbitOf("synced").r).toBe(orbitOf("bookings").r);
+    expect(orbitOf("payments").r).toBe(orbitOf("messages").r);
+    // Whether an angle is on a group's stretch, going from its chip towards
+    // its tail, the short way round (Messages' runs past nine o'clock).
+    const on = (angle: number, orbit: (typeof ORBITS)[number]) => {
+      const d = ((((angle - orbit.chip) % 360) + 540) % 360) - 180;
+      const span = orbit.tail - orbit.chip;
+      return Math.sign(d) === Math.sign(span) && Math.abs(d) <= Math.abs(span);
+    };
     for (const r of radii) {
-      const on = ORBITS.filter((orbit) => orbit.r === r);
-      if (on.length > 1) expect(on.map((orbit) => orbit.group).sort()).toEqual(["bookings", "synced"]);
+      const [a, b] = ORBITS.filter((orbit) => orbit.r === r);
+      for (const [x, y] of [
+        [a!, b!],
+        [b!, a!],
+      ] as const) {
+        expect(on(x.chip, y) || on(x.tail, y), `${x.group} on ${y.group}`).toBe(false);
+      }
     }
-    const [a, b] = ORBITS.filter((orbit) => orbit.r === orbitOf("bookings").r).map((orbit) => [
-      Math.min(orbit.chip, orbit.tail),
-      Math.max(orbit.chip, orbit.tail),
-    ]);
-    expect(a![1]! < b![0]! || b![1]! < a![0]!).toBe(true);
-    // The same point for all three, and on her head: between her cheeks.
+    // The same point for both, and on her head: between her cheeks.
     expect(ORBIT_CENTRE.x).toBeGreaterThan(FACE.x - FACE.rx);
     expect(ORBIT_CENTRE.x).toBeLessThan(FACE.x + FACE.rx);
     const distance = (at: { x: number; y: number }) => Math.hypot(px(at).x - ORBIT_CENTRE.x, px(at).y - ORBIT_CENTRE.y);

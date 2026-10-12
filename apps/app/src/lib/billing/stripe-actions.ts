@@ -10,6 +10,7 @@ import {
   recurringUsd,
   setupFeeDeltaUsd,
   stripeLookupKey,
+  terminationRefundsFees,
   type BillingInterval,
   type Channel,
   type Plan,
@@ -70,7 +71,7 @@ import {
 } from "./metered-items";
 import { enqueueNotice, type NoticePayloads } from "./notices";
 import { priceForLookupKey } from "./prices";
-import { rearmBillingRequest, requestCancelNow } from "./requests";
+import { billingRequestsSwitchedOn, rearmBillingRequest, requestCancelNow } from "./requests";
 import { recordBillingNote } from "./state-machine";
 import { getStripe, stripeConfigured } from "./stripe-client";
 import {
@@ -2335,8 +2336,19 @@ export async function createPortalSession(
  * (`first_period_cancel`), or one month's fee by operator judgement with the
  * plan kept (`guarantee`). They do not stack, and the setup fee is never
  * refunded.
+ *
+ * `agreement_terminated`: BAA 1.3.0 clause 17 ¶3, "Where Practice terminates
+ * because healdesk has violated a material term, or under the Subcontractors
+ * clause, no Fees accrue for any time after that day, and healdesk refunds
+ * any Fees Practice has paid for that time". Owed only once a recorded
+ * termination has left the practice no agreement in effect, and only for
+ * those two reasons (terminationRefundsFees in @healdesk/catalog): every
+ * other ending stops the Services and the Fees on the day and refunds
+ * nothing. The termination itself cancels the subscription
+ * (lib/agreements/termination.ts); this refund is the operator's to preview
+ * and confirm, like the other two, and is not held back by a § 5 refund.
  */
-export type RefundKind = "first_period_cancel" | "guarantee";
+export type RefundKind = "first_period_cancel" | "guarantee" | "agreement_terminated";
 
 export type PreviewRefundInput = { clinicId: string; kind: RefundKind };
 
@@ -2346,13 +2358,26 @@ export type PreviewRefundResult =
       kind: RefundKind;
       /** What commitRefund will refund. It refuses a confirmation of any other amount. */
       amountCents: number;
-      /** first_period_cancel cancels the plan at once; guarantee keeps it. */
+      /** first_period_cancel and agreement_terminated cancel the plan at once; guarantee keeps it. */
       cancelsPlan: boolean;
-      /** The Terms' dates, for the operator: when the plan started and when this refund's window ends. ISO dates. */
+      /**
+       * The Terms' dates, for the operator: when the plan started and when
+       * this refund's window ends; for agreement_terminated, the day the
+       * agreement ended, the last day it does not refund. ISO dates.
+       */
       planStartedOn: string | null;
       windowEndsOn: string | null;
+      /**
+       * Invoices this refund covers that were paid without a payment intent
+       * (marked paid out of band), so nothing of them can go back to a
+       * card: not in `amountCents`, for the operator to settle by hand.
+       * Absent when there are none.
+       */
+      settleByHand?: SettleByHand;
     }
   | { status: "refused" | "not_available"; message: string };
+
+export type SettleByHand = { amountCents: number; invoiceIds: string[] };
 
 export type CommitRefundInput = {
   clinicId: string;
@@ -2370,12 +2395,16 @@ export type CommitRefundResult =
       amountCents: number;
       /** ISO timestamp the refund was stamped. */
       refundedAt: string;
-      /** A first-period refund records a cancel_now request in the same transaction. */
+      /** A first-period or termination refund records a cancel_now request in the same transaction. */
       isCancelRequested: boolean;
     }
   | { status: "refused" | "busy" | "failed" | "not_available"; message: string };
 
-const REFUND_KINDS: readonly RefundKind[] = ["first_period_cancel", "guarantee"];
+const REFUND_KINDS: readonly RefundKind[] = [
+  "first_period_cancel",
+  "guarantee",
+  "agreement_terminated",
+];
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 type RefundEligibility =
@@ -2383,17 +2412,93 @@ type RefundEligibility =
   | { ok: false; status: "refused" | "not_available"; message: string };
 
 /**
+ * How the practice's agreement ended: the latest termination recorded for
+ * the billing clinic's organisation, with who ended it and why, once no
+ * agreement is in effect for it; null while one is, or when none was ever
+ * bound.
+ */
+export type AgreementEnding = { terminatedAt: Date; reason: string | null };
+
+/**
+ * The ending, read in the billing clinic's own transaction, which sees its
+ * organisation's agreements and no other's (baa_acceptances is FORCE RLS,
+ * drizzle/0031). "In effect" is app_agreement_in_effect (0048), the one
+ * definition of it.
+ */
+export async function readAgreementEnding(tx: TenantTx): Promise<AgreementEnding | null> {
+  const result = await tx.db.execute<{
+    terminated_at: Date | string | null;
+    termination_reason: string | null;
+  }>(
+    sql`select b.terminated_at, b.termination_reason
+          from clinics c
+          join baa_acceptances b on b.organization_id = c.organization_id
+         where c.id = ${tx.clinicId}
+           and b.terminated_at is not null
+           and not exists (select 1 from app_agreement_in_effect(c.organization_id))
+         order by b.terminated_at desc, b.accepted_at desc
+         limit 1`,
+  );
+  const row = result.rows[0];
+  if (!row || row.terminated_at === null) return null;
+  return { terminatedAt: new Date(row.terminated_at), reason: row.termination_reason };
+}
+
+/**
+ * The termination refund's own rule (clause 17 ¶3): a recorded ending with
+ * no agreement left in effect, for one of the two reasons the clause
+ * refunds, and a plan that had started, since before the start the clinic
+ * paid only the setup fee and the $0 line. Never held back by a § 5 refund:
+ * `first_period_refunded_at` stops the two § 5 refunds stacking, and the
+ * amount is capped by what each payment has left instead (planRefund). No
+ * time limit: the refund is owed whenever the ending is recorded.
+ */
+function terminationEligibility(
+  row: Entitlements,
+  ending: AgreementEnding | null,
+): RefundEligibility {
+  if (!ending) {
+    return {
+      ok: false,
+      status: "refused",
+      message:
+        "No termination is recorded for this practice with no agreement left in effect, so no termination refund is owed.",
+    };
+  }
+  if (!terminationRefundsFees(ending.reason)) {
+    return {
+      ok: false,
+      status: "refused",
+      message:
+        "This agreement's ending is not refunded: the agreement refunds the fees paid for time after it ended only when the practice ended it because healdesk violated a material term, or under the Subcontractors clause.",
+    };
+  }
+  const start = row.planStartedAt;
+  if (!start) {
+    return {
+      ok: false,
+      status: "refused",
+      message:
+        "The plan had not started when the agreement ended, so no fee was paid for time after it: there's nothing to refund.",
+    };
+  }
+  return { ok: true, start, windowEnd: ending.terminatedAt };
+}
+
+/**
  * Who may be refunded, from the database alone: a started plan whose first
  * plan invoice was paid, no refund under § 5 yet (`first_period_refunded_at`
  * is what stops the two stacking), and for `first_period_cancel` no more
  * than FIRST_PERIOD_REFUND_DAYS since the plan started. The guarantee has no
  * time gate beyond that: it is the operator's judgement, so its window is
- * shown, not enforced.
+ * shown, not enforced. `agreement_terminated` has its own rule
+ * (terminationEligibility) and is not held back by a § 5 refund.
  */
 function refundEligibility(
   row: Entitlements | null,
   kind: RefundKind,
   now: Date,
+  ending: AgreementEnding | null = null,
 ): RefundEligibility {
   if (!REFUND_KINDS.includes(kind))
     return { ok: false, status: "refused", message: "That isn't a refund the Terms offer." };
@@ -2412,6 +2517,7 @@ function refundEligibility(
   }
   if (row.status === "purged")
     return { ok: false, status: "refused", message: "This account's records are gone." };
+  if (kind === "agreement_terminated") return terminationEligibility(row, ending);
   if (row.firstPeriodRefundedAt) {
     return {
       ok: false,
@@ -2449,7 +2555,19 @@ function refundEligibility(
   return { ok: true, start, windowEnd: addMonthsUtc(start, 1) };
 }
 
-type RefundPart = { invoiceId: string; paymentIntentId: string; amountCents: number };
+type RefundPart = {
+  invoiceId: string;
+  paymentIntentId: string;
+  amountCents: number;
+  /** What refunds of this same kind already on the payment intent come to (#3: a repeat). */
+  sameKindCents: number;
+};
+
+/** An invoice paid without a payment intent (out of band): owed, but not refundable to a card. */
+type HandPart = { invoiceId: string; amountCents: number };
+
+/** A refund, invoice by invoice: the parts that go back to the card, and those to settle by hand. */
+type RefundPlan = { parts: RefundPart[]; byHand: HandPart[] };
 
 type InvoiceLineLike = {
   amount?: number | null;
@@ -2550,25 +2668,146 @@ async function firstPlanPeriod(
   return { start: Math.floor(start.getTime() / 1000), end: Math.floor(end.getTime() / 1000) };
 }
 
+type RefundOnRecord = {
+  amount?: number | null;
+  status?: string | null;
+  metadata?: Record<string, string> | null;
+};
+
+/** What an invoice charged in subscription fees: its fee lines after discounts, credits included. */
+function feesOn(lines: InvoiceLineLike[]): number {
+  return lines.reduce((sum, line) => sum + netAmount(line), 0);
+}
+
+/**
+ * One invoice's part of a refund of `kind`: `wantedCents`, capped by what
+ * the payment has left, added to the plan; nothing when nothing is left. An
+ * invoice paid without a payment intent (marked paid out of band) has no
+ * card to refund to: its part, capped by what it was paid and by its fees,
+ * goes on the plan's `byHand` list, so the preview shows the operator what
+ * to settle by hand rather than quietly owing less.
+ *
+ * The refunds counted against it are those of another kind on its payment
+ * intent that have not failed or been cancelled. A refund of the same kind
+ * is not counted: commit reuses that one (refundPart), and a preview after a
+ * partial commit shows the same amount as before. Two caps, the lower wins:
+ *
+ *   - what the charge has left: what the invoice was paid, less every such
+ *     refund, a guarantee, first-period or termination refund or one made by
+ *     hand in the Dashboard (no hd_kind), so Stripe is never asked for more
+ *     than the charge holds;
+ *   - what its fees have left: the invoice's subscription-fee lines
+ *     (`invoiceFeeCents`), less the refunds healdesk made of another kind,
+ *     every one of which paid back fees. Without it, a § 5 refund after a
+ *     termination refund (or the other way round) would reach into the
+ *     invoice's overage or setup line, which no refund kind pays back.
+ *
+ * The three kinds share this one cap, so a charge is never paid back twice.
+ *
+ * Tax: fee lines are amounts before tax, so if STRIPE_AUTOMATIC_TAX is ever
+ * switched on, every kind under-refunds the tax charged on the refunded
+ * time. Credit notes, which carry the tax with the line, are the fix then.
+ */
+async function cappedPart(
+  stripe: Stripe,
+  invoice: InvoiceSummary,
+  kind: RefundKind,
+  wantedCents: number,
+  invoiceFeeCents: number,
+  plan: RefundPlan,
+): Promise<void> {
+  if (wantedCents <= 0) return;
+  const paymentIntentId = await paymentIntentOf(stripe, invoice.id);
+  if (!paymentIntentId) {
+    const amountCents = Math.min(wantedCents, invoice.amount_paid ?? 0, invoiceFeeCents);
+    if (amountCents > 0) plan.byHand.push({ invoiceId: invoice.id, amountCents });
+    return;
+  }
+  const refunds = (await stripe.refunds.list(
+    { payment_intent: paymentIntentId, limit: 100 },
+    WORKER_STRIPE_OPTIONS,
+  )) as unknown as { data?: RefundOnRecord[] };
+  const standing = (refunds.data ?? []).filter(
+    (refund) => refund.status !== "failed" && refund.status !== "canceled",
+  );
+  const elsewhere = standing.filter((refund) => refund.metadata?.hd_kind !== kind);
+  const sum = (list: RefundOnRecord[]) =>
+    list.reduce((total, refund) => total + (refund.amount ?? 0), 0);
+  const chargeLeft = (invoice.amount_paid ?? 0) - sum(elsewhere);
+  const feesLeft =
+    invoiceFeeCents - sum(elsewhere.filter((refund) => Boolean(refund.metadata?.hd_kind)));
+  const amountCents = Math.min(wantedCents, chargeLeft, feesLeft);
+  if (amountCents <= 0) return;
+  plan.parts.push({
+    invoiceId: invoice.id,
+    paymentIntentId,
+    amountCents,
+    sameKindCents: sum(standing.filter((refund) => refund.metadata?.hd_kind === kind)),
+  });
+}
+
+/** Every part already has its full refund of this kind: confirming again would only record it twice. */
+function alreadyRefunded(plan: RefundPlan): boolean {
+  return plan.parts.length > 0 && plan.parts.every((part) => part.sameKindCents >= part.amountCents);
+}
+
+/**
+ * The day a refund of this kind was last recorded for the billing clinic
+ * (commitRefund's billing note, `refund_<kind>`), or null.
+ */
+async function refundRecordedOn(tx: TenantTx, kind: RefundKind): Promise<string | null> {
+  const result = await tx.db.execute<{ at: Date | string | null }>(
+    sql`select max(created_at) as at from billing_transitions
+         where clinic_id = ${tx.clinicId} and reason = ${`refund_${kind}`}`,
+  );
+  const at = result.rows[0]?.at;
+  return at ? isoDay(new Date(at)) : null;
+}
+
+function alreadyRefundedMessage(on: string): string {
+  return `Already refunded on ${on}: every payment this refund covers already has it, and confirming again would only record it a second time.`;
+}
+
+/** The out-of-band part of a plan, for the operator to settle by hand, or undefined when there is none. */
+function settleByHandOf(plan: RefundPlan): SettleByHand | undefined {
+  if (plan.byHand.length === 0) return undefined;
+  return {
+    amountCents: plan.byHand.reduce((sum, part) => sum + part.amountCents, 0),
+    invoiceIds: plan.byHand.map((part) => part.invoiceId),
+  };
+}
+
 /**
  * What a refund pays back, invoice by invoice (R15).
  *
  * `first_period_cancel`: every subscription-fee line (the package price and
  * its prorations, never setup or overage) on the subscription's paid
- * invoices whose period starts inside the first plan period, per invoice no
- * more than it was paid. That is the whole first period, a year on an annual
- * plan, including any step-up made in it.
+ * invoices whose period starts inside the first plan period. That is the
+ * whole first period, a year on an annual plan, including any step-up made
+ * in it.
  *
  * `guarantee`: one month's fee from the first plan invoice's package line:
  * the line itself on a monthly plan, a twelfth of it on an annual one
  * (rounded down: never more than a month).
+ *
+ * `agreement_terminated`: the fees paid for time after the agreement ended
+ * (terminationRefund).
+ *
+ * Every kind, per invoice, is no more than the payment has left after the
+ * refunds of other kinds on it (cappedPart).
  */
 async function planRefund(
   stripe: Stripe,
   row: Entitlements,
   kind: RefundKind,
   start: Date,
-): Promise<RefundPart[]> {
+  ending: AgreementEnding | null = null,
+): Promise<RefundPlan> {
+  const plan: RefundPlan = { parts: [], byHand: [] };
+  if (kind === "agreement_terminated") {
+    if (ending) await terminationRefund(stripe, row, ending.terminatedAt, plan);
+    return plan;
+  }
   if (kind === "guarantee") {
     const invoiceId = row.firstPlanInvoiceId as string;
     const invoice = (await stripe.invoices.retrieve(
@@ -2576,19 +2815,17 @@ async function planRefund(
       {},
       WORKER_STRIPE_OPTIONS,
     )) as unknown as InvoiceSummary;
-    const packageCents = (await subscriptionFeeLines(stripe, invoiceId))
+    const lines = await subscriptionFeeLines(stripe, invoiceId);
+    const packageCents = lines
       .filter((line) => line.parent?.subscription_item_details?.proration !== true)
       .reduce((sum, line) => sum + netAmount(line), 0);
     const monthCents =
       row.billingInterval === "year" ? Math.floor(packageCents / 12) : packageCents;
-    const amountCents = Math.min(Math.max(monthCents, 0), invoice.amount_paid ?? 0);
-    if (amountCents <= 0) return [];
-    const paymentIntentId = await paymentIntentOf(stripe, invoiceId);
-    return paymentIntentId ? [{ invoiceId, paymentIntentId, amountCents }] : [];
+    await cappedPart(stripe, invoice, kind, monthCents, feesOn(lines), plan);
+    return plan;
   }
 
   const period = await firstPlanPeriod(stripe, row, start);
-  const parts: RefundPart[] = [];
   let startingAfter: string | undefined;
   for (let page = 0; page < 5; page += 1) {
     const list = (await stripe.invoices.list(
@@ -2604,7 +2841,8 @@ async function planRefund(
     )) as unknown as { data?: InvoiceSummary[]; has_more?: boolean };
     const data = list.data ?? [];
     for (const invoice of data) {
-      const feeCents = (await subscriptionFeeLines(stripe, invoice.id))
+      const lines = await subscriptionFeeLines(stripe, invoice.id);
+      const feeCents = lines
         .filter((line) => {
           const lineStart = line.period?.start;
           return (
@@ -2612,15 +2850,96 @@ async function planRefund(
           );
         })
         .reduce((sum, line) => sum + netAmount(line), 0);
-      const amountCents = Math.min(Math.max(feeCents, 0), invoice.amount_paid ?? 0);
-      if (amountCents <= 0) continue;
-      const paymentIntentId = await paymentIntentOf(stripe, invoice.id);
-      if (paymentIntentId) parts.push({ invoiceId: invoice.id, paymentIntentId, amountCents });
+      await cappedPart(stripe, invoice, kind, feeCents, feesOn(lines), plan);
     }
     if (!list.has_more || data.length === 0) break;
     startingAfter = data[data.length - 1]!.id;
   }
-  return parts;
+  return plan;
+}
+
+/** The start of the UTC day after the one `at` falls on, in Unix seconds. */
+function dayAfterSeconds(at: Date): number {
+  const next = Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate() + 1);
+  return Math.floor(next / 1000);
+}
+
+/**
+ * The part of a subscription-fee line paid for time from `fromSec` to the end
+ * of its own period: its amount after discounts, times (period.end − from)
+ * over (period.end − period.start), rounded toward zero. A line wholly after
+ * `fromSec` comes back in full (a renewal paid after the end), one wholly
+ * before it not at all, and a proration credit counts against its invoice
+ * like any other line.
+ */
+function unusedShare(line: InvoiceLineLike, fromSec: number): number {
+  const start = line.period?.start;
+  const end = line.period?.end;
+  if (typeof start !== "number" || typeof end !== "number" || end <= start) return 0;
+  const from = Math.max(start, fromSec);
+  if (from >= end) return 0;
+  return Math.trunc((netAmount(line) * (end - from)) / (end - start));
+}
+
+/**
+ * The termination refund (BAA 1.3.0 clause 17 ¶3), invoice by invoice: the
+ * fees paid for any time after the day the agreement ended.
+ *
+ * Only the subscription-fee lines count (isSubscriptionFeeLine: the package
+ * price and its prorations, never the setup fee and never metered overage,
+ * which is billed in arrears for time already served). Each is prorated by
+ * its own period, from the start of the UTC day after the termination to the
+ * period's end, so the current paid period comes back in part, the rest of
+ * the year on an annual plan, and a period paid after the end in full; a
+ * period over before it, nothing. Before the plan started there is no such
+ * line, only the $0 placeholder, and the eligibility refuses first.
+ *
+ * Per invoice the refund is no more than the payment has left after every
+ * refund of another kind on its payment intent (cappedPart).
+ */
+async function terminationRefund(
+  stripe: Stripe,
+  row: Entitlements,
+  terminatedAt: Date,
+  plan: RefundPlan,
+): Promise<void> {
+  const fromSec = dayAfterSeconds(terminatedAt);
+  let startingAfter: string | undefined;
+  for (let page = 0; page < 10; page += 1) {
+    const list = (await stripe.invoices.list(
+      {
+        subscription: row.stripeSubscriptionId as string,
+        status: "paid",
+        limit: 100,
+        ...(startingAfter ? { starting_after: startingAfter } : {}),
+      },
+      WORKER_STRIPE_OPTIONS,
+    )) as unknown as { data?: InvoiceSummary[]; has_more?: boolean };
+    const data = list.data ?? [];
+    for (const invoice of data) {
+      const lines = await subscriptionFeeLines(stripe, invoice.id);
+      const unused = lines.reduce((sum, line) => sum + unusedShare(line, fromSec), 0);
+      await cappedPart(stripe, invoice, "agreement_terminated", unused, feesOn(lines), plan);
+    }
+    if (!list.has_more || data.length === 0) break;
+    startingAfter = data[data.length - 1]!.id;
+  }
+}
+
+const REFUND_READ_ACTOR: ActorContext = { type: "service", serviceName: "refund-preview" };
+
+function nothingPaidMessage(kind: RefundKind, byHand?: SettleByHand): string {
+  if (byHand) {
+    return `Nothing here can go back to a card: ${dollars(byHand.amountCents)} was paid outside Stripe's card payments (invoices ${byHand.invoiceIds.join(", ")}). Settle it by hand.`;
+  }
+  return kind === "agreement_terminated"
+    ? "Nothing was paid for time after the agreement ended that could be refunded to the card."
+    : "Nothing was paid for the first period that could be refunded to the card.";
+}
+
+/** Cents as dollars, for an operator's message: "$1,234.50". */
+function dollars(cents: number): string {
+  return `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**
@@ -2633,26 +2952,44 @@ export async function previewRefund(
 ): Promise<PreviewRefundResult> {
   const now = options.now ?? new Date();
   const group = await readBillingGroup(input.clinicId, { now });
-  const eligible = refundEligibility(group.row, input.kind, now);
+  const ending =
+    input.kind === "agreement_terminated"
+      ? await withTenant({ clinicId: group.billingClinicId, actor: REFUND_READ_ACTOR }, (tx) =>
+          readAgreementEnding(tx),
+        )
+      : null;
+  const eligible = refundEligibility(group.row, input.kind, now, ending);
   if (!eligible.ok) return { status: eligible.status, message: eligible.message };
   const stripe = stripeFor(options);
   if (!stripe) return { status: "not_available", message: NOT_AVAILABLE };
   try {
-    const parts = await planRefund(stripe, group.row as Entitlements, input.kind, eligible.start);
-    const amountCents = parts.reduce((sum, part) => sum + part.amountCents, 0);
+    const plan = await planRefund(
+      stripe,
+      group.row as Entitlements,
+      input.kind,
+      eligible.start,
+      ending,
+    );
+    const amountCents = plan.parts.reduce((sum, part) => sum + part.amountCents, 0);
+    const settleByHand = settleByHandOf(plan);
     if (amountCents <= 0) {
-      return {
-        status: "refused",
-        message: "Nothing was paid for the first period that could be refunded to the card.",
-      };
+      return { status: "refused", message: nothingPaidMessage(input.kind, settleByHand) };
+    }
+    if (alreadyRefunded(plan)) {
+      const recordedOn = await withTenant(
+        { clinicId: group.billingClinicId, actor: REFUND_READ_ACTOR },
+        (tx) => refundRecordedOn(tx, input.kind),
+      );
+      if (recordedOn) return { status: "refused", message: alreadyRefundedMessage(recordedOn) };
     }
     return {
       status: "ok",
       kind: input.kind,
       amountCents,
-      cancelsPlan: input.kind === "first_period_cancel",
+      cancelsPlan: input.kind !== "guarantee",
       planStartedOn: isoDay(eligible.start),
       windowEndsOn: isoDay(eligible.windowEnd),
+      ...(settleByHand ? { settleByHand } : {}),
     };
   } catch (error) {
     log.warn("refund preview unavailable", {
@@ -2667,7 +3004,8 @@ export async function previewRefund(
 }
 
 /**
- * Refund under Terms § 5 (BD14, R15), from the console.
+ * Refund under Terms § 5 (BD14, R15), or the termination refund (BAA 1.3.0
+ * clause 17 ¶3), from the console.
  *
  * Re-checks eligibility under the billing row's lock and claims the lease,
  * works the amount out again from Stripe and refuses unless it equals the
@@ -2677,11 +3015,13 @@ export async function previewRefund(
  * refunds already on that payment intent and reuses one of this kind: the
  * key protects a retry for 24 hours, the listing protects it for ever.
  *
- * Then, in one transaction: `first_period_refunded_at` (so the two refunds
- * never stack), a billing note and an audit row with the operator's reason,
- * a `cancel_now` request for a first-period refund (its worker cancels the
- * subscription at once, without proration), and `refund_issued` per refund.
- * The setup fee is never refunded: no setup line is ever counted.
+ * Then, in one transaction: `first_period_refunded_at` for a § 5 refund (so
+ * the two never stack; a termination refund neither stamps it nor is held
+ * back by it), a billing note and an audit row with the operator's reason, a
+ * `cancel_now` request for a first-period or termination refund (its worker
+ * cancels the subscription at once, without proration), and one
+ * `refund_issued` for the whole refund. The setup fee is never refunded: no
+ * setup line is ever counted.
  */
 export async function commitRefund(
   input: CommitRefundInput,
@@ -2714,24 +3054,32 @@ export async function commitRefund(
 
   const claim = await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
     const row = await getEntitlementsForUpdate(tx.db, billingClinicId);
-    const eligible = refundEligibility(row, input.kind, now);
+    const ending = input.kind === "agreement_terminated" ? await readAgreementEnding(tx) : null;
+    const eligible = refundEligibility(row, input.kind, now, ending);
     if (!eligible.ok) return eligible;
     if (!(await claimStripeMutationLease(tx.db, billingClinicId, owner))) {
       return { ok: false as const, status: "busy" as const, message: BUSY };
     }
-    return { ...eligible, row: row as Entitlements };
+    const recordedOn = await refundRecordedOn(tx, input.kind);
+    return { ...eligible, row: row as Entitlements, ending, recordedOn };
   });
   if (!claim.ok) return { status: claim.status, message: claim.message };
 
   let releaseOnExit = true;
   try {
-    const parts = await planRefund(stripe, claim.row, input.kind, claim.start);
+    const plan = await planRefund(stripe, claim.row, input.kind, claim.start, claim.ending);
+    const parts = plan.parts;
     const amountCents = parts.reduce((sum, part) => sum + part.amountCents, 0);
     if (amountCents <= 0) {
-      return {
-        status: "refused",
-        message: "Nothing was paid for the first period that could be refunded to the card.",
-      };
+      return { status: "refused", message: nothingPaidMessage(input.kind, settleByHandOf(plan)) };
+    }
+    // Every part refunded and the refund recorded: a second confirmation
+    // would reuse the refunds but write a second billing note and audit row
+    // with the amount, reading as two refunds. Every part refunded and
+    // nothing recorded is a commit that died after Stripe: it goes on, and
+    // records the refund once.
+    if (claim.recordedOn && alreadyRefunded(plan)) {
+      return { status: "refused", message: alreadyRefundedMessage(claim.recordedOn) };
     }
     if (amountCents !== input.confirmAmountCents) {
       return {
@@ -2747,15 +3095,32 @@ export async function commitRefund(
 
     let isCancelRequested = false;
     await withTenant({ clinicId: billingClinicId, actor }, async (tx) => {
-      await markFirstPeriodRefunded(tx.db, billingClinicId, now);
+      // The termination refund does not stamp the § 5 marker: it is not a
+      // § 5 refund, and stamping it would refuse a § 5 refund the Terms may
+      // still owe for the time before the end. Each kind is capped by what
+      // the payment has left after the others (cappedPart), so the two never
+      // pay a charge twice.
+      if (input.kind !== "agreement_terminated") {
+        await markFirstPeriodRefunded(tx.db, billingClinicId, now);
+      }
       await recordBillingNote(tx, { actor: "support", reason: `refund_${input.kind}` });
       tx.audit.record({
         action: "update",
         resourceType: "entitlements",
         resourceId: billingClinicId,
-        metadata: { field: "first_period_refund", kind: input.kind, amountCents, remark },
+        metadata: {
+          field:
+            input.kind === "agreement_terminated" ? "termination_refund" : "first_period_refund",
+          kind: input.kind,
+          amountCents,
+          remark,
+        },
       });
-      if (input.kind === "first_period_cancel") {
+      // Both end the subscription at once, without proration. A termination
+      // has already recorded its cancellation (lib/agreements/termination.ts),
+      // so this one is a no-op there, kept so the refund and the cancellation
+      // cannot come apart whichever runs first.
+      if (input.kind !== "guarantee") {
         await requestCancelNow(tx, billingClinicId);
         isCancelRequested = true;
       }
@@ -2775,6 +3140,17 @@ export async function commitRefund(
       await releaseStripeMutationLease(tx.db, billingClinicId, owner);
     });
     releaseOnExit = false;
+    // The cancel_now just recorded is carried out only by the billing-requests
+    // job, which ships off. A termination has already told ops if it is
+    // (lib/agreements/termination.ts); a first-period refund tells them here,
+    // or the plan it refunded keeps billing.
+    // A switch that can't be read counts as off: the alert is the safe side.
+    if (
+      input.kind === "first_period_cancel" &&
+      !(await billingRequestsSwitchedOn().catch(() => false))
+    ) {
+      await notifyOps("refund_cancel_job_off", { clinicId: billingClinicId });
+    }
     return { status: "refunded", amountCents, refundedAt: now.toISOString(), isCancelRequested };
   } catch (error) {
     log.warn("refund not completed", { clinicId: billingClinicId, code: stripeErrorCode(error) });

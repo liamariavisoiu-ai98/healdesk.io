@@ -28,18 +28,10 @@ export function NicheCarousel({
   return (
     <section id="specialties" className="scroll-mt-24 py-20 sm:py-24">
       {/* Centred to sit over the deck, which is centred too. */}
-      <div data-reveal="stagger" className="mx-auto max-w-[760px] text-center">
+      <div data-reveal="stagger" className="mx-auto text-center">
         <p className="eyebrow-tag">
           Where you can trust us
         </p>
-        {/* Hairline divider. Solid at the middle, gone at both ends, so it
-            reads as a mark under the eyebrow rather than a rule boxing the
-            heading in. Decorative, so it is hidden from assistive tech. */}
-        <span
-          aria-hidden
-          className="bg-gradient-to-r from-transparent via-orange to-transparent mx-auto mt-5 block h-px w-full max-w-[200px]"
-        />
-
         <h2 className="heading-section mx-auto mt-5">
           Explore the specialties we cover
         </h2>

@@ -72,6 +72,61 @@ export async function seedClinic(label: string): Promise<SeededClinic> {
   return { clinicId, organizationId, slug, staffUserId, staffEmail };
 }
 
+/**
+ * A bound agreement in effect for the clinic's organisation, as provisioning
+ * leaves one, when it has none: a production clinic takes patient rows and
+ * answers only while one is (app_clinic_accepts_phi and the answer gate,
+ * drizzle/0066). Version 1.2.1 by default, accepted a month ago. Returns the
+ * agreement in effect.
+ */
+export async function bindAgreementInEffect(
+  clinicId: string,
+  version = "1.2.1",
+): Promise<string> {
+  const pool = getMigratorPool();
+  const { rows } = await pool.query<{ organization_id: string; agreement_id: string | null }>(
+    `select c.organization_id,
+            (select b.id from baa_acceptances b
+              where b.organization_id = c.organization_id and b.terminated_at is null
+              order by b.accepted_at desc limit 1) as agreement_id
+       from clinics c where c.id = $1`,
+    [clinicId],
+  );
+  const row = rows[0];
+  if (!row) throw new Error(`bindAgreementInEffect: no clinic ${clinicId}`);
+  if (row.agreement_id) return row.agreement_id;
+  const id = randomUUID();
+  await pool.query(
+    `insert into baa_acceptances
+       (id, organization_id, document_version, document_hash, rendered_text, variables, assent_label,
+        accepted_by_name, accepted_by_email, accepted_at, bound_at)
+     values ($1, $2, $3, repeat('e', 64), 'AGREEMENT (synthetic test)', '{}'::jsonb, 'I agree',
+             'Alex Chen', 'alex@agreement.test', now() - interval '30 days', now() - interval '30 days')`,
+    [id, row.organization_id, version],
+  );
+  return id;
+}
+
+/**
+ * Weekday hours, 09:00 to 17:00: the opening and closing times a Meta reply
+ * may name (the reply guard, lib/meta/front-door.ts).
+ */
+export async function setWeekdayHours(clinicId: string): Promise<void> {
+  const weekday = [["09:00", "17:00"]];
+  await getMigratorPool().query(`update clinics set opening_hours = $2::jsonb where id = $1`, [
+    clinicId,
+    JSON.stringify({
+      sun: [],
+      mon: weekday,
+      tue: weekday,
+      wed: weekday,
+      thu: weekday,
+      fri: weekday,
+      sat: [],
+    }),
+  ]);
+}
+
 export type ClinicRole = "owner" | "admin" | "clinician" | "front_desk" | "billing" | "read_only";
 
 /**

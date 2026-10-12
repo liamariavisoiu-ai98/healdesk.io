@@ -1923,11 +1923,11 @@ async function forwardingFactsOf(
  * refund delivered again emails once. A failed or cancelled refund moved no
  * money and tells nobody.
  *
- * A refund our action stamped (`hd_kind` first_period_cancel or guarantee)
- * is left to commitRefund, their only producer, which emails the whole
- * refund once, however many invoices it was spread across, in the
- * transaction that records it: one email per part from here would each say
- * the first period's fee was refunded in full and the plan cancelled.
+ * A refund our action stamped (`hd_kind` first_period_cancel, guarantee or
+ * agreement_terminated) is left to commitRefund, their only producer, which
+ * emails the whole refund once, however many invoices it was spread across,
+ * in the transaction that records it: one email per part from here would
+ * each claim the whole refund.
  */
 async function onChargeRefunded(tx: TenantTx, delivery: Delivery): Promise<void> {
   for (const refund of delivery.live.refunds ?? []) {
@@ -1937,7 +1937,13 @@ async function onChargeRefunded(tx: TenantTx, delivery: Delivery): Promise<void>
     if (!id || amount === null || amount <= 0) continue;
     if (status !== "succeeded" && status !== "pending") continue;
     const kindStamped = asString(prop(prop(refund, "metadata"), "hd_kind"));
-    if (kindStamped === "first_period_cancel" || kindStamped === "guarantee") continue;
+    if (
+      kindStamped === "first_period_cancel" ||
+      kindStamped === "guarantee" ||
+      kindStamped === "agreement_terminated"
+    ) {
+      continue;
+    }
     await enqueueNotice(tx, "refund_issued", `refund:${id}`, {
       amountCents: amount,
       kind: "other",

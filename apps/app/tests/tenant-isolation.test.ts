@@ -10,7 +10,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedClinic, seedContact } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedContact } from "./setup/factories";
 
 /**
  * Tenant isolation.
@@ -300,7 +300,9 @@ describeDb("tenant isolation", () => {
       seedContact(clinic.clinicId, "+15550177777"),
     ).rejects.toMatchObject({ code: "23514" });
 
-    // Signing the BAA opens the gate.
+    // Signing the BAA opens the gate: an agreement in effect for the
+    // practice (drizzle/0066), and go-live's copy of when it was accepted.
+    await bindAgreementInEffect(clinic.clinicId);
     await getMigratorPool().query(
       `update clinics set baa_signed_at = now() where id = $1`,
       [clinic.clinicId],

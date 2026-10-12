@@ -36,6 +36,10 @@ const PROBLEMS: Record<string, string> = {
   several_pages:
     "More than one Page was chosen. Each location answers on one Page, so sign in again and choose only this location's Page.",
   meta_error: "Facebook didn't finish connecting the Page. Nothing was saved, and your link still works. Try again in a minute.",
+  page_taken:
+    "That Facebook Page is already connected to another practice on healdesk, so it can't be connected here too. Nothing was saved. Disconnect it there first, or reply to your setup email and we'll sort it out.",
+  instagram_taken:
+    "That Instagram account is already connected to another practice on healdesk, so it can't be connected here too. Nothing was saved. Disconnect it there first, or reply to your setup email and we'll sort it out.",
   not_configured: "Connecting Facebook and Instagram isn't switched on yet. Nothing is wrong on your side; we'll let you know when it is.",
   throttled: "That was tried several times in a short space of time. Wait a few minutes and try again.",
 };

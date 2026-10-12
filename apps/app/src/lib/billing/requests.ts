@@ -195,6 +195,57 @@ export async function requestCancelNow(
 }
 
 /**
+ * Cancel the subscription at once because the practice's agreement ended
+ * (BAA 1.3.0 clauses 1, 17 and 20: every ending ends the Services, and stops
+ * the Fees, that day): `requestCancelNow`, recorded by a termination
+ * (lib/agreements/termination.ts) in the BILLING clinic's own transaction.
+ * Its worker cancels with no proration, so Stripe credits nothing on top of
+ * any refund the operator then confirms (commitRefund's
+ * `agreement_terminated`). One row per kind: a cancellation that already
+ * finished without cancelling (dead-lettered, or skipped) is re-armed, and a
+ * pending or done one is left as it is.
+ */
+export async function requestCancelForAgreementEnd(
+  tx: TenantTx,
+  clinicId: string,
+): Promise<RecordedRequest> {
+  const recorded = await requestCancelNow(tx, clinicId);
+  if (recorded.recorded) return recorded;
+  const [existing] = await tx.db
+    .select({ id: billingRequests.id, outcome: billingRequests.outcome })
+    .from(billingRequests)
+    .where(
+      and(
+        eq(billingRequests.clinicId, tx.clinicId),
+        eq(billingRequests.kind, "cancel_now"),
+        eq(billingRequests.channelKey, "-"),
+      ),
+    )
+    .limit(1);
+  if (existing && existing.outcome !== null && existing.outcome !== "done") {
+    return { recorded: await rearmBillingRequest(tx, existing.id, "ops") };
+  }
+  return { recorded: false };
+}
+
+/**
+ * Whether the billing clinic's organisation has a terminated agreement and
+ * none left in effect, read in the billing clinic's tenant (baa_acceptances
+ * is FORCE RLS, drizzle/0031): only to label the cancellation in Stripe.
+ */
+async function agreementEnded(tx: TenantTx): Promise<boolean> {
+  const result = await tx.db.execute<{ ended: boolean }>(
+    sql`select (not exists (select 1 from app_agreement_in_effect(c.organization_id))
+                and exists (select 1 from baa_acceptances b
+                             where b.organization_id = c.organization_id
+                               and b.terminated_at is not null)) as ended
+          from clinics c
+         where c.id = ${tx.clinicId}`,
+  );
+  return result.rows[0]?.ended === true;
+}
+
+/**
  * Make a request due again (R2, R6): clear its outcome and lease, set its
  * attempts to 0, its next attempt to `now` and its reason to why it was
  * re-armed. For the hourly reconcile and the console's retry, in the BILLING
@@ -499,6 +550,18 @@ function onePerClinic(rows: readonly DueRow[], max: number): DueRow[] {
 
 async function setupClosureSwitchedOn(): Promise<boolean> {
   return (await getJob(JOB_SETUP_CLOSURE))?.enabled === true;
+}
+
+/**
+ * Whether the billing-requests job, the only thing that carries a recorded
+ * request out on Stripe, is switched on. It ships off (drizzle/0050), and
+ * while it is off a recorded `cancel_now` waits and the subscription keeps
+ * billing; its stuck and dead-letter alerts come from the same job, so they
+ * are silent too. A caller that records a cancellation the customer is owed
+ * at once (a termination, a first-period refund) asks this and tells ops.
+ */
+export async function billingRequestsSwitchedOn(): Promise<boolean> {
+  return (await getJob(JOB_BILLING_REQUESTS))?.enabled === true;
 }
 
 /**
@@ -1466,7 +1529,7 @@ async function deletePendingInvoiceItems(
 async function cancelSubscriptionNow(
   attempt: Attempt,
   subscriptionId: string,
-  comment: "hd_setup_closure" | "hd_first_period_refund",
+  comment: "hd_setup_closure" | "hd_first_period_refund" | "hd_agreement_terminated",
   keyPrefix: string,
 ): Promise<void> {
   const stripe = attempt.stripe();
@@ -1535,21 +1598,38 @@ async function closeSetupWorker(attempt: Attempt): Promise<WorkerResult> {
 async function cancelNowWorker(attempt: Attempt): Promise<WorkerResult> {
   const { claim } = attempt;
   const ready = await attempt.inBilling(
-    async (tx): Promise<WorkerResult | Proceed<Entitlements>> => {
+    async (tx): Promise<WorkerResult | Proceed<{ row: Entitlements; ended: boolean }>> => {
       const row = await getEntitlements(tx.db, claim.clinicId);
       if (!row) return skip("no_entitlements");
       if (!row.stripeSubscriptionId || !row.stripeCustomerId) return skip("no_subscription");
+      const ended = await agreementEnded(tx);
       if (!(await attempt.holdMutationLease(tx))) return defer(MUTATION_LEASE_WAIT_MS);
-      return { type: "proceed", value: row };
+      return { type: "proceed", value: { row, ended } };
     },
   );
   if (ready.type !== "proceed") return ready;
-  const subscriptionId = ready.value.stripeSubscriptionId!;
-  const customerId = ready.value.stripeCustomerId!;
+  const subscriptionId = ready.value.row.stripeSubscriptionId!;
+  const customerId = ready.value.row.stripeCustomerId!;
 
   const sub = await retrieveSubscription(attempt, subscriptionId);
   if (hasEnded(sub)) return { type: "finish", outcome: "done", reason: "already_canceled" };
+  // Overage not yet invoiced is NOT invoiced at this cancellation, on a
+  // first-period refund or an agreement's termination alike: the
+  // subscription's pending invoice items go first, and the cancel sends
+  // prorate: false and invoice_now: false, so a monthly plan's metered usage
+  // for the period in progress, the termination day included, is never
+  // billed, and Stripe credits nothing for the unused time (a termination's
+  // refund is the operator's, confirmed through commitRefund). An annual
+  // plan's month in progress never closes once the subscription is
+  // cancelled, so annual-overage.ts never invoices it either
+  // (tests/annual-overage.test.ts); months that closed before the
+  // cancellation are invoiced as they always are, for time already served.
   await deletePendingInvoiceItems(attempt, customerId, subscriptionId);
-  await cancelSubscriptionNow(attempt, subscriptionId, "hd_first_period_refund", "hd-cancel-now");
+  await cancelSubscriptionNow(
+    attempt,
+    subscriptionId,
+    ready.value.ended ? "hd_agreement_terminated" : "hd_first_period_refund",
+    "hd-cancel-now",
+  );
   return { type: "finish", outcome: "done", reason: "canceled" };
 }

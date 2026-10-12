@@ -604,6 +604,38 @@ describe("the billing panel's writes", () => {
     ]);
   });
 
+  test("a refund preview carries the invoices paid out of band, to settle by hand, and only invoice ids", async () => {
+    // An invoice paid out of band comes through for the operator to settle by hand.
+    reply({
+      data: {
+        status: "ok",
+        kind: "agreement_terminated",
+        amountCents: 53820,
+        cancelsPlan: true,
+        planStartedOn: "2026-10-01",
+        windowEndsOn: "2026-10-12",
+        settleByHand: { amountCents: 89700, invoiceIds: ["in_wired1"] },
+      },
+    });
+    expect(await previewRefund(CLINIC, "agreement_terminated")).toMatchObject({
+      ok: true,
+      data: { settleByHand: { amountCents: 89700, invoiceIds: ["in_wired1"] } },
+    });
+    // Anything but an invoice id there is a shape error, not text on the screen.
+    reply({
+      data: {
+        status: "ok",
+        kind: "agreement_terminated",
+        amountCents: 53820,
+        cancelsPlan: true,
+        planStartedOn: null,
+        windowEndsOn: null,
+        settleByHand: { amountCents: 89700, invoiceIds: ["<script>"] },
+      },
+    });
+    expect(await previewRefund(CLINIC, "agreement_terminated")).toMatchObject({ ok: false });
+  });
+
   test("the refund preview and commit are read exactly; a busy or failed commit is carried as a refusal", async () => {
     reply({
       data: {
@@ -624,6 +656,7 @@ describe("the billing panel's writes", () => {
         cancelsPlan: true,
         planStartedOn: "2026-10-07",
         windowEndsOn: "2026-10-21",
+        settleByHand: null,
       },
     });
     reply({

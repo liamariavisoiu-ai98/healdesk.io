@@ -29,6 +29,7 @@ import {
   hasPlanStarted,
   releaseStripeMutationLease,
 } from "@/lib/billing/entitlements";
+import { reconcileTerminations } from "@/lib/agreements/termination";
 import { disconnectStripeConnect } from "@/lib/billing/connect";
 import { enqueueNotice } from "@/lib/billing/notices";
 import { resumeLocationSetup } from "@/lib/billing/stripe-actions";
@@ -78,7 +79,10 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
  *     funnel's createLocationClinic is ready;
  *   - an extra location left pending with no charge on record, settled from
  *     Stripe's evidence once nobody holds the mutation lease;
- *   - a request pending for more than a day, told to ops once.
+ *   - a request pending for more than a day, told to ops once;
+ *   - a terminated practice whose termination stopped half way, its
+ *     locations not offboarding or its cancellation not recorded, finished
+ *     and told to ops (reconcileTerminations, lib/agreements/termination.ts).
  *
  * It only records, with one exception: the billing-requests worker carries
  * out every request, and the only Stripe calls made from here are the
@@ -368,6 +372,8 @@ export type ReconcileSummary = {
   /** Pending locations Stripe shows were never charged: cleared, for the clinic to add again. */
   locationsCleared: number;
   connectsDisconnected: number;
+  /** Terminated practices whose offboarding or cancellation this pass finished (R5). */
+  terminationsFinished: number;
   failures: number;
 };
 
@@ -758,8 +764,18 @@ export async function reconcileBilling(now: Date = new Date()): Promise<Reconcil
     locationsHeld: 0,
     locationsCleared: 0,
     connectsDisconnected: 0,
+    terminationsFinished: 0,
     failures: 0,
   };
+  // First, so a cancellation it records is in the ledger the pass below reads.
+  try {
+    const terminations = await reconcileTerminations();
+    summary.terminationsFinished = terminations.practices;
+    summary.failures += terminations.failures;
+  } catch (error) {
+    summary.failures += 1;
+    log.error("termination reconcile failed", { error: describeError(error) });
+  }
   const setupClosureOn = (await getJob(JOB_SETUP_CLOSURE))?.enabled === true;
   for (const billingClinicId of await billingClinicIds()) {
     try {
@@ -808,6 +824,9 @@ export async function runBillingReconcileJob(options: { now?: Date } = {}): Prom
         (s.locationsCleared ? `, ${s.locationsCleared} uncharged location requests cleared` : "") +
         (s.connectsDisconnected
           ? `, ${s.connectsDisconnected} Stripe accounts disconnected after the end`
+          : "") +
+        (s.terminationsFinished
+          ? `, ${s.terminationsFinished} terminated practices finished`
           : "") +
         (s.failures ? `, ${s.failures} failed` : "") +
         "."

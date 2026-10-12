@@ -305,14 +305,14 @@ export type NoticePayloads = {
   };
   /**
    * Dedupe `refund:<refundId>`. Never a setup-fee refund: there is none.
-   * A first-period or guarantee refund is one notice from commitRefund, keyed
-   * on its first refund and carrying the whole amount, however many invoices
-   * it was spread across; the webhook enqueues only the other refunds, one
-   * per refund.
+   * A first-period, guarantee or termination refund is one notice from
+   * commitRefund, keyed on its first refund and carrying the whole amount,
+   * however many invoices it was spread across; the webhook enqueues only
+   * the other refunds, one per refund.
    */
   refund_issued: {
     amountCents: number;
-    kind: "first_period_cancel" | "guarantee" | "other";
+    kind: "first_period_cancel" | "guarantee" | "agreement_terminated" | "other";
     refundedAt: string;
   };
   /** Dedupe `<pmId>:<cardExpiresOn>:<renewsOn>`. */

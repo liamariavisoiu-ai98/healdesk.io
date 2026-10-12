@@ -29,11 +29,15 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  * ## The call, choreographed (the owner's M2, 9 October 2026)
  *
  *   - idle: breathing, and the glances above.
- *   - connecting: a light sweeps across her, again and again, until it answers.
- *   - listening: live, and she is quiet, so it is the caller's turn. A cool
- *     tint and two slow ripples.
+ *   - connecting: the aura quickens, or the halo waits, until it answers.
+ *   - listening: live, and she is quiet, so it is the caller's turn. Two slow
+ *     ripples round her.
  *   - speaking: live, and she is talking. The ring swells with the loudness
  *     of her voice (`level`, 0 to 1, from the call's audio).
+ *
+ * Nothing is laid over her face: the white light that swept across her while
+ * the call connected, and the cool wash while she listened, are gone (owner,
+ * 12 October 2026). Everything that tells the call is round her.
  *
  * Visitors who ask for less motion get the same states without the movement.
  */
@@ -51,10 +55,18 @@ export function AyaPortrait({
   size = 132,
   level = 0,
   state = "idle",
+  aura = "halo",
 }: {
   size?: number;
   level?: number;
   state?: CallVisualState;
+  /**
+   * What surrounds her: `halo`, a disc in the clinic's colour (the
+   * personalised demo, in the clinic's brand), or `soul`, the soul's own
+   * living aura, gold and orange, turning and breathing (healdesk's own card
+   * on the homepage, owner, 12 October 2026: the halo read as a pink ring).
+   */
+  aura?: "halo" | "soul";
 }) {
   const [frame, setFrame] = useState(REST);
   const [fallback, setFallback] = useState(false);
@@ -87,12 +99,21 @@ export function AyaPortrait({
       data-state={state}
       style={{ width: size + 28, height: size + 28 }}
     >
-      {/* The halo: her colour while she speaks, cool while she listens. */}
-      <span
-        aria-hidden
-        className="aya-halo absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-fast"
-        style={{ transform: `scale(${swell})` }}
-      />
+      {aura === "soul" ? (
+        /* The soul's aura (HealdeskSoul, globals.css "The soul"), round her:
+           breathing, faster while the call connects and while she talks,
+           and swelling with her voice. */
+        <span aria-hidden className="aya-aura absolute inset-0 transition-transform duration-fast" style={{ transform: `scale(${swell})` }}>
+          <span className="soul__aura" />
+        </span>
+      ) : (
+        /* The halo: her colour while she speaks, cool while she listens. */
+        <span
+          aria-hidden
+          className="aya-halo absolute inset-0 rounded-full transition-[transform,opacity,background-color] duration-fast"
+          style={{ transform: `scale(${swell})` }}
+        />
+      )}
       <span aria-hidden className="aya-ripple absolute inset-[14px] rounded-full" />
       <span aria-hidden className="aya-ripple aya-ripple--late absolute inset-[14px] rounded-full" />
 
@@ -133,10 +154,6 @@ export function AyaPortrait({
             />
           ))
         )}
-        {/* Connecting: a light passing across her. */}
-        <span aria-hidden className="aya-sweep pointer-events-none absolute inset-0" />
-        {/* Listening: the cool tint over her. */}
-        <span aria-hidden className="aya-cool pointer-events-none absolute inset-0" />
       </div>
     </div>
   );

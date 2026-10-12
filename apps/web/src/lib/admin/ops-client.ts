@@ -73,7 +73,13 @@
  * write, and says something different in each case.
  */
 
-import { SIGNATURE_HEADER, TIMESTAMP_HEADER, getPlan, sign } from "@healdesk/catalog";
+import {
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+  getPlan,
+  sign,
+  type AgreementTerminationReason,
+} from "@healdesk/catalog";
 import { headers } from "next/headers";
 
 import { requireOperator } from "@/lib/admin/operator";
@@ -504,7 +510,20 @@ export type ResendOutcome =
   | { status: "refused"; message: string };
 
 export type TerminateOutcome =
-  | ({ status: "recorded"; terminatedOn: string; retainUntil: string } & Audited)
+  | ({
+      status: "recorded";
+      terminatedOn: string;
+      retainUntil: string;
+      /**
+       * Whether the practice's service ended with it: no agreement is left in
+       * effect, so the assistant has stopped, its locations are offboarding
+       * and its subscription is being cancelled. False when another agreement
+       * still covers it, or the agreement was never bound.
+       */
+      servicesEnded: boolean;
+      /** The agreement refunds this ending: ops is told to preview and confirm it on Billing. */
+      refundDue: boolean;
+    } & Audited)
   /**
    * Already terminated, signed later than the date given, dated in the future,
    * not a real date, gone, or beaten to it by a second operator.
@@ -664,11 +683,13 @@ export function markAgreementTerminated(
   agreementId: string,
   /** YYYY-MM-DD from a date input. Termination is a date, not a moment. */
   terminationDate: string,
+  /** Who ended it and why: AGREEMENT_TERMINATION_REASONS in @healdesk/catalog. */
+  terminationReason: AgreementTerminationReason,
 ): Promise<OpsResult<TerminateOutcome>> {
   return callOps(
     "markAgreementTerminated",
     "write",
-    { agreementId, terminationDate },
+    { agreementId, terminationDate, terminationReason },
     (value) => {
       const data = object(value, "markAgreementTerminated");
       if (state(data, "markAgreementTerminated") !== "recorded") {
@@ -689,6 +710,8 @@ export function markAgreementTerminated(
           data.auditRecorded,
           "markAgreementTerminated.auditRecorded",
         ),
+        servicesEnded: data.services === "services_ended",
+        refundDue: data.refundDue === true,
       };
     },
   );
@@ -2688,7 +2711,7 @@ const CHANNEL_WAITING_ON: readonly ChannelWaitingOn[] = [
 ];
 export type BillingRequestKind = "plan_start" | "step_up" | "close_setup" | "cancel_now";
 const REQUEST_OUTCOMES = ["done", "skipped", "dead_letter"] as const;
-export type RefundKind = "first_period_cancel" | "guarantee";
+export type RefundKind = "first_period_cancel" | "guarantee" | "agreement_terminated";
 export type DepositUncollectable = "book_and_flag" | "hold_and_alert" | "decline_and_alert";
 export type UsageMeter = "voice_minutes" | "chat_conversations";
 
@@ -3289,8 +3312,22 @@ export type RefundPreviewOutcome =
       cancelsPlan: boolean;
       planStartedOn: string | null;
       windowEndsOn: string | null;
+      /**
+       * Invoices the refund covers that were paid without a card payment
+       * (marked paid out of band): not in `amountCents`, for the operator to
+       * settle by hand. Null when there are none.
+       */
+      settleByHand: { amountCents: number; invoiceIds: string[] } | null;
     }
   | { status: "refused"; message: string };
+
+/** A Stripe invoice id, shown to the operator to look up. */
+function invoiceId(value: unknown, at: string): string {
+  if (typeof value !== "string" || !/^in_[A-Za-z0-9_]{1,64}$/.test(value)) {
+    throw new ShapeError(at);
+  }
+  return value;
+}
 
 /** What a refund would pay back. A read: Stripe is asked, nothing is written but the audit row. */
 export function previewRefund(
@@ -3304,13 +3341,31 @@ export function previewRefund(
       v === null || v === undefined ? null : date(v, where);
     return {
       status: "ok",
-      kind: literal(data.kind, ["first_period_cancel", "guarantee"], "previewRefund.kind"),
+      kind: literal(
+        data.kind,
+        ["first_period_cancel", "guarantee", "agreement_terminated"],
+        "previewRefund.kind",
+      ),
       amountCents: count(data.amountCents, "previewRefund.amountCents"),
       cancelsPlan: bool(data.cancelsPlan, "previewRefund.cancelsPlan"),
       planStartedOn: optionalDate(data.planStartedOn, "previewRefund.planStartedOn"),
       windowEndsOn: optionalDate(data.windowEndsOn, "previewRefund.windowEndsOn"),
+      settleByHand: readSettleByHand(data.settleByHand),
     };
   });
+}
+
+function readSettleByHand(
+  value: unknown,
+): { amountCents: number; invoiceIds: string[] } | null {
+  if (value === null || value === undefined) return null;
+  const data = object(value, "previewRefund.settleByHand");
+  return {
+    amountCents: count(data.amountCents, "previewRefund.settleByHand.amountCents"),
+    invoiceIds: list(data.invoiceIds, "previewRefund.settleByHand.invoiceIds")
+      .slice(0, 50)
+      .map((entry) => invoiceId(entry, "previewRefund.settleByHand.invoiceIds")),
+  };
 }
 
 export type RefundOutcome =
@@ -3323,7 +3378,8 @@ export type RefundOutcome =
   | { status: "refused"; message: string };
 
 /**
- * Refund under Terms § 5. A write in the fullest sense: on a timeout or a
+ * Refund under Terms § 5, or the fees paid for time after a terminated
+ * agreement ended (BAA 1.3.0 clause 17). A write in the fullest sense: on a timeout or a
  * server error the sentence says it may have gone through, and the operator
  * checks Stripe before asking again (apps/app reuses any part already made).
  */

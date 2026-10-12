@@ -1,5 +1,5 @@
 import {
-  GOOGLE_CALENDAR_DISCLOSURE,
+  renderGoogleCalendarDisclosure,
   getBookingSystem,
   type GoogleCalendarDisclosure,
 } from "@healdesk/catalog";
@@ -83,6 +83,8 @@ const UNAVAILABLE = "Connecting a calendar isn't available yet.";
 export async function readCalendarCard(input: {
   slug: string;
   clinicId: string;
+  /** The practice's name, which Google's notice names (renderGoogleCalendarDisclosure). */
+  clinicName: string;
   settings: Pick<SetupSettings, "bookingSystem" | "autoConfirmBookings" | "bookingDetail">;
   actor: ActorContext;
   outcome?: unknown;
@@ -106,7 +108,9 @@ export async function readCalendarCard(input: {
     canConnect: blockedLine === null,
     blockedLine,
     connection: shown,
-    disclosure: GOOGLE_CALENDAR_DISCLOSURE,
+    // Rendered with the practice's name, as the wizard and the link page do:
+    // the template's own text says "{clinicName}" where the name goes.
+    disclosure: renderGoogleCalendarDisclosure({ clinicName: input.clinicName }),
     bookingSystem: input.settings.bookingSystem
       ? (getBookingSystem(input.settings.bookingSystem)?.label ?? null)
       : null,

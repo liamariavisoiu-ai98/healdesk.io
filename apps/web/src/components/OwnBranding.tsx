@@ -7,6 +7,7 @@ import { track } from "@/lib/analytics";
 import { readableOn } from "@/lib/demo/colour";
 import { greetingLead } from "@/lib/demo/greeting";
 import { site } from "@/lib/site";
+import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
  * "See it in your own branding", under the two agent cards: a visitor types
@@ -20,6 +21,26 @@ import { site } from "@/lib/site";
  * it, the window coming up out of its foot. The address pill is the field,
  * because typing your own address into a browser is what the visitor will do
  * to see the result, and "Show me" sits inside it.
+ *
+ * ## Drawing the eye to the address bar (owner, 12 October 2026)
+ *
+ * The address bar is the one thing to use here, and it read as part of a
+ * picture. So, until the visitor touches it:
+ *
+ *   - it types made-up clinics' addresses into itself and deletes them,
+ *     with a caret, showing what goes there (`useGhostAddress`; while the
+ *     section is on screen, never with reduced motion);
+ *   - Safari's blue focus ring breathes round it once the window is in view;
+ *   - and what is in it, theirs or the example, is echoed live in a
+ *     greeting from AYA's chat in the page's corner, "Hi, I'm AYA on
+ *     glowmedspa.com", before they press Show me.
+ *
+ * The window has no tab bar (owner, 12 October 2026): its "Start Page" tab,
+ * and the echo of the address in it, were a second line of chrome between
+ * the address bar and the page.
+ *
+ * The first touch, a press or focus, stops the typing and the ring for
+ * good; the echo follows what they type.
  *
  * ## What the window shows ("The visitor's own site, live")
  *
@@ -136,6 +157,54 @@ async function readSite(domain: string, host: string): Promise<Read> {
   }
 }
 
+/**
+ * Made-up clinics' addresses, which the empty address bar types for itself.
+ * Invented names, and only ever shown as text: nothing is fetched for them.
+ */
+const EXAMPLES = ["glowmedspa.com", "lumenaesthetics.com", "brightsmiledental.com", "harbourfertility.com", "novaskinclinic.com"] as const;
+
+/**
+ * The example the address bar is typing, as far as it has got: a character
+ * at a time, a pause to read it, deleted quicker, a beat, the next. Empty
+ * while `run` is false.
+ */
+function useGhostAddress(run: boolean): string {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    if (!run) return;
+    let word = 0;
+    let at = 0;
+    let erasing = false;
+    let timer = 0;
+    const tick = () => {
+      const example = EXAMPLES[word % EXAMPLES.length]!;
+      if (!erasing) {
+        at += 1;
+        setText(example.slice(0, at));
+        if (at >= example.length) {
+          erasing = true;
+          timer = window.setTimeout(tick, 1800);
+          return;
+        }
+        timer = window.setTimeout(tick, 55 + Math.random() * 60);
+        return;
+      }
+      at -= 1;
+      setText(example.slice(0, at));
+      if (at <= 0) {
+        erasing = false;
+        word += 1;
+        timer = window.setTimeout(tick, 520);
+        return;
+      }
+      timer = window.setTimeout(tick, 26);
+    };
+    timer = window.setTimeout(tick, 700);
+    return () => window.clearTimeout(timer);
+  }, [run]);
+  return run ? text : "";
+}
+
 const LOCK = (
   <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden className="size-[13px] shrink-0">
     <rect x="3.2" y="7" width="9.6" height="7" rx="1.6" />
@@ -168,6 +237,25 @@ export function OwnBranding() {
   /** The visitor opened the sheet, so focus goes into it; opened by the page, the page leaves focus alone. */
   const byVisitor = useRef(false);
   const ids = useId();
+  const stage = useRef<HTMLDivElement>(null);
+  const reduce = useMediaQuery(REDUCED_MOTION);
+  /** The window is on screen. */
+  const [inView, setInView] = useState(false);
+  /** The visitor has pressed or focused the address bar: the typing and the ring stop for good. */
+  const [touched, setTouched] = useState(false);
+  /** The empty address bar is typing its examples. */
+  const typing = inView && !touched && !reduce && phase === "idle" && domain === "";
+  const ghost = useGhostAddress(typing);
+  /** What the address bar holds, theirs or the example, for AYA's greeting. */
+  const echo = hostOf(domain) || ghost;
+
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setInView(Boolean(entry?.isIntersecting)), { threshold: 0.35 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const host = preview?.host ?? hostOf(domain);
   const name = preview?.name ?? nameFromDomain(domain) ?? host;
@@ -287,9 +375,9 @@ export function OwnBranding() {
           : "";
 
   return (
-    <div data-reveal className="own-stage relative mt-16 overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
+    <div ref={stage} data-reveal className="own-stage relative mt-16 overflow-hidden rounded-lg border border-black/[0.06] px-5 pt-12 sm:mt-24 sm:px-10 sm:pt-16">
       <div className="mx-auto max-w-[760px] text-center">
-        <h3 className="heading-section text-ink mx-auto">
+        <h3 className="heading-sub text-ink mx-auto">
           See it in your own branding
         </h3>
         <p className="text-muted mx-auto mt-3 max-w-[54ch] text-[clamp(16px,1.15vw,18px)] leading-[1.55] font-medium text-balance">
@@ -317,7 +405,11 @@ export function OwnBranding() {
             <i className="size-3 rounded-full border border-black/10 bg-[#28c840]" />
           </span>
 
-          <div className="relative mx-auto flex h-[34px] min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-[#e8e8ea] pr-1 pl-3 transition-[background-color,box-shadow] focus-within:bg-white focus-within:ring-[3.5px] focus-within:ring-[rgb(0_113_227/0.35)] sm:max-w-[500px]">
+          <div
+            onPointerDown={() => setTouched(true)}
+            data-pulse={(inView && !touched && phase === "idle") || undefined}
+            className="own-address relative mx-auto flex h-[34px] min-w-0 flex-1 items-center gap-1.5 rounded-sm bg-[#e8e8ea] pr-1 pl-3 transition-[background-color,box-shadow] focus-within:bg-white focus-within:ring-[3.5px] focus-within:ring-[rgb(0_113_227/0.35)] sm:max-w-[500px]"
+          >
             <span className="text-[#8e8e93]">{LOCK}</span>
             <label htmlFor={`${ids}-domain`} className="sr-only">
               Your clinic&rsquo;s website
@@ -330,8 +422,9 @@ export function OwnBranding() {
               autoComplete="url"
               spellCheck={false}
               autoCapitalize="none"
-              placeholder="yourclinic.com"
+              placeholder={typing ? "" : "yourclinic.com"}
               value={domain}
+              onFocus={() => setTouched(true)}
               onChange={(event) => {
                 setDomain(event.target.value);
                 setDomainError(null);
@@ -343,6 +436,14 @@ export function OwnBranding() {
               aria-describedby={domainError ? `${ids}-domain-error` : undefined}
               className="h-full min-w-0 flex-1 bg-transparent text-center text-[15px] font-medium text-[#1d1d1f] outline-none placeholder:text-[#8e8e93] focus:text-left"
             />
+            {/* The example it is typing, with Safari's caret, drawn over the
+                empty field; the field itself is untouched. */}
+            {typing ? (
+              <span aria-hidden className="pointer-events-none absolute inset-y-0 right-[84px] left-8 flex items-center justify-center text-[15px] font-medium text-[#8e8e93]">
+                {ghost}
+                <i className="own-caret" />
+              </span>
+            ) : null}
             {phase !== "idle" && phase !== "reading" ? <span className="hidden text-[#8e8e93] sm:block">{RELOAD}</span> : null}
             <button
               type="submit"
@@ -479,7 +580,24 @@ export function OwnBranding() {
                 )}
               </p>
             </div>
-          ) : (
+          ) : null}
+
+          {/* AYA's chat in the page's corner, greeting from whatever is in the
+              address bar, as it is typed. */}
+          {phase === "idle" || phase === "reading" ? (
+            <div aria-hidden className="own-rise absolute right-4 bottom-4 flex items-end gap-2.5 sm:right-6 sm:bottom-6">
+              <p className="max-w-[230px] rounded-md rounded-br-sm bg-white px-3.5 py-2.5 text-left text-[13px] leading-snug text-[#1d1d1f] shadow-md ring-1 ring-black/5">
+                Hi, I&rsquo;m {site.agent} on <span className="font-semibold break-all">{echo || "your site"}</span>
+              </p>
+              <span className="bg-ink grid size-11 shrink-0 place-items-center rounded-full text-white shadow-md">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" className="size-5">
+                  <path d="M4 5.5h16v10.5H9.5L5.5 19.5V16H4z" />
+                </svg>
+              </span>
+            </div>
+          ) : null}
+
+          {phase === "idle" || phase === "reading" ? null : (
             <div aria-hidden className="own-rise absolute inset-0">
               {/* Their header: their logo, or their name. */}
               <div className="flex h-[52px] items-center gap-3 border-b border-black/[0.06] bg-white px-5">

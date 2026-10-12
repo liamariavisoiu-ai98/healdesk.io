@@ -153,6 +153,36 @@ describeDb("POST /api/webhooks/voice/[clinicId]", () => {
     expect(stored.rows).toHaveLength(0);
   });
 
+  test("a clinic that has left stores nothing from a late call, and the vendor is answered 200 so it stops retrying", async () => {
+    const { startOffboarding } = await import("@/lib/offboarding/offboarding");
+    const { withTenant } = await import("@/lib/tenant");
+    const leaving = await seedClinic("voice-leaving");
+    await withTenant(
+      { clinicId: leaving.clinicId, actor: { type: "service", serviceName: "voice-webhook-test" } },
+      (tx) => startOffboarding(tx, "operator"),
+    );
+    const destroyed = await seedClinic("voice-destroyed");
+    // Destroyed long ago, as the migrator, which owns the stamps.
+    await getMigratorPool().query(
+      `update clinics set offboarding_started_at = now() - interval '40 days',
+              destroy_after = now() - interval '10 days', destroyed_at = now() - interval '9 days'
+        where id = $1`,
+      [destroyed.clinicId],
+    );
+    for (const c of [leaving, destroyed]) {
+      const res = await post(c.clinicId, FIXTURE);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ received: true, stored: false });
+      const kept = await inTenant(c.clinicId, async (client) => ({
+        events: (await client.query(`select id from webhook_events`)).rows.length,
+        conversations: (await client.query(`select id from conversations`)).rows.length,
+        contacts: (await client.query(`select id from contacts`)).rows.length,
+        requests: (await client.query(`select id from booking_requests`)).rows.length,
+      }));
+      expect(kept).toEqual({ events: 0, conversations: 0, contacts: 0, requests: 0 });
+    }
+  });
+
   test("a good call is stored raw, ingested, and replayed as a duplicate", async () => {
     const c = await seedClinic("voice-good");
     await getMigratorPool().query(`update clinics set call_routing = 'conditional' where id = $1`, [c.clinicId]);

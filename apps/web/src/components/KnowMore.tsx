@@ -141,7 +141,7 @@ const FAQS = [
 export function KnowMore() {
   return (
     <section id="more" className="scroll-mt-24 pt-8 pb-24 sm:pb-28">
-      <div data-reveal="stagger" className="max-w-[760px]">
+      <div data-reveal="stagger">
         <p className="eyebrow-tag">
           Want to know more?
         </p>

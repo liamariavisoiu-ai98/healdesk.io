@@ -38,7 +38,8 @@ import { amendmentCount } from "@/lib/patient-rights/amendments";
 import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { META_WINDOW_MS, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
+import { META_WINDOW_MS, resolveFollowUpOwner, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
+import { isTimeWindow } from "./time-window";
 import type { MetaPlatform } from "./front-door";
 
 /**
@@ -133,6 +134,12 @@ export const EMPTY_BOOKING_FIELDS: BookingFields = { firstName: null, phone: nul
 const META_SCREEN = { conditions: true } as const;
 
 /**
+ * A Meta window's screen: META_SCREEN, and the closed time grammar
+ * (lib/meta/time-window.ts), so a window keeps nothing but a time.
+ */
+const META_WINDOW = { ...META_SCREEN, timeGrammar: true } as const;
+
+/**
  * What the model extracted, made safe to keep.
  *
  * A first name is letters only and short; a phone must normalise to E.164
@@ -153,8 +160,8 @@ export function cleanBookingFields(
   const phoneRaw = cleanText(raw?.phone, 32);
   const phone = phoneRaw ? (toE164(phoneRaw) ?? null) : null;
   const window = cleanText(raw?.window, 120);
-  const preferredWindow = window && windowIsClean(window, META_SCREEN) ? window : null;
-  const alternativeWindows = cleanAlternatives(raw?.alternatives ?? raw?.alt_windows, preferredWindow ? [preferredWindow] : [], META_SCREEN);
+  const preferredWindow = window && windowIsClean(window, META_WINDOW) ? window : null;
+  const alternativeWindows = cleanAlternatives(raw?.alternatives ?? raw?.alt_windows, preferredWindow ? [preferredWindow] : [], META_WINDOW);
   return { firstName, phone, preferredWindow, alternativeWindows };
 }
 
@@ -163,7 +170,7 @@ function cleanText(v: unknown, max: number): string | null {
 }
 
 /** Cleaned, deduplicated against `taken` and each other, capped at two. `options` as windowIsClean's. */
-export function cleanAlternatives(raw: unknown, taken: readonly string[], options: { conditions?: boolean } = {}): string[] {
+export function cleanAlternatives(raw: unknown, taken: readonly string[], options: WindowScreen = {}): string[] {
   if (!Array.isArray(raw)) return [];
   const seen = new Set(taken.map(normaliseWindow));
   const out: string[] = [];
@@ -183,17 +190,23 @@ function normaliseWindow(w: string): string {
   return w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }
 
+/** How a window is screened: Meta's conditions, and Meta's closed time grammar. */
+export type WindowScreen = { conditions?: boolean; timeGrammar?: boolean };
+
 /**
  * A preferred window is a day or a time, not a reason. True when nothing clinical slipped in.
  *
  * `conditions` is a Meta request's rule (META_SCREEN): the catalog's
  * everyday skin and hair conditions are refused as well, because Meta signs
- * no BAA and its channels carry nothing clinical. A voice request's
- * alternatives, which come from a call the BAA covers, are screened without
- * them.
+ * no BAA and its channels carry nothing clinical. `timeGrammar` is Meta's
+ * too (META_WINDOW, BAA 1.3.0 clause 11): the window must fit the closed time
+ * grammar (isTimeWindow), every word of it a word for a time, because no list
+ * of refused words is ever complete. A voice request's alternatives, which
+ * come from a call the BAA covers, are screened without either.
  */
-export function windowIsClean(window: string, options: { conditions?: boolean } = {}): boolean {
-  return findClinicalContent({ window }, options).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window);
+export function windowIsClean(window: string, options: WindowScreen = {}): boolean {
+  if (options.timeGrammar && !isTimeWindow(window)) return false;
+  return findClinicalContent({ window }, { conditions: options.conditions }).length === 0 && !WINDOW_REFUSED.test(window) && !/\d{7,}/.test(window);
 }
 
 /**
@@ -250,13 +263,16 @@ export async function readMetaDraft(tx: TenantTx, thread: BookingThread): Promis
 /** Merge what this message added into the thread's draft and return the whole. */
 export async function mergeDraft(tx: TenantTx, thread: BookingThread, fields: BookingFields): Promise<BookingFields> {
   const existing = await readMetaDraft(tx, thread);
-  const preferredWindow = fields.preferredWindow ?? existing?.preferredWindow ?? null;
+  // A draft's window is screened again, so one kept before the closed time
+  // grammar (a draft lives a day) is dropped and asked for, never sent on.
+  const kept = existing?.preferredWindow ?? null;
+  const preferredWindow = fields.preferredWindow ?? (kept && windowIsClean(kept, META_WINDOW) ? kept : null);
   const merged: BookingFields = {
     firstName: fields.firstName ?? existing?.firstName ?? null,
     phone: fields.phone ?? existing?.phone ?? null,
     preferredWindow,
     // Existing first, then this message's, deduplicated against the primary and capped.
-    alternativeWindows: cleanAlternatives([...(existing?.alternativeWindows ?? []), ...fields.alternativeWindows], preferredWindow ? [preferredWindow] : [], META_SCREEN),
+    alternativeWindows: cleanAlternatives([...(existing?.alternativeWindows ?? []), ...fields.alternativeWindows], preferredWindow ? [preferredWindow] : [], META_WINDOW),
   };
   await tx.db
     .insert(metaBookingDrafts)
@@ -393,7 +409,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
   }
   const alternativeWindows =
     input.channel === "meta"
-      ? cleanAlternatives(input.fields.alternativeWindows, [input.fields.preferredWindow], META_SCREEN)
+      ? cleanAlternatives(input.fields.alternativeWindows, [input.fields.preferredWindow], META_WINDOW)
       : cleanAlternatives(input.alternativeWindows ?? [], [input.preferredWindow]);
 
   const raw = randomBytes(TOKEN_BYTES);
@@ -544,6 +560,33 @@ export async function notifyDesk(
   return { status: "sent", recipients: sent };
 }
 
+/**
+ * notifyDesk for a request whose transaction has committed, in a transaction
+ * of its own: the Meta front door's way to email the desk (the webhook calls
+ * it after the answer's transaction, whatever became of the reply), so the
+ * email never goes for a request that then rolls back. Never throws: an email
+ * that fails here is logged and leaves `desk_notified_at` unset, and the
+ * request stays as it is, open and counted in the operator's care view, until
+ * the desk acts on it or it expires. Nothing sends the notice again: no job
+ * has read `desk_notified_at` since C13 removed the sweep, and the daily
+ * summary that would list open requests is not built yet.
+ */
+export async function notifyDeskAfterCommit(
+  clinicId: string,
+  created: { id: string; token: string },
+  via: { channel: BookingChannel; platform: MetaPlatform | null },
+  deps: { transport?: EmailTransport; actor?: ActorContext } = {},
+): Promise<void> {
+  const actor = deps.actor ?? DESK_NOTICE_ACTOR;
+  try {
+    await withTenant({ clinicId, actor }, (tx) => notifyDesk(tx, created, via, { transport: deps.transport }));
+  } catch (error) {
+    log.error("booking request notice not sent after commit", { clinicId, requestId: created.id, error: describeError(error) });
+  }
+}
+
+const DESK_NOTICE_ACTOR: ActorContext = { type: "agent", serviceName: "meta-front-door" };
+
 async function deskRecipients(tx: TenantTx): Promise<{ email: string }[]> {
   return tx.db
     .select({ email: reportRecipients.email })
@@ -578,13 +621,20 @@ export function requestReceivedLine(clinicName: string, firstName: string): stri
 
 export type BookingDecision = "accepted" | "declined" | "confirmed" | "rescheduling";
 
-/** What the person is told on a Meta thread after the desk decides. Never a time, never a provider. */
+/**
+ * What the person is told on a Meta thread after the desk decides. Never a
+ * time, never a provider, and never that anything is booked: a confirmed or
+ * accepted request says only that the practice has reviewed it and will call
+ * (META_CHANNEL_PROHIBITIONS[0], "Confirming the person is, was, or will be a
+ * patient"; BAA 1.3.0 clause 16, "confirms no appointment details"). The
+ * appointment itself is settled on the phone.
+ */
 export function followUpLine(clinicName: string, decision: BookingDecision): string {
   switch (decision) {
     case "confirmed":
-      return `Good news — ${clinicName} has confirmed your request. They'll call or message you with the details, so keep an eye on your phone.`;
+      return `${clinicName} has reviewed your request; they'll call you. Keep an eye on your phone.`;
     case "accepted":
-      return `Good news — ${clinicName} has accepted your request and will call you to confirm the details. Nothing further is needed from you here.`;
+      return `${clinicName} has reviewed your request; they'll call you to go through it. Nothing further is needed from you here.`;
     case "declined":
       return `${clinicName} has looked at your request and can't offer that window, but they'll call you to find a time that works.`;
     case "rescheduling":
@@ -784,8 +834,13 @@ export type DecisionOutcome = {
     | "checking"
     /** The assistant's booking for this request reached the calendar after all, and stands. */
     | "already_in_calendar";
-  /** null when the channel has nothing to say on (a phone request: the desk calls). */
-  followUp: "sent" | "failed" | "no-channel" | "outside_window" | null;
+  /**
+   * null when the channel has nothing to say on (a phone request: the desk
+   * calls). `withheld`: the practice's Meta front door is off, or the answer
+   * gate would not answer there now (paused, suspended, no agreement), so
+   * nothing was sent.
+   */
+  followUp: "sent" | "failed" | "no-channel" | "outside_window" | "withheld" | null;
   appointmentId: string | null;
   /** §B.4: the calendar write's outcome once an appointment was created; null when nothing was confirmed. */
   calendarWrite: CalendarWriteOutcome | null;
@@ -845,6 +900,9 @@ type RequestFacts = {
   keyHold: { id: string; calendarId: string } | null;
   /** The services list, for the confirmed span's length and canonical name. */
   services: AgentService[];
+  /** A Meta request's channel connection, for its follow-up's owner; null for a phone request. */
+  metaConnectionId: string | null;
+  metaPlatform: MetaPlatform | null;
 };
 
 /** The facts the guard and the re-check need, read before the decision's own transaction. */
@@ -856,6 +914,8 @@ async function readRequestFacts(tx: TenantTx, hash: Buffer): Promise<RequestFact
       expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
       treatment: bookingRequests.treatment,
       collectedFields: bookingRequests.collectedFields,
+      metaConnectionId: bookingRequests.connectionId,
+      metaPlatform: bookingRequests.platform,
     })
     .from(bookingRequests)
     .where(eq(bookingRequests.tokenHash, hash))
@@ -980,11 +1040,19 @@ export async function decideBookingRequest(
     }
   }
 
+  // The Meta follow-up's owner, through the practice's switches, outside any
+  // transaction (the answer gate opens its own): a front door switched off,
+  // a pause, a suspension or no agreement in effect withholds the line.
+  const followUpOwner =
+    facts.metaConnectionId && facts.metaPlatform
+      ? await resolveFollowUpOwner({ clinicId, connectionId: facts.metaConnectionId, platform: facts.metaPlatform, actor: LINK_ACTOR, now })
+      : null;
+
   // 3. The decision.
   let decided: DecisionOutcome;
   try {
     decided = await withTenant(actor, (tx) =>
-      decideWithin(tx, { hash, decision, input, proposed, from, now, service, deskCalendar, send }),
+      decideWithin(tx, { hash, decision, input, proposed, from, now, service, deskCalendar, send, followUpOwner }),
     );
   } catch (error) {
     if (codeOf(error) !== "23P01") throw error;
@@ -1247,7 +1315,23 @@ type DecideWithinInput = {
   service: { minutes: number; canonicalName: string | null };
   deskCalendar: { calendarId: string; providerId: string | null } | null;
   send?: MetaSender;
+  /** The Meta follow-up's owner, resolved through the switches before this transaction; null withholds it. */
+  followUpOwner: MetaChannelOwner | null;
 };
+
+/**
+ * The owner a follow-up on this request is sent as: the one resolved through
+ * the switches for this request's own connection, or, when none was resolved
+ * or it names another connection, a refused one, so nothing is sent.
+ */
+export function followUpOwnerFor(
+  clinicId: string,
+  row: { connectionId: string | null; platform: MetaPlatform | null },
+  resolved: MetaChannelOwner | null | undefined,
+): MetaChannelOwner {
+  if (resolved && resolved.connectionId === row.connectionId && resolved.platform === row.platform) return resolved;
+  return { clinicId, connectionId: row.connectionId ?? "", platform: row.platform ?? "messenger", enabled: false, platformEnabled: false, withheld: "unresolved" };
+}
 
 /** Step 3 of the desk path: the decision itself, in the caller's transaction. */
 async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<DecisionOutcome> {
@@ -1396,17 +1480,19 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
   // §C.2: the desk goes through the alternatives by phone; on a Meta
   // thread, a fixed line says so, inside the window only.
   if (decision === "rescheduling") {
-    const outreach: RescheduleOutreach = await planRescheduleOutreach(tx, row, { send: d.send, now });
+    const outreach: RescheduleOutreach = await planRescheduleOutreach(tx, row, { send: d.send, now, owner: d.followUpOwner });
     return { outcome: "decided", followUp: outreach.meta, appointmentId: null, calendarWrite: null };
   }
 
   if (row.channel !== "meta") return { outcome: "decided", followUp: null, appointmentId, calendarWrite: null };
   if (!row.connectionId || !row.platform || !row.externalId || !row.senderId) return { outcome: "decided", followUp: "no-channel", appointmentId, calendarWrite: null };
-  const owner: MetaChannelOwner = { clinicId: tx.clinicId, connectionId: row.connectionId, platform: row.platform, enabled: true, platformEnabled: true };
+  const owner = followUpOwnerFor(tx.clinicId, row, d.followUpOwner);
   try {
     // Outside Meta's 24-hour window sendMetaReply sends nothing: v1 has no
-    // message tag and no template, so the desk calls instead.
+    // message tag and no template, so the desk calls instead. Nor does it
+    // send for an owner the practice's switches refused.
     const sent = await sendMetaReply(tx, owner, row.externalId, row.senderId, followUpLine(clinic.clinicName, decision), d.send, { now });
+    if (sent.status === "withheld") return { outcome: "decided", followUp: "withheld", appointmentId, calendarWrite: null };
     if (sent.status !== "sent") return { outcome: "decided", followUp: "outside_window", appointmentId, calendarWrite: null };
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: row.platform, source: "booking_follow_up" } });
     return { outcome: "decided", followUp: "sent", appointmentId, calendarWrite: null };

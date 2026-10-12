@@ -25,6 +25,7 @@ import {
 } from "@/lib/agreements";
 import { agreementInEffectFor } from "@/lib/agreements/in-effect";
 import { agreementTemplateReleased } from "@/lib/agreements/kind";
+import { endServicesAfterTermination, type TerminationEffect } from "@/lib/agreements/termination";
 import {
   AgreementSearchError,
   searchAgreements,
@@ -39,6 +40,7 @@ import {
   findClinicalContent,
   forwardingInstructions,
   getConnectionGuide,
+  isAgreementTerminationReason,
   isCarrier,
   isOnboardingStep,
   isServicePriceKind,
@@ -99,7 +101,13 @@ import { listConnections } from "@/lib/connections/store";
 import { selfCheckCredentialKey, type CredentialKeySelfCheck } from "@/lib/crypto/envelope";
 import { credentialKeyConfiguration, type CredentialKeyConfiguration } from "@/lib/crypto/kms";
 import { bookingRequestCounts } from "@/lib/meta/booking-requests";
-import { attachMetaChannel, isMetaPlatform, META_PROVIDERS, setMetaFrontDoor } from "@/lib/meta/channels";
+import {
+  attachMetaChannel,
+  isMetaPlatform,
+  META_PROVIDERS,
+  MetaAssetTakenError,
+  setMetaFrontDoor,
+} from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
@@ -1625,6 +1633,20 @@ export type MarkTerminatedState =
       /** The floor this just created, so the operator sees what they did. */
       retainUntil: string;
       auditRecorded: boolean;
+      /**
+       * What it did to the Services (lib/agreements/termination.ts):
+       * `services_ended` when no agreement is left in effect for the
+       * practice, so its locations are offboarding and its subscriptions
+       * are being cancelled with a refund; `agreement_in_effect` when
+       * another agreement still covers it; `unbound` when the agreement was
+       * never bound to a practice.
+       */
+      services: TerminationEffect["status"];
+      /**
+       * Clause 17 ¶3 refunds this ending and the Services ended with it: ops
+       * was told to preview and confirm the refund on Billing.
+       */
+      refundDue: boolean;
     }
   | { status: "error"; message: string };
 
@@ -1645,6 +1667,26 @@ export type MarkTerminatedState =
  * sets `terminated_at` back to null. Undoing a mistake means a human with the
  * migrator role, deliberately. The console must say so before it fires, because
  * an operator who learns that afterwards has learned it too late.
+ *
+ * ## What it ends
+ *
+ * Every ending of the agreement ends the Services, and the Fees, on the same
+ * day (BAA 1.3.0 clauses 1, 17 and 20). The operator records who ended it and
+ * why, from the closed set in @healdesk/catalog, in the same write as the
+ * date (both write-once, drizzle/0066), because the reason decides the
+ * refund: clause 17 ¶3 refunds the fees paid for time after the day only
+ * where the practice ended it because healdesk violated a material term, or
+ * under the Subcontractors clause.
+ *
+ * Once the date is committed, and only then, a practice left with no
+ * agreement in effect has its locations offboarded and its subscriptions
+ * cancelled at once without proration (endServicesAfterTermination), and for
+ * those two reasons ops is told to preview and confirm the refund on the
+ * clinic's Billing page; the answer gate and the database's patient-data gate
+ * already refuse it, since both read the agreements. The termination is
+ * recorded first so that no failure after it can leave the agreement looking
+ * live: a step that fails is retried or put in front of ops, never rolled
+ * back into a live agreement.
  */
 async function opMarkAgreementTerminated(
   args: Record<string, unknown>,
@@ -1656,6 +1698,7 @@ async function opMarkAgreementTerminated(
   // termination the operator never typed, on a column nothing can correct.
   // DATE_SHAPED refuses the whole string instead.
   const terminationDate = stringArg(args, "terminationDate", 64);
+  const terminationReason = stringArg(args, "terminationReason", 64);
 
   if (!agreementId || !UUID_SHAPED.test(agreementId)) {
     return ok({
@@ -1669,6 +1712,16 @@ async function opMarkAgreementTerminated(
     return ok({
       status: "error",
       message: "That is not a real date.",
+    } satisfies MarkTerminatedState);
+  }
+
+  // Who ended it and why, from the closed set. Checked before the row is
+  // read, like the date: it is a statement about what the operator chose.
+  if (!isAgreementTerminationReason(terminationReason)) {
+    return ok({
+      status: "error",
+      message:
+        "Say who ended the agreement and why. It decides whether the practice is refunded, and it cannot be changed once recorded.",
     } satisfies MarkTerminatedState);
   }
 
@@ -1714,6 +1767,7 @@ async function opMarkAgreementTerminated(
       acceptedAt: baaAcceptances.acceptedAt,
       terminatedAt: baaAcceptances.terminatedAt,
       version: baaAcceptances.documentVersion,
+      organizationId: baaAcceptances.organizationId,
     })
     .from(baaAcceptances)
     .where(eq(baaAcceptances.id, agreementId))
@@ -1749,7 +1803,7 @@ async function opMarkAgreementTerminated(
    */
   const [updated] = await unsafeDb
     .update(baaAcceptances)
-    .set({ terminatedAt })
+    .set({ terminatedAt, terminationReason })
     .where(
       and(
         eq(baaAcceptances.id, agreementId),
@@ -1779,6 +1833,7 @@ async function opMarkAgreementTerminated(
     // as a phone-shaped string and would refuse the whole write. Same reason
     // the connect link records hours rather than a timestamp.
     terminatedAtEpochMs: terminatedAt.getTime(),
+    terminationReason,
   });
 
   // A terminated agreement voids every location's calendar terms (plan
@@ -1790,6 +1845,17 @@ async function opMarkAgreementTerminated(
   // keeps its calendar. Never throws.
   await sweepCalendarTerms(undefined, { actor: actorFor(operator) });
 
+  // The Services end with the agreement (see "What it ends" above). Never
+  // throws; a step it could not take is in front of ops.
+  const services = await endServicesAfterTermination({
+    agreementId,
+    organizationId: row.organizationId,
+    terminatedAt,
+    reason: terminationReason,
+    actor: actorFor(operator),
+    request: operator.request,
+  });
+
   return ok({
     status: "recorded",
     terminatedOn: terminationDate,
@@ -1797,6 +1863,8 @@ async function opMarkAgreementTerminated(
     // generated rather than from six added to a year here.
     retainUntil: asDate(updated.retentionEligibleAt),
     auditRecorded,
+    services: services.status,
+    refundDue: services.status === "services_ended" && services.refundDue,
   } satisfies MarkTerminatedState);
 }
 
@@ -3692,10 +3760,15 @@ async function opAttachMetaChannel(
   const accessToken = stringArg(args, "accessToken", 1024);
   if (!accessToken || accessToken.length < 20) return care.error("Paste the page or WhatsApp access token.");
   const label = stringArg(args, "label", 120);
-  await withTenant(
-    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) => attachMetaChannel(tx, { platform, externalId, accessToken, label }),
-  );
+  try {
+    await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      (tx) => attachMetaChannel(tx, { platform, externalId, accessToken, label }),
+    );
+  } catch (error) {
+    if (error instanceof MetaAssetTakenError) return care.error(error.message);
+    throw error;
+  }
   await audit(operator, "meta_channel_attached", { clinicSlug: clinic.slug, platform });
   return care.updated();
 }

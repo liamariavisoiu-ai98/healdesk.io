@@ -18,7 +18,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedChannels, seedClinic, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedChannels, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The answer gate (BD9, BD22, BD23, R1, R18, R20, R21, R25): the pure rules
@@ -58,6 +58,7 @@ function facts(
     channel: "voice",
     now: NOW,
     isSynthetic: false,
+    agreement: "in_effect",
     billing: billing === null ? null : { ...base, ...billing },
     channelRow: { enabled: true, liveAt: new Date("2026-10-02T00:00:00Z") },
     pause: { pausedAt: null, pausedUntil: null },
@@ -82,6 +83,23 @@ function reasonOf(f: AnswerFacts): string {
 describe("decideAnswer: every rule (BD22)", () => {
   const table: [string, AnswerFacts, string][] = [
     ["everything in order", facts(), "answer"],
+    // 0. The agreement (BAA 1.3.0 clause 17: ending it ends the Services).
+    ["no agreement on a production clinic", facts({ agreement: "none" }), "no_agreement"],
+    [
+      "no agreement on synthetic data",
+      facts({ agreement: "none", isSynthetic: true, billing: null, channelRow: null }),
+      "answer",
+    ],
+    [
+      "a terminated agreement, even on synthetic data",
+      facts({ agreement: "ended", isSynthetic: true, billing: null, channelRow: null }),
+      "no_agreement",
+    ],
+    [
+      "the agreement before billing",
+      facts({ agreement: "ended", billing: { status: "suspended" } }),
+      "no_agreement",
+    ],
     // 1. Billing (BD9, R8, R21).
     [
       "past due inside grace",
@@ -378,18 +396,27 @@ describe("coverageModeOf (BD23)", () => {
 // The reads, against the database
 // -----------------------------------------------------------------------------
 
+/** Live under an agreement in effect, as go-live leaves a clinic. */
 async function makeProduction(clinicId: string): Promise<void> {
+  await bindAgreementInEffect(clinicId);
   await getMigratorPool().query(
     `update clinics set data_classification = 'production', baa_signed_at = now() where id = $1`,
     [clinicId],
   );
 }
 
+/**
+ * A location of the billing clinic's practice: in its organisation, pointing
+ * at it. The gate follows a pointer only inside the practice.
+ */
 async function makeLocation(locationId: string, billingClinicId: string): Promise<void> {
-  await getMigratorPool().query(`update clinics set billing_clinic_id = $2 where id = $1`, [
-    locationId,
-    billingClinicId,
-  ]);
+  await getMigratorPool().query(
+    `update clinics
+        set billing_clinic_id = $2,
+            organization_id = (select organization_id from clinics where id = $2)
+      where id = $1`,
+    [locationId, billingClinicId],
+  );
 }
 
 async function setDirectLine(clinicId: string, line: string | null): Promise<void> {

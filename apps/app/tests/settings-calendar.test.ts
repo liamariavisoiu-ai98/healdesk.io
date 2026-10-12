@@ -242,6 +242,13 @@ describeDb("Settings → Calendar", () => {
   test("not connected: Google's notice sits above an unticked box; unticked is refused; ticked, Google's consent screen comes back to Settings", async () => {
     const html = await card();
     expect(html).toContain(GOOGLE_CALENDAR_DISCLOSURE.heading);
+    // The notice names the practice, never the template's placeholder.
+    expect(html).not.toContain("{");
+    expect(html).not.toContain("clinicName");
+    const [named] = await sql<{ name: string }>(`select name from clinics where id = $1`, [
+      covered.clinicId,
+    ]);
+    expect(html).toContain(escapeHtml(named!.name));
     expect(html).toMatch(/<input[^>]*type="checkbox"(?![^>]*checked)[^>]*>/);
     expect(html).toContain("Sign in with Google");
     expect(html.indexOf(GOOGLE_CALENDAR_DISCLOSURE.heading)).toBeLessThan(

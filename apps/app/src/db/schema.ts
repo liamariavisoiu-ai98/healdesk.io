@@ -26,6 +26,8 @@ import {
 
 import {
   type AgreementKind,
+  AGREEMENT_TERMINATION_REASONS,
+  type AgreementTerminationReason,
   ASSISTANT_LANGUAGES,
   ASSISTANT_TONES,
   type AssistantLanguage,
@@ -791,6 +793,16 @@ export const providerConnections = pgTable(
     uniqueIndex("provider_connections_google_account_live_idx")
       .on(t.provider, t.accountRef)
       .where(sql`${t.accountRef} is not null and ${t.status} <> 'revoked'`),
+    // One clinic per Meta Page, Instagram account or WhatsApp number while
+    // its connection is not revoked (drizzle/0066): with two, the webhook
+    // routed every message to the older clinic, whose staff and records
+    // then held another practice's patients. A revoked row frees the asset.
+    // On the asset's id alone, across the three Meta providers: the router
+    // (app_meta_channel) matches an id under any meta-% provider, so the
+    // same id under two providers would route as ambiguously as under one.
+    uniqueIndex("provider_connections_meta_asset_live_idx")
+      .on(sql`(${t.metadata} ->> 'externalId')`)
+      .where(sql`${t.provider} like 'meta-%' and ${t.status} <> 'revoked'`),
     check(
       "provider_connections_account_ref_check",
       sql`${t.accountRef} is null or ${t.accountRef} ~ '^[0-9a-f]{64}$'`,
@@ -1910,6 +1922,16 @@ export const baaAcceptances = pgTable(
      * the retention clock, so no code path may.
      */
     terminatedAt: timestamp("terminated_at", { withTimezone: true }),
+    /**
+     * Who ended the agreement, and why: AGREEMENT_TERMINATION_REASONS in
+     * @healdesk/catalog, recorded with `terminatedAt` by the console's
+     * termination (BAA 1.3.0 clause 17 ¶3 refunds only two of them). Null
+     * while the agreement is in effect, and on an ending recorded before
+     * drizzle/0066 or by app_supersede_agreement(), which replaces an
+     * agreement rather than ending the Services. Write-once, and only in the
+     * write that records the termination (the transition guard, 0066).
+     */
+    terminationReason: text("termination_reason").$type<AgreementTerminationReason>(),
 
     /**
      * When the counterparty's own copy of the signed agreement was delivered.
@@ -1976,6 +1998,10 @@ export const baaAcceptances = pgTable(
     check(
       "baa_acceptances_terminated_after_accepted",
       sql`${t.terminatedAt} is null or ${t.terminatedAt} >= ${t.acceptedAt}`,
+    ),
+    check(
+      "baa_acceptances_termination_reason_check",
+      sql`${t.terminationReason} is null or (${t.terminatedAt} is not null and ${t.terminationReason} in (${sqlList(AGREEMENT_TERMINATION_REASONS)}))`,
     ),
     check(
       "baa_acceptances_copy_evidence_complete",

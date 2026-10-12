@@ -387,14 +387,25 @@ describeDb("agreement kinds in the database (0051)", () => {
       code: "23514",
     });
 
-    // An unrecorded kind keeps 0001's rule, and a synthetic clinic is never refused.
+    // An unrecorded kind keeps 0001's rule, with 0066's agreement in effect,
+    // and a synthetic clinic is never refused.
     const legacy = await seedUnder("legacy", {
       regime: "hipaa-if-covered",
       kind: null,
       covered: null,
       production: true,
+      agreementVersion: "1.2.1",
     });
     await expect(seedContact(legacy.clinicId, "+15550190006")).resolves.toBeTruthy();
+    const unbound = await seedUnder("legacy-unbound", {
+      regime: "hipaa-if-covered",
+      kind: null,
+      covered: null,
+      production: true,
+    });
+    await expect(seedContact(unbound.clinicId, "+15550190008")).rejects.toMatchObject({
+      code: "23514",
+    });
     const synthetic = await seedUnder("synthdpa", { regime: "hipaa", kind: "baa", covered: null });
     await getMigratorPool().query(
       `update clinics set agreement_kind = 'baa', regulatory_regime = 'non-hipaa' where id = $1`,

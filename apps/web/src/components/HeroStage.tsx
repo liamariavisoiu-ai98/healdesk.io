@@ -47,14 +47,16 @@ import { site } from "@/lib/site";
  * locks them again. A page loaded already scrolled opens locked.
  *
  * Nothing else on the hero says that moving the cursor down does anything, so
- * a small pill at its foot does, "Move your cursor down", until the copy has
- * come up once. Meanwhile the logos' cards play on their own, one at a time
+ * an arrowhead at its foot does, pointing down and jumping slowly, until the
+ * copy has come up once. It was a pill that said "Move your cursor down"
+ * until the owner asked for the arrow alone (12 October 2026). Meanwhile the logos' cards play on their own, one at a time
  * (HeroPortrait), so the hero is not still while it waits.
  *
  * ## The entrance, and the copy line by line (owner, 12 October 2026)
  *
  * The page opens in one movement: the photo settles, the orbits draw in
- * round her, the logos fan out along them, and last the cue pill draws in.
+ * round her, the logos fan out along them, and last the cue's arrowhead
+ * draws in.
  * The copy plays no part in that. Only when it comes up on the cursor does
  * the announcement rise, then the headline line by line, then the buttons
  * after its last line (HeroLines numbers the lines as the browser broke
@@ -92,7 +94,7 @@ function useReveal(
   copy: React.RefObject<HTMLElement | null>,
 ): { reveal: Reveal; seen: boolean } {
   const [reveal, setReveal] = useState<Reveal>("hidden");
-  /** The copy has come up at least once this visit: the cue has done its job. */
+  /** The copy has come up at least once this visit: the cue no longer waits for the entrance. */
   const [seen, setSeen] = useState(false);
 
   useEffect(() => {
@@ -224,17 +226,19 @@ export function HeroStage() {
         <HeroPortrait autoplay={reveal === "hidden"} />
       </div>
 
-      {/* Says what moving the cursor down does, until it has done it. Not for
-          a screen reader (the copy is in the page throughout) and not for a
-          touch screen (CSS shows it only with a pointer that hovers). */}
-      <p aria-hidden className="hero__cue" data-show={(reveal === "hidden" && !seen) || undefined}>
-        Move your cursor down
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="m6 9 6 6 6-6" />
+      {/* Says what moving the cursor down does, whenever the copy is down:
+          after the first time it comes back sooner than the entrance has it.
+          Not for a screen reader (the copy is in the page throughout) and not
+          for a touch screen (CSS shows it only with a pointer that hovers). */}
+      <span aria-hidden className="hero__cue" data-show={reveal === "hidden" || undefined} data-again={seen || undefined}>
+        {/* Two strokes from the tip, so it draws outwards from its point. */}
+        <svg viewBox="0 0 36 20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 16 4 4" pathLength={1} />
+          <path d="M18 16 32 4" pathLength={1} />
         </svg>
-      </p>
+      </span>
 
-      {/* The white the copy sits on, rising from the bottom with it: over
+      {/* The white the copy sits on, rising and fading in with it: over
           the photo, under the logos and the copy. */}
       <div aria-hidden className="hero__veil" />
     </section>

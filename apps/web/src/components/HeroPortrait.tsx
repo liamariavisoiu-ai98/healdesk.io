@@ -16,12 +16,12 @@ import {
   type LogoGroup,
   type Orbit,
 } from "@/lib/integrations";
-import { HeroScene } from "@/components/HeroScenes";
+import { AfterHours, HeroScene } from "@/components/HeroScenes";
 import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
 /**
  * The hero's picture: AYA, smiling, in the healdesk headset, and the logos of
- * the tools she works through on three orbits round her. The logos, their
+ * the tools she works through on two circles round her. The logos, their
  * orbits, what each shows and their trademark line are in
  * lib/integrations.ts; the sizes and the motion are in globals.css under
  * "The hero portrait", and the white veil that rises over the photo is
@@ -31,21 +31,27 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  *
  * The owner's of 9 October 2026: 1672×941, shown as composed, her face a
  * little right of centre. Every place is a share of that box, so the
- * composition is the same at every size.
+ * composition is the same at every size. From 1280px it is no wider than
+ * keeps every logo and chip inside the page's 1240px column, with the copy
+ * under her (owner, 12 October 2026: on a wide screen they ran out to its
+ * edges while the navbar and the copy stayed in the column). globals.css
+ * sizes it, "Inside the column, from 1280px", so it is right on the first
+ * paint; useDrift moves its layers after the cursor.
  *
- * ## Three orbits, and the chips that fan out (the owner's pick, 9 October)
+ * ## Orbits, and the chips that fan out (the owner's pick, 9 October)
  *
- * Three concentric circles ring her head (the owner asked on 12 October 2026
- * for true circles; they were ovals): Messages & Calls (website chat,
- * Instagram, Messenger, WhatsApp and her phone line) down the wall on her
- * left; on the right the inner circle carries Bookings (Google Calendar) and,
- * after it, the calendars synced with Google; Payments is low on the right. Each
- * circle is drawn whole and faint, so three rings read as three rings, with
- * its group's stretch lit from a chip with its title, and as the page opens
- * the logos fan out of their chip along the circle to their places,
- * then drift gently along it. Resting on a chip, or focusing it, lights its
- * orbit, dims the other two, spreads its logos a little and plays their
- * cards in turn; resting on a logo, focusing it or tapping it plays its own.
+ * Two concentric circles ring her head (the owner asked on 12 October 2026
+ * for true circles; they were ovals, and there were three): the outer one
+ * carries Messages & Calls (website chat, Instagram, Messenger, WhatsApp and
+ * her phone line) down the wall on her left and Payments on her right, level
+ * with them, so the logos reach as far on each side of her; the inner one
+ * carries Bookings (Google Calendar) and, after it, the calendars synced with
+ * Google. Each circle is drawn whole and faint, with each group's stretch lit
+ * from a chip with its title, and as the page opens the logos fan out of
+ * their chip along the circle to their places, then drift gently along it.
+ * Resting on a chip, or focusing it, lights its stretch, dims the others,
+ * spreads its logos a little and plays their cards in turn; resting on a
+ * logo, focusing it or tapping it plays its own.
  * Below 1280px there is no room for orbits beside the copy, so the logos keep
  * their places on the photo and the chips are a row under it.
  *
@@ -153,8 +159,12 @@ const DRIFT_DEGREES = 3;
  * and be read. They were 1.6s and 2.6s while a card was two lines of text.
  */
 const CARD_MS = 3200;
-/** Between the cards the hero plays on its own, once the logos have fanned out. */
-const AUTOPLAY_MS = 3600;
+/**
+ * Between the cards the hero plays on its own, once the logos have fanned
+ * out: unhurried, so each card is read and the hero is not a run of pop-ups
+ * (owner, 12 October 2026; it was 3.6s).
+ */
+const AUTOPLAY_MS = 4800;
 const FIRST_CARD_MS = 2400;
 /** How long after a visitor lets go of a logo or a chip the cards stay theirs. */
 const RESUME_MS = 4000;
@@ -196,6 +206,38 @@ function arcPath(orbit: Orbit) {
   const sweep = orbit.tail > orbit.chip ? 1 : 0;
   const large = Math.abs(orbit.tail - orbit.chip) > 180 ? 1 : 0;
   return { from, to, d: `M ${from.x.toFixed(1)} ${from.y.toFixed(1)} A ${orbit.r} ${orbit.r} 0 ${large} ${sweep} ${to.x.toFixed(1)} ${to.y.toFixed(1)}` };
+}
+
+/**
+ * The logos, the chips and the rings drift a few pixels after the cursor,
+ * each layer by its own amount, and the photo a little the other way, so the
+ * hero has depth (owner, 12 October 2026, with the orbits brought inside the
+ * content column: globals.css, "Inside the column, from 1280px"). Writes
+ * `--mx` and `--my`, from -1 to 1, on the stage; only from 1280px, with a
+ * mouse, and with motion allowed.
+ */
+function useDrift(stage: RefObject<HTMLDivElement | null>, on: boolean) {
+  useEffect(() => {
+    const el = stage.current;
+    if (!on || !el) return;
+    let frame = 0;
+    const onMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch") return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const box = el.getBoundingClientRect();
+        const mx = Math.max(-1, Math.min(1, ((event.clientX - box.left) / box.width) * 2 - 1));
+        const my = Math.max(-1, Math.min(1, ((event.clientY - box.top) / Math.max(box.height, 1)) * 2 - 1));
+        el.style.setProperty("--mx", mx.toFixed(3));
+        el.style.setProperty("--my", my.toFixed(3));
+      });
+    };
+    document.addEventListener("pointermove", onMove, { passive: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("pointermove", onMove);
+    };
+  }, [on, stage]);
 }
 
 const capital = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
@@ -241,6 +283,7 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
    * visitor's hover, focus, tap or chip takes over at once, and the hero
    * waits RESUME_MS after they let go. A hidden tab plays nothing.
    */
+  useDrift(stage, wide && !reduce);
   const playing = autoplay && wide && !reduce && !resting;
   useEffect(() => {
     if (!playing) return;
@@ -387,7 +430,10 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
                     </span>
                     {/* Said by the button's own name; drawn here for the eye. */}
                     <span className="portrait__card" data-scene={logo.scene} aria-hidden>
-                      <span className="portrait__card-name">{capital(logo.name)}</span>
+                      <span className="portrait__card-head">
+                        <span className="portrait__card-name">{capital(logo.name)}</span>
+                        {logo.afterHours ? <AfterHours /> : null}
+                      </span>
                       <HeroScene logo={logo} />
                     </span>
                   </span>

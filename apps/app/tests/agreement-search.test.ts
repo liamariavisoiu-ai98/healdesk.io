@@ -1,9 +1,6 @@
 import { BAA_ASSENT_LABEL } from "@healdesk/catalog";
-import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
-import { unsafeDb } from "@/db";
-import { baaAcceptances } from "@/db/schema";
 import {
   AgreementSearchError,
   searchAgreements,
@@ -226,35 +223,37 @@ async function seed(row: SeedRow): Promise<string> {
   };
   if (row.clinic !== undefined) variables.clinicLegalName = row.clinic;
 
-  const [inserted] = await unsafeDb
-    .insert(baaAcceptances)
-    .values({
-      organizationId: null,
-      userId: null,
-      documentVersion: row.version,
-      documentHash: row.hash,
-      renderedText: `BUSINESS ASSOCIATE AGREEMENT\n\n${TEXT_MARKER}\n\nSigned by ${row.name}.`,
-      variables,
-      assentLabel: BAA_ASSENT_LABEL,
-      acceptedByName: row.name,
-      acceptedByEmail: row.email,
-      acceptedByTitle: row.title ?? null,
-      ipAddress: "203.0.113.42",
-      userAgent: "Mozilla/5.0",
-      // Passed as a bound parameter and cast, so microsecond precision
-      // survives; a JavaScript Date would truncate it to milliseconds.
-      acceptedAt: sql`${row.acceptedAt}::timestamptz`,
-      terminatedAt: row.terminatedAt
-        ? sql`${row.terminatedAt}::timestamptz`
-        : null,
-      copySentAt: row.copySentAt ? sql`${row.copySentAt}::timestamptz` : null,
+  // As the migrator: the corpus holds terminated agreements and delivered
+  // copies, which the runtime role may not insert (its INSERT is
+  // column-scoped since drizzle/0066; termination and the copy's record are
+  // written by their own paths). Timestamps are bound as text and cast, so
+  // microsecond precision survives; a JavaScript Date would truncate it.
+  const { rows } = await getMigratorPool().query<{ id: string }>(
+    `insert into baa_acceptances
+       (organization_id, user_id, document_version, document_hash, rendered_text, variables,
+        assent_label, accepted_by_name, accepted_by_email, accepted_by_title, ip_address, user_agent,
+        accepted_at, terminated_at, copy_sent_at, copy_document_sha256)
+     values (null, null, $1, $2, $3, $4::jsonb, $5, $6, $7, $8, '203.0.113.42', 'Mozilla/5.0',
+             $9::timestamptz, $10::timestamptz, $11::timestamptz, $12)
+     returning id`,
+    [
+      row.version,
+      row.hash,
+      `BUSINESS ASSOCIATE AGREEMENT\n\n${TEXT_MARKER}\n\nSigned by ${row.name}.`,
+      JSON.stringify(variables),
+      BAA_ASSENT_LABEL,
+      row.name,
+      row.email,
+      row.title ?? null,
+      row.acceptedAt,
+      row.terminatedAt ?? null,
+      row.copySentAt ?? null,
       // The table's CHECK refuses a send date with no digest, and rightly: a
       // date with no hash proves nothing.
-      copyDocumentSha256: row.copySentAt ? digest(`f0${row.hash.slice(2, 8)}`) : null,
-    })
-    .returning({ id: baaAcceptances.id });
-
-  return inserted!.id;
+      row.copySentAt ? digest(`f0${row.hash.slice(2, 8)}`) : null,
+    ],
+  );
+  return rows[0]!.id;
 }
 
 async function seedCorpus(): Promise<void> {

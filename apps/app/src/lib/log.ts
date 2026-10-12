@@ -52,6 +52,8 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "event",
   "eventId",
   "deliveryId",
+  // An incident's id (lib/incidents), for the overdue-notice alert.
+  "incidentId",
   // Categorical.
   "type",
   "kind",
@@ -87,6 +89,7 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   // about a customer's contract, never about a patient.
   "serviceEndedAt",
   "exportDeliveredAt",
+  "exportDueAt",
   "destroyAt",
   // A deletion request's id (erasure_requests, lib/patient-rights/erasure.ts):
   // a random uuid naming the request, never the person.

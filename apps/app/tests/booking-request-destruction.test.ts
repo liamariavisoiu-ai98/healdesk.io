@@ -9,6 +9,7 @@ import {
   markExportDelivered,
   startOffboarding,
 } from "@/lib/offboarding/offboarding";
+import { exportClinic } from "@/lib/patient-rights/export";
 import { eraseContact, purgeClinic } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
 
@@ -209,7 +210,6 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
     "append-only by grant, like the audit log: which of the clinic's own numbers calls went to, and when; no patient",
   clinic_touches: "our own notes on the account, never a patient",
   connection_links: "append-only by grant: single-use credential links, no patient",
-  deposit_payments: "money records, kept without the appointment they were taken for",
   entitlements: "the plan and its allowances; no patient",
   incidents: "the record of each incident and of its notice",
   overage_invoices: "billing evidence",
@@ -310,8 +310,9 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       new Date("2026-05-20T15:00:00Z"),
     );
     await seedPerson(staying.clinicId, "+15550106001", new Date("2026-05-20T15:00:00Z"));
-    // A paid deposit on the confirmed booking: a money record, kept, but it
-    // must not hold the destroyed appointment.
+    // A paid deposit on the confirmed booking, and the Connect event that
+    // reported it: both go with the clinic (drizzle/0065). The other clinic's
+    // event stays.
     await inTenant(leaving.clinicId, (client) =>
       client.query(
         `insert into deposit_payments (clinic_id, appointment_id, channel, amount_cents, stripe_account_id, status)
@@ -319,12 +320,30 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         [leaving.clinicId, gone.appointmentId],
       ),
     );
+    await getMigratorPool().query(
+      `insert into stripe_connect_events (stripe_event_id, type, account, resolved_clinic_id)
+       values ('evt_destroy_leaving', 'checkout.session.completed', 'acct_test_destroy', $1),
+              ('evt_destroy_staying', 'checkout.session.completed', 'acct_test_stay', $2)`,
+      [leaving.clinicId, staying.clinicId],
+    );
 
     await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
       startOffboarding(tx, "customer.subscription.deleted"),
     );
     // Thirty-one days on, by the database's own stamps.
     await backdateOffboarding(leaving.clinicId, 31);
+    // The return bundle is the practice's copy of its deposits, since
+    // destruction takes them: the amount, the status and the Stripe session
+    // it can find each by, never the Stripe account id or event id.
+    const bundle = await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
+      exportClinic(tx, "practice"),
+    );
+    expect(bundle.depositPayments).toEqual([
+      expect.objectContaining({ appointmentId: gone.appointmentId, amountCents: 5000, status: "paid", channel: "web" }),
+    ]);
+    expect(Object.keys(bundle.depositPayments[0]!).sort()).toEqual([
+      "amountCents", "appointmentId", "channel", "checkoutSessionId", "createdAt", "currency", "id", "paidAt", "status",
+    ]);
     await withTenant({ clinicId: leaving.clinicId, actor: ACTOR }, (tx) =>
       markExportDelivered(tx, "bundle handed to the practice manager"),
     );
@@ -354,9 +373,17 @@ describeDb("booking requests at destruction, erasure and purge", () => {
         )
       ).rows,
     }));
-    expect(after.deposits).toEqual([{ appointment_id: null }]);
+    // Gone with the rest (drizzle/0065): its Stripe session finds the patient
+    // in the clinic's Stripe account, and clause 17 lets two records survive.
+    expect(after.deposits).toEqual([]);
     expect(after.audit).toHaveLength(1);
     expect(after.audit[0]!.metadata.booking_requests).toBe(3);
+    expect(after.audit[0]!.metadata.deposit_payments).toBe(1);
+    expect(after.audit[0]!.metadata.stripe_connect_events).toBe(1);
+    const { rows: events } = await getMigratorPool().query<{ stripe_event_id: string }>(
+      `select stripe_event_id from stripe_connect_events where stripe_event_id like 'evt_destroy_%' order by 1`,
+    );
+    expect(events.map((e) => e.stripe_event_id)).toEqual(["evt_destroy_staying"]);
     // The record that it ran is the database's, stamped in the same transaction.
     const { rows: stamped } = await getMigratorPool().query<{ destroyed_at: Date | null }>(
       `select destroyed_at from clinics where id = $1`,

@@ -460,8 +460,22 @@
     {
       "idx": 65,
       "version": "7",
-      "when": 1791815604028,
-      "tag": "0065_baa_release_1_3_0",
+      "when": 1791814759658,
+      "tag": "0065_destroy_deposit_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1791818535444,
+      "tag": "0066_agreement_end_ends_service",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1791822611432,
+      "tag": "0067_baa_release_1_3_0",
       "breakpoints": true
     }
   ]

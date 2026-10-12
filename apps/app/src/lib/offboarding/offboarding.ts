@@ -194,7 +194,7 @@ export const THIRTY_DAY_LIMIT_DUE_DAYS = 29;
  * days. app_destruction_due() refuses earlier.
  */
 export const NINETY_DAY_LIMIT_DUE_DAYS = 89;
-/** When ops is told that a clinic on the thirty days has no export delivered. */
+/** When ops is told that a leaving clinic has no export delivered, on either rule. */
 export const UNDELIVERED_EXPORT_ALERT_DAYS = 21;
 /** How far back app_start_offboarding() lets the end of the service start the clock. */
 export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
@@ -478,9 +478,9 @@ export type DestructionResult = { clinicId: string; deleted: Record<string, numb
  * Every patient row for one clinic, booking requests and slot holds
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
- * attempts, the records of its deletion requests, and the amendments
- * Practice directed, gone. Audit, agreements, calendar elections and billing
- * stay.
+ * attempts, the records of its deletion requests, the amendments Practice
+ * directed, and its deposits, gone. Audit, agreements, calendar elections and
+ * billing stay.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -494,6 +494,19 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   await del("slot_holds", () => tx.db.delete(slotHolds).where(eq(slotHolds.clinicId, c)).returning({ id: slotHolds.id }));
   await del("reconciliation_exceptions", () => tx.db.delete(reconciliationExceptions).where(eq(reconciliationExceptions.clinicId, c)).returning({ id: reconciliationExceptions.id }));
   await del("transactions", () => tx.db.delete(transactions).where(eq(transactions.clinicId, c)).returning({ id: transactions.id }));
+  // Deposits (drizzle/0065), before the appointments they were taken for: each
+  // carries the Stripe session that finds the patient in the clinic's Stripe
+  // account, and BAA 1.3.0's clause 17 lets only two records survive. The app
+  // role has no DELETE on them (0043), so app_destroy_deposit_payments()
+  // deletes the tenant's, with the Connect webhook rows resolved to it, on the
+  // same floor. The return bundle carried them first.
+  const deposits = await tx.db.execute<{ deposit_payments_deleted: number; connect_events_deleted: number }>(
+    sql`select * from app_destroy_deposit_payments(${c}::uuid)`,
+  );
+  deleted.deposit_payments = deposits.rows[0]?.deposit_payments_deleted ?? 0;
+  // Not a clinic table (the ledger has no clinic_id, so the stamp does not
+  // check it): its count goes in the audit row below, not in `deleted`.
+  const connectEvents = deposits.rows[0]?.connect_events_deleted ?? 0;
   // The amendments Practice directed (drizzle/0064), before the requests and
   // conversations they amend: neither can go while one remains, and the app
   // role cannot delete one, so app_destroy_record_amendments() deletes every
@@ -573,7 +586,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
     resourceType: "clinic_destruction",
     resourceId: c,
     resultCount: total,
-    metadata: Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])),
+    metadata: { ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])), stripe_connect_events: connectEvents },
   });
   return { clinicId: c, deleted };
 }
@@ -597,7 +610,7 @@ export async function destroyDueClinics(now: Date = new Date()): Promise<Destruc
         reason: `no entry in DESTRUCTION_RULES for version ${plan.agreementVersion ?? "none"}`,
       });
     }
-    await alertBeforeThirtyDayDestruction(clinic.id, clinic.exportDeliveredAt, plan, now);
+    await alertUndeliveredExport(clinic.id, clinic.exportDeliveredAt, plan, now);
     if (!dueForDestruction(clinic, now)) continue;
     // A Google Calendar connection still standing (the sweep when
     // offboarding started missed it, or it came back) is disconnected first,
@@ -678,24 +691,42 @@ export async function destroyEverythingDue(
 }
 
 /**
- * From day 21 until destruction, one ops alert per clinic on the thirty days
- * with no export recorded as delivered: the data goes at destroyAt whatever
- * the export, and the practice is owed its export before then whether or not
- * it asks (Terms §7; see the header). Never for a clinic on the export rule,
- * whose destruction waits for the export until day 89.
+ * From day 21, one ops alert per clinic with no export recorded as delivered,
+ * at its own rule's deadline:
+ *
+ *   - on the thirty days (BAA 1.2.1 and earlier, none, unknown), until
+ *     destruction: the data goes at destroyAt whatever the export, and the
+ *     practice is owed its export before then whether or not it asks (Terms
+ *     §7; see the header). `export_undelivered_before_destruction`;
+ *   - on the export rule (BAA 1.3.0 and the DPA), until the ninety days: the
+ *     agreement promises the export "within thirty days after the Services
+ *     end ... without being asked", so it is due at exportDueBy, a day early
+ *     like every limit here, and the data then waits for it until day 89.
+ *     `export_due_undelivered`, naming that deadline. Raised after it as well,
+ *     for a clinic first seen late: an export owed is owed until it goes.
  */
-async function alertBeforeThirtyDayDestruction(
+async function alertUndeliveredExport(
   clinicId: string,
   exportDeliveredAt: Date | null,
   plan: DestructionPlan,
   now: Date,
 ): Promise<void> {
-  if (plan.rule !== "thirty_days" || exportDeliveredAt) return;
+  if (exportDeliveredAt) return;
   const from = addDays(plan.endedAt, UNDELIVERED_EXPORT_ALERT_DAYS);
-  if (now.getTime() < from.getTime() || now.getTime() >= plan.destroyDueAt.getTime()) return;
-  await notifyOpsOnce("export_undelivered_before_destruction", {
+  if (now.getTime() < from.getTime()) return;
+  if (plan.rule === "thirty_days") {
+    if (now.getTime() >= plan.destroyDueAt.getTime()) return;
+    await notifyOpsOnce("export_undelivered_before_destruction", {
+      clinicId,
+      destroyAt: plan.destroyDueAt.toISOString(),
+    });
+    return;
+  }
+  if (now.getTime() >= plan.latestDestroyAt.getTime()) return;
+  await notifyOpsOnce("export_due_undelivered", {
     clinicId,
-    destroyAt: plan.destroyDueAt.toISOString(),
+    exportDueAt: plan.exportDueBy.toISOString(),
+    destroyAt: plan.latestDestroyAt.toISOString(),
   });
 }
 

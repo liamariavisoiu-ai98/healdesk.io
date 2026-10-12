@@ -238,7 +238,8 @@ every item stays unproven until the owner's first `infra.yml` apply and first de
   what is known, not a rehearsed procedure); step 2's dates go back through the CloudShell VPC
   environment as the migrator. **Built:** offboarding's return bundle on this host, as the one-off
   `patient-export` task, which puts it in the export bucket (`infra/aws/exports.tf`;
-  `infra/aws/scripts/run-task.sh patient-export <clinic id> "<who asked>"`). **Half built:** the alarm on any transaction open
+  `infra/aws/scripts/run-task.sh patient-export <clinic id>`); and the patient-rights scripts as
+  `erase-person` and `amend-contact`, by contact id (see "Deletion requests" and "Amendments"). **Half built:** the alarm on any transaction open
   longer than five minutes, because one held open is the way left around the record clock's day
   and offboarding's thirty days (see "Retention and offboarding"). The alarm
   `healdesk-production-rds-idle-in-transaction` fires when a session has sat idle inside a
@@ -451,8 +452,7 @@ The destruction steps, in order:
    codes, so its calls fall through to its own line.
 2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
    <id> --all --requested-by "…"` (on the AWS host: `bash run-task.sh patient-export
-   <clinic id> "<who asked>"` in CloudShell, which stores it in the export bucket; write any
-   date in "who asked" in words), hand it over, and record the handover on the care
+   <clinic id>` in CloudShell, which stores it in the export bucket), hand it over, and record the handover on the care
    page. Producing it records nothing: the care page refuses the record until a bundle
    has been produced since offboarding started, and the stamp is the database's, at the
    moment of the record (`app_mark_export_delivered()`).
@@ -493,7 +493,9 @@ record of the request, no longer than we need it.
      `HEALDESK_ERASURE_CLINIC_ID`, `HEALDESK_ERASURE_CONTACT_ID`,
      `HEALDESK_ERASURE_REQUESTED_BY` (`practice`, `person_via_practice` or
      `representative_via_practice`), optionally `HEALDESK_ERASURE_RECEIVED_AT` (ISO),
-     and `HEALDESK_OPS_OPERATOR` (your healdesk address). The person is whoever that
+     and `HEALDESK_OPS_OPERATOR` (your healdesk address), set by `bash run-task.sh
+     erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at]` in
+     CloudShell. The person is whoever that
      contact's number and address lead to, read inside the transaction. Nothing about
      the person is typed or passed: there is no interactive shell there, and run-task's
      overrides are recorded by CloudTrail ("Reaching the app's shell", below);
@@ -629,7 +631,9 @@ time is appended beside it, never written over the calendar's.
    which takes them from the practice behind step-up. The one correction that runs
    there is clearing fields, by contact id, through run-task.sh only, with
    `HEALDESK_AMEND_CLINIC_ID`, `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`,
-   `HEALDESK_AMEND_REQUESTED_BY` and `HEALDESK_OPS_OPERATOR` in the task's environment.
+   `HEALDESK_AMEND_REQUESTED_BY` and `HEALDESK_OPS_OPERATOR` in the task's environment, set by
+   `bash run-task.sh amend-contact <clinic id> <contact id> <fields to clear> <who asked>
+   <you@healdesk.io>` in CloudShell.
    Typed entry is for a development machine and its database only. The care page shows
    how many amendments and corrections the clinic has, and nothing they say.
 4. **The deadline.** Ten business days from the practice's request.

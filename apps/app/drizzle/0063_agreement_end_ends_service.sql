@@ -235,6 +235,13 @@ AS $$
             OR app_agreement_kind_sufficient(c.regulatory_regime, c.agreement_kind, c.is_covered_entity)
           )
           AND EXISTS (SELECT 1 FROM app_agreement_in_effect(c.organization_id))
+          -- A clinic that has left takes no new patient row, whatever its
+          -- agreement (review R11): offboarding started, or destroyed.
+          -- Every route checks too (lib/clinic/leaving.ts); this covers the
+          -- ones that don't. Rows already held still change through
+          -- app_clinic_phi_update_permitted.
+          AND c.offboarding_started_at IS NULL
+          AND c.destroyed_at IS NULL
         )
       )
   )
@@ -283,7 +290,7 @@ BEGIN
       NEW.clinic_id, TG_TABLE_NAME
       USING
         ERRCODE = 'check_violation',
-        HINT = 'A production clinic needs clinics.baa_signed_at, an agreement in effect for its organisation (app_agreement_in_effect), and, where clinics.agreement_kind is recorded, an agreement app_agreement_kind_sufficient() accepts. A terminated agreement is in effect for nobody: its practice is offboarding, and only changes to rows already held are let through. See docs/hipaa-compliance.md.';
+        HINT = 'A production clinic needs clinics.baa_signed_at, an agreement in effect for its organisation (app_agreement_in_effect), and, where clinics.agreement_kind is recorded, an agreement app_agreement_kind_sufficient() accepts; and it takes no new row once its offboarding has started. A terminated agreement is in effect for nobody: its practice is offboarding, and only changes to rows already held are let through. See docs/hipaa-compliance.md.';
   END IF;
   RETURN NEW;
 END;
@@ -329,7 +336,7 @@ REVOKE ALL ON FUNCTION app_organization_clinics(text) FROM PUBLIC;--> statement-
 GRANT EXECUTE ON FUNCTION app_organization_clinics(text) TO healdesk_app;--> statement-breakpoint
 
 COMMENT ON FUNCTION app_clinic_accepts_phi(uuid) IS
-  'May a new patient row be written for this clinic: a synthetic clinic, or a production clinic with baa_signed_at, an agreement in effect for its organisation (app_agreement_in_effect) and, where its kind is recorded, one app_agreement_kind_sufficient() accepts. Enforced on INSERT by the trigger app_enforce_baa_gate (0004, 0063).';--> statement-breakpoint
+  'May a new patient row be written for this clinic: a synthetic clinic, or a production clinic with baa_signed_at, an agreement in effect for its organisation (app_agreement_in_effect), where its kind is recorded one app_agreement_kind_sufficient() accepts, and no offboarding started. Enforced on INSERT by the trigger app_enforce_baa_gate (0004, 0063).';--> statement-breakpoint
 COMMENT ON FUNCTION app_clinic_phi_update_permitted(uuid) IS
   'May a patient row already held be changed: app_clinic_accepts_phi(), or, once the clinic is offboarding, the same rule without the agreement in effect, so destruction''s cascades and the purge still run after a termination. Enforced on UPDATE by app_enforce_baa_gate (0063).';--> statement-breakpoint
 COMMENT ON FUNCTION app_organization_clinics(text) IS

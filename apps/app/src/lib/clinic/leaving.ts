@@ -15,13 +15,17 @@ import type { TenantTx } from "@/lib/tenant";
  * Meta webhook claims no message and opens no thread. The destruction job
  * never revisits a destroyed clinic, so a row written after it would outlive
  * every promise to destroy it. Read inside the transaction that would write,
- * so an offboarding that starts meanwhile is seen.
+ * FOR SHARE: app_start_offboarding updates this row, so it waits for the
+ * write this read guards to commit, or this read waits for it and sees the
+ * offboarding (the branch review's R11). For a production clinic the
+ * database refuses the new row anyway (app_clinic_accepts_phi).
  */
 export async function clinicHasLeft(tx: TenantTx): Promise<boolean> {
   const [row] = await tx.db
     .select({ started: clinics.offboardingStartedAt, destroyed: clinics.destroyedAt })
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
-    .limit(1);
+    .limit(1)
+    .for("share");
   return row !== undefined && (row.started !== null || row.destroyed !== null);
 }

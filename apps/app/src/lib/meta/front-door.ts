@@ -7,6 +7,7 @@ import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
 import { META_CHANNEL_PROHIBITIONS, metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
 import { describeError, log } from "@/lib/log";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { parseOpeningHours, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
@@ -812,6 +813,10 @@ export async function answerFrontDoor(
 ): Promise<FrontDoorAnswer | null> {
   const facts = await frontDoorFacts(tx);
   if (!facts) return null;
+  // A clinic that has left keeps nothing new (lib/clinic/leaving.ts). The
+  // webhook asked in an earlier transaction; an offboarding that started
+  // since is seen here, in the one that would write.
+  if (await clinicHasLeft(tx)) return null;
   // The clinic's switch for this platform (Settings). The webhook skips such
   // a message before it gets here; this holds for any other caller.
   if (!(await metaPlatformOn(tx, input.platform))) return null;

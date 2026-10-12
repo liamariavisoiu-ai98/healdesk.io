@@ -336,3 +336,33 @@ describe("the reply guard: treatment names off the menu", () => {
     ).toEqual({ ok: false, reason: "a treatment name" });
   });
 });
+
+describe("the reply guard: who is writing", () => {
+  // The C19 re-audit: after the channel's line says an AI assistant is
+  // writing, the model introduced a person. Refused, whatever the greeting.
+  test.each([
+    "Hi, it's Sarah from Glow Clinic!",
+    "Hi, it's Sarah from Glow Clinic! We're open 9 to 5.",
+    "I'm Sarah, a member of the team.",
+    "My name is Sarah and I can help.",
+    "Sarah here, happy to help.",
+    "Hi, this is the front desk at Glow Clinic.",
+    "I'm the receptionist here.",
+    "I'm on the team at Glow Clinic.",
+  ])("refuses: %j", (reply) => {
+    expect(guardReply(reply, { ...CLINIC, clinicName: "Glow Clinic" })).toEqual({
+      ok: false,
+      reason: "a human claim",
+    });
+  });
+
+  test.each([
+    "I'm happy to help with that.",
+    "I'm afraid I can't say here; call the practice.",
+    "This is Glow Clinic's messaging line. Call the practice to book.",
+    "It's best to call the practice to book.",
+    "Our team will call you to confirm.",
+  ])("passes: %j", (reply) => {
+    expect(guardReply(reply, { ...CLINIC, clinicName: "Glow Clinic" })).toEqual({ ok: true });
+  });
+});

@@ -291,6 +291,13 @@ const REFUSED: { pattern: RegExp; label: string }[] = [
   { pattern: /\b(you should|you can|you shouldn't|you can't|don't|avoid|stop taking|take (an? )?(ibuprofen|tylenol|antihistamine))\b/i, label: "guidance" },
   { pattern: /\b(side effects?|downtime|recovery (time|takes)|contraindicat|dosage|units of)\b/i, label: "clinical detail" },
   { pattern: /\bI('m| am) (a )?(human|person|real person)\b/i, label: "a human claim" },
+  // A person speaking for the clinic, after the line that says an AI
+  // assistant is: "I'm Sarah, a member of the team", "this is the front desk",
+  // "I'm the receptionist" (the C19 re-audit). A name is matched where one
+  // introduces the speaker ("Hi, it's Sarah from Glow Clinic!") in
+  // personaIntroduction, below.
+  { pattern: /\b(?:this is|it['’]s|you['’]ve reached|you're speaking (?:to|with)) (?:the )?(?:front desk|reception|receptionist|office manager)\b/i, label: "a human claim" },
+  { pattern: /\bI(?:['’]m| am) (?:(?:a|the|one of the|part of the|a member of(?: the)?|on the|with the|from the) )?(?:team member|member of staff|staff member|front desk|reception(?:ist)?|nurse|coordinator|office manager|team|staff)\b/i, label: "a human claim" },
   { pattern: /\b(you're|you are|it's|it is|that's) (all )?(booked|confirmed|in the diary|scheduled)\b/i, label: "a booking confirmation" },
   { pattern: /\b(you're|you are) all set\b/i, label: "a booking confirmation" },
   // A confirmation with no "you're" or "it's" in it: "your appointment on
@@ -388,6 +395,7 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const flat = reply.replace(/\s*[\r\n]+\s*/g, " ");
   const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
+  if (personaIntroduction(flat, context.clinicName)) return { ok: false, reason: "a human claim" };
   // A condition named in a reply is refused even where no acknowledgement
   // above catches it ("Yes, we treat rosacea"), as the screen refuses it inbound.
   const clinical = findClinicalContent({ reply }, { conditions: true });
@@ -401,6 +409,37 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // carry an ordinal or a number ("120 5th Avenue").
   const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
   return reason ? { ok: false, reason } : { ok: true };
+}
+
+/** Capitalised words that follow "it's" or "I'm" without being anyone's name. */
+const NOT_A_NAME = new Set([
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+  "january", "february", "march", "april", "may", "june", "july", "august", "september",
+  "october", "november", "december", "sorry", "happy", "glad", "afraid", "here", "not",
+  "just", "an", "a", "the", "ai", "automated", "your", "our", "open", "closed", "free",
+]);
+
+/**
+ * A speaker introducing themselves by a person's name: "Hi, it's Sarah from
+ * Glow Clinic!", "I'm Sarah", "my name is Sarah", "Sarah here". The channel's
+ * line has already said an AI assistant is writing; a named person after it
+ * says otherwise. The clinic's own name is not a person's ("This is Glow
+ * Clinic").
+ */
+function personaIntroduction(reply: string, clinicName: string | undefined): boolean {
+  const clinicFirst = (clinicName ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  const patterns = [
+    /\b(?:[Mm]y name['’]?s|[Mm]y name is|I['’]m|I am|[Ii]t['’]s|[Tt]his is)\s+([A-Z][a-z]+)(?=\s*(?:[,!.—–-]|$|\s+(?:from|at|with|here|of|on|and)\b))/g,
+    /(?:^|[.!?]\s+|,\s+)([A-Z][a-z]+)\s+here\b/g,
+  ];
+  for (const pattern of patterns) {
+    for (const m of reply.matchAll(pattern)) {
+      const word = m[1]!.toLowerCase();
+      if (NOT_A_NAME.has(word) || word === clinicFirst) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

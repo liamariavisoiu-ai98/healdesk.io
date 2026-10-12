@@ -1009,6 +1009,49 @@ describeDb("deletion on request", () => {
     expect(left).toEqual([ids.joann, ids.longer, ids.apostrophe, ids.foreign].sort());
   });
 
+  test("no payload stops an erasure, whatever it holds: one the jsonb cast refuses, one nested too deep, one too large to walk", async () => {
+    // IS JSON accepts bodies the jsonb cast refuses, and a body nested
+    // 100,000 deep overflows the stack inside IS JSON itself. Matched inline,
+    // any one of them failed the query, so every erasure at the clinic rolled
+    // back for as long as the payload was kept (third review, 12 October
+    // 2026). app_payload_names (drizzle/0063) matches such a body as text,
+    // and one over 256 KiB too, with an escape before an address still
+    // ending it.
+    const c = await seedClinic("erase-odd-bodies");
+    const at = new Date(Date.now() - 2 * DAY);
+    const person = await seedContact(c.clinicId, "+15550139301");
+    await inTenant(c.clinicId, (client) =>
+      client.query(`update contacts set email = 'ann.odd@mail.test', created_at = $2 where id = $1`, [
+        person,
+        at,
+      ]),
+    );
+    const deep = (inner: string) => "[".repeat(100_000) + inner + "]".repeat(100_000);
+    const large = (note: string) => JSON.stringify({ filler: "x".repeat(300_000), note });
+    const ids = await inTenant(c.clinicId, async (client) => ({
+      nul: await rawPayload(client, c.clinicId, "evt_nul", '{"a":"\\u0000","t":"ann.odd@mail.test"}', at),
+      surrogate: await rawPayload(client, c.clinicId, "evt_surrogate", '{"a":"\\ud800","t":"ann.odd@mail.test"}', at),
+      exponent: await rawPayload(client, c.clinicId, "evt_exponent", '{"a":1e1000000,"t":"ann.odd@mail.test"}', at),
+      deep: await rawPayload(client, c.clinicId, "evt_deep", deep('"ann.odd@mail.test"'), at),
+      // Over 256 KiB, so matched as text: "\\nann.odd@" as written, the
+      // escape read as the newline it is.
+      large: await rawPayload(client, c.clinicId, "evt_large", large("email:\nann.odd@mail.test"), at),
+      // The same bodies about someone else: stay.
+      otherNul: await rawPayload(client, c.clinicId, "evt_nul_other", '{"a":"\\u0000","t":"joann.odd@mail.test"}', at),
+      otherDeep: await rawPayload(client, c.clinicId, "evt_deep_other", deep('"joann.odd@mail.test"'), at),
+      otherLarge: await rawPayload(client, c.clinicId, "evt_large_other", large("joann.odd@mail.test, +44 555 013 9301"), at),
+    }));
+    const outcome = await erase({ clinicId: c.clinicId, contactId: person, requestedBy: "practice" });
+    if (outcome.status !== "erased") throw new Error(JSON.stringify(outcome));
+    expect(outcome.deleted.contacts).toBe(1);
+    expect(outcome.deleted.webhookEvents).toBe(5);
+    const left = await inTenant(c.clinicId, async (client) =>
+      (await client.query<{ id: string }>(`select id from webhook_events order by id`)).rows.map((r) => r.id),
+    );
+    expect(left).toEqual([ids.otherNul, ids.otherDeep, ids.otherLarge].sort());
+    expect([ids.nul, ids.surrogate, ids.exponent, ids.deep, ids.large].some((id) => left.includes(id))).toBe(false);
+  }, 120_000);
+
   test("a deletion that finds more than two hundred references still completes, and records them all", async () => {
     // The first version capped restore_refs at 200 (a CHECK), and recorded
     // every reference the survey found, so a person past the cap could never

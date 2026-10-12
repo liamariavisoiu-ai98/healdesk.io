@@ -514,17 +514,14 @@ function addressPattern(email: string): string {
  * written after an escape ("\\nann@", "\\u003cann@") is read as the text it
  * is, and a name in one field never runs into a number in the next; a body
  * that does not parse is matched as text. In the database, so no body is
- * read out of it.
+ * read out of it, and by app_payload_names (drizzle/0063), which answers for
+ * every body: one the jsonb cast refuses, one nested too deep to parse, or
+ * one over 256 KiB, is matched as text, so no single payload can make the
+ * query fail and block every erasure at its clinic (third review, 12
+ * October 2026).
  */
 function payloadNames(patterns: readonly string[]): SQL {
-  const any = textArray(patterns);
-  return sql`case when ${webhookEvents.rawPayload} is json
-    then exists (
-      select 1 from jsonb_path_query(${webhookEvents.rawPayload}::jsonb, 'strict $.**') v
-       where jsonb_typeof(v) in ('string', 'number') and lower(v #>> '{}') ~ any(${any})
-    )
-    else lower(${webhookEvents.rawPayload}) ~ any(${any})
-  end`;
+  return sql`app_payload_names(${webhookEvents.rawPayload}, ${textArray(patterns)})`;
 }
 
 /** The ids of the raw payloads about them: their calls' voice payloads, and any payload naming their number or address. */

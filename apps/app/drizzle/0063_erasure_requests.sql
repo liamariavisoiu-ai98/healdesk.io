@@ -89,7 +89,7 @@ CREATE INDEX "erasure_requests_clinic_idx" ON "erasure_requests" USING btree ("c
 -- written last: `deleted` may change in the transaction that wrote the row,
 -- and in no other (the guard below).
 --
--- Safe to apply in place: a new table and three new functions; the one
+-- Safe to apply in place: a new table and four new functions; the one
 -- redefinition adds a table to a list. apps/app has only ever held synthetic
 -- and seed data (CLAUDE.md, "Until BAA coverage is in place").
 -- =============================================================================
@@ -447,6 +447,69 @@ END
 $$;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
+-- Whether a raw payload names the person: an answer for every body
+-- -----------------------------------------------------------------------------
+-- An erasure finds the raw payloads naming the person (payloadsAbout in
+-- lib/patient-rights/erasure.ts) by matching each decoded string of a body
+-- that parses as JSON, so an address written after an escape ("\nann@") is
+-- read as the text it is. The first version did it inline in the query:
+-- IS JSON, then the jsonb cast and a walk. IS JSON accepts bodies the cast
+-- refuses (a "\u0000" escape, a lone surrogate such as "\ud800", a number
+-- like 1e1000000), and a body nested about 100,000 deep overflows the stack
+-- inside IS JSON itself. Any one of them failed the query, so every erasure
+-- at that clinic rolled back for as long as the payload was kept, and the
+-- voice vendor today, or anyone through the phase-two generic webhook, could
+-- send one (third review, 12 October 2026). A walk is also slow on a large
+-- body: about 1.8 seconds at 1 MB and 110 at 10 MB, where a text match takes
+-- about 0.2 and 2.
+--
+-- This function judges one body, and nothing the body holds makes it fail:
+--   * up to 256 KiB, a body that parses is walked string by string, as
+--     before. Any error in the test, the cast or the walk is caught in this
+--     body's own subtransaction, and the body is matched as text instead;
+--   * a larger body, or one that is not JSON, is matched as text twice: as
+--     written, and with every backslash escape replaced by a space, so an
+--     escape before an address still ends it ("\nann@" reads " ann@") and
+--     an escaped backslash goes as a pair ("\\nann@" is not "ann@").
+-- A cancelled statement is not caught, so a statement timeout still ends
+-- the erasure. Invoker's rights: it reads no table, and judges only the text
+-- the caller's own query read under row-level security.
+CREATE OR REPLACE FUNCTION app_payload_names(payload text, patterns text[])
+RETURNS boolean
+LANGUAGE plpgsql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+  folded text;
+BEGIN
+  IF payload IS NULL OR coalesce(cardinality(patterns), 0) = 0 THEN
+    RETURN false;
+  END IF;
+  IF octet_length(payload) <= 262144 THEN
+    BEGIN
+      IF payload IS JSON THEN
+        RETURN EXISTS (
+          SELECT 1
+            FROM jsonb_path_query(payload::jsonb, 'strict $.**') v
+           WHERE jsonb_typeof(v) IN ('string', 'number')
+             AND lower(v #>> '{}') ~ ANY (patterns)
+        );
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      NULL; -- this body would not parse or walk: it is matched as text below
+    END;
+  END IF;
+  folded := lower(payload);
+  RETURN folded ~ ANY (patterns)
+      OR regexp_replace(folded, '\\(u[0-9a-f]{4}|.)', ' ', 'g') ~ ANY (patterns);
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_payload_names(text, text[]) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_payload_names(text, text[]) TO healdesk_app;--> statement-breakpoint
+
+-- -----------------------------------------------------------------------------
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE erasure_requests IS
@@ -459,6 +522,8 @@ COMMENT ON FUNCTION app_destroy_erasure_requests(uuid) IS
   'Deletes every record of a deletion request at the tenant''s own clinic, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id and app_destruction_due() says it is due. Returns the count.';--> statement-breakpoint
 COMMENT ON FUNCTION app_erase_contact_evidence(uuid, text[]) IS
   'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. Refuses a number any contact of the clinic still carries, and writes an audit row (person_erasure_evidence) for every call that deletes anything. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
+COMMENT ON FUNCTION app_payload_names(text, text[]) IS
+  'Whether a raw payload names a person, by any of the given patterns (lib/patient-rights/erasure.ts, payloadsAbout): up to 256 KiB a body that parses as JSON is walked string by string; any error doing that, and any larger or non-JSON body, falls back to a text match, as written and with backslash escapes replaced by a space. Never fails on what the body holds, so one payload cannot block every erasure at its clinic.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
   'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, the setup screens, slot holds, providers and provider services 0056 and 0057 added, and the records of deletion requests (0063). Returns destroyed_at.';--> statement-breakpoint
 COMMENT ON TABLE suppressions IS
@@ -510,6 +575,7 @@ BEGIN
   SELECT string_agg(p.proname, ', ') INTO offending
     FROM pg_proc p
    WHERE p.oid IN ('app_erase_contact_evidence(uuid, text[])'::regprocedure,
+                   'app_payload_names(text, text[])'::regprocedure,
                    'app_expire_erasure_records()'::regprocedure,
                    'app_destroy_erasure_requests(uuid)'::regprocedure,
                    'app_mark_clinic_destroyed(uuid)'::regprocedure,

@@ -453,6 +453,51 @@ describeDb("Settings", () => {
     expect(stored).toEqual({ coverage_mode: "after_hours_only" });
   });
 
+  test("After hours only: a live phone passes calls through to the direct line while the clinic is open, and answers once it shuts", async () => {
+    const weekdays = [["09:00", "17:00"]];
+    await sql(
+      `update clinics set timezone = 'America/Chicago', opening_hours = $2::jsonb where id = $1`,
+      [
+        portal.clinicId,
+        JSON.stringify({
+          sun: [],
+          mon: weekdays,
+          tue: weekdays,
+          wed: weekdays,
+          thu: weekdays,
+          fri: weekdays,
+          sat: [],
+        }),
+      ],
+    );
+    await setLive(true, "voice");
+    const at = (iso: string) =>
+      assistantMayAnswer({
+        clinicId: portal.clinicId,
+        channel: "voice",
+        actor: ACTOR,
+        now: new Date(iso),
+      });
+    // Wednesday 14 October 2026, 10:00 in Chicago: open.
+    const wednesdayMorning = "2026-10-14T15:00:00Z";
+    // The same Wednesday, 22:00 in Chicago: shut.
+    const wednesdayNight = "2026-10-15T03:00:00Z";
+
+    expect(await save("coverage_mode", "after_hours_only")).toMatchObject({ ok: true });
+    expect(await at(wednesdayMorning)).toEqual({
+      decision: "pass_through",
+      reason: "outside_coverage",
+      fallback: "direct_line",
+      directLine: "+15125550188",
+    });
+    expect(await at(wednesdayNight)).toEqual({ decision: "answer" });
+
+    // Overflow and after hours answers the calls staff miss while open.
+    expect(await save("coverage_mode", "overflow_after_hours")).toMatchObject({ ok: true });
+    expect(await at(wednesdayMorning)).toEqual({ decision: "answer" });
+    await setLive(false);
+  });
+
   test("refusals are worded for the clinic: a setting it didn't buy, and a greeting that says something clinical", async () => {
     use(chatOnly);
     expect(await save("coverage_mode", "all_calls")).toEqual({

@@ -23,7 +23,13 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
-import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import {
+  closePools,
+  getMigratorPool,
+  hasTestDatabase,
+  runMigrations,
+  truncateAll,
+} from "./setup/db";
 import { inTenant, seedClinic } from "./setup/factories";
 
 /**
@@ -288,6 +294,21 @@ describeDb("the screen and the greeting, end to end", () => {
     opts: { directLine?: string } = {},
   ) {
     const c = await seedClinic(label);
+    // Weekdays 9 to 5: the opening and closing times the reply guard lets a
+    // reply name (lib/meta/front-door.ts, publishedTimes).
+    const weekday = [["09:00", "17:00"]];
+    await getMigratorPool().query(`update clinics set opening_hours = $2::jsonb where id = $1`, [
+      c.clinicId,
+      JSON.stringify({
+        sun: [],
+        mon: weekday,
+        tue: weekday,
+        wed: weekday,
+        thu: weekday,
+        fri: weekday,
+        sat: [],
+      }),
+    ]);
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
       await setPhoneSettings(tx, { publishedPhoneE164: PUBLISHED });
       if (opts.directLine)

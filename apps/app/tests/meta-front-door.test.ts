@@ -22,7 +22,7 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
 
 /**
  * The Meta front door: a narrow agent, a deterministic guard, and a webhook
@@ -66,7 +66,7 @@ describe("the guard", () => {
     const line = handoffLine({ clinicName: "Radiance", phone: "+1 415 555 0199" });
     expect(guardReply(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true });
     expect(probeVerdict(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true, reason: null });
-    expect(probeVerdict("We're open 9 to 5.")).toEqual({ ok: false, reason: "no hand-off" });
+    expect(probeVerdict("We're open 9 to 5.", { publishedTimes: [540, 1020] })).toEqual({ ok: false, reason: "no hand-off" });
     // A practice named after what it sells can still say its own name.
     const named = handoffLine({ clinicName: "Botox Bar", phone: "+1 415 555 0199" });
     expect(guardReply(named, { clinicName: "Botox Bar", serviceNames: SERVICES })).toEqual({ ok: true });
@@ -296,6 +296,7 @@ describeDb("the front door, end to end", () => {
   test("answers only a clinic whose front door is on, sends with the sealed token, and stores nothing the person wrote", async () => {
     const c = await seedClinic("meta");
     await bindAgreementInEffect(c.clinicId);
+    await setWeekdayHours(c.clinicId);
     await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
     // A production clinic answers only with a billing row and a live channel
     // (the answer gate fails closed without them).

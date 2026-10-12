@@ -107,6 +107,26 @@ export async function bindAgreementInEffect(
   return id;
 }
 
+/**
+ * Weekday hours, 09:00 to 17:00: the opening and closing times a Meta reply
+ * may name (the reply guard, lib/meta/front-door.ts).
+ */
+export async function setWeekdayHours(clinicId: string): Promise<void> {
+  const weekday = [["09:00", "17:00"]];
+  await getMigratorPool().query(`update clinics set opening_hours = $2::jsonb where id = $1`, [
+    clinicId,
+    JSON.stringify({
+      sun: [],
+      mon: weekday,
+      tue: weekday,
+      wed: weekday,
+      thu: weekday,
+      fri: weekday,
+      sat: [],
+    }),
+  ]);
+}
+
 export type ClinicRole = "owner" | "admin" | "clinician" | "front_desk" | "billing" | "read_only";
 
 /**

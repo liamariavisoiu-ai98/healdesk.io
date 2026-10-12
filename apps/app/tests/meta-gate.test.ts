@@ -18,7 +18,13 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import {
+  bindAgreementInEffect,
+  inTenant,
+  seedClinic,
+  seedEntitled,
+  setWeekdayHours,
+} from "./setup/factories";
 
 /**
  * The Meta webhook in front of the answer gate (BD24, R18): a redelivered
@@ -103,6 +109,7 @@ describeDb("the Meta webhook and the answer gate", () => {
   async function liveClinic(label: string, pageId: string) {
     const c = await seedClinic(label);
     await bindAgreementInEffect(c.clinicId);
+    await setWeekdayHours(c.clinicId);
     await getMigratorPool().query(
       `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`,
       [c.clinicId],

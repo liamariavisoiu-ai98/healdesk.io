@@ -84,11 +84,17 @@ export function VoiceCard({
   callbackExtra,
   prefillPhone = null,
   locked = false,
+  idleTitle = true,
+  aura = "halo",
 }: {
   /** Whose line it answers: the clinic's name, or AYA. */
   name: string;
-  /** Under her face: "AYA · Peachy Studio's AI assistant". */
-  portraitLabel: string;
+  /** Under her face: "AYA · Peachy Studio's AI assistant". None on healdesk's own card. */
+  portraitLabel?: string;
+  /** "Call AYA" over the button before a call. Off on healdesk's own card (owner, 12 October 2026). */
+  idleTitle?: boolean;
+  /** What surrounds her face (AyaPortrait). */
+  aura?: "halo" | "soul";
   /**
    * The route the SDK's control request goes to, before the path the SDK
    * would have used on Retell ("/v3/create-web-call").
@@ -310,12 +316,14 @@ export function VoiceCard({
 
       {mode === "talk" ? (
         <div className="flex flex-1 flex-col items-center justify-center px-6 py-8 text-center">
-          <AyaPortrait size={210} level={level} state={visual} />
-          <p className="text-muted mt-3 text-[13.2px] font-bold tracking-[0.1em] uppercase">{portraitLabel}</p>
+          <AyaPortrait size={210} level={level} state={visual} aura={aura} />
+          {portraitLabel ? <p className="text-muted mt-3 text-[13.2px] font-bold tracking-[0.1em] uppercase">{portraitLabel}</p> : null}
 
-          <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">
-            {live ? `On the line with ${name}` : state === "connecting" ? "Connecting…" : `Call ${name}`}
-          </p>
+          {live || state === "connecting" || idleTitle ? (
+            <p className="font-display text-ink mt-1.5 text-[23px] leading-tight font-medium tracking-[-0.02em]">
+              {live ? `On the line with ${name}` : state === "connecting" ? "Connecting…" : `Call ${name}`}
+            </p>
+          ) : null}
           <p className="text-muted mt-1.5 flex min-h-[1.5em] max-w-[34ch] items-center gap-2 text-[15px] font-medium" aria-live="polite">
             {visual !== "idle" ? (
               <span className="call-state text-[13.2px] font-bold tracking-[0.06em] uppercase" data-state={visual}>
@@ -348,10 +356,19 @@ export function VoiceCard({
                 type="button"
                 onClick={startCall}
                 disabled={locked || busy}
-                className="rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
+                className="morph-btn rounded-full px-6 py-3 text-[16.8px] font-bold shadow-md transition-all duration-fast hover:-translate-y-px disabled:translate-y-0 disabled:opacity-45"
                 style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
               >
-                {state === "connecting" ? "Connecting…" : state === "ended" ? "Call again" : "Talk now"}
+                <span className="morph-btn__label">{state === "connecting" ? "Connecting…" : state === "ended" ? "Call again" : "Talk now"}</span>
+                {/* Under the pointer the words give way to a phone that rings
+                    once, and come back when it leaves (owner, 12 October 2026). */}
+                {state === "connecting" ? null : (
+                  <span aria-hidden className="morph-btn__icon morph-btn__icon--ring">
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.6a1 1 0 0 1-.25 1z" />
+                    </svg>
+                  </span>
+                )}
               </button>
             )}
           </div>

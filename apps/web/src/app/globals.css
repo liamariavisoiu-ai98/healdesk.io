@@ -3129,6 +3129,93 @@
    typing dots that grow into the answer (ChatSkins). The global
    reduced-motion rule above stills all of it; the states still change. */
 
+/* --- Buttons whose word turns into an icon -------------------------------
+   The voice card's "Talk now" and the website chat's "Send" (owner, 12
+   October 2026): under the pointer, or with keyboard focus, the word blurs
+   away and an icon springs into its place, a phone that rings once or a
+   paper plane that flies in; when the pointer leaves they change back. The
+   two share the button's one cell, so it keeps the word's width, and the
+   word stays in the page as the button's name. */
+.morph-btn {
+  display: inline-grid;
+  place-items: center;
+}
+
+.morph-btn > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-spring),
+    filter var(--duration-base) var(--ease-standard);
+}
+
+.morph-btn__icon {
+  display: grid;
+  opacity: 0;
+  filter: blur(3px);
+  transform: scale(0.4) rotate(-30deg);
+}
+
+.morph-btn__icon svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+
+.morph-btn__icon--fly {
+  transform: translate(-10px, 8px) scale(0.5) rotate(-12deg);
+}
+
+@media (hover: hover) {
+  .morph-btn:hover .morph-btn__label {
+    opacity: 0;
+    filter: blur(4px);
+    transform: scale(0.7);
+  }
+
+  .morph-btn:hover .morph-btn__icon {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+
+.morph-btn:focus-visible:not(:disabled) .morph-btn__label {
+  opacity: 0;
+  filter: blur(4px);
+  transform: scale(0.7);
+}
+
+.morph-btn:focus-visible:not(:disabled) .morph-btn__icon {
+  opacity: 1;
+  filter: blur(0);
+  transform: none;
+}
+
+/* The phone rings once it is there. */
+@media (prefers-reduced-motion: no-preference) and (hover: hover) {
+  .morph-btn:hover .morph-btn__icon--ring svg {
+    animation: morph-ring var(--duration-slower) var(--ease-in-out) var(--duration-base) both;
+  }
+}
+
+@keyframes morph-ring {
+  0%,
+  100% {
+    transform: rotate(0);
+  }
+  15%,
+  45% {
+    transform: rotate(-14deg);
+  }
+  30%,
+  60% {
+    transform: rotate(14deg);
+  }
+  75% {
+    transform: rotate(-6deg);
+  }
+}
+
 /* --- M2: the call on her face ------------------------------------------- */
 
 .aya-breathe {
@@ -3143,6 +3230,24 @@
   50% {
     transform: scale(1.012) translateY(-0.5px);
   }
+}
+
+/* The soul's aura round her, on healdesk's own card: the same three layers
+   the soul has, larger, reaching well past her face so the part outside it
+   is the living edge. */
+.aya-aura {
+  --soul-beat: 3500ms;
+  --soul-aura: -34%;
+  --soul-aura-blur: 22px;
+  pointer-events: none;
+}
+
+.aya-portrait[data-state="connecting"] .aya-aura {
+  --soul-beat: 1400ms;
+}
+
+.aya-portrait[data-state="speaking"] .aya-aura {
+  --soul-beat: 1900ms;
 }
 
 .aya-halo {

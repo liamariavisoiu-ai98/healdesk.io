@@ -519,10 +519,18 @@ export function ChatSkins({
         <button
           type="submit"
           disabled={disabled || streaming || !input.trim()}
-          className="shrink-0 rounded-full px-5 py-2.5 text-[15.2px] font-bold transition-opacity disabled:opacity-45"
+          className="morph-btn shrink-0 rounded-full px-5 py-2.5 text-[15.2px] font-bold transition-opacity disabled:opacity-45"
           style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
         >
-          Send
+          <span className="morph-btn__label">Send</span>
+          {/* Under the pointer the word folds into a paper plane, and back
+              when it leaves (owner, 12 October 2026). */}
+          <span aria-hidden className="morph-btn__icon morph-btn__icon--fly">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21.5 2.5 10.6 13.4" />
+              <path d="M21.5 2.5 14.6 21.4l-4-8-8-4z" />
+            </svg>
+          </span>
         </button>
       </form>
     ),

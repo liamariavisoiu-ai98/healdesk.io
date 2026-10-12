@@ -53,16 +53,23 @@ export default function NotFound() {
             has moved. Everything on the site starts from one of these.
           </p>
 
-          <div className="mt-9 flex flex-wrap items-center gap-4">
+          {/* The site's two buttons, not two pills (owner, 12 October 2026):
+              the red block BuyButton draws and the `btn-outline` beside it,
+              both 6px rectangles, as in the navbar and the hero. The hero's
+              grid too: one column on a phone, two equal ones from 640px, so
+              the pair is the same size whatever their labels. Meet AYA keeps
+              the solid one, as it kept the gradient: she is what the visitor
+              was most likely looking for. */}
+          <div className="mt-9 grid w-full max-w-[480px] grid-cols-1 gap-3 sm:grid-cols-2">
             <a
               href="/"
-              className="bg-brand-gradient shadow-sm inline-flex items-center justify-center rounded-full px-7 py-3.5 text-base font-bold text-white transition-transform duration-fast hover:-translate-y-0.5"
+              className="bg-red hover:bg-red-deep inline-flex h-[54px] w-full items-center justify-center gap-2 rounded-sm px-6 text-base font-semibold whitespace-nowrap text-white transition-colors duration-fast"
             >
               Meet {site.agent}
             </a>
             <a
               href={site.cta.primary.href}
-              className="border-line text-ink hover:border-orange inline-flex items-center justify-center rounded-full border bg-white px-7 py-3.5 text-base font-bold transition-transform duration-fast hover:-translate-y-px"
+              className="btn-outline h-[54px] w-full px-6 text-base whitespace-nowrap"
             >
               {site.cta.primary.label}
             </a>

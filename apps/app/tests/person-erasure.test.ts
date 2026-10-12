@@ -280,6 +280,19 @@ async function seedEverywhere(clinicId: string, digits: string, at: Date): Promi
   });
 }
 
+/** A transaction as the runtime role inside the tenant, always rolled back. */
+async function asApp<T>(clinicId: string, fn: (c: Client) => Promise<T>): Promise<T> {
+  const client = await getAppPool().connect();
+  try {
+    await client.query("begin");
+    await client.query(`select set_config('app.clinic_id', $1, true)`, [clinicId]);
+    return await fn(client as unknown as Client);
+  } finally {
+    await client.query("rollback").catch(() => {});
+    client.release();
+  }
+}
+
 /** Rows in each table the erase path reaches, as the owner inside the tenant. */
 async function tableCounts(clinicId: string): Promise<Record<string, number>> {
   return inTenant(clinicId, async (client) => {
@@ -735,6 +748,72 @@ describeDb("deletion on request", () => {
     expect(await row()).toBeUndefined();
     view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
     expect(view.deletionRequests).toEqual([]);
+  });
+
+  test("the runtime role deletes a number's stop, consent and contact attempts only under the record of a deletion request", async () => {
+    const c = await seedClinic("erase-evidence-floor");
+    const hourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    await inTenant(c.clinicId, (client) => evidence(client, c.clinicId, "+15550137002", hourAgo));
+    const evidenceLeft = () =>
+      inTenant(c.clinicId, async (client) =>
+        (
+          await client.query<{ n: number }>(
+            `select (select count(*) from suppressions)::int + (select count(*) from consent_records)::int
+                    + (select count(*) from contact_attempts)::int as n`,
+          )
+        ).rows[0]!.n,
+      );
+    const erase = `select * from app_erase_contact_evidence($1::uuid, array['+15550137002']::text[])`;
+
+    // No deletion request: refused, whatever id is passed. The first version
+    // took a bare cutoff, and now() let the runtime role delete any "stop".
+    await expect(asApp(c.clinicId, (q) => q.query(erase, [randomUUID()]))).rejects.toMatchObject({
+      code: "42501",
+    });
+
+    // A request recorded earlier, whose references have expired: refused.
+    const earlier = data<ErasePersonOutcome>(
+      await runOperation(
+        "erasePerson",
+        { clinicId: c.clinicId, phone: "+15550137001", requestedBy: "the practice" },
+        OPERATOR,
+      ),
+    );
+    if (earlier.status !== "erased") throw new Error("not erased");
+    await inTenant(c.clinicId, (client) =>
+      client.query(`update erasure_requests set restore_refs = '{}' where id = $1`, [
+        earlier.erasureId,
+      ]),
+    );
+    await expect(
+      asApp(c.clinicId, (q) => q.query(erase, [earlier.erasureId])),
+    ).rejects.toMatchObject({ code: "42501" });
+    expect(await evidenceLeft()).toBe(3);
+
+    // A request recorded in the same transaction: the deletion runs, up to
+    // the record's own time.
+    const deleted = await asApp(c.clinicId, async (q) => {
+      const { rows } = await q.query<{ id: string }>(
+        `insert into erasure_requests (clinic_id, requested_by, received_at, due_by)
+         values ($1, 'the practice', now(), now() + interval '14 days') returning id`,
+        [c.clinicId],
+      );
+      return (await q.query(erase, [rows[0]!.id])).rows[0];
+    });
+    expect(deleted).toEqual({
+      suppressions_deleted: 1,
+      consent_records_deleted: 1,
+      contact_attempts_deleted: 1,
+    });
+
+    // And the record's counts are written in that transaction and no other.
+    await expect(
+      inTenant(c.clinicId, (client) =>
+        client.query(`update erasure_requests set deleted = '{"contacts": 9}' where id = $1`, [
+          earlier.erasureId,
+        ]),
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
   });
 
   test("the runtime role cannot choose when the record's clock starts", async () => {

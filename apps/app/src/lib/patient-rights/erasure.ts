@@ -495,9 +495,16 @@ function add(counts: ErasureCounts, contact: ErasureResult): void {
   counts.amendments += contact.amendmentsDeleted;
 }
 
-/** The deletes, in the order the foreign keys need, all bounded by `before`. */
+/**
+ * The deletes, in the order the foreign keys need, all bounded by `before`,
+ * under the record of the request (`erasureId`): the definer that deletes
+ * the person's suppressions, consent records and contact attempts refuses
+ * without one written in this transaction or still holding its restore
+ * references (drizzle/0059).
+ */
 async function eraseSurveyed(
   tx: TenantTx,
+  erasureId: string,
   s: Survey,
   asked: Asked,
   before: Date,
@@ -565,7 +572,7 @@ async function eraseSurveyed(
       consent_records_deleted: number;
       contact_attempts_deleted: number;
     }>(
-      sql`select * from app_erase_contact_evidence(${textArray(s.phones)}, ${before.toISOString()}::timestamptz)`,
+      sql`select * from app_erase_contact_evidence(${erasureId}::uuid, ${textArray(s.phones)})`,
     );
     const row = result.rows[0];
     counts.suppressions = row?.suppressions_deleted ?? 0;
@@ -606,10 +613,14 @@ export type ErasePersonResult = {
 /**
  * Delete one person, and record the request without them. Inside the
  * clinic's tenant, in one transaction: either all of it happens, the record
- * included, or none of it does. A request that matches nothing is recorded
- * all the same, because a backup may still hold the person (the clock purged
- * them, or they were never matched by these identifiers here), and the
- * record is what deletes them again from a restore.
+ * included, or none of it does. The record is written first, from what the
+ * survey found, because the database deletes the person's suppressions,
+ * consent records and contact attempts only under it; its counts are written
+ * last, in the same transaction, the only one that may write them. A request
+ * that matches nothing is recorded all the same, because a backup may still
+ * hold the person (the clock purged them, or they were never matched by these
+ * identifiers here), and the record is what deletes them again from a
+ * restore.
  */
 export async function erasePerson(
   tx: TenantTx,
@@ -625,7 +636,6 @@ export async function erasePerson(
     input.receivedAt && input.receivedAt.getTime() < now.getTime() ? input.receivedAt : now;
   const asked: Asked = { phones: phone ? [phone] : [], emails: email ? [email] : [], threads: [] };
   const s = await survey(tx, asked, now);
-  const deleted = await eraseSurveyed(tx, s, asked, now, input.requestedBy);
 
   const restoreRefs = [
     ...new Set([
@@ -642,11 +652,16 @@ export async function erasePerson(
       requestedBy: input.requestedBy,
       receivedAt,
       dueBy,
-      deleted,
       restoreRefs,
     })
     .returning({ id: erasureRequests.id, erasedAt: erasureRequests.erasedAt });
   if (!row) throw new Error("The deletion request was not recorded.");
+
+  const deleted = await eraseSurveyed(tx, row.id, s, asked, now, input.requestedBy);
+  await tx.db
+    .update(erasureRequests)
+    .set({ deleted })
+    .where(and(eq(erasureRequests.clinicId, tx.clinicId), eq(erasureRequests.id, row.id)));
 
   tx.audit.record({
     action: "delete",
@@ -920,6 +935,7 @@ export async function reapplyErasures(): Promise<ReapplyResult> {
           const s = await survey(tx, asked, record.erasedAt);
           const counts = await eraseSurveyed(
             tx,
+            record.id,
             s,
             asked,
             record.erasedAt,

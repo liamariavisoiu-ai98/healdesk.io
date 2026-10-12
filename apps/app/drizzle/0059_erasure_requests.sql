@@ -71,11 +71,18 @@ CREATE INDEX "erasure_requests_clinic_idx" ON "erasure_requests" USING btree ("c
 --
 -- What the runtime role can do with the new function, said plainly. With
 -- app_erase_contact_evidence() it can delete a number's suppressions,
--- consent records and contact attempts. 0058 kept that from it because a
--- "stop" it could delete would be one it could quietly undo; v1 contacts no
--- one first, and canContact() refuses every request before it reads a row,
--- so nothing that runs reads a "stop" to undo. Were outbound contact ever to
--- return, this function needs the person's erasure as its floor first.
+-- consent records and contact attempts, but only under the record of a
+-- deletion request: one it writes in the same transaction, which then stands
+-- as the request with its deadline and its subcontractor steps, or one whose
+-- restore references have not expired, and then only what was recorded
+-- before that deletion ran. 0058 kept the delete from it because a "stop" it
+-- could delete would be one it could quietly undo; v1 contacts no one first,
+-- and canContact() refuses every request before it reads a row, so nothing
+-- that runs reads a "stop" to undo.
+--
+-- The record is written before the deletes, so the counts it keeps are
+-- written last: `deleted` may change in the transaction that wrote the row,
+-- and in no other (the guard below).
 --
 -- Safe to apply in place: a new table and one new function; the one
 -- redefinition adds a table to a list. apps/app has only ever held synthetic
@@ -92,18 +99,20 @@ CREATE POLICY erasure_requests_tenant_isolation ON erasure_requests
 
 -- 0003's default privileges handed the runtime role all four verbs. It keeps
 -- SELECT and INSERT (the erase path, the console), DELETE (the hourly expiry
--- and destruction), and UPDATE of the two columns the record changes after it
--- is written: the references, which are only ever emptied, and the
--- subcontractor stamps, which are only ever added (the trigger below says so
--- to every role).
+-- and destruction), and UPDATE of the three columns the record changes after
+-- it is written: the counts, set once in the transaction that wrote it, the
+-- references, which are only ever emptied, and the subcontractor stamps,
+-- which are only ever added (the trigger below says so to every role).
 REVOKE ALL ON erasure_requests FROM healdesk_app;--> statement-breakpoint
 GRANT SELECT, INSERT, DELETE ON erasure_requests TO healdesk_app;--> statement-breakpoint
-GRANT UPDATE (restore_refs, vendor_steps) ON erasure_requests TO healdesk_app;--> statement-breakpoint
+GRANT UPDATE (deleted, restore_refs, vendor_steps) ON erasure_requests TO healdesk_app;--> statement-breakpoint
 
 -- erased_at is the database's clock at the insert, whatever the writer sent:
 -- the references' expiry runs from it, so a writer that could choose it could
--- keep them as long as it liked. After the insert: references only ever
--- emptied, stamps only ever added, and nothing else moved.
+-- keep them as long as it liked. After the insert: the counts written in the
+-- same transaction (erasePerson records the request before it deletes, and
+-- the counts once it has), references only ever emptied, stamps only ever
+-- added, and nothing else moved.
 CREATE OR REPLACE FUNCTION app_erasure_request_guard()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -119,9 +128,12 @@ BEGIN
      OR NEW.requested_by IS DISTINCT FROM OLD.requested_by
      OR NEW.received_at IS DISTINCT FROM OLD.received_at
      OR NEW.due_by IS DISTINCT FROM OLD.due_by
-     OR NEW.erased_at IS DISTINCT FROM OLD.erased_at
-     OR NEW.deleted IS DISTINCT FROM OLD.deleted THEN
+     OR NEW.erased_at IS DISTINCT FROM OLD.erased_at THEN
     RAISE EXCEPTION 'erasure_requests: the record of a request never changes; only its references are emptied and its subcontractor steps stamped'
+      USING ERRCODE = '42501';
+  END IF;
+  IF NEW.deleted IS DISTINCT FROM OLD.deleted AND OLD.erased_at < now() THEN
+    RAISE EXCEPTION 'erasure_requests: the counts are written in the transaction that recorded the request, and never after'
       USING ERRCODE = '42501';
   END IF;
   IF NEW.restore_refs IS DISTINCT FROM OLD.restore_refs AND cardinality(NEW.restore_refs) > 0 THEN
@@ -144,14 +156,19 @@ CREATE TRIGGER erasure_requests_guard
 -- -----------------------------------------------------------------------------
 -- The three carry nothing but a telephone number and what was done about it,
 -- and the runtime role has no DELETE on them (0010), so an erasure deletes the
--- person's here, recorded no later than recorded_before: the moment of the
--- call for a deletion, the deletion's own time when it is applied again after
--- a restore (lib/patient-rights/erasure.ts), so nothing the person gave after
--- asking for deletion is taken with the old. A bound later than the call is
--- refused. See the header for what this gives the runtime role.
+-- person's here. Only under the record of a deletion request: the call names
+-- one, and the function refuses unless that record was written in this same
+-- transaction (its erased_at is no earlier than the transaction's start), as
+-- erasePerson writes it before it deletes anything, or still holds its
+-- restore references, as reapplyErasures finds it after a restore. What goes
+-- is what was recorded no later than the record's erased_at, so nothing the
+-- person gave after asking for deletion is taken with the old. The first
+-- version took a bare cutoff no later than the call, which passing now()
+-- satisfied: with no deletion request at all, the runtime role deleted any
+-- number's "stop", which 0058 had kept from it.
 CREATE OR REPLACE FUNCTION app_erase_contact_evidence(
+  erasure uuid,
   target_phones text[],
-  recorded_before timestamptz,
   OUT suppressions_deleted integer,
   OUT consent_records_deleted integer,
   OUT contact_attempts_deleted integer
@@ -164,14 +181,23 @@ AS $$
 DECLARE
   tenant uuid := app_current_clinic_id();
   phones text[] := coalesce(target_phones, '{}');
+  recorded_before timestamptz;
 BEGIN
   IF tenant IS NULL THEN
     RAISE EXCEPTION 'app_erase_contact_evidence: no tenant; an erasure runs inside the clinic''s own transaction'
       USING ERRCODE = '42501';
   END IF;
-  IF recorded_before IS NULL OR recorded_before > clock_timestamp() THEN
-    RAISE EXCEPTION 'app_erase_contact_evidence: % is in the future; an erasure reaches only what exists when it runs', recorded_before
-      USING ERRCODE = 'check_violation';
+
+  SELECT er.erased_at
+    INTO recorded_before
+    FROM erasure_requests er
+   WHERE er.clinic_id = tenant
+     AND er.id = erasure
+     AND (er.erased_at >= now() OR cardinality(er.restore_refs) > 0);
+  IF recorded_before IS NULL THEN
+    RAISE EXCEPTION 'app_erase_contact_evidence: no deletion request % written in this transaction, or holding its restore references, at clinic %', erasure, tenant
+      USING ERRCODE = '42501',
+            HINT = 'erasePerson records the request before it deletes; reapplyErasures uses a record whose references have not expired.';
   END IF;
 
   DELETE FROM suppressions s
@@ -185,8 +211,8 @@ BEGIN
   GET DIAGNOSTICS contact_attempts_deleted = ROW_COUNT;
 END
 $$;--> statement-breakpoint
-REVOKE ALL ON FUNCTION app_erase_contact_evidence(text[], timestamptz) FROM PUBLIC;--> statement-breakpoint
-GRANT EXECUTE ON FUNCTION app_erase_contact_evidence(text[], timestamptz) TO healdesk_app;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_erase_contact_evidence(uuid, text[]) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_erase_contact_evidence(uuid, text[]) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- Destruction takes the records of deletion requests too
@@ -259,8 +285,8 @@ COMMENT ON TABLE erasure_requests IS
   'One person''s deletion request, recorded without the person: who asked (a role or ticket), when it arrived, the ten-business-day deadline, when the deletion ran, the counts, and the operator''s stamp for each subcontractor step. restore_refs are keyed references to what the deletion found, used only to delete the person again after a restore and emptied 35 days (BACKUP_RETENTION_DAYS) after the deletion, when the row goes too unless a subcontractor step is still outstanding. Never read for a contact decision. erased_at is stamped by the database at the insert.';--> statement-breakpoint
 COMMENT ON COLUMN erasure_requests.restore_refs IS
   'identifierRef values (erasure kind for "phone:"/"email:" values, chat_party for messaging threads) naming what the deletion found, so reapplyErasures can find the person again in a database restored to a point before it. Only ever emptied: by the hourly expiry, BACKUP_RETENTION_DAYS after erased_at.';--> statement-breakpoint
-COMMENT ON FUNCTION app_erase_contact_evidence(text[], timestamptz) IS
-  'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than recorded_before (never later than the call). For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
+COMMENT ON FUNCTION app_erase_contact_evidence(uuid, text[]) IS
+  'Deletes the tenant''s suppressions, consent records and contact attempts for the given numbers, recorded no later than the erased_at of the named deletion request, which must have been written in this transaction or still hold its restore references. For the erase path in lib/patient-rights/erasure.ts; the runtime role has no DELETE on the three. Returns the three counts.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
   'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: suppressions, consent records and contact attempts included, the setup screens, slot holds, providers and provider services 0056 and 0057 added, and the records of deletion requests (0059). Returns destroyed_at.';--> statement-breakpoint
 COMMENT ON TABLE suppressions IS
@@ -280,10 +306,10 @@ BEGIN
   SELECT string_agg(a.attname, ', ') INTO offending
     FROM pg_attribute a
    WHERE a.attrelid = 'erasure_requests'::regclass AND a.attnum > 0 AND NOT a.attisdropped
-     AND a.attname NOT IN ('restore_refs', 'vendor_steps')
+     AND a.attname NOT IN ('deleted', 'restore_refs', 'vendor_steps')
      AND has_column_privilege('healdesk_app'::name, a.attrelid, a.attnum, 'UPDATE');
   IF offending IS NOT NULL THEN
-    RAISE EXCEPTION 'healdesk_app can UPDATE an erasure_requests column other than restore_refs and vendor_steps: %', offending;
+    RAISE EXCEPTION 'healdesk_app can UPDATE an erasure_requests column other than deleted, restore_refs and vendor_steps: %', offending;
   END IF;
   IF has_table_privilege('healdesk_app'::name, 'erasure_requests'::regclass, 'TRUNCATE, REFERENCES, TRIGGER') THEN
     RAISE EXCEPTION 'healdesk_app holds TRUNCATE, REFERENCES or TRIGGER on erasure_requests.';
@@ -302,14 +328,14 @@ BEGIN
     RAISE EXCEPTION 'erasure_requests_guard is missing or disabled.';
   END IF;
 
-  IF has_function_privilege('public', 'app_erase_contact_evidence(text[], timestamptz)', 'EXECUTE')
+  IF has_function_privilege('public', 'app_erase_contact_evidence(uuid, text[])', 'EXECUTE')
      OR has_function_privilege('public', 'app_mark_clinic_destroyed(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'A SECURITY DEFINER function of this migration is executable by PUBLIC.';
   END IF;
 
   SELECT string_agg(p.proname, ', ') INTO offending
     FROM pg_proc p
-   WHERE p.oid IN ('app_erase_contact_evidence(text[], timestamptz)'::regprocedure,
+   WHERE p.oid IN ('app_erase_contact_evidence(uuid, text[])'::regprocedure,
                    'app_mark_clinic_destroyed(uuid)'::regprocedure,
                    'app_erasure_request_guard()'::regprocedure)
      AND NOT EXISTS (SELECT 1 FROM unnest(coalesce(p.proconfig, ARRAY[]::text[])) c WHERE c LIKE 'search_path=%');

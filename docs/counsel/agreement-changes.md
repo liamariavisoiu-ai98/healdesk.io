@@ -1377,7 +1377,12 @@ these is closed, by code, a page, a signed paper or a host setting, and
      their own messaging threads, matched by the keyed references the tables
      already hold, and their suppressions, consent records and
      contact attempts (`app_erase_contact_evidence`, since the runtime role
-     has no DELETE on the three). No telephone number of theirs is left, in
+     has no DELETE on the three, and only under the record of the request:
+     one written in the same transaction, or one whose restore references
+     have not expired, and only what was recorded before it; the first
+     version took a bare cutoff that `now()` satisfied, so the runtime role
+     could delete any number's "stop" with no request at all, against 0058,
+     until the review of 12 October 2026). No telephone number of theirs is left, in
      any table (the test reads every table with a `clinic_id`, and the
      security events, for it).
    - A booking request goes only with the person it names

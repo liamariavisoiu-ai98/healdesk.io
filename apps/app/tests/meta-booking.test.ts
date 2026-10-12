@@ -306,10 +306,13 @@ describeDb("the booking hand-off, end to end", () => {
     expect(JSON.stringify(stored.audit)).not.toMatch(/Maria|0134|Thursday/);
 
     // The desk opens the link: the four things, and nothing else. No
-    // calendar is connected, so the desk confirms in its own system.
+    // calendar is connected, so the desk confirms in its own system. Its
+    // times are said on the practice's clock, whatever the server's is.
+    await getMigratorPool().query(`update clinics set timezone = 'America/Los_Angeles' where id = $1`, [c.clinicId]);
     const opened = await resolveBookingRequest(token);
     expect(opened).toMatchObject({
       clinicId: c.clinicId,
+      timeZone: "America/Los_Angeles",
       firstName: "Maria",
       phone: "+14155550134",
       preferredWindow: "any weekday morning",

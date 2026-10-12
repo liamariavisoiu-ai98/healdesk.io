@@ -143,7 +143,13 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  *     those out, a refused reply replaced by a fixed one; and, since no
  *     filter catches every wording, no invitation to send clinical
  *     information there. "Caught on arrival", "not stored" and "replies never
- *     name a treatment" are gone.
+ *     name a treatment" are gone;
+ *   - sections 2 and 9 say the Meta assistant takes booking requests for staff
+ *     to confirm and sends no payment link, which is what the code does:
+ *     lib/meta/front-door.ts creates booking requests and books nothing, its
+ *     prompt forbids deposits and links, and nothing calls
+ *     depositLinkMessage (lib/booking/deposit-gate.ts). Section 2's deposit
+ *     link is "in website chat", not "in chat".
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -178,16 +184,17 @@ export default function TermsPage() {
           website chat, Instagram, Messenger and WhatsApp, on the channels you buy, from the
           services, prices, hours and policies you approve; qualifies enquiries; books
           appointments straight into the Google Calendar you connect, during the conversation,
-          holding the slot before anything is confirmed; sends a hosted deposit link in chat,
-          through your own payment gateway, where you want one; routes anything clinical to your
-          Practice; and reports conversations handled, appointments booked, calls answered that
+          holding the slot before anything is confirmed; sends a hosted deposit link in website
+          chat, through your own payment gateway, where you want one; routes anything clinical to
+          your Practice; and reports conversations handled, appointments booked, calls answered that
           would otherwise have rung out, deposits collected and booked value, meaning the bookings
           it made multiplied by your own configured prices. It does not report revenue, because
           it cannot see it. "Auto-confirm bookings" is on by default; you may instead set every
           booking to be a request your staff approve, and a Practice whose booking system does
           not read Google Calendar for conflicts runs that way (section 8). By phone it cannot
-          take a payment: it books and flags the deposit for your staff to collect. Card numbers
-          are never taken on any channel.
+          take a payment: it books and flags the deposit for your staff to collect. On Instagram,
+          Messenger and WhatsApp it books nothing: it takes booking requests for your staff to
+          confirm, and sends no payment link. Card numbers are never taken on any channel.
         </p>
         <ul className="list-disc space-y-2 pl-6">
           <li>
@@ -502,8 +509,9 @@ export default function TermsPage() {
           <strong>Meta channels.</strong> Instagram, Messenger and WhatsApp are operated by Meta,
           which does not sign Business Associate Agreements. If you connect them, the agent replies
           there only inside the conversation the person opened, and only within the window Meta
-          allows; it answers from your public menu, prices, hours and policies, and can book and
-          send your own payment link. We check each message a person sends there for clinical
+          allows; it answers from your public menu, prices, hours and policies, and takes booking
+          requests for your staff to confirm, and it sends no payment link there. We check each
+          message a person sends there for clinical
           content before the language model sees it, and keep no message there and no summary of
           one. The agent is instructed not to repeat clinical content, name a treatment or confirm
           appointment details there, and to move anything clinical to a call or to your own secure

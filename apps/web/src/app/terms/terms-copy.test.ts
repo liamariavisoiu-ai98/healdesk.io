@@ -426,3 +426,26 @@ describe("the Meta channels are described as the agreement describes them", () =
     );
   });
 });
+
+/**
+ * On Instagram, Messenger and WhatsApp the assistant takes booking requests
+ * and books nothing (lib/meta/front-door.ts calls createBookingRequest and no
+ * calendar writer), and it sends no payment link there: its prompt forbids
+ * deposits and links, and nothing calls depositLinkMessage
+ * (lib/booking/deposit-gate.ts). Section 9 said it "can book and can send your
+ * own payment link".
+ */
+describe("the Meta assistant takes booking requests and sends no payment link", () => {
+  const text = pageText();
+
+  test("sections 2 and 9 say so", () => {
+    expect(text).toContain(
+      "On Instagram, Messenger and WhatsApp it books nothing: it takes booking requests for your staff to confirm, and sends no payment link.",
+    );
+    expect(text).toContain(
+      "and takes booking requests for your staff to confirm, and it sends no payment link there.",
+    );
+    expect(text).toContain("sends a hosted deposit link in website chat");
+    expect(text).not.toMatch(/can book and (?:can )?send your own payment link/);
+  });
+});

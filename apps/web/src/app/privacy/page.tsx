@@ -92,7 +92,11 @@ export const metadata: Metadata = {
  *     a fixed one, and no filter catching every wording. It said the
  *     conversation was kept for 90 days and that clinical content was
  *     "detected … and not stored". Section 5's "keeps them non-clinical" is
- *     "set up to keep clinical content off them".
+ *     "set up to keep clinical content off them". Section 12 also says the
+ *     assistant takes a request for an appointment, books nothing and sends
+ *     no payment link there, where it said it could "book an appointment or
+ *     send the clinic's own payment link": lib/meta/front-door.ts creates
+ *     booking requests only, and nothing calls depositLinkMessage.
  */
 export default function PrivacyPage() {
   return (
@@ -594,11 +598,10 @@ export default function PrivacyPage() {
         <ul className="list-disc space-y-3 pl-6">
           <li>
             <strong>Only to answer.</strong> The assistant uses the messages to answer the person
-            who wrote, on the clinic&apos;s behalf, and to book an appointment or send the
-            clinic&apos;s own payment link while that conversation is open. The payment link
-            itself carries an amount and a reference and never names a time, service or
-            practitioner. The messages are never used for advertising, never sold, and never used
-            to train models.
+            who wrote, on the clinic&apos;s behalf, and to take a request for an appointment,
+            which the clinic&apos;s staff then confirm, while that conversation is open. It books
+            nothing itself and sends no payment link there. The messages are never used for
+            advertising, never sold, and never used to train models.
           </li>
           <li>
             <strong>Only when the person wrote first.</strong> The assistant replies only inside the
@@ -619,8 +622,8 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong>Kept for the clinic.</strong> We do not keep the messages a person sends, or
-            a summary of one. From these channels we keep only what a booking needs, for the clinic
-            that received it: a first name and a telephone number, each checked by automated
+            a summary of one. From these channels we keep only what a booking request needs, for
+            the clinic that received it: a first name and a telephone number, each checked by automated
             filters designed to keep clinical content out, the times the person prefers, only in a
             fixed day-and-time form, and the identifier Meta attaches to the conversation. They are
             kept under that clinic&apos;s instructions and its Business Associate Agreement with us,

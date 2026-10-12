@@ -1736,7 +1736,10 @@ is the Terms' annex, "How we protect data".
   Meta conversation are gone. `/privacy` § 12 also names Meta's identifier
   for the conversation, which the code keeps (`booking_requests.sender_id`)
   and clause 4 lists, though clause 11's "keeps only the details in (a)" does
-  not.
+  not. The same pages say the Meta assistant takes booking requests, books
+  nothing and sends no payment link there, as the code does today
+  (`lib/meta/front-door.ts`; nothing calls `depositLinkMessage`), although
+  clauses 4 and 7 permit a link on Meta.
 
 **Paper and settings**
 

@@ -160,7 +160,7 @@ describe("the Meta channels are described as the agreement describes them", () =
 
   test("no message kept; only the booking details, filtered and in fixed form", () => {
     expect(text).toContain(
-      "We do not keep the messages a person sends, or a summary of one. From these channels we keep only what a booking needs, for the clinic that received it: a first name and a telephone number, each checked by automated filters designed to keep clinical content out, the times the person prefers, only in a fixed day-and-time form, and the identifier Meta attaches to the conversation.",
+      "We do not keep the messages a person sends, or a summary of one. From these channels we keep only what a booking request needs, for the clinic that received it: a first name and a telephone number, each checked by automated filters designed to keep clinical content out, the times the person prefers, only in a fixed day-and-time form, and the identifier Meta attaches to the conversation.",
     );
   });
 
@@ -174,5 +174,22 @@ describe("the Meta channels are described as the agreement describes them", () =
     expect(text).not.toMatch(
       /detected when a message arrives|caught on arrival|caught when it arrives|clinical content[^.]*is not stored|never name a treatment|keeps none|repeats none|confirms no appointment details|not kept at all|keeps them non-clinical|The conversation is kept for the clinic|every later use/i,
     );
+  });
+});
+
+/**
+ * Section 12 used to say the assistant could "book an appointment or send the
+ * clinic's own payment link" on Meta. It takes booking requests, which staff
+ * confirm, and sends no link there (lib/meta/front-door.ts; nothing calls
+ * depositLinkMessage in lib/booking/deposit-gate.ts).
+ */
+describe("the Meta assistant takes booking requests and sends no payment link", () => {
+  const text = pageText();
+
+  test("section 12 says so", () => {
+    expect(text).toContain(
+      "and to take a request for an appointment, which the clinic's staff then confirm, while that conversation is open. It books nothing itself and sends no payment link there.",
+    );
+    expect(text).not.toMatch(/to book an appointment or send the clinic's own payment link/);
   });
 });

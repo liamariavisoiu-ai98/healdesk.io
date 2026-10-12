@@ -242,7 +242,45 @@ function useDrift(stage: RefObject<HTMLDivElement | null>, on: boolean) {
 
 const capital = (name: string) => name.charAt(0).toUpperCase() + name.slice(1);
 
-export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
+/** How small a closed card is drawn: its transform's scale in globals.css, "The cards". Change the two together. */
+const CLOSED_SCALE = 0.32;
+
+/**
+ * Whether logo `name`'s card, once open, would lie over `avoid` (the hero's
+ * copy), give or take a few pixels.
+ *
+ * Read from the closed card, which is the open one drawn at CLOSED_SCALE
+ * about its anchor: the left edge's middle for a card beside its logo, the
+ * bottom right for one above. So the open card's box follows from the closed
+ * one's on screen, in the same coordinates as the copy's, at whatever size
+ * the hero is drawn, with nothing opened to measure it.
+ */
+function wouldCover(stage: HTMLElement | null, name: string, avoid: HTMLElement | null): boolean {
+  if (!stage || !avoid) return false;
+  const node = [...stage.querySelectorAll<HTMLElement>(".portrait__node")].find((el) => el.dataset.logo === name);
+  const card = node?.querySelector<HTMLElement>(".portrait__card");
+  if (!node || !card) return false;
+  const closed = card.getBoundingClientRect();
+  const w = closed.width / CLOSED_SCALE;
+  const h = closed.height / CLOSED_SCALE;
+  const mid = closed.top + closed.height / 2;
+  const box =
+    node.dataset.card === "above"
+      ? { left: closed.right - w, right: closed.right, top: closed.bottom - h, bottom: closed.bottom }
+      : { left: closed.left, right: closed.left + w, top: mid - h / 2, bottom: mid + h / 2 };
+  const copy = avoid.getBoundingClientRect();
+  const m = 8;
+  return box.left < copy.right + m && box.right > copy.left - m && box.top < copy.bottom + m && box.bottom > copy.top - m;
+}
+
+export function HeroPortrait({
+  autoplay = false,
+  avoid,
+}: {
+  autoplay?: boolean;
+  /** What a card the hero plays on its own must not cover: the copy (HeroStage). A visitor's own hover is never refused. */
+  avoid?: RefObject<HTMLElement | null>;
+}) {
   const stage = useRef<HTMLDivElement>(null);
   const resting = useResting(stage);
   const wide = useMediaQuery("(min-width: 1280px)");
@@ -278,10 +316,14 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
 
   /**
    * The cards play themselves while the hero is the first thing on screen:
-   * from 1280px, with motion allowed, in reach, and while the copy is still
-   * down (`autoplay`; a card over the headline would be in its way). A
-   * visitor's hover, focus, tap or chip takes over at once, and the hero
-   * waits RESUME_MS after they let go. A hidden tab plays nothing.
+   * from 1280px, with motion allowed and in reach (`autoplay`). The copy is
+   * on screen from the start (owner, 12 October 2026), so a card the hero
+   * plays on its own skips any logo whose card would cover it at this size
+   * (`avoid`, wouldCover): on a laptop that is WhatsApp's and the phone
+   * line's, low on her left beside the headline; on a wide screen, none. A
+   * visitor's hover, focus, tap or chip takes over at once, and opens any
+   * card, and the hero waits RESUME_MS after they let go. A hidden tab plays
+   * nothing.
    */
   useDrift(stage, wide && !reduce);
   const playing = autoplay && wide && !reduce && !resting;
@@ -293,7 +335,16 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
       if (busy.current || Date.now() < holdUntil.current || document.hidden) {
         setAuto(null);
       } else {
-        setAuto(STORY[step % STORY.length] ?? null);
+        // The next card in the story that leaves the copy clear.
+        let next: string | null = null;
+        for (let k = 0; k < STORY.length && next === null; k++) {
+          const name = STORY[(step + k) % STORY.length]!;
+          if (!wouldCover(stage.current, name, avoid?.current ?? null)) {
+            next = name;
+            step += k;
+          }
+        }
+        setAuto(next);
         step += 1;
       }
       timer = window.setTimeout(tick, AUTOPLAY_MS);
@@ -303,7 +354,7 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
       window.clearTimeout(timer);
       setAuto(null);
     };
-  }, [playing]);
+  }, [playing, avoid]);
 
   const members = group ? HERO_LOGOS.filter((logo) => logo.group === group) : [];
   const shown = group ? (members[turn % members.length]?.name ?? null) : (picked ?? (playing ? auto : null));
@@ -403,6 +454,7 @@ export function HeroPortrait({ autoplay = false }: { autoplay?: boolean }) {
                 // leave the screen.
                 data-card={logo.card}
                 data-side={logo.at.x > 50 ? "right" : "left"}
+                data-logo={logo.name}
                 style={motion(logo, orbit, i)}
               >
                 <span className="portrait__fan">

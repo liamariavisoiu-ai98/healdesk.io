@@ -7,9 +7,18 @@ import { summarize, type Review, type ReviewSummary } from "@/lib/reviews";
  * ⚠️ PLACEHOLDER CONTENT. Every review, name, face and number here was
  * written to design against, not collected from a customer. The portraits in
  * public/reviews are StyleGAN output from thispersondoesnotexist.com and the
- * archive counts are invented. Several cards also claim things v1 does not do
- * (tracing who showed up and paid, writing into Mindbody or Boulevard, "no
- * login").
+ * archive counts are invented.
+ *
+ * The words are the owner's, chosen on 12 October 2026 from three rewrites
+ * of each card or edits of the old one, several written by hand. Dr. Grant
+ * M.'s and Ray K.'s are as they were. The cards that claimed tracing who showed
+ * up and paid, writing into Mindbody or Boulevard, and "no login" were
+ * rewritten to what v1 does (Mindbody and Boulevard clinics get booking
+ * requests). Two still say what the product does not measure, by the owner's
+ * choice: Andre S.'s lower cost per booked consult, and Lauren P.'s consults
+ * "recovered". Nicole T.'s "patient's preferred time" and "doing it job",
+ * and Alyssa B.'s "downing in voicemails", are as the owner wrote them, on
+ * purpose: leave them.
  *
  * The owner chose on 3 October 2026 to show this set on the live site while
  * PUBLISHED is empty, on one condition: the wall renders it with `examples`
@@ -25,11 +34,11 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "scottsdale",
     rating: 5,
-    headline: "I can finally trace the money",
+    headline: "Every after-hours call, in one place",
     body:
-      "We were losing consults every evening and I could not prove it until I saw the callback log. In the " +
-      "first month healdesk picked up 63 calls after we closed, and 19 of them turned into booked consults. " +
-      "What sold me was opening the report and seeing which of those people actually showed up and paid.",
+      "We run it on overflow and after hours and already got 19 consults that used to be voicemails. The " +
+      "calls we cannot pick up just get forwarded to Aya and she quotes from our price list and books the " +
+      "consult in our Google Calendar. Honestly, an extremely useful purchase.",
     name: "Dana S.",
     jobTitle: "Owner",
     city: "Scottsdale",
@@ -41,8 +50,8 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
     rating: 5,
     headline: "Our callback board is blank now",
     body:
-      "We kept a callback list on the whiteboard behind the desk. Nobody has written on it since we got " +
-      "healdesk.",
+      "We used to keep a callback list on the whiteboard behind the desk. Nobody has written on it since we " +
+      "got healdesk.",
     name: "Marcus E.",
     city: "Columbus",
     state: "OH",
@@ -74,10 +83,12 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "denver",
     rating: 5,
-    headline: "Nothing changed on our end",
+    headline: "Know this if you're on Boulevard",
     body:
-      "There is no login, no app for the team and no extra tab open on the front desk computer. Appointments " +
-      "appear in Boulevard the way they always have, and a summary lands in my inbox on Monday morning.",
+      "If you're on Boulevard like us, know going in that it won't book into it. It takes the patient's " +
+      "preferred time and alerts the desk, and we confirm in Boulevard ourselves. But to be honest, it " +
+      "actually suited us since nobody had to learn a new booking system and instead they just stopped " +
+      "downing in voicemails. Great product overall.",
     name: "Alyssa B.",
     jobTitle: "Practice Manager",
     state: "CO",
@@ -86,11 +97,12 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "austin",
     rating: 4,
-    headline: "It writes into Mindbody cleanly",
+    headline: "Know your booking setup going in",
     body:
-      "Deposit link included, and I have not had to fix a duplicate booking yet. The first week it was too " +
-      "quick to offer a slot before checking which room was free, and that took a conversation to sort out. " +
-      "Since then it has been quiet, which is all I want from software.",
+      "It doesn't book into Mindbody. It takes patient's preferred time and alerts the desk, and we confirm " +
+      "in Mindbody. A star off only for the first week while my team found its rhythm with that, but since " +
+      "then it's been quiet which is all I want from software. And it's doing it job more naturally than " +
+      "others on the market.",
     name: "Nicole T.",
     jobTitle: "Owner",
     city: "Austin",
@@ -101,8 +113,8 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
     rating: 5,
     headline: "Our ad leads stopped going cold",
     body:
-      "Leads that came in after five used to sit until morning. Our cost per booked consult is down, on the " +
-      "same ad spend.",
+      "Leads that came in after 5pm used to always sit until morning. Our cost per booked consult is down " +
+      "now that we got healdesk, on the same ad spend.",
     name: "Andre S.",
     jobTitle: "Owner",
     city: "Phoenix",
@@ -121,11 +133,11 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "seattle",
     rating: 5,
-    headline: "Our attorney had two questions",
+    headline: "A vendor that signs a BAA, plainly",
     body:
-      "He read the BAA before we signed anything and came back with two questions, both of which were " +
-      "answered on a call the same week. They were straight about what has been audited and what has not, " +
-      "which I trusted a great deal more than a compliance badge on a website.",
+      "Our attorney read the BAA before we signed anything and came back with two questions, both of which " +
+      "were answered on a call the same week. They were straight about what has been audited and what has " +
+      "not, which I trusted a great deal more than a compliance badge on a website.",
     name: "Meredith V.",
     jobTitle: "Practice Administrator",
     city: "Seattle",
@@ -136,7 +148,10 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
     id: "portland",
     rating: 4,
     headline: "Better than the answering service",
-    body: "We paid four hundred a month for messages taken badly. This costs less and books people instead.",
+    body:
+      "We paid $4000 one month for messages taken badly. This costs much less and books people instead. " +
+      "Docked a star for the month where we didn't need all the minutes we bought and forgot we could " +
+      "downgrade the plan.",
     name: "Tom W.",
     city: "Portland",
     state: "OR",
@@ -147,8 +162,8 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
     headline: "My coordinators got their day back",
     body:
       "My two coordinators used to spend the morning on the phone and the afternoon apologising for the " +
-      "morning. They are with patients now instead, and the mood at the front desk changed a long time " +
-      "before any of the numbers did.",
+      "morning. They are with patients now instead, and frankly the mood at the front desk changed so much " +
+      "and long before any of the numbers did. So happy with this provider.",
     name: "Simone A.",
     jobTitle: "Practice Manager",
     city: "Nashville",
@@ -160,8 +175,8 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
     rating: 5,
     headline: "I signed up planning to cancel",
     body:
-      "Setup took one call and part of an afternoon, and by day four it had recovered " +
-      "two consults we would otherwise have lost. I stopped looking for a reason to back out.",
+      "Setup was SO easy and it managed to recover two consults we would otherwise have lost by day 4. The " +
+      "quality between this and other providers on the market is something else. Keep it up!",
     name: "Lauren P.",
     jobTitle: "Owner",
     state: "NY",
@@ -170,7 +185,7 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "charlotte",
     rating: 5,
-    headline: "It knew where the line was",
+    headline: "Complications go straight to my nurse.",
     body:
       "A caller rang in worried about swelling after a procedure and it did not try to answer her. It flagged " +
       "the call, and my nurse rang her back within the hour. That is the behaviour I would want from a new " +
@@ -183,7 +198,7 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "sacramento",
     rating: 5,
-    headline: "Three sites, one voice",
+    headline: "Brand consistency across three sites",
     body:
       "Three locations, three different phone experiences depending on who was covering. They all sound the " +
       "same now.",
@@ -193,8 +208,10 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "miami",
     rating: 5,
-    headline: "My team was not replaced",
-    body: "I told my staff this was not step one of letting them go. Six months on, same team.",
+    headline: "Same team, six months in",
+    body:
+      "Front desk turnover is the quiet cost in this industry. I told mine this wasn't a replacement. Six " +
+      "months on, nobody's left and nobody's drowning.",
     name: "Marco D.",
     jobTitle: "Owner",
     state: "FL",
@@ -203,7 +220,7 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "boise",
     rating: 5,
-    headline: "It answers on the second ring",
+    headline: "It picks up every time.",
     body: "Every time. That was never true when it was us.",
     name: "Neil P.",
     jobTitle: "Owner",

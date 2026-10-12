@@ -70,6 +70,15 @@
    */
   --color-paper-2: #f1f1f1;
 
+  /*
+   * The homepage's tonal bands (owner, 12 October 2026): the ground a shade
+   * warmer, under every other section ("Sections" below), the warm of the
+   * proposal the owner chose them from. Warm rather than paper-2's neutral
+   * grey, which beside the page white reads as a panel, not a change of
+   * light.
+   */
+  --color-paper-warm: #f7f3ef;
+
   /* Deep Space Blue, lightened to 5.2:1 on Snow, readable as body text. */
   --color-muted: #5c6e7e;
 
@@ -1778,7 +1787,8 @@
   font-size: 12.5px;
   line-height: 1.3;
   /* Closed: a small oval bubble at the logo's side, which it goes back to
-     quickly. */
+     quickly. Its scale is HeroPortrait's CLOSED_SCALE, which works out from
+     it where the open card will be. */
   opacity: 0;
   pointer-events: none;
   border-radius: 50%;
@@ -2833,6 +2843,152 @@
 }
 
 /* =============================================================================
+   Sections: one rhythm, and tonal bands (owner, 12 October 2026)
+   =============================================================================
+   Every section of the homepage carries `page-section`, so each is padded the
+   same above and below and the gap between any two is twice that: 96px on a
+   phone, 120px from 640px and 144px from 1024px (before the site's 0.9 zoom).
+   Until then each section set its own padding, and the gaps ran from 96px to
+   192px, which read as accident rather than structure.
+
+   Month one and the reviews sit on a band of warm paper, as wide as the
+   screen, so the sections alternate white, warm, white, warm, white before
+   the closing band, at every width. A band reaches one section's padding
+   past its section above and below and fades over twice that, across the
+   gap, so there is never a line where it meets the white and it never
+   reaches the next section's content. It is drawn as a border image pushed
+   out past the box, which paints across the screen without widening the
+   page: what a border image paints outside its box is never scrolled to.
+
+   On a phone the navbar also says which section is on screen (Nav.tsx,
+   "Wayfinding").
+   ============================================================================= */
+
+.page-section {
+  --section-pad: 48px;
+  padding-block: var(--section-pad);
+}
+
+.page-section--band {
+  border-image: linear-gradient(
+      to bottom,
+      transparent,
+      var(--color-paper-warm) calc(var(--section-pad) * 2),
+      var(--color-paper-warm) calc(100% - var(--section-pad) * 2),
+      transparent
+    )
+    0 fill / / var(--section-pad) 100vmax;
+}
+
+@media (min-width: 640px) {
+  .page-section {
+    --section-pad: 60px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .page-section {
+    --section-pad: 72px;
+  }
+}
+
+/* The navbar's wayfinding, on a phone (Nav.tsx, useWayfinding): past the
+   hero, the wordmark gives way to the mark and the section's title, which
+   rises in afresh at each new section, and the reading hairline shows. One
+   grid cell, so the swap moves nothing else in the bar. */
+.nav-brand {
+  display: grid;
+  align-items: center;
+}
+
+.nav-brand > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--duration-base) var(--ease-standard),
+    transform var(--duration-slow) var(--ease-out);
+}
+
+.nav-brand__logo {
+  display: block;
+}
+
+.nav-brand__way {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.nav[data-way] .nav-brand__logo {
+  opacity: 0;
+  transform: translateY(-8px);
+  pointer-events: none;
+}
+
+.nav[data-way] .nav-brand__way {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+.nav-brand__mark {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 0 0 1px var(--color-line);
+}
+
+.nav-brand__title {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  color: var(--color-red-deep);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0.005em;
+  animation: nav-title-in var(--duration-slow) var(--ease-out) both;
+}
+
+@keyframes nav-title-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* How far through the page past the hero (`--read`, 0 to 1). */
+.nav-progress {
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 2px;
+  background: linear-gradient(90deg, var(--color-red), var(--color-orange));
+  transform: scaleX(var(--read, 0));
+  transform-origin: 0 50%;
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.nav[data-way] .nav-progress {
+  opacity: 1;
+}
+
+@media (min-width: 640px) {
+  .nav-brand__way,
+  .nav-progress {
+    display: none;
+  }
+}
+
+/* =============================================================================
    Review card
    =============================================================================
    One face since 12 October 2026: the card no longer turns over to show the
@@ -2885,10 +3041,12 @@
    deeper where the tip landed and lifted. It stretches to the words, so the
    streaks run longer under a longer title, as they would.
 
-   The words are in the logo's red (owner, 12 October 2026), its text shade,
-   which is the one small red type may use (see --color-red-deep). "Already a
-   customer?" on the review wall is set in the same face and size
-   (LeaveReview.tsx), so change the two together. */
+   The words are white (owner, 12 October 2026; they were the logo's red
+   that morning), so the stroke is the logo's orange at its text shade
+   (--color-orange-deep) and nearly opaque, its lighter streaks only a little
+   lighter: white on the pale peach it was measured 1.4:1. White on this
+   orange is about 3.5:1. "Already a customer?" on the review wall is set in
+   the same face and size (LeaveReview.tsx), so change the two together. */
 @utility eyebrow-tag {
   display: inline-block;
   font-family: var(--font-sans);
@@ -2897,8 +3055,8 @@
   letter-spacing: 0.005em;
   line-height: 1;
   padding: 8px 14px;
-  color: var(--color-red-deep);
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 44' preserveAspectRatio='none'%3E%3Cfilter id='h' x='-4%25' y='-30%25' width='108%25' height='160%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='3' seed='4' result='s'/%3E%3CfeColorMatrix in='s' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 .38' result='m'/%3E%3CfeComposite in='SourceGraphic' in2='m' operator='in' result='t'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.018 .06' numOctaves='2' seed='9' result='e'/%3E%3CfeDisplacementMap in='t' in2='e' scale='3.2' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3ClinearGradient id='a' gradientUnits='userSpaceOnUse' x1='4' x2='52'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' gradientUnits='userSpaceOnUse' x1='295' x2='250'%3E%3Cstop offset='0' stop-color='%23ff9a4a' stop-opacity='.26'/%3E%3Cstop offset='1' stop-color='%23ff9a4a' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cg filter='url(%23h)'%3E%3Cpath fill='%23ff9a4a' fill-opacity='.5' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23a)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23b)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat;
+  color: #fff;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 44' preserveAspectRatio='none'%3E%3Cfilter id='h' x='-4%25' y='-30%25' width='108%25' height='160%25' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.004 .3' numOctaves='3' seed='4' result='s'/%3E%3CfeColorMatrix in='s' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 0 .8' result='m'/%3E%3CfeComposite in='SourceGraphic' in2='m' operator='in' result='t'/%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.018 .06' numOctaves='2' seed='9' result='e'/%3E%3CfeDisplacementMap in='t' in2='e' scale='3.2' xChannelSelector='R' yChannelSelector='G'/%3E%3C/filter%3E%3ClinearGradient id='a' gradientUnits='userSpaceOnUse' x1='4' x2='52'%3E%3Cstop offset='0' stop-color='%23e05800' stop-opacity='.3'/%3E%3Cstop offset='1' stop-color='%23e05800' stop-opacity='0'/%3E%3C/linearGradient%3E%3ClinearGradient id='b' gradientUnits='userSpaceOnUse' x1='295' x2='250'%3E%3Cstop offset='0' stop-color='%23e05800' stop-opacity='.26'/%3E%3Cstop offset='1' stop-color='%23e05800' stop-opacity='0'/%3E%3C/linearGradient%3E%3Cg filter='url(%23h)'%3E%3Cpath fill='%23e05800' fill-opacity='.94' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23a)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3Cpath fill='url(%23b)' d='M10 13C70 10.5 190 9.5 290 7.5L295 34C200 36 95 37.6 4 38.6Z'/%3E%3C/g%3E%3C/svg%3E") center / 100% 100% no-repeat;
 }
 
 /*
@@ -3855,6 +4013,58 @@
   color: transparent;
 }
 
+/* The Weather widget under the clock (Outcomes.tsx, "The weather"): white
+   on the wallpaper, as the date and the clock are, with no plate behind it,
+   as iOS draws a rectangular widget. */
+.lockscreen__weather {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 10px;
+  margin: 10px auto 0;
+  color: rgb(255 255 255 / 0.94);
+  text-align: left;
+}
+
+.lockscreen__weather-sky {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+
+.lockscreen__weather-text {
+  display: grid;
+  gap: 1px;
+}
+
+.lockscreen__weather-place {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.005em;
+}
+
+.lockscreen__weather-here {
+  width: 11px;
+  height: 11px;
+}
+
+.lockscreen__weather-now {
+  display: flex;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.lockscreen__weather-range {
+  opacity: 0.78;
+}
+
 .lockscreen__wall {
   --note-gap: 8px;
   --note-h: 106px;
@@ -4037,6 +4247,7 @@
 
   .lockscreen__date,
   .lockscreen__time,
+  .lockscreen__weather,
   .lockscreen__foot {
     transition:
       opacity var(--duration-slower) var(--ease-standard) 200ms,
@@ -4049,7 +4260,8 @@
   }
 
   .month[data-state="armed"] .lockscreen__date,
-  .month[data-state="armed"] .lockscreen__time {
+  .month[data-state="armed"] .lockscreen__time,
+  .month[data-state="armed"] .lockscreen__weather {
     opacity: 0;
     transform: translateY(12px) scale(0.98);
   }

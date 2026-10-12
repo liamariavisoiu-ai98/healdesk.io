@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef } from "react";
+
 import { BuyButton, useBuy } from "@/components/BuyModal";
 import { HeroPortrait } from "@/components/HeroPortrait";
 import { site } from "@/lib/site";
@@ -44,10 +46,11 @@ import { site } from "@/lib/site";
  *
  * The page still opens in one movement round her (globals.css, "The hero
  * portrait"): the photo settles, the orbits draw in and the logos fan out
- * along them. The copy plays no part in it. The logos' cards no longer play
- * on their own: they did only while the copy was down, since a card over the
- * headline would be in its way (HeroPortrait's `autoplay`); a hover, a focus,
- * a tap or a chip still plays them.
+ * along them. The copy plays no part in it. The logos' cards still play on
+ * their own, one after another (owner, 12 October 2026: they had stopped
+ * with the reveal); one that would cover the copy at the screen's size is
+ * skipped, and a hover, a focus, a tap or a chip still plays any of them
+ * (HeroPortrait's `autoplay` and `avoid`).
  *
  * ## The two buttons
  *
@@ -59,12 +62,13 @@ import { site } from "@/lib/site";
  * use, so the page and its preview always make the same claim.
  */
 export function HeroStage() {
+  const copyRef = useRef<HTMLDivElement>(null);
   return (
     <section aria-labelledby="hero-heading" className="hero">
       {/* Above the photo, and transparent to the pointer everywhere but its
           own content, so the logos beside her still take a hover. */}
       <div className="hero__copy pointer-events-none z-10 mx-auto w-full min-w-0 max-w-[1240px] px-5 pt-10 pb-8 text-center sm:px-8 sm:pt-16 lg:px-14 xl:pt-0 xl:pb-16 xl:text-left">
-        <div className="pointer-events-auto mx-auto max-w-[760px] xl:mx-0 xl:max-w-[min(600px,46%)]">
+        <div ref={copyRef} className="pointer-events-auto mx-auto max-w-[760px] xl:mx-0 xl:max-w-[min(600px,46%)]">
           {/* The announcement, as one pill on one line (owner, 12 October
               2026): "NEW · Now on Instagram, Messenger and WhatsApp →", the
               whole of it the way in. It used to be a bar with a "Get AYA"
@@ -95,7 +99,7 @@ export function HeroStage() {
       </div>
 
       <div className="hero__frame">
-        <HeroPortrait />
+        <HeroPortrait autoplay avoid={copyRef} />
       </div>
 
       {/* The white the copy sits on, from 1280px: over the photo, under the

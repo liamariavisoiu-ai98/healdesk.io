@@ -28,7 +28,7 @@ import { site } from "@/lib/site";
  */
 export function ClosingCta() {
   return (
-    <section aria-labelledby="closing-heading" className="mb-24 sm:mb-28">
+    <section aria-labelledby="closing-heading" className="page-section">
       <div className="own-stage closing relative isolate overflow-hidden rounded-lg border border-black/[0.06]">
         <img
           src="/brand/aya-final-cta.webp"

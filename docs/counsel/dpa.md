@@ -26,9 +26,18 @@
 > linked, as BAA 1.3.0's is (PT-17). On 12 October 2026 the two sentences
 > that kept a deleted client's telephone number changed with the code (BAA
 > 1.3.0 release gates 6 and 7; gap 15), and the Term clause took the
-> owner's refund rule of that day (gap 17). Counsel's approval covered the
-> clauses as they stood on 6 October, not these edits, which the owner reads
-> in `docs/dpa-v1.0.0.txt` before the release.
+> owner's refund rule of that day (gap 17). On 13 October 2026 the owner
+> decided that healdesk keeps no transcript: each call's and website chat's
+> is emailed to the practice when it ends, with one encrypted copy held for
+> seven days to send it again (agreement-changes.md § 14). The DPA, still
+> unreleased, took BAA 1.4.0's three changes in place: clause 5's purpose e
+> and its information involved (`stateLawClauseBody140`), clause 10's
+> transcript paragraph and the conversation's record kept without the words,
+> with nothing for the portal to shorten, and clause 13's paragraph that
+> Practice answers a request about a transcript from the email (gap 2).
+> Counsel's approval covered the clauses as they stood on 6 October, not
+> these edits, which the owner reads in `docs/dpa-v1.0.0.txt` before the
+> release.
 
 ## 1. What it is, and who signs it
 
@@ -169,6 +178,16 @@ Added on 7 October 2026, read at origin/main c926414:
 | "It will correct that information as Practice directs"; "healdesk corrects a client's contact details in its own copy"; "It does not rewrite a booking request, an appointment record or the record of a conversation: it appends the correction to that record and links the two"; "Every later export of that record, and every screen of healdesk's that shows it, then carries the correction" (13; the appointment record named since BAA 1.3.0's release audit, 12 October 2026, where it read as corrected in place; the exports and healdesk's screens named since its second read the same day, where it said "every later use and export") | Since 12 October 2026: the operator's scripts in apps/app's own shell (never apps/web) correct a contact in place (`npm run ops:amend-contact`, recording which fields changed) and append a correction to a booking request, a conversation or an appointment (`npm run ops:amend-record`) in `record_amendments`, append-only, linked by a foreign key that keeps it on a record of the same clinic, and removed only with that record (erasure, the purge, destruction). `exportPatient` and `exportClinic` carry each beside its record, and the desk's view of a booking request says how many there are (never their words: it opens without a passkey). A booking request still never changes in place (0039's trigger) | `apps/app/src/lib/patient-rights/amendments.ts`, `apps/app/src/lib/patient-rights/export.ts`; `apps/app/drizzle/0064_record_amendments.sql`, pinned by `apps/app/tests/record-amendments.test.ts`; agreement-changes.md § 12.14, gate 8 |
 | Terminating "ends the Services on the same day, and no Fees accrue"; on Practice's termination for healdesk's violation or under the Subcontractors clause, "healdesk refunds … the prorated unused part of the subscription period" (17) | Nothing automates it: Package C's refund actions answer "not_available" on main, so an operator refunds through Stripe and cancels the subscription the same day, which starts offboarding (`customer.subscription.deleted`) | `apps/app/src/lib/billing/stripe-actions.ts`; `apps/app/src/lib/billing/events.ts` |
 | "Calendar election" and the form that names this agreement (1, 8, 19) | `calendar-election-dpa/1.0.0` exists as text, unreleased. Nothing can record an election of either kind: the election rows and their writer are plan C6 and C7, not on main | `packages/catalog/src/dpa-calendar-election.ts`; docs/design/google-calendar-2026-10-05.md |
+
+Added on 13 October 2026, read at `7da5ee3` (the transcript outbox), with BAA
+1.4.0 (agreement-changes.md § 14.2 has the same rows for the BAA's words):
+
+| Sentence (clause) | The code fact | Where |
+| --- | --- | --- |
+| "healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection" (10) | Queued in the conversation's own transaction and sent after commit to `billingRecipients` (the account's one address in v1), classed `may-carry-phi`, which only SES with `TlsPolicy` `REQUIRE` carries. The voice endpoint and the chat API that queue it are not built | `apps/app/src/lib/conversations/transcript-outbox.ts`, `transcript-email.ts`; `apps/app/src/lib/reporting/deliver.ts` |
+| "one encrypted copy … until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it"; "may send the email again when a send fails or the email is returned, and when Practice asks" (10) | `transcript_emails`, sealed under the KMS key, one per conversation; `destroy_after` set by trigger from the database's clock and moved once, at the first recorded send; deleted by the `transcript-emails` job (seeded on), with its conversation, and at destruction; retried with back-off, sent again an hour after a bounce, and on the ops `resendTranscript` | `apps/app/drizzle/0069_transcript_outbox.sql`; `apps/app/src/app/api/webhooks/ses/route.ts`; `apps/app/src/lib/ops/api.ts` |
+| "healdesk keeps no other copy of a transcript, apart from the backups described below" (10) | `transcript_uri` written null; the archive copy off unless a mailbox under a business associate agreement is named (`HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed`); the pre-Retell Synthflow webhook's raw payload is the one exception left in code (agreement-changes.md § 14.5, item 9) | `transcript-email.ts`; `apps/app/src/lib/voice/ingest.ts` |
+| "After them healdesk has no transcript to give Practice, correct or delete" (13) | No export reads `transcript_emails`, and nothing else holds the words once its row is gone | `apps/app/src/lib/patient-rights/export.ts` |
 
 ## 5. Choices made in drafting
 
@@ -337,6 +356,25 @@ Added on 7 October 2026, read at origin/main c926414:
    release audit (12 October 2026) gave 1.3.0 the DPA's sentence
    (agreement-changes.md § 12.15). `docs/dpa-v1.0.0.txt` and the golden
    hashes were regenerated; no BAA hash moved.
+   **Changed again on 13 October 2026**, with BAA 1.4.0
+   (agreement-changes.md § 14): healdesk keeps no transcript. Clause 10 now
+   keeps "the record of each conversation, without what was said or written
+   in it" for 90 days, and its new paragraph, BAA 1.4.0's word for word,
+   says the transcript is emailed to the address on Practice's account and
+   no other, only over an encrypted connection, with one encrypted copy held
+   until seven days after the email is first accepted for delivery (or after
+   it was queued, if it never is) and then deleted, no other copy, and the
+   email Practice's record after. "Practice may shorten the period for
+   transcripts in its portal" is gone, with the portal's setting. Clause 13
+   says that after the seven days healdesk has no transcript to give,
+   correct or delete, and Practice answers from the email; clause 5's
+   purpose e and its information involved are `stateLawClauseBody140`'s. The
+   facts are drizzle/0069's trigger and the outbox
+   (`apps/app/src/lib/conversations/transcript-outbox.ts`); the purge still
+   runs for every DPA practice, reading the new wording
+   (`apps/app/src/lib/agreements/what-it-says.ts`).
+   `docs/dpa-v1.0.0.txt` and the eight hashes were regenerated (the sample is
+   now `97058d2d2ca9ec0483a1cf2e2d459ee7d3ae3d0c9949ad38cc8dd052104dad05`).
 3. **Deletion on request: resolved** (12 October 2026, BAA 1.3.0 release gate
    6). `eraseContact` had no caller. The operator's deletion script
    (`npm run ops:erase-person`, in apps/app's own shell) now runs it and deletes what it did not reach: the
@@ -588,9 +626,10 @@ its trigger.
 - [ ] The calendar election able to amend a DPA (gap 6): the form is
       drafted (`calendar-election-dpa/1.0.0`); its release, and election
       rows that take it through `calendarElectionFor`, remain.
-- [x] Gap 2 resolved: the DPA states the purge's periods, and that the
-      portal shortens transcripts (12 October 2026). (Gaps 3 and 5 are
-      resolved.)
+- [x] Gap 2 resolved: the DPA states the purge's periods (12 October 2026),
+      and since 13 October 2026 that each transcript is emailed to the
+      practice and not kept, with nothing for the portal to shorten. (Gaps 3
+      and 5 are resolved.)
 - [x] Corrections have code behind them (gap 22): gate 8's amendment record,
       appended to and linked with the booking request, conversation or
       appointment it corrects and carried by both exports and the desk's

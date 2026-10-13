@@ -10,7 +10,7 @@ import {
   PAYMENTS_CLAUSE_HEADING,
   prepareBaa,
   STATE_LAW_CLAUSE_HEADING,
-  stateLawClauseBody,
+  stateLawClauseBody140,
   TRANSCRIPT_RETENTION_DAYS,
   type BaaVariables,
 } from "./baa";
@@ -97,16 +97,21 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
   vet_notused_mindbody: { ...VET, bookingSystem: "mindbody", calendarAccount: "personal" },
 };
 
-/** variant → sha256 of the assembled text. Frozen from the draft; see the header. */
+/**
+ * variant → sha256 of the assembled text. Frozen from the draft; see the
+ * header. Regenerated on 13 October 2026 for the emailed transcript (BAA
+ * 1.4.0's clauses 4, 11 and 14 in this document's words; the sample was
+ * 7b4a1a97…bc49).
+ */
 const GOLDEN: Record<string, string> = {
-  sample: "7b4a1a973f99462ac956feb704c9e5747917a101cd6b566e5ff4e98ab335bc49",
-  notcovered_live_covered: "ccbae90f8a3eacc1d8ba1652fead6b89156647e1822a1a5888eeb9a2afb9e7af",
-  notcovered_live_uncovered: "9fc582396f6a5cd996d1f1bde304d4a503863e04a4fa0a522e8f50b56c6c75a9",
-  notcovered_live_personal: "d720d2964c99729a459a977c0faddcebbe833eb1b664be3ed32cac9eaa6f94de",
-  notcovered_notused_other: "39ff988b541e4b22096b9346034a1e3e1771c5ffeed3a1a28b6137e61de170d2",
-  vet_live_covered: "02890a88566fe4393b60707e457efd4a45882d794c52186db10fc426c2c5b8b4",
-  vet_live_personal: "35b38de283d1acfb794950cbde8b595c27f80fb530bc73387725b55db891126d",
-  vet_notused_mindbody: "3f48f08ddd0c75fe80376d4ed407c9b5557699e1ca07b3fcfcc301bb341a8070",
+  sample: "97058d2d2ca9ec0483a1cf2e2d459ee7d3ae3d0c9949ad38cc8dd052104dad05",
+  notcovered_live_covered: "8c6d6208fcd9fb61ebc2a963769d7237abf0826960841cb92f849ecf69ea5ab1",
+  notcovered_live_uncovered: "82c54ec7809a75bd0c6ebbcf86421783752ac70fbbdfa4c4652fdee83471e115",
+  notcovered_live_personal: "a0022b647f6392e4889af06a623a9cd9b95f2ac45b32a6b7d74f3ac77674520b",
+  notcovered_notused_other: "519ab25dbca268eb066bc4d7d4557e4338fa906645540fd036ecc76c5127988a",
+  vet_live_covered: "cd06ffb631a2874f2d989d29dce2201b5523c685d533fd7863e35f76ea267ecd",
+  vet_live_personal: "bdfc2a5f88a7cff623f589b8d1e5a1a91690ccd039f9326efee17e2c0571baa0",
+  vet_notused_mindbody: "5dffa3fe690e4edee44aa8d4ebd6daaec60d5ba3ab46193eeecdfbe6838d2e9e",
 };
 
 const template = () => currentDpaTemplate();
@@ -423,14 +428,15 @@ describe("what the DPA says", () => {
 
   test("the state-law clause is baa.ts's shared function in this document's words, and Payments its constant", () => {
     // The fuller clause BAA 1.3.0 carries, agreed between the funnel and the
-    // BAA's pre-release redraft on 6 October 2026: stateLawClauseBody with
-    // the subject "Client Information", its calendar text following the
+    // BAA's pre-release redraft on 6 October 2026, in BAA 1.4.0's words since
+    // 13 October (the transcript emailed, not kept): stateLawClauseBody140
+    // with the subject "Client Information", its calendar text following the
     // booking sync, word for word.
     for (const answers of Object.values(VARIANTS)) {
       const variables = { ...SAMPLE, ...answers };
       const text = render(answers).text;
       const label = JSON.stringify(answers);
-      const body = stateLawClauseBody({
+      const body = stateLawClauseBody140({
         subject: "Client Information",
         sync: bookingSyncFor(variables.bookingSystem),
       });
@@ -528,7 +534,10 @@ describe("what the DPA says", () => {
     expect(minimum).toContain(
       "a name, a telephone number, the service asked about, the times that suit them, whether they have been to Practice before, whether the visit is a consultation or a treatment, and any practitioner they prefer.",
     );
-    expect(minimum).not.toMatch(/email address/);
+    // The one email address it names is Practice's own, where a transcript goes.
+    expect(minimum.replace("the email address on Practice's healdesk account", "")).not.toMatch(
+      /email address/,
+    );
     expect(minimum).toContain(
       "It does not ask for a history, a medication or a diagnosis, and it never takes a card number.",
     );
@@ -842,23 +851,63 @@ describe("the DPA's pre-release text", () => {
 describe("retention during the term", () => {
   // BAA 1.3.0 clause 11's periods, which the nightly purge runs for every
   // DPA practice; until 12 October 2026 the DPA stated none (dpa.md, gap 2).
-  test("states the purge's periods, and what the portal can shorten, on every variant", () => {
+  // Since 13 October in BAA 1.4.0's words: the conversation's record without
+  // the words, and nothing for the portal to shorten.
+  test("states the purge's periods on every variant, and keeps no transcript for the portal to shorten", () => {
     for (const [name, overrides] of Object.entries(VARIANTS)) {
       const minimum = unwrap(
         section(render(overrides).text, "Minimum necessary, and who receives Client Information"),
       );
       expect(minimum, name).toContain(
-        `healdesk keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time.`,
+        `healdesk keeps the record of each conversation, without what was said or written in it, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time.`,
       );
       expect(minimum, name).toContain(
         `It keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time.`,
       );
-      // Only what the portal does: its Settings shortens transcripts alone.
-      expect(minimum, name).toContain("Practice may shorten the period for transcripts in its portal.");
-      expect(minimum, name).not.toMatch(/shorten these periods/);
+      // No transcript is kept, and the portal's setting to shorten it is gone.
+      expect(minimum, name).not.toMatch(/shorten/);
+      expect(minimum, name).not.toContain("with its transcript");
       expect(minimum, name).toContain(
         `A backup copy of anything healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion.`,
       );
+    }
+  });
+
+  // The owner's decision of 13 October 2026, as BAA 1.4.0 clauses 11 and 14
+  // state it (apps/app lib/conversations/transcript-outbox.ts, drizzle/0069).
+  test("emails each transcript to Practice's one address, holds one copy for seven days, and says who answers for it after", () => {
+    const baa = unwrap(
+      prepareBaa(getBaaTemplate("1.4.0")!, {
+        clinicLegalName: "Glow Med Spa LLC",
+        specialty: "Med spa",
+        signatoryName: "Alex Chen",
+        signatoryEmail: "alex@glowmedspa.test",
+        effectiveDate: "2026-10-06",
+        isCoveredEntity: false,
+        attributionMode: "estimated",
+        connectedPlatform: "Mindbody",
+        outboundMessaging: false,
+        bookingSystem: "mindbody",
+        calendarAccount: "personal",
+      }).text,
+    );
+    for (const [name, overrides] of Object.entries(VARIANTS)) {
+      const text = render(overrides).text;
+      const minimum = unwrap(section(text, "Minimum necessary, and who receives Client Information"));
+      const transcripts =
+        "healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection, as the Safeguards clause provides. So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it. Until then healdesk may send the email again when a send fails or the email is returned, and when Practice asks. healdesk keeps no other copy of a transcript, apart from the backups described below; what Anthropic keeps is what the Subcontractors clause describes. Once healdesk's copy is deleted, the email is Practice's own record of what was said, and Practice is responsible for keeping, protecting and deleting it.";
+      // The BAA's paragraph, word for word: it names no patient.
+      expect(baa, name).toContain(transcripts);
+      expect(minimum, name).toContain(transcripts);
+      const requests = unwrap(section(text, "Clients' requests"));
+      expect(requests, name).toContain(
+        `healdesk holds a transcript only to deliver it to Practice, and only for the days the clause headed "Minimum necessary, and who receives Client Information" allows. After them healdesk has no transcript to give Practice, correct or delete: the email that carried it is Practice's own record, and Practice answers a request about a transcript from that email.`,
+      );
+      const stateLaw = unwrap(section(text, STATE_LAW_CLAUSE_HEADING));
+      expect(stateLaw, name).toContain(
+        "e. email Practice the transcript of each call and website chat, keep records of those conversations, without what was said or written in them, and of bookings,",
+      );
+      expect(stateLaw, name).not.toMatch(/kept as transcripts|keep transcripts/);
     }
   });
 });

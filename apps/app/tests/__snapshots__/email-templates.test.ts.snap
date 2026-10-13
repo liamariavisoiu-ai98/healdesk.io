@@ -750,7 +750,7 @@ exports[`each template's output > canceled, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding: *73</li></ul>
 <p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
-<p style="margin:0 0 16px;">We&#39;ll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.</p>
+<p style="margin:0 0 16px;">We&#39;ll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.</p>
 <p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -770,7 +770,7 @@ For 30 days, until Sunday 6 December, calls that still forward to us pass straig
 
 Your website chat shows a contact form until you remove the healdesk snippet from your website.
 
-We'll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.
+We'll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.
 
 We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.
 
@@ -807,7 +807,7 @@ exports[`each template's output > canceled, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic&#39;s own line, dial these AT&amp;T codes:</p>
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding: *73</li></ul>
 <p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
-<p style="margin:0 0 16px;">We&#39;ll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.</p>
+<p style="margin:0 0 16px;">We&#39;ll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.</p>
 <p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -827,7 +827,7 @@ For 30 days, until Sunday 6 December, calls that still forward to us pass straig
 
 Your website chat shows a contact form until you remove the healdesk snippet from your website.
 
-We'll email you when your export of transcripts and the booking log is ready. Download it by Sunday 6 December.
+We'll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.
 
 We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.
 

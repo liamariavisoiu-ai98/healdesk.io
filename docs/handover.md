@@ -381,10 +381,10 @@ npm test -w @healdesk/app          # database suites skip without TEST_APP_URL
 the runtime role deliberately does not have. The worker is a plain Node entry point, not
 a Next route. Jobs are enabled from the ops console, and most ship switched off, with
 these exceptions. `heartbeat`, `incident-deadlines` and `transcript-emails` ship on (0066
-seeds the second on; 0069 seeds the third, because it deletes every sealed transcript copy
-on its seventh day). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
+seeds the second on; 0069 the third). `transcript-emails` deletes every sealed transcript
+copy on its seventh day whatever its switch, which decides only whether transcripts are sent. `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
-1.3.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
+1.3.0 and 1.4.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no
 switch at all: `erasure-expiry`, `booking-request-expiry`, `welcome-email` and
 `booking-requirements-defaults`. The `heartbeat` row is the liveness signal and
@@ -408,7 +408,8 @@ has already run, holding the clinic's row locked all that time. The long-transac
 alarm in the AWS list is what catches it, and only half of it is built (see there).
 `retention-purge` runs both nightly and writes one audit row per clinic with counts.
 The same purge deletes a messaging thread (`chat_threads`) thirty days after its last
-message (sooner if the record clock or the portal's transcript period is shorter), a
+message (sooner if the record clock or the stored transcript period, which the portal no
+longer offers, is shorter), a
 vendor payload (`webhook_events`) thirty days after it arrived once processed (or at the
 record clock, if shorter) and at the record clock if it was never processed, and either
 kind of payload no later than the transcript period, since a call's payload carries its
@@ -421,8 +422,8 @@ does, or once older than the record clock when its appointment is already gone
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
-retention clause: BAA 1.3.0 and the DPA today, and any later version only if its text
-says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
+retention clause: BAA 1.3.0 and 1.4.0 and the DPA today, and any later version only if
+its text says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
 agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
 ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
 too, are purged as well, and check that the next 03 UTC run's note no longer begins
@@ -452,9 +453,9 @@ the same rule as the database's floor):
   though these agreements give it only "on request"), so deliver it and record the
   handover before then; ops is alerted at day 21 when none is recorded
   (`export_undelivered_before_destruction`).
-- BAA 1.3.0 and the DPA: day 29 once the export is recorded as delivered, its delivery
-  when that is later, and day 89 whatever happens, each a day inside the thirty days and
-  the ninety that BAA 1.3.0 states. Record the delivery by day 29: one recorded later is
+- BAA 1.3.0, 1.4.0 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
+  recorded as delivered, its delivery when that is later, and day 89 whatever happens, each
+  a day inside the thirty days and the ninety that BAA 1.3.0 and 1.4.0 state. Record the delivery by day 29: one recorded later is
   destroyed at the next hourly run, which in the thirtieth day's last hour can fall after
   the thirty days.
 

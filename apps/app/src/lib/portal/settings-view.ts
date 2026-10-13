@@ -10,7 +10,6 @@ import {
   FORWARDING_PASS_THROUGH_DAYS,
   forwardingInstructions,
   isCarrier,
-  TRANSCRIPT_RETENTION_DAYS_OPTIONS,
   type CallRouting,
   type Carrier,
   type Channel,
@@ -40,13 +39,7 @@ import { urgentHelpField } from "@/lib/setup/urgent";
 import { withTenant } from "@/lib/tenant";
 
 import { appliesWhen } from "./applies";
-import {
-  nightlyPurgeRuns,
-  retentionLine,
-  retentionShortenedLine,
-  SETTING_CHANNELS,
-  type SettingKey,
-} from "./settings";
+import { SETTING_CHANNELS, type SettingKey } from "./settings";
 
 /**
  * What the Settings page shows (plan Part F2), as plain data for its cards:
@@ -138,18 +131,8 @@ export type SettingsView = {
     transferIsSet: boolean;
     transferPlaceholder: string;
   };
-  /**
-   * Records (BAA 1.3.0 clause 11: "Practice may shorten these periods in its
-   * portal"): how long transcripts are kept, 90, 30 or 7 days, and for each
-   * choice that can shorten it the sentence the clinic confirms before it is
-   * saved (recordsOptions).
-   */
-  records: {
-    retentionDays: number;
-    /** Whether the nightly purge runs for this clinic (nightlyPurgeRuns): the card promises a removal only then. */
-    purgeRuns: boolean;
-    options: { id: string; label: string; line: string; confirm: string | null }[];
-  };
+  // No Records card: there is no transcript to keep (owner, 13 October 2026;
+  // BAA 1.4.0 clause 11), so nothing here offers how long one is kept.
 };
 
 export async function readSettingsView(input: {
@@ -184,7 +167,6 @@ export async function readSettingsView(input: {
       carrier: phone?.carrier ?? null,
       phoneSystem: phone?.phoneSystem ?? null,
       meta,
-      purgeRuns: await nightlyPurgeRuns(tx),
     };
   });
   const summary = await getBillingSummary(state.clinic.id, { now });
@@ -315,29 +297,7 @@ export async function readSettingsView(input: {
       transferIsSet: settings.transferE164 !== null,
       transferPlaceholder: settings.directLineE164 ? formatPhone(settings.directLineE164) : "",
     },
-    records: {
-      retentionDays: settings.transcriptRetentionDays,
-      purgeRuns: tenant.purgeRuns,
-      options: recordsOptions(tenant.purgeRuns),
-    },
   };
-}
-
-/**
- * The Records card's choices. Every choice but the longest carries the
- * sentence to confirm before shortening to it, whatever is saved when the
- * page loads: whether a pick shortens is decided when it is picked, against
- * what is saved then (retentionChoice), since the clinic can lengthen and
- * shorten again without reloading (the branch review's R9).
- */
-export function recordsOptions(purgeRuns: boolean): SettingsView["records"]["options"] {
-  const longest = Math.max(...TRANSCRIPT_RETENTION_DAYS_OPTIONS);
-  return TRANSCRIPT_RETENTION_DAYS_OPTIONS.map((days) => ({
-    id: String(days),
-    label: `${days} days`,
-    line: days === longest ? "The longest your agreement allows." : retentionLine(days),
-    confirm: days < longest ? retentionShortenedLine(days, purgeRuns) : null,
-  }));
 }
 
 /** Each channel switch's one line: what Off does (spec, "Every switch in the portal"). */

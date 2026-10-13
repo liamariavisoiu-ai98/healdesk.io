@@ -145,7 +145,8 @@ WHAT HEALDESK ACTUALLY DOES
 WHAT THE CLINIC SEES
   A small portal, signed into from an emailed link: switches for how the
   assistant behaves, every conversation and every booking. Opening a
-  transcript needs a second factor. Home and a weekly email show
+  conversation needs a second factor, and its transcript is emailed to the
+  clinic rather than kept. Home and a weekly email show
   conversations handled, appointments booked, calls answered that would have
   rung out, deposits collected, and booked value: bookings times the clinic's
   own prices. Never call that revenue. Whether a patient showed up and paid is

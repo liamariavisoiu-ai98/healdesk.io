@@ -40,9 +40,10 @@ describe("AGREEMENT_COPY", () => {
     expect(baa.explainer("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baa.explainer("1.2.2").terms).toBe(BAA_EXPLAINER.terms);
     expect(baa.explainer("1.2.1")).toBe(BAA_EXPLAINER);
-    // 1.3.0, the current version since its release, shows its own bullets (the next test).
-    expect(baa.currentVersion).toBe("1.3.0");
-    expect(baa.explainer(baa.currentVersion)).toBe(baa.explainer("1.3.0"));
+    // 1.4.0, the current version since its release on 13 October 2026, shows
+    // 1.3.0's own bullets (the next test): its Term clause is 1.3.0's.
+    expect(baa.currentVersion).toBe("1.4.0");
+    expect(baa.explainer(baa.currentVersion).terms).toBe(baa.explainer("1.3.0").terms);
     expect(baa.explainer(baa.currentVersion)).not.toBe(BAA_EXPLAINER);
     expect(baa.clauseNote).toBe(clauseExplainer);
     expect(baa.assentLabel).toBe(BAA_ASSENT_LABEL);

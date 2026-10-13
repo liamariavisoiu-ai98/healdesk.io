@@ -6,7 +6,6 @@ import type { SettingsView } from "@/lib/portal/settings-view";
 import {
   ChecklistSetting,
   ChoiceSetting,
-  RetentionSetting,
   SwitchSetting,
   TextSetting,
 } from "./controls";
@@ -118,39 +117,10 @@ export function ChannelsCard({ view }: { view: SettingsView }) {
   );
 }
 
-// -----------------------------------------------------------------------------
-// Records
-// -----------------------------------------------------------------------------
-
-/**
- * How long transcripts are kept (BAA 1.3.0 clause 11, "Practice may shorten
- * these periods in its portal"). Beside the channels, because it governs what
- * every channel leaves behind. Shortening needs a step-up and is confirmed in
- * words first; lengthening needs neither.
- */
-export function RecordsCard({ view }: { view: SettingsView }) {
-  const { records } = view;
-  return (
-    <Card
-      id="records"
-      title="Records"
-      intro="How long healdesk keeps the transcripts of your conversations."
-    >
-      <RetentionSetting
-        slug={view.slug}
-        settingKey="transcript_retention"
-        legend="Keep transcripts for"
-        line={`${
-          records.purgeRuns
-            ? "Shortening it removes older transcripts from your records at the next nightly clean-up."
-            : "Shortening it applies once healdesk's nightly clean-up is on for your account; until then, nothing is removed."
-        } ${SENSITIVE_HINT}`}
-        options={records.options}
-        initial={String(records.retentionDays)}
-      />
-    </Card>
-  );
-}
+// There is no Records card. It offered "Keep transcripts for" (BAA 1.3.0
+// clause 11), until the owner decided on 13 October 2026 that healdesk keeps
+// no transcript: each is emailed to the clinic when its conversation ends, and
+// BAA 1.4.0 gives the clinic no period to shorten (lib/portal/settings.ts).
 
 /** A channel's status word, and the one line on what happens next. */
 function StatusLine({ word, line }: { word?: string; line?: string }) {

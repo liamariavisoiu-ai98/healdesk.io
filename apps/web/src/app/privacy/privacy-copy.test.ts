@@ -96,10 +96,16 @@ describe("the product's commitments the policy repeats", () => {
     expect(text).not.toMatch(/five (?:calendar|business) days/);
   });
 
-  test("transcripts are deleted automatically after the agreement's period, or sooner", () => {
+  test("no transcript is kept: it is emailed to the clinic, the one copy goes in seven days, the record without the words at the agreement's period", () => {
+    // BAA 1.4.0 clause 11 (owner, 13 October 2026; LEGAL_VERSION 2026-10-13.3).
     expect(text).toContain(
-      `each conversation and its transcript is deleted automatically ${TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if the clinic chooses a shorter period`,
+      "Inside the product, a clinic's patient conversations: we keep no transcript. When a call or a website chat ends, its transcript is emailed to the clinic, and the one encrypted copy we hold so that a failed email can be sent again is deleted seven days after the email is first accepted for delivery, or seven days after it was queued if it never is.",
     );
+    expect(text).toContain(
+      `The record of each conversation, without what was said, is deleted automatically ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and no call audio is kept at all.`,
+    );
+    // The portal's setting to shorten transcripts is gone, and nothing says otherwise.
+    expect(text).not.toMatch(/each conversation and its transcript|chooses a shorter period|or sooner if the clinic chooses/);
   });
 
   test("every address is the one address", () => {

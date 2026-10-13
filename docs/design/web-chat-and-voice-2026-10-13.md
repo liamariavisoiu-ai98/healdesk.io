@@ -23,7 +23,7 @@ The assistant books nothing. It collects what the practice's requirement set ask
 
 ## The web chat: `lib/chat/web-chat.ts`, `app/api/widget/v1/[slug]/{start,message,end}`
 
-- **Start**: the widget names the clinic by its public slug (`app_web_chat_clinic`, drizzle/0070). The
+- **Start**: the widget names the clinic by its public slug (`app_web_chat_clinic`, drizzle/0071). The
   answer gate decides; a refusal answers `contact_form`, which is what the widget shows instead
   (CLAUDE.md, "Failure"). Otherwise the opening line, the locked AI line and the chat greeting, and a
   signed token. Nothing is stored yet.
@@ -34,7 +34,7 @@ The assistant books nothing. It collects what the practice's requirement set ask
   each message; the browser holds only the token, an HMAC-signed note of the clinic, the conversation
   and the session, with nothing the visitor wrote.
 - **Request**: once a first name, a number and a time are collected, one booking request (channel
-  `web_chat`, drizzle/0070) and the desk's usual link email, which carries nothing about the person.
+  `web_chat`, drizzle/0071) and the desk's usual link email, which carries nothing about the person.
 - **End**: the visitor ends it (`/end`, which a widget can send with `navigator.sendBeacon`), or thirty
   quiet minutes pass; the outbox sends the transcript and its seven days start. A tab closed mid-chat
   loses nothing: the row is already there. A message after the end starts a new conversation.

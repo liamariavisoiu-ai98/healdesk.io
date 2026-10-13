@@ -72,7 +72,7 @@ export const renderCanceled: EmailTemplate<CanceledPayload> = (payload, ctx) => 
   blocks.push(
     {
       type: "paragraph",
-      text: `We'll email you when your export of transcripts and the booking log is ready. Download it by ${dayLong(payload.exportByOn, ctx)}.`,
+      text: `We'll email you when your export of conversation records and the booking log is ready. Download it by ${dayLong(payload.exportByOn, ctx)}.`,
     },
     {
       type: "paragraph",

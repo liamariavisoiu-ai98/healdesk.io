@@ -75,18 +75,33 @@ export function agreementText(version: string): string {
  * these, word for word, with TRANSCRIPT_RETENTION_DAYS. 1.2.2 and earlier say
  * only "keeps transcripts and conversation records for 90 days", which
  * promises no period for a booking request, an appointment or a contact.
+ *
+ * Each period is a list of the wordings that state it, any one of which
+ * will do. Only the conversation's has two: BAA 1.4.0 and the DPA keep "the
+ * record of each conversation, without what was said or written in it",
+ * since no transcript is kept (owner, 13 October 2026), where 1.3.0 kept
+ * "each conversation, with its transcript". Both are the period the purge
+ * runs for a conversation row, so a 1.4.0 clinic is purged whatever the
+ * switch says, as a 1.3.0 clinic is.
  */
-const PURGE_PERIODS: readonly string[] = [
-  `keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place`,
-  `each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time`,
-  `keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time`,
-  `contact details are kept while any conversation, appointment record or booking request of theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded or changed`,
+const PURGE_PERIODS: readonly (readonly string[])[] = [
+  [
+    `keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place`,
+    `keeps the record of each conversation, without what was said or written in it, for ${TRANSCRIPT_RETENTION_DAYS} days after it took place`,
+  ],
+  [`each appointment record for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time`],
+  [
+    `keeps each booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was confirmed for and its appointment's time`,
+  ],
+  [
+    `contact details are kept while any conversation, appointment record or booking request of theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded or changed`,
+  ],
 ];
 
 /** Whether an agreement's own clauses state every one of the purge's periods. */
 export function agreementStatesThePurge(version: string): boolean {
   const text = agreementText(version);
-  return PURGE_PERIODS.every((period) => text.includes(period));
+  return PURGE_PERIODS.every((wordings) => wordings.some((period) => text.includes(period)));
 }
 
 /**

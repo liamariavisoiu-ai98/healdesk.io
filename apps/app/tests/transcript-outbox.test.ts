@@ -216,7 +216,7 @@ describeDb("the transcript outbox", () => {
       /permission denied/,
     );
     // The runtime role may write `sealed` only to grow an open web chat
-    // (drizzle/0070); a queued call's copy is refused by the trigger.
+    // (drizzle/0071); a queued call's copy is refused by the trigger.
     await expect(attempt(`update transcript_emails set sealed = '{}'::jsonb where id = $1`)).rejects.toThrow(
       /never rewritten/,
     );
@@ -402,6 +402,18 @@ describeDb("the transcript outbox", () => {
     expect(outcome.status).toBe("ok");
     expect((await row(dueId!))?.status).toBe("sent");
     expect(await row(oldId!)).toBeUndefined();
+  });
+
+  test("off, the job still deletes every copy on its day: the agreement's seven days wait for no switch", async () => {
+    const { clinicId, conversationId } = await seeded("outbox-off-delete");
+    const id = await queue(clinicId, conversationId);
+    await age(id!, `destroy_after = now() - interval '1 second', created_at = now() - interval '8 days'`);
+    await setSwitch(false);
+    const transport = new FakeTransport();
+    expect((await runTranscriptEmailsJob({ transport })).status).toBe("disabled");
+    expect(await row(id!)).toBeUndefined();
+    expect(transport.sent).toHaveLength(0);
+    await setSwitch(true);
   });
 
   test("off, the job and the send-now both stand aside", async () => {

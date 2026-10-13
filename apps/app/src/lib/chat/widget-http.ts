@@ -1,4 +1,5 @@
 import { clientIp } from "@/lib/client-ip";
+import { describeError, log } from "@/lib/log";
 
 import { originAllowed, webChatClinic, type WebChatClinic } from "./web-chat";
 
@@ -46,10 +47,24 @@ export function json(body: unknown, status: number, origin: string | null): Resp
 
 export type WidgetRequest = { clinic: WebChatClinic; origin: string | null; body: Record<string, unknown> };
 
+/**
+ * The clinic a slug names, or "unavailable" when the database cannot say: the
+ * widget then gets a 503 and shows the clinic's contact form, never a bare 500.
+ */
+async function resolveClinic(slug: string): Promise<WebChatClinic | null | "unavailable"> {
+  try {
+    return await webChatClinic(slug);
+  } catch (error) {
+    log.error("web chat clinic lookup failed", { error: describeError(error) });
+    return "unavailable";
+  }
+}
+
 /** The preflight: allowed only for the clinic's own origin. */
 export async function preflight(request: Request, slug: string): Promise<Response> {
   const origin = request.headers.get("origin");
-  const clinic = await webChatClinic(slug);
+  const clinic = await resolveClinic(slug);
+  if (clinic === "unavailable") return new Response(null, { status: 503, headers: { Vary: "Origin" } });
   if (!clinic || !originAllowed(origin, clinic.website)) return new Response(null, { status: 403, headers: { Vary: "Origin" } });
   return new Response(null, { status: 204, headers: corsHeaders(origin) });
 }
@@ -57,7 +72,8 @@ export async function preflight(request: Request, slug: string): Promise<Respons
 /** Resolve the clinic, check the origin, the rate and the body; or the response that refuses it. */
 export async function widgetRequest(request: Request, slug: string): Promise<WidgetRequest | Response> {
   const origin = request.headers.get("origin");
-  const clinic = await webChatClinic(slug);
+  const clinic = await resolveClinic(slug);
+  if (clinic === "unavailable") return json({ mode: "contact_form", reason: "unavailable" }, 503, null);
   if (!clinic) return json({ error: "not_found" }, 404, null);
   if (!originAllowed(origin, clinic.website)) return json({ error: "origin" }, 403, null);
   if (rateLimited(`${clientIp(request.headers) ?? "unknown"}:${clinic.clinicId}`)) {

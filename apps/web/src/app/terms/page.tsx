@@ -150,6 +150,25 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  *     prompt forbids deposits and links, and nothing calls
  *     depositLinkMessage (lib/booking/deposit-gate.ts). Section 2's deposit
  *     link is "in website chat", not "in chat".
+ *
+ * Revised on 13 October 2026 as LEGAL_VERSION 2026-10-13.3, for BAA 1.4.0
+ * (docs/counsel/agreement-changes.md § 14): the owner decided that day that
+ * healdesk keeps no transcript.
+ *   - section 7's export holds the records of the clinic's conversations and
+ *     the booking log, and says the transcripts reached the clinic by email,
+ *     where it promised "transcripts and the booking log";
+ *   - the annex's "Transcripts are deleted automatically" item says each
+ *     call's and website chat's transcript is emailed to the clinic's address
+ *     over an encrypted connection, that the one copy held to send a failed
+ *     email again goes seven days after the email is first accepted (or after
+ *     it was queued, if it never is), and that the conversation's record,
+ *     without what was said, goes at 90 days, where it said each
+ *     conversation and its transcript went at 90 days "or sooner if you
+ *     choose a shorter period in your portal", a setting that is gone;
+ *   - the annex's opening-line item says the record of each call notes when
+ *     the line was given (conversations.disclosure_played_at), where it said
+ *     the line is "the first line of every transcript", which healdesk no
+ *     longer holds (docs/counsel/state-disclosure.md, decision 3).
  */
 export default function TermsPage() {
   const packages = packagesForTerms();
@@ -418,9 +437,10 @@ export default function TermsPage() {
           forwarding, whichever is first; we tell you how to remove it, at once and again in
           writing, so calls reach your Practice exactly as they did before. We revoke our access to
           your Google Calendar, your Meta accounts and your payment gateway. Within 30 days of the
-          end we deliver an export of your data — transcripts and the booking log — and we then
-          destroy our copies when and as the Business Associate Agreement says. Billing records
-          are retained as tax law requires.
+          end we deliver an export of your data — the records of your conversations and the
+          booking log; the transcripts themselves reached you by email as each conversation
+          ended — and we then destroy our copies when and as the Business Associate Agreement
+          says. Billing records are retained as tax law requires.
         </p>
       </Section>
 
@@ -756,13 +776,17 @@ export default function TermsPage() {
             <strong>The AI says it is an AI, first.</strong> Every call, chat and message opens
             with a line saying the patient is talking to an AI assistant; on the phone the same
             line says the call is transcribed, and no call audio is kept. The clinic cannot switch
-            it off or edit it out through the greeting, and it is the first line of every
-            transcript.
+            it off or edit it out through the greeting, and the record of each call notes when it
+            was given.
           </li>
           <li>
-            <strong>Transcripts are deleted automatically.</strong> Each conversation and its
-            transcript is deleted {TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner
-            if you choose a shorter period in your portal.
+            <strong>Transcripts are emailed to the clinic, not kept.</strong> When a call or a
+            website chat ends, its transcript is emailed to the address on the clinic&apos;s
+            account, only over an encrypted connection. The one encrypted copy we hold so that a
+            failed email can be sent again is deleted seven days after the email is first
+            accepted for delivery, or seven days after it was queued if it never is; from then
+            on the email is the clinic&apos;s record. The record of each conversation, without
+            what was said, is deleted {TRANSCRIPT_RETENTION_DAYS} days after it took place.
           </li>
           <li>
             <strong>Encryption.</strong> At rest in the database and object store, and in transit

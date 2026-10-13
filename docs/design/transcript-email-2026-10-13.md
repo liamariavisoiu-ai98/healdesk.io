@@ -5,10 +5,8 @@ to the clinic's address and healdesk keeps no copy of it. The conversation row s
 the words: channel, times, outcome, the booking it produced, and when the "I'm an AI assistant,
 this call is transcribed" line played.
 
-The spec (`docs/v1-product-spec.md`) and the agreements still describe a stored, searchable
-transcript. Until they change, this file records what was built against the decision and what
-has to follow it. The spec wins on what the product is (`CLAUDE.md`), so the spec doc has to be
-edited and re-exported; the export in this repository is never edited by hand.
+The spec (`docs/v1-product-spec.md`), BAA 1.4.0 and the DPA say so since the same day; this file
+records what was built and what followed.
 
 ## What is built
 
@@ -62,23 +60,17 @@ edited and re-exported; the export in this repository is never edited by hand.
 - **The SES sandbox.** The account has to be taken out of it (infra/aws/README.md, First run)
   before a transcript can reach a clinic.
 
-## What has to change to match
+## What changed to match (13 October 2026)
 
-| Where | Today it says | Change |
-| --- | --- | --- |
-| Spec, voice section ("the working transcript lives in Healdesk under the clinic's retention policy") | Stored | Emailed to the clinic, not kept |
-| Spec, Portal map, Conversations ("Every call, chat and DM, searchable, with the transcript … Export available") | A searchable transcript screen | The conversation list without the words; the transcript is in the clinic's inbox |
-| Spec, "What data actually moves" (call transcript and chat transcripts "Healdesk database at rest") | At rest with healdesk | In transit through SES to the clinic; nothing at rest |
-| Spec, retention (90 days, shortenable to 30 or 7; a second factor and an access log before a transcript opens) | Stored transcripts | No transcript to keep, open or log; the conversation row keeps its own 90-day clock |
-| Spec, support chat ("finding a transcript") | Support finds one | Support cannot: there is none |
-| BAA 1.3.0 clause on permitted uses, item e ("keep transcripts and records of those conversations … show them … export, correct or delete them") | Keeps transcripts | Emails each transcript to Practice once, keeps the records without the words |
-| BAA 1.3.0 "patient information involved" ("kept as transcripts with no call audio") | Kept | Transmitted to Practice, not kept |
-| BAA 1.3.0 clause 11 ("Anything else a person chooses to say … is kept only in the transcript"; "healdesk keeps each conversation, with its transcript, for 90 days"; "Practice may shorten the period for transcripts") | Kept 90 days, shortenable | The conversation record for 90 days; the transcript not at all |
-| DPA 1.0.0, the same three places (lines 171, 182, 371-378 of `docs/dpa-v1.0.0.txt`) | Kept | As the BAA |
-| Portal, Settings, "Keep transcripts for" (`apps/app/src/app/c/[slug]/settings/SettingsCards.tsx`) | A setting with no effect now | Remove it with the spec change; the purge's transcript clock and `transcript_uri` go with it |
-| `docs/hipaa-risk-analysis.md`, the transcripts row ("Object storage referenced by URI") | Stored | Emailed through SES; nothing stored |
-
-A new agreement version (BAA 1.4.0, DPA 1.1.0) is cheapest now, while no clinic has signed.
+| Where | Now |
+| --- | --- |
+| Spec doc | Edited and re-exported (`docs/v1-product-spec.md`): the voice section, the Conversations screen, the support chat, "What data actually moves", the retention list and the access log say the transcript is emailed and not kept |
+| BAA | 1.4.0 released as the current version, replacing 1.3.0 outright (`drizzle/0070`, `docs/baa-v1.4.0.txt`, counsel log §14): clauses 4, 11 and 14. 1.3.0's text and hashes are untouched |
+| DPA 1.0.0 | Edited in place, still unreleased: clauses 5, 10 and 13, goldens regenerated |
+| Portal Settings | "Keep transcripts for" removed; the column stays because the purge reads it, and an old value only deletes sooner |
+| Website | Terms, Privacy and data deletion pages, the homepage FAQ, the demo brief and the vendor register (`LEGAL_VERSION` 2026-10-13.3) |
+| `docs/hipaa-risk-analysis.md`, `docs/hipaa-compliance.md` | The transcripts rows |
+| The outbox's deletion | Runs whatever the `transcript-emails` switch says, since the agreement promises it |
 
 ## Risks the decision accepts, and the ones to settle
 
@@ -98,5 +90,6 @@ A new agreement version (BAA 1.4.0, DPA 1.1.0) is cheapest now, while no clinic 
   `conversations.disclosure_played_at` and the fixed audio asset the line is played from. Put
   this to counsel with R1.
 - **Raw vendor payloads.** `webhook_events.raw_payload` keeps a vendor's payload for 30 days
-  and can carry a transcript. The old Synthflow route still writes one; the Retell endpoint must
-  store no transcript in its raw payloads.
+  and can carry a transcript. The old Synthflow route still writes one, which BAA 1.4.0's "keeps
+  no other copy" does not allow: it must go before any real call (it serves no clinic in v1). The
+  Retell endpoint writes no `webhook_events` row at all.

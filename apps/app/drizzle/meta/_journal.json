@@ -495,8 +495,15 @@
     {
       "idx": 70,
       "version": "7",
-      "when": 1791910655090,
-      "tag": "0070_web_chat_and_voice",
+      "when": 1791911349824,
+      "tag": "0070_baa_release_1_4_0",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1791913973330,
+      "tag": "0071_web_chat_and_voice",
       "breakpoints": true
     }
   ]

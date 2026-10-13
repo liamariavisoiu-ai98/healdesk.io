@@ -35,6 +35,15 @@ export const metadata: Metadata = {
  * that transcripts are deleted automatically after TRANSCRIPT_RETENTION_DAYS,
  * the period the Business Associate Agreement states and apps/app's
  * clinics.retention_media_days defaults to, or sooner if the clinic chooses.
+ *
+ * Revised 13 October 2026 (LEGAL_VERSION 2026-10-13.3), for BAA 1.4.0: the
+ * owner decided that day that healdesk keeps no transcript. The clinic and
+ * patient sections say each transcript is emailed to the clinic and kept by
+ * it, that healdesk's encrypted copy goes seven days after the email first
+ * goes, and that the conversation's record, without what was said, goes at
+ * TRANSCRIPT_RETENTION_DAYS, where they said the conversation and its
+ * transcript went then "or sooner if you choose a shorter period in your
+ * portal", a setting that is gone.
  */
 export default function DataDeletionPage() {
   const email = (
@@ -81,9 +90,12 @@ export default function DataDeletionPage() {
           <li>
             <strong>Everything else.</strong> Conversations, bookings and the data we received from
             Google or Meta are deleted on your instruction, under your Business Associate Agreement
-            with us. Each conversation and its transcript is also deleted automatically{" "}
-            {TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if you choose a shorter
-            period in your portal. Email {email} from the owner&apos;s address on the account. Our AI model
+            with us. We keep no transcript: each is emailed to you when its conversation ends, and
+            our encrypted copy is deleted seven days after that email first goes (or seven days
+            after it was queued, if it never goes), so a transcript in your inbox is yours to
+            delete. The record of each conversation, without what was
+            said, is also deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it took
+            place. Email {email} from the owner&apos;s address on the account. Our AI model
             provider keeps conversation inputs for 30 days under its own agreement, which we cannot
             shorten, and may keep content its automated trust-and-safety systems flag, or that the
             law requires it to keep, for up to two years.
@@ -94,9 +106,10 @@ export default function DataDeletionPage() {
       <Section id="patients" title="If you messaged or called a clinic that uses healdesk">
         <p>
           The clinic you contacted controls the record of that conversation, and we act on its
-          instructions. Unless it has chosen a shorter period, the record and its transcript are
-          deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after the conversation. To have it
-          deleted sooner, ask the clinic. If you would rather ask us, email {email},
+          instructions. We keep no transcript of a call or a website chat: it goes to the clinic
+          by email, and the clinic keeps it. Our record of the conversation, without what was
+          said, is deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it. To have
+          either deleted sooner, ask the clinic. If you would rather ask us, email {email},
           say which clinic you contacted and on which channel, and we will pass the request to that
           clinic and tell you we have.
         </p>

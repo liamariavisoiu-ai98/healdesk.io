@@ -15,6 +15,7 @@ import {
   renderCalendarElection,
   renderDirectBookingAddendum,
   selectCalendarClause,
+  stateLawClauseBody140,
   subprocessorNoticeClauseBody,
   type BaaVariables,
   type CalendarElectionVariables,
@@ -41,10 +42,13 @@ import { describe, expect, test } from "vitest";
  *   npx tsx -e 'import("@healdesk/catalog").then(...)' — or simply run this
  *   test and copy the "received" value for the NEW version only.
  *
- * 1.3.0 was released on 2026-10-12 and is what clinics sign; its hashes are
- * the record from that day on (docs/counsel/agreement-changes.md §12.12,
- * §12.15). 1.2.2 was released on 2026-10-09 and replaced outright by 1.3.0
- * before any clinic signed it; it is frozen like the rest. 1.2.1 was
+ * 1.4.0 was released on 2026-10-13 and is what clinics sign; its hashes are
+ * the record from that day on (docs/counsel/agreement-changes.md §14). 1.3.0
+ * was released on 2026-10-12 and replaced outright by 1.4.0 the next day,
+ * before any clinic signed it; its hashes have been the record since its own
+ * release (§12.12, §12.15) and never move. 1.2.2 was released on 2026-10-09
+ * and replaced outright by 1.3.0 before any clinic signed it; it is frozen
+ * like the rest. 1.2.1 was
  * released on 2026-10-01 and replaced by 1.2.2 before any clinic signed it.
  * 1.0.0 and 0.1.0-draft have been signed; their hashes never move. 1.2.0 was
  * offered for part of 1 October and is frozen too. 1.1.0-draft was
@@ -90,8 +94,21 @@ const VARIANTS: Record<string, Partial<BaaVariables>> = {
 
 /** version → variant → sha256 of the assembled text. Append-only. */
 const GOLDEN: Record<string, Record<string, string>> = {
-  // Released on 2026-10-12 and offered from that day (agreement-changes.md
-  // §12.15). Frozen from the release: these are the bytes clinics sign.
+  // Released on 2026-10-13 and offered from that day (agreement-changes.md
+  // §14): 1.3.0 with its three transcript passages said as the product now
+  // works. Frozen from the release: these are the bytes clinics sign. No
+  // covered_verified_boulevard, as in 1.3.0: it refuses verified reporting.
+  "1.4.0": {
+    covered_estimated: "090b15ed4e7c18484e478f9fd7513fe98fac7538970aff02966913d19d081f1c",
+    notcovered_estimated: "860a6b5c3ee77c81d51f0926664027bd15636ab8122d8723331f574cd16776c0",
+    unknown_estimated: "24fbf49533fa8dc3f305177398bbc357343f254893f2ae6ac7cf3dbd3032194b",
+    // Identical to covered_estimated by design, as in 1.2.x and 1.3.0: no
+    // clause reads outboundMessaging.
+    covered_outbound: "090b15ed4e7c18484e478f9fd7513fe98fac7538970aff02966913d19d081f1c",
+  },
+  // Released on 2026-10-12 and offered until 1.4.0 replaced it on 2026-10-13
+  // (agreement-changes.md §12.15, §14). No clinic signed it; frozen from the
+  // release all the same: these are the bytes it was offered with.
   // Moved while it was a draft by the pre-release audit's redraft of 6
   // October 2026 (§12.12, §12.14), on 7 October by clause 11's sentence
   // giving booking requests their own period, on 9 October by the owner's
@@ -197,10 +214,10 @@ describe("BAA template freeze", () => {
   test("the variants genuinely differ — the predicates are live, not decorative", () => {
     // One coincidence is by design and is asserted as such: outboundMessaging
     // selects nothing since 1.2.0, so covered_outbound IS covered_estimated.
-    // Every other variant is a distinct document. 1.3.0, the current
-    // version, has no covered_verified_boulevard (it refuses verified
-    // reporting), so this reads both it and 1.2.2, which has all five.
-    for (const version of [CURRENT_BAA_VERSION, "1.2.2"]) {
+    // Every other variant is a distinct document. 1.4.0, the current
+    // version, and 1.3.0 have no covered_verified_boulevard (they refuse
+    // verified reporting), so this reads them and 1.2.2, which has all five.
+    for (const version of [CURRENT_BAA_VERSION, "1.3.0", "1.2.2"]) {
       const golden = GOLDEN[version]!;
       expect(golden.covered_outbound, version).toBe(golden.covered_estimated);
       const distinct = Object.entries(golden)
@@ -364,8 +381,10 @@ describe("1.2.2: the agreement offered until 1.3.0's release", () => {
   ];
 
   test("was released, is replaced outright by 1.3.0, and is no longer signable", () => {
-    expect(CURRENT_BAA_VERSION).toBe("1.3.0");
-    expect(BAA_TEMPLATES[1]).toBe(v122());
+    // 1.3.0 was replaced in turn by 1.4.0 (13 October 2026), so 1.2.2 sits third.
+    expect(CURRENT_BAA_VERSION).toBe("1.4.0");
+    expect(BAA_TEMPLATES[1]!.version).toBe("1.3.0");
+    expect(BAA_TEMPLATES[2]).toBe(v122());
     expect(v122().approvedByCounsel).toBe(true);
     expect(v122().publishedOn).toBe("2026-10-09");
     // No overlap: no clinic had signed it, and the owner decided on 12
@@ -629,7 +648,7 @@ describe("1.2.2 against 1.2.1: exactly the owner's three changes", () => {
     expect(v121().approvedByCounsel).toBe(true);
     expect(v121().publishedOn).toBe("2026-10-01");
     expect(BAA_TEMPLATES.indexOf(v121())).toBeGreaterThan(BAA_TEMPLATES.indexOf(v122()));
-    expect(CURRENT_BAA_VERSION).toBe("1.3.0");
+    expect(CURRENT_BAA_VERSION).toBe("1.4.0");
     expect(BAA_RELEASE_OVERLAP).not.toHaveProperty("1.2.1");
     const text = unwrap(prepareBaa(v121(), BASE).text);
     expect(text).toContain("Version 1.2.1 — executed electronically");
@@ -708,16 +727,18 @@ describe("1.3.0: the calendar-dependent agreement", () => {
     });
   }
 
-  test("is the current template, released by the owner, and replaced 1.2.2 outright", () => {
-    expect(BAA_TEMPLATES[0]!.version).toBe(CURRENT_BAA_VERSION);
-    expect(CURRENT_BAA_VERSION).toBe(V130);
-    expect(BAA_TEMPLATES[1]!.version).toBe("1.2.2");
+  test("was released by the owner, replaced 1.2.2 outright, and was replaced outright by 1.4.0", () => {
+    expect(BAA_TEMPLATES[1]!.version).toBe(V130);
+    expect(BAA_TEMPLATES[2]!.version).toBe("1.2.2");
     expect(v130().approvedByCounsel).toBe(true);
     expect(v130().publishedOn).toBe("2026-10-12");
-    // No overlap, and the go-live floor is 1.3.0: no clinic had signed 1.2.2
-    // (owner, 12 October 2026; plan C19).
+    // No overlap, and the go-live floor passed it to 1.4.0 the next day: no
+    // clinic had signed it, and it describes a stored transcript (owner, 13
+    // October 2026; agreement-changes.md §14), as 1.2.2 was passed when no
+    // clinic had signed it (owner, 12 October 2026; plan C19).
+    expect(CURRENT_BAA_VERSION).toBe("1.4.0");
     expect(BAA_RELEASE_OVERLAP).toEqual({});
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V130);
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.4.0");
     // Nothing in the text marks it a draft, so the release itself moved no
     // hash; the release audit's two text fixes did, and the owner's Meta and
     // 14(b) wording after the second read (§12.15).
@@ -1237,6 +1258,232 @@ describe("1.3.0: the calendar-dependent agreement", () => {
 });
 
 /**
+ * 1.4.0, released on 13 October 2026: 1.3.0 with its three transcript
+ * passages said as the product now works. The owner decided that day that
+ * healdesk keeps no transcript: each call's and website chat's is emailed to
+ * the practice's one address through SES with TLS required, one sealed copy
+ * waits in the outbox until SES has accepted it and for seven days after
+ * (drizzle/0069; lib/conversations/transcript-outbox.ts), and the
+ * conversation's record stays without the words. These pin that 1.4.0 says
+ * exactly that, on every variant, and that everything else is 1.3.0's own
+ * text (packages/catalog/src/baa.ts, above CLAUSES_1_4; agreement-changes.md
+ * §14).
+ */
+const V140 = "1.4.0";
+
+/** variant → sha256, for 1.4.0, over 1.3.0's own variants. Frozen from the release (13 October 2026), and recorded in §14. */
+const GOLDEN_1_4: Record<string, string> = {
+  uncovered_nobaa: "8368172f436a9745c5f49b3618f0868fb4699f0949d126ef18b11533aa6535b8",
+  uncovered_personal: "44783845eb1f726364f4880165ceac442577a5cebaafacdfb1bc2c421515ac40",
+  notused_mindbody: "2bba813e83d84759fd11da4b3f7100668ac09b7fd967a996f68bdb59c866b7fe",
+  notused_other: "2991f7af136e30740ff9ef1571abc388310c2d6f05d3250d8c1913614f5d8d2b",
+  live_calcom: "7b847d7578719c64b59a58a5a60db1abcea3a66b53d631e048ba20ea1c12c642",
+  live_highlevel_personal: "e82033ab4c71ee1ac6463098229b0aa3553702612cc6599ec5401362bb640ff7",
+  live_calendly_nobaa: "015d11feb12702430ae5cdfae6b1b198960d01a5d1d4e06ee8f9aade6064f433",
+};
+
+describe("1.4.0: the transcript emailed, not kept", () => {
+  const v130 = () => getBaaTemplate(V130)!;
+  const v140 = () => getBaaTemplate(V140)!;
+  const render = (overrides: Partial<BaaVariables>) =>
+    prepareBaa(v140(), { ...BASE, ...overrides });
+  const body = (version: string, id: string, overrides: Partial<BaaVariables> = {}) =>
+    getBaaTemplate(version)!
+      .clauses.find((c) => c.id === id)!
+      .body({ ...BASE, ...overrides });
+  /** As 1.3.0's: every selection any version reads, except verified reporting, which 1.4.0 refuses too. */
+  const everyVariant = (): Partial<BaaVariables>[] => [
+    ...Object.values(VARIANTS).filter((overrides) => overrides.attributionMode !== "verified"),
+    ...Object.values(VARIANTS_1_3),
+    ...Object.values(VARIANTS_1_1),
+    { outboundMessaging: true, isCoveredEntity: null },
+    {
+      isCoveredEntity: false,
+      bookingSystem: "boulevard",
+      connectedPlatform: "Boulevard",
+      calendarAccount: "personal",
+    },
+  ];
+
+  for (const [name, hash] of Object.entries(GOLDEN_1_4)) {
+    test(`${V140} / ${name} still renders the bytes released`, () => {
+      expect(render(VARIANTS_1_3[name]!).hash).toBe(hash);
+    });
+  }
+
+  test("is the current template, released by the owner, and replaced 1.3.0 outright", () => {
+    expect(BAA_TEMPLATES[0]!.version).toBe(CURRENT_BAA_VERSION);
+    expect(CURRENT_BAA_VERSION).toBe(V140);
+    expect(BAA_TEMPLATES[1]).toBe(v130());
+    expect(v140().approvedByCounsel).toBe(true);
+    expect(v140().publishedOn).toBe("2026-10-13");
+    // No overlap, and the go-live floor is 1.4.0: no clinic had signed 1.3.0,
+    // and 1.3.0 describes a stored transcript (owner, 13 October 2026).
+    expect(BAA_RELEASE_OVERLAP).toEqual({});
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe(V140);
+    const text = render({}).text;
+    expect(text).toContain("Version 1.4.0 — executed electronically");
+    expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
+  });
+
+  test("every clause but state-law, minimum-necessary and patient-rights is 1.3.0's own object, in the same order", () => {
+    expect(v140().clauses.map((c) => c.id)).toEqual(v130().clauses.map((c) => c.id));
+    const changed = new Set(["state-law", "minimum-necessary", "patient-rights"]);
+    v140().clauses.forEach((clause, i) => {
+      if (changed.has(clause.id)) expect(clause, clause.id).not.toBe(v130().clauses[i]);
+      else expect(clause, clause.id).toBe(v130().clauses[i]);
+    });
+    // 22 registered, 20 render, as in 1.3.0.
+    expect(v140().clauses).toHaveLength(22);
+    for (const overrides of everyVariant()) {
+      expect(render(overrides).clauseIds, JSON.stringify(overrides)).toEqual(
+        prepareBaa(v130(), { ...BASE, ...overrides }).clauseIds,
+      );
+    }
+  });
+
+  test("inside the changed clauses and the preamble, everything but the change is 1.3.0's, word for word", () => {
+    expect(v140().preamble(BASE)).toBe(
+      v130().preamble(BASE).replace("Version 1.3.0 —", "Version 1.4.0 —"),
+    );
+    // Minimum necessary: the purpose, the booking fields and their list are
+    // 1.3.0's; then the paragraph on what is kept, the new paragraph on the
+    // transcript, and the periods without it.
+    const min130 = body(V130, "minimum-necessary").split("\n\n");
+    const min140 = body(V140, "minimum-necessary").split("\n\n");
+    expect(min130).toHaveLength(5);
+    expect(min140).toHaveLength(6);
+    expect(min140.slice(0, 3)).toEqual(min130.slice(0, 3));
+    // Patient rights: 1.3.0's paragraphs, with one added after the list.
+    const rights130 = body(V130, "patient-rights").split("\n\n");
+    const rights140 = body(V140, "patient-rights").split("\n\n");
+    expect(rights140).toHaveLength(rights130.length + 1);
+    expect(rights140.slice(0, 2)).toEqual(rights130.slice(0, 2));
+    expect(rights140.at(-1)).toBe(rights130.at(-1));
+    // The state-law clause is the shared function's 1.4.0 wording, whose two
+    // sentences the catalog's baa.test.ts holds against 1.3.0's.
+    for (const overrides of [{}, VARIANTS_1_3.notused_mindbody!]) {
+      expect(body(V140, "state-law", overrides)).toBe(
+        stateLawClauseBody140({
+          subject: "patient information",
+          kind: "baa",
+          sync: overrides === VARIANTS_1_3.notused_mindbody ? "manual" : "live",
+        }),
+      );
+    }
+    // The render guard is 1.3.0's, naming 1.4.0.
+    expect(() => render(VARIANTS.covered_verified_boulevard!)).toThrow(
+      /Version 1\.4\.0 has no verified-reporting clause/,
+    );
+    for (const bad of [{ bookingSystem: undefined }, { calendarAccount: "gmail" }, { connectedPlatform: "Mindbody" }] as unknown as Partial<BaaVariables>[]) {
+      expect(() => render(bad), JSON.stringify(bad)).toThrow(BaaRenderError);
+    }
+  });
+
+  test("the variants are distinct documents, except where an answer has nothing to change", () => {
+    const hashes = [...Object.values(GOLDEN[V140]!), ...Object.values(GOLDEN_1_4)];
+    expect(GOLDEN[V140]!.covered_outbound).toBe(GOLDEN[V140]!.covered_estimated);
+    expect(new Set(hashes).size).toBe(hashes.length - 1);
+    // And none is a 1.3.0 document.
+    const released130 = new Set([...Object.values(GOLDEN[V130]!), ...Object.values(GOLDEN_1_3)]);
+    for (const hash of hashes) expect(released130.has(hash), hash).toBe(false);
+    expect(render({ bookingSystem: "google_calendar" }).hash).toBe(GOLDEN[V140]!.covered_estimated);
+  });
+
+  test("says what the owner's decision of 13 October 2026 and the outbox require, on every variant", () => {
+    for (const overrides of everyVariant()) {
+      const text = unwrap(render(overrides).text);
+      const label = JSON.stringify(overrides);
+      // Clause 11: what is said goes only into the transcript, and the
+      // transcript is emailed to the practice's one address, over an
+      // encrypted connection, with one encrypted copy held for the outbox's
+      // seven days (drizzle/0069's trigger) and no other.
+      expect(text, label).toContain(
+        "Anything else a person chooses to say or write on a call or in a website chat is kept only in the transcript of that conversation, for no longer than the next paragraph allows.",
+      );
+      expect(text, label).toContain(
+        "healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection, as the Safeguards clause provides. So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it. Until then healdesk may send the email again when a send fails or the email is returned, and when Practice asks. healdesk keeps no other copy of a transcript, apart from the backups described below; what Anthropic keeps is what the Subcontractors clause describes. Once healdesk's copy is deleted, the email is Practice's own record of what was said, and Practice is responsible for keeping, protecting and deleting it.",
+      );
+      // The periods the purge runs, the conversation's without the words.
+      expect(text, label).toContain(
+        "healdesk keeps the record of each conversation, without what was said or written in it, for 90 days after it took place, and each appointment record for 90 days after the appointment's time.",
+      );
+      expect(text, label).toContain(
+        "It keeps each booking request for 90 days after the latest of when it was made, the time it was confirmed for and its appointment's time.",
+      );
+      expect(text, label).toContain(
+        "A person's contact details are kept while any conversation, appointment record or booking request of theirs is kept, and in any case until 90 days after the last time those details were recorded or changed.",
+      );
+      expect(text, label).toContain(
+        "A backup copy of anything healdesk deletes expires within 35 days of the deletion. No call audio is kept at all.",
+      );
+      // Nothing for the portal to shorten, and no stored transcript anywhere.
+      expect(text, label).not.toMatch(/shorten|with its transcript|kept as transcripts|keep transcripts and records|transcript reference/);
+      // Clause 4: purpose e and the data involved.
+      expect(text, label).toContain(
+        "e. email Practice the transcript of each call and website chat, keep records of those conversations, without what was said or written in them, and of bookings, show those records to Practice's staff, and export, correct or delete them when Practice asks;",
+      );
+      expect(text, label).toContain(
+        'The patient information involved is what people say or write, which healdesk keeps no longer than the clause headed "Minimum necessary" allows and, from a call or a website chat, emails to Practice as a transcript, with no call audio;',
+      );
+      // Clause 14: after the seven days, the practice answers from the email.
+      expect(text, label).toContain(
+        'healdesk holds a transcript only to deliver it to Practice, and only for the days the clause headed "Minimum necessary" allows. After them healdesk has no transcript to make available, amend, export or delete: the email that carried it is Practice\'s own record, and Practice answers a request about a transcript from that email.',
+      );
+      // The announcement is stated as given, never as a line of a stored
+      // transcript (docs/counsel/state-disclosure.md, R1).
+      expect(text, label).toContain(
+        "On every channel the assistant's opening line says that it is an AI assistant and, on a call, that the call is transcribed; Practice cannot switch that statement off or edit it out.",
+      );
+      expect(text, label).not.toMatch(/first line of (every|each|the) transcript|transcript line/i);
+      // The Meta channels keep nothing and get no transcript, as in 1.3.0.
+      expect(text, label).toContain(
+        "healdesk does not keep the messages a person sends on Instagram, Messenger or WhatsApp.",
+      );
+      // The email sentence the transcript relies on, unchanged from 1.3.0.
+      expect(text, label).toContain(
+        "An email whose receiving server will not negotiate encryption is failed, not sent",
+      );
+      expect(text, label).not.toMatch(/revenue/i);
+    }
+  });
+
+  test("every clause it names is a heading of the same document", () => {
+    for (const overrides of everyVariant()) {
+      const label = JSON.stringify(overrides);
+      const { text } = render(overrides);
+      const headings = [...text.matchAll(/^\d+\. (.+)$/gm)].map((m) => m[1]!);
+      const flat = unwrap(text);
+      for (const [, heading] of flat.matchAll(/the clause headed "([^"]+)"/gi)) {
+        expect(
+          headings.filter((h) => h === heading!.toUpperCase()),
+          `${label}: "${heading}"`,
+        ).toHaveLength(1);
+      }
+      for (const [, words] of flat.matchAll(/\b[Tt]he ((?:[A-Z][\w']*,? ?)+?) clause\b/g)) {
+        const opening = words!.trim().replace(/,$/, "").toUpperCase();
+        expect(
+          headings.filter(
+            (h) => h === opening || h.startsWith(`${opening} `) || h.startsWith(`${opening},`),
+          ),
+          `${label}: "the ${words} clause"`,
+        ).toHaveLength(1);
+      }
+    }
+  }, 30_000);
+
+  test("every line fits in 78 columns, the party lines included", () => {
+    for (const overrides of everyVariant()) {
+      const text = render({
+        ...overrides,
+        clinicLegalName: "The Very Long Legal Name Of A Practice That Keeps Going LLC",
+      }).text;
+      for (const line of text.split("\n")) expect(line.length, line).toBeLessThanOrEqual(78);
+    }
+  });
+});
+
+/**
  * The direct-booking addendum is the document a practice actually accepts
  * (on its setup link, once counsel approves it); the clause in 1.1.0-draft is
  * the same text. Its hash is stored on the clinic row, so it is frozen here
@@ -1326,6 +1573,11 @@ describe("calendar election freeze", () => {
     expect(election).toContain(selected.body);
     expect(agreement.text).toContain(selected.body);
     expect(unwrap(election)).not.toContain(unwrap(CALENDAR_LOCATION_PARAGRAPH));
+    // 1.4.0 carries 1.3.0's calendar clauses as the same objects, so an
+    // election takes the place of its clause word for word too.
+    const current = prepareBaa(getBaaTemplate(V140)!, { ...BASE, calendarAccount: "personal" });
+    expect(current.clauseIds).toContain(selected.clauseId);
+    expect(current.text).toContain(selected.body);
   });
 
   test("it is released with BAA 1.3.0, so an election under it counts for every clinic", () => {

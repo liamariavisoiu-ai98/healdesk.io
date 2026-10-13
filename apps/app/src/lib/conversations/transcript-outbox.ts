@@ -40,7 +40,7 @@ import {
  *            `open`, its sealed copy rewritten at each message, and it is due
  *            once the visitor has been quiet for WEB_CHAT_QUIET_MS, or at once
  *            when they end it; the claim turns it `pending` for good
- *            (drizzle/0070).
+ *            (drizzle/0071).
  *   send     claim the row (a two-minute lease and an attempt, in one
  *            conditional UPDATE, so two workers never send it twice), open
  *            the copy outside any transaction, send through SES to the
@@ -197,7 +197,7 @@ export async function deliverTranscriptEmail(
           nextAttemptAt: new Date(now.getTime() + LEASE_MS),
           attempts: sql`${transcriptEmails.attempts} + 1`,
           // An open web chat whose quiet time is up has ended: it goes to the
-          // send, and its copy can no longer change (drizzle/0070).
+          // send, and its copy can no longer change (drizzle/0071).
           status: sql`case when ${transcriptEmails.status} = 'open' then 'pending' else ${transcriptEmails.status} end`,
         })
         .where(
@@ -352,7 +352,7 @@ export async function destroyTranscriptEmail(
 }
 
 // -----------------------------------------------------------------------------
-// An open web chat (drizzle/0070)
+// An open web chat (drizzle/0071)
 // -----------------------------------------------------------------------------
 
 /** How long a web chat waits for the visitor before it is over and its transcript goes. */
@@ -480,28 +480,51 @@ export async function transcriptWork(limit = 200): Promise<{ clinicId: string; i
   }));
 }
 
-/** The job: every minute, from the billing-minute clock (src/workers/index.ts). */
+/**
+ * The job: every minute, from the billing-minute clock (src/workers/index.ts),
+ * and hourly from the tick as its backstop.
+ *
+ * Deletion runs whatever the switch says. BAA 1.4.0 clause 11 promises the
+ * sealed copy is gone seven days after it first went, and a promise in a
+ * signed agreement does not wait for an operator's toggle, as the retention
+ * purge and destruction do not (runWideningJob). The switch decides only
+ * whether transcripts are sent. Deletion is outside runSwitchedJob's run so
+ * a switched-off job still deletes; each deletion is its own short
+ * transaction and a failure is logged and tried again the next minute.
+ */
 export async function runTranscriptEmailsJob(options: TranscriptSendOptions = {}): Promise<JobOutcome> {
   const now = options.now ?? new Date();
-  return runSwitchedJob(
+  const work = await transcriptWork();
+  let destroyed = 0;
+  let destroyFailures = 0;
+  for (const item of work) {
+    if (item.due !== "destroy") continue;
+    try {
+      if (await destroyTranscriptEmail(item.clinicId, item.id, options)) destroyed += 1;
+    } catch (error) {
+      destroyFailures += 1;
+      log.error("transcript copy not deleted", { clinicId: item.clinicId, jobId: item.id, error: describeError(error) });
+    }
+  }
+  const outcome = await runSwitchedJob(
     JOB_TRANSCRIPT_EMAILS,
     async () => {
       let sent = 0;
       let failed = 0;
-      let destroyed = 0;
-      for (const item of await transcriptWork()) {
-        if (item.due === "destroy") {
-          if (await destroyTranscriptEmail(item.clinicId, item.id, options)) destroyed += 1;
-          continue;
-        }
-        const outcome = await deliverTranscriptEmail(item.clinicId, item.id, options);
-        if (outcome === "sent") sent += 1;
-        else if (outcome === "failed") failed += 1;
+      for (const item of work) {
+        if (item.due !== "send") continue;
+        const result = await deliverTranscriptEmail(item.clinicId, item.id, options);
+        if (result === "sent") sent += 1;
+        else if (result === "failed") failed += 1;
       }
-      return `${sent} sent, ${failed} failed and waiting, ${destroyed} copies deleted.`;
+      return `${sent} sent, ${failed} failed and waiting, ${destroyed} copies deleted${destroyFailures ? `, ${destroyFailures} not deleted` : ""}.`;
     },
     now,
   );
+  if (outcome.status !== "ok" && (destroyed > 0 || destroyFailures > 0)) {
+    log.info("transcript copies deleted with sending off", { status: outcome.status, deleted: destroyed, count: destroyFailures });
+  }
+  return outcome;
 }
 
 /** What an SES event says about a sent transcript (api/webhooks/ses). */

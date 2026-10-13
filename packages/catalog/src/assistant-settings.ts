@@ -129,9 +129,16 @@ export type BookingDetail = (typeof BOOKING_DETAILS)[number];
 // -----------------------------------------------------------------------------
 
 /**
- * How long transcripts and conversation records are kept, in days: 90 by
- * default, as the agreements say, and a clinic may shorten it to 30 or 7
+ * The values clinic_settings.transcript_retention_days may hold, in days: 90
+ * by default, as the agreements say, and 30 or 7 where a clinic shortened it
  * (plan, "Retention"). Never longer than the default.
+ *
+ * Nothing offers the choice any more. Since the owner's decision of 13
+ * October 2026 healdesk keeps no transcript (it is emailed to the clinic when
+ * the conversation ends), BAA 1.4.0 and the DPA give the clinic no period to
+ * shorten, and the portal's "Keep transcripts for" setting is gone. The
+ * column and its check stay, so a row written before keeps its meaning: a
+ * shorter clock only ever deletes sooner.
  */
 export const TRANSCRIPT_RETENTION_DAYS_OPTIONS = [90, 30, 7] as const;
 export type TranscriptRetentionDays = (typeof TRANSCRIPT_RETENTION_DAYS_OPTIONS)[number];

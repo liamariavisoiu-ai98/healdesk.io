@@ -1,5 +1,5 @@
 {
-  "id": "890a37de-caad-4181-ac57-322a7d17eb80",
+  "id": "be2fd2a9-5ac6-48f4-894e-2d9011fe12bf",
   "prevId": "1b3e37c9-9a88-449e-a213-937df830f982",
   "version": "7",
   "dialect": "postgresql",
@@ -9276,7 +9276,7 @@
             }
           ],
           "isUnique": false,
-          "where": "\"transcript_emails\".\"status\" in ('open', 'pending', 'bounced')",
+          "where": "\"transcript_emails\".\"status\" in ('pending', 'bounced')",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -9355,7 +9355,7 @@
       "checkConstraints": {
         "transcript_emails_status_check": {
           "name": "transcript_emails_status_check",
-          "value": "\"transcript_emails\".\"status\" in ('open', 'pending', 'sent', 'delivered', 'bounced')"
+          "value": "\"transcript_emails\".\"status\" in ('pending', 'sent', 'delivered', 'bounced')"
         },
         "transcript_emails_attempts_check": {
           "name": "transcript_emails_attempts_check",
@@ -9371,7 +9371,7 @@
         },
         "transcript_emails_sent_check": {
           "name": "transcript_emails_sent_check",
-          "value": "(\"transcript_emails\".\"status\" in ('open', 'pending')) or (\"transcript_emails\".\"sent_at\" is not null and \"transcript_emails\".\"ses_message_id\" is not null)"
+          "value": "(\"transcript_emails\".\"status\" = 'pending') or (\"transcript_emails\".\"sent_at\" is not null and \"transcript_emails\".\"ses_message_id\" is not null)"
         }
       },
       "isRLSEnabled": false

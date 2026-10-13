@@ -387,9 +387,11 @@ export async function exportClinic(tx: TenantTx, requestedBy: PatientRequester):
   const deposits = await tx.db.select(DEPOSIT_COLUMNS).from(depositPayments).where(eq(depositPayments.clinicId, c));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
   // Clause 17's "an export of the patient information it holds": the raw
-  // payloads hold the transcripts' words, which no other table does, and
-  // canceled.ts promises the leaving practice "your export of transcripts"
-  // (the calendar session's re-audit, C19, 12 October 2026).
+  // payloads can hold a vendor's transcript, which no other table does, and
+  // canceled.ts promises the leaving practice "your export of conversation
+  // records" (the calendar session's re-audit, C19, 12 October 2026). Since
+  // 13 October 2026 healdesk keeps no transcript of its own: each is emailed
+  // to the practice (lib/conversations/transcript-outbox.ts).
   const payloads = (
     await tx.db.select().from(webhookEvents).where(eq(webhookEvents.clinicId, c))
   ).map(payloadRecord);

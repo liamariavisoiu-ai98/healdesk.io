@@ -12,10 +12,12 @@
  *
  *   1. It is FIRST — before any audio reaches transcription, so the notice
  *      precedes the interception it is giving notice of.
- *   2. It is captured INSIDE the transcript, verbatim and timed, so the
- *      transcript is the evidence that notice was given. No audio is kept,
- *      so there is no recording to carry it (state-disclosure.md,
- *      decision 3).
+ *   2. It is recorded as given, and timed: `conversations.disclosure_played_at`,
+ *      with the fixed asset the line is played from. No audio is kept, so
+ *      there is no recording to carry it, and since 13 October 2026 healdesk
+ *      keeps no transcript either (it is emailed to the clinic; BAA 1.4.0),
+ *      so the timestamp is the evidence healdesk holds that notice was given
+ *      (state-disclosure.md, decision 3).
  *   3. It is not configurable. If a clinic can switch it off, a clinic will,
  *      and we become a co-defendant.
  *

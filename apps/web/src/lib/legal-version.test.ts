@@ -41,7 +41,7 @@ import { LEGAL_LAST_UPDATED, LEGAL_VERSION } from "@/lib/legal";
  */
 
 const PINNED = {
-  version: "2026-10-13.2",
+  version: "2026-10-13.3",
   lastUpdated: "13 October 2026",
   /**
    * The version these pages replace: the last one that went out, which was
@@ -51,11 +51,11 @@ const PINNED = {
    * when you renumber a version that never did, because that number was never
    * published.
    */
-  replaces: "2026-10-13.1",
+  replaces: "2026-10-13.2",
   sha256: {
-    "/terms": "c7206ea93b792a9996a041ae1758a449c21ee20f30b1d326401c448fd498aecf",
-    "/privacy": "af749e5fdd9a9eb3540629b1ab50f6d59f395f578549df4e2c7eb031cd7416f7",
-    "/data-deletion": "c01d6479baf3b58e97331556ed482a8c33cd48647ecd230c3d26a164c5611b87",
+    "/terms": "214a0ad3b882fdfda8b22ca497d504b076b1a8c173fd4ecdf7b2d62e806e9310",
+    "/privacy": "09bd029fb37aef18efd3dc4f04250563026354b1b0d90c0fdbd53ff6babcc0de",
+    "/data-deletion": "9752f82fd6a7ba423a3c5731af43a461dc9fe64645fabedeff981da79abd4745",
   },
 } as const;
 

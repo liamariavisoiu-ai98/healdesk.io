@@ -47,6 +47,7 @@ KEYS=(
   ANTHROPIC_API_KEY
   HEALDESK_VOICE_WEBHOOK_SECRET
   HEALDESK_VOICE_TOOLS_SECRET
+  HEALDESK_RETELL_LLM_SECRET
   CLOUDFLARE_API_TOKEN
 )
 
@@ -76,16 +77,18 @@ hint_for() {
     ANTHROPIC_API_KEY) echo "a key of the HIPAA-enabled Anthropic organisation, never the marketing one" ;;
     HEALDESK_VOICE_WEBHOOK_SECRET) echo "the voice provider's webhook signing secret" ;;
     HEALDESK_VOICE_TOOLS_SECRET) echo "the voice provider's tool-call secret" ;;
+    HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
     CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml only" ;;
   esac
 }
 
 # Keys that switch on a path carrying patients' messages. The guide asks for
 # them only once the business associate agreements behind that path are in
-# place, so the script asks too.
+# place, so the script asks too. HEALDESK_RETELL_LLM_SECRET opens the voice
+# endpoint to Retell's calls (enable_voice), and may stay __unset__ until then.
 patient_facing() {
   case "$1" in
-    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_VOICE_WEBHOOK_SECRET | HEALDESK_VOICE_TOOLS_SECRET) return 0 ;;
+    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_VOICE_WEBHOOK_SECRET | HEALDESK_VOICE_TOOLS_SECRET | HEALDESK_RETELL_LLM_SECRET) return 0 ;;
   esac
   return 1
 }
@@ -105,6 +108,10 @@ shape_problem() {
     RESEND_API_KEY) [[ "$2" == re_* ]] || echo "a Resend API key starts with re_" ;;
     ANTHROPIC_API_KEY) [[ "$2" == sk-ant-* ]] || echo "an Anthropic API key starts with sk-ant-" ;;
     GOOGLE_OAUTH_CLIENT_ID) [[ "$2" == *.apps.googleusercontent.com ]] || echo "a Google OAuth client id ends with .apps.googleusercontent.com" ;;
+    # A path segment of a URL typed into Retell: long enough not to be
+    # guessed, and nothing a URL would need escaped (the endpoint takes 16 to
+    # 200 characters other than /).
+    HEALDESK_RETELL_LLM_SECRET) [[ "$2" =~ ^[A-Za-z0-9_-]{32,200}$ ]] || echo "it must be 32 to 200 letters, digits, - or _ (openssl rand -hex 32 makes one)" ;;
   esac
 }
 
@@ -315,7 +322,7 @@ if [ "$pasted_provision" = true ]; then
   say "HEALDESK_PROVISION_SECRET must be the same value as apps/web's on Vercel, or every signed call fails."
 fi
 if [ "$pasted_app" = true ]; then
-  say "tasks read their parameters when they start: run deploy-app.yml with restart_only for web and worker to use the new values."
+  say "tasks read their parameters when they start: run deploy-app.yml with restart_only so the services (web, worker, voice) use the new values."
 fi
 if [ "$pasted_ci" = true ]; then
   say "infra.yml reads CLOUDFLARE_API_TOKEN at its next run."

@@ -1,8 +1,9 @@
-# One image, several task definitions (contract section 1): the web tier and
-# the worker as services, the migrations and the role bootstrap as one-off
-# tasks the deploy workflow runs. All of them on Fargate, in the private
-# subnets, on task_cpu_architecture (ARM64 by default; deploy-app.yml reads it
-# from the web task definition and builds the images for it).
+# One image, several task definitions (contract section 1): the web tier, the
+# worker and, with enable_voice, the Retell voice endpoint as services, the
+# migrations and the role bootstrap as one-off tasks the deploy workflow runs.
+# All of them on Fargate, in the private subnets, on task_cpu_architecture
+# (ARM64 by default; deploy-app.yml reads it from the web task definition and
+# builds the images for it).
 #
 # The worker runs in one of two places (worker_placement). Shared, the lean
 # default: a third container in every web task, so the service count is one.
@@ -206,6 +207,64 @@ locals {
     [local.web_app_container],
     var.alb_to_task_tls ? [local.tls_proxy_container] : [],
     local.worker_shared ? [local.shared_worker_container] : [],
+  )
+
+  # The Retell voice endpoint (enable_voice): apps/app/src/voice/server.ts, a
+  # plain Node HTTP and WebSocket server from the same image, one socket per
+  # call held for the whole call. Run as the worker is, one node process under
+  # ECS's init, so SIGTERM reaches it and not an npm or tsx wrapper: it then
+  # stops taking calls and records every call still open. stopTimeout 120,
+  # Fargate's maximum, is room for that; what lets a call in progress finish
+  # during a deploy is the target group's hour of draining before ECS sends
+  # SIGTERM at all (alb.tf). It is named "app", as in the web task, so the
+  # sidecar's dependsOn holds, and its check is the process's own /health.
+  voice_app_container = {
+    name             = "app"
+    image            = local.app_image
+    essential        = true
+    command          = ["node", "--import", "tsx", "src/voice/server.ts"]
+    workingDirectory = "/repo/apps/app"
+    stopTimeout      = 120
+
+    environment = [for k in sort(keys(local.voice_environment)) : { name = k, value = local.voice_environment[k] }]
+    secrets     = [for k in local.voice_secret_names : { name = k, valueFrom = local.app_secret_arns[k] }]
+
+    # As in the web task: behind the sidecar, 3001 is reached on loopback
+    # only.
+    portMappings = var.alb_to_task_tls ? [] : [{ containerPort = 3001, hostPort = 3001, protocol = "tcp" }]
+
+    linuxParameters = { initProcessEnabled = true }
+
+    healthCheck = {
+      command     = ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval    = 30
+      timeout     = 5
+      retries     = 3
+      startPeriod = 60
+    }
+
+    logConfiguration = {
+      logDriver = "awslogs"
+      options = merge(local.log_driver_options, {
+        awslogs-group         = aws_cloudwatch_log_group.app["voice"].name
+        awslogs-stream-prefix = "voice"
+      })
+    }
+  }
+
+  # The web task's sidecar, unchanged but for its health check. The image's
+  # own check (healthcheck.sh) asks for the web tier's liveness path, which
+  # the voice process answers with a 404, so this one makes the same request,
+  # with the same curl, for /health.
+  voice_tls_proxy_container = merge(local.tls_proxy_container, {
+    healthCheck = merge(local.tls_proxy_container.healthCheck, {
+      command = ["CMD", "curl", "--silent", "--fail", "--insecure", "--max-time", "4", "--output", "/dev/null", "https://127.0.0.1:8443/health"]
+    })
+  })
+
+  voice_containers = concat(
+    [local.voice_app_container],
+    var.alb_to_task_tls ? [local.voice_tls_proxy_container] : [],
   )
 
   # The check docs/handover.md ("Restoring") runs after any restore, before
@@ -473,6 +532,46 @@ resource "aws_ecs_task_definition" "worker" {
   #checkov:skip=CKV_AWS_336:tsx compiles the worker at start and writes its cache and IPC pipe under /tmp; a read-only root needs a writable /tmp mount the image does not provide yet. The image runs as a non-root user.
 }
 
+# The voice endpoint's task: the web tier's roles, environment and secrets
+# (it runs the same conversation code), so the web task's refusals apply.
+resource "aws_ecs_task_definition" "voice" {
+  count = var.enable_voice ? 1 : 0
+
+  family                   = local.task_families.voice
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = tostring(var.voice_cpu)
+  memory                   = tostring(var.voice_memory)
+  execution_role_arn       = aws_iam_role.ecs_execution.arn
+  task_role_arn            = aws_iam_role.app_task.arn
+
+  container_definitions = jsonencode(local.voice_containers)
+
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = var.task_cpu_architecture
+  }
+
+  lifecycle {
+    precondition {
+      condition     = length(setintersection(concat(keys(local.voice_environment), local.voice_secret_names), local.never_on_app_tasks)) == 0
+      error_message = "The voice task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+    }
+
+    precondition {
+      condition     = length(setintersection(keys(local.voice_environment), local.secret_environment_names)) == 0
+      error_message = "A secret name is in the voice task's plain environment; secrets come from SSM only (ssm.tf)."
+    }
+
+    precondition {
+      condition     = length(setsubtract(keys(local.voice_environment), concat(local.stack_environment_names, keys(var.app_environment)))) == 0
+      error_message = "The voice task sets a name missing from local.stack_environment_names (locals.tf); add it there so app_environment cannot override it."
+    }
+  }
+
+  #checkov:skip=CKV_AWS_336:tsx compiles the voice server at start and writes its cache under /tmp, as the worker does, and the tls-proxy sidecar writes its key and nginx's run files at start; a read-only root for either needs a writable volume tried on Fargate first. Both run as non-root users.
+}
+
 resource "aws_ecs_task_definition" "patient_export" {
   family                   = local.task_families.patient_export
   requires_compatibilities = ["FARGATE"]
@@ -683,34 +782,80 @@ resource "aws_ecs_service" "worker" {
 }
 
 # ---------------------------------------------------------------------------
-# The Retell voice endpoint: NOT BUILT, deliberately left as a placeholder
-# (enable_voice must stay false). Retell opens one WebSocket per call to a
-# Healdesk-hosted custom-LLM endpoint and holds it for the whole call. Next
-# route handlers cannot accept the upgrade, so it will be its own long-lived
-# Node process from this same image. When the code exists, it needs:
+# The Retell voice endpoint (enable_voice, off by default). Retell opens one
+# WebSocket per call to the custom-LLM URL and holds it for the whole call;
+# a Next route handler cannot accept the upgrade, so it is its own long-lived
+# Node process from this same image (task definition above), in its own
+# service behind its own target group and the /llm-websocket/* rule on the
+# public host (alb.tf). Like the others it is created at 0 tasks and scaled
+# to its DesiredCount tag (voice_desired) by the first deploy that finds it.
 #
-#   - a third task definition and service (healdesk-<env>-voice), at least two
-#     tasks so a call survives the loss of one, with the app task role and the
-#     same environment as the web tier;
-#   - its own target group: HTTP to the process, a plain HTTP GET health path
-#     (ALB health checks cannot speak WebSocket), and a deregistration delay
-#     of up to 3600 s, because ECS waits for draining before it stops a task
-#     and that, not stopTimeout (120 s at most on Fargate), is what lets a
-#     call in progress finish during a deploy;
-#   - an HTTPS listener rule on this load balancer (for example the path
-#     /llm-websocket/*) forwarding to that group; the ALB passes WebSocket
-#     upgrades natively, and Retell's 2-second ping keeps the socket inside
-#     the idle timeout;
-#   - the tls-proxy sidecar's upgrade headers (already passed through) if the
-#     hop stays encrypted, a longer wait in the deploy workflow for that
-#     service, and an alarm on its own liveness.
+# A deploy starts the new tasks beside the old ones; ECS stops an old task
+# only once its target has drained, which the target group lets take up to an
+# hour so that no call is cut. deploy-app.yml therefore waits for the new
+# tasks to serve, and lets the old ones finish their calls on their own.
 # ---------------------------------------------------------------------------
 
-# The variable's own validation already refuses true; this keeps the reason
-# next to the placeholder it guards.
-check "voice_endpoint_not_built" {
-  assert {
-    condition     = !var.enable_voice
-    error_message = "enable_voice is true, but the Retell voice endpoint is not built: nothing in this module deploys it (see the placeholder above)."
+resource "aws_ecs_service" "voice" {
+  count = var.enable_voice ? 1 : 0
+
+  name             = "${local.name}-voice"
+  cluster          = aws_ecs_cluster.main.id
+  task_definition  = aws_ecs_task_definition.voice[0].arn
+  desired_count    = 0
+  launch_type      = "FARGATE"
+  platform_version = "LATEST"
+
+  enable_execute_command  = false
+  enable_ecs_managed_tags = true
+  propagate_tags          = "SERVICE"
+
+  # As the web service's: the sidecar starts only once the process is
+  # healthy, and the target then needs two passing checks.
+  health_check_grace_period_seconds = 120
+
+  deployment_minimum_healthy_percent = 100
+  deployment_maximum_percent         = 200
+
+  # As the web service's: a failed first deploy has only Terraform's
+  # placeholder revision behind it, and deploy-app.yml sets it back to 0.
+  deployment_circuit_breaker {
+    enable   = true
+    rollback = true
   }
+
+  network_configuration {
+    subnets          = aws_subnet.private[*].id
+    security_groups  = [aws_security_group.tasks.id]
+    assign_public_ip = false
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.voice[0].arn
+    container_name   = local.web_target_container
+    container_port   = local.web_target_port
+  }
+
+  tags = {
+    DesiredCount = tostring(var.voice_desired)
+  }
+
+  # Deleting the service (enable_voice back to false) waits for its tasks,
+  # and each drains its calls for up to an hour first. The provider's default
+  # of 20 minutes would fail the apply with the service still DRAINING.
+  timeouts {
+    delete = "65m"
+  }
+
+  lifecycle {
+    ignore_changes = [task_definition, desired_count]
+  }
+
+  # As the web service's: ECS refuses a service whose target group no
+  # listener uses yet, and this group is used only through its rule.
+  depends_on = [
+    aws_acm_certificate_validation.app,
+    aws_lb_listener.https,
+    aws_lb_listener_rule.voice,
+  ]
 }

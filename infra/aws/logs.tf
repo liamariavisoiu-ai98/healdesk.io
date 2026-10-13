@@ -11,7 +11,10 @@
 # ever renamed or removed from this file: the audit trail outlives the config.
 
 resource "aws_cloudwatch_log_group" "app" {
-  for_each = toset(["web", "worker", "migrate", "db-bootstrap", "destroy-due", "patient-export", "erase-person", "amend-contact", "reapply-erasures", "tls-proxy"])
+  # "voice" exists whether or not enable_voice is on, as "worker" does with
+  # a shared worker: an empty group costs nothing, and turning the switch
+  # never creates or removes one.
+  for_each = toset(["web", "worker", "voice", "migrate", "db-bootstrap", "destroy-due", "patient-export", "erase-person", "amend-contact", "reapply-erasures", "tls-proxy"])
 
   name              = "${local.log_prefix}/${each.key}"
   kms_key_id        = aws_kms_key.main.arn

@@ -39,6 +39,13 @@ import { RetellCallSession, type RetellOutbound } from "@/lib/voice/retell";
 
 const PATH = /^\/llm-websocket\/([^/]{16,200})\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/([A-Za-z0-9_-]{1,128})$/;
 const MAX_MESSAGE_BYTES = 256 * 1024;
+const HEALTH_PATHS = new Set(["/health", "/health?probe=liveness", "/api/health?probe=liveness"]);
+/**
+ * Longer than the load balancer's 120-second idle timeout, as for the web
+ * tier (KEEP_ALIVE_TIMEOUT, ecs.tf), so the balancer never sends a health
+ * check on a connection Node has just closed. A WebSocket is not bound by it.
+ */
+const KEEP_ALIVE_MS = Number(process.env.KEEP_ALIVE_TIMEOUT) > 0 ? Number(process.env.KEEP_ALIVE_TIMEOUT) : 125_000;
 
 export type VoiceServerOptions = {
   secret?: string | null;
@@ -61,7 +68,9 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
   let draining = false;
 
   const server = createServer((request, response) => {
-    if (request.method === "GET" && (request.url === "/health" || request.url === "/health?probe=liveness")) {
+    // /health for the target group; the tls-proxy sidecar's own check asks
+    // the web tier's liveness path, so it is answered here too.
+    if (request.method === "GET" && HEALTH_PATHS.has(request.url ?? "")) {
       response.writeHead(draining ? 503 : 200, { "content-type": "application/json", "cache-control": "no-store" });
       response.end(JSON.stringify({ ok: !draining, calls: sessions.size }));
       return;
@@ -69,6 +78,9 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
     response.writeHead(404, { "content-type": "text/plain" });
     response.end("Not found");
   });
+
+  server.keepAliveTimeout = KEEP_ALIVE_MS;
+  server.headersTimeout = KEEP_ALIVE_MS + 5_000;
 
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MESSAGE_BYTES });
 

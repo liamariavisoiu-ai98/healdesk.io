@@ -8,8 +8,9 @@ variable "environment" {
   default     = "production"
 
   validation {
-    # The longest name built from it, the target group's
-    # healdesk-<environment>-web-https, must fit AWS's 32 characters.
+    # The longest names built from it, the target groups'
+    # healdesk-<environment>-web-https and healdesk-<environment>-voice-http
+    # (alb.tf), must fit AWS's 32 characters: 31 and 32 at twelve.
     condition     = can(regex("^[a-z][a-z0-9]{1,11}$", var.environment))
     error_message = "environment must be 2-12 lowercase letters or digits, starting with a letter (the target group name allows no more)."
   }
@@ -247,13 +248,46 @@ variable "worker_desired" {
 }
 
 variable "enable_voice" {
-  description = "Reserved for the Retell voice endpoint, a long-lived WebSocket process that is not built yet. Must stay false; see the placeholder at the end of ecs.tf for what it will need."
+  description = "Run the Retell voice endpoint (apps/app/src/voice/server.ts): its own task definition and service, healdesk-<env>-voice, from the same image as the web tier, with its own target group and a listener rule for /llm-websocket/* on app_domain (ecs.tf, alb.tf), and its below-desired alarm. Off by default, so the lean profile pays for no voice task: turn it on with the first clinic that has bought voice, once HEALDESK_RETELL_LLM_SECRET has been pasted with put-external-secrets.sh. Turning it off again makes the apply wait while the voice tasks drain, up to an hour (the service's delete timeout is 65 minutes, inside infra.yml's 90): do it in a quiet hour."
   type        = bool
   default     = false
+}
+
+variable "voice_desired" {
+  description = "Intended number of voice tasks while enable_voice is on. Terraform creates the service at 0 and the deploy workflow sets this count after the first good migration; it is also the alarm's floor for healthy voice tasks. A deploy drops no call either way (the old tasks drain first, alb.tf). One, the lean default, is a single point of failure: losing that task mid-call drops every call on it and leaves Retell nothing to reach until ECS replaces it. Two survive the loss of one task mid-call (only its own calls drop, and the other answers the next), at the cost of a second task."
+  type        = number
+  default     = 1
 
   validation {
-    condition     = var.enable_voice == false
-    error_message = "The voice endpoint is not built. Leave enable_voice false and read the placeholder in ecs.tf."
+    condition     = var.voice_desired >= 1 && var.voice_desired <= 4 && floor(var.voice_desired) == var.voice_desired
+    error_message = "voice_desired must be a whole number from 1 to 4."
+  }
+}
+
+variable "voice_cpu" {
+  description = "Fargate CPU units for each voice task (1024 = one vCPU). 256 is a quarter vCPU, the lean default, shared by the voice process and the TLS sidecar: a call spends its time waiting on Retell and the model, not computing. Nobody has measured it under calls: raise it to 512 if its CPU sits high while calls run, because a starved process is heard as a pause."
+  type        = number
+  default     = 256
+
+  validation {
+    condition     = contains([256, 512, 1024, 2048], var.voice_cpu)
+    error_message = "voice_cpu must be 256, 512, 1024 or 2048."
+  }
+}
+
+variable "voice_memory" {
+  description = "Fargate memory in MiB for each voice task. 1024, the lean default, holds the process, the sidecar and many calls' transcripts with room to spare (a task that runs out is killed with every call on it, so this is not where to save $1.30 a month); 256 CPU units allow 512 to 2048."
+  type        = number
+  default     = 1024
+
+  validation {
+    condition = (
+      (var.voice_cpu == 256 && contains([512, 1024, 2048], var.voice_memory)) ||
+      (var.voice_cpu == 512 && var.voice_memory >= 1024 && var.voice_memory <= 4096 && var.voice_memory % 1024 == 0) ||
+      (var.voice_cpu == 1024 && var.voice_memory >= 2048 && var.voice_memory <= 8192 && var.voice_memory % 1024 == 0) ||
+      (var.voice_cpu == 2048 && var.voice_memory >= 4096 && var.voice_memory <= 16384 && var.voice_memory % 1024 == 0)
+    )
+    error_message = "voice_memory must be a size Fargate allows for voice_cpu: 512, 1024 or 2048 for 256; 1024-4096 for 512; 2048-8192 for 1024; 4096-16384 for 2048 (whole GiB above 512)."
   }
 }
 

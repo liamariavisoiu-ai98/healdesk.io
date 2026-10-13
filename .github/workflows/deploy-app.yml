@@ -1,9 +1,10 @@
 name: Deploy apps/app (AWS)
 
 # Builds apps/app and its two helper images, migrates the database and rolls
-# the web service on ECS, and the worker service when the worker has its own
+# the web service on ECS, the worker service when the worker has its own
 # (infra/aws, worker_placement = "separate"; by default it is a container in
-# the web task and moves with it), by hand, from main. It runs as the
+# the web task and moves with it), and the Retell voice endpoint's service
+# when enable_voice has made one, by hand, from main. It runs as the
 # Terraform-made role healdesk-production-github-deploy, assumed with GitHub's
 # OIDC token, and AWS gives that role only to a run of this repository on
 # main started by the owner: the role's trust policy (infra/aws/iam.tf) checks
@@ -35,26 +36,31 @@ name: Deploy apps/app (AWS)
 #                 makes to a task definition reaches the services with the
 #                 next full deploy, not with a restart.
 #   rollback_to   A commit SHA (7 to 40 hex characters; give the one a past
-#                 deploy's summary names). Build and migrate nothing: put web
-#                 and worker back on the newest revisions that ran that commit,
-#                 provided they are still active and their images still in ECR
-#                 (the last 30 per repository are kept). Never Terraform's own
-#                 revisions, whose placeholder image was never pushed. Those
-#                 revisions carry the configuration of their day, so rolling
-#                 back past a Terraform change undoes it on the services until
-#                 the next full deploy. The schema stays where it is: migrations
-#                 only add, which keeps older code working. Then make main
-#                 match (git revert) before the next deploy, or it brings the
-#                 bad commit back.
+#                 deploy's summary names). Build and migrate nothing: put web,
+#                 worker and voice back on the newest revisions that ran that
+#                 commit, provided they are still active and their images
+#                 still in ECR (the last 30 per repository are kept). Never
+#                 Terraform's own revisions, whose placeholder image was never
+#                 pushed. Those revisions carry the configuration of their
+#                 day, so rolling back past a Terraform change undoes it on
+#                 the services until the next full deploy. The schema stays
+#                 where it is: migrations only add, which keeps older code
+#                 working. Then make main match (git revert) before the next
+#                 deploy, or it brings the bad commit back.
 #
 # Everything is found at run time rather than copied in: the registry from
 # the account, each task definition from its family's latest revision (which
 # Terraform writes), the subnets and security group for one-off tasks from
-# the web service, where the worker runs from whether its service exists, and
-# the platform to build for from the web task definition's CPU architecture
-# (task_cpu_architecture: ARM64 by default, built here under emulation). The
-# workflow swaps images and registers new revisions; Terraform owns everything
-# else about them.
+# the web service, where the worker runs and whether voice is on from which
+# services exist, and the platform to build for from the web task
+# definition's CPU architecture (task_cpu_architecture: ARM64 by default,
+# built here under emulation). The workflow swaps images and registers new
+# revisions; Terraform owns everything else about them.
+#
+# The voice service is waited for less than the others. Its replaced tasks
+# drain their calls for up to an hour before ECS stops them (the target
+# group's deregistration delay, infra/aws/alb.tf), so every mode waits only
+# until its new tasks serve, and leaves the old ones to finish on their own.
 #
 # Nothing this job prints comes from inside a container. A one-off task that
 # fails is reported by its exit code and ECS's stopped reason, with the name of
@@ -73,11 +79,11 @@ on:
         type: boolean
         default: true
       restart_only:
-        description: "Only restart web and worker so they re-read their parameters (no build, no migrations)"
+        description: "Only restart the services (web, worker, voice) so they re-read their parameters (no build, no migrations)"
         type: boolean
         default: false
       rollback_to:
-        description: "Roll web and worker back to the revisions of this commit SHA (no build, no migrations); empty for a deploy"
+        description: "Roll the services (web, worker, voice) back to the revisions of this commit SHA (no build, no migrations); empty for a deploy"
         type: string
         default: ""
 
@@ -99,6 +105,7 @@ env:
   CLUSTER: healdesk-production
   WEB_SERVICE: healdesk-production-web
   WORKER_SERVICE: healdesk-production-worker
+  VOICE_SERVICE: healdesk-production-voice
   MIGRATE_FAMILY: healdesk-production-migrate
   DB_BOOTSTRAP_FAMILY: healdesk-production-db-bootstrap
   DESTROY_DUE_FAMILY: healdesk-production-destroy-due
@@ -194,14 +201,20 @@ jobs:
       # before an image exists. All of them still at 0 means nothing has been
       # deployed: this run must bootstrap the database and migrate, and
       # brings each service up, after the migrations have passed, to the
-      # count Terraform records in its DesiredCount tag (web_desired and
-      # worker_desired, 1 by default). A service found at 0 beside a running
-      # one is brought up the same way; one already running keeps its count.
+      # count Terraform records in its DesiredCount tag (web_desired,
+      # worker_desired and voice_desired, 1 by default). A service found at 0
+      # beside a running one is brought up the same way; one already running
+      # keeps its count.
       #
       # The worker service exists only when the worker has its own
       # (worker_placement = "separate"). Missing, the worker is the web
       # task's "worker" container, which "Check the task definitions" then
       # requires, so a web task with no worker anywhere is refused.
+      #
+      # The voice service exists only while enable_voice is on. Missing, voice
+      # is off and every voice step is skipped; found, it moves in every mode
+      # with web and worker. Just switched on, it is the service at 0 beside
+      # running ones that the next deploy brings up.
       - name: Read the services
         id: services
         env:
@@ -210,8 +223,8 @@ jobs:
           BOOTSTRAP_DB: ${{ inputs.bootstrap_db }}
         run: |
           describe() {
-            aws ecs describe-services --cluster "$CLUSTER" --services "$WEB_SERVICE" "$WORKER_SERVICE" \
-              --output json "$@"
+            aws ecs describe-services --cluster "$CLUSTER" \
+              --services "$WEB_SERVICE" "$WORKER_SERVICE" "$VOICE_SERVICE" --output json "$@"
           }
           if ! out=$(describe --include TAGS 2>"$RUNNER_TEMP/describe.err"); then
             if ! grep -q AccessDenied "$RUNNER_TEMP/describe.err"; then
@@ -222,6 +235,7 @@ jobs:
             out=$(describe)
           fi
           active() { jq -r --arg name "$1" '[.services[] | select(.serviceName == $name and .status == "ACTIVE")] | length' <<<"$out"; }
+          draining() { jq -e --arg name "$1" '[.services[] | select(.serviceName == $name and .status == "DRAINING")] | length > 0' <<<"$out" >/dev/null; }
           if [ "$(active "$WEB_SERVICE")" != 1 ]; then
             echo "::error::$CLUSTER has no active $WEB_SERVICE. Run infra.yml with apply first."
             jq -r '.failures[]? | "  \(.arn): \(.reason)"' <<<"$out"
@@ -232,11 +246,21 @@ jobs:
             # Missing, or deleted (ECS lists a deleted service as INACTIVE for
             # a while), means "shared". One still DRAINING is being deleted by
             # an apply that has not finished.
-            if jq -e --arg name "$WORKER_SERVICE" '[.services[] | select(.serviceName == $name and .status == "DRAINING")] | length > 0' <<<"$out" >/dev/null; then
+            if draining "$WORKER_SERVICE"; then
               echo "::error::$WORKER_SERVICE is still being deleted. Wait for the infra.yml apply that removed it, then deploy."
               exit 1
             fi
             worker_shared=true
+          fi
+          # The same for voice: missing or INACTIVE means off. DRAINING can
+          # last up to an hour here, while the deleted service's calls finish.
+          voice_on=true
+          if [ "$(active "$VOICE_SERVICE")" != 1 ]; then
+            if draining "$VOICE_SERVICE"; then
+              echo "::error::$VOICE_SERVICE is still being deleted (its calls drain for up to an hour). Wait for the infra.yml apply that removed it, then deploy."
+              exit 1
+            fi
+            voice_on=false
           fi
           field() { jq -er --arg name "$1" ".services[] | select(.serviceName == \$name) | $2" <<<"$out"; }
           first_count() {
@@ -255,6 +279,13 @@ jobs:
           else
             worker_desired=$(field "$WORKER_SERVICE" .desiredCount)
             worker_family=$(field "$WORKER_SERVICE" "$family")
+          fi
+          if [ "$voice_on" = true ]; then
+            voice_desired=$(field "$VOICE_SERVICE" .desiredCount)
+            voice_family=$(field "$VOICE_SERVICE" "$family")
+          else
+            voice_desired=0
+            voice_family=""
           fi
           # Terraform's newest web revision says which CPU the tasks run on;
           # every task definition declares the same one (infra/aws).
@@ -275,16 +306,22 @@ jobs:
             exit 1
           fi
           first_deploy=false
-          if [ "$web_desired" = 0 ] && [ "$worker_desired" = 0 ]; then first_deploy=true; fi
+          if [ "$web_desired" = 0 ] && [ "$worker_desired" = 0 ] && [ "$voice_desired" = 0 ]; then first_deploy=true; fi
           {
             echo "web_family=$web_family"
             echo "worker_family=$worker_family"
             echo "worker_shared=$worker_shared"
+            echo "voice_family=$voice_family"
+            echo "voice_on=$voice_on"
             echo "web_desired=$web_desired"
             echo "worker_desired=$worker_desired"
+            echo "voice_desired=$voice_desired"
             echo "web_count=$([ "$web_desired" != 0 ] || first_count "$WEB_SERVICE")"
             if [ "$worker_shared" = false ]; then
               echo "worker_count=$([ "$worker_desired" != 0 ] || first_count "$WORKER_SERVICE")"
+            fi
+            if [ "$voice_on" = true ]; then
+              echo "voice_count=$([ "$voice_desired" != 0 ] || first_count "$VOICE_SERVICE")"
             fi
             echo "first_deploy=$first_deploy"
             echo "subnets=$subnets"
@@ -297,6 +334,11 @@ jobs:
             echo "$WORKER_SERVICE: none; the worker runs inside each web task"
           else
             echo "$WORKER_SERVICE: $worker_desired task(s) desired ($worker_family)"
+          fi
+          if [ "$voice_on" = true ]; then
+            echo "$VOICE_SERVICE: $voice_desired task(s) desired ($voice_family)"
+          else
+            echo "$VOICE_SERVICE: none; enable_voice is off"
           fi
           if [ "$MODE" != deploy ]; then
             if [ "$web_desired" = 0 ]; then
@@ -390,6 +432,7 @@ jobs:
         env:
           WEB_FAMILY: ${{ steps.services.outputs.web_family }}
           WORKER_FAMILY: ${{ steps.services.outputs.worker_family }}
+          VOICE_FAMILY: ${{ steps.services.outputs.voice_family }}
           BOOTSTRAP_DB: ${{ inputs.bootstrap_db }}
           MIGRATE: ${{ inputs.migrate }}
         run: |
@@ -401,6 +444,8 @@ jobs:
           fetch "$WEB_FAMILY" web
           # A shared worker has no family of its own to deploy: it is in web.
           if [ -n "$WORKER_FAMILY" ]; then fetch "$WORKER_FAMILY" worker; fi
+          # Voice only while its service exists (enable_voice).
+          if [ -n "$VOICE_FAMILY" ]; then fetch "$VOICE_FAMILY" voice; fi
           fetch "$DESTROY_DUE_FAMILY" destroy-due
           fetch "$PATIENT_EXPORT_FAMILY" patient-export
           fetch "$ERASE_PERSON_FAMILY" erase-person
@@ -416,17 +461,22 @@ jobs:
           if jq -e '.containerDefinitions[] | select(.name == "worker")' "$RUNNER_TEMP/web.json" >/dev/null; then
             echo "web_has_worker=true" >>"$GITHUB_OUTPUT"
           fi
+          if [ -n "$VOICE_FAMILY" ] && jq -e '.containerDefinitions[] | select(.name == "tls-proxy")' "$RUNNER_TEMP/voice.json" >/dev/null; then
+            echo "voice_has_tls_proxy=true" >>"$GITHUB_OUTPUT"
+          fi
 
       # For each family, the newest revision that ran the commit asked for and
       # can run it again: ACTIVE (ECS refuses an inactive one), every image in
       # this account's registry, tagged with that one full commit, and still
       # in ECR. Terraform's own revisions never qualify: their placeholder tag
       # is not a commit and was never pushed. Web decides the commit (a short
-      # SHA must match exactly one); a worker with its own service must have
-      # run the same one, so the two never run different code. A shared
-      # worker is a container of the web revision, so it moves with it. The last 50 revisions of each
-      # family are searched; ECR keeps 30 images, so anything older has lost
-      # its image anyway.
+      # SHA must match exactly one); a worker with its own service, and the
+      # voice service, must have run the same one, so no two run different
+      # code. A shared worker is a container of the web revision, so it moves
+      # with it. Voice switched on after that commit has no revision that ran
+      # it, and the rollback stops: roll back to a later commit, or switch
+      # voice off first. The last 50 revisions of each family are searched;
+      # ECR keeps 30 images, so anything older has lost its image anyway.
       - name: Choose the rollback revisions
         id: rollback
         if: ${{ steps.run.outputs.mode == 'rollback' }}
@@ -434,6 +484,7 @@ jobs:
           ROLLBACK_TO: ${{ steps.run.outputs.rollback_to }}
           WEB_FAMILY: ${{ steps.services.outputs.web_family }}
           WORKER_FAMILY: ${{ steps.services.outputs.worker_family }}
+          VOICE_FAMILY: ${{ steps.services.outputs.voice_family }}
         run: |
           registry="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/"
           # The one commit every image of a revision is tagged with; fails
@@ -484,7 +535,7 @@ jobs:
             done < <(jq -r '.containerDefinitions[].image' "$1")
           }
           choose() {
-            local family=$1 label=$2 commit=$3 revision ran
+            local family=$1 label=$2 commit=$3 hint=${4:-} revision ran
             while read -r revision ran; do
               [ "$ran" = "$commit" ] || continue
               if images_in_ecr "$RUNNER_TEMP/$family-$revision.json"; then
@@ -494,7 +545,7 @@ jobs:
                 return 0
               fi
             done <"$RUNNER_TEMP/$label-revisions"
-            echo "::error::No $family revision that ran $commit can run it again: none is still ACTIVE with its images in ECR."
+            echo "::error::No $family revision that ran $commit can run it again: none is still ACTIVE with its images in ECR.${hint:+ $hint}"
             exit 1
           }
           revisions "$WEB_FAMILY" >"$RUNNER_TEMP/web-revisions"
@@ -520,6 +571,11 @@ jobs:
             revisions "$WORKER_FAMILY" >"$RUNNER_TEMP/worker-revisions"
             choose "$WORKER_FAMILY" worker "$commit"
           fi
+          if [ -n "$VOICE_FAMILY" ]; then
+            revisions "$VOICE_FAMILY" >"$RUNNER_TEMP/voice-revisions"
+            choose "$VOICE_FAMILY" voice "$commit" \
+              "If voice was switched on after that commit, roll back to a later one that ran voice too, or set enable_voice = false and apply before rolling back."
+          fi
           echo "commit=$commit" >>"$GITHUB_OUTPUT"
 
       # Defence in depth behind the trust policy: whatever registered the
@@ -527,19 +583,18 @@ jobs:
       # must have the shape Terraform gives its family, or nothing is
       # registered or moved. Web: app, plus tls-proxy while the hop is
       # encrypted, plus worker exactly when the worker has no service of its
-      # own; worker, destroy-due, patient-export, erase-person,
-      # amend-contact and migrate: app; db-bootstrap: db-admin. The execution
-      # role everywhere, the app task role on web, worker and destroy-due, the
-      # export task role on patient-export, none on the two operator scripts,
-      # the
-      # db-admin task role on db-bootstrap and none on migrate (the db-admin
-      # role may write the internal secrets; no app container may hold it).
-      # No container but migrate's and db-bootstrap's may carry what
-      # Terraform refuses the app tasks
-      # (never_on_app_tasks in infra/aws/locals.tf), and only db-bootstrap may
-      # name a Secrets Manager secret: the RDS master user's. On a deploy,
-      # every one must also declare the CPU architecture the images were
-      # just built for.
+      # own; voice: app, plus tls-proxy while the hop is encrypted; worker,
+      # destroy-due, patient-export, erase-person, amend-contact,
+      # reapply-erasures and migrate: app; db-bootstrap: db-admin. The
+      # execution role everywhere, the app task role on web, worker, voice
+      # and destroy-due, the export task role on patient-export, none on the
+      # operator scripts, the db-admin task role on db-bootstrap and none on
+      # migrate (the db-admin role may write the internal secrets; no app
+      # container may hold it). No container but migrate's and db-bootstrap's
+      # may carry what Terraform refuses the app tasks (never_on_app_tasks in
+      # infra/aws/locals.tf), and only db-bootstrap may name a Secrets Manager
+      # secret: the RDS master user's. On a deploy, every one must also
+      # declare the CPU architecture the images were just built for.
       - name: Check the task definitions
         if: ${{ steps.run.outputs.mode == 'deploy' || steps.run.outputs.mode == 'rollback' }}
         env:
@@ -566,13 +621,14 @@ jobs:
                   [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names"
                 fi
                 ;;
+              voice) [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names" ;;
               worker | destroy-due | patient-export | erase-person | amend-contact | reapply-erasures | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
               db-bootstrap) [ "$names" = '["db-admin"]' ] || refuse "$label" "$file" "containers $names" ;;
             esac
             [ "$(jq -r '.executionRoleArn // ""' "$file")" = "$role-ecs-execution" ] \
               || refuse "$label" "$file" "execution role $(jq -r '.executionRoleArn // "none"' "$file")"
             case "$label" in
-              web | worker | destroy-due) task_role="$role-app-task" ;;
+              web | worker | voice | destroy-due) task_role="$role-app-task" ;;
               patient-export) task_role="$role-export-task" ;;
               db-bootstrap) task_role="$role-db-admin-task" ;;
               migrate | erase-person | amend-contact | reapply-erasures) task_role="" ;;
@@ -595,7 +651,7 @@ jobs:
               [ "$found" = "$ARCHITECTURE" ] || refuse "$label" "$file" "declares $found, but the images were built for $ARCHITECTURE"
             fi
           }
-          for label in web worker destroy-due patient-export erase-person amend-contact reapply-erasures migrate db-bootstrap; do
+          for label in web worker voice destroy-due patient-export erase-person amend-contact reapply-erasures migrate db-bootstrap; do
             if [ -f "$RUNNER_TEMP/$label.json" ]; then check "$label"; fi
           done
           if [ "$failed" = 1 ]; then
@@ -607,16 +663,30 @@ jobs:
       # Each service's deployment is followed by its own id: the circuit
       # breaker rolls a failed deployment back to the previous one, and the
       # service is then "stable" again, so stability alone would report a
-      # failure as a success. Both deployments run side by side and share one
+      # failure as a success. The deployments run side by side and share one
       # 30-minute deadline, which keeps the whole step inside this session.
-      - name: Restart or roll back web and worker
+      #
+      # Voice is waited for differently. Its old tasks drain their calls for
+      # up to an hour before ECS stops them (infra/aws/alb.tf), and its
+      # deployment completes only once they have stopped, so waiting for that
+      # would hold this job for an hour after every rollout. Its wait ends as
+      # soon as the new deployment runs all its tasks and every older one has
+      # been told to stop (desired 0) while still holding tasks: with a
+      # minimum healthy of 100%, ECS starts draining the old tasks only once
+      # the new ones pass the load balancer's checks. The old ones then finish
+      # their calls and stop on their own; a failure after that is the circuit
+      # breaker's to roll back and voice-below-desired's to report.
+      - name: Restart or roll back the services
         if: ${{ steps.run.outputs.mode == 'restart' || steps.run.outputs.mode == 'rollback' }}
         env:
           WEB_DESIRED: ${{ steps.services.outputs.web_desired }}
           WORKER_DESIRED: ${{ steps.services.outputs.worker_desired }}
           WORKER_SHARED: ${{ steps.services.outputs.worker_shared }}
+          VOICE_ON: ${{ steps.services.outputs.voice_on }}
+          VOICE_DESIRED: ${{ steps.services.outputs.voice_desired }}
           WEB_TARGET: ${{ steps.rollback.outputs.web_task_definition }}
           WORKER_TARGET: ${{ steps.rollback.outputs.worker_task_definition }}
+          VOICE_TARGET: ${{ steps.rollback.outputs.voice_task_definition }}
         run: |
           # A restart starts fresh tasks of the running revision; a rollback
           # names the revision to return to.
@@ -626,17 +696,32 @@ jobs:
             aws ecs update-service --cluster "$CLUSTER" --service "$1" "${args[@]}" \
               --query "service.deployments[?status=='PRIMARY'] | [0].id" --output text
           }
+          # What a deployment's rollout says: COMPLETED, FAILED <reason>, GONE
+          # (the circuit breaker replaced it), SERVING (voice only, above) or
+          # IN_PROGRESS.
+          rollout() {
+            jq -r --arg id "$1" --arg serving "$2" '(.services[0].deployments // []) as $all
+              | ($all | map(select(.id == $id)) | first) as $d
+              | if $d == null then "GONE"
+                elif $d.rolloutState == "COMPLETED" then "COMPLETED"
+                elif $d.rolloutState == "FAILED" then "FAILED \($d.rolloutStateReason // "")"
+                elif $serving == "true" and $d.desiredCount > 0 and $d.runningCount >= $d.desiredCount
+                  and ([$all[] | select(.id != $id) | .desiredCount] | all(. == 0))
+                  and ([$all[] | select(.id != $id) | .runningCount] | add // 0) > 0 then "SERVING"
+                else "IN_PROGRESS" end'
+          }
           deadline=$(($(date +%s) + 1800))
           wait_for() {
-            local service=$1 id=$2 state
+            local service=$1 id=$2 serving=$3 state
             while :; do
               # A read that fails leaves state empty and is tried again.
-              state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --output text \
-                --query "services[0].deployments[?id=='$id'] | [0].[rolloutState, rolloutStateReason]") || state=""
+              state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --output json \
+                | rollout "$id" "$serving") || state=""
               case "$state" in
-                COMPLETED*) echo "$service: deployment $id completed"; return 0 ;;
-                FAILED*) echo "::error::$service: deployment $id failed: ${state#FAILED}"; return 1 ;;
-                None*) echo "::error::$service: deployment $id is gone: the circuit breaker rolled it back"; return 1 ;;
+                COMPLETED) echo "$service: deployment $id completed"; return 0 ;;
+                SERVING) echo "$service: deployment $id runs all its tasks, healthy; the old tasks finish their calls (up to an hour) and stop on their own"; return 0 ;;
+                FAILED*) echo "::error::$service: deployment $id failed: ${state#FAILED }"; return 1 ;;
+                GONE) echo "::error::$service: deployment $id is gone: the circuit breaker rolled it back"; return 1 ;;
               esac
               if [ "$(date +%s)" -ge "$deadline" ]; then
                 echo "::error::$service: deployment $id did not finish within 30 minutes"
@@ -660,6 +745,16 @@ jobs:
           fi
           services+=("$WEB_SERVICE")
           targets+=("$WEB_TARGET")
+          # Voice the same way as a worker of its own: at 0 tasks it has
+          # nothing to restart, but a rollback still moves it.
+          if [ "$VOICE_ON" != true ]; then
+            echo "Voice is off: there is no $VOICE_SERVICE."
+          elif [ "$VOICE_DESIRED" = 0 ] && [ -z "$VOICE_TARGET" ]; then
+            echo "::warning::$VOICE_SERVICE runs no tasks, so it was not restarted."
+          else
+            services+=("$VOICE_SERVICE")
+            targets+=("$VOICE_TARGET")
+          fi
           ids=()
           for i in "${!services[@]}"; do
             id=$(move "${services[$i]}" "${targets[$i]}")
@@ -668,7 +763,9 @@ jobs:
           done
           failed=0
           for i in "${!services[@]}"; do
-            wait_for "${services[$i]}" "${ids[$i]}" || failed=1
+            serving=false
+            [ "${services[$i]}" != "$VOICE_SERVICE" ] || serving=true
+            wait_for "${services[$i]}" "${ids[$i]}" "$serving" || failed=1
           done
           exit "$failed"
 
@@ -708,6 +805,26 @@ jobs:
           task-definition: ${{ runner.temp }}/worker.json
           container-name: app
           image: ${{ steps.images.outputs.app_image }}
+
+      # The voice task as the web task: its process is the "app" container,
+      # with the sidecar beside it while the hop is encrypted.
+      - name: Render voice (app)
+        id: render-voice-app
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.voice_on == 'true' }}
+        uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
+        with:
+          task-definition: ${{ runner.temp }}/voice.json
+          container-name: app
+          image: ${{ steps.images.outputs.app_image }}
+
+      - name: Render voice (tls-proxy)
+        id: render-voice
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.voice_on == 'true' && steps.taskdefs.outputs.voice_has_tls_proxy == 'true' }}
+        uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
+        with:
+          task-definition: ${{ steps.render-voice-app.outputs.task-definition }}
+          container-name: tls-proxy
+          image: ${{ steps.images.outputs.tls_proxy_image }}
 
       - name: Render destroy-due
         id: render-destroy-due
@@ -895,7 +1012,71 @@ jobs:
           wait-for-minutes: 15
           wait-max-delay-seconds: 15
 
-      # Registered only, once both services run this commit's image: the
+      # Voice last, once the web tier it shares the schema and the tool layer
+      # with is on the new code. Registered by the action, but rolled here
+      # rather than by it: the action can only wait for the service to be
+      # stable, which for voice means waiting for the old tasks to finish
+      # their calls, up to an hour (infra/aws/alb.tf). This waits instead, up
+      # to 15 minutes, for the new tasks to serve, exactly as "Restart or roll
+      # back the services" does, and follows the deployment by its id so a
+      # circuit-breaker rollback is a failure. An empty count keeps the
+      # current one; at 0 (voice just switched on) it is the DesiredCount tag.
+      - name: Register voice
+        id: register-voice
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.voice_on == 'true' }}
+        uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
+        with:
+          task-definition: ${{ steps.render-voice.outputs.task-definition || steps.render-voice-app.outputs.task-definition }}
+          cluster: ${{ env.CLUSTER }}
+
+      - name: Deploy the voice endpoint
+        id: deploy-voice
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.voice_on == 'true' }}
+        env:
+          TASK_DEFINITION: ${{ steps.register-voice.outputs.task-definition-arn }}
+          VOICE_COUNT: ${{ steps.services.outputs.voice_count }}
+        run: |
+          if [ -z "$TASK_DEFINITION" ]; then
+            echo "::error::The voice revision was not registered."
+            exit 1
+          fi
+          args=(--task-definition "$TASK_DEFINITION")
+          [ -z "$VOICE_COUNT" ] || args+=(--desired-count "$VOICE_COUNT")
+          id=$(aws ecs update-service --cluster "$CLUSTER" --service "$VOICE_SERVICE" "${args[@]}" \
+            --query "service.deployments[?status=='PRIMARY'] | [0].id" --output text)
+          echo "$VOICE_SERVICE: deployment $id started (${TASK_DEFINITION##*/}${VOICE_COUNT:+, $VOICE_COUNT task(s)})"
+          # The same reading of the rollout as the restart step's (SERVING:
+          # the new tasks pass their checks and the old ones are draining).
+          rollout() {
+            jq -r --arg id "$1" '(.services[0].deployments // []) as $all
+              | ($all | map(select(.id == $id)) | first) as $d
+              | if $d == null then "GONE"
+                elif $d.rolloutState == "COMPLETED" then "COMPLETED"
+                elif $d.rolloutState == "FAILED" then "FAILED \($d.rolloutStateReason // "")"
+                elif $d.desiredCount > 0 and $d.runningCount >= $d.desiredCount
+                  and ([$all[] | select(.id != $id) | .desiredCount] | all(. == 0))
+                  and ([$all[] | select(.id != $id) | .runningCount] | add // 0) > 0 then "SERVING"
+                else "IN_PROGRESS" end'
+          }
+          deadline=$(($(date +%s) + 900))
+          while :; do
+            # A read that fails leaves state empty and is tried again.
+            state=$(aws ecs describe-services --cluster "$CLUSTER" --services "$VOICE_SERVICE" --output json \
+              | rollout "$id") || state=""
+            case "$state" in
+              COMPLETED) echo "$VOICE_SERVICE: deployment $id completed"; exit 0 ;;
+              SERVING) echo "$VOICE_SERVICE: deployment $id runs all its tasks, healthy; the old tasks finish their calls (up to an hour) and stop on their own"; exit 0 ;;
+              FAILED*) echo "::error::$VOICE_SERVICE: deployment $id failed: ${state#FAILED }"; exit 1 ;;
+              GONE) echo "::error::$VOICE_SERVICE: deployment $id is gone: the circuit breaker rolled it back"; exit 1 ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$VOICE_SERVICE: deployment $id was not serving within 15 minutes. Read the service's events; the circuit breaker may still roll it back."
+              exit 1
+            fi
+            sleep 15
+          done
+
+      # Registered only, once the services run this commit's image: the
       # after-restore check (docs/handover.md, "Restoring") is run by hand,
       # with infra/aws/scripts/run-task.sh destroy-due, which picks the
       # revision naming the image the worker runs (in the web task when the
@@ -957,12 +1138,15 @@ jobs:
         if: >-
           ${{ (failure() || cancelled()) && steps.run.outputs.mode == 'deploy'
           && ((steps.deploy-worker.outcome == 'failure' || steps.deploy-worker.outcome == 'cancelled')
-          || (steps.deploy-web.outcome == 'failure' || steps.deploy-web.outcome == 'cancelled')) }}
+          || (steps.deploy-web.outcome == 'failure' || steps.deploy-web.outcome == 'cancelled')
+          || (steps.deploy-voice.outcome == 'failure' || steps.deploy-voice.outcome == 'cancelled')) }}
         env:
           WORKER_OUTCOME: ${{ steps.deploy-worker.outcome }}
           WEB_OUTCOME: ${{ steps.deploy-web.outcome }}
+          VOICE_OUTCOME: ${{ steps.deploy-voice.outcome }}
           WORKER_DESIRED: ${{ steps.services.outputs.worker_desired }}
           WEB_DESIRED: ${{ steps.services.outputs.web_desired }}
+          VOICE_DESIRED: ${{ steps.services.outputs.voice_desired }}
         run: |
           back_to_zero() {
             local service=$1 outcome=$2 desired_before=$3
@@ -977,6 +1161,7 @@ jobs:
           }
           back_to_zero "$WORKER_SERVICE" "$WORKER_OUTCOME" "$WORKER_DESIRED"
           back_to_zero "$WEB_SERVICE" "$WEB_OUTCOME" "$WEB_DESIRED"
+          back_to_zero "$VOICE_SERVICE" "$VOICE_OUTCOME" "$VOICE_DESIRED"
 
       # From outside, through Cloudflare's DNS, the load balancer and (when on)
       # the TLS sidecar: the path a clinic's browser takes. The liveness probe
@@ -1003,7 +1188,9 @@ jobs:
           MODE: ${{ steps.run.outputs.mode }}
           WEB_TASK: ${{ steps.deploy-web.outputs.task-definition-arn || steps.rollback.outputs.web_task_definition }}
           WORKER_TASK: ${{ steps.deploy-worker.outputs.task-definition-arn || steps.rollback.outputs.worker_task_definition }}
+          VOICE_TASK: ${{ steps.register-voice.outputs.task-definition-arn || steps.rollback.outputs.voice_task_definition }}
           WORKER_SHARED: ${{ steps.services.outputs.worker_shared }}
+          VOICE_ON: ${{ steps.services.outputs.voice_on }}
           ARCHITECTURE: ${{ steps.services.outputs.architecture }}
           DESTROY_DUE_TASK: ${{ steps.register-destroy-due.outputs.task-definition-arn }}
           PATIENT_EXPORT_TASK: ${{ steps.register-patient-export.outputs.task-definition-arn }}
@@ -1014,6 +1201,13 @@ jobs:
           MIGRATED: ${{ inputs.migrate }}
           BOOTSTRAPPED: ${{ inputs.bootstrap_db }}
         run: |
+          voice_line() {
+            if [ "$VOICE_ON" != true ]; then
+              echo "- voice: off (enable_voice)"
+            else
+              echo "- voice: ${VOICE_TASK##*/} (old tasks, if any, finish their calls before they stop: up to an hour)"
+            fi
+          }
           {
             case "$MODE" in
               deploy)
@@ -1021,6 +1215,7 @@ jobs:
                 echo
                 echo "- web: ${WEB_TASK##*/} ($ARCHITECTURE)"
                 if [ "$WORKER_SHARED" = true ]; then echo "- worker: inside web"; else echo "- worker: ${WORKER_TASK##*/}"; fi
+                voice_line
                 echo "- destroy-due: ${DESTROY_DUE_TASK##*/} (registered; run by hand after a restore)"
                 echo "- patient-export: ${PATIENT_EXPORT_TASK##*/} (registered; run by hand at offboarding)"
                 echo "- erase-person: ${ERASE_PERSON_TASK##*/}, amend-contact: ${AMEND_CONTACT_TASK##*/}, reapply-erasures: ${REAPPLY_ERASURES_TASK##*/} (registered; run by hand)"
@@ -1032,14 +1227,18 @@ jobs:
                 echo
                 echo "- web: ${WEB_TASK##*/}"
                 if [ "$WORKER_SHARED" = true ]; then echo "- worker: inside web"; else echo "- worker: ${WORKER_TASK##*/}"; fi
+                voice_line
                 echo "- migrations: not run (the schema stays where it is)"
                 echo
                 echo "Make main match before the next deploy (git revert), or it brings the bad commit back."
                 ;;
               restart)
-                echo "### Restarted web and worker"
+                echo "### Restarted the services"
                 echo
                 echo "Same revisions, fresh tasks: each has read its parameters again."
+                if [ "$VOICE_ON" = true ]; then
+                  echo "Voice's old tasks finish their calls, up to an hour, before they stop."
+                fi
                 ;;
             esac
           } >>"$GITHUB_STEP_SUMMARY"

@@ -76,11 +76,12 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
 # ---------------------------------------------------------------------------
 # Running below desired. Without Container Insights, ECS publishes no task
 # count, so each service is watched through a metric that exists only while
-# its tasks run: healthy targets for the web tier (which also catches tasks
-# that run but fail their checks), and the worker's own CPU metric, which ECS
-# stops sending when no worker task is running. Missing data counts as
-# breaching, because silence is exactly the outage. Both are in alarm from the
-# first apply until the deploy workflow first scales the services up.
+# its tasks run: healthy targets for the web tier and the voice endpoint
+# (which also catches tasks that run but fail their checks), and the worker's
+# own CPU metric, which ECS stops sending when no worker task is running.
+# Missing data counts as breaching, because silence is exactly the outage.
+# Each is in alarm from the apply that creates it until the deploy workflow
+# first scales its service up.
 #
 # When the worker shares the web task (worker_placement = "shared") it has no
 # service and no metric of its own. It is an essential container there, so a
@@ -117,6 +118,27 @@ resource "aws_cloudwatch_metric_alarm" "worker_running" {
   period              = 60
   evaluation_periods  = 5
   threshold           = 1
+  comparison_operator = "LessThanThreshold"
+  treat_missing_data  = "breaching"
+  alarm_actions       = local.alarm_actions
+  ok_actions          = local.alarm_actions
+}
+
+# Only with enable_voice. A deploy does not trip it: the new tasks are
+# healthy before the old ones start draining, and a draining target no longer
+# counts.
+resource "aws_cloudwatch_metric_alarm" "voice_running" {
+  count = var.enable_voice ? 1 : 0
+
+  alarm_name          = "${local.name}-voice-below-desired"
+  alarm_description   = "Fewer healthy voice tasks than voice_desired (${var.voice_desired}) for five minutes: Retell cannot reach the assistant for some or all calls."
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HealthyHostCount"
+  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix, TargetGroup = aws_lb_target_group.voice[0].arn_suffix }
+  statistic           = "Minimum"
+  period              = 60
+  evaluation_periods  = 5
+  threshold           = var.voice_desired
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "breaching"
   alarm_actions       = local.alarm_actions

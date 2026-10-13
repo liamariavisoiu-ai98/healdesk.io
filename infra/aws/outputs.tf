@@ -37,7 +37,7 @@ output "rds_master_secret_arn" {
 }
 
 output "kms_key_arn" {
-  description = "The customer-managed key: HEALDESK_KMS_KEY_ID on the web and worker tasks. Never replaced."
+  description = "The customer-managed key: HEALDESK_KMS_KEY_ID on the web, worker and voice tasks. Never replaced."
   value       = aws_kms_key.main.arn
 }
 
@@ -64,6 +64,16 @@ output "transcript_bucket" {
 output "export_bucket" {
   description = "Where the patient-export task puts a leaving clinic's return bundle (exports.tf); run-task.sh prints the object's key."
   value       = local.export_bucket
+}
+
+output "voice_websocket_url" {
+  description = "The custom LLM WebSocket URL for each clinic's Retell agent, while enable_voice is on; null otherwise. Fill in the two placeholders: the value pasted as app/HEALDESK_RETELL_LLM_SECRET and the clinic's id. Retell appends the call id. The secret itself is never in this output: Terraform does not hold it."
+  value       = var.enable_voice ? "wss://${var.app_domain}/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>" : null
+}
+
+output "voice_service" {
+  description = "The voice endpoint's ECS service, while enable_voice is on; null otherwise. deploy-app.yml rolls it with web and worker."
+  value       = var.enable_voice ? aws_ecs_service.voice[0].name : null
 }
 
 output "ses_configuration_set" {

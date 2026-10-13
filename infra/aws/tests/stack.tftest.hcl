@@ -9,12 +9,12 @@
 # It holds the rules a later edit could break without validate noticing: what
 # each task gets as environment and as secrets, that no secret value passes
 # through Terraform, the trust and task policies, the two hostnames and their
-# listener rules, the lock-label switch, the two dormant pieces on and off, and
-# the variable guards. Mock tips, learned the hard way: the provider still
-# validates ARNs, so every type whose ARN is passed on gets a well-formed
-# default; a nested block the mock cannot fill is read with try(); every
-# instance of a type shares the default, so a test that must tell two apart
-# overrides one.
+# listener rules, the lock-label switch, the switched-off pieces (the voice
+# endpoint, the transcript bucket) on and off, and the variable guards. Mock
+# tips, learned the hard way: the provider still validates ARNs, so every type
+# whose ARN is passed on gets a well-formed default; a nested block the mock
+# cannot fill is read with try(); every instance of a type shares the
+# default, so a test that must tell two apart overrides one.
 
 mock_provider "aws" {
   override_during = plan
@@ -267,9 +267,9 @@ run "production_defaults" {
       for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).secrets : e.name
       ]) == toset([
       "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_VOICE_TOOLS_SECRET",
-      "HEALDESK_VOICE_WEBHOOK_SECRET", "META_APP_SECRET", "META_VERIFY_TOKEN", "RESEND_API_KEY",
-      "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
+      "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_LLM_SECRET",
+      "HEALDESK_VOICE_TOOLS_SECRET", "HEALDESK_VOICE_WEBHOOK_SECRET", "META_APP_SECRET", "META_VERIFY_TOKEN",
+      "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
     ])
     error_message = "The web app container must get every app/ parameter as a secret, and nothing else."
   }
@@ -459,6 +459,21 @@ run "production_defaults" {
   assert {
     condition     = one(aws_ecs_service.web.load_balancer).container_name == "tls-proxy" && one(aws_ecs_service.web.load_balancer).container_port == 8443
     error_message = "The web service registers the sidecar's 8443."
+  }
+
+  # --- voice: off in the lean default, so nothing of it runs or is paid for;
+  # the deploy role still names its service, because the workflow reads all
+  # three services in one call to learn which exist ---
+  assert {
+    condition = (
+      length(aws_ecs_task_definition.voice) == 0 && length(aws_ecs_service.voice) == 0 &&
+      length(aws_lb_target_group.voice) == 0 && length(aws_lb_listener_rule.voice) == 0 &&
+      length(aws_cloudwatch_metric_alarm.voice_running) == 0 &&
+      output.voice_websocket_url == null && output.voice_service == null &&
+      contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RollOurServices"]).resources, "arn:aws:ecs:us-east-1:865780386982:service/healdesk-production/healdesk-production-voice") &&
+      contains(keys(aws_cloudwatch_log_group.app), "voice")
+    )
+    error_message = "With enable_voice off there is no voice task definition, service, target group, rule, alarm or output; the deploy role still names the voice service, and its log group exists."
   }
 
   # --- load balancer and TLS ---
@@ -683,7 +698,7 @@ run "production_defaults" {
   assert {
     condition = (
       local.unset_placeholder == "__unset__" &&
-      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 11 &&
+      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 12 &&
       alltrue([
         for p in concat(values(aws_ssm_parameter.internal), values(aws_ssm_parameter.external)) :
         p.type == "SecureString" && p.key_id == aws_kms_key.main.arn && p.tier == "Standard" &&
@@ -709,13 +724,13 @@ run "production_defaults" {
     condition = (
       output.parameters_to_fill == sort([for name in [
         "ANTHROPIC_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "HEALDESK_PROVISION_SECRET",
-        "HEALDESK_VOICE_TOOLS_SECRET", "HEALDESK_VOICE_WEBHOOK_SECRET", "META_APP_SECRET", "META_VERIFY_TOKEN",
-        "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
+        "HEALDESK_RETELL_LLM_SECRET", "HEALDESK_VOICE_TOOLS_SECRET", "HEALDESK_VOICE_WEBHOOK_SECRET", "META_APP_SECRET",
+        "META_VERIFY_TOKEN", "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       ] : "/healdesk/production/app/${name}"]) &&
       length(output.internal_parameters) == 6 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")
     )
-    error_message = "parameters_to_fill lists the eleven external keys (and never the CI token, which Terraform does not manage)."
+    error_message = "parameters_to_fill lists the twelve external keys (and never the CI token, which Terraform does not manage)."
   }
 
   assert {
@@ -1156,6 +1171,234 @@ run "separate_worker_nat_gateway_and_waf" {
   }
 }
 
+# The Retell voice endpoint switched on, with two tasks. Its target group gets
+# an ARN of its own so the rules can be told apart from the web group's.
+run "voice_on" {
+  command = plan
+
+  variables {
+    enable_voice  = true
+    voice_desired = 2
+  }
+
+  override_resource {
+    target          = aws_lb_target_group.voice
+    override_during = plan
+    values = {
+      arn        = "arn:aws:elasticloadbalancing:us-east-1:865780386982:targetgroup/healdesk-production-voice-tls/fedcba9876543210"
+      arn_suffix = "targetgroup/healdesk-production-voice-tls/fedcba9876543210"
+    }
+  }
+
+  # --- the task: the voice process as "app", then the sidecar ---
+  assert {
+    condition     = [for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c.name] == ["app", "tls-proxy"]
+    error_message = "The voice task runs the voice process, named app, and the tls-proxy sidecar, nothing else."
+  }
+
+  assert {
+    condition = (
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).command == ["node", "--import", "tsx", "src/voice/server.ts"] &&
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).workingDirectory == "/repo/apps/app" &&
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).stopTimeout == 120 &&
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).linuxParameters.initProcessEnabled &&
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).essential &&
+      length(one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).portMappings) == 0 &&
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).logConfiguration.options["awslogs-group"] == "/healdesk/production/voice"
+    )
+    error_message = "The voice process runs node --import tsx src/voice/server.ts in /repo/apps/app under ECS's init, with stopTimeout 120, no port of its own behind the sidecar, and its own log group."
+  }
+
+  assert {
+    condition = (
+      strcontains(join(" ", one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).healthCheck.command), "http://127.0.0.1:3001/health'") &&
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).healthCheck.startPeriod == 60 &&
+      contains(one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "tls-proxy"]).healthCheck.command, "https://127.0.0.1:8443/health") &&
+      !strcontains(jsonencode(one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "tls-proxy"]).healthCheck), "/api/health")
+    )
+    error_message = "The voice process and its sidecar are checked on the process's own /health, never the web tier's liveness path, which it answers 404."
+  }
+
+  # The sidecar is the web task's in everything but its health check.
+  assert {
+    condition = (
+      merge(one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "tls-proxy"]), { healthCheck = null }) ==
+      merge(one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "tls-proxy"]), { healthCheck = null })
+    )
+    error_message = "The voice task's sidecar must be the web task's (image, port 8443, keep-alive, waiting for a healthy app, logs), but for its health check."
+  }
+
+  assert {
+    condition = (
+      {
+        for e in one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).environment : e.name => e.value
+        } == merge({
+          for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : e.name => e.value
+          if !contains(["KEEP_ALIVE_TIMEOUT", "HEALDESK_SES_EVENTS_TOPIC_ARN"], e.name)
+      }, { PORT = "3001", HOSTNAME = "0.0.0.0" })
+    )
+    error_message = "The voice process gets the web tier's plain environment, on PORT 3001 and HOSTNAME 0.0.0.0, without the web tier's keep-alive and SNS topic."
+  }
+
+  assert {
+    condition = (
+      one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).secrets ==
+      one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).secrets &&
+      contains(one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).secrets, {
+        name      = "HEALDESK_RETELL_LLM_SECRET"
+        valueFrom = "arn:aws:ssm:us-east-1:865780386982:parameter/healdesk/production/app/HEALDESK_RETELL_LLM_SECRET"
+      })
+    )
+    error_message = "The voice process gets the web tier's secrets, HEALDESK_RETELL_LLM_SECRET among them, from its own parameter."
+  }
+
+  assert {
+    condition = alltrue([
+      for name in ["MIGRATION_DATABASE_URL", "HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] :
+      !strcontains(aws_ecs_task_definition.voice[0].container_definitions, "\"${name}\"")
+    ])
+    error_message = "A never-set variable appears in the voice task definition."
+  }
+
+  assert {
+    condition = (
+      aws_ecs_task_definition.voice[0].family == "healdesk-production-voice" &&
+      aws_ecs_task_definition.voice[0].cpu == "256" && aws_ecs_task_definition.voice[0].memory == "1024" &&
+      aws_ecs_task_definition.voice[0].runtime_platform[0].cpu_architecture == "ARM64" &&
+      aws_ecs_task_definition.voice[0].task_role_arn == aws_iam_role.app_task.arn &&
+      aws_ecs_task_definition.voice[0].execution_role_arn == aws_iam_role.ecs_execution.arn
+    )
+    error_message = "The voice task is healdesk-production-voice, 0.25 vCPU and 1 GB on ARM64, with the app's task role and the execution role."
+  }
+
+  # --- the load balancer: its own group, drained for an hour, and one rule ---
+  assert {
+    condition = (
+      aws_lb_target_group.voice[0].name == "healdesk-production-voice-tls" &&
+      aws_lb_target_group.voice[0].protocol == "HTTPS" && aws_lb_target_group.voice[0].port == 8443 &&
+      aws_lb_target_group.voice[0].protocol_version == "HTTP1" && aws_lb_target_group.voice[0].target_type == "ip" &&
+      tostring(aws_lb_target_group.voice[0].deregistration_delay) == "3600" &&
+      aws_lb_target_group.voice[0].health_check[0].path == "/health" &&
+      aws_lb_target_group.voice[0].health_check[0].matcher == "200" &&
+      aws_lb_target_group.voice[0].health_check[0].protocol == "HTTPS"
+    )
+    error_message = "The voice group is HTTPS:8443 over HTTP/1.1 to task IPs, health-checked on /health, and drains for 3600 s so a deploy cuts no call."
+  }
+
+  assert {
+    condition = (
+      aws_lb_listener_rule.voice[0].action[0].type == "forward" &&
+      aws_lb_listener_rule.voice[0].action[0].target_group_arn == aws_lb_target_group.voice[0].arn &&
+      aws_lb_target_group.voice[0].arn != aws_lb_target_group.web.arn &&
+      toset(flatten([for c in aws_lb_listener_rule.voice[0].condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app.healdesk.io"]) &&
+      toset(flatten([for c in aws_lb_listener_rule.voice[0].condition : tolist(c.path_pattern[0].values) if length(c.path_pattern) > 0])) == toset(["/llm-websocket/*"]) &&
+      aws_lb_listener_rule.public.action[0].target_group_arn == aws_lb_target_group.web.arn
+    )
+    error_message = "/llm-websocket/* on the public host, and only there, goes to the voice group; everything else on it still goes to the web tier."
+  }
+
+  assert {
+    condition = (
+      aws_lb_listener_rule.voice[0].priority > max([for r in aws_lb_listener_rule.public_refuses_signed : r.priority]...) &&
+      aws_lb_listener_rule.voice[0].priority < aws_lb_listener_rule.public.priority &&
+      aws_lb_listener_rule.voice[0].priority > aws_lb_listener_rule.internal_nothing_else.priority
+    )
+    error_message = "The voice rule is decided after the public host's refusals of the signed paths and before its catch-all."
+  }
+
+  # --- the service ---
+  assert {
+    condition = (
+      aws_ecs_service.voice[0].name == "healdesk-production-voice" &&
+      aws_ecs_service.voice[0].desired_count == 0 &&
+      aws_ecs_service.voice[0].tags["DesiredCount"] == "2" &&
+      !aws_ecs_service.voice[0].enable_execute_command &&
+      aws_ecs_service.voice[0].deployment_circuit_breaker[0].enable && aws_ecs_service.voice[0].deployment_circuit_breaker[0].rollback &&
+      aws_ecs_service.voice[0].deployment_minimum_healthy_percent == 100 && aws_ecs_service.voice[0].deployment_maximum_percent == 200 &&
+      aws_ecs_service.voice[0].task_definition == aws_ecs_task_definition.voice[0].arn &&
+      one(aws_ecs_service.voice[0].load_balancer).target_group_arn == aws_lb_target_group.voice[0].arn &&
+      one(aws_ecs_service.voice[0].load_balancer).container_name == "tls-proxy" &&
+      one(aws_ecs_service.voice[0].load_balancer).container_port == 8443 &&
+      !one(aws_ecs_service.voice[0].network_configuration).assign_public_ip &&
+      aws_ecs_service.voice[0].timeouts.delete == "65m"
+    )
+    error_message = "The voice service starts at 0 tasks with its DesiredCount tag from voice_desired, circuit breaker on, ECS Exec off, behind the sidecar's 8443 in its own group, and waits out its drain when deleted."
+  }
+
+  # --- the deploy role may register the family and roll the service, never run it ---
+  assert {
+    condition = (
+      contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-voice:*") &&
+      contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RollOurServices"]).resources, "arn:aws:ecs:us-east-1:865780386982:service/healdesk-production/healdesk-production-voice") &&
+      contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "TagOnlyWhileCreating"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-voice:*") &&
+      length(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RollOurServices"]).resources) == 3 &&
+      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : strcontains(jsonencode(st.resources), "voice") if contains(st.actions, "ecs:RunTask")])
+    )
+    error_message = "The deploy role registers voice revisions and updates the voice service (and only web, worker and voice), but never runs a voice task."
+  }
+
+  # --- alarm and outputs ---
+  assert {
+    condition = (
+      length(aws_cloudwatch_metric_alarm.voice_running) == 1 &&
+      aws_cloudwatch_metric_alarm.voice_running[0].alarm_name == "healdesk-production-voice-below-desired" &&
+      aws_cloudwatch_metric_alarm.voice_running[0].metric_name == "HealthyHostCount" &&
+      aws_cloudwatch_metric_alarm.voice_running[0].threshold == 2 &&
+      aws_cloudwatch_metric_alarm.voice_running[0].comparison_operator == "LessThanThreshold" &&
+      aws_cloudwatch_metric_alarm.voice_running[0].treat_missing_data == "breaching" &&
+      aws_cloudwatch_metric_alarm.voice_running[0].dimensions["TargetGroup"] == "targetgroup/healdesk-production-voice-tls/fedcba9876543210"
+    )
+    error_message = "voice-below-desired fires when the voice group has fewer healthy targets than voice_desired, or none report."
+  }
+
+  assert {
+    condition = (
+      output.voice_websocket_url == "wss://app.healdesk.io/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>" &&
+      output.voice_service == "healdesk-production-voice" &&
+      !strcontains(output.voice_websocket_url, "__unset__")
+    )
+    error_message = "The outputs give Retell's URL with the secret and the clinic id as placeholders, and the service's name."
+  }
+}
+
+# Voice without the encrypted hop, under the longest environment name: no
+# sidecar, the process's own 3001 mapped, and a group name that still fits.
+run "voice_on_plain_http_longest_environment" {
+  command = plan
+
+  variables {
+    enable_voice    = true
+    alb_to_task_tls = false
+    environment     = "productionab"
+  }
+
+  assert {
+    condition = (
+      [for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c.name] == ["app"] &&
+      jsondecode(aws_ecs_task_definition.voice[0].container_definitions)[0].portMappings[0].containerPort == 3001 &&
+      aws_lb_target_group.voice[0].protocol == "HTTP" && aws_lb_target_group.voice[0].port == 3001 &&
+      aws_lb_target_group.voice[0].health_check[0].protocol == "HTTP" &&
+      one(aws_ecs_service.voice[0].load_balancer).container_name == "app" &&
+      one(aws_ecs_service.voice[0].load_balancer).container_port == 3001 &&
+      aws_lb_target_group.voice[0].name == "healdesk-productionab-voice-http" &&
+      length(aws_lb_target_group.voice[0].name) <= 32
+    )
+    error_message = "Without alb_to_task_tls the voice task has no sidecar and its group is HTTP:3001 on the process; the group's name fits AWS's 32 characters at the longest environment."
+  }
+}
+
+run "refuses_a_voice_size_fargate_does_not_offer_and_a_fifth_task" {
+  command = plan
+
+  variables {
+    voice_cpu     = 256
+    voice_memory  = 4096
+    voice_desired = 5
+  }
+
+  expect_failures = [var.voice_memory, var.voice_desired]
+}
+
 run "refuses_a_web_size_fargate_does_not_offer" {
   command = plan
 
@@ -1275,14 +1518,6 @@ run "refuses_a_long_environment_name" {
     environment = "productionabc"
   }
   expect_failures = [var.environment]
-}
-
-run "refuses_the_voice_switch" {
-  command = plan
-  variables {
-    enable_voice = true
-  }
-  expect_failures = [var.enable_voice]
 }
 
 run "refuses_one_origin_for_both" {

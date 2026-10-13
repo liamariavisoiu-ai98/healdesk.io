@@ -111,6 +111,54 @@ resource "aws_lb_target_group" "web" {
   }
 }
 
+# The Retell voice endpoint's group (enable_voice). The same protocol and
+# port as the web group, because the voice task runs the same sidecar in
+# front of its process on 3001 (ecs.tf); HTTP/1.1, which a WebSocket upgrade
+# needs; and a plain GET health path, because a health check cannot speak
+# WebSocket. The protocol is in the name for the same reason as the web
+# group's, shortened to tls or http so that the longest environment name
+# still fits AWS's 32 characters.
+#
+# deregistration_delay is the hour AWS allows, and it is what lets a call in
+# progress finish during a deploy. Each call is one WebSocket held for its
+# whole length. When ECS replaces a task it first deregisters the target and
+# waits for it to drain: the load balancer sends the old task no new call but
+# keeps every open one until it ends or the hour runs out, and only then does
+# ECS send SIGTERM. stopTimeout (Fargate's 120 s at most) could never cover a
+# call. So a deploy leaves the old voice tasks running for up to an hour
+# beside the new ones, and deploy-app.yml waits for the new tasks to serve,
+# not for the old ones to stop.
+resource "aws_lb_target_group" "voice" {
+  count = var.enable_voice ? 1 : 0
+
+  name             = "${local.name}-voice-${var.alb_to_task_tls ? "tls" : "http"}"
+  vpc_id           = aws_vpc.main.id
+  target_type      = "ip"
+  protocol         = local.web_target_protocol
+  protocol_version = "HTTP1"
+  port             = local.web_target_port
+
+  deregistration_delay = 3600
+
+  # The voice process's own liveness (src/voice/server.ts): 200 while it
+  # takes calls, 503 once it is draining.
+  health_check {
+    enabled             = true
+    protocol            = local.web_target_protocol
+    port                = "traffic-port"
+    path                = "/health"
+    matcher             = "200"
+    interval            = 15
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 3
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
@@ -162,7 +210,9 @@ resource "aws_lb_listener" "https" {
 #                  request for any other path there is a mistake or a probe.
 #   public host    everything except the signed routes, which get a 404, so
 #                  apps/web's server-to-server endpoints are not exposed on the
-#                  origin every browser and webhook uses.
+#                  origin every browser and webhook uses. With enable_voice,
+#                  /llm-websocket/* goes to the voice endpoint instead of the
+#                  web tier.
 #
 # A signed path on the internal host is always forwarded and never refused
 # here: apps/web's relay retries only 401, 429 and 5xx and drops any other
@@ -252,6 +302,38 @@ resource "aws_lb_listener_rule" "public_refuses_signed" {
   condition {
     path_pattern {
       values = local.signed_path_groups[count.index]
+    }
+  }
+}
+
+# Retell's custom-LLM WebSocket (enable_voice), on the public host only.
+# Each clinic's Retell agent is configured with
+# wss://<app_domain>/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>,
+# and Retell appends the call id. Decided after the public host's refusals of
+# the signed paths, which it cannot overlap, and before the public catch-all,
+# which would hand the upgrade to Next. The load balancer passes the upgrade
+# through as it is; the pings Retell sends every two seconds (the session asks
+# for them) keep the socket inside the idle timeout.
+resource "aws_lb_listener_rule" "voice" {
+  count = var.enable_voice ? 1 : 0
+
+  listener_arn = aws_lb_listener.https.arn
+  priority     = 350
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.voice[0].arn
+  }
+
+  condition {
+    host_header {
+      values = [var.app_domain]
+    }
+  }
+
+  condition {
+    path_pattern {
+      values = ["/llm-websocket/*"]
     }
   }
 }

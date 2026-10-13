@@ -48,7 +48,7 @@ number *plus the treatment they asked about* **is** PHI.
 | `apps/web` — NO PHI (Vercel) | `apps/app` — PHI (BAA-covered host) |
 | --- | --- |
 | Marketing, pricing, specialty/SEO content | Every patient conversation: the Retell custom-LLM WebSocket endpoint, the web chat widget's API, the Meta webhooks and send adapters |
-| Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends and never stored (owner, 13 October 2026; no call audio is kept) |
+| Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends; the only copy is the sealed outbox row, deleted seven days after it first goes (owner, 13 October 2026; no call audio is kept) |
 | The demo's scraped clinic profile (business data) | Bookings: Google Calendar availability and writes, slot holds, the manual-booking queue |
 | Checkout, Stripe, BAA signing UI, download | Deposit links through the clinic's own payment gateway |
 | Contact form, reviews (business contacts) | The clinic portal, the onboarding wizard and the portal support chat |
@@ -81,10 +81,10 @@ enforceable rather than aspirational.
    serve clinic owners from a generic knowledge tree or, for a personalised
    demo, from the clinic's public website, and the demo calls run on Retell
    demo agents (Synthflow was replaced on 5 October 2026). The product's voice
-   agent answers real patients, so it belongs in `apps/app`, built on Retell
-   (none of it is in the code yet): Retell opens a WebSocket per call to a
-   Healdesk-hosted Claude endpoint, and every tool call it makes
-   (availability, slot hold, booking) runs there. `/api/callback` only *places* a demo call an owner asked for; it
+   agent answers real patients, so it belongs in `apps/app`, built on Retell:
+   Retell opens a WebSocket per call to a Healdesk-hosted Claude endpoint
+   (`src/voice/server.ts`, `lib/voice/retell.ts`, built 13 October 2026), and
+   everything the agent says and every request it takes runs there. `/api/callback` only *places* a demo call an owner asked for; it
    is not a patient call-back, and v1 never contacts a patient first. If AYA,
    the demo persona, ever answers a real patient, that path is PHI and moves to
    `apps/app`.
@@ -150,11 +150,14 @@ running: one ARM64 web task of a quarter vCPU carrying the worker too
 (`worker_placement`), a `db.t4g.micro`, a NAT instance instead of a NAT
 gateway (`nat_mode`), and the WAF off (`enable_waf`); each is one variable
 from the shape first built (README, "Costs").
-`infra/aws/README.md` is the runbook. **Nothing is applied**: no AWS resource
-exists until the owner launches the bootstrap stack and runs `infra.yml`, and
-the image has never run on AWS. What has been checked is local: `terraform
-validate`, `terraform test` (22 runs against mocked providers), tflint,
-checkov, cfn-lint and actionlint.
+`infra/aws/README.md` is the runbook. **The owner reports it applied** (13
+October 2026): the bootstrap stack launched, the external secrets pasted, the
+alarm email confirmed and the Vercel variables set. Nothing in this repository
+records whether `deploy-app.yml` has run, so whether the image has run on AWS
+is unverified here; ask before assuming. What has been checked here is local:
+`terraform validate`, `terraform test` against mocked providers, tflint,
+checkov, cfn-lint, actionlint, and the app image built for arm64 and booted
+under emulation (13 October 2026).
 
 - **`next build` still needs a `DATABASE_URL`; the image supplies a
   placeholder.** `src/db/index.ts:33` calls `env.databaseUrl()` at module
@@ -233,17 +236,22 @@ checkov, cfn-lint and actionlint.
   `terraform fmt`, `init -lockfile=readonly`, `validate` and `test`. No CI job
   builds or runs the image; `deploy-app.yml` is the first thing that does, at
   deploy time.
-- **There is no process for the voice agent.** Next route handlers cannot
-  accept WebSocket upgrades, and Retell holds a WebSocket open for the whole
-  call, so the Retell custom-LLM endpoint needs its own long-lived Node
-  process: a third service from the image, with its own target group, and a
-  row in the Deployment table below. Nothing in `apps/app` implements it yet;
-  `src/lib/voice/` still ingests Synthflow webhook payloads. `infra/aws/ecs.tf`
-  ends with a disabled placeholder listing what the service will need.
+- **The voice agent is its own process, behind a switch that is off.** Next
+  route handlers cannot accept WebSocket upgrades, and Retell holds a WebSocket
+  open for the whole call, so the Retell custom-LLM endpoint is its own
+  long-lived Node process from the same image: `node --import tsx
+  src/voice/server.ts` in `/repo/apps/app` (built 13 October 2026), on port
+  3001 behind the same `tls-proxy` sidecar. `enable_voice` (off by default, so
+  the lean profile pays nothing for it) adds its task, service
+  `healdesk-production-voice`, target group (deregistration delay an hour, so
+  a deploy never cuts a call), the listener rule `/llm-websocket/*` on the
+  public host, an alarm, and `deploy-app.yml` rolls it with web. Each clinic's
+  Retell agent uses `wss://app.healdesk.io/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>`.
+  Never tested against Retell itself: check its protocol fields on a synthetic
+  clinic first (`docs/design/web-chat-and-voice-2026-10-13.md`).
 
-What stands between this and a first deploy is the owner's part of the first
-run in `infra/aws/README.md`. The voice process stands between it and the
-voice product, and the BAA chain above between it and any real patient.
+What stands between this and real patients is the BAA chain above, and for
+voice, `enable_voice` with its secret and a test call.
 
 ---
 
@@ -396,9 +404,11 @@ the spec edits the owner approved.
     emailed to the clinic when it ends, instead of being stored
     (`lib/conversations/transcript-email.ts`). It is classed `may-carry-phi`,
     so it goes only through SES with TLS required, never Resend; its subject
-    names nobody and it asks not to be replied to. The spec doc, BAA 1.3.0
-    clause 11 and the DPA still describe a stored transcript and must be
-    changed to match (`docs/design/transcript-email-2026-10-13.md`);
+    names nobody and it asks not to be replied to. Until SES has taken it,
+    and seven days after, it waits sealed in the outbox, retried and sent
+    again after a bounce (`lib/conversations/transcript-outbox.ts`); the
+    spec says so since 13 October 2026
+    (`docs/design/transcript-email-2026-10-13.md`);
   - one Resend account sends all of it, product and marketing mail alike, from
     hello@healdesk.io, the only address (owner, 9 October 2026), and every
     email can be replied to; the sender is the `HEALDESK_EMAIL_FROM`
@@ -437,16 +447,16 @@ not by restoring that code.
 | Workspace | Target | Root directory | PHI |
 | --- | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` | No |
-| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`, not yet applied | `apps/app` | **Yes** |
+| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`, applied by the owner (reported 13 October 2026) | `apps/app` | **Yes** |
 | `apps/app` worker | Same cluster: by default a container in each web task; its own service `healdesk-production-worker` with `worker_placement = "separate"` | `apps/app` | **Yes** |
 | `apps/app` migrations and role creation | One-off tasks `healdesk-production-migrate` and `healdesk-production-db-bootstrap`, run by `deploy-app.yml` | `apps/app` | **Yes** |
-| `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same cluster, a separate long-lived service; not built (a disabled placeholder in `infra/aws/ecs.tf`) | `apps/app` | **Yes** |
+| `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same cluster, its own long-lived service `healdesk-production-voice`, created only with `enable_voice` (off by default) | `apps/app` | **Yes** |
 | `packages/leadgen` | Not deployed | — | No |
 
 The BAA host is the AWS account designated under the AWS BAA, in `us-east-1`
 (`docs/policies/aws-hipaa-account.md`). The database is Amazon RDS for
 PostgreSQL 17 under that agreement, the owner's choice of 7 October 2026 over
-Neon, defined in `infra/aws/rds.tf` and not provisioned yet. Vercel is a BAA
+Neon, defined in `infra/aws/rds.tf` and, by the owner's report of 13 October 2026, provisioned. Vercel is a BAA
 host only on Enterprise.
 
 The voice endpoint cannot be a route handler or a serverless function. Retell

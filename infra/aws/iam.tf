@@ -299,9 +299,10 @@ resource "aws_iam_role_policy" "db_admin_task" {
 # the control, not the shortness of this policy.
 #
 # It can push the three images, register and read task definitions, update
-# the two services, run the two one-off tasks on this cluster and watch them,
-# and pass exactly the roles those tasks use. Never ECS Exec. Sessions may
-# last up to the deploy job's two hours; the workflow renews its own anyway.
+# the web, worker and voice services, run the two one-off tasks on this
+# cluster and watch them, and pass exactly the roles those tasks use. Never
+# ECS Exec. Sessions may last up to the deploy job's two hours; the workflow
+# renews its own anyway.
 # ---------------------------------------------------------------------------
 
 data "aws_iam_policy_document" "github_deploy_assume" {
@@ -349,10 +350,15 @@ resource "aws_iam_role" "github_deploy" {
   max_session_duration = 7200
 }
 
+# The worker's and the voice endpoint's service and family are named here
+# whether or not they exist (worker_placement, enable_voice): the workflow
+# reads all three services in one call to learn which exist, and a service
+# missing from this list would refuse that call.
 locals {
   task_families = {
     web              = "${local.name}-web"
     worker           = "${local.name}-worker"
+    voice            = "${local.name}-voice"
     migrate          = "${local.name}-migrate"
     db_bootstrap     = "${local.name}-db-bootstrap"
     destroy_due      = "${local.name}-destroy-due"
@@ -370,6 +376,7 @@ locals {
   service_arns = [
     "arn:aws:ecs:${var.region}:${local.account_id}:service/${local.name}/${local.name}-web",
     "arn:aws:ecs:${var.region}:${local.account_id}:service/${local.name}/${local.name}-worker",
+    "arn:aws:ecs:${var.region}:${local.account_id}:service/${local.name}/${local.name}-voice",
   ]
   cluster_tasks_arn = "arn:aws:ecs:${var.region}:${local.account_id}:task/${local.name}/*"
 }

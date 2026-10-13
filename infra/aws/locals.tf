@@ -138,6 +138,20 @@ locals {
     { for k, v in { STRIPE_CONNECT_CLIENT_ID = var.stripe_connect_client_id } : k => v if v != "" },
   )
 
+  # The voice endpoint (enable_voice, src/voice/server.ts): the common
+  # environment and the address the sidecar proxies to. Nothing web-only: it
+  # answers no SNS, Meta or Stripe Connect callback, takes no card, and reads
+  # no KEEP_ALIVE_TIMEOUT (it is a plain Node server, not Next). A choice of
+  # model (HEALDESK_VOICE_MODEL) is app_environment's, like any other public
+  # setting.
+  voice_environment = merge(
+    local.app_environment_common,
+    {
+      PORT     = "3001"
+      HOSTNAME = "0.0.0.0"
+    },
+  )
+
   # Every name the stack sets on any task from its own variables. A literal,
   # because var.app_environment is checked against it and so cannot be part of
   # what it is computed from; the task definitions' preconditions check that
@@ -171,14 +185,21 @@ locals {
   ]
 
   # --- Secrets, injected by ECS from SSM at task start (contract section 3).
-  # The web tier gets every app/* parameter; the worker gets the ones its code
-  # reads; the migrate task gets only the migrator URL; the db-bootstrap task
-  # reads its own through its task role (ecs.tf).
+  # The web tier and the voice endpoint get every app/* parameter; the worker
+  # gets the ones its code reads; the migrate task gets only the migrator URL;
+  # the db-bootstrap task reads its own through its task role (ecs.tf).
   app_secret_arns = {
     for name, path in local.parameter_paths : name => local.parameter_arns[name] if startswith(path, "app/")
   }
 
   web_secret_names = sort(keys(local.app_secret_arns))
+
+  # The voice process runs the web tier's conversation code (the shared
+  # assistant and its model, the post-call ingest, the booking alert, the
+  # emailed transcript), so it gets the web tier's set rather than a list
+  # traced call by call; HEALDESK_RETELL_LLM_SECRET, which guards its socket,
+  # is one of them.
+  voice_secret_names = local.web_secret_names
 
   # Traced from src/workers/index.ts: the database, session signing (email
   # stop links), identifier references, provisioning's signature, mail,

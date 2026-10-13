@@ -24,7 +24,8 @@
 #   - external: the owner, in AWS CloudShell, with
 #     infra/aws/scripts/put-external-secrets.sh (the parameters_to_fill
 #     output lists them). Several stay "__unset__" on purpose until the vendor
-#     chain is complete (META_*, ANTHROPIC_API_KEY, the voice secrets).
+#     chain is complete (META_*, ANTHROPIC_API_KEY, the voice secrets, and
+#     HEALDESK_RETELL_LLM_SECRET until enable_voice is turned on).
 #
 # Three things follow from the write-only form, and each is pinned below:
 #   - an in-place change to any other argument makes the provider put the
@@ -66,8 +67,11 @@ locals {
     MIGRATION_DATABASE_URL      = "Migrations and the queue install only, as healdesk_migrator. Composed by the db-bootstrap task; given to the migrate task and nothing else."
   }
 
-  # Pasted by the owner. All of them live under app/ and reach the web tier;
-  # the worker gets the few it reads (locals.tf).
+  # Pasted by the owner. All of them live under app/ and reach the web tier
+  # and the voice endpoint; the worker gets the few it reads (locals.tf).
+  # HEALDESK_RETELL_LLM_SECRET is the path segment that admits Retell's
+  # WebSocket (src/voice/server.ts): the same value goes into every clinic's
+  # Retell agent URL, and while it is unset every call is refused.
   external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",
@@ -78,6 +82,7 @@ locals {
     "ANTHROPIC_API_KEY",
     "HEALDESK_VOICE_WEBHOOK_SECRET",
     "HEALDESK_VOICE_TOOLS_SECRET",
+    "HEALDESK_RETELL_LLM_SECRET",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
   ]

@@ -13,7 +13,8 @@ import { isCampaignCode } from "@/lib/attribution";
 import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
 import { intentFields, validateOrder } from "@/lib/checkout/order";
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
-import { getDemoSession, isDemoActive } from "@/lib/demo/sessions";
+import { demoSetupCredit, getDemoSession, isDemoActive } from "@/lib/demo/sessions";
+import { demoSiteProfile } from "@/lib/demo/to-clinic-profile";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
@@ -172,12 +173,13 @@ export async function POST(request: Request): Promise<Response> {
     // its banner promises, decided from the demo's own expiry on the row,
     // never from the browser.
     // The full credit wins when the lead holds it; otherwise a demo bought
-    // inside its week gets half the setup fee off (catalog DEMO_SETUP_CREDIT).
+    // inside its week gets its share of the setup fee off: half from an
+    // operator's demo, 30% from a homepage one (demoSetupCredit).
     offer:
       claimedLead && cohortCreditLive(claimedLead)
         ? ("cohort-setup" as const)
         : demo && isDemoActive(demo)
-          ? ("demo-setup-half" as const)
+          ? demoSetupCredit(demo).offer
           : null,
     demo: demo?.slug ?? null,
     setupRequestId: setupRequest?.id ?? null,
@@ -202,12 +204,19 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // What the buyer's demo learned from the same website stands in when the
+  // checkout's own read of it failed, so setup still starts from it rather
+  // than from nothing (lib/demo/to-clinic-profile.ts). Built here from our
+  // own row; apps/app parses and screens it again like any read.
+  const demoRead = order.profileStatus === "failed" && order.website && demo ? demoSiteProfile(demo, order.website) : null;
+  const purchase = demoRead ? { ...order, profile: demoRead, profileStatus: "read" as const } : order;
+
   const nonce = randomBytes(24).toString("base64url");
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
   const saved = await postToApp(
     "/api/checkout/intents",
     {
-      ...intentFields(order),
+      ...intentFields(purchase),
       inviteRef: setupRequest?.id ?? null,
       nonceHash: createHash("sha256").update(nonce).digest("hex"),
       // The terms tick-box, as accepted: which text, when, and from where.

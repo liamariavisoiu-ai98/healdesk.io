@@ -16,6 +16,7 @@ import {
   type CheckoutProgress,
   type CheckoutSeed,
 } from "@/components/checkout/CheckoutFlow";
+import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { replyByDate } from "@/lib/reply-by";
 import { site } from "@/lib/site";
@@ -62,6 +63,19 @@ import { site } from "@/lib/site";
  * The package is preselected only from a pricing card or a `?plan` link
  * (plan Part A3), and both of those reach /get-started. Opened from the
  * navbar or a demo, the flow starts with the buyer's own choice.
+ *
+ * ## Opened from a homepage demo
+ *
+ * A demo the visitor asked for on the homepage opens this same purchase from
+ * its own "Get AYA" (owner, 13 October 2026), not the operator demo's "Book
+ * Onboarding", and closing it leaves them on their demo. It hands in `demo`:
+ * what the demo already knows (the clinic's name, website, specialty and the
+ * email it was asked for under), so neither the form nor the purchase asks
+ * again, and the package step's estimates and offer, exactly as /get-started
+ * shows them. Before anything is asked of the server, the demo is remembered
+ * in its first-party cookie (app/demo/[slug]/onboard), the one the purchase
+ * routes read for the offer, the claim on payment and the setup gate, so the
+ * server decides all three from its own row, never from this prop.
  */
 
 /**
@@ -91,6 +105,13 @@ export type BuyPrefill = {
   email?: string;
 };
 
+/** The homepage demo this purchase opens from: see "Opened from a homepage demo" above. */
+export type BuyDemo = {
+  slug: string;
+  checkout: DemoCheckout;
+  prefill: { clinicName: string; website?: string; contactEmail?: string; specialty?: string };
+};
+
 type BuyCtx = {
   open: (prefill?: BuyPrefill) => void;
 };
@@ -105,10 +126,13 @@ export function useBuy(): BuyCtx | null {
 export function BuyModalProvider({
   children,
   initialInterval = "month",
+  demo,
 }: {
   children: React.ReactNode;
   /** Monthly unless the page hosting the modal was opened on annual terms. */
   initialInterval?: BillingInterval;
+  /** Set on a homepage demo's own page: the purchase opens knowing it. */
+  demo?: BuyDemo;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -162,7 +186,12 @@ export function BuyModalProvider({
   useEffect(() => {
     if (!mounted || answer) return;
     let live = true;
-    fetch("/api/checkout/mode", { cache: "no-store", credentials: "same-origin" })
+    // From a demo, its cookie first: the purchase routes read the demo from it.
+    const remembered = demo
+      ? fetch(`/demo/${demo.slug}/onboard`, { method: "POST", credentials: "same-origin" }).catch(() => null)
+      : Promise.resolve(null);
+    remembered
+      .then(() => fetch("/api/checkout/mode", { cache: "no-store", credentials: "same-origin" }))
       .then((response) => (response.ok ? (response.json() as Promise<ModeAnswer>) : fallbackAnswer()))
       .catch(() => fallbackAnswer())
       .then((next) => {
@@ -171,7 +200,7 @@ export function BuyModalProvider({
     return () => {
       live = false;
     };
-  }, [mounted, answer]);
+  }, [mounted, answer, demo]);
 
   // Escape and close() both bypass React, so the element tells us rather than
   // the other way round.
@@ -233,7 +262,9 @@ export function BuyModalProvider({
             <SetupRequestForm
               replyBy={answer.replyBy}
               notice={answer.link === "none" ? null : answer.link}
-              initialEmail={prefill.email}
+              initialEmail={prefill.email ?? demo?.prefill.contactEmail}
+              initialClinicName={demo?.prefill.clinicName}
+              initialWebsite={demo?.prefill.website}
               onClose={close}
             />
           ) : (
@@ -242,14 +273,16 @@ export function BuyModalProvider({
               initialState={
                 answer.mode === "pilot"
                   ? {
+                      ...demo?.prefill,
                       ...prefillToState(prefill),
                       clinicName: answer.setup.clinicName,
                       website: answer.setup.website,
                     }
-                  : prefillToState(prefill)
+                  : { ...demo?.prefill, ...prefillToState(prefill) }
               }
               lockedEmail={answer.mode === "pilot" ? answer.setup.email : undefined}
               salesTax={answer.salesTax === true}
+              demo={demo?.checkout}
               onClose={close}
               onProgress={setProgress}
               downloadHost={() => dialogRef.current}

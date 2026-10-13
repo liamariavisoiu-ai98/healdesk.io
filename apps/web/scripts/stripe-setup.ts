@@ -96,7 +96,7 @@ import {
   annualTotalUsd,
   channelList,
   COHORT_SETUP_CREDIT,
-  DEMO_SETUP_CREDIT,
+  DEMO_SETUP_CREDITS,
   demoSetupCreditUsd,
   METERS,
   type MeterId,
@@ -749,9 +749,10 @@ async function syncPlaceholder(
 // every renewal.
 // ---------------------------------------------------------------------------
 //
-// The demo-week credit (catalog DEMO_SETUP_CREDIT) is the same shape at half
-// the setup fee, for a clinic that buys from its personalised demo inside the
-// demo's week; it runs through the same function.
+// The demo-week credits (catalog DEMO_SETUP_CREDITS) are the same shape at a
+// share of the setup fee, for a clinic that buys from its personalised demo
+// inside the demo's week: half from an operator's demo, 30% from a homepage
+// one. They run through the same function, each with its own coupons.
 type SetupCoupon = { couponId: string; name: string; offer: string; amountOffCents: (plan: (typeof plans)[number]) => number };
 
 const COHORT_COUPON: SetupCoupon = {
@@ -761,12 +762,12 @@ const COHORT_COUPON: SetupCoupon = {
   amountOffCents: (plan) => plan.setupFeeUsd * 100,
 };
 
-const DEMO_COUPON: SetupCoupon = {
-  couponId: DEMO_SETUP_CREDIT.couponId,
-  name: DEMO_SETUP_CREDIT.name,
-  offer: "demo-setup-half",
-  amountOffCents: (plan) => Math.round(demoSetupCreditUsd(plan) * 100),
-};
+const DEMO_COUPONS: SetupCoupon[] = DEMO_SETUP_CREDITS.map((credit) => ({
+  couponId: credit.couponId,
+  name: credit.name,
+  offer: credit.offer,
+  amountOffCents: (plan) => Math.round(demoSetupCreditUsd(plan, credit) * 100),
+}));
 
 async function syncSetupCoupons(stripe: Stripe, coupon: SetupCoupon): Promise<void> {
   console.log(`\n${coupon.name}`);
@@ -1023,12 +1024,14 @@ function printDryRun(desired: Desired): void {
   console.log(`\n${desired.placeholder.productName}`);
   line("·", `product  ${desired.placeholder.productName}  [${PLACEHOLDER_META}=plan_start]`);
   line("·", `price    ${desired.placeholder.lookupKey.padEnd(40)} ${usd(0).padEnd(8)} recurring/month/licensed`);
-  console.log(`\n${COHORT_SETUP_CREDIT.name}`);
-  for (const plan of plans) {
-    line(
-      "·",
-      `coupon   ${`${COHORT_SETUP_CREDIT.couponId}-${plan.id}`.padEnd(40)} ${usd(plan.setupFeeUsd * 100).padEnd(8)} amount_off/once`,
-    );
+  for (const coupon of [COHORT_COUPON, ...DEMO_COUPONS]) {
+    console.log(`\n${coupon.name}`);
+    for (const plan of plans) {
+      line(
+        "·",
+        `coupon   ${`${coupon.couponId}-${plan.id}`.padEnd(40)} ${usd(coupon.amountOffCents(plan)).padEnd(8)} amount_off/once`,
+      );
+    }
   }
   console.log(
     `\nWould also list active ${KEY_PREFIX}* prices and flag any other the catalog no longer names as STALE.`,
@@ -1138,7 +1141,7 @@ async function main(): Promise<void> {
   }
   await syncPlaceholder(stripe, products, activePrices, desired.placeholder);
   await syncSetupCoupons(stripe, COHORT_COUPON);
-  await syncSetupCoupons(stripe, DEMO_COUPON);
+  for (const coupon of DEMO_COUPONS) await syncSetupCoupons(stripe, coupon);
   reportStale(activePrices, desired);
 
   console.log(

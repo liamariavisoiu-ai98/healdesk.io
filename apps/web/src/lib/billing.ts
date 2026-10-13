@@ -8,7 +8,8 @@ import {
   planStartSentence,
   type PriceKind,
   stripeLookupKey,
-  DEMO_SETUP_CREDIT,
+  DEMO_SETUP_CREDITS,
+  type DemoSetupCredit,
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
@@ -110,10 +111,12 @@ export type CheckoutIntent = {
     leadId: string | null;
     /**
      * "cohort-setup" when the lead was offered the founding-cohort credit
-     * inside its window; "demo-setup-half" when the buyer came from a
-     * personalised demo still inside its week (catalog DEMO_SETUP_CREDIT).
+     * inside its window; a demo credit's offer ("demo-setup-half" from an
+     * operator's demo, "demo-setup-30" from a homepage one) when the buyer
+     * came from a personalised demo still inside its week (catalog
+     * DEMO_SETUP_CREDITS).
      */
-    offer?: "cohort-setup" | "demo-setup-half" | null;
+    offer?: "cohort-setup" | DemoSetupCredit["offer"] | null;
     /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
     demo?: string | null;
     /**
@@ -128,6 +131,18 @@ export type CheckoutIntent = {
 /** The coupon `stripe:setup` creates for one package's setup credit. */
 export function cohortCouponIdFor(plan: Plan): string {
   return `${COHORT_SETUP_CREDIT.couponId}-${plan.id}`;
+}
+
+/** The coupon `stripe:setup` creates for one package's demo-week credit, or null when the offer is not one. */
+export function demoCouponIdFor(plan: Plan, offer: string | null | undefined): string | null {
+  const credit = DEMO_SETUP_CREDITS.find((c) => c.offer === offer);
+  return credit ? `${credit.couponId}-${plan.id}` : null;
+}
+
+/** The setup credit's coupon on the Session, when the purchase carries one. */
+function setupDiscount(plan: Plan, offer: string | null | undefined): { discounts?: Array<{ coupon: string }> } {
+  const coupon = offer === "cohort-setup" ? cohortCouponIdFor(plan) : demoCouponIdFor(plan, offer);
+  return coupon ? { discounts: [{ coupon }] } : {};
 }
 
 export type CheckoutResult =
@@ -269,11 +284,7 @@ export async function createCheckout(
       // first period is charged to it the day AYA first answers.
       payment_method_collection: "always",
       ...(process.env.STRIPE_AUTOMATIC_TAX === "true" ? { automatic_tax: { enabled: true } } : {}),
-      ...(input.attribution?.offer === "cohort-setup"
-        ? { discounts: [{ coupon: cohortCouponIdFor(input.plan) }] }
-        : input.attribution?.offer === "demo-setup-half"
-          ? { discounts: [{ coupon: `${DEMO_SETUP_CREDIT.couponId}-${input.plan.id}` }] }
-          : {}),
+      ...setupDiscount(input.plan, input.attribution?.offer),
       custom_text: {
         submit: {
           message: `${planStartSentence(input.plan, input.interval)} The setup fee is non-refundable.`,

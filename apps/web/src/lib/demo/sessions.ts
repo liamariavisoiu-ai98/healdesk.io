@@ -1,6 +1,6 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { isSpecialtyId } from "@healdesk/catalog";
+import { DEMO_SETUP_CREDIT, type DemoSetupCredit, isSpecialtyId, SELF_SERVE_DEMO_SETUP_CREDIT } from "@healdesk/catalog";
 
 import { sheetsClient, type Cell, type SheetsClient } from "@/lib/sheets/client";
 import {
@@ -108,6 +108,26 @@ export function isDemoBuildStalled(session: DemoSession, now: number = Date.now(
   return now - started > DEMO_BUILD_STALL_MS;
 }
 
+/**
+ * What someone waiting on a demo is shown: still building or auditing (the
+ * stage, for the progress bar in lib/demo/build-progress.ts), ready, or with
+ * the team: held, failed, or stalled past the point where the run that started
+ * it can still finish. The demo's page and api/demo/[slug]/status both read it
+ * here, so the page and the homepage window agree.
+ */
+export type DemoBuildState = "building" | "auditing" | "ready" | "finishing";
+
+export function demoBuildState(session: DemoSession, now: number = Date.now()): DemoBuildState {
+  if (session.status === "ready") return session.profile ? "ready" : "finishing";
+  if ((session.status === "building" || session.status === "auditing") && !isDemoBuildStalled(session, now)) return session.status;
+  return "finishing";
+}
+
+/** How long the build has been running, for the progress bar. */
+export function demoBuildElapsedMs(session: DemoSession, now: number = Date.now()): number {
+  return Math.max(0, now - (session.buildStartedAt ?? session.createdAt).getTime());
+}
+
 /** Usable now: built, and inside its week. */
 export function isDemoActive(session: DemoSession, now: number = Date.now()): boolean {
   return session.status === "ready" && session.expiresAt.getTime() > now;
@@ -134,6 +154,16 @@ export const SELF_SERVE_DEMO = "homepage";
 
 export function isSelfServeDemo(session: Pick<DemoSession, "createdBy">): boolean {
   return session.createdBy === SELF_SERVE_DEMO;
+}
+
+/**
+ * The setup credit a demo's week carries: half the fee from a demo an
+ * operator built, 30% from one the visitor asked for on the homepage (owner,
+ * 13 October 2026). The demo's banner, the checkout's offer and the coupon
+ * api/checkout applies all read it here, so they cannot disagree.
+ */
+export function demoSetupCredit(session: Pick<DemoSession, "createdBy">): DemoSetupCredit {
+  return isSelfServeDemo(session) ? SELF_SERVE_DEMO_SETUP_CREDIT : DEMO_SETUP_CREDIT;
 }
 
 /** The name to show: the site's own if it gave one, else what the operator typed. */

@@ -220,28 +220,54 @@ export const COHORT_SETUP_CREDIT = {
 } as const;
 
 /**
- * Half the setup fee off, for a clinic that buys from its personalised demo
- * inside the demo's week (owner, 7 October 2026). One coupon per package,
- * `amount_off` half that package's setup fee and applied once, so it takes
- * half of the setup line off the first invoice and nothing off the
- * subscription. stripe:setup creates them; the demo page and the checkout
- * show the same figure.
+ * A setup credit for a clinic that buys from its personalised demo inside the
+ * demo's week. One coupon per package, `amount_off` that share of the
+ * package's setup fee and applied once, so it comes off the setup line of the
+ * first invoice and nothing off the subscription. stripe:setup creates them;
+ * the demo page and the checkout show the same figure. `offer` is what the
+ * checkout records on the Stripe Session and the coupon's metadata.
  */
+export type DemoSetupCredit = {
+  couponId: string;
+  /** Shown by Stripe on Checkout and the invoice; Stripe caps it at 40 characters. */
+  name: string;
+  percentOfSetupFee: number;
+  offer: "demo-setup-half" | "demo-setup-30";
+};
+
+/** Half the setup fee off, from a demo an operator built for a prospect (owner, 7 October 2026). */
 export const DEMO_SETUP_CREDIT = {
   couponId: "healdesk-demo-setup-half",
-  /** Shown by Stripe on Checkout and the invoice. */
   name: "Demo week: 50% off setup",
   percentOfSetupFee: 50,
-} as const;
+  offer: "demo-setup-half",
+} as const satisfies DemoSetupCredit;
 
 /**
- * The demo credit for one package, in whole dollars, rounded up: half of
- * $997 is $498.50, and a page that shows "$499" over an invoice that takes
- * $498.50 would disagree with Stripe by fifty cents. Up, so the buyer is
- * never given less than the half the banner promised.
+ * 30% off, from a demo the visitor asked for themselves on the homepage's
+ * "See it in your own branding" (owner, 13 October 2026). Its own coupons,
+ * because a coupon's amount cannot change in place.
  */
-export function demoSetupCreditUsd(plan: { setupFeeUsd: number }): number {
-  return Math.ceil((plan.setupFeeUsd * DEMO_SETUP_CREDIT.percentOfSetupFee) / 100);
+export const SELF_SERVE_DEMO_SETUP_CREDIT = {
+  couponId: "healdesk-demo-setup-30",
+  name: "Demo week: 30% off setup",
+  percentOfSetupFee: 30,
+  offer: "demo-setup-30",
+} as const satisfies DemoSetupCredit;
+
+export const DEMO_SETUP_CREDITS: readonly DemoSetupCredit[] = [DEMO_SETUP_CREDIT, SELF_SERVE_DEMO_SETUP_CREDIT];
+
+/**
+ * A demo credit for one package, in whole dollars, rounded up: half of $997
+ * is $498.50, and a page that shows "$499" over an invoice that takes $498.50
+ * would disagree with Stripe by fifty cents. Up, so the buyer is never given
+ * less than the share the banner promised.
+ */
+export function demoSetupCreditUsd(
+  plan: { setupFeeUsd: number },
+  credit: Pick<DemoSetupCredit, "percentOfSetupFee"> = DEMO_SETUP_CREDIT,
+): number {
+  return Math.ceil((plan.setupFeeUsd * credit.percentOfSetupFee) / 100);
 }
 
 /**

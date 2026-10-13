@@ -1,6 +1,7 @@
 import { type ClinicProfile, META_SOLD_ALONE } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { __resetDemoCacheForTests, createDemoSession, SELF_SERVE_DEMO, updateDemoSession } from "@/lib/demo/sessions";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
 import { createSetupRequest, updateSetupRequest } from "@/lib/setup-requests";
@@ -547,5 +548,80 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
         billingInterval: "month",
       },
     ]);
+  });
+});
+
+/**
+ * The buyer's demo, from its cookie: what it learned from the same website
+ * stands in for a checkout read that failed (lib/demo/to-clinic-profile.ts).
+ */
+describe("POST /api/checkout, from the buyer's demo", () => {
+  const fetchMock = vi.fn(appAnswers);
+
+  beforeEach(() => {
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
+    vi.stubEnv("STRIPE_SECRET_KEY", "");
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockClear();
+    __setSheetsClientForTests(new FakeSheets());
+    __resetSheetSchemaForTests();
+    __resetDemoCacheForTests();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    __setSheetsClientForTests(null);
+  });
+
+  async function builtDemo(websiteUrl: string): Promise<string> {
+    const session = await createDemoSession({ clinicName: "Radiance Med Spa", websiteUrl, createdBy: SELF_SERVE_DEMO });
+    await updateDemoSession(session.slug, {
+      status: "ready",
+      readyAt: new Date("2026-10-13T09:03:00.000Z"),
+      profile: {
+        clinicName: "Radiance Med Spa",
+        services: [{ name: "Signature facial", description: null, price: "$199", duration: "60 min" }],
+        hours: [{ days: "Mon-Fri", hours: "9am-6pm" }],
+        address: "12 Main St, Austin, TX 78701",
+      },
+    });
+    return session.slug;
+  }
+
+  function postFromDemo(slug: string, body: Record<string, unknown>): Promise<Response> {
+    counter += 1;
+    return POST(
+      new Request("http://localhost/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": `10.1.0.${counter}`, cookie: `hd_demo=${slug}` },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  test("sends the demo's read of the same website when the checkout's own read failed", async () => {
+    const slug = await builtDemo("https://radiancemedspa.com/");
+    const response = await postFromDemo(slug, VALID);
+    expect(response.status).toBe(201);
+    const [intent] = sentTo(fetchMock, "/api/checkout/intents");
+    expect(intent).toMatchObject({ profileStatus: "read", website: "radiancemedspa.com" });
+    const profile = intent!.profile as ClinicProfile;
+    expect(profile.services).toEqual([
+      { name: "Signature facial", priceKind: "exact", priceUsd: 199, maxUsd: null, unit: null, durationMinutes: 60 },
+    ]);
+    expect(profile.locations[0]?.hours?.mon).toEqual([["09:00", "18:00"]]);
+  });
+
+  test("leaves a successful read alone, and never lends a demo to another website", async () => {
+    const slug = await builtDemo("https://radiancemedspa.com/");
+    await postFromDemo(slug, { ...VALID, profile: readProfile(), profileStatus: "read" });
+    expect(sentTo(fetchMock, "/api/checkout/intents")[0]).toMatchObject({ profile: readProfile() });
+
+    const other = await builtDemo("https://otherspa.com/");
+    await postFromDemo(other, VALID);
+    expect(sentTo(fetchMock, "/api/checkout/intents")[1]).toMatchObject({ profile: null, profileStatus: "failed" });
   });
 });

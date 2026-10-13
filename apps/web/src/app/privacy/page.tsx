@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { LegalPage, Section } from "@/components/LegalPage";
 import { CookieChoice } from "@/components/analytics/CookieChoice";
 import { CALL_CONSENT, CONSENT_NOTICE_VERSION, MARKETING_CONSENT_LABEL, DEMO_ACCESS_DAYS } from "@/lib/consent";
+import { OWN_DEMO_KEY } from "@/lib/demo/remembered";
 import { DEMO_LIFETIME_MS, DEMO_RETENTION_AFTER_EXPIRY_DAYS } from "@/lib/demo/sessions";
 import { GATE_COOKIE } from "@/lib/gate";
 import { ENTITY, POLICY, entityDisplayName } from "@/lib/legal";
@@ -330,6 +331,16 @@ export default function PrivacyPage() {
           <CookieChoice />
         </div>
         <ul className="list-disc space-y-3 pl-6">
+          <li>
+            {/* Added 13 Oct 2026 (LEGAL_VERSION 2026-10-13.1), when the
+                homepage began remembering the demo it builds
+                (lib/demo/remembered.ts). */}
+            <strong>Your own demo&apos;s link</strong> — functional, and not a cookie: if you ask
+            for your own demo on the homepage, its private link and your website&apos;s address are
+            kept in your browser's local storage under <code>{OWN_DEMO_KEY}</code>, so the homepage
+            can take you back to it. It is never sent to us, and it is offered only while the demo
+            is live; clearing this site&apos;s data removes it.
+          </li>
           <li>
             <strong>Analytics cookies</strong> — set by our analytics provider only after you accept
             the notice, to tell one visit from another. Withdraw with the button above; analytics stops on the

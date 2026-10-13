@@ -14,8 +14,10 @@ import { isSpecialtyId, type SpecialtyId } from "@healdesk/catalog";
  *
  * It is also the profile the spec's "never ask twice" rule wants carried into
  * the onboarding wizard (docs/v1-product-spec.md, "Stage 0, before they
- * pay"). Today it stops at the demo; sending it on is a signed provision
- * request away, never a second store on this side.
+ * pay"). The checkout reads the website again and sends that read into the
+ * purchase; when that read fails, the buyer's demo's profile goes in its
+ * place (lib/demo/to-clinic-profile.ts), inside the same signed request to
+ * apps/app, never a second store on this side.
  *
  * ## Why empty strings rather than nulls in the schema
  *

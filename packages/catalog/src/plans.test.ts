@@ -455,4 +455,25 @@ describe("the demo-week setup credit", () => {
       expect(credit - plan.setupFeeUsd / 2).toBeLessThan(1);
     }
   });
+
+  test("from a homepage demo is 30% of the setup fee, in whole dollars, never less than 30%", async () => {
+    const { demoSetupCreditUsd, SELF_SERVE_DEMO_SETUP_CREDIT, plans: all } = await import("./plans");
+    expect(SELF_SERVE_DEMO_SETUP_CREDIT.percentOfSetupFee).toBe(30);
+    for (const plan of all) {
+      const credit = demoSetupCreditUsd(plan, SELF_SERVE_DEMO_SETUP_CREDIT);
+      expect(Number.isInteger(credit)).toBe(true);
+      expect(credit).toBeGreaterThanOrEqual(plan.setupFeeUsd * 0.3);
+      expect(credit - plan.setupFeeUsd * 0.3).toBeLessThan(1);
+    }
+  });
+
+  test("each credit has its own coupons, offer and a name Stripe will take", async () => {
+    const { DEMO_SETUP_CREDITS } = await import("./plans");
+    expect(new Set(DEMO_SETUP_CREDITS.map((c) => c.couponId)).size).toBe(DEMO_SETUP_CREDITS.length);
+    expect(new Set(DEMO_SETUP_CREDITS.map((c) => c.offer)).size).toBe(DEMO_SETUP_CREDITS.length);
+    for (const credit of DEMO_SETUP_CREDITS) {
+      expect(credit.name.length).toBeLessThanOrEqual(40);
+      expect(credit.name).toContain(`${credit.percentOfSetupFee}%`);
+    }
+  });
 });

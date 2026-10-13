@@ -5,7 +5,10 @@ import { DEMO_COOKIE, demoCookieOptions } from "@/lib/demo/attribution";
 import { getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
 
 /**
- * GET /demo/[slug]/onboard, the "Book Onboarding" button.
+ * GET /demo/[slug]/onboard, the "Book Onboarding" button of a demo an
+ * operator built. POST is the same cookie for a homepage demo's "Get AYA",
+ * which opens the purchase in place (components/BuyModal.tsx) and so asks
+ * for the cookie without leaving the page.
  *
  * Remembers which demo the buyer came from in a first-party cookie, then
  * sends them to the normal checkout, where they choose voice, website chat or
@@ -19,14 +22,21 @@ import { getDemoSession, isDemoSlug } from "@/lib/demo/sessions";
  */
 export async function GET(request: Request, ctx: { params: Promise<{ slug: string }> }): Promise<Response> {
   const { slug } = await ctx.params;
-  const target = new URL("/get-started", request.url);
-  if (!isDemoSlug(slug)) return NextResponse.redirect(target, 303);
+  await remember(slug);
+  return NextResponse.redirect(new URL("/get-started", request.url), 303);
+}
 
-  // Expired is fine: a prospect who comes back after the week can still buy.
+export async function POST(_request: Request, ctx: { params: Promise<{ slug: string }> }): Promise<Response> {
+  const { slug } = await ctx.params;
+  return new Response(null, { status: (await remember(slug)) ? 204 : 404 });
+}
+
+/** Set the cookie for a demo that exists. Expired is fine: a prospect who comes back after the week can still buy. */
+async function remember(slug: string): Promise<boolean> {
+  if (!isDemoSlug(slug)) return false;
   const session = await getDemoSession(slug);
-  if (session) {
-    const store = await cookies();
-    store.set(DEMO_COOKIE, slug, demoCookieOptions());
-  }
-  return NextResponse.redirect(target, 303);
+  if (!session) return false;
+  const store = await cookies();
+  store.set(DEMO_COOKIE, slug, demoCookieOptions());
+  return true;
 }

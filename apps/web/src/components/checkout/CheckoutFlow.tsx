@@ -600,7 +600,7 @@ export function CheckoutFlow({
         onBack={() => go(3)}
         onClose={onClose}
         headingRef={headingRef}
-        setupCreditUsd={demo?.offerEndsAt ? demoSetupCreditUsd(plan) : 0}
+        setupCreditUsd={demo?.offerEndsAt ? demoSetupCreditUsd(plan, { percentOfSetupFee: demo.offerPercent }) : 0}
       />
     );
   }

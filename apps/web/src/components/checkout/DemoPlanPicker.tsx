@@ -30,14 +30,15 @@ export function DemoPlanPicker({
   selectedPlanId,
   onSelect,
   roi,
-  setupWaived,
+  setupCreditPercent,
   includes,
 }: {
   interval: BillingInterval;
   selectedPlanId: string;
   onSelect: (plan: Plan) => void;
   roi: RoiInputs | null;
-  setupWaived: boolean;
+  /** The demo offer's share of the setup fee while it holds, else null. */
+  setupCreditPercent: number | null;
   /** What the setup fee buys, one line. */
   includes: string;
 }) {
@@ -122,11 +123,11 @@ export function DemoPlanPicker({
                         ))}
                         <p className="text-muted mt-1">
                           Setup:{" "}
-                          {setupWaived ? (
+                          {setupCreditPercent ? (
                             <>
                               <span className="line-through">{usd.format(plan.setupFeeUsd)}</span>{" "}
                               <span className="font-semibold text-[#2f7d3a]">
-                                {usd.format(plan.setupFeeUsd - demoSetupCreditUsd(plan))} this week
+                                {usd.format(plan.setupFeeUsd - demoSetupCreditUsd(plan, { percentOfSetupFee: setupCreditPercent }))} this week
                               </span>
                             </>
                           ) : (

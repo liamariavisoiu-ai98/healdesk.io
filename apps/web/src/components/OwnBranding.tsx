@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 
 import { HealdeskSoul } from "@/components/HealdeskSoul";
+import { BuildProgress } from "@/components/demo/BuildProgress";
 import { track } from "@/lib/analytics";
 import { readableOn } from "@/lib/demo/colour";
 import { greetingLead } from "@/lib/demo/greeting";
+import { parseRemembered, readRememberedRaw, rememberDemo, subscribeRemembered } from "@/lib/demo/remembered";
+import type { DemoBuildState } from "@/lib/demo/sessions";
 import { site } from "@/lib/site";
 import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
 
@@ -77,6 +80,13 @@ import { REDUCED_MOTION, useMediaQuery } from "@/lib/use-media-query";
  * request fails. Should it be blocked anyway, the window offers the link.
  * The team hears about every request at hello@ (lib/demo/own-demo.ts).
  *
+ * While it builds, the window shows how far it has got and the time left,
+ * asking api/demo/[slug]/status every few seconds, the same estimate the
+ * demo's own page shows (lib/demo/build-progress.ts; owner, 13 October 2026),
+ * and says so when it is ready. The link is also remembered in this browser
+ * (lib/demo/remembered.ts) and offered on the next visit, because the email
+ * that promised it did not always come.
+ *
  * Nothing typed here is tracked: the analytics event says only that a demo
  * was asked for (lib/analytics.ts). The preview keeps nothing (the Privacy
  * page says so).
@@ -136,6 +146,9 @@ function cleanPreview(data: unknown, host: string): Preview {
 }
 
 type Read = { refused: string } | { preview: Preview };
+
+/** How often the window asks how the build is going: the demo page's own refresh. */
+const STATUS_EVERY_MS = 6_000;
 
 /** The demo link api/own-demo answers with: a page of ours under /demo/, and nothing else is opened. */
 const DEMO_LINK = /^https?:\/\/[^/\s]+\/demo\/[a-z0-9-]{1,80}$/;
@@ -261,6 +274,10 @@ export function OwnBranding() {
   const [tabOpened, setTabOpened] = useState(false);
   /** The greeting has replaced the dots. */
   const [greeted, setGreeted] = useState(false);
+  /** How far their demo's build has got, from api/demo/[slug]/status; null until it first answers. */
+  const [build, setBuild] = useState<{ state: DemoBuildState; elapsedMs: number } | null>(null);
+  /** A demo this browser asked for before, still inside its week. */
+  const remembered = parseRemembered(useSyncExternalStore(subscribeRemembered, readRememberedRaw, () => null));
   const domainRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   /** Which preview the page is waiting for: an answer to an older one is dropped. */
@@ -315,12 +332,41 @@ export function OwnBranding() {
     if (phase === "email" && byVisitor.current) emailRef.current?.focus();
   }, [phase]);
 
+  // Their demo is building: ask how it is going until it is ready or with the team.
+  useEffect(() => {
+    if (phase !== "done" || !demoLink) return;
+    const path = new URL(demoLink).pathname;
+    let live = true;
+    let timer = 0;
+    const ask = async () => {
+      const data = (await fetch(`/api${path}/status`, { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null)) as { state?: unknown; elapsedMs?: unknown } | null;
+      if (!live) return;
+      const state = data?.state;
+      if (
+        (state === "building" || state === "auditing" || state === "ready" || state === "finishing") &&
+        typeof data?.elapsedMs === "number"
+      ) {
+        setBuild({ state, elapsedMs: data.elapsedMs });
+        if (state === "ready" || state === "finishing") return;
+      }
+      timer = window.setTimeout(ask, STATUS_EVERY_MS);
+    };
+    void ask();
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+  }, [phase, demoLink]);
+
   /** Back to the start: whatever was read, and any answer still on its way, is dropped. */
   const reset = () => {
     request.current += 1;
     setPreview(null);
     setDemoLink(null);
     setTabOpened(false);
+    setBuild(null);
     setPhase("idle");
   };
 
@@ -404,6 +450,8 @@ export function OwnBranding() {
       }
       setDemoLink(link);
       setTabOpened(opened);
+      setBuild(null);
+      if (link) rememberDemo(link, hostOf(domain));
       track("own_demo_requested");
       setPhase("done");
     } catch {
@@ -417,14 +465,20 @@ export function OwnBranding() {
   const ink = readableOn(colour);
   const initial = name.charAt(0).toUpperCase();
   const buttonLabel = phase === "reading" ? "Reading…" : phase === "sending" ? "Sending…" : phase === "done" ? "Sent" : phase === "idle" ? "Show me" : "Email it to me";
-  const loading = phase === "reading" || phase === "sending" || phase === "done";
+  /** Their demo has been built, or handed to the team: nothing is loading any more. */
+  const settled = build?.state === "ready" || build?.state === "finishing";
+  const loading = phase === "reading" || phase === "sending" || (phase === "done" && !settled);
   const status =
     phase === "reading"
       ? `Reading ${host}.`
       : phase === "shown" || phase === "email"
         ? `Showing ${host} with ${site.agent} on it.`
         : phase === "done"
-          ? `Building ${host}'s assistant. ${tabOpened ? "It is opening in a new tab, and the" : "The"} link will be emailed to ${email.trim()}.`
+          ? build?.state === "ready"
+            ? `${host}'s assistant is ready.`
+            : build?.state === "finishing"
+              ? `Our team is finishing ${host}'s assistant.`
+              : `Building ${host}'s assistant. ${tabOpened ? "It is opening in a new tab, and the" : "The"} link will be emailed to ${email.trim()}.`
           : "";
 
   return (
@@ -436,6 +490,20 @@ export function OwnBranding() {
         <p className="text-muted mx-auto mt-3 max-w-[54ch] text-[clamp(16px,1.15vw,18px)] leading-[1.55] font-medium text-balance">
           Type your website and see {site.agent} on it. We&rsquo;ll email you your own, free.
         </p>
+        {/* Their demo from an earlier visit, kept in this browser so it is never lost to an email that did not come. */}
+        {remembered && phase === "idle" ? (
+          <p className="mt-4 text-[15px] font-medium">
+            <a
+              href={remembered.url}
+              target="_blank"
+              rel="noopener"
+              className="text-ink inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-1.5 font-semibold shadow-sm ring-1 ring-black/[0.06] transition-colors hover:bg-[#f5f5f7]"
+            >
+              Open your demo for <span className="break-all">{remembered.host}</span>
+              <span aria-hidden>&rarr;</span>
+            </a>
+          </p>
+        ) : null}
       </div>
 
       <p className="sr-only" aria-live="polite">
@@ -726,14 +794,42 @@ export function OwnBranding() {
 
           {phase === "done" ? (
             <div className="own-rise absolute inset-0 z-[1] grid place-items-center bg-white/85 px-6 text-center backdrop-blur-[2px]">
-              <div>
+              <div className="w-full max-w-[440px]">
                 <p className="font-display text-ink text-[clamp(22px,2.4vw,28px)] leading-tight font-medium tracking-[-0.02em]">
-                  Building {host}&rsquo;s assistant&hellip;
+                  {build?.state === "ready" ? (
+                    <>{host}&rsquo;s assistant is ready</>
+                  ) : build?.state === "finishing" ? (
+                    <>We&rsquo;re putting the finishing touches on it</>
+                  ) : (
+                    <>Building {host}&rsquo;s assistant&hellip;</>
+                  )}
                 </p>
-                <p className="text-muted mx-auto mt-2 max-w-[44ch] text-[15.5px] font-medium">
-                  {tabOpened ? <>It&rsquo;s opening in a new tab. </> : null}
-                  We&rsquo;ll also email <span className="text-ink font-semibold">{email.trim()}</span> the link when
-                  it&rsquo;s ready. Questions:{" "}
+                {settled ? null : (
+                  <div className="mt-4">
+                    <BuildProgress
+                      stage={build?.state === "auditing" ? "auditing" : "building"}
+                      elapsedMs={build?.elapsedMs ?? 0}
+                      host={host}
+                      colour="#0071e3"
+                      compact
+                    />
+                  </div>
+                )}
+                <p className="text-muted mx-auto mt-3 max-w-[44ch] text-[15px] font-medium">
+                  {build?.state === "ready" ? (
+                    <>We&rsquo;re also emailing the link to <span className="text-ink font-semibold">{email.trim()}</span>. </>
+                  ) : build?.state === "finishing" ? (
+                    <>
+                      Our team will email <span className="text-ink font-semibold">{email.trim()}</span> the moment it&rsquo;s ready.{" "}
+                    </>
+                  ) : (
+                    <>
+                      {tabOpened ? <>It&rsquo;s opening in a new tab. </> : null}
+                      We&rsquo;ll also email <span className="text-ink font-semibold">{email.trim()}</span> the link when
+                      it&rsquo;s ready.{" "}
+                    </>
+                  )}
+                  Questions:{" "}
                   <a href={`mailto:${site.email}`} className="text-ink font-semibold underline underline-offset-2">
                     {site.email}
                   </a>
@@ -745,7 +841,7 @@ export function OwnBranding() {
                     href={demoLink}
                     target="_blank"
                     rel="noopener"
-                    className="mt-5 inline-flex h-[34px] items-center rounded-sm bg-[#0071e3] px-4 text-[14.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed]"
+                    className="mt-4 inline-flex h-[34px] items-center rounded-sm bg-[#0071e3] px-4 text-[14.5px] font-semibold text-white shadow-sm transition-colors hover:bg-[#0077ed]"
                   >
                     Open your demo
                   </a>

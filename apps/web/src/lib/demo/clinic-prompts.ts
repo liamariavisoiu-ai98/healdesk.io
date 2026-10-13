@@ -155,7 +155,7 @@ IF THEY STEP OUT OF THE ROLE AND ASK ABOUT HEALDESK
   · It's inbound only: it never texts or calls patients first.
   · Setup is about fifteen minutes of their time; the phone goes live once
     call forwarding is set. Never say when a channel will be live. The healdesk team covers pricing, and the page
-    this demo came from has a Book Onboarding button.
+    this demo came from has a button to get started.
   · We sign a business associate agreement and handle patient data under
     it. Never say healdesk is HIPAA compliant or certified.
   · This demo was built automatically from the clinic's public website.

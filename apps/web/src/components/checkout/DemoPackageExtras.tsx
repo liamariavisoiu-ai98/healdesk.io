@@ -1,7 +1,5 @@
 "use client";
 
-import { DEMO_SETUP_CREDIT } from "@healdesk/catalog";
-
 import { DemoCountdown } from "@/components/demo/DemoTimers";
 import { patientValuePerYear, type RoiInputs } from "@/lib/demo/roi";
 import { usd } from "@/lib/pricing";
@@ -24,16 +22,22 @@ export type DemoCheckout = {
   };
   /** The demo's expiry (ISO) while its offer still holds; absent after it. */
   offerEndsAt?: string;
+  /**
+   * The share of the setup fee the offer takes off: 50 from an operator's
+   * demo, 30 from a homepage one (demoSetupCredit in lib/demo/sessions.ts),
+   * the same credit api/checkout applies.
+   */
+  offerPercent: number;
 };
 
 /** The offer, unmissable: the demo's own clock, the one the checkout's coupon honours. */
-export function DemoOfferBanner({ endsAt }: { endsAt: string }) {
+export function DemoOfferBanner({ endsAt, percent }: { endsAt: string; percent: number }) {
   return (
     <div className="bg-brand-gradient shadow-sm mb-5 flex flex-wrap items-center justify-between gap-3 rounded-md px-5 py-4 text-white">
       <span>
         <span className="block text-[12px] font-bold tracking-[0.12em] uppercase opacity-85">Demo offer</span>
         <span className="font-display block text-[24px] leading-tight font-semibold">
-          {DEMO_SETUP_CREDIT.percentOfSetupFee}% off your setup fee
+          {percent}% off your setup fee
         </span>
       </span>
       <span className="rounded-sm bg-white/15 px-3 py-2 text-[14.4px] font-semibold">

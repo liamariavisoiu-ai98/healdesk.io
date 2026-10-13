@@ -1,20 +1,25 @@
-import { DEMO_SETUP_CREDIT } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { AgentMark, AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { VoiceCard } from "@/components/agent-panel/VoiceCard";
+import { BuyModalProvider } from "@/components/BuyModal";
 import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
+import { BuildProgress } from "@/components/demo/BuildProgress";
+import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
 import { CopyDemoLink, DemoCountdown, RefreshWhileBuilding } from "@/components/demo/DemoTimers";
 import { CoverageOffer } from "@/components/demo/CoverageOffer";
+import { demoCheckout, demoPrefill } from "@/lib/demo/checkout";
 import { chatGreeting, demoModeLine } from "@/lib/demo/clinic-prompts";
 import { readableOn } from "@/lib/demo/colour";
 import { weekSchedule } from "@/lib/demo/opening-hours";
 import type { ClinicProfile } from "@/lib/demo/profile";
 import {
+  demoBuildElapsedMs,
+  demoBuildState,
+  demoSetupCredit,
   displayName,
   getDemoSession,
-  isDemoBuildStalled,
   isDemoExpired,
   isDemoSlug,
   isSelfServeDemo,
@@ -32,10 +37,16 @@ import { site } from "@/lib/site";
  *     reason is in the operator's console, not on their screen.
  *   - active: the countdown banner, the voice agent and the website chat side
  *     by side under the clinic's own name, logo and colour, the demo-mode
- *     disclaimer, and Book Onboarding.
- *   - expired: the archived banner, both panels locked, Book Onboarding
+ *     disclaimer, and the way to buy.
+ *   - expired: the archived banner, both panels locked, the way to buy
  *     still there. The API routes refuse an expired demo on their own, so
  *     the lock is not just a coat of paint.
+ *
+ * The way to buy depends on who asked for the demo. One an operator built
+ * for a prospect has "Book Onboarding", which goes to /get-started. One the
+ * visitor asked for on the homepage has "Get AYA", the homepage's own
+ * purchase, opened over the demo and knowing it (components/BuyModal.tsx),
+ * so closing it leaves them on their demo (owner, 13 October 2026).
  *
  * Private by construction: noindex here, `/demo` disallowed in robots.ts,
  * no analytics on the path (lib/analytics.ts), and the slug is unguessable.
@@ -56,6 +67,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 }
 
 const FALLBACK_COLOUR = "#172a3a";
+
+/** "peachystudio.com", as the visitor typed it, for the holding screen. */
+function hostOf(websiteUrl: string): string {
+  try {
+    return new URL(websiteUrl).hostname.replace(/^www\./, "");
+  } catch {
+    return websiteUrl;
+  }
+}
 
 function chipsFor(profile: ClinicProfile): string[] {
   // A treatment with a real figure, not the free consultation: "How much is
@@ -128,39 +148,54 @@ export default async function DemoPage({ params }: Props) {
       : null;
 
   // Building, being audited (lib/demo/audit.ts), or held or failed and the
-  // team is finishing it by hand. Only an audited demo is ever shown. A build
-  // past its route's 300 s will never land, and its row says "building" for
-  // good, so it is the team's to finish too, and the page stops promising a
-  // minute or two: the homepage opens this page the moment a demo is asked
-  // for, so its visitor would otherwise watch that promise indefinitely.
-  const inProgress = (session.status === "building" || session.status === "auditing") && !isDemoBuildStalled(session);
-  if (!profile || session.status !== "ready") {
+  // team is finishing it by hand. Only an audited demo is ever shown. While it
+  // builds, the page shows how far it has got and the time left (owner,
+  // 13 October 2026; lib/demo/build-progress.ts). A build past its route's
+  // 300 s will never land, and its row says "building" for good, so it is the
+  // team's to finish too (`demoBuildState`), and the bar comes down: the
+  // homepage opens this page the moment a demo is asked for, so its visitor
+  // would otherwise watch it creep on indefinitely.
+  const state = demoBuildState(session);
+  if (!profile || state !== "ready") {
+    const host = hostOf(session.websiteUrl);
     return (
       <Shell colour={colour}>
-        {inProgress && !expired ? <RefreshWhileBuilding /> : null}
-        <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
-          <span
-            aria-hidden
-            className="size-10 animate-spin rounded-full border-4 border-[var(--clinic)] border-t-transparent"
-          />
-          <h1 className="font-display mt-8 text-[34px] leading-tight font-medium tracking-[-0.02em]">
-            We&rsquo;re preparing {name}&rsquo;s demo
-          </h1>
-          <p className="text-muted mt-3 text-[17px] font-medium">
-            {inProgress
-              ? "We're reading your website and setting up your voice and chat assistants. This usually takes a minute or two, and this page will update by itself."
-              : isSelfServeDemo(session)
+        {state === "building" || state === "auditing" ? (
+          <>
+            {expired ? null : <RefreshWhileBuilding />}
+            <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
+              <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">
+                We&rsquo;re building {name}&rsquo;s demo
+              </h1>
+              <p className="text-muted mt-3 mb-9 text-[17px] font-medium">
+                Your voice and chat assistants, from {host}.
+              </p>
+              <BuildProgress stage={state} elapsedMs={demoBuildElapsedMs(session)} host={host} />
+            </main>
+          </>
+        ) : (
+          <main className="mx-auto flex w-full max-w-[640px] flex-1 flex-col items-center justify-center px-5 py-24 text-center">
+            <h1 className="font-display text-[34px] leading-tight font-medium tracking-[-0.02em]">
+              We&rsquo;re preparing {name}&rsquo;s demo
+            </h1>
+            <p className="text-muted mt-3 text-[17px] font-medium">
+              {isSelfServeDemo(session)
                 ? `Our team is putting the finishing touches on it, and we'll email you the moment it's ready. Questions: ${site.email}.`
                 : "Our team is putting the finishing touches on it. Check back shortly, or reply to our email and we'll let you know the moment it's ready."}
-          </p>
-        </main>
+            </p>
+          </main>
+        )}
       </Shell>
     );
   }
 
   const schedule = weekSchedule(profile.hours);
+  // A homepage demo buys through the homepage's own purchase, opened here
+  // and knowing the demo; one an operator built keeps "Book Onboarding".
+  const selfServe = isSelfServeDemo(session);
+  const ctaStyle = { background: "var(--clinic)", color: "var(--clinic-ink)" };
 
-  return (
+  const page = (
     <Shell colour={colour}>
       {/* Top banner: the one-week clock, or the archive notice. */}
       {/* Sticky, so the clock, the offer and the link follow the visitor down
@@ -181,7 +216,7 @@ export default async function DemoPage({ params }: Props) {
             Private demo for {name}. Live for <DemoCountdown expiresAt={session.expiresAt.toISOString()} />
           </span>
           <span className="rounded-full bg-[#87d68d] px-3 py-1 text-[13.2px] font-bold text-[#172a3a]">
-            Book this week: {DEMO_SETUP_CREDIT.percentOfSetupFee}% off your setup fee
+            Book this week: {demoSetupCredit(session).percentOfSetupFee}% off your setup fee
           </span>
           <CopyDemoLink />
         </div>
@@ -198,13 +233,22 @@ export default async function DemoPage({ params }: Props) {
           <a href="/" aria-label="healdesk" className="shrink-0">
             <img src="/brand/healdesk-logo.webp" alt="healdesk" width={2400} height={437} className="h-[22px] w-auto sm:h-[26px]" />
           </a>
-          <a
-            href={`/demo/${slug}/onboard`}
-            className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
-            style={{ background: "var(--clinic)", color: "var(--clinic-ink)" }}
-          >
-            Book Onboarding
-          </a>
+          {selfServe ? (
+            <DemoBuyButton
+              className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
+              style={ctaStyle}
+            >
+              {site.cta.primary.label}
+            </DemoBuyButton>
+          ) : (
+            <a
+              href={`/demo/${slug}/onboard`}
+              className="ml-auto shrink-0 rounded-full px-4 py-2 text-[15px] font-bold transition-opacity hover:opacity-90 sm:px-5 sm:py-2.5"
+              style={ctaStyle}
+            >
+              Book Onboarding
+            </a>
+          )}
         </div>
       </header>
 
@@ -292,8 +336,19 @@ export default async function DemoPage({ params }: Props) {
                 ? { kind: "google", place: profile.hoursPlace }
                 : { kind: "website" }
           }
+          buy={selfServe}
         />
       </main>
     </Shell>
+  );
+
+  if (!selfServe) return page;
+  return (
+    <BuyModalProvider
+      // A demo already bought opens the plain purchase: its offer and its claim are spent.
+      demo={session.claimed ? undefined : { slug, checkout: demoCheckout(session), prefill: demoPrefill(session) }}
+    >
+      {page}
+    </BuyModalProvider>
   );
 }

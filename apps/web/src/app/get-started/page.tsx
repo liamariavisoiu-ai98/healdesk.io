@@ -1,4 +1,4 @@
-import { isBillingInterval, isSpecialtyId } from "@healdesk/catalog";
+import { isBillingInterval } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
@@ -6,10 +6,8 @@ import { CheckoutFlow } from "@/components/checkout/CheckoutFlow";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { Brand } from "@/components/Nav";
 import { DEMO_COOKIE } from "@/lib/demo/attribution";
-import { REPEAT_VISITS, typicalVisit } from "@/lib/demo/roi";
-import { displayName, getDemoSession, isDemoActive, isDemoSlug, profileOf, type DemoSession } from "@/lib/demo/sessions";
-import { getSpecialty } from "@/lib/specialties";
-import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
+import { demoCheckout, demoPrefill } from "@/lib/demo/checkout";
+import { getDemoSession, isDemoSlug, type DemoSession } from "@/lib/demo/sessions";
 import { checkoutStart } from "@/lib/pricing";
 import { replyByDate } from "@/lib/reply-by";
 import { gateState, invitesToBuy } from "@/lib/setup-gate";
@@ -51,31 +49,8 @@ async function demoFromCookie(): Promise<DemoSession | null> {
   return session && session.status === "ready" && !session.claimed ? session : null;
 }
 
-/** What the package step shows a demo buyer: estimates from the demo's own prices, and the offer while it holds. */
-function demoCheckout(session: DemoSession): DemoCheckout {
-  const profile = profileOf(session);
-  const specialty = getSpecialty(session.specialty ?? profile?.specialty ?? "") ?? getSpecialty("med-spa")!;
-  const visit = typicalVisit(profile, specialty.economics);
-  return {
-    clinicName: displayName(session),
-    roi: {
-      ...visit,
-      bookingRate: specialty.economics.bookingRate,
-      repeat: REPEAT_VISITS[specialty.id] ?? null,
-    },
-    offerEndsAt: isDemoActive(session) ? session.expiresAt.toISOString() : undefined,
-  };
-}
-
-function demoPrefill(session: DemoSession | null) {
-  if (!session) return undefined;
-  return {
-    clinicName: displayName(session),
-    // The site the demo was built from: step 2 starts with it, and reads it.
-    ...(session.websiteUrl ? { website: session.websiteUrl } : {}),
-    ...(session.leadEmail ? { contactEmail: session.leadEmail } : {}),
-    ...(isSpecialtyId(session.specialty) ? { specialty: session.specialty } : {}),
-  };
+function prefillFrom(session: DemoSession | null) {
+  return session ? demoPrefill(session) : undefined;
 }
 
 export default async function GetStartedPage({
@@ -87,7 +62,7 @@ export default async function GetStartedPage({
   const initialPlan = checkoutStart(plan) ? plan : undefined;
   const initialInterval = isBillingInterval(interval) ? interval : "month";
   const demo = await demoFromCookie();
-  const initialState = demoPrefill(demo);
+  const initialState = prefillFrom(demo);
 
   /**
    * While the purchase is by invitation, the setup cookie decides what this
@@ -110,11 +85,13 @@ export default async function GetStartedPage({
       <header className="border-line/60 border-b">
         <div className="mx-auto flex max-w-[1240px] items-center px-5 py-4 sm:px-8 lg:px-14">
           <Brand />
+          {/* A buyer from their demo goes back to it, not to the homepage
+              (owner, 13 October 2026), from here and from Stripe's cancel page. */}
           <a
-            href="/"
+            href={demo ? `/demo/${demo.slug}` : "/"}
             className="text-muted hover:text-ink ml-auto text-sm font-semibold transition-colors"
           >
-            Back to site
+            {demo ? "Back to your demo" : "Back to site"}
           </a>
         </div>
       </header>
@@ -126,7 +103,14 @@ export default async function GetStartedPage({
           // column of fields. Below 1024px the card follows the form. The
           // buy modal renders the same form without it, one column as before.
           <div className="mx-auto grid max-w-[1120px] items-start gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,24rem)] lg:gap-16">
-            <SetupRequestForm replyBy={replyBy} notice={notice} />
+            <SetupRequestForm
+              replyBy={replyBy}
+              notice={notice}
+              // From a homepage demo: what it already knows, so it is not asked for twice.
+              initialEmail={initialState?.contactEmail}
+              initialClinicName={initialState?.clinicName}
+              initialWebsite={initialState?.website}
+            />
             <WhatHappensNext replyBy={replyBy} />
           </div>
         ) : (

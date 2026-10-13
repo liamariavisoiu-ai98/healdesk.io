@@ -49,6 +49,8 @@ export function SetupRequestForm({
   replyBy,
   notice,
   initialEmail = "",
+  initialClinicName = "",
+  initialWebsite = "",
   onClose,
 }: {
   /** "Tuesday 7 October", worked out on the server so it can't disagree with the email. */
@@ -56,12 +58,15 @@ export function SetupRequestForm({
   notice?: LinkNotice | null;
   /** From the demo gate, when the visitor already gave one. */
   initialEmail?: string;
+  /** From the visitor's own demo (lib/demo/checkout.ts), so it is not asked for twice. */
+  initialClinicName?: string;
+  initialWebsite?: string;
   onClose?: () => void;
 }) {
   const [fields, setFields] = useState<Fields>({
     name: "",
-    clinicName: "",
-    website: "",
+    clinicName: initialClinicName,
+    website: initialWebsite,
     noWebsite: false,
     email: initialEmail,
     channels: [],

@@ -109,7 +109,7 @@ export function PackageStep({
       {/* Monthly or annual, before the cards, because it changes every price
           on them. Pressed buttons rather than radios: two native buttons with
           aria-pressed say exactly what they are. */}
-      {demo?.offerEndsAt ? <DemoOfferBanner endsAt={demo.offerEndsAt} /> : null}
+      {demo?.offerEndsAt ? <DemoOfferBanner endsAt={demo.offerEndsAt} percent={demo.offerPercent} /> : null}
 
       <IntervalToggle value={state.interval} onChange={onInterval} />
 
@@ -121,7 +121,7 @@ export function PackageStep({
             selectedPlanId={plan?.id ?? ""}
             onSelect={(chosen) => onPlan(chosen.id)}
             roi={roiInputs}
-            setupWaived={Boolean(demo.offerEndsAt)}
+            setupCreditPercent={demo.offerEndsAt ? demo.offerPercent : null}
             includes="+ 24/7 support included · unlimited modifications · no hidden costs"
           />
         </>

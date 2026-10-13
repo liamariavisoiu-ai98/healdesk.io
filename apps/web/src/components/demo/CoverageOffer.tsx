@@ -1,4 +1,6 @@
+import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
 import { HOURS_IN_A_WEEK, type WeekSchedule } from "@/lib/demo/opening-hours";
+import { site } from "@/lib/site";
 
 /**
  * The closing offer: the clinic's week as it is now against the week with
@@ -13,9 +15,22 @@ import { HOURS_IN_A_WEEK, type WeekSchedule } from "@/lib/demo/opening-hours";
  * The four capabilities are the product's three voice coverage modes (all
  * calls, overflow, after hours) and chat, which always answers. "About 15
  * minutes of your time" is the set-up promise, word for word.
+ *
+ * The way in is "Book my onboarding" on a demo an operator built, and the
+ * homepage's "Get AYA" purchase, opened over the page, on one the visitor
+ * asked for there (`buy`; app/demo/[slug] says why).
  */
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+
+const WAY_IN =
+  "mt-10 inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[18px] font-bold text-[#172a3a] shadow-md transition-all duration-fast hover:-translate-y-0.5";
+
+const ARROW = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className="size-5" aria-hidden>
+    <path d="M5 12h14M13 6l6 6-6 6" />
+  </svg>
+);
 const AYA_GREEN = "#87d68d";
 
 const CHECK = (
@@ -42,6 +57,7 @@ export function CoverageOffer({
   agent,
   schedule,
   source,
+  buy = false,
 }: {
   slug: string;
   clinicName: string;
@@ -49,6 +65,8 @@ export function CoverageOffer({
   schedule: WeekSchedule;
   /** Where the schedule came from; null means the 9-to-5 assumption. */
   source: { kind: "google"; place: string | null } | { kind: "website" } | null;
+  /** A homepage demo: the way in opens the purchase over the page. */
+  buy?: boolean;
 }) {
   const openMinutes = schedule.days.reduce((sum, spans) => sum + spans.reduce((s, [a, b]) => s + (b - a), 0), 0);
   const openHours = Math.round((openMinutes / 60) * 10) / 10;
@@ -174,15 +192,17 @@ export function CoverageOffer({
         ))}
       </ul>
 
-      <a
-        href={`/demo/${slug}/onboard`}
-        className="mt-10 inline-flex items-center gap-2 rounded-full bg-white px-8 py-4 text-[18px] font-bold text-[#172a3a] shadow-md transition-all duration-fast hover:-translate-y-0.5"
-      >
-        Book my onboarding
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" className="size-5" aria-hidden>
-          <path d="M5 12h14M13 6l6 6-6 6" />
-        </svg>
-      </a>
+      {buy ? (
+        <DemoBuyButton className={WAY_IN}>
+          {site.cta.primary.label}
+          {ARROW}
+        </DemoBuyButton>
+      ) : (
+        <a href={`/demo/${slug}/onboard`} className={WAY_IN}>
+          Book my onboarding
+          {ARROW}
+        </a>
+      )}
 
       <ul className="mx-auto mt-8 flex max-w-[720px] flex-col items-center justify-center gap-x-7 gap-y-2 text-[15.6px] font-semibold text-white/85 sm:flex-row">
         {["Already built from your website", "Set up in about 15 minutes of your time"].map((line) => (

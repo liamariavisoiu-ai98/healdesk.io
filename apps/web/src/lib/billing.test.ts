@@ -3,6 +3,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   cohortCouponIdFor,
+  demoCouponIdFor,
   isProductionDeployment,
   meteredLookupKeysFor,
   overageLookupKeys,
@@ -83,6 +84,15 @@ describe("overage prices on a Session", () => {
   test("the cohort coupon id is stable per package", () => {
     for (const plan of plans) {
       expect(cohortCouponIdFor(plan)).toBe(`healdesk-cohort-setup-${plan.id}`);
+    }
+  });
+
+  test("an operator's demo takes half off, a homepage demo 30%, each by its own coupon", () => {
+    for (const plan of plans) {
+      expect(demoCouponIdFor(plan, "demo-setup-half")).toBe(`healdesk-demo-setup-half-${plan.id}`);
+      expect(demoCouponIdFor(plan, "demo-setup-30")).toBe(`healdesk-demo-setup-30-${plan.id}`);
+      expect(demoCouponIdFor(plan, "cohort-setup")).toBeNull();
+      expect(demoCouponIdFor(plan, null)).toBeNull();
     }
   });
 });

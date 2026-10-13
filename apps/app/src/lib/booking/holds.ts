@@ -256,7 +256,10 @@ const REASON = /^[a-z0-9_]{1,40}$/;
 /**
  * Release every hold of the tenant's location that has not finished, with
  * one reason (plan §4.12): when its Google connection is erased or broken, or
- * an election takes its terms away. A `held` hold whose minute has already
+ * an election takes its terms away. With `calendarIds`, only the holds on
+ * those calendars: the ones a change of named providers takes out of use
+ * (saveProviders), when the rest of the location's calendars still book; an
+ * empty list releases nothing. A `held` hold whose minute has already
  * run out is marked `expired`, as the engine marks a superseded one; every
  * other is `released`, a write in flight included. The writer that started
  * it finds its lease gone and records nothing (plan §7.9), and nothing stays
@@ -274,10 +277,16 @@ const REASON = /^[a-z0-9_]{1,40}$/;
  * reservation when it was made (D's L10), a write answered as a request when
  * that answer was given (ANSWERED_AS_REQUEST). A `held` hold carries none.
  */
-export async function releaseLiveHolds(tx: TenantTx, reason: string): Promise<number> {
+export async function releaseLiveHolds(
+  tx: TenantTx,
+  reason: string,
+  options: { calendarIds?: readonly string[] } = {},
+): Promise<number> {
   if (!REASON.test(reason)) {
     throw new Error("A hold's outcome reason is a short code: lower case, digits and underscores.");
   }
+  const calendars = options.calendarIds;
+  if (calendars && calendars.length === 0) return 0;
   const live = await tx.db
     .select({
       id: slotHolds.id,
@@ -286,7 +295,13 @@ export async function releaseLiveHolds(tx: TenantTx, reason: string): Promise<nu
       requestId: slotHolds.bookingRequestId,
     })
     .from(slotHolds)
-    .where(and(eq(slotHolds.clinicId, tx.clinicId), inArray(slotHolds.status, UNFINISHED)))
+    .where(
+      and(
+        eq(slotHolds.clinicId, tx.clinicId),
+        inArray(slotHolds.status, UNFINISHED),
+        calendars ? inArray(slotHolds.calendarId, [...calendars]) : undefined,
+      ),
+    )
     .for("update");
   if (live.length === 0) return 0;
   const released = await tx.db

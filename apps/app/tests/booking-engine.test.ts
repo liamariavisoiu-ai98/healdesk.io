@@ -89,6 +89,7 @@ import type { BookConversationInput } from "@/lib/booking/engine";
 import { holderRefOf, releaseLiveHolds } from "@/lib/booking/holds";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { sweepHolds, writeHeldBooking } from "@/lib/booking/writer";
+import { saveProviders } from "@/lib/connections/google-calendar";
 import {
   createBookingRequest,
   decideBookingRequest,
@@ -350,9 +351,20 @@ describeDb("the booking engine (C13)", () => {
     f: DeskLocation,
     call: string,
     at: Date,
-    options: { leaseSecondsLeft?: number; attemptedSecondsAgo?: number; service?: string } = {},
+    options: {
+      leaseSecondsLeft?: number;
+      attemptedSecondsAgo?: number;
+      service?: string;
+      providerId?: string;
+    } = {},
   ): Promise<{ holdId: string; lease: string; requestId: string }> {
-    const placed = await hold(f.clinicId, call, at, options.service ?? "Consultation");
+    const placed = await hold(
+      f.clinicId,
+      call,
+      at,
+      options.service ?? "Consultation",
+      options.providerId,
+    );
     if (placed.kind !== "held") throw new Error(`not held: ${placed.kind}`);
     const requestId = await withTenant({ clinicId: f.clinicId, actor: ACTOR }, async (tx) => {
       const contactId = await upsertCallerContact(tx.db, {
@@ -1339,6 +1351,142 @@ describeDb("the booking engine (C13)", () => {
         ]);
         expect(alertsOf(f.clinicId)).toEqual([
           { kind: "booking_request", ref: { bookingRequestId: requests[0]!.id } },
+        ]);
+      },
+      SLOW,
+    );
+  });
+
+  describe("a named provider removed", () => {
+    test(
+      "saving the providers without one lets go of what is held on their calendar: a write in flight there has its request's calendar_check and writes nothing; the other provider's hold stays",
+      async () => {
+        const f = await location("eng-provider-removed");
+        const lee = google.addCalendar(f.sub, {
+          summary: "Dr Lee",
+          id: "lee-removed@group.calendar.fake.test",
+        });
+        const kim = google.addCalendar(f.sub, {
+          summary: "Dr Kim",
+          id: "kim-removed@group.calendar.fake.test",
+        });
+        const leeId = await namedProvider(f.clinicId, lee, "facial", "Dr Lee");
+        const kimId = await namedProvider(f.clinicId, kim, "facial", "Dr Kim");
+        const flying = await claimed(f, "r1", deskTime(3, 10), {
+          service: "Facial",
+          providerId: kimId,
+        });
+        const held = await hold(f.clinicId, "r2", deskTime(3, 12), "Facial", kimId);
+        const stays = await hold(f.clinicId, "r3", deskTime(3, 14), "Facial", leeId);
+        if (held.kind !== "held" || stays.kind !== "held") throw new Error("not held");
+
+        expect(
+          await saveProviders(f.clinicId, [{ id: leeId, displayName: "Dr Lee", calendarId: lee }]),
+        ).toMatchObject({ status: "saved" });
+        const { holds } = await rows(f.clinicId);
+        const byId = new Map(holds.map((h) => [h.id, h]));
+        expect(byId.get(flying.holdId)).toMatchObject({
+          status: "released",
+          calendar_id: kim,
+          outcome_reason: "provider_removed",
+        });
+        // Released, or expired if its minute ran out first: let go either way.
+        expect(byId.get(held.holdId)).toMatchObject({
+          status: expect.stringMatching(/^(released|expired)$/),
+          calendar_id: kim,
+          outcome_reason: "provider_removed",
+        });
+        expect(byId.get(stays.holdId)).toMatchObject({
+          status: "held",
+          calendar_id: lee,
+          outcome_reason: null,
+        });
+        expect(alertsOf(f.clinicId)).toEqual([
+          { kind: "calendar_check", ref: { bookingRequestId: flying.requestId } },
+        ]);
+
+        // The writer finds its lease gone: nothing reaches Kim's calendar.
+        expect(
+          await writeHeldBooking(f.clinicId, flying.holdId, flying.lease, { firstName: "Ana" }),
+        ).toEqual({ kind: "lost" });
+        expect(inserts()).toHaveLength(0);
+        expect(alertsOf(f.clinicId)).toHaveLength(1);
+      },
+      SLOW,
+    );
+
+    test(
+      "a calendar that is still the location's own, or another provider's, keeps its holds when the provider on it is removed",
+      async () => {
+        const f = await location("eng-provider-kept");
+        const lee = google.addCalendar(f.sub, {
+          summary: "Dr Lee",
+          id: "lee-kept@group.calendar.fake.test",
+        });
+        const kim = google.addCalendar(f.sub, {
+          summary: "Dr Kim",
+          id: "kim-kept@group.calendar.fake.test",
+        });
+        const leeId = await namedProvider(f.clinicId, lee, "facial", "Dr Lee");
+        const kimId = await namedProvider(f.clinicId, kim, "facial", "Dr Kim");
+        const boId = await namedProvider(f.clinicId, "primary", "facial", "Dr Bo");
+        const onLee = await claimed(f, "k1", deskTime(3, 10), {
+          service: "Facial",
+          providerId: leeId,
+        });
+        const onMain = await claimed(f, "k2", deskTime(3, 12), {
+          service: "Facial",
+          providerId: boId,
+        });
+
+        // Kim takes Lee's calendar; Lee and Bo are left out, but Lee's
+        // calendar is still Kim's and the main calendar is the location's own.
+        expect(
+          await saveProviders(f.clinicId, [{ id: kimId, displayName: "Dr Kim", calendarId: lee }]),
+        ).toMatchObject({ status: "saved" });
+        const { holds } = await rows(f.clinicId);
+        expect(holds.map((h) => [h.id, h.status, h.outcome_reason])).toEqual([
+          [onLee.holdId, "writing", null],
+          [onMain.holdId, "writing", null],
+        ]);
+        expect(alertsOf(f.clinicId)).toEqual([]);
+      },
+      SLOW,
+    );
+
+    test(
+      "a claimed hold whose calendar is no longer in use is refused at the write: nothing asked of Google, the hold let go, the request the desk's",
+      async () => {
+        const f = await location("eng-provider-gone");
+        const kim = google.addCalendar(f.sub, {
+          summary: "Dr Kim",
+          id: "kim-gone@group.calendar.fake.test",
+        });
+        const kimId = await namedProvider(f.clinicId, kim, "facial", "Dr Kim");
+        const c = await claimed(f, "g1", deskTime(3, 11), { service: "Facial", providerId: kimId });
+        // Deactivated with the hold left as it was: a hold from before
+        // removing a provider let go of its holds, or another way out of use.
+        await inTenant(f.clinicId, (client) =>
+          client.query(`update clinic_providers set active = false where id = $1`, [kimId]),
+        );
+        google.clearRequests();
+
+        expect(await writeHeldBooking(f.clinicId, c.holdId, c.lease, { firstName: "Ana" })).toEqual(
+          { kind: "refused" },
+        );
+        expect(google.requests).toEqual([]);
+        const { holds, requests } = await rows(f.clinicId);
+        expect(holds).toEqual([
+          expect.objectContaining({
+            status: "released",
+            calendar_id: kim,
+            outcome_reason: "calendar_not_in_use",
+          }),
+        ]);
+        expect(requests).toEqual([expect.objectContaining({ status: "requested" })]);
+        expect(await connectionBroken(f.clinicId)).toBe(false);
+        expect(alertsOf(f.clinicId)).toEqual([
+          { kind: "booking_request", ref: { bookingRequestId: c.requestId } },
         ]);
       },
       SLOW,

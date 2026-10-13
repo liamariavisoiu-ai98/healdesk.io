@@ -20,7 +20,13 @@ import {
 import { defaultAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { withTenant } from "@/lib/tenant";
 
-import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import {
+  closePools,
+  getMigratorPool,
+  hasTestDatabase,
+  runMigrations,
+  truncateAll,
+} from "./setup/db";
 import { inTenant, seedCalendarTerms, seedClinic, seedGoogleConnection } from "./setup/factories";
 
 /**
@@ -75,6 +81,20 @@ async function connected(
   await seedCalendarTerms(clinic, { calendarAccount });
   await seedGoogleConnection(clinic.clinicId, { managed: true, refreshToken });
   return clinic;
+}
+
+/** The purposes of every token decrypt audited at the location, in order. */
+function decryptPurposes(clinicId: string): Promise<unknown[]> {
+  return inTenant(clinicId, async (client) =>
+    (
+      await client.query<{ purpose: unknown }>(
+        `select metadata ->> 'purpose' as purpose from audit_log
+          where clinic_id = $1 and action = 'decrypt' and resource_type = 'credential'
+          order by occurred_at`,
+        [clinicId],
+      )
+    ).rows.map((row) => row.purpose),
+  );
 }
 
 function calendarListQueries(): Record<string, string>[] {
@@ -134,6 +154,76 @@ describeDb("HRC-04 and named providers", () => {
         personal,
       ]);
       expect(calendarListQueries()[0]!.showOwnOrganizationOnly).toBeUndefined();
+    },
+    SLOW,
+  );
+
+  test(
+    "once the Services end, or under terms that use no calendar, a token the location still holds is never opened: listing, choosing and providers are refused with no decrypt and nothing asked of Google",
+    async () => {
+      const leaving = await connected("hrc-left");
+      expect(
+        await saveProviders(leaving.clinicId, [{ displayName: "Dr Ada", calendarId: own }]),
+      ).toMatchObject({ status: "saved" });
+      // Its offboarding starts, and the sweep that erases the token has not
+      // run yet, or failed for this location (the watch tries again, C10).
+      await getMigratorPool().query(
+        `update clinics set offboarding_started_at = now() where id = $1`,
+        [leaving.clinicId],
+      );
+      // A one-way booking system's terms (`not_used`), and no agreement at all.
+      const notUsed = await seedClinic("hrc-not-used");
+      await seedCalendarTerms(notUsed, { bookingSystem: "mindbody" });
+      await seedGoogleConnection(notUsed.clinicId, { managed: true, refreshToken });
+      const none = await seedClinic("hrc-no-terms");
+      await seedGoogleConnection(none.clinicId, { managed: true, refreshToken });
+
+      google.clearRequests();
+      const opened = await decryptPurposes(leaving.clinicId);
+      for (const [clinic, reason] of [
+        [leaving, "offboarding"],
+        [notUsed, "terms"],
+        [none, "terms"],
+      ] as const) {
+        expect(await listCalendars(clinic.clinicId), reason).toEqual({
+          status: "refused",
+          reason,
+        });
+        expect(await chooseCalendar(clinic.clinicId, own), reason).toEqual({
+          status: "refused",
+          reason,
+        });
+        expect(
+          await saveProviders(clinic.clinicId, [{ displayName: "Dr Bo", calendarId: own }]),
+          reason,
+        ).toEqual({ status: "refused", reason, index: null });
+        expect(await listProviderCalendars(clinic.clinicId), reason).toMatchObject({
+          status: "refused",
+          reason,
+        });
+      }
+      expect(google.requests).toEqual([]);
+      expect(await decryptPurposes(leaving.clinicId)).toEqual(opened);
+      expect(await decryptPurposes(notUsed.clinicId)).toEqual([]);
+      expect(await decryptPurposes(none.clinicId)).toEqual([]);
+      // The providers are still shown, from the database alone; the calendar
+      // the location books into is left as it was.
+      expect(await listProviderCalendars(leaving.clinicId)).toMatchObject({
+        providers: [{ displayName: "Dr Ada", calendarId: own, calendarAvailable: null }],
+      });
+      const kept = await inTenant(
+        leaving.clinicId,
+        async (client) =>
+          (
+            await client.query<{ calendar: string; active: boolean }>(
+              `select metadata ->> 'calendarId' as calendar,
+                      (select bool_and(active) from clinic_providers where clinic_id = $1) as active
+                 from provider_connections where clinic_id = $1 and provider = 'google_calendar'`,
+              [leaving.clinicId],
+            )
+          ).rows[0],
+      );
+      expect(kept).toEqual({ calendar: "primary", active: true });
     },
     SLOW,
   );

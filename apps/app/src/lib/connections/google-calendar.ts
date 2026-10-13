@@ -20,7 +20,8 @@ import {
 } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
 import { releaseLiveHolds } from "@/lib/booking/holds";
-import { calendarTermsFor, type CalendarTerms } from "@/lib/booking/terms";
+import { calendarTermsFor, type CalendarTermsInEffect } from "@/lib/booking/terms";
+import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { eraseCredentials, withCredentials } from "@/lib/connections/store";
 import { credentialSealingProblem } from "@/lib/crypto/kms";
 import { env } from "@/lib/env";
@@ -897,28 +898,56 @@ async function reasonTheTermsEnded(
 
 type GoogleCall = {
   connection: GoogleCalendarConnection;
-  terms: CalendarTerms;
+  /** Covered or uncovered: readForGoogleCall answers nothing else with a call. */
+  terms: CalendarTermsInEffect;
   context: ConnectorContext;
 };
+
+/** Why a connection the location still holds may not be used for anything now. */
+type CalendarUseRefusal = Extract<CalendarTargetRefusal, "terms" | "offboarding">;
+
+type GoogleCallRead =
+  | { status: "ok"; call: GoogleCall }
+  | { status: "not_connected" }
+  | { status: "unavailable" }
+  | { status: "refused"; reason: CalendarUseRefusal };
 
 /**
  * The location's live connection, its terms and the context the adapter
  * needs, read in one short tenant transaction with the token's decrypt
  * audited under `purpose`. Google is then asked outside it (plan §6: never
- * inside a transaction). Null when there is no live connection.
+ * inside a transaction).
+ *
+ * The token is opened only for a location that may still use it: one that
+ * has not left (clinicHasLeft) and whose terms let it use a calendar
+ * (covered or uncovered, as writableConnection reads them). BAA 1.3.0's
+ * calendar clause has healdesk stop using the token when the Services end,
+ * and the terms sweep erases it then, but a location whose sweep failed
+ * keeps its token sealed until the next watch run (C10), and the portal and
+ * the calendar link page must not use it meanwhile. A refusal decrypts
+ * nothing and asks Google nothing. The read takes no lock on the clinic:
+ * Google is asked after this transaction commits, so a share lock would hold
+ * up app_start_offboarding through the decrypt without closing that gap.
  */
 async function readForGoogleCall(
   clinicId: string,
   purpose: string,
   options: CalendarCallOptions,
-): Promise<GoogleCall | null> {
+): Promise<GoogleCallRead> {
   const oauthClient = googleOAuthClient();
   return withTenant(
     { clinicId, actor: options.actor ?? CALENDAR_ACTOR, request: options.request },
-    async (tx) => {
+    async (tx): Promise<GoogleCallRead> => {
       const connection = await googleCalendarConnection(tx);
-      if (!connection || connection.status === "revoked") return null;
+      if (!connection || connection.status === "revoked") return { status: "not_connected" };
+      if (!oauthClient) return { status: "unavailable" };
+      if (await clinicHasLeft(tx, { lock: false })) {
+        return { status: "refused", reason: "offboarding" };
+      }
       const terms = await calendarTermsFor(tx);
+      if (terms.kind !== "covered" && terms.kind !== "uncovered") {
+        return { status: "refused", reason: "terms" };
+      }
       tx.audit.record({
         action: "decrypt",
         resourceType: "credential",
@@ -931,14 +960,17 @@ async function readForGoogleCall(
         async (credentials) => credentials.refresh_token ?? "",
       );
       return {
-        connection,
-        terms,
-        context: {
-          clinicId,
-          connectionId: connection.id,
-          credentials: { refresh_token: refreshToken },
-          metadata: connection.metadata,
-          oauthClient,
+        status: "ok",
+        call: {
+          connection,
+          terms,
+          context: {
+            clinicId,
+            connectionId: connection.id,
+            credentials: { refresh_token: refreshToken },
+            metadata: connection.metadata,
+            oauthClient,
+          },
         },
       };
     },
@@ -996,7 +1028,12 @@ export type CalendarTargetRefusal =
   /** Not a calendar the connected account owns. */
   | "not_owned"
   /** Google could not be asked; refused rather than assumed (fail closed). */
-  | "unverified";
+  | "unverified"
+  /**
+   * The location has left (its offboarding has started, or its data is
+   * destroyed): the Services have ended, and its connection is not used.
+   */
+  | "offboarding";
 
 export type CalendarTargetCheck =
   | { allowed: true; ownOrganization: boolean }
@@ -1152,6 +1189,8 @@ export type ListCalendarsOutcome =
     }
   | { status: "not_connected" }
   | { status: "unavailable" }
+  /** The location has left, or its terms use no calendar: nothing was asked of Google. */
+  | { status: "refused"; reason: CalendarUseRefusal }
   | { status: "failed"; reason: string };
 
 /**
@@ -1159,15 +1198,16 @@ export type ListCalendarsOutcome =
  * first: those on which it has Google's owner role, hidden ones left out,
  * and under covered terms only those of its own organisation (HRC-04).
  * A definitive answer from Google breaks the connection as any other path
- * would.
+ * would. Refused, with no decrypt, once the location has left or while its
+ * terms use no calendar (readForGoogleCall).
  */
 export async function listCalendars(
   clinicId: string,
   options: CalendarCallOptions = {},
 ): Promise<ListCalendarsOutcome> {
-  const call = await readForGoogleCall(clinicId, "calendar_list", options);
-  if (!call) return { status: "not_connected" };
-  if (!call.context.oauthClient) return { status: "unavailable" };
+  const read = await readForGoogleCall(clinicId, "calendar_list", options);
+  if (read.status !== "ok") return read;
+  const { call } = read;
   const owned = await choosableCalendars(clinicId, call, options);
   if (owned.status !== "ok") return owned;
   return {
@@ -1236,12 +1276,9 @@ export async function chooseCalendar(
   if (typeof calendarId !== "string" || !CALENDAR_ID.test(calendarId)) {
     return { status: "refused", reason: "not_owned" };
   }
-  const call = await readForGoogleCall(clinicId, "calendar_choose", options);
-  if (!call) return { status: "not_connected" };
-  if (!call.context.oauthClient) return { status: "unavailable" };
-  if (call.terms.kind !== "covered" && call.terms.kind !== "uncovered") {
-    return { status: "refused", reason: "terms" };
-  }
+  const read = await readForGoogleCall(clinicId, "calendar_choose", options);
+  if (read.status !== "ok") return read;
+  const { call } = read;
   const owned = await choosableCalendars(clinicId, call, options);
   if (owned.status !== "ok") {
     return owned.reason === "unmanaged_account"
@@ -1365,6 +1402,7 @@ export type ListProviderCalendarsOutcome =
     }
   | { status: "not_connected"; providers: ProviderView[] }
   | { status: "unavailable"; providers: ProviderView[] }
+  | { status: "refused"; reason: CalendarUseRefusal; providers: ProviderView[] }
   | { status: "failed"; reason: string; providers: ProviderView[] };
 
 /**
@@ -1499,8 +1537,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * only while that connection, the same token, is still the location's
  * (`connection_changed` otherwise). Providers left out are deactivated, not
  * deleted, so a hold or a booking that names one keeps its row; their
- * service mappings stay with them. Audited with a count only: no name, no
- * calendar.
+ * service mappings stay with them.
+ *
+ * A calendar that leaves use here (no provider in the list has it, and it
+ * is not the location's own) has its live holds let go in the same
+ * transaction (`provider_removed`, releaseLiveHolds), so a hold placed on a
+ * removed provider's calendar is never claimed and written there; a write
+ * already in flight there has its request's calendar_check alert, and the
+ * writer, finding its lease gone, records nothing. The writer also refuses
+ * a hold whose calendar is no longer in use (writer.ts, prepareWrite).
+ * Audited with counts only: no name, no calendar.
  */
 export async function saveProviders(
   clinicId: string,
@@ -1530,13 +1576,11 @@ export async function saveProviders(
   // the location's when the list is written.
   let checkedOn: Pick<GoogleCalendarConnection, "id" | "credentialVersion"> | null = null;
   if (wanted.length > 0) {
-    const call = await readForGoogleCall(clinicId, "calendar_providers", options);
-    if (!call) return { status: "not_connected" };
-    if (!call.context.oauthClient) return { status: "unavailable" };
+    const read = await readForGoogleCall(clinicId, "calendar_providers", options);
+    if (read.status === "refused") return { ...read, index: null };
+    if (read.status !== "ok") return read;
+    const { call } = read;
     checkedOn = call.connection;
-    if (call.terms.kind !== "covered" && call.terms.kind !== "uncovered") {
-      return { status: "refused", reason: "terms", index: null };
-    }
     const owned = await choosableCalendars(clinicId, call, options);
     if (owned.status !== "ok") {
       return owned.reason === "unmanaged_account"
@@ -1567,19 +1611,18 @@ export async function saveProviders(
   return withTenant(
     { clinicId, actor: options.actor ?? CALENDAR_ACTOR, request: options.request },
     async (tx) => {
-      if (checkedOn) {
+      const row = await googleCalendarConnection(tx, { forUpdate: true });
+      if (
+        checkedOn &&
+        (!row ||
+          row.status === "revoked" ||
+          row.id !== checkedOn.id ||
+          row.credentialVersion !== checkedOn.credentialVersion)
+      ) {
         // Reconnected, or another account connected, while Google was
         // asked: the calendars were checked against a token the location no
         // longer holds, so nothing is written (as chooseCalendar).
-        const row = await googleCalendarConnection(tx, { forUpdate: true });
-        if (
-          !row ||
-          row.status === "revoked" ||
-          row.id !== checkedOn.id ||
-          row.credentialVersion !== checkedOn.credentialVersion
-        ) {
-          return { status: "failed", reason: "connection_changed" } as const;
-        }
+        return { status: "failed", reason: "connection_changed" } as const;
       }
       const existing = await tx.db
         .select({ id: clinicProviders.id })
@@ -1594,10 +1637,11 @@ export async function saveProviders(
       // Everyone off first, so two providers swapping calendars never meet
       // the one-active-provider-per-calendar index halfway.
       const now = new Date();
-      await tx.db
+      const before = await tx.db
         .update(clinicProviders)
         .set({ active: false, updatedAt: now })
-        .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
+        .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)))
+        .returning({ calendarId: clinicProviders.calendarId });
       const saved: { id: string; displayName: string; calendarId: string }[] = [];
       for (const provider of wanted) {
         if (provider.id !== null) {
@@ -1614,7 +1658,7 @@ export async function saveProviders(
             );
           saved.push({ ...provider, id: provider.id });
         } else {
-          const [row] = await tx.db
+          const [created] = await tx.db
             .insert(clinicProviders)
             .values({
               clinicId: tx.clinicId,
@@ -1622,14 +1666,25 @@ export async function saveProviders(
               calendarId: provider.calendarId,
             })
             .returning({ id: clinicProviders.id });
-          saved.push({ ...provider, id: row!.id });
+          saved.push({ ...provider, id: created!.id });
         }
       }
+      // A calendar no saved provider has, and not the location's own, is out
+      // of use from this commit: what is held on it is let go, as a change of
+      // the location's own calendar lets go of its holds (chooseCalendar).
+      const inUse = new Set(saved.map((provider) => provider.calendarId));
+      if (row && row.status !== "revoked") inUse.add(row.calendarId);
+      const removed = [...new Set(before.map((provider) => provider.calendarId))].filter(
+        (calendarId) => !inUse.has(calendarId),
+      );
+      const releasedHolds = await releaseLiveHolds(tx, "provider_removed", {
+        calendarIds: removed,
+      });
       tx.audit.record({
         action: "update",
         resourceType: "clinic_providers",
         resourceId: tx.clinicId,
-        metadata: { event: "clinic_providers_saved", count: saved.length },
+        metadata: { event: "clinic_providers_saved", count: saved.length, releasedHolds },
       });
       return { status: "saved", providers: saved } as const;
     },

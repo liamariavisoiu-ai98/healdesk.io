@@ -127,6 +127,7 @@ export async function listCalendarsAction(
 ): Promise<{ ok: true; calendars: CalendarChoice[] } | { ok: false; message: string }> {
   const { portal, as } = await portalFor(slug);
   const listed = await listCalendars(portal.clinicId, { actor: as });
+  if (listed.status === "refused") return { ok: false, message: targetRefusal(listed.reason) };
   if (listed.status !== "ok") return { ok: false, message: listingProblem(listed.status) };
   return {
     ok: true,
@@ -214,6 +215,7 @@ export type ProvidersLoad =
 export async function loadProvidersAction(slug: string): Promise<ProvidersLoad> {
   const { portal, as } = await portalFor(slug);
   const listed = await listProviderCalendars(portal.clinicId, { actor: as });
+  if (listed.status === "refused") return { ok: false, message: targetRefusal(listed.reason) };
   if (listed.status !== "ok") return { ok: false, message: listingProblem(listed.status) };
   const knowledge = await withTenant({ clinicId: portal.clinicId, actor: as }, (tx) =>
     readKnowledge(tx.db, tx.clinicId),
@@ -356,6 +358,8 @@ function targetRefusal(reason: CalendarTargetRefusal): string {
       return "That calendar can't be used: the connected account has to own it. Choose one from the list.";
     case "unverified":
       return "healdesk couldn't check that calendar with Google just now. Try again in a minute.";
+    case "offboarding":
+      return "Your healdesk service has ended, so healdesk no longer uses your calendar.";
   }
 }
 

@@ -310,6 +310,11 @@ function refusalWords(
             field,
             message: `Google couldn't be asked about ${name}'s calendar just now. Try again in a few minutes.`,
           };
+        case "offboarding":
+          return {
+            field: "providers",
+            message: "Your healdesk service has ended, so healdesk no longer uses your calendar.",
+          };
       }
     }
   }

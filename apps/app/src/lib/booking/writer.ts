@@ -6,7 +6,14 @@ import {
 } from "@healdesk/connectors";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { agentConfigs, appointments, bookingRequests, clinics, slotHolds } from "@/db/schema";
+import {
+  agentConfigs,
+  appointments,
+  bookingRequests,
+  clinicProviders,
+  clinics,
+  slotHolds,
+} from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import {
   calendarBreakOf,
@@ -40,8 +47,10 @@ import { ANSWERED_AS_REQUEST, spentHolds } from "./holds";
  * Google insert is made for it, under the id derived from "hold:" + the
  * hold's id, with the start and length read from the hold row and nothing
  * else: a first name, the service as the clinic's list names it, and the
- * time (packages/connectors/src/google/event.ts). Before it, HRC-04's check
- * that the calendar is still one the location may book into.
+ * time (packages/connectors/src/google/event.ts). Before it, the check that
+ * the hold's calendar is still in use (the location's own, or an active
+ * named provider's), and HRC-04's that it is still one the location may
+ * book into.
  *
  * What Google says decides the rest (plan §7.8):
  *
@@ -130,7 +139,11 @@ type Prepared = {
   key: string;
 };
 
-type Prepare = { kind: "go"; prepared: Prepared } | { kind: "lost" } | { kind: "not_permitted" };
+type Prepare =
+  | { kind: "go"; prepared: Prepared }
+  | { kind: "lost" }
+  /** Nothing may be written for this hold now; `reason` is the hold's outcome code. */
+  | { kind: "not_permitted"; reason: "calendar_not_permitted" | "calendar_not_in_use" };
 
 type Attempt =
   | { kind: "written"; externalId: string }
@@ -155,10 +168,11 @@ export async function writeHeldBooking(
   const step = await withTenant({ clinicId, actor }, (tx) => prepareWrite(tx, holdId, lease));
   if (step.kind === "lost") return { kind: "lost" };
   if (step.kind === "not_permitted") {
-    // The terms, the connection or the location changed since the claim:
-    // nothing was written, and the request is the desk's.
+    // The terms, the connection or the location changed since the claim, or
+    // the hold's calendar went out of use: nothing was written, and the
+    // request is the desk's.
     await withTenant({ clinicId, actor }, (tx) =>
-      letGoWithin(tx, holdId, fence, "calendar_not_permitted", "booking_request"),
+      letGoWithin(tx, holdId, fence, step.reason, "booking_request"),
     );
     return { kind: "refused" };
   }
@@ -283,7 +297,10 @@ async function prepareWrite(tx: TenantTx, holdId: string, lease: string): Promis
     .where(eq(bookingRequests.id, hold.requestId))
     .limit(1);
   const target = await writableConnection(tx);
-  if (!target) return { kind: "not_permitted" };
+  if (!target) return { kind: "not_permitted", reason: "calendar_not_permitted" };
+  if (!(await calendarInUse(tx, target, hold.calendarId))) {
+    return { kind: "not_permitted", reason: "calendar_not_in_use" };
+  }
   const [clinic] = await tx.db
     .select({ timezone: clinics.timezone, specialty: clinics.specialty })
     .from(clinics)
@@ -309,6 +326,35 @@ async function prepareWrite(tx: TenantTx, holdId: string, lease: string): Promis
       key: `hold:${holdId}`,
     },
   };
+}
+
+/**
+ * Whether a hold's calendar still books: the location's own, or an active
+ * named provider's. Removing a provider lets go of the holds on their
+ * calendar (saveProviders), but a hold that was missed, or a provider
+ * deactivated another way, must still never be written to a calendar the
+ * clinic has taken out of use. HRC-04's check, after this, asks Google
+ * whether the calendar may be booked into; this asks the clinic's own
+ * choice, which Google cannot know.
+ */
+async function calendarInUse(
+  tx: TenantTx,
+  target: WritableConnection,
+  calendarId: string,
+): Promise<boolean> {
+  if (calendarId === target.calendarId) return true;
+  const [provider] = await tx.db
+    .select({ id: clinicProviders.id })
+    .from(clinicProviders)
+    .where(
+      and(
+        eq(clinicProviders.clinicId, tx.clinicId),
+        eq(clinicProviders.calendarId, calendarId),
+        eq(clinicProviders.active, true),
+      ),
+    )
+    .limit(1);
+  return provider !== undefined;
 }
 
 /** HRC-04's target check, then the one insert. */

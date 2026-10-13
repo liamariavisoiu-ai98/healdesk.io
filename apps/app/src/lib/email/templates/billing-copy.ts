@@ -1,8 +1,10 @@
 import {
+  allPlans,
   CARRIERS,
   forwardingInstructions,
   getPlan,
-  plans,
+  OVERAGE_BLOCK_UNITS,
+  overageBlockCents,
   type Channel,
   type Plan,
 } from "@healdesk/catalog";
@@ -31,7 +33,7 @@ import type { TemplateContext } from "./types";
 // Money and counts
 // -----------------------------------------------------------------------------
 
-/** "$897", "$24.50", "$11,484": whole dollars print without cents. */
+/** "$520", "$24.50", "$4,992": whole dollars print without cents. */
 export function money(cents: number): string {
   const whole = cents % 100 === 0;
   return new Intl.NumberFormat("en-US", {
@@ -140,14 +142,64 @@ export function planById(id: string): Plan {
   return plan;
 }
 
+/** Every plan by its name, built once: names cannot be parsed back the way ids are. */
+let byName: ReadonlyMap<string, Plan> | null = null;
+
 /**
- * The package a payload names by name, or undefined. `planName` may also be a
- * pricing card's name (the allowlist accepts both), which is no one package, so
- * a template reads only what a missing package leaves out.
+ * The plan a payload names by name, or undefined. `planName` may also be a
+ * package's name alone (the allowlist accepts both), which is no one plan,
+ * since it says no steps, so a template reads only what a missing plan leaves
+ * out.
  */
 export function planByName(name: string): Plan | undefined {
-  return plans.find((plan) => plan.name === name);
+  byName ??= new Map(allPlans().map((plan) => [plan.name, plan]));
+  return byName.get(name);
 }
+
+/**
+ * What a plan includes each month, per location: "500 voice minutes and 300
+ * chat conversations". Since 13 October 2026 these are the steps the clinic
+ * chose, not a package's fixed allowance.
+ */
+export function includedEachMonth(plan: Plan): string {
+  return [
+    ...(plan.includedVoiceMinutes > 0
+      ? [counted(plan.includedVoiceMinutes, METER_WORDS.voice_minutes.one, METER_WORDS.voice_minutes.many)]
+      : []),
+    ...(plan.includedChatConversations > 0
+      ? [
+          counted(
+            plan.includedChatConversations,
+            METER_WORDS.chat_conversations.one,
+            METER_WORDS.chat_conversations.many,
+          ),
+        ]
+      : []),
+  ].join(" and ");
+}
+
+/**
+ * The extra-100 price of each thing a plan meters, as the block and its price
+ * and never a per-unit rate (CLAUDE.md, "Claims and copy"): "$104 for each
+ * started block of 100 extra voice minutes". Always beside
+ * EXTRA_BLOCKS_PROVISIONAL.
+ */
+export function extraBlockPrices(plan: Plan): string[] {
+  const line = (rateUsd: number, many: string) =>
+    `${money(overageBlockCents(rateUsd))} for each started block of ${OVERAGE_BLOCK_UNITS} extra ${many}`;
+  return [
+    ...(plan.includedVoiceMinutes > 0
+      ? [line(plan.overagePerVoiceMinuteUsd, METER_WORDS.voice_minutes.many)]
+      : []),
+    ...(plan.includedChatConversations > 0
+      ? [line(plan.overagePerChatConversationUsd, METER_WORDS.chat_conversations.many)]
+      : []),
+  ];
+}
+
+/** The overage rates are provisional until measured, and every email that prints one says so. */
+export const EXTRA_BLOCKS_PROVISIONAL =
+  "The extra-block prices are provisional until we've measured what each minute and conversation costs us.";
 
 // -----------------------------------------------------------------------------
 // Dates

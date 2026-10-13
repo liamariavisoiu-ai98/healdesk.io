@@ -1,6 +1,6 @@
 /**
  * How the portal writes a day, a moment and money: the same forms the emails
- * use ("Tuesday 13 October", "2:32 pm EDT on Tuesday 13 October", "$897"),
+ * use ("Tuesday 13 October", "2:32 pm EDT on Tuesday 13 October", "$520"),
  * so a date on Billing reads the way the email about it does. Dates are the
  * clinic's own: a moment is the day it falls on in the clinic's time zone,
  * and a bare calendar date (YYYY-MM-DD) is that day wherever the clinic is.
@@ -82,7 +82,7 @@ export function portalMoment(value: Date, timeZone: string, now: Date = new Date
   );
 }
 
-/** "$897", "$24.50", "$11,484": whole dollars print without cents. */
+/** "$520", "$24.50", "$4,992": whole dollars print without cents. */
 export function portalMoney(cents: number): string {
   const whole = cents % 100 === 0;
   return new Intl.NumberFormat("en-US", {

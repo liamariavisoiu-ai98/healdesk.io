@@ -68,7 +68,7 @@ describeDb("the setup wizard's actions", () => {
       clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",
       platform: "none",
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       contactName: "Laura Owner",
       contactEmail: email,
       agreementId: signed.agreementId,

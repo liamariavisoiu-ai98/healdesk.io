@@ -1,17 +1,22 @@
 import {
+  allPlans,
+  DEFAULT_STEPS,
   getPlan,
   meteredPriceLookupKey,
   type MeterId,
   OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
   overageBlockCents,
+  PACKAGES,
   type Plan,
-  plans,
+  planFor,
+  PRODUCTS,
 } from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
+import PricingPage from "@/app/pricing/page";
 import TermsPage from "@/app/terms/page";
 import type { AgreementResult } from "@/components/checkout/AgreementStep";
 import { ReviewStep } from "@/components/checkout/ReviewStep";
@@ -39,12 +44,21 @@ import { computeDesired, meteredPriceParams } from "../../scripts/stripe-setup";
  * size its `transform_quantity`, rounded up, which is what "started" means. A
  * change to the rates, the block or the wording on one side only fails here.
  *
- * The surfaces are Review and pay, the terms and the demo call's price list.
- * The pricing page and its cards were the fourth until the owner disabled the
- * page on 9 October 2026; packages and prices are shown in the buy flow now,
- * and its package step quotes no overage, so Review and pay is where a buyer
- * reads the block and its price before paying.
+ * The surfaces are Review and pay, the terms, the demo call's price list and
+ * /pricing. The pricing page was disabled on 9 October 2026 and came back on
+ * 13 October with the step pricing, which sets each product's "each extra
+ * 100" price: $104 for voice minutes, $52 for Web Chat and $78 for Meta Chat
+ * conversations. The terms and /pricing state those per product; Review and
+ * pay states the ones its plan bills.
+ *
+ * There are 495 plans. The Stripe check below runs every one of them, since
+ * it renders nothing; the checks that render a page run one plan per package,
+ * at the sheet's default steps, because a plan's overage depends on its
+ * package and never on its steps.
  */
+
+/** One plan per package, at the sheet's default steps: overage depends on the package alone. */
+const SAMPLE_PLANS = PACKAGES.map((pkg) => planFor(pkg.id, DEFAULT_STEPS));
 
 const text = (markup: string) =>
   markup
@@ -106,7 +120,11 @@ describe("the block Stripe bills is the block the catalog defines", () => {
     ),
   );
 
-  test.each(plans.map((plan) => [plan.id, plan] as const))(
+  test("every plan on the grid", () => {
+    expect(allPlans()).toHaveLength(495);
+  });
+
+  test.each(allPlans().map((plan) => [plan.id, plan] as const))(
     "%s: each metered price charges the block price for every started block",
     (_id, plan) => {
       const want = expected(plan);
@@ -155,7 +173,7 @@ function reviewAndPay(plan: Plan, interval: "month" | "year"): string {
   );
 }
 
-const EVERY_PACKAGE_AND_INTERVAL = plans.flatMap((plan) =>
+const EVERY_PACKAGE_AND_INTERVAL = SAMPLE_PLANS.flatMap((plan) =>
   (["month", "year"] as const).map((interval) => [plan.id, interval] as const),
 );
 
@@ -183,7 +201,7 @@ describe("Review and pay states the package's own block prices", () => {
   });
 });
 
-describe("Terms section 3 states the block and each package's block prices", () => {
+describe("Terms section 3 states the block and each product's extra-100 price", () => {
   const markup = renderToStaticMarkup(h(TermsPage));
   const fees = markup.slice(markup.indexOf('id="fees"'), markup.indexOf('id="renewal"'));
   const rows = fees
@@ -193,31 +211,51 @@ describe("Terms section 3 states the block and each package's block prices", () 
       [...row.matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/g)].map((cell) => text(cell[1]!)),
     );
   const header = rows[0] ?? [];
-  const column: Record<MeterId, number> = {
-    voiceMinutes: header.indexOf(
-      `Extra voice, per started block of ${OVERAGE_BLOCK_UNITS} minutes`,
-    ),
-    chatConversations: header.indexOf(
-      `Extra chat, per started block of ${OVERAGE_BLOCK_UNITS} conversations`,
-    ),
-  };
+  const column = header.indexOf(`Each extra 100, per started block of ${OVERAGE_BLOCK_UNITS}`);
 
   test("the block rule, with the block the catalog defines", () => {
     if (OVERAGE_RATES_PROVISIONAL) return;
     expect(text(fees)).toContain(
-      `every started block of ${OVERAGE_BLOCK_UNITS} extra voice minutes or ${OVERAGE_BLOCK_UNITS} extra chat conversations is billed at your package's block price in the table above`,
+      `every started block of ${OVERAGE_BLOCK_UNITS} extra voice minutes or ${OVERAGE_BLOCK_UNITS} extra chat conversations is billed at that product's price for each extra 100 in the table above`,
     );
-    expect(column.voiceMinutes).toBeGreaterThan(0);
-    expect(column.chatConversations).toBeGreaterThan(0);
+    expect(column).toBeGreaterThan(0);
   });
 
-  test.each(plans.map((plan) => [plan.name, plan] as const))("%s's row", (_name, plan) => {
+  test.each(Object.values(PRODUCTS).map((product) => [product.name, product] as const))("%s's row", (_name, product) => {
     if (OVERAGE_RATES_PROVISIONAL) return;
-    const row = rows.find((cells) => cells[0] === plan.name);
-    expect(row, plan.name).toBeDefined();
-    const want = expected(plan);
-    expect(row![column.voiceMinutes]).toBe(want.voiceMinutes ?? "—");
-    expect(row![column.chatConversations]).toBe(want.chatConversations ?? "—");
+    const row = rows.find((cells) => cells[0] === product.name);
+    expect(row, product.name).toBeDefined();
+    expect(row![column]).toBe(
+      `${money(overageBlockCents(product.overagePerUnitUsd))} per ${OVERAGE_BLOCK_UNITS} ${product.unit}s`,
+    );
+  });
+
+  test("each product's extra-100 price is the block every plan with it is billed", () => {
+    // The table states the product; Stripe bills the plan. They are one rate.
+    for (const plan of allPlans()) {
+      if (plan.channels.voice) {
+        expect(plan.overagePerVoiceMinuteUsd, plan.id).toBe(PRODUCTS.voice.overagePerUnitUsd);
+      }
+      if (plan.chatProduct) {
+        expect(plan.overagePerChatConversationUsd, plan.id).toBe(PRODUCTS[plan.chatProduct].overagePerUnitUsd);
+      }
+    }
+  });
+});
+
+describe("/pricing states each product's extra-100 price, provisional", () => {
+  const words = text(renderToStaticMarkup(h(PricingPage)));
+
+  test.each(Object.values(PRODUCTS).map((product) => [product.name, product] as const))("%s", (_name, product) => {
+    if (OVERAGE_RATES_PROVISIONAL) return;
+    const unit = product.unit === "minute" ? "minutes" : "conversations";
+    expect(words).toContain(`${money(overageBlockCents(product.overagePerUnitUsd))} per 100 ${unit}`);
+  });
+
+  test("the block rule and the word provisional", () => {
+    if (OVERAGE_RATES_PROVISIONAL) return;
+    expect(words).toContain(`each started block of ${OVERAGE_BLOCK_UNITS} past your step is billed at that product's extra-100 price`);
+    expect(words).toContain("The extra-100 prices are provisional until we have measured what a minute and a conversation cost to serve.");
   });
 });
 
@@ -235,7 +273,7 @@ describe("the demo call quotes the block and every block price the packages bill
   const blockPricesOn = (meter: MeterId) =>
     [
       ...new Set(
-        plans
+        SAMPLE_PLANS
           .filter((plan) => expected(plan)[meter] !== null)
           .map((plan) => overageBlockCents(rateOf(plan, meter))),
       ),
@@ -255,7 +293,7 @@ describe("the demo call quotes the block and every block price the packages bill
       `Beyond the included amount, overage is billed in blocks of ${OVERAGE_BLOCK_UNITS}: ` +
         `${blockPricesOn("voiceMinutes")} for ${block} extra phone minutes, and ` +
         `${blockPricesOn("chatConversations")} for ${block} extra chat conversations, ` +
-        "depending on the package. A block is charged in full once it is started.",
+        "depending on the package. A block is charged in full once it is started. They're emailed at 90 percent of a step.",
     );
   });
 });
@@ -272,13 +310,16 @@ describe("no surface quotes a per-unit rate", () => {
       expect(old).toMatch(PER_UNIT);
     }
     expect(
-      "$80 for each started block of 100 extra voice minutes and $30 for each started block of 100 extra chat conversations",
+      "$104 for each started block of 100 extra voice minutes and $52 for each started block of 100 extra chat conversations",
     ).not.toMatch(PER_UNIT);
+    // The step price is per 100, which is not a per-unit rate.
+    expect("$80 a month per 100 phone minutes").not.toMatch(PER_UNIT);
   });
 
   test.each([
     ["the terms", () => text(renderToStaticMarkup(h(TermsPage)))],
     ["the demo call's price list", () => VOICE_DEMO_PRICES.replace(/\s+/g, " ")],
+    ["/pricing", () => text(renderToStaticMarkup(h(PricingPage)))],
   ] as const)("%s", (_name, words) => {
     expect(words()).not.toMatch(PER_UNIT);
   });

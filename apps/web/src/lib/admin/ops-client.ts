@@ -2933,9 +2933,19 @@ function stripeInvoiceUrl(value: unknown, at: string): string | null {
   return checked;
 }
 
+/**
+ * A plan id and the name the console shows for it: the catalog's name for a
+ * step plan ("AYA Voice + Web Chat, 500 minutes and 300 conversations"), and
+ * the id itself for one the catalog no longer parses, a 5 October package
+ * still billing a clinic, so the panel never shows a blank.
+ */
 function planRef(value: unknown, at: string): PlanRef {
   const planId = token(value, at);
   return { id: planId, name: getPlan(planId)?.name ?? planId };
+}
+
+function planName(planId: string | null): string | null {
+  return planId === null ? null : (getPlan(planId)?.name ?? planId);
 }
 
 function readClinicBillingView(value: unknown): ClinicBillingView {
@@ -3649,6 +3659,11 @@ export type ClinicHealth = {
   clinicId: string;
   slug: string;
   name: string;
+  /**
+   * The plan's name ("AYA Voice, 500 minutes"), from the plan id apps/app
+   * sends; the id itself for one the catalog no longer knows (the seven
+   * packages of 5 October), so the row still says what was bought.
+   */
   plan: string | null;
   wentLiveOn: string;
   daysLive: number;
@@ -3678,7 +3693,7 @@ function readHealth(value: unknown): ClinicHealth[] {
       clinicId: id(h.clinicId, "health.clinicId"),
       slug: text(h.slug, "health.slug"),
       name: text(h.name, "health.name"),
-      plan: optionalText(h.plan, "health.plan"),
+      plan: planName(optionalText(h.plan, "health.plan")),
       wentLiveOn: instant(h.wentLiveAt, "health.wentLiveAt").on,
       daysLive: count(h.daysLive, "health.daysLive"),
       conversations: pair(h.conversations, "health.conversations"),

@@ -29,13 +29,15 @@ export function cleanWebsite(value: unknown): string | null {
 }
 
 /**
- * Whether a package needs the clinic to have a website: any package with
- * website chat. A practice with no website is not sold web chat (v1 spec,
- * "Stage 0": "Web chat is simply not sold to it"), so the funnel offers it
- * the phone first, then the Meta bot, and both servers refuse the rest.
+ * Whether a plan needs the clinic to have a website: one whose only chat is
+ * website chat (Web Chat, Voice + Web Chat). A practice with no website is not
+ * sold web chat (v1 spec, "Stage 0": "Web chat is simply not sold to it"), so
+ * the funnel offers it voice and Meta Chat, and both servers refuse the rest.
+ * Meta Chat includes website chat but does not need it: Instagram, Messenger
+ * and WhatsApp answer without one, and the website line is never switched on.
  */
 export function planNeedsWebsite(plan: Plan): boolean {
-  return plan.channels.web;
+  return plan.chatProduct === "webchat";
 }
 
 /**

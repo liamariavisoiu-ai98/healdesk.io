@@ -86,12 +86,12 @@ async function noticesOf(clinicId: string) {
   });
 }
 
-/** Started, billed as Web + Voice, a second location requested and (by default) charged. */
+/** Started, billed as Voice + Web Chat, a second location requested and (by default) charged. */
 async function seedPending(label: string, charged = true): Promise<SeededClinic> {
   const clinic = await seedClinic(label);
   await seedEntitled(clinic.clinicId, {
-    planId: "web-voice",
-    boughtPlanId: "complete",
+    planId: "voice-webchat-1000-1000",
+    boughtPlanId: "voice-metachat-1000-1000",
     planStartAppliedAt: at(-10 * 24 * HOUR),
     locations: 2,
   });
@@ -141,11 +141,11 @@ describeDb("the reconcile's extra-location resume (R14), with createLocationClin
         dedupe_key: "location:locreq_2",
         payload: {
           locations: 2,
-          recurringCents: Math.round(recurringUsd(getPlan("web-voice")!, "month") * 100),
-          setupFeeCents: 99_700,
+          recurringCents: Math.round(recurringUsd(getPlan("voice-webchat-1000-1000")!, "month") * 100),
+          setupFeeCents: 139_400,
           hostedInvoiceUrl: null,
           isBeforeStart: false,
-          billedPlanId: "web-voice",
+          billedPlanId: "voice-webchat-1000-1000",
         },
       },
     ]);
@@ -216,12 +216,12 @@ describeDb("the reconcile's extra-location resume (R14), with createLocationClin
   });
 
   describe("a location pending with no charge on record (review fix)", () => {
-    /** Started on Web + Voice, a second location requested, its charge's answer never recorded. */
+    /** Started on Voice + Web Chat, a second location requested, its charge's answer never recorded. */
     async function seedUncharged(label: string): Promise<SeededClinic> {
       const clinic = await seedClinic(label);
       const ids = await seedEntitled(clinic.clinicId, {
-        planId: "web-voice",
-        boughtPlanId: "complete",
+        planId: "voice-webchat-1000-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         planStartAppliedAt: at(-10 * 24 * HOUR),
       });
       await inTenant(clinic.clinicId, (c) =>
@@ -234,7 +234,7 @@ describeDb("the reconcile's extra-location resume (R14), with createLocationClin
       world = createStripeWorld({
         customerId: ids.stripeCustomerId!,
         subscriptionId: ids.stripeSubscriptionId!,
-        items: [{ lookupKey: "healdesk_web-voice_month_89700", quantity: 1 }],
+        items: [{ lookupKey: "healdesk_voice-webchat-1000-1000_month_120000", quantity: 1 }],
         periodStart: Math.floor(at(-10 * 24 * HOUR).getTime() / 1000),
         periodEnd: Math.floor(at(20 * 24 * HOUR).getTime() / 1000),
         customerDefaultPm: "pm_customer",
@@ -293,8 +293,8 @@ describeDb("the reconcile's extra-location resume (R14), with createLocationClin
       const open = world.addInvoice({
         status: "open",
         metadata: { hd_kind: "location_setup", hd_ref: "locreq_2" },
-        total: 99_700,
-        amount_due: 99_700,
+        total: 139_400,
+        amount_due: 139_400,
       });
 
       expect(await reconcileBilling(NOW)).toMatchObject({

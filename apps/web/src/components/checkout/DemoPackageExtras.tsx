@@ -1,13 +1,15 @@
 "use client";
 
-import { DemoCountdown } from "@/components/demo/DemoTimers";
 import { patientValuePerYear, type RoiInputs } from "@/lib/demo/roi";
 import { usd } from "@/lib/pricing";
 
 /**
  * What a buyer who arrives from their personalised demo sees on the package
- * step beyond the packages themselves: the limited offer with its clock, and
- * the editable inputs behind the estimates on each package (lib/demo/roi.ts).
+ * step beyond the packages themselves: the editable inputs behind the
+ * estimates on each package (lib/demo/roi.ts). The demo's setup offer (50%
+ * from an operator's demo, 30% from a homepage one, for 48 hours) is not here: it is one of the setup offers the flow takes
+ * as `setupOffer` (lib/checkout/review.ts) and shows in the same banner as
+ * any other (SetupOfferBanner).
  *
  * What the flow needs from the demo, in one object, so the checkout takes a
  * single optional prop and a visitor without a demo sees none of this.
@@ -20,32 +22,7 @@ export type DemoCheckout = {
     bookingRate: number;
     repeat: RoiInputs["repeat"];
   };
-  /** The demo's expiry (ISO) while its offer still holds; absent after it. */
-  offerEndsAt?: string;
-  /**
-   * The share of the setup fee the offer takes off: 50 from an operator's
-   * demo, 30 from a homepage one (demoSetupCredit in lib/demo/sessions.ts),
-   * the same credit api/checkout applies.
-   */
-  offerPercent: number;
 };
-
-/** The offer, unmissable: the demo's own clock, the one the checkout's coupon honours. */
-export function DemoOfferBanner({ endsAt, percent }: { endsAt: string; percent: number }) {
-  return (
-    <div className="bg-brand-gradient shadow-sm mb-5 flex flex-wrap items-center justify-between gap-3 rounded-md px-5 py-4 text-white">
-      <span>
-        <span className="block text-[12px] font-bold tracking-[0.12em] uppercase opacity-85">Demo offer</span>
-        <span className="font-display block text-[24px] leading-tight font-semibold">
-          {percent}% off your setup fee
-        </span>
-      </span>
-      <span className="rounded-sm bg-white/15 px-3 py-2 text-[14.4px] font-semibold">
-        Ends in <DemoCountdown expiresAt={endsAt} />
-      </span>
-    </div>
-  );
-}
 
 /**
  * The estimate's inputs, on screen and editable: the clinic's own price and

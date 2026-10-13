@@ -214,7 +214,7 @@ async function purchaseAndProvision(
       clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",
       platform,
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       billingInterval: "month",
       contactName: "Laura Owner",
       contactEmail: email,
@@ -240,7 +240,7 @@ async function purchaseAndProvision(
     stripeCustomerId: `cus_test_${randomUUID().slice(0, 8)}`,
     stripeSubscriptionId: sub,
     attempt: 1,
-    plan: "web-voice",
+    plan: "voice-webchat-1000-1000",
     billingInterval: "month",
     hostedInvoiceUrl:
       options.hostedInvoiceUrl === undefined ? RECEIPT_URL : options.hostedInvoiceUrl,
@@ -283,7 +283,7 @@ async function provisionDirect(
       clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",
       platform: "none",
-      plan: options.plan ?? "web-voice",
+      plan: options.plan ?? "voice-webchat-1000-1000",
       billingInterval: "month",
       contactName: "Laura Owner",
       contactEmail: email,
@@ -334,6 +334,25 @@ async function asApp<T>(
 }
 
 describeDb("the setup wizard", () => {
+  test("a Meta Chat clinic with no website gets no website-chat channel to set up", async () => {
+    // Inside the clinic's tenant: clinic_channels is RLS'd like every tenant table.
+    const channelsOf = (clinicId: string) =>
+      asApp(clinicId, async (c) =>
+        (await c.query(`select channel from clinic_channels where clinic_id = $1 order by channel`, [clinicId])).rows.map(
+          (r) => r.channel,
+        ),
+      );
+    // Meta Chat includes the website, and a practice with one keeps the row.
+    const withSite = await provisionDirect("metasite", {
+      plan: "voice-metachat-500-300",
+      setup: { website: "glowmedspa.com" },
+    });
+    expect(await channelsOf(withSite.clinicId)).toEqual(["meta", "voice", "web"]);
+    // Without one, the wizard would list a step the clinic can never finish.
+    const noSite = await provisionDirect("metanosite", { plan: "voice-metachat-500-300", setup: { website: null } });
+    expect(await channelsOf(noSite.clinicId)).toEqual(["meta", "voice"]);
+  });
+
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
@@ -484,7 +503,7 @@ describeDb("the setup wizard", () => {
       expect(target.to).toBe(clinic.email);
       expect(message.subject).toBe("Welcome to healdesk: your order is confirmed");
       expect(message.text).toContain(
-        "Monthly billing ($897) starts the day AYA first answers a patient.",
+        "Monthly billing ($1,200) starts the day AYA first answers a patient.",
       );
       expect(message.text).toContain("version 2026-10-07.1");
       expect(message.text).toContain(
@@ -1055,7 +1074,7 @@ describeDb("the setup wizard", () => {
       created: Date,
       timeZone = "America/New_York",
     ): Promise<Provisioned> {
-      const clinic = await provisionDirect(label, { plan: "web-voice", timezone: timeZone });
+      const clinic = await provisionDirect(label, { plan: "voice-webchat-1000-1000", timezone: timeZone });
       await getMigratorPool().query(`update clinics set created_at = $2 where id = $1`, [
         clinic.clinicId,
         created,

@@ -492,7 +492,7 @@ describeDb("the outbox sender", () => {
       {
         renewsOn: "2026-11-05",
         amountCents: 120_000,
-        planName: "AYA Complete Frontdesk",
+        planName: "AYA Voice + Meta Chat, 1,000 minutes and 1,000 conversations",
         locations: 1,
         noticeDays: 30,
       },

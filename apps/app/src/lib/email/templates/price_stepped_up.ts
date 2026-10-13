@@ -68,8 +68,8 @@ export const PRICE_STEPPED_UP_ENTRY: TemplateEntry<PriceSteppedUpPayload> = {
   render: renderPriceSteppedUp,
   fixture: {
     channel: "voice",
-    planName: "AYA Web Chat + Voice",
-    amountCents: 89_700,
+    planName: "AYA Voice + Web Chat, 500 minutes and 300 conversations",
+    amountCents: 52_000,
     interval: "month",
     isInvoicedNow: false,
     hostedInvoiceUrl: null,

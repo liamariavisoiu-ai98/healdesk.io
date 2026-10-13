@@ -525,7 +525,7 @@ describeDb("signing the DPA", () => {
       clinicName: "Golden Paws Veterinary LLC",
       specialty: "veterinary",
       platform: "none",
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       contactName: "Laura Owner",
       contactEmail: `laura-${randomUUID().slice(0, 8)}@goldenpaws.test`,
       agreementId: randomUUID(),

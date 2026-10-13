@@ -1,7 +1,10 @@
 import {
   FIRST_PERIOD_REFUND_DAYS,
-  plans,
-  type Plan,
+  type PackageId,
+  PACKAGES,
+  packageSetupFeeUsd,
+  type Product,
+  PRODUCTS,
 } from "@healdesk/catalog";
 
 /**
@@ -27,7 +30,7 @@ import {
  * the bump fails the build.
  */
 
-export const LEGAL_VERSION = "2026-10-13.3";
+export const LEGAL_VERSION = "2026-10-13.4";
 export const LEGAL_LAST_UPDATED = "13 October 2026";
 
 export const ENTITY = {
@@ -276,6 +279,18 @@ export function entityLine(): string {
   return `healdesk is a service of ${entityDisplayName()}, ${ENTITY.formation}.`;
 }
 
-export function packagesForTerms(): readonly Plan[] {
-  return plans;
+/**
+ * Terms § 3's product table: the three products of the pricing sheet of
+ * 13 October 2026, in its order, each with its price per 100, its extra-100
+ * price and its setup fee. Plans are a package at its steps, 495 of them, so
+ * the terms state the products and the rule that builds a plan from them,
+ * never a row per plan.
+ */
+export function productsForTerms(): readonly Product[] {
+  return [PRODUCTS.voice, PRODUCTS.webchat, PRODUCTS.metachat];
+}
+
+/** Terms § 3's package table: the five packages and each one's setup fee at list price. */
+export function packagesForTerms(): readonly { id: PackageId; name: string; setupFeeUsd: number }[] {
+  return PACKAGES.map((pkg) => ({ id: pkg.id, name: pkg.name, setupFeeUsd: packageSetupFeeUsd(pkg) }));
 }

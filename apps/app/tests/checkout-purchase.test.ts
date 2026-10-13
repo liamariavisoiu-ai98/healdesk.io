@@ -99,7 +99,7 @@ async function purchase(overrides: Record<string, unknown> = {}) {
       platform: "none",
       bookingSystem: "none",
       calendarAccount: "workspace_no_baa",
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       billingInterval: "month",
       contactName: "Laura Owner",
       contactEmail: email.toUpperCase(),
@@ -169,6 +169,8 @@ describeDb("checkout intents", () => {
     expect(unsigned.status).toBe(401);
 
     expect((await intent({ ...p.body, plan: "nope" })).json.field).toBe("plan");
+    // The seven packages of 5 October are gone (owner, 13 October 2026).
+    expect((await intent({ ...p.body, plan: "web-voice" })).json.field).toBe("plan");
     expect((await intent({ ...p.body, nonceHash: "short" })).json.field).toBe("nonceHash");
     expect((await intent({ ...p.body, timezone: "Mars/Olympus" })).json.field).toBe("timezone");
     expect((await intent({ ...p.body, profileStatus: "read" })).json.field).toBe("profile");
@@ -233,7 +235,7 @@ describeDb("checkout intents", () => {
         }),
       );
 
-      const again = await intent({ ...p.body, plan: "complete", nonceHash: nonce().hash });
+      const again = await intent({ ...p.body, plan: "voice-metachat-1000-1000", nonceHash: nonce().hash });
       expect(again.status).toBe(409);
       expect(again.json.error).toBe("This purchase is already paid. Check your email.");
       expect(stripe.callsTo("checkout.sessions.retrieve")[0]!.args[0]).toBe("cs_test_paid");
@@ -241,7 +243,7 @@ describeDb("checkout intents", () => {
       // Still attempt 1, for web-voice, with the paying browser's nonce: the
       // payment provisions, and /welcome still knows that browser.
       const stored = (await findIntent(first.json.ref as string))!;
-      expect(stored).toMatchObject({ attempt: 1, plan: "web-voice", openSessionId: "cs_test_paid" });
+      expect(stored).toMatchObject({ attempt: 1, plan: "voice-webchat-1000-1000", openSessionId: "cs_test_paid" });
       expect(stored.nonceHash!.toString("hex")).toBe(p.nonce.hash);
     } finally {
       __setStripeForTests(null);
@@ -293,11 +295,11 @@ describeDb("checkout intents", () => {
         }),
       );
 
-      const again = await intent({ ...p.body, plan: "complete", nonceHash: nonce().hash });
+      const again = await intent({ ...p.body, plan: "voice-metachat-1000-1000", nonceHash: nonce().hash });
       expect(again.status).toBe(503);
       expect(again.json.error).toMatch(/Nothing has been charged/);
       const stored = (await findIntent(first.json.ref as string))!;
-      expect(stored).toMatchObject({ attempt: 1, plan: "web-voice", openSessionId: "cs_test_unknown" });
+      expect(stored).toMatchObject({ attempt: 1, plan: "voice-webchat-1000-1000", openSessionId: "cs_test_unknown" });
       expect(stored.nonceHash!.toString("hex")).toBe(p.nonce.hash);
     } finally {
       __setStripeForTests(null);
@@ -362,7 +364,7 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
         stripeCustomerId: "cus_test_1",
         stripeSubscriptionId: subscription,
         attempt: 1,
-        plan: "web-voice",
+        plan: "voice-webchat-1000-1000",
         billingInterval: "month",
         ...paid,
       }),
@@ -379,7 +381,7 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     const sub = `sub_test_${randomUUID().slice(0, 8)}`;
     const first = await provision(ref, sub);
     expect(first.status).toBe(201);
-    expect(first.json).toMatchObject({ replayed: false, plan: "web-voice", billingInterval: "month" });
+    expect(first.json).toMatchObject({ replayed: false, plan: "voice-webchat-1000-1000", billingInterval: "month" });
     const clinicId = first.json.clinicId as string;
 
     const pool = getMigratorPool();
@@ -405,7 +407,7 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
       ).rows,
     }));
     expect(channels.map((r) => r.channel)).toEqual(["voice", "web"]);
-    expect(entitled[0]!.bought_plan_id).toBe("web-voice");
+    expect(entitled[0]!.bought_plan_id).toBe("voice-webchat-1000-1000");
     const daysOut = (new Date(entitled[0]!.setup_deadline_at).getTime() - Date.now()) / 86_400_000;
     expect(daysOut).toBeGreaterThan(29);
     expect(daysOut).toBeLessThan(32);
@@ -428,9 +430,9 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
       const first = await intent(p.body);
       const ref = first.json.ref as string;
       // A second press moves the intent on, to another package.
-      expect((await intent({ ...p.body, plan: "complete" })).json.attempt).toBe(2);
+      expect((await intent({ ...p.body, plan: "voice-metachat-1000-1000" })).json.attempt).toBe(2);
 
-      // Attempt 1's Session paid for web-voice: never provisioned as Complete.
+      // Attempt 1's Session paid for Voice + Web Chat: never provisioned as Voice + Meta Chat.
       const stale = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, { attempt: 1 });
       expect(stale.status).toBe(422);
       expect(stale.json.field).toBe("attempt");
@@ -446,7 +448,7 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
       expect(otherPlan.json.field).toBe("plan");
       const otherInterval = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, {
         attempt: 2,
-        plan: "complete",
+        plan: "voice-metachat-1000-1000",
         billingInterval: "year",
       });
       expect(otherInterval.json.field).toBe("billingInterval");
@@ -462,11 +464,11 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
       // The latest press, as paid, makes the account from its own terms.
       const current = await provision(ref, `sub_test_${randomUUID().slice(0, 8)}`, {
         attempt: 2,
-        plan: "complete",
+        plan: "voice-metachat-1000-1000",
         billingInterval: "month",
       });
       expect(current.status).toBe(201);
-      expect(current.json.plan).toBe("complete");
+      expect(current.json.plan).toBe("voice-metachat-1000-1000");
     } finally {
       vi.mocked(console.error).mockRestore();
     }
@@ -626,7 +628,7 @@ describeDb("provisioning from a paid intent, and /welcome", () => {
     expect(target.to).toBe(p.email);
     expect(message.subject).toBe("Your healdesk order is confirmed: one step on our side");
     expect(message.text).toContain(`We'll email your sign-in link to this address by ${replyByDate(firstMark!)}.`);
-    expect(message.text).toContain("Monthly billing ($897) starts the day AYA first answers a patient.");
+    expect(message.text).toContain("Monthly billing ($1,200) starts the day AYA first answers a patient.");
     expect(message.text).toContain("The setup fee is non-refundable.");
     // Keyed by a digest of the ref, which opens /welcome: never the ref itself.
     const digest = createHash("sha256").update(ref).digest("hex");

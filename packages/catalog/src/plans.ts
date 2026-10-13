@@ -1,70 +1,89 @@
 /**
- * Billing packages.
+ * Billing: five packages, each sold in usage steps of 100.
  *
- * Seven packages, priced by CHANNEL rather than by minutes alone, because the
- * cost driver differs per channel: voice minutes are metered by the vendor,
- * chat conversations are metered by LLM tokens. Each package therefore carries
- * two allowances and two overage rates, and a package with no voice has a zero
- * voice allowance rather than a missing one — `0` is a fact the UI can render,
- * `undefined` is a bug waiting to be coerced.
+ * Since 13 October 2026 (the owner's pricing sheet, "Healdesk pricing", per
+ * location, USD) a clinic picks a PACKAGE and then a STEP for each thing it
+ * uses: voice in minutes, chat in conversations, 100 to 1,500 in steps of 100.
+ * Every step of a product costs the same, so a plan's monthly price is the
+ * product's price per 100 times its steps, and a package with voice and chat
+ * adds the two:
+ *
+ *   product    per 100 a month   each extra 100   setup (list)
+ *   voice           $80              $104            $697
+ *   webchat         $40               $52            $259
+ *   metachat        $60               $78            $697   (includes website chat)
+ *
+ * The packages are voice, webchat, metachat, voice + webchat and voice +
+ * metachat; a combined package's setup fee is the sum of its products'
+ * ($956 and $1,394). Meta is never sold without website chat: Metachat
+ * includes the website, which a practice without one simply never switches
+ * on (`planNeedsWebsite`). This replaced the seven fixed packages of
+ * 5 October, whose allowances were fixed per package.
+ *
+ * ## One plan id per package and step, one Stripe price per plan
+ *
+ * A plan is a package and its steps, and its id says both:
+ * `voice-500`, `webchat-300`, `metachat-300`, `voice-webchat-500-300` (voice
+ * minutes first, then chat conversations). `getPlan()` parses an id rather
+ * than looking one up, so any well-formed id on the grid is a plan and
+ * anything off it (a step of 150, a step above 1,500, a package that does not
+ * exist) is not.
+ *
+ * Every plan has its own Stripe price per interval, created by stripe:setup
+ * from `allPlans()`. That is 495 plans and 990 recurring prices, which is a lot
+ * of prices and deliberately so: apps/app's billing engine reads a
+ * subscription as ONE package price whose quantity is the number of
+ * locations, and a plan that was two prices (a voice line and a chat line)
+ * or a per-100 price with quantity steps × locations would have changed what
+ * every reconcile, plan change and location action in apps/app reads off a
+ * subscription. A price per plan keeps quantity meaning locations.
+ *
+ * The setup fee is per PACKAGE, not per plan (it does not change with how
+ * much a clinic uses), so its lookup key carries the package id.
  *
  * ## The setup fee is real and charged on the first invoice
  *
- * An earlier version of this file priced three plans with `setupFeeUsd: 0` and
- * a 14-day trial, and argued the free setup was the wedge. That argument is
- * gone with the pricing that replaced it: provisioning builds a voice agent,
- * allocates a number and runs a QA pass before the clinic sees anything, and
- * the setup fee is what pays for that work. A trial and a setup fee do not
- * compose — either nobody is provisioned for fourteen days or the agent ships
- * before a dollar clears — so there is no trial, and the trial-length constant
- * the old catalog exported is gone with it.
+ * Provisioning builds a voice agent, allocates a number and runs a QA pass
+ * before the clinic sees anything, and the setup fee is what pays for that
+ * work. There is no trial. The setup credits below take a share of it off,
+ * never anything off the subscription.
  *
  * ## Annual pricing is a flat 20% off, stated per month
  *
- * The pricing table quotes the annual option as a per-month figure ("$317/mo
- * billed annually"). `annualMonthlyUsd` is that number; the annual invoice is
- * `annualMonthlyUsd * 12`, computed by `annualTotalUsd()` so the multiplication
- * lives in one place and the site cannot quote $3,804 while Stripe charges
- * $3,800.
+ * `annualMonthlyUsd` is the per-month figure the sheet quotes ($320 a month
+ * for 500 voice minutes); the annual invoice is that times 12, computed by
+ * `annualTotalUsd()` so the multiplication lives in one place. Every product's
+ * per-100 price is a multiple of $5, so 20% off is always whole dollars.
  *
- * ## Overage rates are a judgement until measured
+ * ## Overage: the extra-100 price, per started block of 100
  *
- * Past the allowance a package bills $0.80 a voice minute, and $0.40 a chat
- * conversation on the single-channel chat packages (`chat-web`, `chat-meta`) or $0.30 on
- * every other package with chat, charged per started block of 100 since 6
- * October 2026 (`OVERAGE_BLOCK_UNITS` below): $80 for each started block of
- * 100 extra minutes, $40 or $30 for each started block of 100 extra
- * conversations. The owner set the rates on 5 October 2026,
- * replacing the $0.35 and $0.25 signed off on 21 September, before any cost
- * had been measured. They are still a judgement, not a measurement: the spec
- * (docs/v1-product-spec.md → "Unit economics and infrastructure" → "What still
- * has to be computed") sets overage prices from measured cost times a target
- * margin, and launch step 3.5 measures that cost on pilot traffic. Retell's
- * own share is about $0.085 to $0.12 a minute before the Claude cost, plus
- * about a penny a minute for redaction. Nobody has measured chat cost per
- * conversation yet. Any copy that prints these rates must say they are
- * provisional.
+ * Past the included amount, each STARTED block of 100 is billed at the
+ * product's extra-100 price: $104 for voice minutes, $52 for webchat
+ * conversations and $78 for metachat conversations (`OVERAGE_BLOCK_UNITS`).
+ * 1 unit over is one block, 101 is two. The extra-100 price is 30% over the
+ * step price, so an upgrade to the next step is the better deal for a clinic
+ * that goes over regularly, and the 90% email says so (`USAGE_ALERT_PERCENT`).
+ * Above the top step (1,500) the same blocks apply.
  *
- * The chat rate differs by package, so one meter carries two prices: Stripe
- * holds three metered prices on two meters (`meteredPriceLookupKey()` below),
- * and checkout gives each subscription the price for its own package's rate.
+ * The rates were set by the owner on 13 October 2026. They are still a
+ * judgement, not a measurement: the spec sets overage prices from measured
+ * cost times a target margin, and launch step 3.5 measures that cost on pilot
+ * traffic. Any copy that prints these rates must say they are provisional.
+ *
+ * Each metered key encodes its rate, like the package keys, so a rate change
+ * cannot silently bill the old rate: checkout fails loudly until
+ * `stripe:setup` has been re-run. Stripe holds one metered price per distinct
+ * rate (three, on two meters) and a subscription carries its own package's.
  * A plan change must therefore swap the metered items as well as the package
  * price; Stripe's Customer Portal cannot update a subscription that carries
  * metered prices at all, so plan changes do not go through it.
- * Every metered key encodes its rate, like the package keys, so a rate change
- * cannot silently bill the old rate: checkout fails loudly until
- * `stripe:setup` has been re-run.
  *
- * `OVERAGE_RATES_PROVISIONAL` still stays false, on purpose. The flag does
- * more than change what the page displays. While it is true,
- * `meteredLookupKeysFor()` in apps/web/src/lib/billing.ts attaches no metered
- * price to a monthly checkout. The terms also replace their overage sentence
- * with "Until those prices are published, usage above the allowance is not
- * billed." Flipping it would change what Stripe bills and what the service
- * agreement says. That is a billing and counsel decision, not a copy one.
- * Until someone makes it, false means: the pricing page prints these numbers,
- * the terms name them, and a MONTHLY checkout attaches its package's metered
- * prices.
+ * `OVERAGE_RATES_PROVISIONAL` still stays false, on purpose. While it is
+ * true, `meteredLookupKeysFor()` in apps/web/src/lib/billing.ts attaches no
+ * metered price, and the terms replace their overage sentence with "Until
+ * those prices are published, usage above the allowance is not billed."
+ * Flipping it would change what Stripe bills and what the service agreement
+ * says. That is a billing and counsel decision, not a copy one.
  *
  * Two things are still open, and they are recorded in the task list rather
  * than hidden here. First, nothing reports usage to Stripe's meters yet, so the
@@ -74,30 +93,20 @@
  * by hand until `annual-overage-invoicing` is built, which is why the terms
  * say "invoiced separately" for annual packages.
  *
- * ## The allowances are unmeasured too
+ * ## The included amounts are the clinic's choice now
  *
- * The included voice minutes and chat conversations below were set before
- * anyone measured a real conversation. The owner cut them with the rates on 5
- * October 2026: chat from 1,500 / 3,000 / 1,500 / 4,000 to 1,000 / 2,000 /
- * 1,000 / 2,000 (single-channel chat, chat-dual, chat with voice, complete),
- * and the top tier's voice from 1,500 minutes to 1,000. The spec asks for each package to
- * be modelled three ways: light use, expected use, and the allowance fully
- * used. The third matters most, because it is the worst case the pricing
- * promises. The spec also names chat cost per conversation as the product's
- * largest unknown: the top tier's 2,000 included conversations cannot be
- * priced until it is measured on real traffic. Change the numbers only after
- * that exercise. They are not part of the Stripe lookup keys, so changing one
- * creates no new price, but re-run `stripe:setup` anyway: it rewrites each
- * Stripe product's description, which states the allowances on Checkout and
- * on the invoice.
+ * A clinic picks its step, so the included minutes and conversations are no
+ * longer a guess made for it. What is still unmeasured is the COST of a step:
+ * chat cost per conversation is the product's largest unknown (the spec's
+ * "Unit economics and infrastructure"), and the 1,500-conversation metachat
+ * step is the worst case the price promises.
  *
  * ## WhatsApp starts costing the clinic on 1 October 2026
  *
- * Every package that includes `meta` includes WhatsApp, and its conversations
- * count against `includedChatConversations` like any other chat. The packages
- * were priced when inbound Meta conversations were free. From 1 October 2026
- * Meta also charges for WhatsApp service replies inside the 24-hour window,
- * and it bills the clinic directly. Healdesk does not resell WhatsApp messages
+ * Metachat includes WhatsApp, and its conversations count against
+ * `includedChatConversations` like any other chat. From 1 October 2026 Meta
+ * also charges for WhatsApp service replies inside the 24-hour window, and it
+ * bills the clinic directly. Healdesk does not resell WhatsApp messages
  * (docs/v1-product-spec.md → "Pricing consequences" and "Meta bot
  * onboarding"). Meta's rate is $0.0034 per delivered service message in North
  * America, after 1,000 free per number each month; nothing here counts
@@ -105,26 +114,11 @@
  *
  * ## The setup-fee delta on an upgrade is owed, not yet invoiced
  *
- * `setupFeeDeltaUsd()` says what an upgrading clinic owes. Nothing invoices it:
- * plan changes come through Stripe's Customer Portal, which swaps the
- * recurring price and nothing else, and no code creates the one-off invoice
- * item for the difference. Until that is built the delta is collected by hand
- * (docs/handover.md), and the pricing page makes no promise about it either
- * way.
- *
- * ## Seven packages, five cards
- *
- * Two price points sell either website chat or the Meta bot, the buyer's
- * pick: $397 for chat alone and $897 with the phone. Since 5 October 2026
- * each pick is its own package — Web Chatbot and Meta Chatbot, Web + Voice
- * and Meta + Voice — with its own Stripe product, rather than one package
- * carrying a separate "which chat channel" field. The package id alone then
- * says which channels a clinic has, so nothing can disagree with it: a switch
- * between the two in Stripe's Customer Portal is a plan change like any
- * other, where a field beside the plan would have kept the old channel. The
- * twins are priced identically (plans.test.ts holds them to it), and the
- * pricing page still shows five cards; `pricingCards` groups each pair into
- * one, and checkout's chat-channel question picks the package within it.
+ * `setupFeeDeltaUsd()` says what an upgrading clinic owes: a move between
+ * steps of the same package owes nothing, a move to a package with a larger
+ * setup fee owes the difference. Nothing invoices it yet; until that is built
+ * the delta is collected by hand (docs/handover.md), and the pricing page
+ * makes no promise about it either way.
  *
  * See docs/v1-product-spec.md → "Unit economics and infrastructure".
  */
@@ -146,128 +140,432 @@ export function isBillingInterval(value: unknown): value is BillingInterval {
   return value === "month" || value === "year";
 }
 
-export type Plan = {
-  id: string;
+// -----------------------------------------------------------------------------
+// Products, packages and steps
+// -----------------------------------------------------------------------------
+
+/** What is metered and priced per 100: voice minutes, or one of the two chat products. */
+export type ProductId = "voice" | "webchat" | "metachat";
+
+/** The chat products. Metachat includes website chat. */
+export type ChatProductId = Exclude<ProductId, "voice">;
+
+export type Product = {
+  id: ProductId;
+  /** AYA's name for it (owner, 7 October 2026: never "chatbot" or "AI voice agent"). */
   name: string;
+  /** What a step counts. */
+  unit: "minute" | "conversation";
+  /** The channels it answers on. */
+  channels: readonly Channel[];
+  /** The monthly price of one step of 100. */
+  perStepMonthlyUsd: number;
+  /** The monthly-equivalent price of one step of 100 on annual billing: 20% off. */
+  perStepAnnualMonthlyUsd: number;
+  /** One unit over the included amount, in dollars; billed in started blocks of 100. */
+  overagePerUnitUsd: number;
+  /** One-time, list price. */
+  setupFeeUsd: number;
+};
+
+/** Annual billing takes this percent off the monthly price. */
+export const ANNUAL_DISCOUNT_PERCENT = 20;
+
+function product(
+  id: ProductId,
+  name: string,
+  unit: Product["unit"],
+  channels: readonly Channel[],
+  perStepMonthlyUsd: number,
+  overagePerUnitUsd: number,
+  setupFeeUsd: number,
+): Product {
+  return {
+    id,
+    name,
+    unit,
+    channels,
+    perStepMonthlyUsd,
+    perStepAnnualMonthlyUsd: (perStepMonthlyUsd * (100 - ANNUAL_DISCOUNT_PERCENT)) / 100,
+    overagePerUnitUsd,
+    setupFeeUsd,
+  };
+}
+
+/**
+ * Set by the owner on 13 October 2026 (the pricing sheet). Whole cents only
+ * for the overage rates: each is encoded in its Stripe lookup key.
+ */
+export const PRODUCTS: Readonly<Record<ProductId, Product>> = {
+  voice: product("voice", "AYA Voice", "minute", ["voice"], 80, 1.04, 697),
+  webchat: product("webchat", "AYA Web Chat", "conversation", ["web"], 40, 0.52, 259),
+  metachat: product("metachat", "AYA Meta Chat", "conversation", ["web", "meta"], 60, 0.78, 697),
+};
+
+/**
+ * Whether checkout leaves the metered overage prices off and the terms say
+ * overage is not billed. It is NOT a "these rates are final" flag: the rates
+ * are provisional either way. See the header for why it stays false.
+ */
+export const OVERAGE_RATES_PROVISIONAL = false;
+
+/** A step is this many minutes or conversations. */
+export const STEP_UNITS = 100;
+/** The smallest and largest step on sale. Above the top step, usage is overage. */
+export const MIN_STEP_UNITS = 100;
+export const MAX_STEP_UNITS = 1_500;
+
+/** Every step on sale, smallest first: 100, 200, … 1,500. */
+export const USAGE_STEPS: readonly number[] = Array.from(
+  { length: MAX_STEP_UNITS / STEP_UNITS },
+  (_, i) => (i + 1) * STEP_UNITS,
+);
+
+export function isUsageStep(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= MIN_STEP_UNITS &&
+    value <= MAX_STEP_UNITS &&
+    value % STEP_UNITS === 0
+  );
+}
+
+/** The steps the funnel and the pricing page start on: the sheet's own examples. */
+export const DEFAULT_STEPS = { voiceMinutes: 500, chatConversations: 300 } as const;
+
+export type PackageId = "voice" | "webchat" | "metachat" | "voice-webchat" | "voice-metachat";
+
+export type Package = {
+  id: PackageId;
+  name: string;
+  /** The products it bills: voice, a chat product, or one of each. */
+  voice: boolean;
+  chat: ChatProductId | null;
+  highlight?: string;
+};
+
+/** In the sheet's order. Recommended: voice with Meta chat, every channel. */
+export const PACKAGES: readonly Package[] = [
+  { id: "voice", name: "AYA Voice", voice: true, chat: null },
+  { id: "webchat", name: "AYA Web Chat", voice: false, chat: "webchat" },
+  { id: "metachat", name: "AYA Meta Chat", voice: false, chat: "metachat" },
+  { id: "voice-webchat", name: "AYA Voice + Web Chat", voice: true, chat: "webchat" },
+  { id: "voice-metachat", name: "AYA Voice + Meta Chat", voice: true, chat: "metachat", highlight: "Recommended" },
+] as const;
+
+export function getPackage(id: string): Package | undefined {
+  return PACKAGES.find((p) => p.id === id);
+}
+
+export function isPackageId(id: unknown): id is PackageId {
+  return typeof id === "string" && PACKAGES.some((p) => p.id === id);
+}
+
+/** The package that bills exactly these products, or undefined for none. */
+export function packageFor(voice: boolean, chat: ChatProductId | null): Package | undefined {
+  return PACKAGES.find((p) => p.voice === voice && p.chat === chat);
+}
+
+/** A package's setup fee at list price: the sum of its products'. */
+export function packageSetupFeeUsd(pkg: Package): number {
+  return (pkg.voice ? PRODUCTS.voice.setupFeeUsd : 0) + (pkg.chat ? PRODUCTS[pkg.chat].setupFeeUsd : 0);
+}
+
+export type Plan = {
+  /** `voice-500`, `webchat-300`, `voice-metachat-500-300`; see the header. */
+  id: string;
+  packageId: PackageId;
+  /** "AYA Voice, 500 minutes" — the package and its steps. */
+  name: string;
+  /** The package's name alone. */
+  packageName: string;
   /**
-   * Channels the package includes. `meta` is the Meta bot: Instagram DMs,
+   * Channels the plan includes. `meta` is the Meta bot: Instagram DMs,
    * Facebook Messenger and WhatsApp. It is sold as one channel because one
    * Healdesk Meta app serves all three, but the clinic connects it in two
    * steps. One Facebook login connects Instagram and Messenger together.
    * WhatsApp uses Meta's embedded signup, cannot send until the clinic has
    * added its own payment method in Meta, and may go live after the other
    * two. Meta bills the clinic directly for WhatsApp; see the header.
+   * Metachat includes `web`.
    */
   channels: { web: boolean; meta: boolean; voice: boolean };
+  /** The chat product, or null for voice alone. */
+  chatProduct: ChatProductId | null;
   monthlyUsd: number;
   /** Per-month price when billed annually. The annual invoice is 12× this. */
   annualMonthlyUsd: number;
-  /** One-time, on the first invoice only. Never recurring. */
+  /** One-time, on the first invoice only, list price. Never recurring. Per package. */
   setupFeeUsd: number;
-  /** Per month. 0 when the package has no voice channel. */
+  /** Per month: the voice step. 0 when the plan has no voice. */
   includedVoiceMinutes: number;
-  /** Per month. 0 when the package has no chat channel. */
+  /** Per month: the chat step. 0 when the plan has no chat. */
   includedChatConversations: number;
   overagePerVoiceMinuteUsd: number;
   overagePerChatConversationUsd: number;
   /**
-   * Locations the package covers at checkout, which is one for every package.
-   * Each extra location is added later from the portal on the same
-   * subscription and renewal date, at the package's own price plus its setup
-   * fee (`additionalLocationChargeUsd`), as more quantity of the same package
-   * price; checkout itself still sells one.
+   * Locations the plan covers at checkout, which is one for every plan.
+   * Prices are per location: each extra location is added later from the
+   * portal on the same subscription and renewal date, at the plan's own price
+   * plus its setup fee (`additionalLocationChargeUsd`), as more quantity of
+   * the same plan price; checkout itself still sells one.
    */
   locations: number;
 };
 
-/**
- * Whether checkout leaves the metered overage prices off and the terms say
- * overage is not billed. It is NOT a "these rates are final" flag: the rates
- * below are placeholders either way. See the header for why it stays false.
- */
-export const OVERAGE_RATES_PROVISIONAL = false;
+const minutes = (n: number) => `${n.toLocaleString("en-US")} minutes`;
+const conversations = (n: number) => `${n.toLocaleString("en-US")} conversations`;
 
-// Set by the owner on 5 October 2026; provisional until measured cost times a
-// target margin replaces them (see the header). Whole cents only: each rate is
-// encoded in its Stripe lookup key.
-const VOICE_OVERAGE = 0.8;
-const CHAT_OVERAGE_SINGLE_CHANNEL = 0.4;
-const CHAT_OVERAGE = 0.3;
+/** The id of a package at the given steps; throws on a step off the grid or one the package does not have. */
+export function planIdFor(
+  packageId: PackageId,
+  steps: { voiceMinutes?: number; chatConversations?: number },
+): string {
+  const pkg = getPackage(packageId);
+  if (!pkg) throw new Error(`Unknown package ${packageId}.`);
+  const parts: number[] = [];
+  if (pkg.voice) {
+    if (!isUsageStep(steps.voiceMinutes)) throw new Error(`Voice step ${steps.voiceMinutes} is not on sale.`);
+    parts.push(steps.voiceMinutes);
+  }
+  if (pkg.chat) {
+    if (!isUsageStep(steps.chatConversations)) {
+      throw new Error(`Chat step ${steps.chatConversations} is not on sale.`);
+    }
+    parts.push(steps.chatConversations);
+  }
+  return [pkg.id, ...parts].join("-");
+}
+
+/** The plan for a package at the given steps. Throws like `planIdFor`. */
+export function planFor(
+  packageId: PackageId,
+  steps: { voiceMinutes?: number; chatConversations?: number },
+): Plan {
+  return getPlan(planIdFor(packageId, steps))!;
+}
+
+const PLAN_ID = /^(voice|webchat|metachat|voice-webchat|voice-metachat)-([1-9]\d{2,3})(?:-([1-9]\d{2,3}))?$/;
+
+/**
+ * The plan an id names, computed from the products, or undefined for an id
+ * that is not on the grid. Pure: the same id is always the same plan.
+ */
+export function getPlan(id: string): Plan | undefined {
+  if (typeof id !== "string") return undefined;
+  const match = PLAN_ID.exec(id);
+  if (!match) return undefined;
+  const pkg = getPackage(match[1]!)!;
+  const first = Number(match[2]);
+  const second = match[3] === undefined ? undefined : Number(match[3]);
+  const both = pkg.voice && pkg.chat !== null;
+  if (both !== (second !== undefined)) return undefined;
+  const voiceMinutes = pkg.voice ? first : 0;
+  const chatConversations = pkg.chat ? (both ? second! : first) : 0;
+  if (pkg.voice && !isUsageStep(voiceMinutes)) return undefined;
+  if (pkg.chat && !isUsageStep(chatConversations)) return undefined;
+
+  const voice = PRODUCTS.voice;
+  const chat = pkg.chat ? PRODUCTS[pkg.chat] : null;
+  const voiceSteps = voiceMinutes / STEP_UNITS;
+  const chatSteps = chatConversations / STEP_UNITS;
+  const sizes = [
+    ...(pkg.voice ? [minutes(voiceMinutes)] : []),
+    ...(chat ? [conversations(chatConversations)] : []),
+  ];
+  return {
+    id,
+    packageId: pkg.id,
+    name: `${pkg.name}, ${sizes.join(" and ")}`,
+    packageName: pkg.name,
+    channels: {
+      web: chat !== null && chat.channels.includes("web"),
+      meta: chat !== null && chat.channels.includes("meta"),
+      voice: pkg.voice,
+    },
+    chatProduct: pkg.chat,
+    monthlyUsd: voiceSteps * voice.perStepMonthlyUsd + (chat ? chatSteps * chat.perStepMonthlyUsd : 0),
+    annualMonthlyUsd:
+      voiceSteps * voice.perStepAnnualMonthlyUsd + (chat ? chatSteps * chat.perStepAnnualMonthlyUsd : 0),
+    setupFeeUsd: packageSetupFeeUsd(pkg),
+    includedVoiceMinutes: voiceMinutes,
+    includedChatConversations: chatConversations,
+    overagePerVoiceMinuteUsd: pkg.voice ? voice.overagePerUnitUsd : 0,
+    overagePerChatConversationUsd: chat ? chat.overagePerUnitUsd : 0,
+    locations: 1,
+  };
+}
+
+export function isPlanId(id: unknown): id is string {
+  return typeof id === "string" && getPlan(id) !== undefined;
+}
+
+/**
+ * Every plan on sale: each package at every step (both steps, for a package
+ * with voice and chat). 495 of them. For stripe:setup and the tests; a page
+ * that lists plans wants `PACKAGES` and `USAGE_STEPS` instead.
+ */
+export function allPlans(): Plan[] {
+  const out: Plan[] = [];
+  for (const pkg of PACKAGES) {
+    const voiceSteps = pkg.voice ? USAGE_STEPS : [undefined];
+    const chatSteps = pkg.chat ? USAGE_STEPS : [undefined];
+    for (const voiceMinutes of voiceSteps) {
+      for (const chatConversations of chatSteps) {
+        out.push(planFor(pkg.id, { voiceMinutes, chatConversations }));
+      }
+    }
+  }
+  return out;
+}
+
+/** The chat channel a buyer may be asked about: website chat or the Meta bot. */
+export type ChatChannel = Exclude<Channel, "voice">;
+
+export function isChatChannel(value: unknown): value is ChatChannel {
+  return value === "web" || value === "meta";
+}
+
+// -----------------------------------------------------------------------------
+// Setup credits
+// -----------------------------------------------------------------------------
+
+export type SetupCredit = {
+  /** Stripe coupon id prefix; stripe:setup creates one per package (`setupCouponId`). */
+  couponId: string;
+  /** Shown by Stripe on Checkout and the invoice, so it is client copy. */
+  name: string;
+  percentOfSetupFee: number;
+  /** How long the offer holds, from the moment it is made. */
+  validHours: number;
+};
 
 /**
  * The founding-cohort setup credit — kept, by decision of 21 September 2026.
  *
  * Offered in the Day 7 nurture email and honoured at checkout as one Stripe
  * coupon per package whose `amount_off` is that package's own setup fee, so
- * the credit IS the fee ($497 for the single-channel chat packages, $997 for
- * the rest) and the subscription is untouched. The copy therefore says "the
- * setup fee in full" and quotes the range, never one round number that is
- * right for some packages and wrong for the others. It is valid for the fourteen
- * days after the email that offers it, tied to the lead it was sent to, and
- * never applied from a URL parameter alone.
+ * the credit IS the fee and the subscription is untouched. The copy therefore
+ * says "the setup fee in full" and quotes the range, never one round number.
+ * It is valid for the fourteen days after the email that offers it, tied to
+ * the lead it was sent to, and never applied from a URL parameter alone.
  */
 export const COHORT_SETUP_CREDIT = {
-  /** Stripe coupon id; stripe:setup creates it. */
   couponId: "healdesk-cohort-setup",
-  /**
-   * Shown by Stripe on the Checkout page and the invoice, so it is client
-   * copy: nothing that says we are new. Re-run stripe:setup after changing
-   * it, because the coupon already in Stripe keeps its old name.
-   */
   name: "Setup credit",
+  percentOfSetupFee: 100,
+  validHours: 14 * 24,
   /** Days after the offer email during which checkout honours it. */
   validDays: 14,
-} as const;
+} as const satisfies SetupCredit & { validDays: number };
 
 /**
- * A setup credit for a clinic that buys from its personalised demo inside the
- * demo's week. One coupon per package, `amount_off` that share of the
- * package's setup fee and applied once, so it comes off the setup line of the
- * first invoice and nothing off the subscription. stripe:setup creates them;
- * the demo page and the checkout show the same figure. `offer` is what the
- * checkout records on the Stripe Session and the coupon's metadata.
+ * Half the setup fee off, for a clinic that buys from a personalised demo an
+ * operator built and sent it, within 48 hours of the demo being ready (owner,
+ * 7 October 2026 for the half; 13 October for the 48 hours, a week until
+ * then).
  */
-export type DemoSetupCredit = {
-  couponId: string;
-  /** Shown by Stripe on Checkout and the invoice; Stripe caps it at 40 characters. */
-  name: string;
-  percentOfSetupFee: number;
-  offer: "demo-setup-half" | "demo-setup-30";
-};
-
-/** Half the setup fee off, from a demo an operator built for a prospect (owner, 7 October 2026). */
 export const DEMO_SETUP_CREDIT = {
-  couponId: "healdesk-demo-setup-half",
-  name: "Demo week: 50% off setup",
+  couponId: "healdesk-demo-setup-50",
+  name: "Your demo: 50% off setup",
   percentOfSetupFee: 50,
-  offer: "demo-setup-half",
-} as const satisfies DemoSetupCredit;
+  validHours: 48,
+} as const satisfies SetupCredit;
 
 /**
  * 30% off, from a demo the visitor asked for themselves on the homepage's
- * "See it in your own branding" (owner, 13 October 2026). Its own coupons,
- * because a coupon's amount cannot change in place.
+ * "See it in your own branding" ("Send me my own free AI assistant"), within
+ * 48 hours of the demo being ready (owner, 13 October 2026). The same share
+ * as the website's own offer, but its clock starts when the demo is ready, and
+ * Stripe names it after the demo.
  */
 export const SELF_SERVE_DEMO_SETUP_CREDIT = {
   couponId: "healdesk-demo-setup-30",
-  name: "Demo week: 30% off setup",
+  name: "Your demo: 30% off setup",
   percentOfSetupFee: 30,
-  offer: "demo-setup-30",
-} as const satisfies DemoSetupCredit;
+  validHours: 48,
+} as const satisfies SetupCredit;
 
-export const DEMO_SETUP_CREDITS: readonly DemoSetupCredit[] = [DEMO_SETUP_CREDIT, SELF_SERVE_DEMO_SETUP_CREDIT];
+export const DEMO_SETUP_CREDITS = [DEMO_SETUP_CREDIT, SELF_SERVE_DEMO_SETUP_CREDIT] as const;
 
 /**
- * A demo credit for one package, in whole dollars, rounded up: half of $997
- * is $498.50, and a page that shows "$499" over an invoice that takes $498.50
- * would disagree with Stripe by fifty cents. Up, so the buyer is never given
- * less than the share the banner promised.
+ * 30% off the setup fee for a clinic that buys through the website, within
+ * 48 hours of first being shown the offer (owner, 13 October 2026). The
+ * moment is held in a signed cookie by apps/web (lib/site-offer.ts), so the
+ * server, not the browser, decides whether it still holds.
  */
+export const SITE_SETUP_CREDIT = {
+  couponId: "healdesk-site-setup-30",
+  name: "30% off setup",
+  percentOfSetupFee: 30,
+  validHours: 48,
+} as const satisfies SetupCredit;
+
+export const SETUP_CREDITS = [
+  COHORT_SETUP_CREDIT,
+  DEMO_SETUP_CREDIT,
+  SELF_SERVE_DEMO_SETUP_CREDIT,
+  SITE_SETUP_CREDIT,
+] as const;
+
+/**
+ * What a buyer pays for setup under a credit, in whole dollars, ROUNDED UP:
+ * 50% of $697 is $348.50 and the sheet says "$349". The credit is whatever
+ * that leaves (`setupCreditUsd`), so the page and Stripe's amount_off agree
+ * to the dollar.
+ */
+export function setupAfterCreditUsd(
+  plan: { setupFeeUsd: number },
+  credit: { percentOfSetupFee: number },
+): number {
+  return Math.ceil((plan.setupFeeUsd * (100 - credit.percentOfSetupFee)) / 100);
+}
+
+/** The credit itself, in whole dollars: the list fee less `setupAfterCreditUsd`. */
+export function setupCreditUsd(
+  plan: { setupFeeUsd: number },
+  credit: { percentOfSetupFee: number },
+): number {
+  return plan.setupFeeUsd - setupAfterCreditUsd(plan, credit);
+}
+
+/** A demo credit for one plan, in whole dollars: the operator demo's unless another is named. */
 export function demoSetupCreditUsd(
   plan: { setupFeeUsd: number },
-  credit: Pick<DemoSetupCredit, "percentOfSetupFee"> = DEMO_SETUP_CREDIT,
+  credit: { percentOfSetupFee: number } = DEMO_SETUP_CREDIT,
 ): number {
-  return Math.ceil((plan.setupFeeUsd * credit.percentOfSetupFee) / 100);
+  return setupCreditUsd(plan, credit);
+}
+
+/** The website credit for one plan, in whole dollars. */
+export function siteSetupCreditUsd(plan: { setupFeeUsd: number }): number {
+  return setupCreditUsd(plan, SITE_SETUP_CREDIT);
+}
+
+/**
+ * The Stripe coupon for one credit on one package. The amount is in the id,
+ * like a price's lookup key: a coupon's amount_off can never change, so a new
+ * setup fee is a new coupon rather than the old one silently applied.
+ */
+export function setupCouponId(credit: SetupCredit, plan: { packageId: PackageId; setupFeeUsd: number }): string {
+  return `${credit.couponId}-${plan.packageId}-${setupCreditUsd(plan, credit) * 100}`;
+}
+
+/** Whether an offer made at `offeredAt` still holds at `now`. */
+export function isSetupCreditLive(
+  credit: { validHours: number },
+  offeredAt: Date | number,
+  now: number = Date.now(),
+): boolean {
+  const from = typeof offeredAt === "number" ? offeredAt : offeredAt.getTime();
+  return Number.isFinite(from) && now >= from && now - from < credit.validHours * 60 * 60 * 1000;
+}
+
+/** When an offer made at `offeredAt` ends. */
+export function setupCreditEndsAt(credit: { validHours: number }, offeredAt: Date | number): Date {
+  const from = typeof offeredAt === "number" ? offeredAt : offeredAt.getTime();
+  return new Date(from + credit.validHours * 60 * 60 * 1000);
 }
 
 /**
@@ -281,190 +579,22 @@ export function demoSetupCreditUsd(
 export const SETUP_WINDOW_DAYS = 30;
 export const SETUP_REMINDER_EVERY_DAYS = 5;
 
-export const plans: readonly Plan[] = [
-  {
-    id: "chat-web",
-    name: "AYA Web Chat",
-    channels: { web: true, meta: false, voice: false },
-    monthlyUsd: 397,
-    annualMonthlyUsd: 317,
-    setupFeeUsd: 497,
-    includedVoiceMinutes: 0,
-    includedChatConversations: 1_000,
-    overagePerVoiceMinuteUsd: 0,
-    overagePerChatConversationUsd: CHAT_OVERAGE_SINGLE_CHANNEL,
-    locations: 1,
-  },
-  {
-    id: "chat-meta",
-    name: "AYA Meta Chat",
-    channels: { web: false, meta: true, voice: false },
-    monthlyUsd: 397,
-    annualMonthlyUsd: 317,
-    setupFeeUsd: 497,
-    includedVoiceMinutes: 0,
-    includedChatConversations: 1_000,
-    overagePerVoiceMinuteUsd: 0,
-    overagePerChatConversationUsd: CHAT_OVERAGE_SINGLE_CHANNEL,
-    locations: 1,
-  },
-  {
-    id: "voice",
-    name: "AYA Voice",
-    channels: { web: false, meta: false, voice: true },
-    monthlyUsd: 797,
-    annualMonthlyUsd: 637,
-    setupFeeUsd: 997,
-    includedVoiceMinutes: 1_000,
-    includedChatConversations: 0,
-    overagePerVoiceMinuteUsd: VOICE_OVERAGE,
-    overagePerChatConversationUsd: 0,
-    locations: 1,
-  },
-  {
-    id: "chat-dual",
-    name: "AYA Web + Meta Chat",
-    channels: { web: true, meta: true, voice: false },
-    monthlyUsd: 597,
-    annualMonthlyUsd: 477,
-    setupFeeUsd: 997,
-    includedVoiceMinutes: 0,
-    includedChatConversations: 2_000,
-    overagePerVoiceMinuteUsd: 0,
-    overagePerChatConversationUsd: CHAT_OVERAGE,
-    locations: 1,
-  },
-  {
-    id: "web-voice",
-    name: "AYA Web Chat + Voice",
-    channels: { web: true, meta: false, voice: true },
-    monthlyUsd: 897,
-    annualMonthlyUsd: 717,
-    setupFeeUsd: 997,
-    includedVoiceMinutes: 1_000,
-    includedChatConversations: 1_000,
-    overagePerVoiceMinuteUsd: VOICE_OVERAGE,
-    overagePerChatConversationUsd: CHAT_OVERAGE,
-    locations: 1,
-  },
-  {
-    id: "meta-voice",
-    name: "AYA Meta Chat + Voice",
-    channels: { web: false, meta: true, voice: true },
-    monthlyUsd: 897,
-    annualMonthlyUsd: 717,
-    setupFeeUsd: 997,
-    includedVoiceMinutes: 1_000,
-    includedChatConversations: 1_000,
-    overagePerVoiceMinuteUsd: VOICE_OVERAGE,
-    overagePerChatConversationUsd: CHAT_OVERAGE,
-    locations: 1,
-  },
-  {
-    id: "complete",
-    name: "AYA Complete Frontdesk",
-    channels: { web: true, meta: true, voice: true },
-    monthlyUsd: 1_197,
-    annualMonthlyUsd: 957,
-    setupFeeUsd: 997,
-    includedVoiceMinutes: 1_000,
-    includedChatConversations: 2_000,
-    overagePerVoiceMinuteUsd: VOICE_OVERAGE,
-    overagePerChatConversationUsd: CHAT_OVERAGE,
-    locations: 1,
-  },
-] as const;
-
-export function getPlan(id: string): Plan | undefined {
-  return plans.find((p) => p.id === id);
-}
-
-export function isPlanId(id: unknown): id is string {
-  return typeof id === "string" && plans.some((p) => p.id === id);
-}
-
-/** The chat channel a buyer picks on a card that sells one or the other. */
-export type ChatChannel = Exclude<Channel, "voice">;
-
-export function isChatChannel(value: unknown): value is ChatChannel {
-  return value === "web" || value === "meta";
-}
-
 /**
- * One card on the pricing page and in checkout: a package, or a pair of
- * packages that differ only in which chat channel they include.
- *
- * The pair is offered as one card ("Web OR Meta Chatbot") because the buyer
- * is choosing a price point first and a channel second, and two cards with
- * the same price and the same allowances read as a mistake. A card's id is
- * what a `?plan=` link may carry, alongside a package id; the two twin cards
- * keep the ids their packages had before the split, so links already sent
- * still land on the right card. A card id is never stored and never reaches
- * Stripe or apps/app: checkout resolves it to a package with
- * `planForCard()` first.
+ * The share of an included amount at which the clinic is emailed (the
+ * pricing sheet: "When you use 90% of your included amount, we send you a
+ * short email"), with the choice to move up a step or let the next block of
+ * 100 bill at the extra-100 price.
  */
-export type PricingCard = {
-  id: string;
-  name: string;
-  /** One package, or two: the web twin first, then the Meta twin. */
-  planIds: readonly [string] | readonly [string, string];
-  highlight?: string;
-};
+export const USAGE_ALERT_PERCENT = 90;
 
-/**
- * Product names are AYA's, never "chatbot" or "AI voice agent" (owner,
- * 7 October 2026): AYA Web Chat, AYA Meta Chat, AYA Voice, and AYA Complete
- * Frontdesk, which is the recommended package.
- */
-export const pricingCards: readonly PricingCard[] = [
-  { id: "chat-single", name: "AYA Web or Meta Chat", planIds: ["chat-web", "chat-meta"] },
-  { id: "voice", name: "AYA Voice", planIds: ["voice"] },
-  { id: "chat-dual", name: "AYA Web + Meta Chat", planIds: ["chat-dual"] },
-  { id: "chat-voice", name: "AYA Chat + Voice", planIds: ["web-voice", "meta-voice"] },
-  { id: "complete", name: "AYA Complete Frontdesk", planIds: ["complete"], highlight: "Recommended" },
-] as const;
+// -----------------------------------------------------------------------------
+// What is billed
+// -----------------------------------------------------------------------------
 
-export function getPricingCard(id: string): PricingCard | undefined {
-  return pricingCards.find((c) => c.id === id);
-}
-
-/** The card a package is sold from. Every package is on exactly one. */
-export function cardForPlan(plan: Plan): PricingCard {
-  const card = pricingCards.find((c) => c.planIds.includes(plan.id));
-  if (!card) throw new Error(`Package ${plan.id} is on no pricing card.`);
-  return card;
-}
-
-/** Whether the buyer picks website chat or the Meta bot on this card. */
-export function offersChatChoice(card: PricingCard): boolean {
-  return card.planIds.length === 2;
-}
-
-/**
- * The package a card sells, given the chat channel picked. A card without the
- * choice ignores `chat`; one with it defaults to the website, which goes live
- * without waiting on anything from Meta.
- */
-export function planForCard(card: PricingCard, chat: ChatChannel = "web"): Plan {
-  const id = card.planIds.length === 2 && chat === "meta" ? card.planIds[1] : card.planIds[0];
-  const plan = getPlan(id);
-  if (!plan) throw new Error(`Pricing card ${card.id} names unknown package ${id}.`);
-  return plan;
-}
-
-/**
- * The chat channel a package stands for on its card: `meta` for the Meta twin
- * of a pair, `web` for everything else.
- */
-export function chatChannelOf(plan: Plan): ChatChannel {
-  return plan.channels.meta && !plan.channels.web ? "meta" : "web";
-}
-
-/** The recurring amount for one billing period, in whole dollars. */
 /**
  * The $0 recurring price a subscription carries until AYA first answers a
  * patient (the deferred start, contracts §2). Checkout bills the setup fee and
- * this; at the first answer Package C swaps it for the package's price. It is
+ * this; at the first answer Package C swaps it for the plan's price. It is
  * what makes the start deferred without being a trial: Stripe never sees a
  * trial, so nothing is ever "trialing" and no charge reads "TRIAL OVER".
  */
@@ -476,7 +606,7 @@ const usdWhole = new Intl.NumberFormat("en-US", { style: "currency", currency: "
 /**
  * The plan-start sentence (plan Part A3): one wording, in the Checkout page's
  * custom text, on Home and Billing, in the welcome email and in the Terms.
- * "Monthly billing ($897) starts the day AYA first answers a patient."
+ * "Monthly billing ($400) starts the day AYA first answers a patient."
  * Vets' practices say "client" (audienceFor).
  */
 export function planStartSentence(
@@ -489,6 +619,7 @@ export function planStartSentence(
     : `Monthly billing (${usdWhole.format(plan.monthlyUsd)}) starts the day AYA first answers a ${audience}.`;
 }
 
+/** The recurring amount for one billing period, in whole dollars. */
 export function recurringUsd(plan: Plan, interval: BillingInterval): number {
   return interval === "year" ? annualTotalUsd(plan) : plan.monthlyUsd;
 }
@@ -498,15 +629,15 @@ export function annualTotalUsd(plan: Plan): number {
   return plan.annualMonthlyUsd * 12;
 }
 
-/** What the buyer pays on day one: first period plus the setup fee. */
+/** The first period plus the setup fee at list price. */
 export function firstInvoiceUsd(plan: Plan, interval: BillingInterval): number {
   return recurringUsd(plan, interval) + plan.setupFeeUsd;
 }
 
 /**
- * Setup fee owed on an upgrade: the difference between what was already paid
- * and the new package's fee, never negative. $497 paid → $997 package = $500;
- * $997 → $997 = $0. Downgrades never refund a setup fee.
+ * Setup fee owed on an upgrade: the difference between the two packages'
+ * fees, never negative. A step change within a package owes nothing; Web Chat
+ * ($259) to Voice + Web Chat ($956) owes $697. Downgrades never refund one.
  *
  * OWED, not charged: no caller invoices this yet — see the header.
  */
@@ -523,50 +654,28 @@ export function channelList(plan: Plan): Channel[] {
 }
 
 /**
- * The package whose channels are exactly `channels`, or null for none.
+ * The plan to bill for the channels in service, at the steps bought, or null
+ * for none.
  *
  * Billing follows the channels in service, not the package bought (the
- * owner's decision of 6 October 2026): a clinic that bought Complete and
- * whose website chat answered first is billed as Web Chatbot until its next
- * channel answers. The seven packages are the seven non-empty sets of the
- * three channels, so every set names exactly one package, and duplicates in
- * the input do not matter. An empty set is null, never a package: no channel
- * in service means nothing to bill yet, and a caller must not start or change
- * a plan on it.
+ * owner's decision of 6 October 2026): a clinic that bought Voice + Meta Chat
+ * and whose website chat answered first is billed as Web Chat, at its chat
+ * step, until its next channel answers. Voice bills when voice is in service;
+ * chat bills as Meta Chat once the Meta bot is in service and as Web Chat
+ * while only the website is. A channel the bought plan does not include is
+ * ignored. An empty result is null, never a plan: no channel in service means
+ * nothing to bill yet, and a caller must not start or change a plan on it.
  */
-export function planForChannels(channels: Iterable<Channel>): Plan | null {
-  const wanted = new Set(channels);
-  if (wanted.size === 0) return null;
-  return (
-    plans.find(
-      (plan) =>
-        plan.channels.web === wanted.has("web") &&
-        plan.channels.meta === wanted.has("meta") &&
-        plan.channels.voice === wanted.has("voice"),
-    ) ?? null
-  );
-}
-
-/**
- * Whether the Meta channel may be bought as a clinic's only channel.
- *
- * Until Meta's App Review of the messaging permissions passes, Instagram,
- * Messenger and WhatsApp cannot answer a clinic's patients
- * (docs/v1-product-spec.md, "External gates on the launch date"), so a
- * clinic that bought Meta Chatbot alone would pay for a package with no
- * channel that can go live. This was false for that reason. The owner set it
- * true on 5 October 2026, ahead of App Review: no marketing has launched, so
- * nobody is expected to buy before approval, and Meta Chatbot is on sale
- * from the first day there is anyone to sell it to. If App Review slips past
- * the first campaign, set it back to false: checkout reads it with
- * `sellsMetaAlone()`, in the UI and again in /api/checkout, which then
- * refuses the package.
- */
-export const META_SOLD_ALONE = true;
-
-/** True when Meta is the package's only channel. Today that is Meta Chatbot. */
-export function sellsMetaAlone(plan: Plan): boolean {
-  return plan.channels.meta && !plan.channels.web && !plan.channels.voice;
+export function planForChannels(bought: Plan, channels: Iterable<Channel>): Plan | null {
+  const live = new Set([...channels].filter((c) => bought.channels[c]));
+  const voice = live.has("voice");
+  const chat: ChatProductId | null = live.has("meta") ? "metachat" : live.has("web") ? "webchat" : null;
+  const pkg = packageFor(voice, chat);
+  if (!pkg) return null;
+  return planFor(pkg.id, {
+    voiceMinutes: voice ? bought.includedVoiceMinutes : undefined,
+    chatConversations: chat ? bought.includedChatConversations : undefined,
+  });
 }
 
 /**
@@ -576,7 +685,10 @@ export function sellsMetaAlone(plan: Plan): boolean {
  * to an old Stripe price: it fails loudly until `stripe:setup` has been re-run.
  * The interval is in the key too, because monthly and annual are different
  * prices on the same product and a key without it would find whichever was
- * created first.
+ * created first. A recurring key names the PLAN
+ * (`healdesk_voice-webchat-500-300_month_60000`); the setup key names the
+ * PACKAGE (`healdesk_voice-webchat_setup_95600`), because the setup fee does
+ * not change with the steps.
  */
 export type PriceKind = "month" | "year" | "setup";
 
@@ -585,10 +697,11 @@ export function stripeLookupKey(plan: Plan, kind: PriceKind): string {
     kind === "setup"
       ? plan.setupFeeUsd * 100
       : recurringUsd(plan, kind) * 100;
-  return `healdesk_${plan.id}_${kind}_${cents}`;
+  return `healdesk_${kind === "setup" ? plan.packageId : plan.id}_${kind}_${cents}`;
 }
 
 export type ParsedLookupKey = {
+  /** The plan id for a recurring key; the PACKAGE id for a setup key. */
   planId: string;
   kind: PriceKind;
   /** The amount the key was minted with. Compare against the catalog to spot a stale price. */
@@ -598,16 +711,17 @@ export type ParsedLookupKey = {
 /**
  * The inverse of `stripeLookupKey()`: `healdesk_<plan>_<kind>_<cents>`.
  *
- * Plan ids contain hyphens and never underscores, which is what makes the
- * split unambiguous; plans.test.ts round-trips every plan and kind through
+ * Plan and package ids contain hyphens and digits and never underscores,
+ * which is what makes the split unambiguous; plans.test.ts round-trips every plan and kind through
  * both functions so the two cannot drift apart. (It lived in apps/app until 5
  * October 2026, when the plan-change and metered-item code there started
  * needing it in more than one place; apps/app re-exports it.)
  *
  * Returns null for anything that is not a package price — the metered
- * overage prices, scalabid's prices on the same Stripe account, a key from a
- * plan that has since been removed from the catalog — and the caller decides
- * what that means for the event it is holding.
+ * overage prices, scalabid's prices on the same Stripe account — and the
+ * caller decides what that means for the event it is holding. A key from a
+ * plan no longer on the grid (the seven packages of 5 October) parses, and
+ * `getPlan()` of its id is undefined.
  */
 export function parseLookupKey(key: string): ParsedLookupKey | null {
   const match = /^healdesk_([a-z0-9-]+)_(month|year|setup)_(\d+)$/.exec(key);
@@ -622,9 +736,8 @@ export function parseLookupKey(key: string): ParsedLookupKey | null {
 /**
  * The two account-wide meters. Each counts one unit past the allowance, by
  * Stripe customer, and backs one metered price per distinct overage rate:
- * today one voice price ($80 a block of 100 minutes) and two chat prices ($40
- * a block of 100 conversations on the single-channel chat packages, $30 on the
- * rest). A subscription carries the price for its own package's rate, so the
+ * today one voice price ($104 a block of 100 minutes) and two chat prices
+ * ($52 a block of 100 conversations on Web Chat, $78 on Meta Chat). A subscription carries the price for its own package's rate, so the
  * usage reporter sends every event to the meter by `eventName`, in single
  * units, and never has to know the rate or the block: the price turns the
  * period's units into started blocks (OVERAGE_BLOCK_UNITS).
@@ -661,10 +774,10 @@ export function overageRateCents(rateUsd: number): number {
 
 /**
  * Overage is billed per STARTED block of this many units (the owner's decision
- * of 6 October 2026, docs/v1-product-spec.md "Overage prices"): $80 for each
- * started block of 100 extra voice minutes, and $40 (single-channel chat) or
- * $30 (the rest) for each started block of 100 extra chat conversations. Per
- * unit amounts left odd figures on every invoice.
+ * of 6 October 2026, kept by the pricing sheet of 13 October): $104 for each
+ * started block of 100 extra voice minutes, $52 (Web Chat) or $78 (Meta Chat)
+ * for each started block of 100 extra chat conversations. Per unit amounts
+ * left odd figures on every invoice.
  *
  * The per-unit rates on each plan stay the source, and a block is the rate
  * times this. The meters still count single units. Stripe divides a monthly
@@ -771,11 +884,12 @@ export function billableVoiceMinutes(durationSeconds: number): number {
 // -----------------------------------------------------------------------------
 
 /**
- * What one additional location costs (owner decision of 5 October 2026): the
- * package's recurring price again — monthly, or the annual total — on the SAME
+ * What one additional location costs (owner decision of 5 October 2026;
+ * "Prices are per location" on the sheet of 13 October): the plan's
+ * recurring price again — monthly, or the annual total — on the SAME
  * subscription and renewal date (Stripe prorates the first period), plus the
- * package's setup fee once. Included minutes and conversations add up across
- * locations: the pooled allowance is the package allowance × locations.
+ * package's setup fee once, at list price. Included minutes and conversations
+ * add up across locations: the pooled allowance is the plan's steps × locations.
  */
 export function additionalLocationChargeUsd(
   plan: Plan,

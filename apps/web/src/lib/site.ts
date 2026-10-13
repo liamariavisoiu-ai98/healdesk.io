@@ -121,6 +121,7 @@ export const site = {
    * Footer. Paths are absolute so the same list works from every page.
    */
   footerLinks: [
+    { label: "Pricing", href: "/pricing" },
     { label: "Why wait?", href: "/why-wait" },
     { label: "Contact us", href: "/contact" },
     { label: "Privacy", href: "/privacy" },

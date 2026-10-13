@@ -1,8 +1,10 @@
 import {
   BOOKING_SYSTEMS,
   bookingSystemName,
-  getPlan,
+  DEFAULT_STEPS,
+  getPackage,
   manualBookingNotice,
+  PACKAGES,
 } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
@@ -10,9 +12,9 @@ import {
   agreementInputs,
   BOOKING_REQUESTS_FOR_NOW,
   bookingConsequence,
-  chooseCard,
-  chooseChat,
+  choosePackage,
   choosePlan,
+  chooseSteps,
   chosenPlan,
   clinicComplete,
   clinicIssues,
@@ -22,7 +24,9 @@ import {
   initialFunnel,
   noWebsiteOptions,
   packageComplete,
-  planOnSale,
+  packageNeedsWebsite,
+  planLink,
+  RETIRED_PLAN_PACKAGES,
   sellableTo,
   parseAgreementInputs,
   parseStoredFunnel,
@@ -34,6 +38,7 @@ import {
   stepComplete,
   TOTAL_STEPS,
   websiteConflict,
+  withoutWebsite,
 } from "./funnel";
 
 /**
@@ -44,7 +49,7 @@ import {
 /** A clinic that has answered steps 1 and 2. */
 function answered(overrides: Partial<FunnelState> = {}): FunnelState {
   return {
-    ...initialFunnel({ plan: "chat-voice" }),
+    ...initialFunnel({ plan: "voice-webchat-500-300" }),
     clinicName: "Glow Med Spa LLC",
     website: "https://glowmedspa.com/",
     specialty: "med-spa",
@@ -65,37 +70,102 @@ describe("four steps", () => {
 });
 
 describe("step 1: the package", () => {
-  test("nothing is preselected unless a pricing card or ?plan chose it", () => {
-    expect(initialFunnel().cardId).toBeNull();
+  test("nothing is preselected unless ?plan chose it", () => {
+    expect(initialFunnel().packageId).toBeNull();
     expect(chosenPlan(initialFunnel())).toBeNull();
     expect(packageComplete(initialFunnel())).toBe(false);
     // A stale or unknown id preselects nothing rather than guessing.
-    expect(initialFunnel({ plan: "starter" }).cardId).toBeNull();
-    expect(initialFunnel({ plan: "chat-single" }).cardId).toBe("chat-single");
+    expect(initialFunnel({ plan: "starter" }).packageId).toBeNull();
+    expect(initialFunnel({ plan: "voice-150" }).packageId).toBeNull();
+    expect(initialFunnel({ plan: "constructor" }).packageId).toBeNull();
   });
 
-  test("on a twin card the chat channel picks the package id", () => {
-    const single = initialFunnel({ plan: "chat-single" });
-    expect(chosenPlan(single)?.id).toBe("chat-web");
-    expect(chosenPlan(chooseChat(single, "meta"))?.id).toBe("chat-meta");
-
-    const withPhone = chooseCard(initialFunnel(), "chat-voice");
-    expect(chosenPlan(withPhone)?.id).toBe("web-voice");
-    expect(chosenPlan(chooseChat(withPhone, "meta"))?.id).toBe("meta-voice");
+  test("the steps start at the sheet's examples, whatever the package", () => {
+    expect(initialFunnel()).toMatchObject({ voiceMinutes: 500, chatConversations: 300 });
+    expect(DEFAULT_STEPS).toEqual({ voiceMinutes: 500, chatConversations: 300 });
   });
 
-  test("a card without the choice ignores the chat channel", () => {
-    const voice = chooseChat(chooseCard(initialFunnel(), "voice"), "meta");
-    expect(chosenPlan(voice)?.id).toBe("voice");
-    expect(chosenPlan(chooseChat(chooseCard(initialFunnel(), "complete"), "meta"))?.id).toBe(
-      "complete",
+  test("a plan link opens its package at its own steps", () => {
+    expect(chosenPlan(initialFunnel({ plan: "voice-metachat-800-1200" }))?.id).toBe(
+      "voice-metachat-800-1200",
     );
+    // A package without a product keeps that product's step at its default.
+    expect(initialFunnel({ plan: "voice-900" })).toMatchObject({
+      packageId: "voice",
+      voiceMinutes: 900,
+      chatConversations: 300,
+    });
+    expect(chosenPlan(initialFunnel({ plan: "webchat-1500" }))?.id).toBe("webchat-1500");
   });
 
-  test("a package link opens its own card with its own channel", () => {
-    expect(chosenPlan(initialFunnel({ plan: "meta-voice" }))?.id).toBe("meta-voice");
-    expect(chosenPlan(choosePlan(initialFunnel(), "chat-meta"))?.id).toBe("chat-meta");
-    expect(choosePlan(initialFunnel(), "nope").cardId).toBeNull();
+  test("a package link opens the package at the default steps", () => {
+    for (const pkg of PACKAGES) {
+      const plan = chosenPlan(initialFunnel({ plan: pkg.id }));
+      expect(plan?.packageId, pkg.id).toBe(pkg.id);
+      expect(plan?.includedVoiceMinutes).toBe(pkg.voice ? 500 : 0);
+      expect(plan?.includedChatConversations).toBe(pkg.chat ? 300 : 0);
+    }
+    expect(chosenPlan(initialFunnel({ plan: "voice-metachat" }))?.id).toBe("voice-metachat-500-300");
+  });
+
+  test("a retired package lands on the package that replaced it, never on an error", () => {
+    expect(RETIRED_PLAN_PACKAGES).toEqual({
+      "chat-web": "webchat",
+      "chat-meta": "metachat",
+      "chat-dual": "metachat",
+      "web-voice": "voice-webchat",
+      "meta-voice": "voice-metachat",
+      complete: "voice-metachat",
+      "chat-single": "webchat",
+      "chat-voice": "voice-webchat",
+    });
+    for (const [old, pkg] of Object.entries(RETIRED_PLAN_PACKAGES)) {
+      expect(getPackage(pkg), old).toBeDefined();
+      expect(planLink(old)).toEqual({ packageId: pkg, ...DEFAULT_STEPS });
+    }
+    expect(chosenPlan(initialFunnel({ plan: "complete" }))?.id).toBe("voice-metachat-500-300");
+    // "voice" is a package in both catalogs.
+    expect(chosenPlan(initialFunnel({ plan: "voice" }))?.id).toBe("voice-500");
+    expect(planLink(undefined)).toBeNull();
+    expect(planLink(42)).toBeNull();
+  });
+
+  test("choosing a package keeps the steps; moving a step keeps the package", () => {
+    const voiceMeta = choosePackage(initialFunnel(), "voice-metachat");
+    expect(chosenPlan(voiceMeta)?.id).toBe("voice-metachat-500-300");
+    const moved = chooseSteps(voiceMeta, { voiceMinutes: 1200 });
+    expect(chosenPlan(moved)?.id).toBe("voice-metachat-1200-300");
+    expect(chosenPlan(chooseSteps(moved, { chatConversations: 100 }))?.id).toBe(
+      "voice-metachat-1200-100",
+    );
+    // The chat step survives a package without chat, and comes back with it.
+    const voiceOnly = choosePackage(chooseSteps(moved, { chatConversations: 700 }), "voice");
+    expect(chosenPlan(voiceOnly)?.id).toBe("voice-1200");
+    expect(chosenPlan(choosePackage(voiceOnly, "metachat"))?.id).toBe("metachat-700");
+  });
+
+  test("a step off the grid, or a package that does not exist, changes nothing", () => {
+    const start = choosePackage(initialFunnel(), "voice");
+    for (const voiceMinutes of [0, 50, 150, 1600, 2000, Number.NaN]) {
+      expect(chooseSteps(start, { voiceMinutes }), String(voiceMinutes)).toEqual(start);
+    }
+    expect(choosePackage(start, "complete")).toEqual(start);
+    expect(choosePackage(start, "gold")).toEqual(start);
+  });
+
+  test("choosing by id: a plan picks its steps, a package or a retired one keeps them", () => {
+    const moved = chooseSteps(initialFunnel(), { voiceMinutes: 800, chatConversations: 600 });
+    expect(chosenPlan(choosePlan(moved, "metachat-200"))?.id).toBe("metachat-200");
+    expect(chosenPlan(choosePlan(moved, "voice-webchat"))?.id).toBe("voice-webchat-800-600");
+    expect(chosenPlan(choosePlan(moved, "meta-voice"))?.id).toBe("voice-metachat-800-600");
+    expect(choosePlan(moved, "nope")).toEqual(moved);
+  });
+
+  test("the plan's price is the steps added up", () => {
+    const plan = chosenPlan(initialFunnel({ plan: "voice-webchat-500-300" }))!;
+    expect(plan.monthlyUsd).toBe(520);
+    expect(plan.annualMonthlyUsd).toBe(416);
+    expect(plan.setupFeeUsd).toBe(956);
   });
 
   test("the interval comes from the link, monthly otherwise", () => {
@@ -153,72 +223,60 @@ describe("step 2: the clinic", () => {
 });
 
 describe("no website", () => {
-  test("website chat is not sold, and the step says so", () => {
+  test("Web Chat is not sold, and the step says so", () => {
     const webVoice = answered({ noWebsite: true });
-    expect(chosenPlan(webVoice)?.id).toBe("web-voice");
+    expect(chosenPlan(webVoice)?.id).toBe("voice-webchat-500-300");
     expect(websiteConflict(webVoice)).toBe(true);
     expect(clinicIssues(webVoice).map((i) => i.field)).toEqual(["plan"]);
   });
 
-  test("the phone is offered first, then the Meta bot", () => {
-    expect(noWebsiteOptions().map((plan) => plan.id)).toEqual(["voice", "meta-voice", "chat-meta"]);
-    for (const plan of noWebsiteOptions()) expect(plan.channels.web, plan.id).toBe(false);
+  test("the phone is offered first, then Meta Chat beside it, then Meta Chat, at the steps chosen", () => {
+    expect(noWebsiteOptions().map((plan) => plan.id)).toEqual([
+      "voice-500",
+      "voice-metachat-500-300",
+      "metachat-300",
+    ]);
+    expect(
+      noWebsiteOptions({ voiceMinutes: 1000, chatConversations: 200 }).map((plan) => plan.id),
+    ).toEqual(["voice-1000", "voice-metachat-1000-200", "metachat-200"]);
+    for (const plan of noWebsiteOptions()) {
+      expect(sellableTo(getPackage(plan.packageId)!, { noWebsite: true }), plan.id).toBe(true);
+    }
   });
 
   test("taking an offer resolves it", () => {
-    for (const id of ["voice", "meta-voice", "chat-meta"]) {
-      const chosen = choosePlan(answered({ noWebsite: true }), id);
-      expect(chosenPlan(chosen)?.id).toBe(id);
+    for (const plan of noWebsiteOptions()) {
+      const chosen = choosePlan(answered({ noWebsite: true }), plan.id);
+      expect(chosenPlan(chosen)?.id).toBe(plan.id);
       expect(websiteConflict(chosen)).toBe(false);
       expect(clinicComplete(chosen)).toBe(true);
     }
   });
 
-  test("a twin card picked without a website sells its Meta twin", () => {
-    const chosen = chooseCard({ ...answered({ noWebsite: true }), cardId: null }, "chat-single");
-    expect(chosenPlan(chosen)?.id).toBe("chat-meta");
-    expect(websiteConflict(chosen)).toBe(false);
+  test("only the packages with Web Chat need a website; Meta Chat includes the website but needs none", () => {
+    expect(PACKAGES.filter((pkg) => packageNeedsWebsite(pkg)).map((pkg) => pkg.id)).toEqual([
+      "webchat",
+      "voice-webchat",
+    ]);
+    const none = { noWebsite: true };
+    expect(sellableTo(getPackage("webchat")!, none)).toBe(false);
+    expect(sellableTo(getPackage("metachat")!, none)).toBe(true);
+    expect(sellableTo(getPackage("webchat")!, { noWebsite: false })).toBe(true);
+    const metachat = chosenPlan(choosePackage(initialFunnel(), "metachat"))!;
+    expect(metachat.channels).toEqual({ web: true, meta: true, voice: false });
+  });
+
+  test("Web Chat's place is taken by Meta Chat, the rest unchanged", () => {
+    expect(withoutWebsite("webchat")).toBe("metachat");
+    expect(withoutWebsite("voice-webchat")).toBe("voice-metachat");
+    for (const id of ["voice", "metachat", "voice-metachat"] as const) {
+      expect(withoutWebsite(id)).toBe(id);
+    }
   });
 
   test("a package that needs no website is unaffected", () => {
     expect(websiteConflict(choosePlan(answered({ noWebsite: true }), "voice"))).toBe(false);
     expect(websiteConflict(answered())).toBe(false);
-  });
-});
-
-describe("Meta on its own, while Meta has not approved the app", () => {
-  // The catalog flag is open today (META_SOLD_ALONE, the owner, 5 October
-  // 2026); each rule takes it as a parameter so its closed branch is pinned.
-  const plan = (id: string) => chosenPlan(choosePlan(initialFunnel(), id), false);
-
-  test("the chatbot card sells its website twin, whatever was picked", () => {
-    expect(plan("chat-meta")?.id).toBe("chat-web");
-    expect(
-      chosenPlan(chooseChat(chooseCard(initialFunnel(), "chat-single"), "meta"), false)?.id,
-    ).toBe("chat-web");
-    // Today, open, the pick stands.
-    expect(chosenPlan(choosePlan(initialFunnel(), "chat-meta"))?.id).toBe("chat-meta");
-  });
-
-  test("Meta beside the phone stays on sale", () => {
-    expect(plan("meta-voice")?.id).toBe("meta-voice");
-    expect(planOnSale(getPlan("meta-voice")!, false)).toBe(true);
-    expect(planOnSale(getPlan("chat-meta")!, false)).toBe(false);
-    expect(planOnSale(getPlan("chat-meta")!, true)).toBe(true);
-  });
-
-  test("a practice with no website is offered the phone, then Meta beside the phone", () => {
-    expect(noWebsiteOptions(false).map((p) => p.id)).toEqual(["voice", "meta-voice"]);
-    expect(noWebsiteOptions(true).map((p) => p.id)).toEqual(["voice", "meta-voice", "chat-meta"]);
-  });
-
-  test("so the chatbot card has nothing to sell such a practice", () => {
-    const none = { noWebsite: true };
-    expect(sellableTo(getPlan("chat-web")!, none, false)).toBe(false);
-    expect(sellableTo(getPlan("chat-meta")!, none, false)).toBe(false);
-    expect(sellableTo(getPlan("chat-meta")!, none, true)).toBe(true);
-    expect(sellableTo(getPlan("meta-voice")!, none, false)).toBe(true);
-    expect(sellableTo(getPlan("chat-web")!, { noWebsite: false }, false)).toBe(true);
   });
 });
 
@@ -299,9 +357,9 @@ describe("step 3: the agreement's inputs", () => {
 
   test("the package is not a document input", () => {
     const signed = agreementInputs(answered());
-    expect(sameAgreementInputs(signed, agreementInputs(choosePlan(answered(), "complete")))).toBe(
-      true,
-    );
+    expect(
+      sameAgreementInputs(signed, agreementInputs(choosePlan(answered(), "voice-metachat-1500-1500"))),
+    ).toBe(true);
     expect(sameAgreementInputs(signed, agreementInputs({ ...answered(), interval: "year" }))).toBe(
       true,
     );
@@ -354,7 +412,9 @@ describe("the answers kept for the tab", () => {
     const parsed = parseStoredFunnel({
       ...state,
       step: 9,
-      cardId: "gold",
+      packageId: "complete",
+      voiceMinutes: 550,
+      chatConversations: 1600,
       specialty: "veterinary",
       bookingSystem: "zenoti",
       calendarAccount: 1,
@@ -363,7 +423,6 @@ describe("the answers kept for the tab", () => {
       clinicName: "x".repeat(401),
     });
     expect(parsed).toEqual({
-      chat: state.chat,
       website: state.website,
       noWebsite: false,
       contactName: state.contactName,
@@ -374,28 +433,45 @@ describe("the answers kept for the tab", () => {
     expect(parseStoredFunnel(null)).toBeNull();
   });
 
-  test("a pricing card or ?plan chosen now wins over the stored package; the setup link's address always wins", () => {
+  test("a funnel stored before the steps keeps its answers and asks for the package again", () => {
+    const old = { ...answered({ step: 3 }), cardId: "complete", chat: "meta" } as Record<string, unknown>;
+    delete old.packageId;
+    delete old.voiceMinutes;
+    delete old.chatConversations;
+    const restored = restoreFunnel(initialFunnel(), parseStoredFunnel(old), { explicitPlan: false });
+    expect(restored.packageId).toBeNull();
+    expect(restored.clinicName).toBe("Glow Med Spa LLC");
+    expect(resumeStep(restored, true, false)).toBe(1);
+  });
+
+  test("?plan chosen now wins over the stored package and steps; the setup link's address always wins", () => {
     const stored = { ...answered({ step: 2 }), contactEmail: "old@else.com" };
-    const seed = initialFunnel({ plan: "voice", interval: "year" });
+    const seed = initialFunnel({ plan: "voice-1100", interval: "year" });
     const restored = restoreFunnel(seed, stored, {
       explicitPlan: true,
       lockedEmail: "info@glowmedspa.com",
     });
-    expect(chosenPlan(restored)?.id).toBe("voice");
+    expect(chosenPlan(restored)?.id).toBe("voice-1100");
     expect(restored.interval).toBe("year");
     expect(restored.contactEmail).toBe("info@glowmedspa.com");
     expect(restored.clinicName).toBe("Glow Med Spa LLC");
 
     const kept = restoreFunnel(initialFunnel(), stored, { explicitPlan: false });
-    expect(chosenPlan(kept)?.id).toBe("web-voice");
+    expect(chosenPlan(kept)?.id).toBe("voice-webchat-500-300");
     expect(kept.contactEmail).toBe("old@else.com");
   });
 
-  test("a twin chosen now for a practice with no website stays on its Meta package", () => {
-    const stored = answered({ noWebsite: true, chat: "meta" });
-    const restored = restoreFunnel(initialFunnel({ plan: "chat-single" }), stored, {
-      explicitPlan: true,
-    });
-    expect(chosenPlan(restored)?.id).toBe("chat-meta");
+  test("a Web Chat link for a practice with no website opens the same package with Meta Chat", () => {
+    const stored = answered({ noWebsite: true });
+    for (const [link, plan] of [
+      ["webchat-400", "metachat-400"],
+      ["voice-webchat-600-200", "voice-metachat-600-200"],
+      ["chat-web", "metachat-300"],
+      ["voice", "voice-500"],
+    ] as const) {
+      const restored = restoreFunnel(initialFunnel({ plan: link }), stored, { explicitPlan: true });
+      expect(chosenPlan(restored)?.id, link).toBe(plan);
+      expect(websiteConflict(restored), link).toBe(false);
+    }
   });
 });

@@ -4,7 +4,7 @@ import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
 import { getSpecialty } from "@/lib/specialties";
 
 import { REPEAT_VISITS, typicalVisit } from "./roi";
-import { demoSetupCredit, displayName, isDemoActive, profileOf, type DemoSession } from "./sessions";
+import { displayName, profileOf, type DemoSession } from "./sessions";
 
 /**
  * What the purchase knows from the demo a buyer came from, worked out once
@@ -13,7 +13,11 @@ import { demoSetupCredit, displayName, isDemoActive, profileOf, type DemoSession
  * demo opens in place from its "Get AYA" (app/demo/[slug]).
  */
 
-/** What the package step shows a demo buyer: estimates from the demo's own prices, and the offer while it holds. */
+/**
+ * What the package step shows a demo buyer: estimates from the demo's own
+ * prices. The demo's setup offer reaches the flow as `setupOffer`, decided by
+ * the server like every other (lib/billing.ts `chooseSetupOffer`).
+ */
 export function demoCheckout(session: DemoSession): DemoCheckout {
   const profile = profileOf(session);
   const specialty = getSpecialty(session.specialty ?? profile?.specialty ?? "") ?? getSpecialty("med-spa")!;
@@ -25,9 +29,6 @@ export function demoCheckout(session: DemoSession): DemoCheckout {
       bookingRate: specialty.economics.bookingRate,
       repeat: REPEAT_VISITS[specialty.id] ?? null,
     },
-    offerEndsAt: isDemoActive(session) ? session.expiresAt.toISOString() : undefined,
-    // The share api/checkout takes off for this demo, so the page shows the figure Stripe charges.
-    offerPercent: demoSetupCredit(session).percentOfSetupFee,
   };
 }
 

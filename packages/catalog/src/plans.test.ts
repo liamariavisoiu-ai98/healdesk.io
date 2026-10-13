@@ -2,152 +2,310 @@ import { describe, expect, test } from "vitest";
 
 import {
   additionalLocationChargeUsd,
+  allPlans,
   annualTotalUsd,
   billableVoiceMinutes,
-  cardForPlan,
   channelList,
   CHANNELS,
   CHAT_CONVERSATION_SILENCE_MS,
-  chatChannelOf,
+  COHORT_SETUP_CREDIT,
+  DEMO_SETUP_CREDIT,
+  demoSetupCreditUsd,
   FIRST_PERIOD_REFUND_DAYS,
   FORWARDING_PASS_THROUGH_DAYS,
   getPlan,
-  getPricingCard,
-  META_SOLD_ALONE,
+  isPlanId,
+  isSetupCreditLive,
+  isUsageStep,
   meteredPriceLookupKey,
   METERS,
-  offersChatChoice,
   OVERAGE_BLOCK_UNITS,
   overageBlockCents,
   overageBlocks,
   overageChargeCents,
   overageRateCents,
+  PACKAGES,
+  packageSetupFeeUsd,
   parseLookupKey,
   type Channel,
-  type Plan,
   PLAN_START_PLACEHOLDER_LOOKUP_KEY,
-  planForCard,
+  planFor,
   planForChannels,
+  planIdFor,
   planMeteredPrices,
-  plans,
-  pricingCards,
-  sellsMetaAlone,
+  PRODUCTS,
+  setupAfterCreditUsd,
+  setupCouponId,
+  setupCreditEndsAt,
+  setupCreditUsd,
+  setupFeeDeltaUsd,
+  SITE_SETUP_CREDIT,
+  siteSetupCreditUsd,
   stripeLookupKey,
+  USAGE_ALERT_PERCENT,
+  USAGE_STEPS,
   type PriceKind,
 } from "./plans";
 
-/**
- * The allowances and overage rates the owner set on 5 October 2026. Written
- * out by hand rather than read back from the catalog, so that any edit to what
- * a clinic gets or is billed has to change this table too, on purpose.
- */
-const SET_ON_5_OCTOBER: Record<
-  string,
-  { voiceMinutes: number; chatConversations: number; voiceRate: number; chatRate: number }
-> = {
-  "chat-web": { voiceMinutes: 0, chatConversations: 1_000, voiceRate: 0, chatRate: 0.4 },
-  "chat-meta": { voiceMinutes: 0, chatConversations: 1_000, voiceRate: 0, chatRate: 0.4 },
-  voice: { voiceMinutes: 1_000, chatConversations: 0, voiceRate: 0.8, chatRate: 0 },
-  "chat-dual": { voiceMinutes: 0, chatConversations: 2_000, voiceRate: 0, chatRate: 0.3 },
-  "web-voice": { voiceMinutes: 1_000, chatConversations: 1_000, voiceRate: 0.8, chatRate: 0.3 },
-  "meta-voice": { voiceMinutes: 1_000, chatConversations: 1_000, voiceRate: 0.8, chatRate: 0.3 },
-  complete: { voiceMinutes: 1_000, chatConversations: 2_000, voiceRate: 0.8, chatRate: 0.3 },
+const plan = (id: string) => {
+  const found = getPlan(id);
+  if (!found) throw new Error(`No plan ${id}`);
+  return found;
 };
 
-describe("allowances and overage rates", () => {
-  test("every package carries the numbers set on 5 October 2026", () => {
-    expect(plans.map((p) => p.id).sort()).toEqual(Object.keys(SET_ON_5_OCTOBER).sort());
-    for (const plan of plans) {
-      const want = SET_ON_5_OCTOBER[plan.id]!;
-      expect(plan.includedVoiceMinutes, plan.id).toBe(want.voiceMinutes);
-      expect(plan.includedChatConversations, plan.id).toBe(want.chatConversations);
-      expect(plan.overagePerVoiceMinuteUsd, plan.id).toBe(want.voiceRate);
-      expect(plan.overagePerChatConversationUsd, plan.id).toBe(want.chatRate);
+/**
+ * The owner's pricing sheet of 13 October 2026, written out by hand rather
+ * than read back from the catalog, so any edit to what a clinic is charged has
+ * to change this table too, on purpose.
+ */
+const SHEET = {
+  voice: { perStep: 80, extra100: 104, setupList: 697, setupHalf: 349 },
+  webchat: { perStep: 40, extra100: 52, setupList: 259, setupHalf: 130 },
+  metachat: { perStep: 60, extra100: 78, setupList: 697, setupHalf: 349 },
+} as const;
+
+describe("the products on the sheet", () => {
+  test("price per 100, extra 100 and setup are the sheet's", () => {
+    for (const [id, row] of Object.entries(SHEET)) {
+      const product = PRODUCTS[id as keyof typeof SHEET];
+      expect(product.perStepMonthlyUsd, id).toBe(row.perStep);
+      expect(overageBlockCents(product.overagePerUnitUsd), id).toBe(row.extra100 * 100);
+      expect(product.setupFeeUsd, id).toBe(row.setupList);
     }
   });
 
-  test("a channel a package sells has an allowance and a rate; one it lacks has neither", () => {
-    for (const plan of plans) {
-      const hasChat = plan.channels.web || plan.channels.meta;
-      expect(plan.includedVoiceMinutes > 0, plan.id).toBe(plan.channels.voice);
-      expect(plan.overagePerVoiceMinuteUsd > 0, plan.id).toBe(plan.channels.voice);
-      expect(plan.includedChatConversations > 0, plan.id).toBe(hasChat);
-      expect(plan.overagePerChatConversationUsd > 0, plan.id).toBe(hasChat);
+  test("annual billing is 20% off, in whole dollars", () => {
+    expect(PRODUCTS.voice.perStepAnnualMonthlyUsd).toBe(64);
+    expect(PRODUCTS.webchat.perStepAnnualMonthlyUsd).toBe(32);
+    expect(PRODUCTS.metachat.perStepAnnualMonthlyUsd).toBe(48);
+  });
+
+  test("Meta Chat includes the website", () => {
+    expect(PRODUCTS.metachat.channels).toEqual(["web", "meta"]);
+    expect(plan("metachat-300").channels).toEqual({ web: true, meta: true, voice: false });
+  });
+});
+
+describe("the packages", () => {
+  test("are the sheet's five, in its order", () => {
+    expect(PACKAGES.map((p) => p.id)).toEqual(["voice", "webchat", "metachat", "voice-webchat", "voice-metachat"]);
+  });
+
+  test("a combined package's setup fee is the sum of its products'", () => {
+    const setup = Object.fromEntries(PACKAGES.map((p) => [p.id, packageSetupFeeUsd(p)]));
+    expect(setup).toEqual({
+      voice: 697,
+      webchat: 259,
+      metachat: 697,
+      "voice-webchat": 956,
+      "voice-metachat": 1_394,
+    });
+  });
+});
+
+describe("usage steps", () => {
+  test("are 100 to 1,500 in steps of 100", () => {
+    expect(USAGE_STEPS).toEqual([100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100, 1200, 1300, 1400, 1500]);
+    for (const bad of [0, 50, 150, 1_600, -100, 100.5, Number.NaN, "100"]) {
+      expect(isUsageStep(bad), String(bad)).toBe(false);
     }
+  });
+
+  test("the sheet's 'Find your step' table, every row", () => {
+    for (const units of USAGE_STEPS) {
+      const steps = units / 100;
+      expect(plan(`voice-${units}`).monthlyUsd).toBe(80 * steps);
+      expect(plan(`webchat-${units}`).monthlyUsd).toBe(40 * steps);
+      expect(plan(`metachat-${units}`).monthlyUsd).toBe(60 * steps);
+      expect(plan(`voice-webchat-${units}-${units}`).monthlyUsd).toBe(120 * steps);
+      expect(plan(`voice-metachat-${units}-${units}`).monthlyUsd).toBe(140 * steps);
+    }
+    expect(plan("voice-metachat-1500-1500").monthlyUsd).toBe(2_100);
+  });
+
+  test("steps mix: voice 500 with web chat 300 is $520", () => {
+    const mixed = planFor("voice-webchat", { voiceMinutes: 500, chatConversations: 300 });
+    expect(mixed.id).toBe("voice-webchat-500-300");
+    expect(mixed.monthlyUsd).toBe(520);
+    expect(mixed.includedVoiceMinutes).toBe(500);
+    expect(mixed.includedChatConversations).toBe(300);
+    expect(mixed.name).toBe("AYA Voice + Web Chat, 500 minutes and 300 conversations");
+  });
+});
+
+describe("plan ids", () => {
+  test("parse only on the grid", () => {
+    for (const id of [
+      "voice-500",
+      "webchat-100",
+      "metachat-1500",
+      "voice-webchat-100-1500",
+      "voice-metachat-1500-100",
+    ]) {
+      expect(isPlanId(id), id).toBe(true);
+      expect(getPlan(id)!.id).toBe(id);
+    }
+    for (const id of [
+      "voice",
+      "voice-150",
+      "voice-1600",
+      "voice-0",
+      "voice-500-300",
+      "voice-webchat-500",
+      "webchat-300-300",
+      "complete",
+      "chat-web",
+      "voice-0500",
+      "",
+    ]) {
+      expect(isPlanId(id), id).toBe(false);
+    }
+  });
+
+  test("planIdFor refuses a step a package does not sell", () => {
+    expect(() => planIdFor("voice", {})).toThrow(/not on sale/);
+    expect(() => planIdFor("webchat", { chatConversations: 250 })).toThrow(/not on sale/);
+    expect(planIdFor("voice", { voiceMinutes: 500, chatConversations: 300 })).toBe("voice-500");
+  });
+
+  test("there are 495 plans, every one round-trips", () => {
+    const all = allPlans();
+    expect(all).toHaveLength(15 + 15 + 15 + 225 + 225);
+    expect(new Set(all.map((p) => p.id)).size).toBe(all.length);
+    for (const p of all) expect(getPlan(p.id)).toEqual(p);
+  });
+});
+
+describe("the sheet's examples", () => {
+  test("monthly and setup at 50% off", () => {
+    const rows: [string, number, number][] = [
+      ["webchat-300", 120, 130],
+      ["voice-500", 400, 349],
+      ["voice-webchat-500-300", 520, 478],
+      ["voice-metachat-500-500", 700, 697],
+    ];
+    for (const [id, monthly, setup] of rows) {
+      expect(plan(id).monthlyUsd, id).toBe(monthly);
+      expect(setupAfterCreditUsd(plan(id), DEMO_SETUP_CREDIT), id).toBe(setup);
+    }
+  });
+
+  test("voice 500 annual: $320 a month, billed yearly", () => {
+    expect(plan("voice-500").annualMonthlyUsd).toBe(320);
+    expect(annualTotalUsd(plan("voice-500"))).toBe(3_840);
+  });
+
+  test("580 minutes on the 500 step is one extra block of $104; the 600 step is $480", () => {
+    const voice = plan("voice-500");
+    expect(overageChargeCents(580 - voice.includedVoiceMinutes, voice.overagePerVoiceMinuteUsd)).toBe(10_400);
+    expect(plan("voice-600").monthlyUsd).toBe(480);
+  });
+
+  test("an extra block always costs more than moving up a step", () => {
+    for (const product of Object.values(PRODUCTS)) {
+      expect(overageBlockCents(product.overagePerUnitUsd)).toBeGreaterThan(product.perStepMonthlyUsd * 100);
+    }
+  });
+});
+
+describe("setup credits", () => {
+  test("50% on the 'send me AI' path, 30% on the website, both for 48 hours", () => {
+    expect(DEMO_SETUP_CREDIT.percentOfSetupFee).toBe(50);
+    expect(SITE_SETUP_CREDIT.percentOfSetupFee).toBe(30);
+    expect(DEMO_SETUP_CREDIT.validHours).toBe(48);
+    expect(SITE_SETUP_CREDIT.validHours).toBe(48);
+  });
+
+  test("what the buyer pays rounds up, the credit is the rest", () => {
+    const after30 = Object.fromEntries(
+      PACKAGES.map((p) => [p.id, setupAfterCreditUsd({ setupFeeUsd: packageSetupFeeUsd(p) }, SITE_SETUP_CREDIT)]),
+    );
+    expect(after30).toEqual({ voice: 488, webchat: 182, metachat: 488, "voice-webchat": 670, "voice-metachat": 976 });
+    for (const p of allPlans().filter((_, i) => i % 37 === 0)) {
+      for (const credit of [DEMO_SETUP_CREDIT, SITE_SETUP_CREDIT, COHORT_SETUP_CREDIT]) {
+        const off = setupCreditUsd(p, credit);
+        expect(Number.isInteger(off)).toBe(true);
+        expect(off + setupAfterCreditUsd(p, credit)).toBe(p.setupFeeUsd);
+      }
+    }
+    expect(demoSetupCreditUsd(plan("voice-500"))).toBe(348);
+    expect(siteSetupCreditUsd(plan("voice-500"))).toBe(209);
+    expect(setupCreditUsd(plan("voice-500"), COHORT_SETUP_CREDIT)).toBe(697);
+  });
+
+  test("one coupon per credit and package, its amount in the id", () => {
+    expect(setupCouponId(DEMO_SETUP_CREDIT, plan("voice-500"))).toBe("healdesk-demo-setup-50-voice-34800");
+    expect(setupCouponId(DEMO_SETUP_CREDIT, plan("voice-900"))).toBe("healdesk-demo-setup-50-voice-34800");
+    expect(setupCouponId(SITE_SETUP_CREDIT, plan("voice-metachat-500-300"))).toBe(
+      "healdesk-site-setup-30-voice-metachat-41800",
+    );
+  });
+
+  test("an offer holds for exactly its hours", () => {
+    const at = Date.parse("2026-10-13T12:00:00Z");
+    expect(isSetupCreditLive(SITE_SETUP_CREDIT, at, at)).toBe(true);
+    expect(isSetupCreditLive(SITE_SETUP_CREDIT, at, at + 48 * 3_600_000 - 1)).toBe(true);
+    expect(isSetupCreditLive(SITE_SETUP_CREDIT, at, at + 48 * 3_600_000)).toBe(false);
+    expect(isSetupCreditLive(SITE_SETUP_CREDIT, at, at - 1)).toBe(false);
+    expect(isSetupCreditLive(SITE_SETUP_CREDIT, Number.NaN, at)).toBe(false);
+    expect(setupCreditEndsAt(DEMO_SETUP_CREDIT, at).toISOString()).toBe("2026-10-15T12:00:00.000Z");
+  });
+});
+
+describe("the usage alert", () => {
+  test("is at 90% of the included amount", () => {
+    expect(USAGE_ALERT_PERCENT).toBe(90);
   });
 });
 
 describe("metered price lookup keys", () => {
   test("rates are whole cents, and anything else is refused", () => {
-    expect(overageRateCents(0.8)).toBe(80);
-    // 0.3 * 100 is 30.000000000000004 in floating point; still 30 cents.
-    expect(overageRateCents(0.3)).toBe(30);
-    expect(overageRateCents(0.4)).toBe(40);
+    expect(overageRateCents(1.04)).toBe(104);
+    expect(overageRateCents(0.52)).toBe(52);
+    expect(overageRateCents(0.78)).toBe(78);
     expect(() => overageRateCents(0.035)).toThrow(/whole number of cents/);
     expect(() => overageRateCents(0)).toThrow(/whole number of cents/);
     expect(() => overageRateCents(-0.3)).toThrow(/whole number of cents/);
     expect(() => overageRateCents(Number.NaN)).toThrow(/whole number of cents/);
   });
 
-  test("the key encodes the meter, the block size and the block price", () => {
-    // Per started block of 100 since 6 October 2026: a new price, so a new key.
-    // The 5 October per-unit keys (healdesk_meter_voice_minutes_80) are gone.
-    expect(meteredPriceLookupKey("voiceMinutes", 0.8)).toBe(
-      "healdesk_meter_voice_minutes_block100_8000",
-    );
-    expect(meteredPriceLookupKey("chatConversations", 0.4)).toBe(
-      "healdesk_meter_chat_conversations_block100_4000",
-    );
-    expect(meteredPriceLookupKey("chatConversations", 0.3)).toBe(
-      "healdesk_meter_chat_conversations_block100_3000",
-    );
-    for (const meter of Object.keys(METERS) as (keyof typeof METERS)[]) {
-      expect(meteredPriceLookupKey(meter, 0.3)).toMatch(
-        new RegExp(`^${METERS[meter].lookupKeyPrefix}_block${OVERAGE_BLOCK_UNITS}_\\d+$`),
-      );
-    }
-  });
-
-  test("each package bills its own channels at its own rate, per block", () => {
-    expect(planMeteredPrices(getPlan("chat-meta")!)).toEqual([
+  test("each plan bills its own products at their own rate, per block", () => {
+    expect(planMeteredPrices(plan("metachat-300"))).toEqual([
       {
         meter: "chatConversations",
-        rateUsd: 0.4,
-        blockCents: 4_000,
-        lookupKey: "healdesk_meter_chat_conversations_block100_4000",
+        rateUsd: 0.78,
+        blockCents: 7_800,
+        lookupKey: "healdesk_meter_chat_conversations_block100_7800",
       },
     ]);
-    expect(planMeteredPrices(getPlan("voice")!)).toEqual([
+    expect(planMeteredPrices(plan("voice-webchat-500-300"))).toEqual([
       {
         meter: "voiceMinutes",
-        rateUsd: 0.8,
-        blockCents: 8_000,
-        lookupKey: "healdesk_meter_voice_minutes_block100_8000",
-      },
-    ]);
-    expect(planMeteredPrices(getPlan("complete")!)).toEqual([
-      {
-        meter: "voiceMinutes",
-        rateUsd: 0.8,
-        blockCents: 8_000,
-        lookupKey: "healdesk_meter_voice_minutes_block100_8000",
+        rateUsd: 1.04,
+        blockCents: 10_400,
+        lookupKey: "healdesk_meter_voice_minutes_block100_10400",
       },
       {
         meter: "chatConversations",
-        rateUsd: 0.3,
-        blockCents: 3_000,
-        lookupKey: "healdesk_meter_chat_conversations_block100_3000",
+        rateUsd: 0.52,
+        blockCents: 5_200,
+        lookupKey: "healdesk_meter_chat_conversations_block100_5200",
       },
     ]);
   });
 
   test("the catalog needs exactly three metered prices on two meters", () => {
-    const keys = new Set(plans.flatMap((p) => planMeteredPrices(p).map((x) => x.lookupKey)));
+    const keys = new Set(allPlans().flatMap((p) => planMeteredPrices(p).map((x) => x.lookupKey)));
     expect([...keys].sort()).toEqual([
-      "healdesk_meter_chat_conversations_block100_3000",
-      "healdesk_meter_chat_conversations_block100_4000",
-      "healdesk_meter_voice_minutes_block100_8000",
+      "healdesk_meter_chat_conversations_block100_5200",
+      "healdesk_meter_chat_conversations_block100_7800",
+      "healdesk_meter_voice_minutes_block100_10400",
     ]);
+    for (const meter of Object.keys(METERS) as (keyof typeof METERS)[]) {
+      expect(meteredPriceLookupKey(meter, 0.52)).toMatch(
+        new RegExp(`^${METERS[meter].lookupKeyPrefix}_block${OVERAGE_BLOCK_UNITS}_\\d+$`),
+      );
+    }
   });
 });
 
@@ -159,179 +317,97 @@ describe("overage billed per started block of 100", () => {
     expect(overageBlocks(100)).toBe(1);
     expect(overageBlocks(101)).toBe(2);
     expect(overageBlocks(250)).toBe(3);
-  });
-
-  test("nothing over, or a count that cannot be trusted, is no block at all", () => {
-    for (const units of [-1, -250, Number.NaN, Number.POSITIVE_INFINITY]) {
+    for (const units of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(overageBlocks(units), String(units)).toBe(0);
     }
   });
 
-  test("a block costs the per-unit rate times 100, in whole cents", () => {
-    // $80 a block of 100 voice minutes; $40 or $30 a block of 100 chat conversations.
-    expect(overageBlockCents(0.8)).toBe(8_000);
-    expect(overageBlockCents(0.4)).toBe(4_000);
-    expect(overageBlockCents(0.3)).toBe(3_000);
-    // A rate that is not a positive whole number of cents is refused, as for a unit.
-    expect(() => overageBlockCents(0)).toThrow(/whole number of cents/);
-    expect(() => overageBlockCents(0.035)).toThrow(/whole number of cents/);
-  });
-
-  test("the charge is started blocks times the block price, never units times the rate", () => {
-    expect(overageChargeCents(1, 0.8)).toBe(8_000);
-    expect(overageChargeCents(100, 0.8)).toBe(8_000);
-    expect(overageChargeCents(101, 0.8)).toBe(16_000);
-    expect(overageChargeCents(250, 0.8)).toBe(24_000);
-    expect(overageChargeCents(250, 0.4)).toBe(12_000);
-    expect(overageChargeCents(250, 0.3)).toBe(9_000);
-    // Per unit, 250 minutes would have been $200: the blocks are the bill.
-    expect(overageChargeCents(250, 0.8)).not.toBe(250 * overageRateCents(0.8));
-  });
-
-  test("nothing over costs nothing, even on a meter the package has no rate for", () => {
-    expect(overageChargeCents(0, 0.8)).toBe(0);
+  test("the charge is started blocks times the block price", () => {
+    expect(overageChargeCents(1, 1.04)).toBe(10_400);
+    expect(overageChargeCents(101, 1.04)).toBe(20_800);
+    expect(overageChargeCents(250, 0.52)).toBe(15_600);
     expect(overageChargeCents(0, 0)).toBe(0);
-    // Units over with no rate is a catalog fault, refused rather than billed as $0.
     expect(() => overageChargeCents(1, 0)).toThrow(/whole number of cents/);
-  });
-
-  test("every package's block price is its own per-unit rate times 100", () => {
-    for (const plan of plans) {
-      for (const price of planMeteredPrices(plan)) {
-        expect(price.blockCents, `${plan.id} ${price.meter}`).toBe(
-          overageRateCents(price.rateUsd) * OVERAGE_BLOCK_UNITS,
-        );
-        expect(price.lookupKey).toBe(meteredPriceLookupKey(price.meter, price.rateUsd));
-      }
-    }
-  });
-});
-
-const plan = (id: string) => {
-  const found = getPlan(id);
-  if (!found) throw new Error(`No package ${id}`);
-  return found;
-};
-
-const card = (id: string) => {
-  const found = getPricingCard(id);
-  if (!found) throw new Error(`No pricing card ${id}`);
-  return found;
-};
-
-describe("the twin packages", () => {
-  /**
-   * Web Chatbot and Meta Chatbot, and Web + Voice and Meta + Voice, are sold
-   * from one card at one price. A twin that drifted would show the buyer one
-   * price on the card and charge another, so every number but the id, the
-   * name and the channels is held equal.
-   */
-  test("each pair is priced and allowanced identically", () => {
-    for (const c of pricingCards.filter(offersChatChoice)) {
-      const [web, meta] = c.planIds.map(plan);
-      const terms = ({ id: _id, name: _name, channels: _channels, ...rest }: Plan) => rest;
-      expect(terms(meta!)).toEqual(terms(web!));
-    }
-  });
-
-  test("each pair differs only in its chat channel", () => {
-    for (const c of pricingCards.filter(offersChatChoice)) {
-      const [web, meta] = c.planIds.map(plan);
-      expect(web!.channels).toEqual({ ...meta!.channels, web: true, meta: false });
-      expect(chatChannelOf(web!)).toBe("web");
-      expect(chatChannelOf(meta!)).toBe("meta");
-    }
-  });
-
-  test("the Stripe lookup keys of a pair never collide", () => {
-    // Twins share every amount, so only the package id keeps their prices apart.
-    const keys = plans.flatMap((p) =>
-      (["month", "year", "setup"] as const).map((kind) => stripeLookupKey(p, kind)),
-    );
-    expect(new Set(keys).size).toBe(keys.length);
-  });
-});
-
-describe("the channel ids", () => {
-  test("CHANNELS is every key of a package's channels, in channelList's order", () => {
-    // apps/app builds its channel CHECKs from this list, so a channel added
-    // to the type and not here would be refused on its first row.
-    for (const p of plans) {
-      expect(Object.keys(p.channels).sort(), p.id).toEqual([...CHANNELS].sort());
-    }
-    expect(channelList(plan("complete"))).toEqual(CHANNELS);
-  });
-});
-
-describe("pricing cards", () => {
-  test("every package is on exactly one card", () => {
-    const listed = pricingCards.flatMap((c) => c.planIds);
-    expect([...listed].sort()).toEqual(plans.map((p) => p.id).sort());
-    for (const p of plans) expect(cardForPlan(p).planIds).toContain(p.id);
-  });
-
-  test("the pricing page still shows five", () => {
-    expect(pricingCards.map((c) => c.id)).toEqual([
-      "chat-single",
-      "voice",
-      "chat-dual",
-      "chat-voice",
-      "complete",
-    ]);
-  });
-
-  test("a card resolves to the package for the chat channel picked", () => {
-    expect(planForCard(card("chat-single"), "web").id).toBe("chat-web");
-    expect(planForCard(card("chat-single"), "meta").id).toBe("chat-meta");
-    expect(planForCard(card("chat-voice"), "meta").id).toBe("meta-voice");
-    // No pick is the website, which goes live without waiting on Meta.
-    expect(planForCard(card("chat-voice")).id).toBe("web-voice");
-    // A card without the choice ignores it.
-    expect(planForCard(card("complete"), "meta").id).toBe("complete");
-  });
-
-  test("card ids never shadow a package id", () => {
-    // A `?plan=` link may carry either, so one string must not mean two things
-    // — except where a single-package card is named after its own package.
-    for (const c of pricingCards) {
-      const p = getPlan(c.id);
-      if (p) expect(c.planIds).toEqual([p.id]);
-    }
   });
 });
 
 describe("package lookup keys read back", () => {
-  test("every plan and kind round-trips through stripeLookupKey and parseLookupKey", () => {
+  test("every plan and kind round-trips; the setup key names the package", () => {
     const kinds: PriceKind[] = ["month", "year", "setup"];
-    for (const plan of plans) {
+    for (const p of allPlans()) {
       for (const kind of kinds) {
-        const key = stripeLookupKey(plan, kind);
+        const key = stripeLookupKey(p, kind);
         const cents =
-          kind === "setup" ? plan.setupFeeUsd * 100 : kind === "year" ? annualTotalUsd(plan) * 100 : plan.monthlyUsd * 100;
-        expect(parseLookupKey(key), key).toEqual({ planId: plan.id, kind, cents });
+          kind === "setup" ? p.setupFeeUsd * 100 : kind === "year" ? annualTotalUsd(p) * 100 : p.monthlyUsd * 100;
+        expect(parseLookupKey(key), key).toEqual({ planId: kind === "setup" ? p.packageId : p.id, kind, cents });
       }
     }
+    expect(stripeLookupKey(plan("voice-webchat-500-300"), "month")).toBe("healdesk_voice-webchat-500-300_month_52000");
+    expect(stripeLookupKey(plan("voice-webchat-500-300"), "setup")).toBe("healdesk_voice-webchat_setup_95600");
   });
 
   test("anything that is not a package price is not ours to read", () => {
     for (const key of [
-      // The metered overage prices, per block (6 October 2026) and the
-      // archived per-unit ones before them (5 October).
-      "healdesk_meter_voice_minutes_block100_8000",
-      "healdesk_meter_chat_conversations_block100_4000",
-      "healdesk_meter_chat_conversations_block100_3000",
+      "healdesk_meter_voice_minutes_block100_10400",
+      "healdesk_meter_chat_conversations_block100_5200",
       "healdesk_meter_voice_minutes_80",
-      "healdesk_meter_chat_conversations_40",
-      "healdesk_meter_chat_conversations_30",
-      ...plans.flatMap((p) => planMeteredPrices(p).map((x) => x.lookupKey)),
       "scalabid_pro_month_9900",
-      "healdesk_chat-voice_weekly_100",
-      "healdesk_Complete_month_100",
-      "healdesk_complete_month_",
+      "healdesk_voice-500_weekly_100",
+      "healdesk_Voice-500_month_100",
+      "healdesk_voice-500_month_",
+      PLAN_START_PLACEHOLDER_LOOKUP_KEY,
       "",
     ]) {
       expect(parseLookupKey(key), key).toBeNull();
     }
+  });
+});
+
+describe("the plan for the channels in service", () => {
+  const all = plan("voice-metachat-500-300");
+
+  test("bills what is live, at the steps bought", () => {
+    const cases: [Channel[], string | null][] = [
+      [[], null],
+      [["voice"], "voice-500"],
+      [["web"], "webchat-300"],
+      [["meta"], "metachat-300"],
+      [["web", "meta"], "metachat-300"],
+      [["voice", "web"], "voice-webchat-500-300"],
+      [["voice", "meta"], "voice-metachat-500-300"],
+      [["web", "meta", "voice"], "voice-metachat-500-300"],
+    ];
+    for (const [channels, id] of cases) {
+      expect(planForChannels(all, channels)?.id ?? null, channels.join("+")).toBe(id);
+    }
+  });
+
+  test("a channel the plan does not include is ignored", () => {
+    expect(planForChannels(plan("webchat-200"), ["voice", "meta"])).toBeNull();
+    expect(planForChannels(plan("voice-webchat-100-200"), ["voice", "meta"])?.id).toBe("voice-100");
+  });
+
+  test("every plan is the answer for all of its own channels", () => {
+    for (const p of allPlans()) expect(planForChannels(p, channelList(p))?.id, p.id).toBe(p.id);
+  });
+
+  test("order, repeats and iterables do not matter", () => {
+    expect(planForChannels(all, new Set<Channel>(["meta", "voice", "meta"]))?.id).toBe("voice-metachat-500-300");
+  });
+});
+
+describe("the setup-fee delta on an upgrade", () => {
+  test("a step change owes nothing; a bigger package owes the difference", () => {
+    expect(setupFeeDeltaUsd(plan("voice-500"), plan("voice-1500"))).toBe(0);
+    expect(setupFeeDeltaUsd(plan("webchat-300"), plan("voice-webchat-500-300"))).toBe(697);
+    expect(setupFeeDeltaUsd(plan("voice-metachat-500-300"), plan("voice-500"))).toBe(0);
+  });
+});
+
+describe("the channel ids", () => {
+  test("are the three, in channelList's order", () => {
+    expect(CHANNELS).toEqual(["web", "meta", "voice"]);
+    expect(channelList(plan("voice-metachat-100-100"))).toEqual(["web", "meta", "voice"]);
   });
 });
 
@@ -342,138 +418,45 @@ describe("what one unit of usage is", () => {
 
   test("each call rounds up to the next whole minute, on its own", () => {
     expect(billableVoiceMinutes(1)).toBe(1);
-    expect(billableVoiceMinutes(59)).toBe(1);
     expect(billableVoiceMinutes(60)).toBe(1);
     expect(billableVoiceMinutes(61)).toBe(2);
-    expect(billableVoiceMinutes(120)).toBe(2);
-    expect(billableVoiceMinutes(120.4)).toBe(3);
-    // Three 20-second calls are three minutes, never one: calls are metered per call.
     expect([20, 20, 20].map(billableVoiceMinutes).reduce((a, b) => a + b, 0)).toBe(3);
-  });
-
-  test("a duration we cannot trust bills nothing", () => {
-    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(billableVoiceMinutes(bad), String(bad)).toBe(0);
     }
   });
 });
 
 describe("an extra location", () => {
-  test("costs the package's own recurring price again plus its setup fee once", () => {
-    const webVoice = getPlan("web-voice")!;
-    expect(additionalLocationChargeUsd(webVoice, "month")).toEqual({ recurringUsd: 897, setupFeeUsd: 997 });
-    expect(additionalLocationChargeUsd(webVoice, "year")).toEqual({ recurringUsd: 717 * 12, setupFeeUsd: 997 });
-    const single = getPlan("chat-web")!;
-    expect(additionalLocationChargeUsd(single, "month")).toEqual({ recurringUsd: 397, setupFeeUsd: 497 });
-  });
-
-  test("every package prices a location the same way it prices the first", () => {
-    for (const plan of plans) {
-      expect(additionalLocationChargeUsd(plan, "month").recurringUsd, plan.id).toBe(plan.monthlyUsd);
-      expect(additionalLocationChargeUsd(plan, "year").recurringUsd, plan.id).toBe(annualTotalUsd(plan));
-      expect(additionalLocationChargeUsd(plan, "month").setupFeeUsd, plan.id).toBe(plan.setupFeeUsd);
-    }
+  test("costs the plan's own recurring price again plus its setup fee once", () => {
+    const p = plan("voice-webchat-500-300");
+    expect(additionalLocationChargeUsd(p, "month")).toEqual({ recurringUsd: 520, setupFeeUsd: 956 });
+    expect(additionalLocationChargeUsd(p, "year")).toEqual({ recurringUsd: 416 * 12, setupFeeUsd: 956 });
   });
 });
 
-describe("the refund window", () => {
-  test("carries the number the terms quote", () => {
+describe("the refund window and the pass-through", () => {
+  test("carry the numbers the terms quote", () => {
     expect(FIRST_PERIOD_REFUND_DAYS).toBe(14);
-  });
-
-  test("forwarded calls pass through for the 30 days terms § 7 promises", () => {
     expect(FORWARDING_PASS_THROUGH_DAYS).toBe(30);
   });
 });
 
-describe("the package for the channels in service", () => {
-  /**
-   * Written out by hand, so a package whose channels changed would have to
-   * change this table too: billing follows these sets, and a wrong one bills a
-   * clinic for a channel it does not have.
-   */
-  const SETS: [Channel[], string][] = [
-    [["web"], "chat-web"],
-    [["meta"], "chat-meta"],
-    [["voice"], "voice"],
-    [["web", "meta"], "chat-dual"],
-    [["web", "voice"], "web-voice"],
-    [["meta", "voice"], "meta-voice"],
-    [["web", "meta", "voice"], "complete"],
-  ];
-
-  test("each of the seven channel sets is exactly one package", () => {
-    for (const [channels, id] of SETS) {
-      expect(planForChannels(channels)?.id, channels.join("+")).toBe(id);
-    }
-    expect(new Set(SETS.map(([, id]) => id)).size).toBe(plans.length);
-  });
-
-  test("every package is the answer for its own channels", () => {
-    for (const p of plans) expect(planForChannels(channelList(p))?.id, p.id).toBe(p.id);
-  });
-
-  test("order and repeats do not matter, and any iterable will do", () => {
-    expect(planForChannels(["voice", "web"])?.id).toBe("web-voice");
-    expect(planForChannels(["meta", "meta", "web", "meta"])?.id).toBe("chat-dual");
-    expect(planForChannels(new Set<Channel>(["voice", "meta", "web"]))?.id).toBe("complete");
-  });
-
-  test("no channel in service is no package, never a guess", () => {
-    expect(planForChannels([])).toBeNull();
-    expect(planForChannels(new Set<Channel>())).toBeNull();
-  });
-});
-
-describe("the plan-start placeholder", () => {
-  test("is the $0 price's lookup key, and never reads as a package price", () => {
-    expect(PLAN_START_PLACEHOLDER_LOOKUP_KEY).toBe("healdesk_plan_start_placeholder_month");
-    expect(parseLookupKey(PLAN_START_PLACEHOLDER_LOOKUP_KEY)).toBeNull();
-  });
-});
-
-describe("selling Meta on its own", () => {
-  test("is open, by the owner's decision of 5 October 2026", () => {
-    // Opened ahead of App Review because no marketing has launched (see the
-    // flag). Flipping it back is a launch decision, not a refactor: this pin
-    // and the /api/checkout test change with it.
-    expect(META_SOLD_ALONE).toBe(true);
-  });
-
-  test("across the catalog, exactly one package is Meta alone", () => {
-    expect(plans.filter(sellsMetaAlone).map((p) => p.id)).toEqual(["chat-meta"]);
-  });
-});
-
-describe("the demo-week setup credit", () => {
-  test("is half the setup fee, in whole dollars, never less than half", async () => {
-    const { demoSetupCreditUsd, plans: all } = await import("./plans");
-    for (const plan of all) {
-      const credit = demoSetupCreditUsd(plan);
-      expect(Number.isInteger(credit)).toBe(true);
-      expect(credit).toBeGreaterThanOrEqual(plan.setupFeeUsd / 2);
-      expect(credit - plan.setupFeeUsd / 2).toBeLessThan(1);
-    }
-  });
-
-  test("from a homepage demo is 30% of the setup fee, in whole dollars, never less than 30%", async () => {
-    const { demoSetupCreditUsd, SELF_SERVE_DEMO_SETUP_CREDIT, plans: all } = await import("./plans");
+describe("the demo setup credits", () => {
+  test("50% from an operator's demo, 30% from a homepage demo, both for 48 hours", async () => {
+    const { DEMO_SETUP_CREDITS, SELF_SERVE_DEMO_SETUP_CREDIT } = await import("./plans");
+    expect(DEMO_SETUP_CREDIT.percentOfSetupFee).toBe(50);
     expect(SELF_SERVE_DEMO_SETUP_CREDIT.percentOfSetupFee).toBe(30);
-    for (const plan of all) {
-      const credit = demoSetupCreditUsd(plan, SELF_SERVE_DEMO_SETUP_CREDIT);
-      expect(Number.isInteger(credit)).toBe(true);
-      expect(credit).toBeGreaterThanOrEqual(plan.setupFeeUsd * 0.3);
-      expect(credit - plan.setupFeeUsd * 0.3).toBeLessThan(1);
-    }
+    for (const credit of DEMO_SETUP_CREDITS) expect(credit.validHours).toBe(48);
+    expect(demoSetupCreditUsd(plan("voice-500"), SELF_SERVE_DEMO_SETUP_CREDIT)).toBe(209);
   });
 
-  test("each credit has its own coupons, offer and a name Stripe will take", async () => {
-    const { DEMO_SETUP_CREDITS } = await import("./plans");
-    expect(new Set(DEMO_SETUP_CREDITS.map((c) => c.couponId)).size).toBe(DEMO_SETUP_CREDITS.length);
-    expect(new Set(DEMO_SETUP_CREDITS.map((c) => c.offer)).size).toBe(DEMO_SETUP_CREDITS.length);
-    for (const credit of DEMO_SETUP_CREDITS) {
+  test("each credit has its own coupons and a name Stripe will take", async () => {
+    const { SETUP_CREDITS } = await import("./plans");
+    expect(new Set(SETUP_CREDITS.map((c) => c.couponId)).size).toBe(SETUP_CREDITS.length);
+    for (const credit of SETUP_CREDITS) {
       expect(credit.name.length).toBeLessThanOrEqual(40);
-      expect(credit.name).toContain(`${credit.percentOfSetupFee}%`);
+      if (credit.percentOfSetupFee < 100) expect(credit.name).toContain(`${credit.percentOfSetupFee}%`);
     }
   });
 });

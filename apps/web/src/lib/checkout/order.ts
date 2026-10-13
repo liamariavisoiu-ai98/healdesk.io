@@ -14,11 +14,9 @@ import {
   isCalendarAccount,
   isCoveredAnswer,
   isSpecialtyId,
-  META_SOLD_ALONE,
   parseClinicProfile,
   type Plan,
   planNeedsWebsite,
-  sellsMetaAlone,
   type SpecialtyId,
   specialtyOffered,
 } from "@healdesk/catalog";
@@ -96,22 +94,15 @@ export function isTimeZone(value: unknown): value is string {
   }
 }
 
-export function validateOrder(
-  body: Record<string, unknown>,
-  /** The catalog's flag, a parameter only so a test can close it. */
-  options: { metaSoldAlone?: boolean } = {},
-): OrderResult {
+export function validateOrder(body: Record<string, unknown>): OrderResult {
+  // A plan is a package at its steps (`voice-metachat-500-300`), and the id
+  // is parsed, not looked up (catalog, getPlan): a step off the grid of 100
+  // to 1,500, or a package id without its steps, is no plan. The funnel
+  // always sends a full plan id; a bare package id or a retired package id
+  // (chat-web, complete) is accepted only as a `?plan=` link, which the
+  // funnel turns into a plan before anything is signed or paid.
   const plan = getPlan(String(body.plan ?? ""));
   if (!plan) return refuse("plan", "Unknown plan.");
-  // Meta as the only channel waits for Meta's App Review (catalog,
-  // META_SOLD_ALONE). The package step already holds that choice closed;
-  // this is the refusal a request from anywhere else meets.
-  if (!(options.metaSoldAlone ?? META_SOLD_ALONE) && sellsMetaAlone(plan)) {
-    return refuse(
-      "plan",
-      "Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app. Choose Website, or a package with website chat or the phone.",
-    );
-  }
 
   // A missing interval is monthly, which is what every button that does not
   // say otherwise has always meant; a wrong one is an error, not a quiet
@@ -159,7 +150,7 @@ export function validateOrder(
   if (website === null && planNeedsWebsite(plan)) {
     return refuse(
       "plan",
-      "Website chat needs a website. Choose a package without it, or give us your website.",
+      "AYA Web Chat needs a website. Choose AYA Voice or AYA Meta Chat, or give us your website.",
     );
   }
 

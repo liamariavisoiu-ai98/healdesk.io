@@ -14,13 +14,11 @@ import {
   isBookingSystemId,
   isCalendarAccount,
   isSpecialtyId,
-  META_SOLD_ALONE,
   NO_PLATFORM_ID,
   parseClinicProfile,
   planNeedsWebsite,
   regimeFor,
   screenClinicProfile,
-  sellsMetaAlone,
   specialties,
   type SpecialtyId,
   specialtyOffered,
@@ -65,9 +63,10 @@ import { ProvisioningError, validateProvisionRequest, type ProvisionRequest } fr
  * bookings live and the kind of Google account they would go into, its
  * website or none, and the read of that website. Each is checked again here,
  * with the catalog's own rules, because the browser that carried them can
- * change them: a practice with no website is never sold website chat, and a
- * website read is kept only when it parses, is of the website bought under,
- * and has been screened under the specialty bought, never the one the
+ * change them: a practice with no website is never sold Web Chat
+ * (planNeedsWebsite; Meta Chat includes website chat but does not need it),
+ * and a website read is kept only when it parses, is of the website bought
+ * under, and has been screened under the specialty bought, never the one the
  * website looked like.
  */
 
@@ -115,11 +114,7 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 const MAX_PROFILE_BYTES = 200_000;
 
 /** Validate what apps/web sent, exactly as provisioning will, plus the plan's fields. */
-export function validateIntentRequest(
-  input: unknown,
-  /** The catalog's flag, a parameter only so a test can close it. */
-  options: { metaSoldAlone?: boolean } = {},
-): IntentRequest {
+export function validateIntentRequest(input: unknown): IntentRequest {
   const body = input as Partial<IntentRequest> | null;
   if (!body || typeof body !== "object") throw new IntentError("Invalid request body.");
 
@@ -132,7 +127,12 @@ export function validateIntentRequest(
     throw error;
   }
 
-  // Provisioning's own checks passed, so the specialty and the plan are known.
+  // Provisioning's own checks passed, so the specialty and the plan are
+  // known. The plan is a package at its usage steps (`voice-500`,
+  // `voice-metachat-500-300`; owner, 13 October 2026): getPlan parses the id,
+  // so a step off the grid and an id from the seven packages of 5 October
+  // were both refused there. Nothing was ever deployed under the old ids, so
+  // no stored intent carries one.
   const specialty = body.specialty as SpecialtyId;
   const plan = getPlan(body.plan as string)!;
 
@@ -140,11 +140,6 @@ export function validateIntentRequest(
   // until the Data Protection Agreement is released (plan Part L).
   if (!specialtyOffered(specialty)) {
     throw new IntentError("This practice's agreement can't be signed here.", "specialty");
-  }
-  // Nor a package nothing can go live on: Meta as the only channel waits for
-  // Meta's App Review (catalog, META_SOLD_ALONE), as apps/web refuses too.
-  if (!(options.metaSoldAlone ?? META_SOLD_ALONE) && sellsMetaAlone(plan)) {
-    throw new IntentError("Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app.", "plan");
   }
 
   const inviteRef = body.inviteRef ?? null;
@@ -181,7 +176,7 @@ export function validateIntentRequest(
     throw new IntentError("Invalid website.", "website");
   }
   if (website === null && planNeedsWebsite(plan)) {
-    throw new IntentError("Website chat needs a website. Choose a package without it.", "plan");
+    throw new IntentError("Web Chat needs a website. Choose AYA Voice or AYA Meta Chat instead.", "plan");
   }
 
   const profileStatus = body.profileStatus ?? "none";

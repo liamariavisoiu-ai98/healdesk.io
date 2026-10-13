@@ -61,28 +61,36 @@ describe("expectedMeteredKeys", () => {
 
   test("monthly plans carry one metered price per meter their package uses, at its rate", async () => {
     const expected = await load(false);
-    expect(expected("complete", "month")).toEqual([
-      "healdesk_meter_chat_conversations_block100_3000",
-      "healdesk_meter_voice_minutes_block100_8000",
+    expect(expected("voice-metachat-1000-1000", "month")).toEqual([
+      "healdesk_meter_chat_conversations_block100_7800",
+      "healdesk_meter_voice_minutes_block100_10400",
     ]);
-    expect(expected("chat-web", "month")).toEqual([
-      "healdesk_meter_chat_conversations_block100_4000",
+    expect(expected("voice-webchat-500-300", "month")).toEqual([
+      "healdesk_meter_chat_conversations_block100_5200",
+      "healdesk_meter_voice_minutes_block100_10400",
     ]);
-    expect(expected("chat-meta", "month")).toEqual([
-      "healdesk_meter_chat_conversations_block100_4000",
+    expect(expected("webchat-1000", "month")).toEqual([
+      "healdesk_meter_chat_conversations_block100_5200",
     ]);
-    expect(expected("voice", "month")).toEqual(["healdesk_meter_voice_minutes_block100_8000"]);
+    expect(expected("metachat-1000", "month")).toEqual([
+      "healdesk_meter_chat_conversations_block100_7800",
+    ]);
+    expect(expected("voice-1000", "month")).toEqual([
+      "healdesk_meter_voice_minutes_block100_10400",
+    ]);
+    // The step does not change the rate: only the package's products do.
+    expect(expected("voice-100", "month")).toEqual(expected("voice-1500", "month"));
   });
 
   test("annual plans carry none: their overage is invoiced per closed month", async () => {
     const expected = await load(false);
-    expect(expected("complete", "year")).toEqual([]);
+    expect(expected("voice-metachat-1000-1000", "year")).toEqual([]);
   });
 
   test("while the rates are provisional nothing carries a metered price, as at checkout", async () => {
     const expected = await load(true);
-    expect(expected("complete", "month")).toEqual([]);
-    expect(expected("voice", "month")).toEqual([]);
+    expect(expected("voice-metachat-1000-1000", "month")).toEqual([]);
+    expect(expected("voice-1000", "month")).toEqual([]);
   });
 
   test("an unknown plan is null, not [], so a reconciler leaves the subscription alone", async () => {
@@ -90,5 +98,8 @@ describe("expectedMeteredKeys", () => {
     expect(await load(true).then((f) => f("no-such-plan", "year"))).toBeNull();
     // The real module agrees with the pinned ones.
     expect(expectedMeteredKeys("no-such-plan", "month")).toBeNull();
+    // So is a fixed package of 5 October, gone since the step pricing of 13
+    // October: a subscription on one is left as it was sold.
+    expect(expectedMeteredKeys("complete", "month")).toBeNull();
   });
 });

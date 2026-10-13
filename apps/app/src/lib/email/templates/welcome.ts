@@ -13,6 +13,7 @@ import { setupLine } from "@/lib/setup/channels";
 import { formatPhone } from "@/lib/setup/help";
 import { publicUrl } from "@/lib/public-url";
 
+import { EXTRA_BLOCKS_PROVISIONAL, extraBlockPrices, includedEachMonth } from "./billing-copy";
 import { compose, EmailCompositionError, type Block } from "./compose";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
@@ -22,8 +23,10 @@ import type { EmailTemplate } from "./types";
  * clinic, sent the moment provisioning commits.
  *
  * It is the order's written record from the first day, so it carries the
- * terms the buyer agreed to: the package and billing period, the plan-start
- * sentence and the monthly price, the setup fee's rule and its receipt
+ * terms the buyer agreed to: the package, the steps chosen (what it includes
+ * each month) and the billing period, the extra-100 prices, marked
+ * provisional (owner, 13 October 2026), the plan-start sentence and the
+ * monthly price, the setup fee's rule and its receipt
  * (Stripe's hosted page for the paid first invoice: no separate receipt goes
  * for that invoice, contracts §3), how to cancel, and the Terms version
  * accepted at checkout. Then the way back into setup: a fresh
@@ -110,13 +113,16 @@ export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
     {
       type: "facts",
       rows: [
-        ["Package", plan.name],
+        ["Package", plan.packageName],
+        ["Included each month", includedEachMonth(plan)],
         ["Channels", payload.channels.map((c) => CHANNEL_NAMES[c]).join(", ")],
         ["Billing", payload.interval === "year" ? "Annual" : "Monthly"],
         price,
+        ["Past the allowance", extraBlockPrices(plan).join(", and ")],
         ...(payload.receiptUrl ? [["Setup fee", "Paid"] as const] : []),
       ],
     },
+    { type: "paragraph", text: EXTRA_BLOCKS_PROVISIONAL },
     ...(payload.receiptUrl
       ? [{ type: "action" as const, label: "Your setup-fee receipt", url: payload.receiptUrl }]
       : []),
@@ -173,7 +179,7 @@ export const WELCOME_ENTRY: TemplateEntry<WelcomePayload> = {
   // seed script reads it, not when this module loads.
   get fixture(): WelcomePayload {
     return {
-      planId: "web-voice",
+      planId: "voice-webchat-500-300",
       interval: "month",
       channels: ["web", "voice"],
       continueUrl: publicUrl(`/link/${FIXTURE_TOKEN}`),

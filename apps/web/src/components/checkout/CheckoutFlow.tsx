@@ -1,6 +1,6 @@
 "use client";
 
-import { type BillingInterval, type ChatChannel, type CoveredAnswer, demoSetupCreditUsd } from "@healdesk/catalog";
+import { type BillingInterval, type CoveredAnswer } from "@healdesk/catalog";
 import { type MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { track } from "@/lib/analytics";
@@ -14,15 +14,16 @@ import {
 import {
   agreementInputs,
   asksCovered,
-  chooseCard,
-  chooseChat,
+  choosePackage,
   choosePlan,
+  chooseSteps,
   chosenPlan,
   clearStoredFunnel,
   clinicComplete,
   type FunnelSeed,
   type FunnelState,
   initialFunnel,
+  planLink,
   purchaseWebsite,
   readStoredFunnel,
   restoreFunnel,
@@ -40,8 +41,8 @@ import {
   siteReadLine,
   storeSiteRead,
 } from "@/lib/checkout/site-read";
+import { isSetupOffer, liveOffer, type SetupOffer } from "@/lib/checkout/review";
 import { LEGAL_VERSION } from "@/lib/legal";
-import { checkoutStart } from "@/lib/pricing";
 
 import { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
 import { agreementCopyFor } from "./agreement-kinds";
@@ -53,21 +54,20 @@ import { ReviewStep } from "./ReviewStep";
 
 // Exported from here, where the tests have always found them.
 export { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
-export { ChatChannelField } from "./PackageStep";
 
 /**
  * "Get AYA": the purchase, in four steps (plan Part A3).
  *
- *   1. Package.      Five cards; on a twin card the chat channel picks the
- *                    package itself.
+ *   1. Package.      One of five packages and a usage step for each of its
+ *                    products; the package at its steps is the plan.
  *   2. Your clinic.  Legal name, website or none, specialty, where bookings
  *                    live and which Google account. The website is read in
  *                    the background once the buyer moves on.
  *   3. Agreement.    The agreement `agreementKindFor` names, signed and
  *                    recorded before any payment form exists.
- *   4. Review & pay. Today's setup fee, the plan-start sentence, the
- *                    allowance, the guarantee in full and the terms, then
- *                    Stripe.
+ *   4. Review & pay. Today's setup fee after the setup offer, the plan-start
+ *                    sentence, the allowance, the guarantee in full and the
+ *                    terms, then Stripe.
  *
  * The rules live in lib/checkout (funnel.ts, review.ts, site-read.ts), as
  * plain functions with their own tests; this component is their rendering,
@@ -154,13 +154,15 @@ export function CheckoutFlow({
   returnedFromPayment = false,
   salesTax = false,
   demo,
+  setupOffer,
   onClose,
   onProgress,
   downloadHost,
 }: {
   /**
-   * A pricing card or package id, from a pricing card or `?plan`. Anything
-   * else, or nothing, preselects nothing: the buyer chooses.
+   * A plan, package or retired package id, from `?plan` (lib/checkout/
+   * funnel.ts, `planLink`). Anything else, or nothing, preselects nothing:
+   * the buyer chooses.
    */
   initialPlan?: string;
   /** A billing interval chosen before the flow opened (the retired /pricing had a toggle). */
@@ -179,18 +181,28 @@ export function CheckoutFlow({
   salesTax?: boolean;
   /**
    * The buyer came from their personalised demo (components/checkout/
-   * DemoPackageExtras.tsx): grouped packages with estimates, the offer and its
-   * clock, and the clinic step shows what the demo already knows instead of
-   * asking again. The offer's price is `offerEndsAt` being set: it is the
-   * server's decision (api/checkout), shown here, never made here.
+   * DemoPackageExtras.tsx): packages with estimates from their own numbers,
+   * and the clinic step shows what the demo already knows instead of asking
+   * again.
    */
   demo?: DemoCheckout;
+  /**
+   * The setup offer the server knows applies: the cohort credit, the demo's
+   * 50% or the website's 30% (lib/checkout/review.ts), resolved by the page
+   * from the lead, the demo row and the signed cookie. null: none applies.
+   * Left out (a page that cannot read them, or a browser the website's offer
+   * has not been shown to yet): the flow asks POST /api/site-offer, which
+   * starts the website's 48 hours if they have not started and says when
+   * they end. Either way it is shown, never decided, here: /api/checkout
+   * puts the coupon on the Session from the same rows and the same cookie.
+   */
+  setupOffer?: SetupOffer | null;
   /** Present only when hosted in something dismissable. */
   onClose?: () => void;
   onProgress?: (progress: CheckoutProgress) => void;
   downloadHost?: DownloadHost;
 }) {
-  const explicitPlan = Boolean(initialPlan && checkoutStart(initialPlan));
+  const explicitPlan = Boolean(initialPlan && planLink(initialPlan));
   const seed = useCallback(
     () =>
       initialFunnel({
@@ -212,6 +224,10 @@ export function CheckoutFlow({
   const [error, setError] = useState<{ step: StepNumber; field: string | null; message: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  /** The offer as last known, and the moment its clock was last read. */
+  const [offerKnown, setOfferKnown] = useState<SetupOffer | null>(setupOffer ?? null);
+  const [clock, setClock] = useState(() => Date.now());
+  const offerEnded = useCallback(() => setClock(Date.now()), []);
   /** One-way per agreement: once the buyer has been handed the text, the link stays the text. */
   const [pdfUnavailable, setPdfUnavailable] = useState(false);
   const [pdfPending, setPdfPending] = useState(false);
@@ -272,7 +288,41 @@ export function CheckoutFlow({
     if (hydrated && !done) storeFunnel(state);
   }, [state, hydrated, done]);
 
+  // The website's offer, when the page could not say: started now if it has
+  // not been, and its end read back. Once, on mount.
+  useEffect(() => {
+    if (setupOffer !== undefined) return;
+    let live = true;
+    fetch("/api/site-offer", { method: "POST", credentials: "same-origin", cache: "no-store" })
+      .then((response) => (response.ok ? (response.json() as Promise<{ endsAt?: unknown }>) : null))
+      .then((data) => {
+        const offer = { kind: "site" as const, endsAt: data?.endsAt };
+        if (live && isSetupOffer(offer)) {
+          setOfferKnown(offer);
+          setClock(Date.now());
+        }
+      })
+      .catch(() => {
+        // No offer shown; the server would not apply one it could not set.
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // When the offer's clock runs out, every figure drops it: read the clock
+  // again at that moment. (The banner's countdown says the same, sooner.)
+  useEffect(() => {
+    if (!offerKnown) return;
+    const left = Date.parse(offerKnown.endsAt) - Date.now();
+    if (left <= 0) return;
+    const id = window.setTimeout(() => setClock(Date.now()), Math.min(left + 250, 2_147_483_000));
+    return () => window.clearTimeout(id);
+  }, [offerKnown]);
+
   const plan = chosenPlan(state);
+  const offer = liveOffer(offerKnown, clock);
   const inputs = agreementInputs(state);
   const signedFor = agreement !== null && sameAgreementInputs(agreement.inputs, inputs);
   const validAgreement: AgreementResult | null = signedFor ? agreement : null;
@@ -509,15 +559,16 @@ export function CheckoutFlow({
     return (
       <PackageStep
         state={state}
-        onCard={(cardId) => setState((s) => chooseCard(s, cardId))}
-        onChat={(chat: ChatChannel) => setState((s) => chooseChat(s, chat))}
+        offer={offer}
+        onPackage={(packageId) => setState((s) => choosePackage(s, packageId))}
+        onSteps={(steps) => setState((s) => chooseSteps(s, steps))}
         onInterval={(interval) => update({ interval })}
         onContinue={() => go(2)}
         onClose={onClose}
+        onOfferEnd={offerEnded}
         headingRef={headingRef}
         error={error?.step === 1 ? error.message : null}
         demo={demo}
-        onPlan={(planId) => setState((s) => choosePlan(s, planId))}
       />
     );
   }
@@ -531,6 +582,7 @@ export function CheckoutFlow({
         onBack={() => go(1)}
         onContinue={continueFromClinic}
         fromDemo={Boolean(demo)}
+        offer={offer}
         onClose={onClose}
         headingRef={headingRef}
         error={error?.step === 2 && error.field ? { field: error.field, message: error.message } : null}
@@ -600,7 +652,7 @@ export function CheckoutFlow({
         onBack={() => go(3)}
         onClose={onClose}
         headingRef={headingRef}
-        setupCreditUsd={demo?.offerEndsAt ? demoSetupCreditUsd(plan, { percentOfSetupFee: demo.offerPercent }) : 0}
+        offer={offer}
       />
     );
   }

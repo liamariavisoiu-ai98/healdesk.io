@@ -6,24 +6,26 @@ import { type ReactNode, type Ref } from "react";
 import {
   channelsInServiceLine,
   includedLine,
+  offerLine,
   overageSentence,
   payLabel,
   planStartLine,
   runOutLine,
   SALES_TAX_LINE,
+  type SetupOffer,
   setupFeeToday,
 } from "@/lib/checkout/review";
 import type { SiteReadLine } from "@/lib/checkout/site-read";
 import { GUARANTEE_TEXT, LEGAL_VERSION } from "@/lib/legal";
-import { usd } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import type { AgreementResult } from "./AgreementStep";
 import { FIELD_LABEL, PrimaryButton, Reassurance, StepShell } from "./StepShell";
 
 /**
- * Step 4, review and pay. In order (plan Part A3): what today's charge is and
- * what it pays for; the plan-start sentence; for a package of more than one
+ * Step 4, review and pay. In order (plan Part A3): what today's charge is
+ * (the setup fee, less the one setup offer that applies) and what it pays
+ * for; the plan-start sentence; for a package of more than one
  * channel, what is billed while some are not in service; what each month
  * includes, the provisional overage and what happens at the end of the
  * allowance; sales tax where Stripe Tax is on; what the website read found;
@@ -52,10 +54,14 @@ export function ReviewStep({
   onBack,
   onClose,
   headingRef,
-  setupCreditUsd = 0,
+  offer = null,
 }: {
-  /** The demo-week credit Stripe's coupon takes off the setup fee, in dollars; 0 for no offer. */
-  setupCreditUsd?: number;
+  /**
+   * The setup offer that applies, while it holds (lib/checkout/review.ts):
+   * the same figure the Stripe coupon takes off, which /api/checkout decides.
+   */
+  offer?: SetupOffer | null;
+  /** The package at its steps; its name says both. */
   plan: Plan;
   interval: BillingInterval;
   specialty: SpecialtyId | null;
@@ -77,7 +83,7 @@ export function ReviewStep({
   onClose?: () => void;
   headingRef?: Ref<HTMLHeadingElement>;
 }) {
-  const fee = setupFeeToday(plan, setupCreditUsd);
+  const fee = setupFeeToday(plan, offer);
   const inService = channelsInServiceLine(plan, interval);
 
   return (
@@ -109,10 +115,8 @@ export function ReviewStep({
         aria-label="What you pay"
       >
         <p className="font-display text-[26.4px] leading-tight font-medium">{fee.headline}</p>
-        {setupCreditUsd > 0 ? (
-          <p className="mt-1 text-sm font-semibold text-[#2f7d3a]">
-            {usd.format(plan.setupFeeUsd)} less {usd.format(setupCreditUsd)}: 50% off, booked during your demo.
-          </p>
+        {offer ? (
+          <p className="mt-1 text-sm font-semibold text-[#2f7d3a]">{offerLine(plan, offer)}</p>
         ) : null}
         <p className="text-muted mt-2 text-sm">
           {fee.covers} You then have 30 days to finish setup:{" "}
@@ -226,7 +230,7 @@ export function ReviewStep({
 
         <div className="mt-4">
           <PrimaryButton onClick={onPay} disabled={!termsAccepted || submitting}>
-            {submitting ? "Taking you to payment…" : payLabel(plan, setupCreditUsd)}
+            {submitting ? "Taking you to payment…" : payLabel(plan, offer)}
           </PrimaryButton>
         </div>
       </div>

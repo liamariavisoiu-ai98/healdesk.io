@@ -2,33 +2,43 @@ import {
   annualTotalUsd,
   type BillingInterval,
   type Channel,
-  type ChatChannel,
-  channelList,
-  cardForPlan,
-  chatChannelOf,
+  DEFAULT_STEPS,
+  getPackage,
   getPlan,
-  getPricingCard,
+  MIN_STEP_UNITS,
   type MeterId,
-  offersChatChoice,
   OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
+  overageBlocks,
+  overageChargeCents,
+  type Package,
+  PACKAGES,
+  packageSetupFeeUsd,
   type Plan,
-  planForCard,
+  planFor,
   planMeteredPrices,
-  plans,
-  type PricingCard,
   planStartSentence,
+  type ProductId,
+  PRODUCTS,
+  setupAfterCreditUsd,
+  STEP_UNITS,
 } from "@healdesk/catalog";
 
 /**
- * How a package is described wherever a price is shown.
+ * How a plan is described wherever a price is shown.
  *
- * The checkout's package cards render the five packages (until 9 October
- * 2026 /pricing and its closing CTA did too), and before this file each of them did its own arithmetic
- * and its own labelling. That is how a site ends up saying "$317/mo" on one
- * page and "$3,800 a year" on the next for the same package: the numbers are
- * both true and they still do not agree. So the arithmetic is delegated to the
- * catalog (`annualTotalUsd`, `planStartSentence`) and the wording lives here, once.
+ * /pricing, the checkout's package step and Review and pay all quote the same
+ * products, steps and setup fees, and before this file each did its own
+ * arithmetic and its own labelling. That is how a site ends up saying
+ * "$317/mo" on one page and "$3,800 a year" on the next for the same plan:
+ * the numbers are both true and they still do not agree. So the arithmetic is
+ * delegated to the catalog (`planFor`, `annualTotalUsd`, `planStartSentence`,
+ * `setupAfterCreditUsd`) and the wording lives here, once.
+ *
+ * Since 13 October 2026 (the owner's pricing sheet) a clinic picks a package
+ * and then a usage step for each product in it, so there are no fixed cards
+ * to describe any more: a plan is a package at its steps, and the helpers
+ * below take a `Plan` the caller has already built with `planFor`.
  *
  * Nothing in this file knows about React. It is deliberately a plain module so
  * the due-today figures can be asserted in a test without rendering the step.
@@ -46,31 +56,24 @@ export const CHANNEL_LABELS: Record<Channel, string> = {
   voice: "Phone",
 };
 
-export const CHAT_CHANNEL_CHOICES: readonly { id: ChatChannel; label: string }[] = [
-  { id: "web", label: "Website" },
-  { id: "meta", label: "Instagram, Messenger + WhatsApp" },
-];
-
 /**
- * Where checkout opens for a `?plan=` value, which may name a pricing card or
- * a package. A package opens its own card with its own chat channel already
- * picked, so a link to Meta + Voice lands on Meta + Voice; a card opens on
- * the website, checkout's default. Null for anything else, and the caller
- * falls back to the entry package: a stale link should land on the flow, not
- * on an error.
+ * Where checkout opens for a `?plan=` value: a plan id (`voice-webchat-500-300`)
+ * opens that plan, and a package id (`voice-metachat`) opens the package at
+ * the sheet's default steps (`DEFAULT_STEPS`), so a link to a package lands on
+ * that package with a sensible step already chosen. Null for anything else,
+ * including the seven package ids of 5 October (`complete`, `chat-web`), and
+ * the caller falls back to its own default: a stale link should land on the
+ * flow, not on an error.
  */
-export function checkoutStart(
-  id: unknown,
-): { card: PricingCard; chat: ChatChannel } | null {
+export function checkoutStart(id: unknown): Plan | null {
   if (typeof id !== "string") return null;
-  const card = getPricingCard(id);
-  if (card) return { card, chat: "web" };
   const plan = getPlan(id);
-  if (plan) return { card: cardForPlan(plan), chat: chatChannelOf(plan) };
-  return null;
+  if (plan) return plan;
+  const pkg = getPackage(id);
+  return pkg ? planFor(pkg.id, DEFAULT_STEPS) : null;
 }
 
-/** Whole dollars, with a thousands separator: "$1,197". */
+/** Whole dollars, with a thousands separator: "$1,394". */
 export const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -78,31 +81,32 @@ export const usd = new Intl.NumberFormat("en-US", {
 });
 
 /**
- * The channel chips on a pricing card.
- *
- * A "Web OR Meta" card sells two packages, one per chat channel, but two chips
- * would promise both channels. It gets one chip that says "or", and the
- * choice is made at checkout.
+ * The channels a package or plan answers on, as buyers name them, chat first.
+ * Meta Chat includes the website, so it carries both chat chips.
  */
-export function channelChips(card: PricingCard): string[] {
-  const plan = planForCard(card);
-  const chat = offersChatChoice(card)
-    ? [`${CHANNEL_LABELS.web} or ${CHANNEL_LABELS.meta}`]
-    : channelList(plan)
-        .filter((channel) => channel !== "voice")
-        .map((channel) => CHANNEL_LABELS[channel]);
+export function channelChips(plan: Pick<Plan, "channels">): string[] {
+  const chat = (["web", "meta"] as const).filter((c) => plan.channels[c]).map((c) => CHANNEL_LABELS[c]);
   return plan.channels.voice ? [...chat, CHANNEL_LABELS.voice] : chat;
+}
+
+/** The channel chips of a package, which do not depend on its steps. */
+export function packageChips(pkg: Package): string[] {
+  const channels = new Set<Channel>([
+    ...(pkg.voice ? PRODUCTS.voice.channels : []),
+    ...(pkg.chat ? PRODUCTS[pkg.chat].channels : []),
+  ]);
+  return channelChips({ channels: { web: channels.has("web"), meta: channels.has("meta"), voice: channels.has("voice") } });
 }
 
 export type AllowanceRow = { label: string; value: string };
 
 /**
- * The two allowance rows every package card in the checkout shows.
+ * The two allowance rows every plan summary shows: the steps chosen.
  *
- * Both rows, always, with an em dash for a zero. A voice-only package has no
- * chat allowance and a chat-only package has no voice minutes, and a card
+ * Both rows, always, with an em dash for a zero. A voice-only plan has no
+ * chat conversations and a chat-only plan has no voice minutes, and a summary
  * that silently omits "Included voice minutes" invites the reader to assume
- * voice is included and simply uncapped. One helper so the two money surfaces
+ * voice is included and simply uncapped. One helper so the money surfaces
  * cannot state that policy differently.
  */
 export function allowanceRows(plan: Plan): AllowanceRow[] {
@@ -130,7 +134,7 @@ const usdCents = new Intl.NumberFormat("en-US", {
 
 export type OverageBlockPrice = {
   meter: MeterId;
-  /** "$80": what one started block of OVERAGE_BLOCK_UNITS costs on this meter. */
+  /** "$104": what one started block of OVERAGE_BLOCK_UNITS costs on this meter. */
   price: string;
   /** "minutes" or "conversations". */
   units: string;
@@ -139,15 +143,17 @@ export type OverageBlockPrice = {
 };
 
 /**
- * The overage a package bills, voice first: one price per meter, for one
- * started block of the catalog's OVERAGE_BLOCK_UNITS.
+ * The overage a plan bills, voice first: one price per meter, for one started
+ * block of the catalog's OVERAGE_BLOCK_UNITS. On the sheet of 13 October 2026
+ * this is the product's "each extra 100" price: $104 for voice, $52 for Web
+ * Chat and $78 for Meta Chat.
  *
- * Since 6 October 2026 overage is billed per started block of 100 extra
- * minutes or conversations, never per unit (docs/v1-product-spec.md,
- * "Overage prices"). The prices come from `planMeteredPrices()`, the function
- * that picks the metered prices Stripe bills a package, which prices each
- * block with `overageBlockCents()`. So a page cannot print a price Stripe does
- * not charge, and src/lib/overage-copy.test.ts holds every surface to it.
+ * Overage is billed per started block of 100 extra minutes or conversations,
+ * never per unit (docs/v1-product-spec.md, "Overage prices"). The prices come
+ * from `planMeteredPrices()`, the function that picks the metered prices
+ * Stripe bills a plan, which prices each block with `overageBlockCents()`. So
+ * a page cannot print a price Stripe does not charge, and
+ * src/lib/overage-copy.test.ts holds every surface to it.
  */
 export function overageBlockPrices(plan: Plan): OverageBlockPrice[] {
   return planMeteredPrices(plan).map(({ meter, blockCents }) => ({
@@ -159,18 +165,18 @@ export function overageBlockPrices(plan: Plan): OverageBlockPrice[] {
 }
 
 /**
- * What happens past the allowance, as one line: "$80 per block of 100
- * minutes · $30 per block of 100 conversations".
+ * What happens past the steps chosen, as one line: "$104 per block of 100
+ * minutes · $52 per block of 100 conversations".
  *
  * `null` while `OVERAGE_RATES_PROVISIONAL` is set: checkout then attaches no
  * metered price, so no number may be printed. The caller renders the
  * published-rate wording instead.
  *
- * With the flag off the block prices are printed, but they are still
- * placeholders until measured cost times a target margin replaces them
- * (catalog header, and docs/v1-product-spec.md "What still has to be
- * computed"). Every caller that prints this line also says the prices are
- * provisional, and that a started block is billed whole.
+ * With the flag off the block prices are printed, but they are still a
+ * judgement until measured cost times a target margin replaces them (catalog
+ * header, and docs/v1-product-spec.md "What still has to be computed"). Every
+ * caller that prints this line also says the prices are provisional, and that
+ * a started block is billed whole.
  */
 export function overageLine(plan: Plan): string | null {
   if (OVERAGE_RATES_PROVISIONAL) return null;
@@ -180,45 +186,119 @@ export function overageLine(plan: Plan): string | null {
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
+/** The smallest step of a package: every product at 100. */
+function entryPlanOf(pkg: Package): Plan {
+  return planFor(pkg.id, { voiceMinutes: MIN_STEP_UNITS, chatConversations: MIN_STEP_UNITS });
+}
+
+/** The entry price on every surface that quotes one: the cheapest package at its smallest step. */
+export function cheapestPlan(): Plan {
+  return PACKAGES.map(entryPlanOf).reduce((best, plan) => (plan.monthlyUsd < best.monthlyUsd ? plan : best));
+}
+
+/**
+ * The cheapest plan that answers the phone: AYA Voice at 100 minutes. The
+ * like-for-like entry figure wherever "from" is said of the phone; a
+ * comparison with a receptionist or an answering service uses a realistic
+ * step instead (`comparisonVoicePlan`).
+ */
+export function cheapestVoicePlan(): Plan {
+  return PACKAGES.filter((pkg) => pkg.voice)
+    .map(entryPlanOf)
+    .reduce((best, plan) => (plan.monthlyUsd < best.monthlyUsd ? plan : best));
+}
+
+/**
+ * The voice plan set against a receptionist and an answering service: AYA
+ * Voice at the sheet's own example step, 500 minutes. Both alternatives cover
+ * a full month of calls, and 100 minutes would not, so quoting the entry step
+ * there would be a comparison a reader could fairly call rigged.
+ */
+export function comparisonVoicePlan(): Plan {
+  return planFor("voice", { voiceMinutes: DEFAULT_STEPS.voiceMinutes });
+}
+
 /**
  * The annual discount as a whole percentage, derived rather than typed.
  *
  * The catalog states annual pricing as a per-month figure, and the "save 20%"
  * badge on the toggle is a claim about that figure. Computing it means the
  * badge cannot keep saying 20% after someone changes the annual price to 15%
- * off. Every package carries the same discount today, so `plans[0]` is
- * representative; if that ever stops being true, the toggle should say "up to".
+ * off. Every product carries the same discount (ANNUAL_DISCOUNT_PERCENT), so
+ * any plan is representative; if that ever stops being true, the toggle
+ * should say "up to".
  */
 export function annualSavingsPercent(plan: Plan = cheapestPlan()): number {
   return Math.round((1 - plan.annualMonthlyUsd / plan.monthlyUsd) * 100);
 }
 
-/** The entry price on every surface that quotes one. Never `plans[0]` by position. */
-export function cheapestPlan(): Plan {
-  return plans.reduce((best, plan) =>
-    plan.monthlyUsd < best.monthlyUsd ? plan : best,
-  );
+/** A product's price for one step of 100, per month, on the chosen interval. */
+export function perStepUsd(product: ProductId, interval: BillingInterval): number {
+  const p = PRODUCTS[product];
+  return interval === "year" ? p.perStepAnnualMonthlyUsd : p.perStepMonthlyUsd;
 }
 
+/** A product's "each extra 100" price, in whole dollars: its overage block. */
+export function extraBlockUsd(product: ProductId): number {
+  return overageChargeCents(STEP_UNITS, PRODUCTS[product].overagePerUnitUsd) / 100;
+}
+
+/** "$259–$1,394": the smallest and largest setup fee at list price, across the packages. */
+export function setupFeeRangeLabel(): string {
+  const fees = PACKAGES.map(packageSetupFeeUsd);
+  const lo = Math.min(...fees);
+  const hi = Math.max(...fees);
+  return lo === hi ? usd.format(lo) : `${usd.format(lo)}–${usd.format(hi)}`;
+}
+
+export type OverageExample = {
+  /** The step bought: 500 minutes. */
+  step: number;
+  /** What was used: 580 minutes. */
+  used: number;
+  /** The step's monthly price: $400. */
+  stepUsd: number;
+  /** Started blocks over the step: 1. */
+  blocks: number;
+  /** What those blocks cost: $104. */
+  extraUsd: number;
+  /** The smallest step that covers what was used: 600. */
+  nextStep: number;
+  /** That step's monthly price: $480. */
+  nextStepUsd: number;
+};
+
 /**
- * The cheapest package that answers the phone. The like-for-like figure
- * wherever healdesk is set against a receptionist or an answering service:
- * both of those answer calls, and the cheapest package overall does not.
+ * The sheet's worked example of going over a voice step: 500 minutes bought,
+ * 580 used, so one started block of 100 at the extra-100 price ($400 + $104),
+ * against moving up to 600 minutes ($480). Computed from the catalog so the
+ * example cannot drift from what Stripe bills.
  */
-export function cheapestVoicePlan(): Plan {
-  return plans
-    .filter((plan) => plan.channels.voice)
-    .reduce((best, plan) => (plan.monthlyUsd < best.monthlyUsd ? plan : best));
+export function overageExample(step = 500, used = 580): OverageExample {
+  const plan = planFor("voice", { voiceMinutes: step });
+  const extraCents = overageChargeCents(used - plan.includedVoiceMinutes, plan.overagePerVoiceMinuteUsd);
+  const nextStep = Math.ceil(used / STEP_UNITS) * STEP_UNITS;
+  return {
+    step,
+    used,
+    stepUsd: plan.monthlyUsd,
+    blocks: overageBlocks(used - step),
+    extraUsd: extraCents / 100,
+    nextStep,
+    nextStepUsd: planFor("voice", { voiceMinutes: nextStep }).monthlyUsd,
+  };
 }
 
 export type DueToday = {
-  /** The one-time setup fee: the whole of what is charged today. */
+  /** The one-time setup fee at list price. */
   setupFeeUsd: number;
-  /** What the card is charged today, the number on the Pay button: the setup fee alone. */
+  /** The setup credit taken off it, in whole dollars; 0 without one. */
+  creditUsd: number;
+  /** What the card is charged today, the number on the Pay button: the setup fee after any credit. */
   totalUsd: number;
-  /** "Monthly billing ($897) starts the day AYA first answers a patient." */
+  /** "Monthly billing ($400) starts the day AYA first answers a patient." */
   planStart: string;
-  /** "$897/mo" or "$9,876/yr": what the plan bills once it has started. */
+  /** "$400/mo" or "$3,840/yr": what the plan bills once it has started. */
   planPrice: string;
 };
 
@@ -226,15 +306,24 @@ export type DueToday = {
  * The "Due today" breakdown on the payment step and the label on its button.
  *
  * The deferred start (lib/billing.ts): Checkout charges the setup fee and a
- * $0 monthly line, so today is the setup fee alone, and the plan's price
- * starts the day AYA first answers a patient. The sentence saying so is the
- * catalog's, the one Stripe's Checkout page and the Terms also print, so the
- * button, the page and the receipt cannot disagree.
+ * $0 monthly line, so today is the setup fee alone, less the one setup credit
+ * that applies (the catalog's cohort, demo or website credit, rounded the way
+ * `setupAfterCreditUsd` rounds it so the page and Stripe's amount_off agree to
+ * the dollar), and the plan's price starts the day AYA first answers a
+ * patient. The sentence saying so is the catalog's, the one Stripe's Checkout
+ * page and the Terms also print, so the button, the page and the receipt
+ * cannot disagree.
  */
-export function dueToday(plan: Plan, interval: BillingInterval): DueToday {
+export function dueToday(
+  plan: Plan,
+  interval: BillingInterval,
+  credit: { percentOfSetupFee: number } | null = null,
+): DueToday {
+  const total = credit ? setupAfterCreditUsd(plan, credit) : plan.setupFeeUsd;
   return {
     setupFeeUsd: plan.setupFeeUsd,
-    totalUsd: plan.setupFeeUsd,
+    creditUsd: plan.setupFeeUsd - total,
+    totalUsd: total,
     planStart: planStartSentence(plan, interval),
     planPrice:
       interval === "year"
@@ -243,12 +332,12 @@ export function dueToday(plan: Plan, interval: BillingInterval): DueToday {
   };
 }
 
-/** "$3,804", the annual invoice, for the line under an annual per-month figure. */
+/** "$3,840", the annual invoice, for the line under an annual per-month figure. */
 export function annualTotalLabel(plan: Plan): string {
   return usd.format(annualTotalUsd(plan));
 }
 
-/** The headline figure on a card for the chosen interval, always stated per month. */
+/** The headline figure for the chosen interval, always stated per month. */
 export function monthlyFigureUsd(plan: Plan, interval: BillingInterval): number {
   return interval === "year" ? plan.annualMonthlyUsd : plan.monthlyUsd;
 }

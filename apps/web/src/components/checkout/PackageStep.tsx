@@ -1,79 +1,82 @@
 "use client";
 
 import {
+  annualTotalUsd,
+  ANNUAL_DISCOUNT_PERCENT,
   type BillingInterval,
-  type ChatChannel,
-  chatChannelOf,
-  getPlan,
-  META_SOLD_ALONE,
-  offersChatChoice,
-  planForCard,
-  planNeedsWebsite,
-  type PricingCard,
-  pricingCards,
+  MAX_STEP_UNITS,
+  MIN_STEP_UNITS,
+  type Package,
+  PACKAGES,
+  type Plan,
+  type Product,
+  PRODUCTS,
+  STEP_UNITS,
+  USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
 import { type Ref, useId, useState } from "react";
 
 import {
-  allowanceRows,
-  annualSavingsPercent,
-  CHAT_CHANNEL_CHOICES,
-  channelChips,
-  monthlyFigureUsd,
-  usd,
-} from "@/lib/pricing";
-import {
-  chosenCard,
+  chosenPackage,
   chosenPlan,
   type FunnelState,
-  planOnSale,
+  planAt,
   sellableTo,
 } from "@/lib/checkout/funnel";
-import { locationsLine } from "@/lib/checkout/review";
+import { packageChips, usd } from "@/lib/pricing";
+import { extraBlockPrices, locationsLine, type SetupOffer, setupDueUsd } from "@/lib/checkout/review";
 import { ASSUMED_SHOW_RATE, DEFAULT_MISSED_CALLS_PER_WEEK, DEFAULT_MISSED_MESSAGES_PER_WEEK, type RoiInputs } from "@/lib/demo/roi";
 import { site } from "@/lib/site";
 
 import { DemoPlanPicker } from "./DemoPlanPicker";
-import { type DemoCheckout, DemoOfferBanner, RoiPanel } from "./DemoPackageExtras";
-import { FIELD_LABEL, PrimaryButton, RadioGroup, Reassurance, StepShell } from "./StepShell";
+import { type DemoCheckout, RoiPanel } from "./DemoPackageExtras";
+import { SetupOfferBanner } from "./SetupOfferBanner";
+import { FIELD_LABEL, PrimaryButton, Reassurance, StepShell } from "./StepShell";
 
 /**
- * Step 1, the package: the five cards, monthly or annual, and on a card that
- * sells website chat or the Meta bot, which of the two. The channel picked
- * chooses the package itself (chat-web or chat-meta, web-voice or
- * meta-voice), so what is signed for and charged is never a card.
+ * Step 1, the package (the owner's pricing sheet, 13 October 2026): one of
+ * the five packages, then a usage step for each product it has, voice in
+ * minutes and chat in conversations, 100 to 1,500 in steps of 100, monthly or
+ * annual. The price moves with the steps, live, and so does the plan's name:
+ * what is signed for and charged is the package at its steps
+ * (`voice-metachat-500-300`), never the package alone.
  *
  * Nothing is chosen until the buyer chooses, unless they arrived from a
- * pricing card or a `?plan` link. No line here says when a channel will
- * answer; the chat channel's note says how each goes live.
+ * `?plan` link. The steps start at the sheet's own examples (500 minutes,
+ * 300 conversations). The setup fee shows the one offer that applies
+ * (lib/checkout/review.ts), struck list price then the price after it, with
+ * its clock. No line here says when a channel will answer.
  */
 export function PackageStep({
   state,
-  onCard,
-  onChat,
+  offer = null,
+  onPackage,
+  onSteps,
   onInterval,
   onContinue,
   onClose,
+  onOfferEnd,
   headingRef,
   error,
   demo,
-  onPlan,
 }: {
   state: FunnelState;
-  /** A buyer from a personalised demo: grouped packages with estimates and the demo offer. */
+  /** The setup offer that applies, while it holds; null for none. */
+  offer?: SetupOffer | null;
+  /** A buyer from a personalised demo: the packages with estimates from their own numbers. */
   demo?: DemoCheckout;
-  /** Choose a package by its id; the demo's rows each name one. */
-  onPlan?: (planId: string) => void;
-  onCard: (cardId: string) => void;
-  onChat: (chat: ChatChannel) => void;
+  onPackage: (packageId: string) => void;
+  onSteps: (steps: { voiceMinutes?: number; chatConversations?: number }) => void;
   onInterval: (interval: BillingInterval) => void;
   onContinue: () => void;
   onClose?: () => void;
+  /** The offer's clock reached zero. */
+  onOfferEnd?: () => void;
   headingRef?: Ref<HTMLHeadingElement>;
   /** A refusal from Pay that belongs to the package. */
   error?: string | null;
 }) {
-  const card = chosenCard(state);
+  const pkg = chosenPackage(state);
   const plan = chosenPlan(state);
   const groupLabel = useId();
   const [roiInputs, setRoiInputs] = useState<RoiInputs | null>(() =>
@@ -95,7 +98,7 @@ export function PackageStep({
       headingRef={headingRef}
       eyebrow={site.cta.primary.label}
       title="Choose your package"
-      subtitle="Today you pay the setup fee only. Your plan starts the day AYA first answers a patient."
+      subtitle="Pick what your clinic needs. Pay by usage, in simple steps of 100. Prices are per location."
     >
       {error ? (
         <p
@@ -106,56 +109,49 @@ export function PackageStep({
         </p>
       ) : null}
 
-      {/* Monthly or annual, before the cards, because it changes every price
-          on them. Pressed buttons rather than radios: two native buttons with
-          aria-pressed say exactly what they are. */}
-      {demo?.offerEndsAt ? <DemoOfferBanner endsAt={demo.offerEndsAt} percent={demo.offerPercent} /> : null}
+      {offer ? <SetupOfferBanner offer={offer} onEnd={onOfferEnd} /> : null}
 
+      {/* Monthly or annual, before the packages, because it changes every
+          price on them. */}
       <IntervalToggle value={state.interval} onChange={onInterval} />
 
-      {demo && roiInputs && onPlan ? (
+      {demo && roiInputs ? (
         <>
           <RoiPanel clinicName={demo.clinicName} inputs={roiInputs} onChange={setRoiInputs} />
           <DemoPlanPicker
             interval={state.interval}
-            selectedPlanId={plan?.id ?? ""}
-            onSelect={(chosen) => onPlan(chosen.id)}
+            steps={state}
+            selectedPackageId={pkg?.id ?? null}
+            onSelect={onPackage}
             roi={roiInputs}
-            setupCreditPercent={demo.offerEndsAt ? demo.offerPercent : null}
+            offer={offer}
+            noWebsite={state.noWebsite}
             includes="+ 24/7 support included · unlimited modifications · no hidden costs"
           />
         </>
       ) : (
-      <div role="radiogroup" aria-labelledby={groupLabel} className="mt-5">
-        <p id={groupLabel} className="sr-only">
-          Package
-        </p>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {pricingCards.map((c) => (
-            <PackageCard
-              key={c.id}
-              card={c}
-              interval={state.interval}
-              selected={c.id === card?.id}
-              noWebsite={state.noWebsite}
-              onSelect={() => onCard(c.id)}
-            />
-          ))}
+        <div role="radiogroup" aria-labelledby={groupLabel} className="mt-5">
+          <p id={groupLabel} className="sr-only">
+            Package
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {PACKAGES.map((p) => (
+              <PackageCard
+                key={p.id}
+                pkg={p}
+                interval={state.interval}
+                selected={p.id === pkg?.id}
+                closed={!sellableTo(p, state)}
+                offer={offer}
+                onSelect={() => onPackage(p.id)}
+              />
+            ))}
+          </div>
         </div>
-      </div>
       )}
 
-      {/* Only a "Web OR Meta" card asks: the others include both chat
-          channels or neither, and a question with one answer is noise. */}
-      {!demo && card && plan && offersChatChoice(card) ? (
-        <ChatChannelField
-          card={card}
-          // The package's own channel, so a choice the step overrides (Meta
-          // alone, while it is not sold) shows as what will be bought.
-          value={chatChannelOf(plan)}
-          onChange={onChat}
-          noWebsite={state.noWebsite}
-        />
+      {pkg && plan ? (
+        <StepControls pkg={pkg} plan={plan} interval={state.interval} onSteps={onSteps} />
       ) : null}
 
       {/* Every package covers one location; more is quoted by the team. */}
@@ -171,17 +167,14 @@ export function PackageStep({
         </div>
       ) : null}
 
-      {/* One region, always in the page, so a change of package is heard. */}
-      <p className="text-muted mt-6 text-sm" role="status" aria-live="polite">
+      {/* One region, always in the page, so a change of package or step is heard. */}
+      <div className="mt-6" role="status" aria-live="polite">
         {plan ? (
-          <>
-            <span className="text-ink font-semibold">{plan.name}.</span>{" "}
-            {locationsLine(plan, state.interval)}
-          </>
+          <PlanSummary plan={plan} interval={state.interval} offer={offer} />
         ) : (
-          "Choose a package to continue."
+          <p className="text-muted text-sm">Choose a package to continue.</p>
         )}
-      </p>
+      </div>
 
       <div className="mt-8">
         <PrimaryButton onClick={onContinue} disabled={!plan}>
@@ -193,10 +186,7 @@ export function PackageStep({
   );
 }
 
-/**
- * Monthly / annual. The saving is computed from the catalog, never typed
- * here, so the badge cannot outlive the discount it describes.
- */
+/** Monthly / annual. The saving is the catalog's, never typed here. */
 export function IntervalToggle({
   value,
   onChange,
@@ -206,7 +196,7 @@ export function IntervalToggle({
 }) {
   const options: { id: BillingInterval; label: string; badge?: string }[] = [
     { id: "month", label: "Monthly" },
-    { id: "year", label: "Annual", badge: `Save ${annualSavingsPercent()}%` },
+    { id: "year", label: "Annual", badge: `Save ${ANNUAL_DISCOUNT_PERCENT}%` },
   ];
   return (
     <div
@@ -245,30 +235,73 @@ export function IntervalToggle({
   );
 }
 
+/** "$80 per 100 minutes", at the interval's per-month price. */
+export function perStepLabel(product: Product, interval: BillingInterval): string {
+  const price = interval === "year" ? product.perStepAnnualMonthlyUsd : product.perStepMonthlyUsd;
+  return `${usd.format(price)} per ${STEP_UNITS} ${product.unit}s`;
+}
+
+/** The products a package bills, voice first. */
+export function productsOf(pkg: Pick<Package, "voice" | "chat">): Product[] {
+  return [...(pkg.voice ? [PRODUCTS.voice] : []), ...(pkg.chat ? [PRODUCTS[pkg.chat]] : [])];
+}
+
+/** The setup fee, struck through with the price after the offer beside it while one applies. */
+export function SetupFigure({
+  plan,
+  offer,
+  suffix = "",
+}: {
+  plan: Pick<Plan, "setupFeeUsd">;
+  offer: SetupOffer | null;
+  suffix?: string;
+}) {
+  const due = setupDueUsd(plan, offer);
+  if (!offer || due === plan.setupFeeUsd) {
+    return (
+      <span>
+        {usd.format(plan.setupFeeUsd)}
+        {suffix}
+      </span>
+    );
+  }
+  return (
+    <span>
+      <s className="text-muted">
+        <span className="sr-only">was </span>
+        {usd.format(plan.setupFeeUsd)}
+      </s>{" "}
+      <span className="font-semibold text-[#2f7d3a]">
+        <span className="sr-only">now </span>
+        {usd.format(due)}
+      </span>
+      {suffix}
+    </span>
+  );
+}
+
 /**
- * One pricing card, as one answer of the package radio group. A twin card
- * shows its web package's figures, which its Meta twin shares (the catalog
- * test holds them to it). The price is always per month, as the old
- * /pricing quoted it; the annual total is in the review, where it is what the plan bills.
+ * One package, as one answer of the package radio group: its channels, its
+ * price per step for the interval, and its setup fee. A package with Web Chat
+ * is closed to a practice that has said it has no website.
  */
 function PackageCard({
-  card,
+  pkg,
   interval,
   selected,
-  noWebsite,
+  closed,
+  offer,
   onSelect,
 }: {
-  card: PricingCard;
+  pkg: Package;
   interval: BillingInterval;
   selected: boolean;
-  noWebsite: boolean;
+  closed: boolean;
+  offer: SetupOffer | null;
   onSelect: () => void;
 }) {
-  const plan = planForCard(card);
-  // Closed only when no package on the card can be sold to this practice: a
-  // twin card still sells its Meta package to a practice without a website,
-  // unless Meta on its own is not on sale either.
-  const closed = !card.planIds.some((id) => sellableTo(getPlan(id)!, { noWebsite }));
+  // The setup fee is the package's, whatever the steps.
+  const plan = planAt(pkg.id, { voiceMinutes: MIN_STEP_UNITS, chatConversations: MIN_STEP_UNITS });
   return (
     <label
       className={[
@@ -283,23 +316,23 @@ function PackageCard({
       <input
         type="radio"
         name="package"
-        value={card.id}
+        value={pkg.id}
         checked={selected}
         disabled={closed}
         onChange={onSelect}
         className="sr-only"
       />
       <span className="flex flex-wrap items-center gap-2">
-        <span className="font-display text-[20.4px] leading-tight font-medium">{card.name}</span>
-        {card.highlight ? (
+        <span className="font-display text-[20.4px] leading-tight font-medium">{pkg.name}</span>
+        {pkg.highlight ? (
           <span className="bg-sun text-ink rounded-full px-2 py-0.5 text-[11px] font-bold tracking-[0.06em] uppercase">
-            {card.highlight}
+            {pkg.highlight}
           </span>
         ) : null}
       </span>
 
       <span className="mt-2 flex flex-wrap gap-1.5">
-        {channelChips(card).map((chip) => (
+        {packageChips(pkg).map((chip) => (
           <span
             key={chip}
             className="bg-paper-2 text-muted rounded-full px-2 py-0.5 text-[12px] font-bold"
@@ -309,23 +342,17 @@ function PackageCard({
         ))}
       </span>
 
-      <span className="font-figure mt-3 text-[26.4px] leading-none font-semibold tabular-nums">
-        {usd.format(monthlyFigureUsd(plan, interval))}
-        <span className="text-muted font-sans text-sm font-medium">/mo</span>
-        {interval === "year" ? (
-          <span className="text-muted ml-2 font-sans text-xs font-medium">billed annually</span>
-        ) : null}
-      </span>
-
-      {/* Both allowance rows, an em dash for a zero: the same rows and the
-          same policy everywhere a package is priced, from the same helper. */}
-      <span className="text-muted mt-3 flex flex-col gap-0.5 text-sm">
-        {allowanceRows(plan).map((row) => (
-          <span key={row.label}>
-            {row.label}: {row.value}
+      <span className="mt-3 flex flex-col gap-0.5 text-[15px] font-semibold">
+        {productsOf(pkg).map((product) => (
+          <span key={product.id}>
+            {perStepLabel(product, interval)}
+            <span className="text-muted text-xs font-medium">/mo</span>
           </span>
         ))}
-        <span>Setup fee {usd.format(plan.setupFeeUsd)}, once</span>
+      </span>
+
+      <span className="text-muted mt-2 text-sm">
+        Setup fee <SetupFigure plan={plan} offer={offer} />, once
       </span>
 
       {closed ? (
@@ -336,57 +363,135 @@ function PackageCard({
 }
 
 /**
- * Which twin a "Web OR Meta" card sells: website chat or the Meta bot.
- *
- * Exported (and from CheckoutFlow, where its test has always found it) so a
- * test can render it on its own. While Meta is not sold on its own (catalog,
- * META_SOLD_ALONE), the choice that would leave Meta as the clinic's only
- * channel stays on screen, disabled, with one line saying why: the card's
- * name still says "or Meta", and an option that silently vanished would read
- * as a mistake. A practice with no website cannot take website chat, and is
- * told so beside the option.
+ * A step for each product the package has: a native range input, so the
+ * arrow keys, Home and End, and a screen reader's own slider gestures all
+ * work, with the value said in words ("500 minutes a month"). Beside it the
+ * product's monthly price at that step, and the price of each extra 100,
+ * provisional, as a block and its price, never a per-unit rate.
  */
-export function ChatChannelField({
-  card,
-  value,
-  onChange,
-  noWebsite = false,
-  metaSoldAlone = META_SOLD_ALONE,
+function StepControls({
+  pkg,
+  plan,
+  interval,
+  onSteps,
 }: {
-  card: PricingCard;
-  value: ChatChannel;
-  onChange: (choice: ChatChannel) => void;
-  noWebsite?: boolean;
-  /** The catalog's flag; a parameter only so a test can close it. */
-  metaSoldAlone?: boolean;
+  pkg: Package;
+  plan: Plan;
+  interval: BillingInterval;
+  onSteps: (steps: { voiceMinutes?: number; chatConversations?: number }) => void;
 }) {
-  const waitsForMeta = (choice: ChatChannel) =>
-    !planOnSale(planForCard(card, choice), metaSoldAlone);
-  const needsWebsite = (choice: ChatChannel) =>
-    noWebsite && planNeedsWebsite(planForCard(card, choice));
+  const extras = extraBlockPrices(plan);
   return (
-    <div className="border-line mt-6 rounded-md border bg-white p-5">
-      <RadioGroup<ChatChannel>
-        name="chatChannelChoice"
-        label="Which chat channel?"
-        hint={`${card.name} includes one. Website chat goes live once its one-line snippet is on your site. Instagram and Messenger go live once you connect them in setup, and WhatsApp once your WhatsApp account has a payment method on it, because Meta bills you directly for WhatsApp messages.`}
-        options={CHAT_CHANNEL_CHOICES.map((option) => ({
-          id: option.id,
-          label: option.label,
-          disabled: waitsForMeta(option.id) || needsWebsite(option.id),
-          description: needsWebsite(option.id)
-            ? "Needs a website: you told us you don't have one."
-            : undefined,
-        }))}
+    <section className="border-line mt-6 rounded-md border bg-white p-5" aria-label="Your usage steps">
+      <p className={FIELD_LABEL}>How much a month?</p>
+      <div className="mt-4 grid gap-6">
+        {productsOf(pkg).map((product) => {
+          const voice = product.id === "voice";
+          const value = voice ? plan.includedVoiceMinutes : plan.includedChatConversations;
+          const extra = extras.find((e) => e.meter === (voice ? "voiceMinutes" : "chatConversations"));
+          return (
+            <StepSlider
+              key={product.id}
+              product={product}
+              value={value}
+              interval={interval}
+              extraPrice={extra?.price ?? null}
+              onChange={(next) => onSteps(voice ? { voiceMinutes: next } : { chatConversations: next })}
+            />
+          );
+        })}
+      </div>
+      <p className="text-muted mt-5 text-sm">
+        When you reach {USAGE_ALERT_PERCENT}% of your included amount, we email you. You can move up
+        a step, or do nothing and let each next {STEP_UNITS} bill at the extra-{STEP_UNITS} price. If
+        you regularly go over, moving up a step is the better deal.
+      </p>
+    </section>
+  );
+}
+
+function StepSlider({
+  product,
+  value,
+  interval,
+  extraPrice,
+  onChange,
+}: {
+  product: Product;
+  value: number;
+  interval: BillingInterval;
+  extraPrice: string | null;
+  onChange: (value: number) => void;
+}) {
+  const id = useId();
+  const units = `${product.unit}s`;
+  const label = product.id === "voice" ? "Voice minutes" : "Chat conversations";
+  const perStep = interval === "year" ? product.perStepAnnualMonthlyUsd : product.perStepMonthlyUsd;
+  const price = (value / STEP_UNITS) * perStep;
+  return (
+    <div>
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <label htmlFor={id} className="text-[15.6px] font-bold">
+          {label}
+        </label>
+        <span className="text-[15.6px] font-semibold tabular-nums">
+          {value.toLocaleString("en-US")} {units}
+          <span className="text-muted font-medium"> · {usd.format(price)}/mo</span>
+        </span>
+      </div>
+      <input
+        id={id}
+        type="range"
+        min={MIN_STEP_UNITS}
+        max={MAX_STEP_UNITS}
+        step={STEP_UNITS}
         value={value}
-        onChange={onChange}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-valuetext={`${value.toLocaleString("en-US")} ${units} a month, ${usd.format(price)} a month`}
+        aria-describedby={`${id}-scale ${id}-extra`}
+        className="accent-red mt-3 h-11 w-full cursor-pointer"
       />
-      {CHAT_CHANNEL_CHOICES.some((option) => waitsForMeta(option.id)) ? (
-        <p className="text-muted mt-3 text-xs">
-          On its own, Instagram, Messenger + WhatsApp waits for Meta to approve our app, so this
-          package is website chat for now.
-        </p>
-      ) : null}
+      <div id={`${id}-scale`} className="text-muted flex justify-between text-xs font-semibold tabular-nums">
+        <span>{MIN_STEP_UNITS.toLocaleString("en-US")}</span>
+        <span>{MAX_STEP_UNITS.toLocaleString("en-US")}</span>
+      </div>
+      <p id={`${id}-extra`} className="text-muted mt-1.5 text-xs">
+        {perStepLabel(product, interval)} a month.
+        {extraPrice ? ` Each extra ${STEP_UNITS} ${units}: ${extraPrice}, provisional.` : ""}
+      </p>
+    </div>
+  );
+}
+
+/** What the plan costs, at a glance: the plan's name with its steps, the price, the setup fee and when billing starts. */
+function PlanSummary({
+  plan,
+  interval,
+  offer,
+}: {
+  plan: Plan;
+  interval: BillingInterval;
+  offer: SetupOffer | null;
+}) {
+  return (
+    <div className="border-line bg-paper-2/50 rounded-md border px-5 py-4">
+      <p className="text-[15.6px] font-bold">{plan.name}</p>
+      <p className="font-display mt-1 text-[26.4px] leading-none font-semibold tabular-nums">
+        {usd.format(interval === "year" ? plan.annualMonthlyUsd : plan.monthlyUsd)}
+        <span className="text-muted font-sans text-sm font-medium">/mo</span>
+        {interval === "year" ? (
+          <span className="text-muted ml-2 font-sans text-xs font-medium">
+            billed annually, {usd.format(annualTotalUsd(plan))} a year
+          </span>
+        ) : null}
+      </p>
+      <p className="mt-2 text-sm">
+        Setup fee <SetupFigure plan={plan} offer={offer} suffix=", once" />
+      </p>
+      <p className="text-muted mt-2 text-sm">
+        Today you pay the setup fee only. Your plan starts the day AYA first answers a patient.
+      </p>
+      <p className="text-muted mt-1 text-sm">{locationsLine(plan, interval)}</p>
     </div>
   );
 }

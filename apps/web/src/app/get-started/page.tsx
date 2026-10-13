@@ -7,12 +7,15 @@ import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRe
 import { Brand } from "@/components/Nav";
 import { DEMO_COOKIE } from "@/lib/demo/attribution";
 import { demoCheckout, demoPrefill } from "@/lib/demo/checkout";
-import { getDemoSession, isDemoSlug, type DemoSession } from "@/lib/demo/sessions";
-import { checkoutStart } from "@/lib/pricing";
+import { demoOfferEndsAt, demoSetupCredit, getDemoSession, isDemoSlug, type DemoSession } from "@/lib/demo/sessions";
+import { planLink } from "@/lib/checkout/funnel";
+import { type SetupOffer, strongestOffer } from "@/lib/checkout/review";
+import { cohortCreditEndsAt, findLeadById } from "@/lib/leads";
 import { replyByDate } from "@/lib/reply-by";
 import { gateState, invitesToBuy } from "@/lib/setup-gate";
 import { SETUP_COOKIE } from "@/lib/setup-link";
 import { site } from "@/lib/site";
+import { readSiteOfferToken, SITE_OFFER_COOKIE, siteOfferState } from "@/lib/site-offer";
 
 /** Every link state a visitor can be told about, from the cookie or from /start's redirect. */
 const NOTICES: readonly LinkNotice[] = ["invalid", "expired", "replaced", "used"];
@@ -27,11 +30,13 @@ export const metadata: Metadata = {
 };
 
 /**
- * `plan` may name a pricing card or a package (`checkoutStart`); it is the
- * only way, beside a pricing card, that a package arrives preselected. A
- * stale or unknown one preselects nothing rather than erroring: the buyer
- * lands on the flow and chooses. `cancelled=1` is Stripe's cancel page
- * sending the buyer back, to Review and pay with every step intact.
+ * `plan` may name a plan (`voice-metachat-500-300`), a package (`voice`) or
+ * a package retired on 13 October 2026 (`complete`), which lands on the
+ * package that replaced it (lib/checkout/funnel.ts, `planLink`); it is the
+ * only way a package arrives preselected. A stale or unknown one preselects
+ * nothing rather than erroring: the buyer lands on the flow and chooses.
+ * `cancelled=1` is Stripe's cancel page sending the buyer back, to Review and
+ * pay with every step intact.
  *
  * A buyer arriving from a personalised demo's "Book Onboarding" carries the
  * demo in a cookie (lib/demo/attribution.ts): the form opens with that
@@ -53,13 +58,54 @@ function prefillFrom(session: DemoSession | null) {
   return session ? demoPrefill(session) : undefined;
 }
 
+/**
+ * The setup offer the page can vouch for, the strongest that holds (lib/
+ * checkout/review.ts): the cohort credit, from the lead the setup link or
+ * the `?lead=` link names, as /api/checkout finds it; the demo's share (50%
+ * from an operator's demo, 30% from a homepage one), while `demoOfferEndsAt`
+ * says it holds; then the website's 30%, from the signed cookie. Undefined
+ * when none of the first two holds and the cookie is not set yet: the flow
+ * then asks /api/site-offer, which sets it (a page cannot set a cookie). Null
+ * when the website's offer has run out too.
+ */
+async function setupOfferFor(input: {
+  leadId: string | null;
+  demo: DemoSession | null;
+  siteCookie: string | undefined;
+}): Promise<SetupOffer | null | undefined> {
+  const lead = input.leadId ? await findLeadById(input.leadId).catch(() => null) : null;
+  const cohortEnds = lead ? cohortCreditEndsAt(lead) : null;
+  const demoEnds = input.demo ? demoOfferEndsAt(input.demo) : null;
+  const strongest = strongestOffer([
+    cohortEnds ? { kind: "cohort", endsAt: cohortEnds.toISOString() } : null,
+    demoEnds && input.demo
+      ? {
+          kind: "demo",
+          endsAt: demoEnds.toISOString(),
+          percentOfSetupFee: demoSetupCredit(input.demo).percentOfSetupFee,
+        }
+      : null,
+  ]);
+  if (strongest) return strongest;
+  const siteAt = readSiteOfferToken(input.siteCookie);
+  if (!siteAt) return undefined;
+  const { endsAt } = siteOfferState(siteAt);
+  return endsAt ? { kind: "site", endsAt } : null;
+}
+
 export default async function GetStartedPage({
   searchParams,
 }: {
-  searchParams: Promise<{ plan?: string; interval?: string; link?: string; cancelled?: string }>;
+  searchParams: Promise<{
+    plan?: string;
+    interval?: string;
+    link?: string;
+    cancelled?: string;
+    lead?: string;
+  }>;
 }) {
-  const { plan, interval, link, cancelled } = await searchParams;
-  const initialPlan = checkoutStart(plan) ? plan : undefined;
+  const { plan, interval, link, cancelled, lead } = await searchParams;
+  const initialPlan = planLink(plan) ? plan : undefined;
   const initialInterval = isBillingInterval(interval) ? interval : "month";
   const demo = await demoFromCookie();
   const initialState = prefillFrom(demo);
@@ -79,6 +125,15 @@ export default async function GetStartedPage({
     gate.mode === "pilot" && gate.link !== "valid" && gate.link !== "none"
       ? gate.link
       : NOTICES.find((n) => n === link) ?? null;
+
+  // The lead whose cohort credit /api/checkout would honour: the setup
+  // link's own, or else the one the `?lead=` link names.
+  const leadId = invited ? invited.leadId ?? null : typeof lead === "string" ? lead : null;
+  const setupOffer = await setupOfferFor({
+    leadId,
+    demo,
+    siteCookie: (await cookies()).get(SITE_OFFER_COOKIE)?.value,
+  });
 
   return (
     <div className="min-h-screen">
@@ -124,10 +179,10 @@ export default async function GetStartedPage({
             }
             lockedEmail={invited?.email}
             returnedFromPayment={cancelled === "1"}
-            // With or without a setup link: the checkout route takes the
-            // demo's setup credit off whenever the demo is inside its week,
-            // so the page shows it whenever that is true.
             demo={demo ? demoCheckout(demo) : undefined}
+            // The one setup offer that applies, as the checkout route will
+            // find it; undefined lets the flow start the website's own.
+            setupOffer={setupOffer}
             // Stripe Tax is the server's setting; the page only says so.
             salesTax={process.env.STRIPE_AUTOMATIC_TAX === "true"}
           />

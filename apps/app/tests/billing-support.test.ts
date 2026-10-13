@@ -30,7 +30,7 @@ async function rowOf(clinicId: string) {
 async function suspended(label: string) {
   const { clinicId } = await seedClinic(label);
   await seedEntitled(clinicId, {
-    planId: "chat-web",
+    planId: "webchat-1000",
     planStartedAt: new Date("2026-09-01T00:00:00Z"),
   });
   await withTenant({ clinicId, actor }, async (tx) => {
@@ -58,7 +58,7 @@ describeDb("billing support operations", () => {
         recordOpenInvoice(tx.db, clinicId, {
           invoiceId: "in_open_lift",
           url: null,
-          amountDueCents: 39_700,
+          amountDueCents: 40_000,
         }),
       );
       expect(
@@ -77,7 +77,7 @@ describeDb("billing support operations", () => {
     test("refused for a dispute's suspension too, worded so the operator knows paying alone won't restore it", async () => {
       const { clinicId } = await seedClinic("lift-dispute");
       await seedEntitled(clinicId, {
-        planId: "chat-web",
+        planId: "webchat-1000",
         planStartedAt: new Date("2026-09-01T00:00:00Z"),
       });
       await withTenant({ clinicId, actor }, async (tx) => {
@@ -85,7 +85,7 @@ describeDb("billing support operations", () => {
         await recordOpenInvoice(tx.db, clinicId, {
           invoiceId: "in_open_dispute",
           url: null,
-          amountDueCents: 39_700,
+          amountDueCents: 40_000,
         });
       });
       const refused = await liftSuspension({
@@ -104,7 +104,7 @@ describeDb("billing support operations", () => {
         recordOpenInvoice(tx.db, unpaid, {
           invoiceId: "in_open_wording",
           url: null,
-          amountDueCents: 39_700,
+          amountDueCents: 40_000,
         }),
       );
       expect(
@@ -165,7 +165,7 @@ describeDb("billing support operations", () => {
 
     test("refused for an account that isn't suspended, and for a reason that carries contact details", async () => {
       const { clinicId } = await seedClinic("lift-active");
-      await seedEntitled(clinicId, { planId: "chat-web" });
+      await seedEntitled(clinicId, { planId: "webchat-1000" });
       expect(
         await liftSuspension({ clinicId, reason: "Checked", actorLabel: "ops@healdesk.test" }),
       ).toMatchObject({ status: "refused", message: "This account isn't suspended." });
@@ -185,7 +185,7 @@ describeDb("billing support operations", () => {
     test("adds the days to the deadline and moves a recorded closure to the new one", async () => {
       const { clinicId } = await seedClinic("extend-ok");
       const deadline = new Date("2026-10-30T23:59:59Z");
-      await seedEntitled(clinicId, { planId: "chat-web", setupDeadlineAt: deadline });
+      await seedEntitled(clinicId, { planId: "webchat-1000", setupDeadlineAt: deadline });
       await withTenant({ clinicId, actor }, (tx) => closeUnfinishedSetup(tx, clinicId, "deadline"));
 
       const result = await extendSetupDeadline(
@@ -225,7 +225,7 @@ describeDb("billing support operations", () => {
     test("a deadline already past is extended from now", async () => {
       const { clinicId } = await seedClinic("extend-past");
       await seedEntitled(clinicId, {
-        planId: "chat-web",
+        planId: "webchat-1000",
         setupDeadlineAt: new Date("2026-10-01T00:00:00Z"),
       });
       expect(
@@ -239,7 +239,7 @@ describeDb("billing support operations", () => {
     test("busy while the closure worker holds the request, and nothing moves", async () => {
       const { clinicId } = await seedClinic("extend-leased");
       const deadline = new Date("2026-10-08T23:59:59Z");
-      await seedEntitled(clinicId, { planId: "chat-web", setupDeadlineAt: deadline });
+      await seedEntitled(clinicId, { planId: "webchat-1000", setupDeadlineAt: deadline });
       await withTenant({ clinicId, actor }, (tx) => closeUnfinishedSetup(tx, clinicId, "deadline"));
       await inTenant(clinicId, (c) =>
         c.query(
@@ -259,7 +259,7 @@ describeDb("billing support operations", () => {
     test("refused for days outside 1 to 30, once the plan has started, and with no deadline", async () => {
       const { clinicId } = await seedClinic("extend-refused");
       await seedEntitled(clinicId, {
-        planId: "chat-web",
+        planId: "webchat-1000",
         planStartedAt: new Date("2026-10-02T00:00:00Z"),
       });
       for (const days of [0, 31, 1.5]) {
@@ -276,7 +276,7 @@ describeDb("billing support operations", () => {
         message: expect.stringMatching(/plan has started/),
       });
       const bare = await seedClinic("extend-none");
-      await seedEntitled(bare.clinicId, { planId: "chat-web" });
+      await seedEntitled(bare.clinicId, { planId: "webchat-1000" });
       expect(
         await extendSetupDeadline(
           { clinicId: bare.clinicId, days: 5, actorLabel: "ops" },

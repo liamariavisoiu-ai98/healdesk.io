@@ -48,7 +48,7 @@ import {
   type DpaVariables,
 } from "./dpa";
 import { dpaReviewDocument } from "./dpa-review";
-import { plans, pricingCards } from "./plans";
+import { PACKAGES, PRODUCTS } from "./plans";
 import { regimeFor, specialties, type SpecialtyId } from "./specialties";
 import { SUBPROCESSOR_NOTICE_HOURS, subprocessorNoticeClauseBody } from "./subprocessor-notice";
 
@@ -586,11 +586,11 @@ describe("what the DPA says", () => {
         /\$|\bUSD\b|per month|monthly|annual|setup fee|package/i,
       );
       expect(text.replace(/health plans?/g, "")).not.toMatch(/\bplans?\b/i);
-      for (const plan of plans) {
-        expect(text).not.toContain(plan.name);
-        expect(text).not.toContain(`"${plan.id}"`);
+      for (const pkg of PACKAGES) {
+        expect(text).not.toContain(pkg.name);
+        expect(text).not.toContain(`"${pkg.id}"`);
       }
-      for (const card of pricingCards) expect(text).not.toContain(card.name);
+      for (const product of Object.values(PRODUCTS)) expect(text).not.toContain(product.name);
       expect(text).not.toMatch(/Web Chatbot|Voice Agent|Meta Chatbot|FrontDesk/);
     }
   });

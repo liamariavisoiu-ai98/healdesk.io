@@ -983,10 +983,9 @@ async function changeStartedPlan(
       },
     };
   }
-  const kept = [...new Set([...channelList(current.plan), ...inService])].filter(
-    (channel) => claim.newPlan.channels[channel],
-  );
-  const target = planForChannels(kept);
+  // At the new plan's steps: a step change within the package moves the
+  // package price exactly as a change of package does.
+  const target = planForChannels(claim.newPlan, [...channelList(current.plan), ...inService]);
   if (!target) {
     return refused(
       "A plan change can't drop every channel that's already answering. Choose a plan that keeps at least one of them.",
@@ -1803,9 +1802,7 @@ async function finishLocationSetup(input: {
     const interval = row?.billingInterval ?? "month";
     const priced =
       billed ??
-      (bought
-        ? (planForChannels(input.inService.filter((channel) => bought.channels[channel])) ?? bought)
-        : null);
+      (bought ? (planForChannels(bought, input.inService) ?? bought) : null);
     await clearPendingLocation(tx.db, billingClinicId, requestId);
     await recordBillingNote(tx, { actor: input.billingActor, reason: "location_added" });
     tx.audit.record({

@@ -202,7 +202,7 @@ export async function markDemo(clinicId: string): Promise<void> {
   await inTenant(clinicId, async (client) => {
     await client.query(
       `insert into entitlements (clinic_id, plan_code, billing_interval, status)
-       values ($1, 'complete', 'month', 'demo')`,
+       values ($1, 'voice-metachat-1000-1000', 'month', 'demo')`,
       [clinicId],
     );
   });

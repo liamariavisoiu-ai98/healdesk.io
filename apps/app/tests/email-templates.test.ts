@@ -150,7 +150,7 @@ describe("the template registry", () => {
     }
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds, then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -165,6 +165,8 @@ describe("the template registry", () => {
       "cancel_reversed",
       "canceled",
       "renewal_upcoming",
+      "usage_80",
+      "usage_100",
       "overage_invoiced",
       "plan_changed",
       "location_added",
@@ -288,6 +290,27 @@ describe("the welcome email (B1)", () => {
     );
     expect(annual.text).toContain("Billing: Annual");
     expect(annual.text).not.toContain("Monthly price");
+  });
+
+  test("the order names the package, its steps and the extra-100 prices, marked provisional", () => {
+    const { text } = WELCOME_ENTRY.render(
+      { ...WELCOME_ENTRY.fixture, planId: "voice-metachat-700-1500", channels: ["web", "meta", "voice"] },
+      contextFor("welcome"),
+    );
+    expect(text).toContain("Package: AYA Voice + Meta Chat");
+    expect(text).toContain("Included each month: 700 voice minutes and 1,500 chat conversations");
+    expect(text).toContain(
+      "Past the allowance: $104 for each started block of 100 extra voice minutes, and $78 for each started block of 100 extra chat conversations",
+    );
+    expect(text).toMatch(/provisional/);
+    expect(text).not.toMatch(/\$1\.04|\$0\.78|per minute|per conversation/);
+
+    const voice = WELCOME_ENTRY.render(
+      { ...WELCOME_ENTRY.fixture, planId: "voice-300", channels: ["voice"] },
+      contextFor("welcome"),
+    ).text;
+    expect(voice).toContain("Included each month: 300 voice minutes\n");
+    expect(voice).toContain("Past the allowance: $104 for each started block of 100 extra voice minutes\n");
   });
 
   test("Help: the voicemail line in the plan's words while one is set, and nothing while not", () => {
@@ -439,14 +462,19 @@ describe("the payload allowlist", () => {
           included: 500,
           windowEndsOn: "2026-10-31",
           overageMode: "allow",
-          blockRateCents: 8_000,
+          blockRateCents: 10_400,
         },
       ],
       [
         "renewal_upcoming",
-        { renewsOn: "2026-11-05", amountCents: 1_200_00, planName: "AYA Complete Frontdesk" },
+        {
+          renewsOn: "2026-11-05",
+          amountCents: 556_800,
+          planName: "AYA Voice + Meta Chat, 500 minutes and 300 conversations",
+        },
       ],
-      ["plan_changed", { planName: "AYA Web Chat + Voice", interval: "month" }],
+      ["plan_changed", { planName: "AYA Voice + Web Chat", interval: "month" }],
+      ["plan_started", { planName: "AYA Voice, 1,500 minutes", boughtPlanId: "voice-1500" }],
       ["location_added", { locations: 2 }],
       ["canceled", { passThroughDays: 30 }],
       ["cancel_scheduled", { endsAt: "2026-11-05T00:00:00.000Z" }],
@@ -481,6 +509,8 @@ describe("the payload allowlist", () => {
     ["a phone number outside an E164 field", { phone: "+15551234567" }],
     ["a sentence in a category", { kind: "lip filler appointment" }],
     ["a plan the catalog does not sell", { planName: "Botox membership" }],
+    ["a plan name with a step off the grid", { planName: "AYA Voice, 550 minutes" }],
+    ["a plan id from the seven packages of 5 October", { boughtPlanId: "web-voice" }],
     ["a URL to someone else's site", { hostedInvoiceUrl: "https://evil.example/invoice" }],
     ["an unmasked address in a masked field", { addressMasked: "owner@radiance.test" }],
     ["a time", { startsAt: "next Tuesday at 3" }],

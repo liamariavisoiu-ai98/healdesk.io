@@ -35,6 +35,7 @@ import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
 import { STEPS_SENT_ENTRY } from "./steps_sent";
 import { SUSPENDED_ENTRY } from "./suspended";
 import type { EmailTemplate } from "./types";
+import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
 import { WELCOME_ENTRY } from "./welcome";
 
 /**
@@ -68,8 +69,7 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   order_confirmed_delayed: ORDER_CONFIRMED_DELAYED_ENTRY,
   device_changed: DEVICE_CHANGED_ENTRY,
   // The Stripe launch's billing emails (Package C, and Package D's two), in
-  // the outbox registry's order. The usage alerts are not here: they stay
-  // pending below until their stop-link page ships.
+  // the outbox registry's order.
   payment_failed: PAYMENT_FAILED_ENTRY,
   payment_action_required: PAYMENT_ACTION_REQUIRED_ENTRY,
   grace_ending: GRACE_ENDING_ENTRY,
@@ -79,6 +79,12 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   cancel_reversed: CANCEL_REVERSED_ENTRY,
   canceled: CANCELED_ENTRY,
   renewal_upcoming: RENEWAL_UPCOMING_ENTRY,
+  // The usage alerts, at 90% (still `usage_80`) and 100% of the allowance,
+  // with the pricing sheet's choice of 13 October 2026: move up a step, or
+  // let extra blocks of 100 bill. Optional kinds, so they carry the one-click
+  // stop link, whose page (/email/stop) shipped on 8 October.
+  usage_80: USAGE_80_ENTRY,
+  usage_100: USAGE_100_ENTRY,
   overage_invoiced: OVERAGE_INVOICED_ENTRY,
   plan_changed: PLAN_CHANGED_ENTRY,
   location_added: LOCATION_ADDED_ENTRY,
@@ -124,6 +130,8 @@ type BillingTemplatedKind =
   | "cancel_reversed"
   | "canceled"
   | "renewal_upcoming"
+  | "usage_80"
+  | "usage_100"
   | "overage_invoiced"
   | "plan_changed"
   | "location_added"
@@ -159,9 +167,6 @@ export const PENDING_TEMPLATES: Record<
   >,
   PendingTemplate
 > = {
-  // Optional kinds: they need the stop-link page, which lands with the switches.
-  usage_80: { owner: "package_c", ships: "M3, with the usage-alerts stop page (L27)" },
-  usage_100: { owner: "package_c", ships: "M3, with the usage-alerts stop page (L27)" },
   sign_in_help_link: { owner: "plan", ships: "M2, sign-in (O6)" },
 };
 

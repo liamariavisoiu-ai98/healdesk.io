@@ -118,7 +118,7 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
     ]);
     expect(DEFAULT_META_PLATFORM_SWITCHES).toEqual({ instagram: true, messenger: true, whatsapp: true });
 
-    const clinic = await provisionPortalClinic("defaults", { plan: "complete" });
+    const clinic = await provisionPortalClinic("defaults", { plan: "voice-metachat-1000-1000" });
     expect(
       await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
         readMetaPlatformSwitches(tx.db, tx.clinicId),
@@ -140,7 +140,7 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
   });
 
   test("the Meta channel follows its CONNECTED platforms: untouched before any is connected, Off once every connected one is, On again with the first; connecting one that answers turns it back On", async () => {
-    const clinic = await provisionPortalClinic("follow", { plan: "complete" });
+    const clinic = await provisionPortalClinic("follow", { plan: "voice-metachat-1000-1000" });
 
     // Nothing connected: the platform's own switch changes, the channel's
     // does not, so its status keeps saying what the clinic has to do.
@@ -200,7 +200,7 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
   });
 
   test("a connection the clinic has lost no longer counts as connected", async () => {
-    const clinic = await provisionPortalClinic("lost", { plan: "complete" });
+    const clinic = await provisionPortalClinic("lost", { plan: "voice-metachat-1000-1000" });
     await connect(clinic, "whatsapp", "embedded_signup");
     await inTenant(clinic.clinicId, (c) =>
       c.query(`update provider_connections set status = 'revoked' where provider = 'meta-whatsapp'`),
@@ -211,7 +211,7 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
   });
 
   test("Settings shows a switch for each connected platform only, each with its own status word, and none for the channel itself", async () => {
-    const clinic = await provisionPortalClinic("view", { plan: "complete" });
+    const clinic = await provisionPortalClinic("view", { plan: "voice-metachat-1000-1000" });
     const view = async () =>
       withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => {
         const state = await readSetupState(tx, { userId: clinic.userId });
@@ -254,7 +254,7 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
   });
 
   test("the ops console switches a platform through the same writer, recorded as healdesk support, and reads the three flags back", async () => {
-    const clinic = await provisionPortalClinic("ops", { plan: "complete" });
+    const clinic = await provisionPortalClinic("ops", { plan: "voice-metachat-1000-1000" });
     await connect(clinic, "messenger");
     const run = async (op: Parameters<typeof runOperation>[0], args: Record<string, unknown>) => {
       const outcome = await runOperation(op, args, OPERATOR);
@@ -302,9 +302,9 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
   });
 
   test("the migration's backfill: a clinic whose Meta channel was Off has all three Off; every other clinic keeps them On", async () => {
-    const off = await provisionPortalClinic("was-off", { plan: "complete" });
-    const on = await provisionPortalClinic("was-on", { plan: "complete" });
-    const none = await provisionPortalClinic("no-meta", { plan: "chat-web" });
+    const off = await provisionPortalClinic("was-off", { plan: "voice-metachat-1000-1000" });
+    const on = await provisionPortalClinic("was-on", { plan: "voice-metachat-1000-1000" });
+    const none = await provisionPortalClinic("no-meta", { plan: "webchat-1000" });
     // The state the migration found: the single switch Off, with no row of
     // switches yet for one of them.
     await inTenant(off.clinicId, async (c) => {

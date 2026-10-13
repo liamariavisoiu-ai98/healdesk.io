@@ -351,12 +351,28 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   the step, never the time. Never "live in two minutes".
 - **No opening dates.** A channel is sold only once it is ready; one that isn't
   comes off the product list and out of the copy (owner, 6 October 2026).
-- Overage is billed per started block of 100 (owner, 6 October 2026): $80 for
-  each started block of 100 extra voice minutes; $40 for each started block of
-  100 extra chat conversations on the single-channel chat package and $30 on
-  the rest. The rates behind them, set by the owner on 5 October 2026, are
-  provisional until measured. Copy says so and quotes the block and its price,
-  never a per-unit rate; being provisional does not change what is billed.
+- **Pricing is per product, in usage steps of 100** (owner's pricing sheet,
+  13 October 2026; `packages/catalog/src/plans.ts` holds it). Five packages:
+  AYA Voice, AYA Web Chat, AYA Meta Chat (which includes website chat), Voice +
+  Web Chat, Voice + Meta Chat. The clinic picks 100 to 1,500 voice minutes and
+  chat conversations a month in steps of 100: $80, $40 and $60 per 100; setup
+  $697, $259 and $697, summed for a combined package. Prices are per location;
+  annual billing is 20% off. Meta is never sold without website chat.
+- **Setup discounts last 48 hours and only one applies:** a personalised
+  demo's share from the moment the demo is ready, 50% from one an operator
+  built and sent, 30% from one the visitor asked for on the homepage ("Send me
+  my own free AI assistant"); else 30% to anyone buying through the website,
+  from the moment the offer is first shown (a signed cookie,
+  `apps/web/src/lib/site-offer.ts`). The Day 7 cohort credit (the fee in full)
+  beats them all. The server decides which, never the browser. Never print the
+  50% on a public page.
+- Overage is billed per started block of 100 at the product's extra-100 price
+  (owner, 13 October 2026): $104 for voice minutes, $52 for Web Chat and $78
+  for Meta Chat conversations. At 90% of the included amount the clinic is
+  emailed and may move up a step; an extra block always costs more than the
+  next step. The rates are provisional until measured. Copy says so and
+  quotes the block and its price, never a per-unit rate; being provisional
+  does not change what is billed.
 - "healdesk is a service of Viixi FZC, a company registered under the Sharjah
   Publishing City Free Zone, United Arab Emirates" appears on the Terms and
   Privacy pages. It is not in the site footer (owner, 9 October 2026): the

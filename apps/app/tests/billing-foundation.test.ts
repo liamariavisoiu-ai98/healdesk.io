@@ -159,7 +159,7 @@ describeDb("billing foundation", () => {
       const enqueue = (key: string) =>
         withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
           enqueueNotice(tx, "payment_failed", key, {
-            amountDueCents: 89_700,
+            amountDueCents: 120_000,
             hostedInvoiceUrl: "https://invoice.stripe.com/i/test",
             graceEndsAt: "2026-10-12T00:00:00.000Z",
             isFirstPlanCharge: false,
@@ -171,7 +171,7 @@ describeDb("billing foundation", () => {
       // Same key, different kind: a different notice.
       const other = await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
         enqueueNotice(tx, "payment_action_required", "in_test_1", {
-          amountDueCents: 89_700,
+          amountDueCents: 120_000,
           hostedInvoiceUrl: null,
         }),
       );
@@ -473,7 +473,7 @@ describeDb("billing foundation", () => {
       // started, so no allowance window yet.
       const clinic = await seedClinic("fixtures");
       const ids = await seedEntitled(clinic.clinicId, {
-        planId: "web-voice",
+        planId: "voice-webchat-1000-1000",
         interval: "year",
         locations: 2,
       });
@@ -481,22 +481,22 @@ describeDb("billing foundation", () => {
       const row = await rowOf(clinic.clinicId);
       expect(row).toMatchObject({
         status: "active",
-        plan_code: "web-voice",
-        bought_plan_id: "web-voice",
+        plan_code: "voice-webchat-1000-1000",
+        bought_plan_id: "voice-webchat-1000-1000",
         locations: 2,
         current_period_start: null,
         plan_started_at: null,
       });
       expect(row.first_paid_at?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
 
-      // Bought Complete, billed as AYA Web Chat, started: channels follow what
+      // Bought Voice + Meta Chat, billed as AYA Web Chat, started: channels follow what
       // was bought, and the window opens from the start through
       // allowanceWindow (an annual plan's first month).
       const started = await seedClinic("fixtures-started");
       const startedAt = new Date("2026-10-10T00:00:00Z");
       await seedEntitled(started.clinicId, {
-        planId: "chat-web",
-        boughtPlanId: "complete",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         interval: "year",
         planStartedAt: startedAt,
         planStartAppliedAt: startedAt,
@@ -509,8 +509,8 @@ describeDb("billing foundation", () => {
       });
       const startedRow = await rowOf(started.clinicId);
       expect(startedRow).toMatchObject({
-        plan_code: "chat-web",
-        bought_plan_id: "complete",
+        plan_code: "webchat-1000",
+        bought_plan_id: "voice-metachat-1000-1000",
         channels_enabled: { web: true, meta: true, voice: true },
         first_plan_invoice_id: "in_fixturefirstplan",
       });
@@ -538,9 +538,16 @@ describeDb("billing foundation", () => {
 
       // legacy: the row every fixture got before the deferred start.
       const legacy = await seedClinic("fixtures-legacy");
-      await seedEntitled(legacy.clinicId, { planId: "web-voice", interval: "year", legacy: true });
+      await seedEntitled(legacy.clinicId, {
+        planId: "voice-webchat-1000-1000",
+        interval: "year",
+        legacy: true,
+      });
       const legacyRow = await rowOf(legacy.clinicId);
-      expect(legacyRow).toMatchObject({ plan_code: "web-voice", bought_plan_id: null });
+      expect(legacyRow).toMatchObject({
+        plan_code: "voice-webchat-1000-1000",
+        bought_plan_id: null,
+      });
       expect(legacyRow.current_period_start?.toISOString()).toBe("2026-10-01T00:00:00.000Z");
       await expect(
         seedEntitled((await seedClinic("fixtures-bad")).clinicId, {

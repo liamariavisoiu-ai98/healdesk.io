@@ -45,7 +45,7 @@ describeDb("the channel step emails", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
-    clinic = await provisionPortalClinic("steps", { plan: "web-voice" });
+    clinic = await provisionPortalClinic("steps", { plan: "voice-webchat-1000-1000" });
     await inTenant(clinic.clinicId, async (c) => {
       await c.query(
         `update clinics set carrier = 'verizon', phone_system_type = 'landline' where id = $1`,

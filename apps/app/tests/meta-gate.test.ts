@@ -116,7 +116,7 @@ describeDb("the Meta webhook and the answer gate", () => {
       [c.clinicId],
     );
     await seedEntitled(c.clinicId, {
-      planId: "chat-meta",
+      planId: "metachat-1000",
       planStartedAt: WINDOW_START,
       channelRows: [{ channel: "meta", liveAt: WINDOW_START }],
     });

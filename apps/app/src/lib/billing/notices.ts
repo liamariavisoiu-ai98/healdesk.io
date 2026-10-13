@@ -169,7 +169,10 @@ export type NoticePayloads = {
     locations: number;
     noticeDays: 30 | 21;
   };
-  /** Dedupe `<meter>:<windowStartIso>`. */
+  /**
+   * Dedupe `<meter>:<windowStartIso>`. Sent at USAGE_ALERT_PERCENT (90% since
+   * 13 October 2026); the kind keeps its old name (usage-alerts.ts says why).
+   */
   usage_80: UsageNoticePayload;
   /** Dedupe `<meter>:<windowStartIso>`. */
   usage_100: UsageNoticePayload;

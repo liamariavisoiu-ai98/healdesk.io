@@ -69,8 +69,9 @@ import {
  * ## Bought and billed are two packages (the owner's decisions of 6 October)
  *
  * A clinic buys a package at checkout and is billed for the channels in
- * service: Complete bought, website chat first to answer, AYA Web Chat billed
- * until the next channel answers. So `bought_plan_id` is what was sold, and
+ * service: Voice + Meta Chat bought, website chat first to answer, AYA Web
+ * Chat billed at the bought chat step until the next channel answers. So
+ * `bought_plan_id` is what was sold (the package and its steps), and
  * decides which channels may answer (`channels_enabled`), the step-up target
  * and the metered rates; `plan_code`, the interval and the `included_*`
  * allowances follow the package Stripe bills (`applyBilledPlan`). A row with
@@ -101,10 +102,10 @@ export class EntitlementsNotFoundError extends Error {
 /**
  * The channels a package turns on: exactly the ones the catalog lists for it.
  *
- * There is no choice to honour any more. Website chat or the Meta bot, where a
- * buyer picks one, is two packages since 5 October 2026 (catalog header), so
- * the package id alone decides, and a plan change through Stripe's Customer
- * Portal between the two moves the channel with it.
+ * There is no choice to honour. Since 13 October 2026 the chat products are
+ * AYA Web Chat (the website) and AYA Meta Chat (Instagram, Messenger and
+ * WhatsApp, and the website too), so the package id alone decides, and a plan
+ * change between the two moves the channels with it.
  */
 export function channelsFor(plan: Plan): ChannelsEnabled {
   const enabled: ChannelsEnabled = { web: false, meta: false, voice: false };
@@ -350,7 +351,8 @@ export async function rollAllowancePeriod(
  * What the first invoice tells us: when the paid period runs, and how much of
  * the setup fee has actually cleared. The second matters on an upgrade —
  * `setupFeeDeltaUsd` in the catalog is computed from what was PAID, and a
- * clinic that paid $497 owes $500 more for a $997 package, not $997.
+ * clinic that paid $259 for Web Chat owes $697 more for Voice + Web Chat's
+ * $956, not $956.
  *
  * LEGACY rows only (no `bought_plan_id`): the window is derived the same way
  * `resetUsage()` derives it, so an annual clinic starts on a one-month window
@@ -761,7 +763,7 @@ export async function setSetupDeadline(
   await updateOrThrow(db, clinicId, { setupDeadlineAt: at });
 }
 
-/** The owner's switch for the 80% and 100% allowance emails. */
+/** The owner's switch for the 90% (USAGE_ALERT_PERCENT) and 100% allowance emails. */
 export async function setUsageAlertsEnabled(
   db: Transaction,
   clinicId: string,
@@ -787,9 +789,9 @@ export async function setOverageMode(
  * the billed package's included amount when it is above 0, otherwise the
  * BOUGHT package's, from the catalog, times `locations`.
  *
- * The fallback is the point. A clinic that bought Web + Voice and is billed
- * as AYA Web Chat while its phone is still being set up has 0 included voice
- * minutes on the billed package; counted against 0, its first call would be
+ * The fallback is the point. A clinic that bought Voice + Web Chat and is
+ * billed as AYA Web Chat while its phone is still being set up has 0 included
+ * voice minutes on the billed package; counted against 0, its first call would be
  * billed as overage, and under the hard cap it would be refused, so the
  * phone could never answer and never be priced in. Usage recording, the gate
  * and the usage alerts all use this one function. A legacy row (no bought

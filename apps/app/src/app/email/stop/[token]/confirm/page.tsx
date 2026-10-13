@@ -1,3 +1,4 @@
+import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { readUnsubscribeToken, type StopScope } from "@/lib/email/unsubscribe";
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 const WHAT: Partial<Record<StopScope, { name: string; where: string | null }>> = {
   usage_alerts: {
-    name: "usage alert emails (at 80% and 100% of your allowance)",
+    name: `usage alert emails (at ${USAGE_ALERT_PERCENT}% and 100% of your allowance)`,
     where: "Billing",
   },
   daily_summary: { name: "the daily summary email", where: "Settings → Alerts" },

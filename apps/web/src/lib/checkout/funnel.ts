@@ -8,37 +8,35 @@ import {
   bookingSystemName,
   type BookingSystemId,
   type CalendarAccount,
-  type ChatChannel,
   cleanWebsite,
   type CoveredAnswer,
+  DEFAULT_STEPS,
   getBookingSystem,
+  getPackage,
   getPlan,
-  getPricingCard,
   isBillingInterval,
   isBookingSystemId,
   isCalendarAccount,
-  isChatChannel,
   isCoveredAnswer,
+  isPackageId,
   isSpecialtyId,
+  isUsageStep,
   manualBookingNotice,
-  META_SOLD_ALONE,
-  offersChatChoice,
+  type Package,
+  type PackageId,
   type Plan,
-  planForCard,
+  planFor,
   planNeedsWebsite,
-  type PricingCard,
-  sellsMetaAlone,
   type SpecialtyId,
   specialtyOffered,
 } from "@healdesk/catalog";
 
-import { checkoutStart } from "@/lib/pricing";
-
 /**
  * The four steps of "Get AYA", as rules a test can read (plan Part A3).
  *
- *   1. Package: the card, the chat channel on a card that sells one or the
- *      other, monthly or annual.
+ *   1. Package: one of the five packages, a usage step for each product it
+ *      has (voice minutes, chat conversations: 100 to 1,500 in steps of
+ *      100), monthly or annual.
  *   2. Your clinic: the practice's legal name, its website or none, its
  *      specialty, where its bookings live and which Google account they would
  *      go into.
@@ -72,10 +70,16 @@ export function isEmailAddress(value: string): boolean {
 
 export type FunnelState = {
   step: StepNumber;
-  /** The pricing card, or null until the buyer picks one: nothing is preselected but by a card or `?plan`. */
-  cardId: string | null;
-  /** On a card that sells website chat or the Meta bot, which one. Ignored by the other cards. */
-  chat: ChatChannel;
+  /** The package, or null until the buyer picks one: nothing is preselected but by `?plan`. */
+  packageId: PackageId | null;
+  /**
+   * The voice step, in minutes a month, and the chat step, in conversations.
+   * Both are always on the grid (catalog `isUsageStep`) and both are kept
+   * whichever package is chosen, so moving from Voice + Meta Chat to Voice and
+   * back does not lose the chat step; the package decides which are billed.
+   */
+  voiceMinutes: number;
+  chatConversations: number;
   interval: BillingInterval;
   /** The practice's legal name, as the agreement names it. */
   clinicName: string;
@@ -94,9 +98,9 @@ export type FunnelState = {
   contactEmail: string;
 };
 
-/** What the funnel may start from: a pricing card or `?plan`, and what the setup link or the demo knew. */
+/** What the funnel may start from: `?plan`, and what the setup link or the demo knew. */
 export type FunnelSeed = {
-  /** A pricing card or package id, from a card or `?plan`. Anything else preselects nothing. */
+  /** A plan, package or retired package id, from `?plan` (`planLink`). Anything else preselects nothing. */
   plan?: string | null;
   interval?: BillingInterval;
   clinicName?: string;
@@ -107,13 +111,14 @@ export type FunnelSeed = {
 };
 
 export function initialFunnel(seed: FunnelSeed = {}): FunnelState {
-  const start = seed.plan ? checkoutStart(seed.plan) : null;
+  const start = seed.plan ? planLink(seed.plan) : null;
   const specialty =
     isSpecialtyId(seed.specialty) && specialtyOffered(seed.specialty) ? seed.specialty : null;
   return {
     step: 1,
-    cardId: start?.card.id ?? null,
-    chat: start?.chat ?? "web",
+    packageId: start?.packageId ?? null,
+    voiceMinutes: start?.voiceMinutes ?? DEFAULT_STEPS.voiceMinutes,
+    chatConversations: start?.chatConversations ?? DEFAULT_STEPS.chatConversations,
     interval: seed.interval && isBillingInterval(seed.interval) ? seed.interval : "month",
     clinicName: (seed.clinicName ?? "").slice(0, CLINIC_NAME_MAX),
     website: seed.website ?? "",
@@ -133,58 +138,119 @@ export function initialFunnel(seed: FunnelSeed = {}): FunnelState {
 // Step 1: the package
 // -----------------------------------------------------------------------------
 
-export function chosenCard(state: Pick<FunnelState, "cardId">): PricingCard | null {
-  return state.cardId ? (getPricingCard(state.cardId) ?? null) : null;
-}
-
 /**
- * Whether a package is on sale at all today. Meta as a clinic's only channel
- * waits for Meta's App Review (catalog, META_SOLD_ALONE); Meta beside website
- * chat or the phone is always on sale. The flag is a parameter only so a test
- * can close it.
+ * The packages that were sold until 13 October 2026, and the pricing cards
+ * that sold them, each mapped to the package that replaced it. A `?plan=` link
+ * in an old email, ad or bookmark lands on the nearest package at the default
+ * steps rather than on an error: the buyer still chooses the steps. Meta was
+ * never sold without website chat after that day, so both chats become Meta
+ * Chat, which includes the website. `voice` is a package id in both catalogs.
  */
-export function planOnSale(plan: Plan, metaSoldAlone: boolean = META_SOLD_ALONE): boolean {
-  return metaSoldAlone || !sellsMetaAlone(plan);
+export const RETIRED_PLAN_PACKAGES: Readonly<Record<string, PackageId>> = {
+  "chat-web": "webchat",
+  "chat-meta": "metachat",
+  "chat-dual": "metachat",
+  "web-voice": "voice-webchat",
+  "meta-voice": "voice-metachat",
+  complete: "voice-metachat",
+  // The pricing cards of 5 October, which a link could also name.
+  "chat-single": "webchat",
+  "chat-voice": "voice-webchat",
+};
+
+export type PlanLink = { packageId: PackageId; voiceMinutes: number; chatConversations: number };
+
+/**
+ * Where checkout opens for a `?plan=` value: a plan id opens its package at
+ * its own steps; a package id, or a retired one, opens the package at the
+ * default steps (catalog DEFAULT_STEPS: 500 minutes, 300 conversations). The
+ * step a package does not bill stays at its default, so changing package
+ * later starts from a sensible figure. Null for anything else, and the
+ * caller preselects nothing: a stale link should land on the flow, not on an
+ * error.
+ */
+export function planLink(id: unknown): PlanLink | null {
+  if (typeof id !== "string") return null;
+  const plan = getPlan(id);
+  if (plan) {
+    return {
+      packageId: plan.packageId,
+      voiceMinutes: plan.includedVoiceMinutes || DEFAULT_STEPS.voiceMinutes,
+      chatConversations: plan.includedChatConversations || DEFAULT_STEPS.chatConversations,
+    };
+  }
+  const packageId = isPackageId(id)
+    ? id
+    : Object.hasOwn(RETIRED_PLAN_PACKAGES, id)
+      ? RETIRED_PLAN_PACKAGES[id]!
+      : null;
+  return packageId ? { packageId, ...DEFAULT_STEPS } : null;
+}
+
+export function chosenPackage(state: Pick<FunnelState, "packageId">): Package | null {
+  return state.packageId ? (getPackage(state.packageId) ?? null) : null;
+}
+
+/** The package at a pair of steps. The steps are always on the grid, so this cannot throw. */
+export function planAt(
+  packageId: PackageId,
+  steps: Pick<FunnelState, "voiceMinutes" | "chatConversations">,
+): Plan {
+  return planFor(packageId, {
+    voiceMinutes: steps.voiceMinutes,
+    chatConversations: steps.chatConversations,
+  });
 }
 
 /**
- * The package being bought: the card's own, or on a twin card the one for the
- * chat channel picked. The plan id, never the card id, is what is signed for,
- * charged and provisioned. While Meta is not sold on its own, the website is
- * the only answer on the "Web OR Meta Chatbot" card: a "meta" carried over
- * from the card with the phone must not reach /api/checkout, which refuses it.
+ * The plan being bought: the package at the steps chosen. The plan id
+ * (`voice-metachat-500-300`), never the package id, is what is signed for,
+ * charged and provisioned.
  */
 export function chosenPlan(
-  state: Pick<FunnelState, "cardId" | "chat">,
-  metaSoldAlone: boolean = META_SOLD_ALONE,
+  state: Pick<FunnelState, "packageId" | "voiceMinutes" | "chatConversations">,
 ): Plan | null {
-  const card = chosenCard(state);
-  if (!card) return null;
-  const picked = planForCard(card, state.chat);
-  return planOnSale(picked, metaSoldAlone) ? picked : planForCard(card, "web");
+  if (!state.packageId || !isPackageId(state.packageId)) return null;
+  if (!isUsageStep(state.voiceMinutes) || !isUsageStep(state.chatConversations)) return null;
+  return planAt(state.packageId, state);
+}
+
+/** Pick a package. The steps carry over. */
+export function choosePackage(state: FunnelState, packageId: string): FunnelState {
+  return isPackageId(packageId) ? { ...state, packageId } : state;
+}
+
+/** Move one product's step. Anything off the grid of 100 to 1,500 is ignored. */
+export function chooseSteps(
+  state: FunnelState,
+  steps: { voiceMinutes?: number; chatConversations?: number },
+): FunnelState {
+  const next = { ...state };
+  if (steps.voiceMinutes !== undefined && isUsageStep(steps.voiceMinutes)) {
+    next.voiceMinutes = steps.voiceMinutes;
+  }
+  if (steps.chatConversations !== undefined && isUsageStep(steps.chatConversations)) {
+    next.chatConversations = steps.chatConversations;
+  }
+  return next;
 }
 
 /**
- * Pick a card. On a twin card the chat channel already picked carries over,
- * except that a practice with no website is moved to the Meta twin, because
- * the website twin is not sold to it.
+ * Select by id: a plan id picks its package and its steps; a package id, or
+ * a retired one, picks the package and keeps the steps already chosen.
  */
-export function chooseCard(state: FunnelState, cardId: string): FunnelState {
-  const card = getPricingCard(cardId);
-  if (!card) return state;
-  const chat: ChatChannel = state.noWebsite && offersChatChoice(card) ? "meta" : state.chat;
-  return { ...state, cardId: card.id, chat };
-}
-
-export function chooseChat(state: FunnelState, chat: ChatChannel): FunnelState {
-  return { ...state, chat };
-}
-
-/** Select a package by its id: its card, and on a twin card its chat channel. */
-export function choosePlan(state: FunnelState, planId: string): FunnelState {
-  const start = checkoutStart(planId);
-  if (!start || !getPlan(planId)) return state;
-  return { ...state, cardId: start.card.id, chat: start.chat };
+export function choosePlan(state: FunnelState, id: string): FunnelState {
+  const plan = getPlan(id);
+  if (plan) {
+    return {
+      ...state,
+      packageId: plan.packageId,
+      voiceMinutes: plan.includedVoiceMinutes || state.voiceMinutes,
+      chatConversations: plan.includedChatConversations || state.chatConversations,
+    };
+  }
+  const link = planLink(id);
+  return link ? { ...state, packageId: link.packageId } : state;
 }
 
 export function packageComplete(state: FunnelState): boolean {
@@ -206,28 +272,27 @@ export function purchaseWebsite(
 /**
  * What a practice with no website is offered, in order: the phone first,
  * because a practice without a website takes its bookings by phone (v1 spec,
- * "Stage 0"), then the Meta bot, for one whose patients message it there.
- * While Meta is not sold on its own, the Meta bot is offered only beside the
- * phone: Meta Chatbot drops out of the list, and Meta + Voice carries it.
+ * "Stage 0"), then Meta Chat beside the phone, then Meta Chat alone, for one
+ * whose patients message it on Instagram, Messenger or WhatsApp. Meta Chat
+ * includes website chat but does not need a website (catalog,
+ * `planNeedsWebsite`). Each is offered at the steps already chosen.
  */
-export const NO_WEBSITE_PLAN_IDS = ["voice", "meta-voice", "chat-meta"] as const;
+export const NO_WEBSITE_PACKAGE_IDS = ["voice", "voice-metachat", "metachat"] as const;
 
-export function noWebsiteOptions(metaSoldAlone: boolean = META_SOLD_ALONE): Plan[] {
-  return NO_WEBSITE_PLAN_IDS.map((id) => getPlan(id)!).filter((plan) =>
-    planOnSale(plan, metaSoldAlone),
-  );
+export function noWebsiteOptions(
+  steps: Pick<FunnelState, "voiceMinutes" | "chatConversations"> = DEFAULT_STEPS,
+): Plan[] {
+  return NO_WEBSITE_PACKAGE_IDS.map((id) => planAt(id, steps));
 }
 
-/**
- * Whether a package can be sold to this practice: on sale at all, and, for
- * a practice with no website, without website chat.
- */
-export function sellableTo(
-  plan: Plan,
-  state: Pick<FunnelState, "noWebsite">,
-  metaSoldAlone: boolean = META_SOLD_ALONE,
-): boolean {
-  return planOnSale(plan, metaSoldAlone) && !(state.noWebsite && planNeedsWebsite(plan));
+/** Whether a package needs a website: the catalog's rule, read off the package. */
+export function packageNeedsWebsite(pkg: Pick<Package, "id">): boolean {
+  return planNeedsWebsite(planAt(pkg.id, DEFAULT_STEPS));
+}
+
+/** Whether a package can be sold to this practice: one with no website is not sold Web Chat. */
+export function sellableTo(pkg: Pick<Package, "id">, state: Pick<FunnelState, "noWebsite">): boolean {
+  return !(state.noWebsite && packageNeedsWebsite(pkg));
 }
 
 /** Whether the package chosen cannot be sold to the practice as it has described itself. */
@@ -258,7 +323,7 @@ export function clinicIssues(state: FunnelState): StepIssue[] {
   if (websiteConflict(state)) {
     issues.push({
       field: "plan",
-      message: "Website chat needs a website. Choose a package without it below.",
+      message: "AYA Web Chat needs a website. Choose AYA Voice or AYA Meta Chat below.",
     });
   }
   if (!state.specialty || !specialtyOffered(state.specialty)) {
@@ -523,9 +588,9 @@ export function parseStoredFunnel(raw: unknown): Partial<FunnelState> | null {
   const v = raw as Record<string, unknown>;
   const out: Partial<FunnelState> = {};
   if (isStepNumber(v.step)) out.step = v.step;
-  if (typeof v.cardId === "string" && getPricingCard(v.cardId)) out.cardId = v.cardId;
-  if (v.cardId === null) out.cardId = null;
-  if (isChatChannel(v.chat)) out.chat = v.chat;
+  if (v.packageId === null || isPackageId(v.packageId)) out.packageId = v.packageId;
+  if (isUsageStep(v.voiceMinutes)) out.voiceMinutes = v.voiceMinutes;
+  if (isUsageStep(v.chatConversations)) out.chatConversations = v.chatConversations;
   if (isBillingInterval(v.interval)) out.interval = v.interval;
   for (const key of TEXT_FIELDS) {
     const value = v[key];
@@ -570,9 +635,11 @@ export function clearStoredFunnel(): void {
 
 /**
  * The stored answers over the seed, except where the seed is a decision made
- * just now: a pricing card or `?plan` picks the package (and its billing
- * period) again, and the setup link's address is the only one the purchase
- * may use.
+ * just now: a `?plan` link picks the package, its steps and its billing
+ * period again, and the setup link's address is the only one the purchase
+ * may use. A link to a package with Web Chat, for a practice that has said it
+ * has no website, opens the same package with Meta Chat instead, which needs
+ * none.
  */
 export function restoreFunnel(
   seed: FunnelState,
@@ -580,17 +647,21 @@ export function restoreFunnel(
   options: { explicitPlan: boolean; lockedEmail?: string },
 ): FunnelState {
   const merged: FunnelState = { ...seed, ...(stored ?? {}) };
-  if (options.explicitPlan && seed.cardId) {
-    merged.cardId = seed.cardId;
-    merged.chat = merged.noWebsite ? chatWithoutWebsite(seed) : seed.chat;
+  if (options.explicitPlan && seed.packageId) {
+    merged.packageId = merged.noWebsite ? withoutWebsite(seed.packageId) : seed.packageId;
+    merged.voiceMinutes = seed.voiceMinutes;
+    merged.chatConversations = seed.chatConversations;
     merged.interval = seed.interval;
   }
   if (options.lockedEmail) merged.contactEmail = options.lockedEmail;
   return merged;
 }
 
-/** On a twin card, a practice with no website is sold the Meta twin. */
-function chatWithoutWebsite(state: Pick<FunnelState, "cardId" | "chat">): ChatChannel {
-  const card = chosenCard(state);
-  return card && offersChatChoice(card) ? "meta" : state.chat;
+/** The same package with Meta Chat in place of Web Chat; any other package unchanged. */
+export function withoutWebsite(packageId: PackageId): PackageId {
+  return packageId === "webchat"
+    ? "metachat"
+    : packageId === "voice-webchat"
+      ? "voice-metachat"
+      : packageId;
 }

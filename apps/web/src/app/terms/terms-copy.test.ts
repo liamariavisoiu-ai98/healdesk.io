@@ -1,9 +1,9 @@
-import { OVERAGE_RATES_PROVISIONAL, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
+import { OVERAGE_RATES_PROVISIONAL, TRANSCRIPT_RETENTION_DAYS, USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
-import { ENTITY, GUARANTEE_TEXT, LEGAL_VERSION, POLICY } from "@/lib/legal";
+import { ENTITY, GUARANTEE_TEXT, LEGAL_VERSION, POLICY, packagesForTerms, productsForTerms } from "@/lib/legal";
 
 import TermsPage from "./page";
 
@@ -173,22 +173,31 @@ describe("usage above the allowance is billed per started block of 100", () => {
 
   test("section 3 states the block rule plainly, provisional until measured", () => {
     // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
-    // "Overage prices"): $80 for each started block of 100 extra voice
-    // minutes, $40 or $30 for each started block of 100 extra chat
+    // "Overage prices"), kept by the pricing sheet of 13 October: each
+    // started block of 100 past the allowance is billed at the product's
+    // extra-100 price, $104 for voice minutes and $52 or $78 for chat
     // conversations. Stripe bills exactly that from the same catalog, and
     // src/lib/overage-copy.test.ts holds the table's prices to it.
     if (OVERAGE_RATES_PROVISIONAL) return;
     expect(text).toContain(
-      "Usage above the included allowance is billed in blocks: each month, every started block of 100 extra voice minutes or 100 extra chat conversations is billed at your package's block price in the table above, so a single minute or conversation over the allowance is billed as a whole block.",
+      "Usage above the included allowance is billed in blocks: each month, every started block of 100 extra voice minutes or 100 extra chat conversations is billed at that product's price for each extra 100 in the table above, so a single minute or conversation over the allowance is billed as a whole block, and the same applies above the largest step.",
     );
     expect(text).toContain(
       "These block prices are provisional until we have measured what that usage costs to serve.",
     );
     expect(text).toContain(
-      "On a monthly package the blocks are billed in arrears on the next invoice; on an annual package they are invoiced separately, monthly in arrears, at the same prices.",
+      "On a monthly plan the blocks are billed in arrears on the next invoice; on an annual plan they are invoiced separately, monthly in arrears, at the same prices.",
     );
-    expect(text).toContain("Extra voice, per started block of 100 minutes");
-    expect(text).toContain("Extra chat, per started block of 100 conversations");
+    expect(text).toContain("Each extra 100, per started block of 100");
+  });
+
+  test("the 90% email is promised, and what follows when the Practice does not move up", () => {
+    // The sheet: "When you use 90% of your included amount, we send you a
+    // short email", with the choice to move up a step or let the next block
+    // bill at the extra-100 price.
+    expect(text).toContain(
+      `When you have used ${USAGE_ALERT_PERCENT}% of an allowance we email the address on your account, so you can move up a step before you go over; if you do not, usage above it is billed as this paragraph says.`,
+    );
   });
 
   test("and nothing in the terms is priced per minute or per conversation", () => {
@@ -197,6 +206,51 @@ describe("usage above the allowance is billed per started block of 100", () => {
     expect(text).not.toMatch(
       /\/min\b|\/conversation|\bper (?:voice )?minute|\bper (?:chat )?conversation|\ba voice minute|\ba chat conversation|\$0\.\d\d/i,
     );
+  });
+});
+
+describe("section 3 states the step pricing of 13 October 2026", () => {
+  const text = pageText();
+
+  test("every product's price per 100, monthly and annual, and its setup fee, from the catalog", () => {
+    for (const product of productsForTerms()) {
+      const units = `${product.unit}s`;
+      expect(text, product.name).toContain(
+        `${product.name} $${product.perStepMonthlyUsd} per 100 ${units} $${(product.perStepAnnualMonthlyUsd * 12).toLocaleString("en-US")} per 100 ${units}`,
+      );
+      expect(text, product.name).toContain(`$${product.setupFeeUsd.toLocaleString("en-US")}`);
+    }
+  });
+
+  test("every package and its setup fee: $259 to $1,394 at list price", () => {
+    for (const pkg of packagesForTerms()) {
+      expect(text, pkg.name).toContain(`${pkg.name} $${pkg.setupFeeUsd.toLocaleString("en-US")}`);
+    }
+    expect(packagesForTerms().map((p) => p.setupFeeUsd).sort((a, b) => a - b)).toEqual([259, 697, 697, 956, 1_394]);
+  });
+
+  test("a plan is a package and its steps, and the steps are the allowance", () => {
+    expect(text).toContain(
+      "Your plan is the package you choose and, for each product in it, the step you choose: from 100 to 1,500 minutes or conversations a month, in steps of 100. The minutes and conversations your steps include are your monthly allowance.",
+    );
+    expect(text).toContain("the annual price is 20% less than twelve monthly prices");
+    expect(text).toContain("Moving between steps of the same package carries no setup fee.");
+    expect(text).toContain("AYA Meta Chat answers on Instagram, Messenger and WhatsApp and includes website chat.");
+  });
+
+  test("prices are per location, and a further location is the plan's price again plus its setup fee", () => {
+    expect(text).toContain("Each covers one location.");
+    expect(text).toContain(
+      "Each further location is added to your subscription at your plan's price again, on the same renewal date and prorated to it, plus the package's setup fee once.",
+    );
+  });
+
+  test("one setup credit applies to a purchase, and to the setup fee alone", () => {
+    expect(text).toContain(
+      "A setup credit, where one was offered to you by email, with a personalised demo, or on our website, is taken off the setup fee at checkout while the offer holds and is applied to nothing else; only one applies to a purchase.",
+    );
+    // The fixed packages of 5 October are gone from the contract.
+    expect(text).not.toMatch(/Complete Frontdesk|Web or Meta|1,197|\$997/);
   });
 });
 
@@ -327,6 +381,9 @@ describe("the terms point at no retired page, and name one address", () => {
   test("prices are the ones shown at checkout; the vendor list is given on request", () => {
     // The owner disabled /pricing and deleted /subprocessors on 9 October
     // 2026; a contract that sends its reader to either sends them to nothing.
+    // /pricing came back on 13 October, but the contract still states its own
+    // prices and binds the ones shown at checkout, so it does not link a
+    // marketing page whose wording changes without a new version.
     expect(text).toContain("are the prices shown at checkout when you subscribe");
     expect(text).toContain(
       "The list of the subcontractors that process patient information for us is given to you on request, under the Business Associate Agreement.",

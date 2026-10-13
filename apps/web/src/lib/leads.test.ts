@@ -5,6 +5,7 @@ import { CALL_CONSENTS, LEADS, LEAD_EVENTS, TABS, __resetSheetSchemaForTests } f
 import {
   COHORT_CREDIT_TOUCH_STEP,
   canEmail,
+  cohortCreditEndsAt,
   cohortCreditLive,
   findLeadByEmail,
   findLeadById,
@@ -240,6 +241,9 @@ describe("the lead store over the Sheet", () => {
     // And the window closes when the email said it would.
     const later = new Date(offeredAt!.getTime() + 15 * 24 * 60 * 60 * 1000);
     expect(cohortCreditLive(lead, later)).toBe(false);
+    // Its end, for ranking it against the demo's and the website's offers.
+    expect(cohortCreditEndsAt(lead)?.getTime()).toBe(offeredAt!.getTime() + 14 * 24 * 60 * 60 * 1000);
+    expect(cohortCreditEndsAt(lead, later)).toBeNull();
     expect(sheets.records("lead_events").map((e) => e.name)).toEqual([
       "demo_unlocked",
       "nurture_sent",

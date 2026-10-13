@@ -46,7 +46,7 @@ export const renderPaymentActionRequired: EmailTemplate<PaymentActionRequiredPay
 export const PAYMENT_ACTION_REQUIRED_ENTRY: TemplateEntry<PaymentActionRequiredPayload> = {
   render: renderPaymentActionRequired,
   fixture: {
-    amountDueCents: 89_700,
+    amountDueCents: 52_000,
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
   },
 };

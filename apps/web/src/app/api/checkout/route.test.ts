@@ -1,4 +1,4 @@
-import { type ClinicProfile, META_SOLD_ALONE } from "@healdesk/catalog";
+import { type ClinicProfile } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { __resetDemoCacheForTests, createDemoSession, SELF_SERVE_DEMO, updateDemoSession } from "@/lib/demo/sessions";
@@ -44,7 +44,7 @@ function post(body: Record<string, unknown>): Promise<Response> {
 
 /** What Review and pay posts for a clinic whose website could not be read. */
 const VALID = {
-  plan: "chat-web",
+  plan: "webchat-300",
   clinicName: "Radiance Med Spa LLC",
   specialty: "med-spa",
   website: "radiancemedspa.com",
@@ -168,48 +168,50 @@ describe("POST /api/checkout validates the billing terms", () => {
     expect(sent.billingInterval).toBe("year");
   });
 
-  test("a package id is required; a pricing card's id is not a package", async () => {
-    // The browser resolves the "Web OR Meta" card to one of its two packages
-    // before posting. A card id reaching the route is a stale page or a hand-
-    // made request, and guessing which twin it meant would guess a channel.
-    const card = await post({ ...VALID, plan: "chat-single" });
-    expect(card.status).toBe(422);
-    expect(((await card.json()) as { field: string }).field).toBe("plan");
+  test("a plan is a package at its steps: a bare package, a step off the grid or a 5 October id is not one", async () => {
+    // The steps decide what Stripe charges every month, so a plan id the
+    // catalog cannot parse is refused before anything upstream is asked,
+    // never rounded to the nearest step.
+    for (const plan of ["webchat", "webchat-150", "voice-1600", "voice-webchat-500", "chat-web", "complete"]) {
+      const response = await post({ ...VALID, plan });
+      expect(response.status, plan).toBe(422);
+      expect(((await response.json()) as { field: string }).field, plan).toBe("plan");
+    }
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("both Meta packages are on sale, AYA Meta Chat included", async () => {
-    // The catalog flag, opened by the owner on 5 October 2026. Closed again,
-    // AYA Meta Chat becomes a 422 with field "plan" before Stripe hears of it.
-    expect(META_SOLD_ALONE).toBe(true);
-
-    const alone = await post({ ...VALID, plan: "chat-meta" });
+  test("both Meta Chat packages are on sale, alone and with voice", async () => {
+    const alone = await post({ ...VALID, plan: "metachat-300" });
     expect(alone.status).toBe(201);
-    expect(forwarded(0).plan).toBe("chat-meta");
+    expect(forwarded(0).plan).toBe("metachat-300");
 
-    const withPhone = await post({ ...VALID, plan: "meta-voice" });
+    const withPhone = await post({ ...VALID, plan: "voice-metachat-500-300" });
     expect(withPhone.status).toBe(201);
-    expect(forwarded(1).plan).toBe("meta-voice");
+    expect(forwarded(1).plan).toBe("voice-metachat-500-300");
   });
 
   test("a stray chat channel from an old page is dropped, never forwarded", async () => {
     // The package id alone says which channels a clinic has; a field beside it
     // could only ever disagree with it.
-    const response = await post({ ...VALID, plan: "web-voice", chatChannelChoice: "meta" });
+    const response = await post({ ...VALID, plan: "voice-webchat-500-300", chatChannelChoice: "meta" });
     expect(response.status).toBe(201);
     const sent = forwarded(0);
     expect(sent.chatChannelChoice).toBeUndefined();
-    expect(sent.plan).toBe("web-voice");
+    expect(sent.plan).toBe("voice-webchat-500-300");
   });
 
   test("a website-free package can be bought with no website, and the order says so", async () => {
-    const response = await post({ ...VALID, plan: "voice", website: null, profileStatus: "none" });
-    expect(response.status).toBe(201);
-    expect(forwarded(0)).toMatchObject({ plan: "voice", website: null, profile: null, profileStatus: "none" });
+    // Meta Chat includes website chat but does not need a website (catalog
+    // planNeedsWebsite): Instagram, Messenger and WhatsApp answer without one.
+    for (const [index, plan] of ["voice-500", "metachat-300", "voice-metachat-500-300"].entries()) {
+      const response = await post({ ...VALID, plan, website: null, profileStatus: "none" });
+      expect(response.status, plan).toBe(201);
+      expect(forwarded(index)).toMatchObject({ plan, website: null, profile: null, profileStatus: "none" });
+    }
   });
 
   test("website chat is never sold to a practice with no website", async () => {
-    for (const plan of ["chat-web", "chat-dual", "web-voice", "complete"]) {
+    for (const plan of ["webchat-300", "voice-webchat-500-300"]) {
       const response = await post({ ...VALID, plan, website: null, profileStatus: "none" });
       expect(response.status, plan).toBe(422);
       expect(((await response.json()) as { field: string }).field, plan).toBe("plan");
@@ -270,7 +272,7 @@ describe("POST /api/checkout validates the billing terms", () => {
       expect(((await response.json()) as { field: string }).field).toBe("profile");
     }
     // No website, so no read: anything but "none" is refused.
-    const noSite = await post({ ...VALID, plan: "voice", website: null, profileStatus: "failed" });
+    const noSite = await post({ ...VALID, plan: "voice-500", website: null, profileStatus: "failed" });
     expect(((await noSite.json()) as { field: string }).field).toBe("profile");
     expect(sentTo(fetchMock, "/api/checkout/intents")).toHaveLength(1);
   });
@@ -544,7 +546,7 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
         ref: "11111111-2222-4333-8444-555555555555",
         idempotencyKey: "dev:11111111-2222-4333-8444-555555555555",
         attempt: 1,
-        plan: "chat-web",
+        plan: "webchat-300",
         billingInterval: "month",
       },
     ]);

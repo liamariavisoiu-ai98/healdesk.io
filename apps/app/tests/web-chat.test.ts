@@ -58,7 +58,7 @@ async function liveWebClinic(label: string, website: string | null = "radiance-c
     `update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now(), website = $2 where id = $1`,
     [c.clinicId, website],
   );
-  await seedEntitled(c.clinicId, { planId: "chat-web", planStartedAt: WINDOW_START, channelRows: [{ channel: "web", liveAt: WINDOW_START }] });
+  await seedEntitled(c.clinicId, { planId: "webchat-1000", planStartedAt: WINDOW_START, channelRows: [{ channel: "web", liveAt: WINDOW_START }] });
   await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
     await setPhoneSettings(tx, { publishedPhoneE164: "+14155550199" });
     await updateAgentConfig(tx, {

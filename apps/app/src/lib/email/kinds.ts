@@ -77,6 +77,8 @@ export const NOTICE_KIND_REGISTRY = {
   cancel_reversed: kind("E1", "transactional", "normal", null, "any_hour", "package_c"),
   canceled: kind("E2", "transactional", "normal", null, "any_hour", "package_c"),
   renewal_upcoming: kind("L27", "transactional", "normal", null, "daytime", "package_c"),
+  // The first usage alert, at USAGE_ALERT_PERCENT: 90% since 13 October 2026.
+  // The kind kept its old name, a key in two CHECK constraints.
   usage_80: kind("L27", "transactional", "normal", "usage_alerts", "any_hour", "package_c"),
   usage_100: kind("L27", "transactional", "normal", "usage_alerts", "any_hour", "package_c"),
   overage_invoiced: kind("L27", "transactional", "normal", null, "any_hour", "package_c"),

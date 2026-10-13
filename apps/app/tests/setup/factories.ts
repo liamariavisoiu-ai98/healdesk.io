@@ -181,7 +181,10 @@ export type SeedChannelRow = {
 };
 
 export type SeedEntitledOptions = {
-  /** The package on `plan_code`: the one Stripe bills. Default "complete". */
+  /**
+   * The plan on `plan_code`: the one Stripe bills. Default
+   * "voice-metachat-1000-1000", every channel (the old "complete").
+   */
   planId?: string;
   /**
    * The package bought (`bought_plan_id`), which decides `channels_enabled`.
@@ -264,7 +267,7 @@ export async function seedEntitled(
   ) {
     throw new Error("seedEntitled: a legacy row has no bought package and no plan start.");
   }
-  const plan = getPlan(options.planId ?? "complete");
+  const plan = getPlan(options.planId ?? "voice-metachat-1000-1000");
   if (!plan) throw new Error(`seedEntitled: no plan ${options.planId}`);
   const bought = options.legacy ? null : getPlan(options.boughtPlanId ?? plan.id);
   if (!options.legacy && !bought) throw new Error(`seedEntitled: no plan ${options.boughtPlanId}`);
@@ -561,7 +564,7 @@ export async function seedLegacyClinic(
   ).toLowerCase();
   const contactName = options.contactName ?? (demo ? "Ops Operator" : "Alex Chen");
   const name = options.name ?? `${label} ${demo ? "Demo Practice" : "Med Spa"} ${suffix}`;
-  const plan = getPlan(options.plan ?? "complete");
+  const plan = getPlan(options.plan ?? "voice-metachat-1000-1000");
   if (!plan) throw new Error(`seedLegacyClinic: no plan ${options.plan}`);
   const v122 = getBaaTemplate("1.2.2")!;
   const signed = await signAgreement(

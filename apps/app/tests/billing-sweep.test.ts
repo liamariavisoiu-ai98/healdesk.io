@@ -118,7 +118,7 @@ describeDb("billing sweep", () => {
     lapsed = (await seedClinic("lapsed")).clinicId;
     await withTenant({ clinicId: lapsed, actor: { type: "system" } }, async (tx) => {
       await seedEntitlements(tx.db, lapsed, {
-        plan: getPlan("web-voice")!,
+        plan: getPlan("voice-webchat-1000-1000")!,
         interval: "month",
         stripeCustomerId: "cus_lapsed",
         stripeSubscriptionId: "sub_lapsed",
@@ -132,7 +132,7 @@ describeDb("billing sweep", () => {
     annual = (await seedClinic("annual")).clinicId;
     await withTenant({ clinicId: annual, actor: { type: "system" } }, async (tx) => {
       await seedEntitlements(tx.db, annual, {
-        plan: getPlan("complete")!,
+        plan: getPlan("voice-metachat-1000-1000")!,
         interval: "year",
         stripeCustomerId: "cus_annual",
         stripeSubscriptionId: "sub_annual",
@@ -140,7 +140,7 @@ describeDb("billing sweep", () => {
       await recordFirstInvoice(tx.db, annual, {
         periodStart: yearStart,
         periodEnd: addMonthsUtc(yearStart, 12),
-        setupFeePaidUsd: 997,
+        setupFeePaidUsd: 1_394,
       });
       await transition(tx, "active", { actor: "system", reason: "test" });
     });

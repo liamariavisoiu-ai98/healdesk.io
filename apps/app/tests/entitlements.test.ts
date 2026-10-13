@@ -26,8 +26,8 @@ import { inTenant, seedClinic } from "./setup/factories";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
-const metaVoice = getPlan("meta-voice")!;
-const voiceOnly = getPlan("voice")!;
+const metaVoice = getPlan("voice-metachat-500-300")!;
+const voiceOnly = getPlan("voice-500")!;
 
 describeDb("entitlements", () => {
   let clinicA: string;
@@ -79,10 +79,10 @@ describeDb("entitlements", () => {
 
     // A subscription to wait on, so provisioning until the first invoice.
     expect(row.status).toBe("provisioning");
-    expect(row.plan_code).toBe("meta-voice");
+    expect(row.plan_code).toBe("voice-metachat-500-300");
     expect(row.billing_interval).toBe("month");
-    // The Meta twin of "Web OR Meta + Voice": the package id alone decides.
-    expect(row.channels_enabled).toEqual({ web: false, meta: true, voice: true });
+    // AYA Meta Chat answers on the website too: the package id alone decides.
+    expect(row.channels_enabled).toEqual({ web: true, meta: true, voice: true });
     expect(row.included_voice_minutes).toBe(metaVoice.includedVoiceMinutes);
     expect(row.included_chat_conversations).toBe(
       metaVoice.includedChatConversations,
@@ -162,7 +162,7 @@ describeDb("entitlements", () => {
         [clinicB],
       ),
     );
-    expect(plan.rows[0]!.plan_code).toBe("voice");
+    expect(plan.rows[0]!.plan_code).toBe("voice-500");
   });
 
   test("with no tenant set, the runtime role sees nothing at all", async () => {

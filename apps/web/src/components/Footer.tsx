@@ -28,6 +28,8 @@ import { site } from "@/lib/site";
  *   only" label; the legal pages still label it.
  * - Pricing, Subprocessors and Trust are no longer links: there is no pricing
  *   page, no public vendor list, and Trust is the closing annex of the Terms.
+ *   (Pricing came back on 13 October 2026 with the step pricing, as the first
+ *   footer link; site.footerLinks.)
  * - The trademark line is the last and quietest thing on the page, below the
  *   copyright, rather than beside it.
  *

@@ -109,8 +109,8 @@ describe("usageSnapshot (pure)", () => {
     usedChatConversations: 100,
     includedVoiceMinutes: 1_000,
     includedChatConversations: 0,
-    boughtPlanId: "web-voice" as string | null,
-    planCode: "voice",
+    boughtPlanId: "voice-webchat-1000-1000" as string | null,
+    planCode: "voice-1000",
     locations: 1,
     overageMode: "allow" as "allow" | "hard_cap",
     currentPeriodStart: WINDOW_START as Date | null,
@@ -125,15 +125,15 @@ describe("usageSnapshot (pure)", () => {
         included: 1_000,
         remaining: 0,
         overUnits: 200,
-        // Two started blocks of 100 at the bought Web + Voice package's $80 a block.
-        overageCents: 2 * 8_000,
+        // Two started blocks of 100 at the bought Voice + Web Chat package's $104 a block.
+        overageCents: 2 * 10_400,
         percent: 120,
         windowStart: WINDOW_START.toISOString(),
         windowEnd: WINDOW_END.toISOString(),
         isWindowOpen: true,
       },
       {
-        // Billed as Voice, bought Web + Voice: chat is measured against the
+        // Billed as Voice, bought Voice + Web Chat: chat is measured against the
         // bought package's 1,000 conversations, never against 0 (BD5).
         meter: "chat_conversations",
         used: 100,
@@ -153,49 +153,56 @@ describe("usageSnapshot (pure)", () => {
     const voiceAt = (usedVoiceMinutes: string) =>
       usageSnapshot({ ...row, usedVoiceMinutes }, IN_WINDOW)[0]!;
     expect(voiceAt("1000")).toMatchObject({ overUnits: 0, overageCents: 0 });
-    expect(voiceAt("1001")).toMatchObject({ overUnits: 1, overageCents: 8_000 });
-    expect(voiceAt("1100")).toMatchObject({ overUnits: 100, overageCents: 8_000 });
-    expect(voiceAt("1101")).toMatchObject({ overUnits: 101, overageCents: 16_000 });
-    // $240 for 250 minutes, where per minute it would have read $200.
-    expect(voiceAt("1250")).toMatchObject({ overUnits: 250, overageCents: 24_000 });
+    expect(voiceAt("1001")).toMatchObject({ overUnits: 1, overageCents: 10_400 });
+    expect(voiceAt("1100")).toMatchObject({ overUnits: 100, overageCents: 10_400 });
+    expect(voiceAt("1101")).toMatchObject({ overUnits: 101, overageCents: 20_800 });
+    // $312 for 250 minutes, where per minute it would have read $260.
+    expect(voiceAt("1250")).toMatchObject({ overUnits: 250, overageCents: 31_200 });
 
-    // Chat on a single-channel chat package is $40 a block of 100 conversations.
+    // Chat on AYA Web Chat is $52 a block of 100 conversations.
     const [, chat] = usageSnapshot(
       {
         ...row,
-        boughtPlanId: "chat-web",
-        planCode: "chat-web",
+        boughtPlanId: "webchat-1000",
+        planCode: "webchat-1000",
         includedVoiceMinutes: 0,
         includedChatConversations: 1_000,
         usedChatConversations: 1_101,
       },
       IN_WINDOW,
     );
-    expect(chat).toMatchObject({ overUnits: 101, overageCents: 8_000 });
+    expect(chat).toMatchObject({ overUnits: 101, overageCents: 10_400 });
   });
 
   test("the block price a meter quotes is the bought package's, and a meter it lacks has none", () => {
-    const webVoice = { boughtPlanId: "web-voice" as string | null, planCode: "voice" };
-    expect(overageBlockCentsFor(webVoice, "voice_minutes")).toBe(8_000);
-    expect(overageBlockCentsFor(webVoice, "chat_conversations")).toBe(3_000);
-    const chatWeb = { boughtPlanId: "chat-web" as string | null, planCode: "chat-web" };
-    expect(overageBlockCentsFor(chatWeb, "chat_conversations")).toBe(4_000);
+    const webVoice = {
+      boughtPlanId: "voice-webchat-1000-1000" as string | null,
+      planCode: "voice-1000",
+    };
+    expect(overageBlockCentsFor(webVoice, "voice_minutes")).toBe(10_400);
+    expect(overageBlockCentsFor(webVoice, "chat_conversations")).toBe(5_200);
+    const chatWeb = { boughtPlanId: "webchat-1000" as string | null, planCode: "webchat-1000" };
+    expect(overageBlockCentsFor(chatWeb, "chat_conversations")).toBe(5_200);
     expect(overageBlockCentsFor(chatWeb, "voice_minutes")).toBe(0);
-    // A legacy row reads its billed package; a package that left the catalog bills nothing.
-    expect(overageBlockCentsFor({ boughtPlanId: null, planCode: "voice" }, "voice_minutes")).toBe(
-      8_000,
-    );
-    const retired = { boughtPlanId: null, planCode: "chat-voice" };
+    // Meta Chat's block is its own, whatever the step.
+    const metaChat = { boughtPlanId: "metachat-300" as string | null, planCode: "webchat-300" };
+    expect(overageBlockCentsFor(metaChat, "chat_conversations")).toBe(7_800);
+    // A legacy row reads its billed package; a package that left the catalog
+    // (one of the fixed packages of 5 October) bills nothing.
+    expect(
+      overageBlockCentsFor({ boughtPlanId: null, planCode: "voice-1000" }, "voice_minutes"),
+    ).toBe(10_400);
+    const retired = { boughtPlanId: null, planCode: "complete" };
     expect(overageBlockCentsFor(retired, "voice_minutes")).toBe(0);
     expect(overageChargeCentsFor(retired, "voice_minutes", 150)).toBe(0);
     expect(overageChargeCentsFor(chatWeb, "voice_minutes", 0)).toBe(0);
-    expect(overageChargeCentsFor(webVoice, "chat_conversations", 250)).toBe(9_000);
+    expect(overageChargeCentsFor(webVoice, "chat_conversations", 250)).toBe(15_600);
   });
 
   test("no overage in dollars under Stop and fall back, a meter not sold has no allowance, and no window before the start", () => {
     const [capped] = usageSnapshot({ ...row, overageMode: "hard_cap" }, IN_WINDOW);
     expect(capped).toMatchObject({ overUnits: 200, overageCents: 0 });
-    const [, chat] = usageSnapshot({ ...row, boughtPlanId: "voice" }, IN_WINDOW);
+    const [, chat] = usageSnapshot({ ...row, boughtPlanId: "voice-1000" }, IN_WINDOW);
     expect(chat).toMatchObject({ included: 0, overUnits: 0, overageCents: 0, percent: null });
     const [notStarted] = usageSnapshot(
       { ...row, currentPeriodStart: null, currentPeriodEnd: null },
@@ -359,10 +366,10 @@ describeDb("recordUsage against the database", () => {
 
   test("a channel bought but not yet billed counts against the bought allowance, not 0 (BD5)", async () => {
     const c = await seedClinic("usage-bd5");
-    // Bought Web + Voice, billed as AYA Web Chat while the phone was set up.
+    // Bought Voice + Web Chat, billed as AYA Web Chat while the phone was set up.
     await seedEntitled(c.clinicId, {
-      planId: "chat-web",
-      boughtPlanId: "web-voice",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
       planStartedAt: WINDOW_START,
     });
     expect(await recordUsage(voice(c.clinicId, 6))).toMatchObject({
@@ -402,12 +409,19 @@ describeDb("recordUsage against the database", () => {
     const c = await seedClinic("usage-allow");
     await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
     await setUsed(c.clinicId, 790);
+    // 80% is not a mark since 13 October 2026: the alert is at 90%.
     expect(await recordUsage(voice(c.clinicId, 20))).toMatchObject({
       overAllowance: 0,
-      crossed: [80],
+      crossed: [],
     });
-    expect(await recordUsage(voice(c.clinicId, 230))).toMatchObject({
+    expect(await recordUsage(voice(c.clinicId, 90))).toMatchObject({
       usedBefore: 810,
+      usedAfter: 900,
+      overAllowance: 0,
+      crossed: [90],
+    });
+    expect(await recordUsage(voice(c.clinicId, 140))).toMatchObject({
+      usedBefore: 900,
       usedAfter: 1_040,
       overAllowance: 40,
       crossed: [100],
@@ -493,7 +507,7 @@ describeDb("recordUsage against the database", () => {
 
   test("a chat conversation is counted once however many messages it carries", async () => {
     const c = await seedClinic("usage-chat");
-    await seedEntitled(c.clinicId, { planId: "chat-web", planStartedAt: WINDOW_START });
+    await seedEntitled(c.clinicId, { planId: "webchat-1000", planStartedAt: WINDOW_START });
     const ref = identifierRef("chat_conversation", c.clinicId, randomUUID());
     const chat = (occurredAt: Date): RecordUsageInput => ({
       locationClinicId: c.clinicId,

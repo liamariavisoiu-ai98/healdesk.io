@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { BOOKING_SYSTEMS } from "./booking-systems";
 import { getPlatform } from "./platforms";
-import { getPlan, plans } from "./plans";
+import { allPlans, getPlan } from "./plans";
 import { agreementPlatformFor, cleanWebsite, planNeedsWebsite } from "./purchase";
 
 /**
@@ -40,13 +40,13 @@ describe("cleanWebsite", () => {
 });
 
 describe("the website rule", () => {
-  test("exactly the packages with website chat need a website", () => {
-    const needing = plans.filter(planNeedsWebsite).map((plan) => plan.id);
-    expect(needing).toEqual(["chat-web", "chat-dual", "web-voice", "complete"]);
+  test("exactly the plans whose only chat is website chat need a website", () => {
+    const needing = new Set(allPlans().filter(planNeedsWebsite).map((plan) => plan.packageId));
+    expect([...needing]).toEqual(["webchat", "voice-webchat"]);
   });
 
-  test("a practice with no website can still buy the phone and the Meta bot", () => {
-    for (const id of ["voice", "chat-meta", "meta-voice"]) {
+  test("a practice with no website can still buy voice and Meta Chat", () => {
+    for (const id of ["voice-500", "metachat-300", "voice-metachat-500-300"]) {
       expect(planNeedsWebsite(getPlan(id)!), id).toBe(false);
     }
   });

@@ -1,4 +1,11 @@
-import { plans } from "@healdesk/catalog";
+import {
+  ANNUAL_DISCOUNT_PERCENT,
+  DEMO_SETUP_CREDIT,
+  PACKAGES,
+  packageSetupFeeUsd,
+  PRODUCTS,
+  SITE_SETUP_CREDIT,
+} from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import { PRACTICES } from "./knowledge";
@@ -127,9 +134,13 @@ describe("how she sells", () => {
     expect(risk).toContain("Never add to it.");
   });
 
-  test.each(DIRECTIONS)("%s: no discount, no invented urgency, no invented proof", (direction) => {
+  test.each(DIRECTIONS)("%s: no discount beyond the website's, no invented urgency, no invented proof", (direction) => {
     const prompt = text(direction);
-    expect(prompt).toContain("Never discount and never hint at one.");
+    // Since 13 October 2026 the website offers anyone two ways to pay less,
+    // annual billing and its setup offer; those are on THE PRICE LIST, and
+    // nothing else may be offered or hinted at.
+    expect(prompt).toContain("Never offer a discount beyond THE PRICE LIST's, and only if asked.");
+    expect(prompt).toContain("Asked for a discount: the ways to pay less on THE PRICE LIST, nothing else.");
     expect(prompt).toContain("Don't invent urgency");
     expect(prompt).toContain("Never invent a statistic, a customer, a result or a testimonial");
     // She once opened with "Many clinics find that...": proof nobody measured.
@@ -138,50 +149,80 @@ describe("how she sells", () => {
 });
 
 describe("price, precisely", () => {
-  test("every package is on the list at the catalog's figures", () => {
-    for (const plan of plans) {
-      const line = VOICE_DEMO_PRICES.split("\n").find((l) => l.includes(`${plan.name}:`));
-      expect(line, plan.name).toBeDefined();
-      expect(line).toContain(`$${plan.monthlyUsd.toLocaleString("en-US")} a month`);
-      expect(line).toContain(`$${plan.annualMonthlyUsd.toLocaleString("en-US")} a month billed yearly`);
-      expect(line).toContain(`$${plan.setupFeeUsd.toLocaleString("en-US")} one-time setup`);
+  const list = flat(VOICE_DEMO_PRICES);
+
+  test("every product is on the list at the catalog's figures, per 100", () => {
+    // The owner's sheet of 13 October 2026: three products priced per step
+    // of 100, not a list of fixed packages.
+    for (const product of Object.values(PRODUCTS)) {
+      const line = VOICE_DEMO_PRICES.split("\n").find((l) => l.includes(`${product.name}`) && l.includes("one-time setup"));
+      expect(line, product.name).toBeDefined();
+      expect(line).toContain(`$${product.perStepMonthlyUsd} a month per 100 `);
+      expect(line).toContain(`($${product.perStepAnnualMonthlyUsd} billed yearly)`);
+      expect(line).toContain(`$${product.setupFeeUsd.toLocaleString("en-US")} one-time setup`);
     }
   });
 
-  test("it never multiplies by locations, and sends a second location to the team", () => {
-    expect(flat(VOICE_DEMO_PRICES)).toContain("Never multiply a price by their locations and never guess.");
-    expect(flat(VOICE_DEMO_PRICES)).toContain("each extra location is quoted by the team");
+  test("every package is named, with a combined package's setup fee", () => {
+    // request_follow_up's recommended_package is "by its name from the price
+    // list", and the follow-up route matches these names.
+    for (const pkg of PACKAGES) {
+      expect(list, pkg.name).toContain(pkg.name);
+      if (pkg.voice && pkg.chat) {
+        expect(list).toContain(`${pkg.name} ($${packageSetupFeeUsd(pkg).toLocaleString("en-US")} setup)`);
+      }
+    }
+    expect(list).toContain("Steps of 100, from 100 to 1,500 a month");
+    expect(list).toContain("Example: 500 phone minutes is $400 a month.");
+  });
+
+  test("the only discounts are the website's, and never the personalised demo's", () => {
+    expect(list).toContain(
+      `The only ways to pay less: yearly billing, ${ANNUAL_DISCOUNT_PERCENT} percent off; and buying on healdesk dot io, ${SITE_SETUP_CREDIT.percentOfSetupFee} percent off setup for ${SITE_SETUP_CREDIT.validHours} hours from first seeing the prices there.`,
+    );
+    // Half off setup belongs to a personalised demo the clinic asked for.
+    for (const direction of DIRECTIONS) {
+      expect(text(direction)).not.toMatch(new RegExp(`\\b${DEMO_SETUP_CREDIT.percentOfSetupFee}(?: percent|%)`));
+      expect(text(direction)).not.toMatch(/\bhalf (?:off|the setup)/i);
+    }
+  });
+
+  test("it never multiplies by locations, and says each is the same plan again", () => {
+    expect(list).toContain("Never multiply a price by their locations.");
+    expect(list).toContain("MORE THAN ONE LOCATION: each is the same plan price again, plus its setup fee.");
+    expect(text("outbound")).toContain('"Prices are per location. Each one is the same plan again, plus its setup fee."');
   });
 
   test.each(DIRECTIONS)("%s: no real price appears as an example figure, where she would anchor on it", (direction) => {
     // Real figures live only in THE PRICE LIST, as dollars. Spoken-form
     // examples ("eight ninety-seven") once surfaced as the wrong package's
-    // price mid-sentence.
-    const outsideList = text(direction).replace(flat(VOICE_DEMO_PRICES), "");
-    const spoken = /\b(three|four|five|six|seven|eight|nine|eleven) (ninety-seven|seventeen|thirty-seven|fifty-seven|seventy-seven)\b/i;
+    // price mid-sentence. These are the sheet's setup fees, said aloud.
+    const outsideList = text(direction).replace(list, "");
+    const spoken = /\b(six|two|nine|thirteen) (ninety-seven|fifty-nine|fifty-six|ninety-four)\b|\bfour hundred a month\b/i;
     expect(outsideList).not.toMatch(spoken);
   });
 
   test("overage is called provisional, as copy must", () => {
-    expect(flat(VOICE_DEMO_PRICES)).toContain("These overage rates are provisional");
+    expect(list).toContain("These overage rates are provisional");
   });
 
   test("overage is quoted per started block of 100, as it is billed, never per minute", () => {
     // The owner's decision of 6 October 2026 (docs/v1-product-spec.md,
-    // "Overage prices"). src/lib/overage-copy.test.ts holds the block and its
-    // prices to the catalog.
-    expect(flat(VOICE_DEMO_PRICES)).toContain(
-      "Beyond the included amount, overage is billed in blocks of 100: $80 for each started block " +
-        "of 100 extra phone minutes, and $30 or $40 for each started block of 100 extra chat " +
+    // "Overage prices"), at the extra-100 prices of 13 October.
+    // src/lib/overage-copy.test.ts holds the block and its prices to the
+    // catalog.
+    expect(list).toContain(
+      "Beyond the included amount, overage is billed in blocks of 100: $104 for each started block " +
+        "of 100 extra phone minutes, and $52 or $78 for each started block of 100 extra chat " +
         "conversations, depending on the package. A block is charged in full once it is started.",
     );
-    expect(flat(VOICE_DEMO_PRICES)).not.toMatch(
+    expect(list).not.toMatch(
       /\ba phone minute|\ba voice minute|\ba chat conversation|\bper minute|\bper conversation|\/min\b|\$0\./i,
     );
   });
 
   test.each(DIRECTIONS)("%s: the price list and the risk reversal are both in the prompt", (direction) => {
-    expect(text(direction)).toContain(flat(VOICE_DEMO_PRICES));
+    expect(text(direction)).toContain(list);
     expect(text(direction)).toContain(flat(VOICE_DEMO_RISK_REVERSAL));
   });
 });

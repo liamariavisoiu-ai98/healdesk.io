@@ -2,6 +2,7 @@ import { getPlan, planStartSentence, type BillingInterval } from "@healdesk/cata
 
 import { formatReplyBy } from "@/lib/reply-by";
 
+import { includedEachMonth } from "./billing-copy";
 import { compose, EmailCompositionError } from "./compose";
 import type { TemplateEntry } from "./registry";
 import type { EmailTemplate } from "./types";
@@ -12,9 +13,10 @@ import type { EmailTemplate } from "./types";
  *
  * The buyer has paid and has no account, and /welcome has just told them
  * we'll write by a named day. This email says the same in writing, with the
- * order's terms (B1's: what was bought, and when billing starts), so the
- * terms are on record from the first day even though the welcome email has
- * to wait for the account. Ops is told separately (notifyOps).
+ * order's terms (B1's: what was bought, at which steps, and when billing
+ * starts), so the terms are on record from the first day even though the
+ * welcome email has to wait for the account. Ops is told separately
+ * (notifyOps).
  */
 
 export type OrderConfirmedDelayedPayload = {
@@ -50,7 +52,8 @@ export const renderOrderConfirmedDelayed: EmailTemplate<OrderConfirmedDelayedPay
         {
           type: "facts",
           rows: [
-            ["Package", plan.name],
+            ["Package", plan.packageName],
+            ["Included each month", includedEachMonth(plan)],
             ["Billing", payload.interval === "year" ? "Annual" : "Monthly"],
           ],
         },
@@ -70,5 +73,5 @@ export const renderOrderConfirmedDelayed: EmailTemplate<OrderConfirmedDelayedPay
 
 export const ORDER_CONFIRMED_DELAYED_ENTRY: TemplateEntry<OrderConfirmedDelayedPayload> = {
   render: renderOrderConfirmedDelayed,
-  fixture: { planId: "web-voice", interval: "month", replyByOn: "2026-10-07" },
+  fixture: { planId: "voice-webchat-500-300", interval: "month", replyByOn: "2026-10-07" },
 };

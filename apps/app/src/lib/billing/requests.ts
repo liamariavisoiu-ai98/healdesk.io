@@ -1116,7 +1116,7 @@ async function planStartWorker(attempt: Attempt): Promise<WorkerResult> {
       if (row.pendingPlanChangeRequestId !== null) return defer(MUTATION_LEASE_WAIT_MS);
       const bought = boughtPlanOf(row);
       if (!bought) return { type: "fail", code: "unknown_plan", permanent: true };
-      const billed = planForChannels([...group.inService].filter((c) => bought.channels[c]));
+      const billed = planForChannels(bought, group.inService);
       if (!billed) return skip("nothing_to_bill");
       if (!(await attempt.holdMutationLease(tx))) return defer(MUTATION_LEASE_WAIT_MS);
       return { type: "proceed", value: { row, bought, billed } };
@@ -1335,11 +1335,7 @@ async function stepUpWorker(attempt: Attempt): Promise<WorkerResult> {
   if (!item) return { type: "fail", code: "no_package_item", permanent: false };
   const current = item.plan;
   const interval = item.interval;
-  const target = planForChannels(
-    [...new Set([...channelList(current), ...group.inService, channel])].filter(
-      (c) => bought.channels[c],
-    ),
-  );
+  const target = planForChannels(bought, [...channelList(current), ...group.inService, channel]);
   if (!target) return skip("nothing_to_bill");
   if (target.id === current.id) {
     // Our own marker: an earlier attempt's update went through and its

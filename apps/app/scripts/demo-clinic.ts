@@ -8,8 +8,8 @@ import { createDemoClinic, existingDemoClinics } from "../src/lib/onboarding/dem
  *
  *   npm run demo-clinic -w @healdesk/app -- --name "<fictional practice>" --email <operator address> --operator "<your name>"
  *
- * Optional: --timezone <IANA zone> (default America/New_York), --plan <package id>
- * (default complete).
+ * Optional: --timezone <IANA zone> (default America/New_York), --plan <plan id>
+ * (a package at its steps; default voice-metachat-500-300, every channel).
  *
  * What it does, in order (src/lib/onboarding/demo-clinic.ts has the why):
  *
@@ -41,7 +41,7 @@ function arg(name: string): string | undefined {
 function usage(message: string): never {
   console.error(`[healdesk] ${message}`);
   console.error(
-    'Usage: npm run demo-clinic -w @healdesk/app -- --name "<fictional practice>" --email <operator address> --operator "<your name>" [--timezone <IANA zone>] [--plan <package id>]',
+    'Usage: npm run demo-clinic -w @healdesk/app -- --name "<fictional practice>" --email <operator address> --operator "<your name>" [--timezone <IANA zone>] [--plan <plan id, e.g. voice-metachat-500-300>]',
   );
   process.exit(2);
 }

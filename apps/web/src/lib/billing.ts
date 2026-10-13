@@ -1,15 +1,18 @@
 import {
   type BillingInterval,
   COHORT_SETUP_CREDIT,
+  DEMO_SETUP_CREDIT,
   OVERAGE_RATES_PROVISIONAL,
   type Plan,
   PLAN_START_PLACEHOLDER_LOOKUP_KEY,
   planMeteredPrices,
   planStartSentence,
   type PriceKind,
+  type SetupCredit,
+  setupCouponId,
+  SITE_SETUP_CREDIT,
   stripeLookupKey,
-  DEMO_SETUP_CREDITS,
-  type DemoSetupCredit,
+  SELF_SERVE_DEMO_SETUP_CREDIT,
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
@@ -26,41 +29,59 @@ import { normalizeSiteUrl } from "@/lib/site";
  * ## What a Session charges (the deferred start, contracts §2)
  *
  * Two line items on one subscription-mode Session: the package's one-time
- * setup fee, and a $0 monthly price, "Monthly plan: starts when AYA first
+ * setup fee (one price per package, whatever steps were chosen), and a $0
+ * monthly price, "Monthly plan: starts when AYA first
  * answers" (`PLAN_START_PLACEHOLDER_LOOKUP_KEY`). Stripe bills the one-time
  * price on the first invoice only
  * (https://docs.stripe.com/payments/checkout/subscriptions/one-time-fees); the
  * $0 line makes the subscription that holds the card and bills nothing until
  * the day AYA first answers a patient, when apps/app swaps it for the
- * package's price (Package C). So "Due today" is the setup fee alone.
+ * plan's price, the package at the steps bought (Package C). So "Due today"
+ * is the setup fee alone, after any setup credit.
  *
  * No trial anywhere. Stripe would treat a trial as one, with the card networks'
  * trial rules and Stripe's "TRIAL OVER" statement wording behind it, and the
  * wait here gives nothing free. Nothing in this module may reintroduce
  * `trial_end`.
  *
- * Subscription mode even when the setup credit brings the total to $0: payment
+ * Subscription mode even when a setup credit brings the total to $0: payment
  * mode collects no card for a $0 total, and the plan's first period needs one.
  * The Session's custom text carries the plan-start sentence and says the setup
  * fee is non-refundable, the two facts a buyer needs at the moment they pay.
  *
  * ## No metered prices at checkout
  *
- * The overage meters only make sense beside a package price, so they join the
+ * The overage meters only make sense beside a plan price, so they join the
  * subscription with it at the plan start, never at checkout.
- * `meteredLookupKeysFor()` keeps the rules for which apply: none while
- * `OVERAGE_RATES_PROVISIONAL` is true, the package's own on a monthly plan,
- * and none on an annual one, whose overage is invoiced separately (the
- * 21 September 2026 decision in docs/handover.md).
+ * `meteredLookupKeysFor()` keeps the rules for which apply: the package's own
+ * on a monthly plan, and none on an annual one, whose overage is invoiced
+ * separately (the 21 September 2026 decision in docs/handover.md).
  *
- * ## The setup credit
+ * ## The setup credits: one offer, the strongest
  *
- * Day 7 of the nurture sequence offers the setup fee back (packages/catalog
- * `COHORT_SETUP_CREDIT`). It is a Stripe coupon per package, `amount_off`
- * equal to that package's setup fee and `duration: "once"`, created by
- * `stripe:setup` and attached here only when the checkout route established
- * the lead was offered it within the window. The setup-fee line stays on the
- * Session, so the invoice shows the fee and the credit.
+ * Three offers take a share of the setup fee off (packages/catalog; owner,
+ * 13 October 2026), and a Session carries at most one, the strongest that
+ * holds (`chooseSetupOffer`):
+ *
+ *   - "cohort-setup": the whole fee, offered by Day 7 of the nurture
+ *     sequence to one lead, for 14 days (`COHORT_SETUP_CREDIT`);
+ *   - "demo-setup-50": half, for a clinic buying from the personalised demo
+ *     it was sent, for 48 hours from the demo being ready (`DEMO_SETUP_CREDIT`);
+ *   - "site-setup-30": 30%, for anyone buying through the website, for 48
+ *     hours from first being shown it (`SITE_SETUP_CREDIT`, lib/site-offer.ts).
+ *
+ * Each is a Stripe coupon per package (`setupCouponId`), `amount_off` the
+ * credit in whole dollars after the catalog's rounding and `duration:
+ * "once"`, created by `stripe:setup`. The checkout route decides which applies
+ * from server-side facts only (the lead row, the demo row, the signed offer
+ * cookie), never from anything the browser says. The setup-fee line stays on
+ * the Session, so the invoice shows the fee and the credit.
+ *
+ * Sessions created before 13 October named "demo-setup-half" and a coupon per
+ * 5 October package. Nothing reads the offer back from a Session (the webhook
+ * reads only the plan, the demo and the setup request), and Stripe applies the
+ * coupon the Session was made with, so an in-flight Session needs nothing
+ * here.
  *
  * ## What Stripe carries
  *
@@ -71,8 +92,9 @@ import { normalizeSiteUrl } from "@/lib/site";
  * origin. The Session and its subscription carry `{ app, ref, plan,
  * billingInterval, attempt }`, which bind the payment to the terms of that
  * press, and the Session also carries the attribution ids the lead store
- * reads back: campaign, lead and setup request. Ids and package names only:
- * no name, no address.
+ * reads back: campaign, lead, demo, setup request and the setup offer. Ids,
+ * plan ids (`voice-webchat-500-300`) and offer names only: no name, no
+ * address, nothing clinical.
  *
  * Cards only, as the contract says: a delayed method would complete the
  * Session, and spend the setup link, before any money had moved.
@@ -109,14 +131,8 @@ export type CheckoutIntent = {
   attribution?: {
     campaign: string | null;
     leadId: string | null;
-    /**
-     * "cohort-setup" when the lead was offered the founding-cohort credit
-     * inside its window; a demo credit's offer ("demo-setup-half" from an
-     * operator's demo, "demo-setup-30" from a homepage one) when the buyer
-     * came from a personalised demo still inside its week (catalog
-     * DEMO_SETUP_CREDITS).
-     */
-    offer?: "cohort-setup" | DemoSetupCredit["offer"] | null;
+    /** The setup credit this Session carries, if any; see the header. */
+    offer?: SetupOffer | null;
     /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
     demo?: string | null;
     /**
@@ -128,21 +144,53 @@ export type CheckoutIntent = {
   };
 };
 
-/** The coupon `stripe:setup` creates for one package's setup credit. */
-export function cohortCouponIdFor(plan: Plan): string {
-  return `${COHORT_SETUP_CREDIT.couponId}-${plan.id}`;
+/** The setup offers a Session can carry, strongest first; see the header. */
+export const SETUP_OFFERS = ["cohort-setup", "demo-setup-50", "demo-setup-30", "site-setup-30"] as const;
+export type SetupOffer = (typeof SETUP_OFFERS)[number];
+
+/** The catalog credit each offer is. */
+export const SETUP_OFFER_CREDITS: Readonly<Record<SetupOffer, SetupCredit>> = {
+  "cohort-setup": COHORT_SETUP_CREDIT,
+  "demo-setup-50": DEMO_SETUP_CREDIT,
+  "demo-setup-30": SELF_SERVE_DEMO_SETUP_CREDIT,
+  "site-setup-30": SITE_SETUP_CREDIT,
+};
+
+export function isSetupOffer(value: unknown): value is SetupOffer {
+  return typeof value === "string" && (SETUP_OFFERS as readonly string[]).includes(value);
 }
 
-/** The coupon `stripe:setup` creates for one package's demo-week credit, or null when the offer is not one. */
-export function demoCouponIdFor(plan: Plan, offer: string | null | undefined): string | null {
-  const credit = DEMO_SETUP_CREDITS.find((c) => c.offer === offer);
-  return credit ? `${credit.couponId}-${plan.id}` : null;
+/** The coupon `stripe:setup` creates for one offer on one plan's package. */
+export function setupCouponFor(offer: SetupOffer, plan: Plan): string {
+  return setupCouponId(SETUP_OFFER_CREDITS[offer], plan);
 }
 
-/** The setup credit's coupon on the Session, when the purchase carries one. */
-function setupDiscount(plan: Plan, offer: string | null | undefined): { discounts?: Array<{ coupon: string }> } {
-  const coupon = offer === "cohort-setup" ? cohortCouponIdFor(plan) : demoCouponIdFor(plan, offer);
-  return coupon ? { discounts: [{ coupon }] } : {};
+/** The demo offer a demo carries: 50% from an operator's, 30% from a homepage one (lib/demo `demoSetupCredit`). */
+export type DemoOffer = "demo-setup-50" | "demo-setup-30";
+
+export function demoOfferFor(credit: SetupCredit): DemoOffer {
+  return credit.couponId === SELF_SERVE_DEMO_SETUP_CREDIT.couponId ? "demo-setup-30" : "demo-setup-50";
+}
+
+/**
+ * The one setup offer that applies, from when each holds until (null for one
+ * that does not hold): the strongest, cohort over demo over website (owner,
+ * 13 October 2026). Only one ever applies; they never stack. A homepage
+ * demo's 30% and the website's 30% are the same share, so the demo's ranks
+ * first only because its clock is the one the buyer was shown. Pure, so the
+ * checkout route and /api/checkout/mode cannot rank them differently.
+ */
+export function chooseSetupOffer(ends: {
+  cohort: Date | null;
+  demo: Date | null;
+  /** Which demo offer `demo` is; the operator's 50% when not given. */
+  demoOffer?: DemoOffer;
+  site: Date | null;
+}): { offer: SetupOffer; endsAt: Date } | null {
+  if (ends.cohort) return { offer: "cohort-setup", endsAt: ends.cohort };
+  if (ends.demo) return { offer: ends.demoOffer ?? "demo-setup-50", endsAt: ends.demo };
+  if (ends.site) return { offer: "site-setup-30", endsAt: ends.site };
+  return null;
 }
 
 export type CheckoutResult =
@@ -280,11 +328,13 @@ export async function createCheckout(
       // On the subscription too, so every later invoice and subscription
       // event, the first invoice above all, can be traced back to the intent.
       subscription_data: { metadata: marker },
-      // Collect the card even on a $0 total (a setup credit): the plan's
+      // Collect the card even on a $0 total (the cohort credit): the plan's
       // first period is charged to it the day AYA first answers.
       payment_method_collection: "always",
       ...(process.env.STRIPE_AUTOMATIC_TAX === "true" ? { automatic_tax: { enabled: true } } : {}),
-      ...setupDiscount(input.plan, input.attribution?.offer),
+      // At most one setup credit, already chosen by the route; never more
+      // than one coupon, so the credits cannot stack.
+      ...(input.attribution?.offer ? { discounts: [{ coupon: setupCouponFor(input.attribution.offer, input.plan) }] } : {}),
       custom_text: {
         submit: {
           message: `${planStartSentence(input.plan, input.interval)} The setup fee is non-refundable.`,
@@ -361,9 +411,9 @@ export async function expireUnrecordedCheckout(sessionId: string): Promise<void>
 }
 
 /**
- * The metered overage prices a package can bill: the voice meter for a
- * package with voice, the chat meter for one with web or Meta, each at that
- * package's own rate. Pure, so the pairing is testable without Stripe. Which
+ * The metered overage prices a plan can bill: the voice meter for a package
+ * with voice, the chat meter for one with Web Chat or Meta Chat, each at that
+ * product's own rate. Pure, so the pairing is testable without Stripe. Which
  * of these a Session actually attaches is `meteredLookupKeysFor()`'s decision.
  */
 export function overageLookupKeys(plan: Plan): string[] {
@@ -371,10 +421,10 @@ export function overageLookupKeys(plan: Plan): string[] {
 }
 
 /**
- * The metered prices to put on a Session. None while the rates are
- * provisional; the package's meters for a monthly Session once they are not;
- * and none for an annual one, whose overage is invoiced separately — see the
- * header for all three.
+ * The metered prices a subscription on this plan carries once it starts. None
+ * while `OVERAGE_RATES_PROVISIONAL` is true; the plan's meters on a monthly
+ * plan once it is not; and none on an annual one, whose overage is invoiced
+ * separately — see the header.
  */
 export function meteredLookupKeysFor(
   plan: Plan,
@@ -387,7 +437,7 @@ export function meteredLookupKeysFor(
 
 /**
  * Resolve a catalog plan to one of its Stripe prices: the monthly or annual
- * recurring price, or the one-time setup fee.
+ * recurring price, or the one-time setup fee (its package's).
  *
  * By `lookup_key`, not by a price id in an env var: an env var is a second
  * place for the price to live and a second place for it to be wrong, and the

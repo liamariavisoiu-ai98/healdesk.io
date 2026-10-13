@@ -65,8 +65,8 @@ describeDb("billing summary and previews", () => {
     __setStripeForTests(fake.stripe);
     const billing = await seedClinic("summary-group");
     await seedEntitled(billing.clinicId, {
-      planId: "chat-web",
-      boughtPlanId: "web-voice",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
       locations: 2,
       planStartedAt: STARTED,
       channelRows: [
@@ -92,8 +92,8 @@ describeDb("billing summary and previews", () => {
     expect(summary).toEqual({
       billingClinicId: billing.clinicId,
       status: "active",
-      boughtPlanId: "web-voice",
-      billedPlanId: "chat-web",
+      boughtPlanId: "voice-webchat-1000-1000",
+      billedPlanId: "webchat-1000",
       interval: "month",
       locations: 2,
       isPlanStarted: true,
@@ -140,8 +140,8 @@ describeDb("billing summary and previews", () => {
   test("the meters carry the overage as it will be billed: started blocks at the BOUGHT package's rate, and nothing under the hard cap", async () => {
     const clinic = await seedClinic("summary-overage");
     await seedEntitled(clinic.clinicId, {
-      planId: "chat-web",
-      boughtPlanId: "web-voice",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-metachat-1000-1000",
       planStartedAt: STARTED,
       channelRows: [
         { channel: "web", firstAnswerAt: STARTED, liveAt: STARTED },
@@ -166,9 +166,9 @@ describeDb("billing summary and previews", () => {
         used: 1_250,
         included: 1_000,
         overUnits: 250,
-        // Three started blocks of 100 at $80: $240, where units times the
-        // $0.80 rate would show $200.
-        overageCents: 24_000,
+        // Three started blocks of 100 at $104: $312, where units times the
+        // $1.04 rate would show $260.
+        overageCents: 31_200,
         ...window,
       },
       {
@@ -176,9 +176,9 @@ describeDb("billing summary and previews", () => {
         used: 1_101,
         included: 1_000,
         overUnits: 101,
-        // Two blocks at Web + Voice's $30, the package bought, not the $40 of
-        // the AYA Web Chat it is billed as.
-        overageCents: 6_000,
+        // Two blocks at Voice + Meta Chat's $78, the package bought, not the
+        // $52 of the AYA Web Chat it is billed as.
+        overageCents: 15_600,
         ...window,
       },
     ]);
@@ -204,7 +204,10 @@ describeDb("billing summary and previews", () => {
   test("before the start nothing is billed, and an account set to close shows the earlier of cancel_at and the setup deadline", async () => {
     const clinic = await seedClinic("summary-pre");
     const deadline = new Date("2026-10-30T23:59:59Z");
-    await seedEntitled(clinic.clinicId, { planId: "complete", setupDeadlineAt: deadline });
+    await seedEntitled(clinic.clinicId, {
+      planId: "voice-metachat-1000-1000",
+      setupDeadlineAt: deadline,
+    });
     await withTenant({ clinicId: clinic.clinicId, actor }, (tx) =>
       setCancelAt(tx.db, clinic.clinicId, new Date("2026-11-01T00:00:00Z")),
     );
@@ -228,16 +231,19 @@ describeDb("billing summary and previews", () => {
 
   test("the next invoice is Stripe's own preview; before the start there is none to show", async () => {
     const clinic = await seedClinic("next-invoice");
-    const ids = await seedEntitled(clinic.clinicId, { planId: "chat-web", planStartedAt: STARTED });
+    const ids = await seedEntitled(clinic.clinicId, {
+      planId: "webchat-1000",
+      planStartedAt: STARTED,
+    });
     const fake = createStripeFake({
       "invoices.createPreview": () => ({
-        amount_due: 39_700,
+        amount_due: 40_000,
         next_payment_attempt: null,
         period_end: s(new Date("2026-11-07T00:00:00Z")),
         lines: {
           data: [
             {
-              amount: 39_700,
+              amount: 40_000,
               period: {
                 start: s(new Date("2026-11-07T00:00:00Z")),
                 end: s(new Date("2026-12-07T00:00:00Z")),
@@ -254,7 +260,7 @@ describeDb("billing summary and previews", () => {
     __setStripeForTests(fake.stripe);
     expect(await previewNextInvoice(clinic.clinicId, { now: NOW })).toEqual({
       status: "ok",
-      amountDueCents: 39_700,
+      amountDueCents: 40_000,
       nextPaymentOn: "2026-11-07",
       periodStartsOn: "2026-11-07",
       periodEndsOn: "2026-12-07",
@@ -265,7 +271,7 @@ describeDb("billing summary and previews", () => {
     });
 
     const pre = await seedClinic("next-invoice-pre");
-    await seedEntitled(pre.clinicId, { planId: "chat-web" });
+    await seedEntitled(pre.clinicId, { planId: "webchat-1000" });
     expect(await previewNextInvoice(pre.clinicId, { now: NOW })).toMatchObject({
       status: "not_available",
     });
@@ -274,8 +280,8 @@ describeDb("billing summary and previews", () => {
   test("a plan change preview prices the setup difference, Stripe's proration and the recurring price afterwards", async () => {
     const clinic = await seedClinic("preview-change");
     const ids = await seedEntitled(clinic.clinicId, {
-      planId: "web-voice",
-      boughtPlanId: "complete",
+      planId: "voice-webchat-1000-1000",
+      boughtPlanId: "voice-metachat-1000-1000",
       locations: 2,
       planStartedAt: STARTED,
       channelRows: [
@@ -288,9 +294,9 @@ describeDb("billing summary and previews", () => {
       customerId: ids.stripeCustomerId!,
       subscriptionId: ids.stripeSubscriptionId!,
       items: [
-        { lookupKey: "healdesk_web-voice_month_89700", quantity: 2 },
-        { lookupKey: "healdesk_meter_chat_conversations_block100_3000" },
-        { lookupKey: "healdesk_meter_voice_minutes_block100_8000" },
+        { lookupKey: "healdesk_voice-webchat-1000-1000_month_120000", quantity: 2 },
+        { lookupKey: "healdesk_meter_chat_conversations_block100_7800" },
+        { lookupKey: "healdesk_meter_voice_minutes_block100_10400" },
       ],
       periodStart: s(STARTED),
       periodEnd: s(new Date("2026-11-07T00:00:00Z")),
@@ -308,16 +314,16 @@ describeDb("billing summary and previews", () => {
     const packageItem = world.state.subscription.items.data[0]!.id;
 
     const preview = await previewChangePlan(
-      { clinicId: clinic.clinicId, planId: "chat-web", interval: "month" },
+      { clinicId: clinic.clinicId, planId: "webchat-1000", interval: "month" },
       { now: NOW },
     );
     expect(preview).toEqual({
       status: "ok",
-      planId: "chat-web",
+      planId: "webchat-1000",
       interval: "month",
       setupFeeDeltaCents: 0,
       prorationCents: -68_000,
-      recurringCents: 39_700 * 2,
+      recurringCents: 40_000 * 2,
       droppedChannels: ["voice"],
       isInProgress: false,
     });
@@ -327,10 +333,11 @@ describeDb("billing summary and previews", () => {
       subscription: ids.stripeSubscriptionId,
       subscription_details: {
         items: [
-          { id: packageItem, price: "price_healdesk_chat-web_month_39700", quantity: 2 },
+          { id: packageItem, price: "price_healdesk_webchat-1000_month_40000", quantity: 2 },
           { id: world.state.subscription.items.data[1]!.id, deleted: true },
           { id: world.state.subscription.items.data[2]!.id, deleted: true },
-          { price: "price_healdesk_meter_chat_conversations_block100_4000" },
+          // Web Chat's own rate: the metered items follow the new package.
+          { price: "price_healdesk_meter_chat_conversations_block100_5200" },
         ],
         proration_behavior: "always_invoice",
       },
@@ -341,38 +348,69 @@ describeDb("billing summary and previews", () => {
     // Moving to annual billing keeps the package billed (Meta is still not in
     // service) at its annual price, for both locations.
     const annual = await previewChangePlan(
-      { clinicId: clinic.clinicId, planId: "complete", interval: "year" },
+      { clinicId: clinic.clinicId, planId: "voice-metachat-1000-1000", interval: "year" },
       { now: NOW },
     );
     expect(annual).toMatchObject({
       status: "ok",
       setupFeeDeltaCents: 0,
       interval: "year",
-      recurringCents: 717 * 12 * 100 * 2,
+      // AYA Voice + Web Chat at 1,000 and 1,000, annual: $960 a month.
+      recurringCents: 960 * 12 * 100 * 2,
       droppedChannels: [],
     });
   });
 
   test("a plan change preview before the start asks Stripe nothing", async () => {
     const clinic = await seedClinic("preview-change-pre");
-    await seedEntitled(clinic.clinicId, { planId: "chat-web" });
+    await seedEntitled(clinic.clinicId, { planId: "webchat-1000" });
     const fake = createStripeFake();
     __setStripeForTests(fake.stripe);
     expect(
       await previewChangePlan(
-        { clinicId: clinic.clinicId, planId: "web-voice", interval: "month" },
+        { clinicId: clinic.clinicId, planId: "voice-webchat-1000-1000", interval: "month" },
         { now: NOW },
       ),
     ).toEqual({
       status: "ok",
-      planId: "web-voice",
+      planId: "voice-webchat-1000-1000",
       interval: "month",
-      setupFeeDeltaCents: 50_000,
+      // AYA Web Chat's $259 setup to Voice + Web Chat's $956.
+      setupFeeDeltaCents: 69_700,
       prorationCents: 0,
-      recurringCents: 89_700,
+      recurringCents: 120_000,
       droppedChannels: [],
       isInProgress: false,
     });
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  test("before the start a step change owes no setup fee, and a move to Meta Chat owes the difference", async () => {
+    // Owner, 13 October 2026: the setup fee is the package's, whatever the steps.
+    const clinic = await seedClinic("preview-step-pre");
+    await seedEntitled(clinic.clinicId, { planId: "webchat-1000" });
+    const fake = createStripeFake();
+    __setStripeForTests(fake.stripe);
+    const preview = (planId: string) =>
+      previewChangePlan({ clinicId: clinic.clinicId, planId, interval: "month" }, { now: NOW });
+    expect(await preview("webchat-500")).toEqual({
+      status: "ok",
+      planId: "webchat-500",
+      interval: "month",
+      setupFeeDeltaCents: 0,
+      prorationCents: 0,
+      recurringCents: 20_000,
+      droppedChannels: [],
+      isInProgress: false,
+    });
+    expect(await preview("metachat-500")).toMatchObject({
+      status: "ok",
+      // AYA Web Chat's $259 to AYA Meta Chat's $697.
+      setupFeeDeltaCents: 43_800,
+      recurringCents: 30_000,
+    });
+    // Off the grid is not a plan.
+    expect(await preview("webchat-550")).toMatchObject({ status: "refused" });
     expect(fake.calls).toHaveLength(0);
   });
 });

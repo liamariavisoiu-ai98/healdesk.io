@@ -17,6 +17,8 @@ import {
   type CheckoutSeed,
 } from "@/components/checkout/CheckoutFlow";
 import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
+import type { ModeOffer } from "@/app/api/checkout/mode/route";
+import type { SetupOffer } from "@/lib/checkout/review";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { replyByDate } from "@/lib/reply-by";
 import { site } from "@/lib/site";
@@ -83,15 +85,29 @@ import { site } from "@/lib/site";
  * modal are static, so they can't read the setup cookie themselves.
  */
 type ModeAnswer =
-  | { mode: "public"; salesTax?: boolean }
+  | { mode: "public"; salesTax?: boolean; offer?: ModeOffer }
   | {
       mode: "pilot";
       link: "valid";
       setup: { name: string; clinicName: string; email: string; website: string | null };
       creditUntil: string | null;
       salesTax?: boolean;
+      offer?: ModeOffer;
     }
   | { mode: "pilot"; link: "none" | LinkNotice; replyBy: string };
+
+/**
+ * The setup offer the modal shows: the one /api/checkout/mode says /api/checkout
+ * would apply, under the funnel's names. Undefined when there is none yet, so
+ * CheckoutFlow starts the website's 48-hour clock itself, as /get-started does.
+ */
+function setupOfferFrom(offer: ModeOffer | undefined): SetupOffer | undefined {
+  if (!offer) return undefined;
+  const kind = (
+    { "cohort-setup": "cohort", "demo-setup-50": "demo", "demo-setup-30": "demo", "site-setup-30": "site" } as const
+  )[offer.kind];
+  return kind ? { kind, endsAt: offer.endsAt, percentOfSetupFee: offer.percentOfSetupFee } : undefined;
+}
 
 /** If the question can't be asked, the form: the purchase routes would refuse anyway. */
 function fallbackAnswer(): ModeAnswer {
@@ -283,6 +299,7 @@ export function BuyModalProvider({
               lockedEmail={answer.mode === "pilot" ? answer.setup.email : undefined}
               salesTax={answer.salesTax === true}
               demo={demo?.checkout}
+              setupOffer={setupOfferFrom(answer.offer)}
               onClose={close}
               onProgress={setProgress}
               downloadHost={() => dialogRef.current}

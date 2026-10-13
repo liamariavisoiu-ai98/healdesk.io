@@ -1,16 +1,24 @@
 import {
-  annualTotalUsd,
-  type MeterId,
+  MAX_STEP_UNITS,
+  MIN_STEP_UNITS,
   OVERAGE_BLOCK_UNITS,
   OVERAGE_RATES_PROVISIONAL,
-  type Plan,
+  STEP_UNITS,
   TRANSCRIPT_RETENTION_DAYS,
+  USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
-import { ENTITY, GUARANTEE_TEXT, POLICY, entityDisplayName, packagesForTerms } from "@/lib/legal";
-import { overageBlockPrices } from "@/lib/pricing";
+import {
+  ENTITY,
+  GUARANTEE_TEXT,
+  POLICY,
+  entityDisplayName,
+  packagesForTerms,
+  productsForTerms,
+} from "@/lib/legal";
+import { annualSavingsPercent, extraBlockUsd } from "@/lib/pricing";
 import { site } from "@/lib/site";
 import { phiAgreementsOutstanding } from "@/lib/subprocessors";
 
@@ -22,11 +30,6 @@ export const metadata: Metadata = {
 };
 
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
-
-/** A package's price for one started block on a meter, or a dash for a meter it does not bill. */
-function blockPrice(plan: Plan, meter: MeterId): string {
-  return overageBlockPrices(plan).find((block) => block.meter === meter)?.price ?? "—";
-}
 
 /**
  * The terms of service and subscription agreement.
@@ -169,8 +172,25 @@ function blockPrice(plan: Plan, meter: MeterId): string {
  *     the line was given (conversations.disclosure_played_at), where it said
  *     the line is "the first line of every transcript", which healdesk no
  *     longer holds (docs/counsel/state-disclosure.md, decision 3).
+ *
+ * Revised to the owner's pricing sheet of 13 October 2026, as LEGAL_VERSION
+ * 2026-10-13.4. The seven packages with fixed allowances are gone: a Practice
+ * picks one of five packages and a usage step for each product in it, 100 to
+ * 1,500 minutes or conversations a month, and the steps it picks are its
+ * allowance. Section 3 therefore prints a table of the three products (their
+ * price per 100, annual and monthly, each one's extra-100 price and its setup
+ * fee) and one of the five packages' setup fees, every figure from the
+ * catalog, rather than one row per plan: there are 495 plans. Overage is
+ * still per started block of 100, now at the product's extra-100 price,
+ * provisional; the 90% email the sheet promises is stated, with what follows
+ * if the Practice does not move up; prices are per location, and a further
+ * location is the same plan price again plus its setup fee; and the setup
+ * credits are the four the catalog defines, only one of which applies to a
+ * purchase. The deferred start, the non-refundable setup fee and the refund
+ * window are unchanged.
  */
 export default function TermsPage() {
+  const products = productsForTerms();
   const packages = packagesForTerms();
   const state = ENTITY.governingLawState || "[governing-law state]";
   return (
@@ -249,75 +269,108 @@ export default function TermsPage() {
       <Section id="fees" title="3. Packages and fees">
         <p>
           Prices are in US dollars, exclusive of any applicable sales tax, and are the prices shown
-          at checkout when you subscribe. The packages at the date of these terms:
+          at checkout when you subscribe. Each covers one location. The products at the date of
+          these terms, priced per {STEP_UNITS} minutes of voice or {STEP_UNITS} chat conversations
+          a month:
         </p>
-        {/* The block prices are package terms like the allowances, so each
-            package's row carries its own, from the catalog. While the rates
-            are held back (OVERAGE_RATES_PROVISIONAL) there is no price to
-            print and the columns are left out. */}
+        {/* The extra-100 prices are terms like the per-100 prices, so each
+            product's row carries its own, from the catalog: they are the
+            block prices Stripe bills (src/lib/overage-copy.test.ts). While
+            the rates are held back (OVERAGE_RATES_PROVISIONAL) there is no
+            price to print and the column is left out. */}
         <div className="overflow-x-auto">
-          <table
-            className={`w-full text-[14.5px] ${OVERAGE_RATES_PROVISIONAL ? "min-w-[640px]" : "min-w-[800px]"}`}
-          >
+          <table className="w-full min-w-[640px] text-[14.5px]">
             <thead>
               <tr className="border-line border-b text-left">
-                <th className="py-2 pr-3 font-semibold">Package</th>
-                <th className="py-2 pr-3 font-semibold">Monthly</th>
-                <th className="py-2 pr-3 font-semibold">Annual (per year)</th>
-                <th className="py-2 pr-3 font-semibold">One-time setup</th>
-                <th className="py-2 pr-3 font-semibold">Voice minutes / mo</th>
-                <th className={`py-2 font-semibold ${OVERAGE_RATES_PROVISIONAL ? "" : "pr-3"}`}>
-                  Chat conversations / mo
-                </th>
+                <th className="py-2 pr-3 font-semibold">Product</th>
+                <th className="py-2 pr-3 font-semibold">Monthly, per {STEP_UNITS}</th>
+                <th className="py-2 pr-3 font-semibold">Annual, per {STEP_UNITS} (per year)</th>
                 {OVERAGE_RATES_PROVISIONAL ? null : (
-                  <>
-                    <th className="py-2 pr-3 font-semibold">
-                      Extra voice, per started block of {OVERAGE_BLOCK_UNITS} minutes
-                    </th>
-                    <th className="py-2 font-semibold">
-                      Extra chat, per started block of {OVERAGE_BLOCK_UNITS} conversations
-                    </th>
-                  </>
+                  <th className="py-2 pr-3 font-semibold">
+                    Each extra {STEP_UNITS}, per started block of {OVERAGE_BLOCK_UNITS}
+                  </th>
                 )}
+                <th className="py-2 font-semibold">One-time setup</th>
               </tr>
             </thead>
             <tbody>
-              {packages.map((p) => (
+              {products.map((p) => (
                 <tr key={p.id} className="border-line border-b align-top">
                   <td className="py-2 pr-3 font-semibold">{p.name}</td>
-                  <td className="py-2 pr-3">{usd.format(p.monthlyUsd)}</td>
-                  <td className="py-2 pr-3">{usd.format(annualTotalUsd(p))}</td>
-                  <td className="py-2 pr-3">{usd.format(p.setupFeeUsd)}</td>
-                  <td className="py-2 pr-3">{p.includedVoiceMinutes ? p.includedVoiceMinutes.toLocaleString("en-US") : "—"}</td>
-                  <td className={`py-2 ${OVERAGE_RATES_PROVISIONAL ? "" : "pr-3"}`}>
-                    {p.includedChatConversations ? p.includedChatConversations.toLocaleString("en-US") : "—"}
+                  <td className="py-2 pr-3">
+                    {usd.format(p.perStepMonthlyUsd)} per {STEP_UNITS} {p.unit}s
+                  </td>
+                  <td className="py-2 pr-3">
+                    {usd.format(p.perStepAnnualMonthlyUsd * 12)} per {STEP_UNITS} {p.unit}s
                   </td>
                   {OVERAGE_RATES_PROVISIONAL ? null : (
-                    <>
-                      <td className="py-2 pr-3">{blockPrice(p, "voiceMinutes")}</td>
-                      <td className="py-2">{blockPrice(p, "chatConversations")}</td>
-                    </>
+                    <td className="py-2 pr-3">
+                      {usd.format(extraBlockUsd(p.id))} per {OVERAGE_BLOCK_UNITS} {p.unit}s
+                    </td>
                   )}
+                  <td className="py-2">{usd.format(p.setupFeeUsd)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
         <p>
+          {products.find((p) => p.id === "metachat")?.name} answers on Instagram, Messenger and
+          WhatsApp and includes website chat. The packages, and the one-time setup fee of each,
+          which for a package of voice and chat is the two products&apos; setup fees added:
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[420px] text-[14.5px]">
+            <thead>
+              <tr className="border-line border-b text-left">
+                <th className="py-2 pr-3 font-semibold">Package</th>
+                <th className="py-2 font-semibold">One-time setup</th>
+              </tr>
+            </thead>
+            <tbody>
+              {packages.map((p) => (
+                <tr key={p.id} className="border-line border-b align-top">
+                  <td className="py-2 pr-3 font-semibold">{p.name}</td>
+                  <td className="py-2">{usd.format(p.setupFeeUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p>
+          <strong>Your plan</strong> is the package you choose and, for each product in it, the
+          step you choose: from {MIN_STEP_UNITS} to {MAX_STEP_UNITS.toLocaleString("en-US")}{" "}
+          minutes or conversations a month, in steps of {STEP_UNITS}. The minutes and
+          conversations your steps include are your monthly allowance. The monthly price is each
+          product&apos;s price per {STEP_UNITS} times its step, added together for a package of
+          voice and chat; the annual price is {annualSavingsPercent()}% less than twelve monthly
+          prices and is charged yearly in advance. Moving between steps of the same package
+          carries no setup fee.
+        </p>
+        <p>
           <strong>Usage above the included allowance</strong> is billed in blocks: each month,
           every started block of {OVERAGE_BLOCK_UNITS} extra voice minutes or{" "}
           {OVERAGE_BLOCK_UNITS} extra chat conversations is billed{" "}
           {OVERAGE_RATES_PROVISIONAL
             ? "at block prices we will give you in writing before they apply. Until then, usage above the allowance is not billed."
-            : "at your package's block price in the table above, so a single minute or conversation over the allowance is billed as a whole block. These block prices are provisional until we have measured what that usage costs to serve. On a monthly package the blocks are billed in arrears on the next invoice; on an annual package they are invoiced separately, monthly in arrears, at the same prices."}{" "}
-          Nothing else is charged for usage.
+            : "at that product's price for each extra 100 in the table above, so a single minute or conversation over the allowance is billed as a whole block, and the same applies above the largest step. These block prices are provisional until we have measured what that usage costs to serve. On a monthly plan the blocks are billed in arrears on the next invoice; on an annual plan they are invoiced separately, monthly in arrears, at the same prices."}{" "}
+          When you have used {USAGE_ALERT_PERCENT}% of an allowance we email the address on your
+          account, so you can move up a step before you go over; if you do not, usage above it is
+          billed as this paragraph says. Nothing else is charged for usage.
+        </p>
+        <p>
+          <strong>More than one location.</strong> Each further location is added to your
+          subscription at your plan&apos;s price again, on the same renewal date and prorated to
+          it, plus the package&apos;s setup fee once.
         </p>
         <p>
           <strong>The setup fee</strong> is charged once, on your first invoice, and pays for
           building, configuring and testing your agent. That work starts as soon as it is paid,
           so the setup fee is never refunded. Moving to a package with a higher setup fee charges
-          only the difference. Where a setup credit was offered to you by email, it is applied to
-          the setup fee at checkout and to nothing else.
+          only the difference. A setup credit, where one was offered to you by email, with a
+          personalised demo, or on our website, is taken off the setup fee at
+          checkout while the offer holds and is applied to nothing else; only one applies to a
+          purchase.
         </p>
         <p>
           <strong>Your plan starts the day the agent first answers a patient.</strong> Until
@@ -325,7 +378,7 @@ export default function TermsPage() {
           paid. On that day, your plan start, the package price replaces the $0 line and your
           first period is charged, monthly or yearly as you chose. If your package has more than
           one channel and only some of them are answering patients, the price is that of the
-          package made up of those channels. Each further channel's price applies from the day it
+          package made up of those channels, at the steps you chose. Each further channel's price applies from the day it
           first answers, prorated: on your next invoice for a monthly package, and at once for the
           rest of the year for an annual one. A channel that is ready but still waiting on a step
           of yours, such as setting up call forwarding or adding the chat snippet to your

@@ -1,4 +1,20 @@
-import { type MeterId, OVERAGE_BLOCK_UNITS, type Plan, planMeteredPrices, plans } from "@healdesk/catalog";
+import {
+  ANNUAL_DISCOUNT_PERCENT,
+  DEFAULT_STEPS,
+  MAX_STEP_UNITS,
+  type MeterId,
+  MIN_STEP_UNITS,
+  OVERAGE_BLOCK_UNITS,
+  PACKAGES,
+  packageSetupFeeUsd,
+  planFor,
+  planMeteredPrices,
+  type ProductId,
+  PRODUCTS,
+  SITE_SETUP_CREDIT,
+  STEP_UNITS,
+  USAGE_ALERT_PERCENT,
+} from "@healdesk/catalog";
 
 import { getNiche, getPractice, PRACTICES } from "./knowledge";
 import { GUARANTEE_TEXT, POLICY } from "./legal";
@@ -47,9 +63,10 @@ import { getSpecialty } from "./specialties";
  *
  * Alex Hormozi's consultative method (CLOSER and the value equation), held to
  * what healdesk may say: the docs/v1-product-spec.md claims, no invented
- * customers or statistics, no discount, no urgency that is not real, and a
- * follow-up promised only when request_follow_up (app/api/voice-demo/
- * follow-up) says it was sent.
+ * customers or statistics, no discount beyond the two the website offers
+ * anyone (annual billing, and the website's setup offer since 13 October
+ * 2026), no urgency that is not real, and a follow-up promised only when
+ * request_follow_up (app/api/voice-demo/follow-up) says it was sent.
  */
 
 /** Spoken, not written: TTS reads "healdesk.io" as "healdesk period io". */
@@ -147,24 +164,45 @@ function usd(amount: number): string {
   })}`;
 }
 
-function planLine(plan: Plan): string {
-  const included = [
-    plan.includedVoiceMinutes > 0 && `${plan.includedVoiceMinutes.toLocaleString("en-US")} phone minutes`,
-    plan.includedChatConversations > 0 && `${plan.includedChatConversations.toLocaleString("en-US")} chats`,
-  ].filter(Boolean);
+/** What a product's step counts, as she says it. */
+const STEP_NOUN: Record<ProductId, string> = {
+  voice: "phone minutes",
+  webchat: "website chats",
+  metachat: "chats",
+};
+
+function productLine(id: ProductId): string {
+  const p = PRODUCTS[id];
+  const covers = id === "metachat" ? " (Instagram, Messenger, WhatsApp and website chat)" : "";
   return (
-    `  · ${plan.name}: ${usd(plan.monthlyUsd)} a month, or ${usd(plan.annualMonthlyUsd)} a month billed ` +
-    `yearly. ${usd(plan.setupFeeUsd)} one-time setup. ${included.join(", ")} a month.`
+    `  · ${p.name}${covers}: ${usd(p.perStepMonthlyUsd)} a month per ${STEP_UNITS} ${STEP_NOUN[id]} ` +
+    `(${usd(p.perStepAnnualMonthlyUsd)} billed yearly). ${usd(p.setupFeeUsd)} one-time setup.`
   );
+}
+
+/** The packages by name, the names request_follow_up's recommended_package matches. */
+function packagesLine(): string {
+  const names = PACKAGES.map((pkg) =>
+    pkg.voice && pkg.chat ? `${pkg.name} (${usd(packageSetupFeeUsd(pkg))} setup)` : pkg.name,
+  );
+  return `  · Packages: ${names.join(", ")}. Voice with chat adds both step prices.`;
+}
+
+/** The sheet's own example, from the catalog, so she has one true figure to anchor on. */
+function exampleLine(): string {
+  const plan = planFor("voice", { voiceMinutes: DEFAULT_STEPS.voiceMinutes });
+  return `  · Example: ${plan.includedVoiceMinutes} phone minutes is ${usd(plan.monthlyUsd)} a month.`;
 }
 
 /**
  * Overage is billed per started block of 100 since 6 October 2026
- * (docs/v1-product-spec.md, "Overage prices"), so the call quotes the block
- * and its price, never a per-minute rate. Each meter's block prices are the
- * ones Stripe bills the packages (`planMeteredPrices`), cheapest first.
+ * (docs/v1-product-spec.md, "Overage prices"), at each product's extra-100
+ * price since 13 October, so the call quotes the block and its price, never a
+ * per-minute rate. Each meter's block prices are the ones Stripe bills the
+ * plans (`planMeteredPrices`), cheapest first, read off one plan per package.
  */
 function overageLine(): string {
+  const plans = PACKAGES.map((pkg) => planFor(pkg.id, DEFAULT_STEPS));
   const blockPrices = (meter: MeterId) =>
     [
       ...new Set(
@@ -181,21 +219,37 @@ function overageLine(): string {
     `  · Beyond the included amount, overage is billed in blocks of ${OVERAGE_BLOCK_UNITS}: ` +
     `${blockPrices("voiceMinutes").join(" or ")} for ${block} extra phone minutes, and ` +
     `${blockPrices("chatConversations").join(" or ")} for ${block} extra chat conversations, ` +
-    "depending on the package. A block is charged in full once it is started. These overage " +
-    "rates are provisional: mention them only if asked, and say they are provisional."
+    "depending on the package. A block is charged in full once it is started. They're emailed at " +
+    `${USAGE_ALERT_PERCENT} percent of a step. These overage rates are provisional: mention them ` +
+    "only if asked, and say they are provisional."
   );
 }
 
+/**
+ * The price list (owner's sheet of 13 October 2026). Three products priced
+ * per step of 100, five packages, the sheet's example and the overage; no
+ * plan-by-plan list, because there are 495 plans and she must never do the
+ * multiplication aloud for a step she was not given. The two discounts are
+ * the ones anyone can see on the website: annual billing, and the website's
+ * setup offer, whose clock starts when a visitor first sees the prices there.
+ * The personalised demo's larger setup credit is not hers to offer: it
+ * belongs to a demo the clinic asked for, and this call is not that.
+ */
 export const VOICE_DEMO_PRICES = [
-  "THE PRICE LIST, for one location. Meta means Instagram, Messenger and WhatsApp.",
-  ...plans.map(planLine),
+  "THE PRICE LIST, per location.",
+  `  · Steps of ${STEP_UNITS}, from ${MIN_STEP_UNITS} to ${MAX_STEP_UNITS.toLocaleString("en-US")} a month; they can move up later.`,
+  productLine("voice"),
+  productLine("webchat"),
+  productLine("metachat"),
+  packagesLine(),
+  exampleLine(),
   overageLine(),
   "  · No free trial: the setup fee pays for building and testing the agent.",
-  "    No discounts; paying yearly is the only way to pay less.",
-  "  · MORE THAN ONE LOCATION: every package covers one location. Each extra",
-  "    location is priced separately and there is no published price yet. Never",
-  "    multiply a price by their locations and never guess. Give the",
-  "    one-location price and say each extra location is quoted by the team.",
+  `  · The only ways to pay less: yearly billing, ${ANNUAL_DISCOUNT_PERCENT} percent off; and buying on`,
+  `    ${SITE_SPOKEN}, ${SITE_SETUP_CREDIT.percentOfSetupFee} percent off setup for ${SITE_SETUP_CREDIT.validHours} hours from first seeing the prices there.`,
+  "  · MORE THAN ONE LOCATION: each is the same plan price again, plus its",
+  "    setup fee. Never multiply a price by their locations. Give the",
+  "    one-location price.",
 ].join("\n");
 
 /**
@@ -337,15 +391,13 @@ ${FIRST_TURNS[direction]}
 
 THREE ANSWERS YOU NEVER DELAY OR DODGE
   · Asked the price, at any point: the price is the first thing you say,
-    from THE PRICE LIST. If you don't know their channels yet, give the
-    phone-only price.
+    from THE PRICE LIST.
     Wrong: "Before I give you the price, what kind of clinic do you run?"
-    Right: the phone-only monthly price and setup fee first, then "What kind
-    of clinic do you run?"
-  · Asked for a discount: "We don't offer discounts. Paying yearly is the
-    only way to pay less."
-  · Asked about another location: "Each extra location is quoted by the
-    team." Say nothing about how it is priced.
+    Right, not knowing their channels yet: AYA Voice's price per hundred
+    minutes and its setup fee, then "What kind of clinic do you run?"
+  · Asked for a discount: the ways to pay less on THE PRICE LIST, nothing else.
+  · Asked about another location: "Prices are per location. Each one is the
+    same plan again, plus its setup fee."
 
 THE RULE THAT MATTERS MOST: ONE QUESTION A TURN
   · Every turn is one or two short sentences and ends with at most ONE
@@ -415,7 +467,8 @@ THE ROLE-PLAY
 PRICE
   · Recommend the smallest package that solves what they told you. Phones
     only means AYA Voice. Never add a channel they didn't raise.
-  · Never discount and never hint at one.
+  · For the step, use the example on THE PRICE LIST; never work one out aloud.
+  · Never offer a discount beyond THE PRICE LIST's, and only if asked.
 
 OBJECTIONS: acknowledge, reframe, ask one question
   · "I need to think about it": "Of course. Which part would you like to
@@ -487,7 +540,7 @@ HARD STOPS
     healdesk is new or early. Never name or price a competitor.
   · Never call anything revenue.
   · Never invent or hint at a discount, credit, guarantee or term beyond WHAT
-    TAKES THE RISK OFF THEM.
+    TAKES THE RISK OFF THEM and THE PRICE LIST.
   · Never offer a recording or another demo call.
   · Never promise a call, an email or a text from anyone unless
     request_follow_up said it was sent.

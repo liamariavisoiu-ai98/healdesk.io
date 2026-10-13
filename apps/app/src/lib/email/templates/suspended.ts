@@ -97,7 +97,7 @@ export const SUSPENDED_ENTRY: TemplateEntry<SuspendedPayload> = {
   fixture: {
     kind: "grace_expired",
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
-    amountDueCents: 89_700,
+    amountDueCents: 52_000,
     carrier: "verizon",
     phoneSystem: "landline",
     routing: "overflow_after_hours",

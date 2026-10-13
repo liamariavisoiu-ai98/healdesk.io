@@ -10,7 +10,7 @@ import type { EmailTemplate } from "./types";
 /**
  * L19: "Allowance used: calls go to your direct line until {date}" (Annex X5).
  * Critical, and sent whatever the usage-alerts switch says: that switch
- * governs the 80% and 100% emails, not this one (BD21).
+ * governs the 90% and 100% emails, not this one (BD21).
  *
  * The clinic chose "Stop and fall back" for when its allowance runs out, so
  * this is the moment it engaged: what stops, until when (the window's end,

@@ -1,7 +1,11 @@
 import { WELCOME_NONCE_COOKIE } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { createDemoSession, updateDemoSession, __resetDemoCacheForTests } from "@/lib/demo/sessions";
 import { LEGAL_VERSION } from "@/lib/legal";
+import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
+import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
+import { SITE_OFFER_COOKIE, siteOfferToken } from "@/lib/site-offer";
 
 /**
  * POST /api/checkout on the paid path, with Stripe faked and apps/app
@@ -13,11 +17,15 @@ import { LEGAL_VERSION } from "@/lib/legal";
  *   payable Session, the latest.
  * - A press of Pay after the previous one was paid creates nothing.
  * - Otherwise the buyer goes to Stripe with the /welcome nonce cookie.
+ * - The Session carries at most one setup coupon, the strongest offer the
+ *   server can establish (the demo's 50% over the website's 30%), and never
+ *   one the browser merely names.
  */
 
 const fake = vi.hoisted(() => ({
   previousStatus: "open",
   created: [] as string[],
+  params: [] as Record<string, unknown>[],
   expired: [] as string[],
   sessionAnswer: (): Response => Response.json({ ok: true }),
   intentAnswer: { previousOpenSessionId: null as string | null, attempt: 2 },
@@ -27,8 +35,9 @@ vi.mock("stripe", () => ({
   default: class FakeStripe {
     checkout = {
       sessions: {
-        create: async () => {
+        create: async (params: Record<string, unknown>) => {
           fake.created.push("cs_test_new");
+          fake.params.push(params);
           return { id: "cs_test_new", url: "https://checkout.stripe.com/c/pay/cs_test_new" };
         },
         retrieve: async (id: string) => ({ id, status: fake.previousStatus }),
@@ -47,7 +56,7 @@ const { POST } = await import("./route");
 const REF = "11111111-2222-4333-8444-555555555555";
 
 const ORDER = {
-  plan: "web-voice",
+  plan: "voice-webchat-500-300",
   interval: "month",
   clinicName: "Radiance Med Spa LLC",
   specialty: "med-spa",
@@ -83,13 +92,17 @@ async function appAnswers(url: URL | RequestInfo): Promise<Response> {
 
 let counter = 0;
 
-function pay(): Promise<Response> {
+function pay(options: { cookie?: string; body?: Record<string, unknown> } = {}): Promise<Response> {
   counter += 1;
   return POST(
     new Request("http://localhost/api/checkout", {
       method: "POST",
-      headers: { "Content-Type": "application/json", "x-forwarded-for": `10.9.0.${counter}` },
-      body: JSON.stringify(ORDER),
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": `10.9.0.${counter}`,
+        ...(options.cookie ? { cookie: options.cookie } : {}),
+      },
+      body: JSON.stringify({ ...ORDER, ...options.body }),
     }),
   );
 }
@@ -103,6 +116,7 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   fake.previousStatus = "open";
   fake.created.length = 0;
+  fake.params.length = 0;
   fake.expired.length = 0;
   fake.sessionAnswer = () => Response.json({ ok: true });
   fake.intentAnswer = { previousOpenSessionId: null, attempt: 2 };
@@ -172,5 +186,68 @@ describe("the paid path", () => {
     expect(response.status).toBe(200);
     expect(fake.expired).toEqual(["cs_test_prev"]);
     expect(fake.created).toEqual(["cs_test_new"]);
+  });
+});
+
+describe("the setup offer on the Session", () => {
+  const HOUR = 3_600_000;
+
+  beforeEach(() => {
+    __setSheetsClientForTests(new FakeSheets());
+    __resetSheetSchemaForTests();
+    __resetDemoCacheForTests();
+  });
+
+  afterEach(() => __setSheetsClientForTests(null));
+
+  /** The website's offer cookie, shown `hoursAgo` hours ago. */
+  function siteCookie(hoursAgo: number): string {
+    return `${SITE_OFFER_COOKIE}=${encodeURIComponent(siteOfferToken(new Date(Date.now() - hoursAgo * HOUR))!)}`;
+  }
+
+  /** A built personalised demo, ready `hoursAgo` hours ago, and its cookie. */
+  async function demoCookie(hoursAgo: number): Promise<string> {
+    const readyAt = new Date(Date.now() - hoursAgo * HOUR);
+    const demo = await createDemoSession({ clinicName: "Radiance", websiteUrl: "https://radiancemedspa.com/" }, readyAt);
+    await updateDemoSession(demo.slug, { status: "ready", readyAt });
+    __resetDemoCacheForTests();
+    return `hd_demo=${demo.slug}`;
+  }
+
+  function discounts(): unknown {
+    return fake.params[0]?.discounts;
+  }
+
+  test("none without an offer, and none for an offer the browser only names", async () => {
+    expect((await pay({ body: { offer: "cohort-setup", coupon: "healdesk-cohort-setup-voice-webchat-95600" } })).status).toBe(200);
+    expect(discounts()).toBeUndefined();
+    expect((fake.params[0]!.metadata as Record<string, string>).offer).toBeUndefined();
+  });
+
+  test("the website's 30% while its signed cookie is inside 48 hours", async () => {
+    await pay({ cookie: siteCookie(47) });
+    expect(discounts()).toEqual([{ coupon: "healdesk-site-setup-30-voice-webchat-28600" }]);
+    expect((fake.params[0]!.metadata as Record<string, string>).offer).toBe("site-setup-30");
+
+    fake.params.length = 0;
+    await pay({ cookie: siteCookie(49) });
+    expect(discounts()).toBeUndefined();
+
+    fake.params.length = 0;
+    await pay({ cookie: `${SITE_OFFER_COOKIE}=${Date.now() - HOUR}.forged` });
+    expect(discounts()).toBeUndefined();
+  });
+
+  test("the demo's 50% within 48 hours of the demo being ready, over the website's 30%", async () => {
+    const demo = await demoCookie(2);
+    await pay({ cookie: `${demo}; ${siteCookie(1)}` });
+    expect(discounts()).toEqual([{ coupon: "healdesk-demo-setup-50-voice-webchat-47800" }]);
+    expect(fake.params[0]!.metadata).toMatchObject({ offer: "demo-setup-50", demo: demo.slice("hd_demo=".length) });
+  });
+
+  test("a demo past its 48 hours gives no 50%, and the website's 30% still applies", async () => {
+    const demo = await demoCookie(50);
+    await pay({ cookie: `${demo}; ${siteCookie(1)}` });
+    expect(discounts()).toEqual([{ coupon: "healdesk-site-setup-30-voice-webchat-28600" }]);
   });
 });

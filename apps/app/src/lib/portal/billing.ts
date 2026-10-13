@@ -1,13 +1,18 @@
 import {
   agreementKindOfVersion,
   getPlan,
+  OVERAGE_BLOCK_UNITS,
+  overageBlockCents,
   planForChannels,
+  USAGE_ALERT_PERCENT,
   type AgreementKind,
   type BillingInterval,
+  type Channel,
+  type Plan,
 } from "@healdesk/catalog";
 import { eq, sql } from "drizzle-orm";
 
-import { baaAcceptances, clinics } from "@/db/schema";
+import { baaAcceptances, clinics, type UsageMeter } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { withBillingTenant } from "@/lib/billing/billing-clinic";
 import {
@@ -26,7 +31,7 @@ import {
 } from "@/lib/billing/summary";
 import { withTenant } from "@/lib/tenant";
 
-import { portalDay } from "./format";
+import { portalCount, portalDay, portalMoney } from "./format";
 
 /**
  * Billing (plan Part F6): this plan's screen over Package C's actions. The
@@ -52,8 +57,9 @@ export type BillingView = {
     signatory: string;
   } | null;
   /**
-   * "Billed at the Web Chatbot price until phone is in service", after the
-   * start, while the billed package is not the bought one.
+   * "Billed at the AYA Web Chat price until phone is in service", after the
+   * start, while the billed package is not the bought one. Package names, not
+   * plan names: the steps are the bought ones either way (planForChannels).
    */
   billedUntil: { billedPlanName: string; boughtPlanName: string; waiting: string[] } | null;
 };
@@ -96,7 +102,62 @@ function billedUntil(summary: BillingSummary | null): BillingView["billedUntil"]
   const waiting = (["web", "meta", "voice"] as const)
     .filter((c) => bought.channels[c] && !billed.channels[c])
     .map((c) => CHANNEL_WORDS[c]);
-  return { billedPlanName: billed.name, boughtPlanName: bought.name, waiting };
+  return { billedPlanName: billed.packageName, boughtPlanName: bought.packageName, waiting };
+}
+
+// -----------------------------------------------------------------------------
+// The plan's steps, in words (the pricing sheet of 13 October 2026)
+// -----------------------------------------------------------------------------
+
+const METER_WORDS: Record<UsageMeter, readonly [string, string]> = {
+  voice_minutes: ["voice minute", "voice minutes"],
+  chat_conversations: ["chat conversation", "chat conversations"],
+};
+
+/** "voice minute" / "voice minutes", for one meter's lines. */
+export function meterWords(meter: UsageMeter): readonly [string, string] {
+  return METER_WORDS[meter];
+}
+
+/**
+ * What a plan includes each month across every location: its steps times the
+ * locations, which pool (BD5). "500 voice minutes and 300 chat conversations".
+ */
+export function includedLine(plan: Plan, locations: number): string {
+  const n = Math.max(1, locations);
+  return [
+    ...(plan.includedVoiceMinutes > 0
+      ? [portalCount(plan.includedVoiceMinutes * n, ...METER_WORDS.voice_minutes)]
+      : []),
+    ...(plan.includedChatConversations > 0
+      ? [portalCount(plan.includedChatConversations * n, ...METER_WORDS.chat_conversations)]
+      : []),
+  ].join(" and ");
+}
+
+/**
+ * The extra-100 price on one meter, at the BOUGHT plan's rate (the rate the
+ * summary's overage is billed at): "$104 for each started block of 100 extra
+ * voice minutes". Null for a meter the plan does not sell. The screen prints
+ * it beside the word "provisional", because the rates are (CLAUDE.md,
+ * "Claims and copy"), and never as a per-unit rate.
+ */
+export function extraBlockLine(plan: Plan, meter: UsageMeter): string | null {
+  const rate =
+    meter === "voice_minutes" ? plan.overagePerVoiceMinuteUsd : plan.overagePerChatConversationUsd;
+  const included =
+    meter === "voice_minutes" ? plan.includedVoiceMinutes : plan.includedChatConversations;
+  if (rate <= 0 || included <= 0) return null;
+  return `${portalMoney(overageBlockCents(rate))} for each started block of ${OVERAGE_BLOCK_UNITS} extra ${METER_WORDS[meter][1]}`;
+}
+
+/**
+ * Whether a meter has crossed the usage-alert mark (USAGE_ALERT_PERCENT, 90%
+ * since 13 October 2026), so the screen can say what the email says: move up
+ * a step, or let extra blocks bill.
+ */
+export function pastAlertMark(meter: { used: number; included: number }): boolean {
+  return meter.included > 0 && meter.used * 100 >= USAGE_ALERT_PERCENT * meter.included;
 }
 
 /**
@@ -217,8 +278,8 @@ export async function setBillingSwitch(
       return {
         ok: true,
         toast: value
-          ? "Usage alerts on. We email you at 80% and 100% of the allowance."
-          : "Usage alerts off. We won't email you at 80% and 100%. If AYA ever stops at the allowance, you still hear about it.",
+          ? `Usage alerts on. We email you at ${USAGE_ALERT_PERCENT}% and 100% of the allowance.`
+          : `Usage alerts off. We won't email you at ${USAGE_ALERT_PERCENT}% and 100%. If AYA ever stops at the allowance, you still hear about it.`,
       };
     }
 
@@ -266,9 +327,10 @@ async function clinicTimeZone(clinicId: string, actor: ActorContext): Promise<st
   });
 }
 
-/** The plan a clinic's channels in service would be billed as, for a line that names it. */
-export function planForChannelsName(
-  channels: readonly ("web" | "meta" | "voice")[],
-): string | null {
-  return planForChannels(channels)?.name ?? null;
+/**
+ * The plan a clinic's channels in service would be billed as, at the bought
+ * plan's steps, for a line that names it.
+ */
+export function planForChannelsName(bought: Plan, channels: readonly Channel[]): string | null {
+  return planForChannels(bought, channels)?.name ?? null;
 }

@@ -69,7 +69,7 @@ describeDb("the portal's screens", () => {
       expect(html).toMatch(/<button[^>]*disabled[^>]*>Talk to your AYA<\/button>/);
       expect(html).toContain("Website chat");
       expect(html).toContain("Phone");
-      expect(html).toContain("Monthly billing ($897) starts the day AYA first answers a patient.");
+      expect(html).toContain("Monthly billing ($1,200) starts the day AYA first answers a patient.");
       // No dates for a channel's opening, and no newness words.
       expect(html).not.toMatch(/opens? (on )?(Mon|Tue|Wed|Thu|Fri|Sat|Sun)/);
       expect(html).not.toMatch(/\b(pilot|beta|early access|founding|cohort)\b/i);

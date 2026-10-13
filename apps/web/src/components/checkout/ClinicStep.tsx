@@ -23,7 +23,8 @@ import {
   noWebsiteOptions,
   websiteConflict,
 } from "@/lib/checkout/funnel";
-import { monthlyFigureUsd, usd } from "@/lib/pricing";
+import { type SetupOffer, setupDueUsd } from "@/lib/checkout/review";
+import { usd } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import { PrimaryButton, RadioGroup, Reassurance, StepShell, TextField } from "./StepShell";
@@ -35,33 +36,30 @@ import { PrimaryButton, RadioGroup, Reassurance, StepShell, TextField } from "./
  * setup starts with the clinic's own services, hours and providers.
  *
  * Two answers change what can be sold or promised, and both say so at once:
- * no website means no website chat, so the phone and the Meta bot are
- * offered instead; and the booking system decides whether AYA can ever book
+ * no website means no AYA Web Chat, so AYA Voice and AYA Meta Chat are
+ * offered instead, at the steps already chosen; and the booking system decides whether AYA can ever book
  * live, said in one sentence the moment it is chosen.
  */
-
-/** Said under the Meta bot when it is offered to a practice with no website: it needs somewhere to answer. */
-const META_CONDITION =
-  "For a practice whose patients already message it on Instagram, Facebook or WhatsApp: AYA answers them there. You connect your Facebook Page and Instagram account in setup.";
 
 const NO_WEBSITE_DESCRIPTIONS: Record<string, string> = {
   voice:
     "AYA answers your phone. A practice without a website takes most of its bookings by phone.",
-  // Carries the Meta bot's condition too: while Meta is not sold on its own,
-  // this is the only way the Meta bot is offered to a practice with no website.
-  "meta-voice":
+  "voice-metachat":
     "AYA answers your phone, and, if your patients already message you on Instagram, Facebook or WhatsApp, answers them there too.",
-  "chat-meta": META_CONDITION,
+  metachat:
+    "For a practice whose patients already message it on Instagram, Facebook or WhatsApp: AYA answers them there. You connect your Facebook Page and Instagram account in setup.",
 };
 
 /**
- * A replacement package, priced for the billing period already chosen on
- * step 1, which choosing it keeps: the figure the package card and Review and
- * pay show, per month, and "billed annually" on the annual terms.
+ * A replacement package at the steps already chosen, priced for the billing
+ * period chosen on step 1, which choosing it keeps: the figure the package
+ * step and Review and pay show, per month, and "billed annually" on the
+ * annual terms. The setup fee is after the offer that applies, as everywhere.
  */
-function noWebsiteOptionLabel(plan: Plan, interval: BillingInterval): string {
+function noWebsiteOptionLabel(plan: Plan, interval: BillingInterval, offer: SetupOffer | null): string {
   const billed = interval === "year" ? " billed annually" : "";
-  return `${plan.name}: ${usd.format(monthlyFigureUsd(plan, interval))}/mo${billed} + ${usd.format(plan.setupFeeUsd)} setup fee`;
+  const perMonth = interval === "year" ? plan.annualMonthlyUsd : plan.monthlyUsd;
+  return `${plan.name}: ${usd.format(perMonth)}/mo${billed} + ${usd.format(setupDueUsd(plan, offer))} setup fee`;
 }
 
 export function ClinicStep({
@@ -74,7 +72,10 @@ export function ClinicStep({
   headingRef,
   error,
   fromDemo = false,
+  offer = null,
 }: {
+  /** The setup offer that applies, so a replacement package is priced as it will be charged. */
+  offer?: SetupOffer | null;
   /**
    * The buyer came from their personalised demo, which already has the
    * clinic's name and website: they are shown as one confirmed line, not
@@ -176,20 +177,20 @@ export function ClinicStep({
             We don&apos;t have a website
           </label>
 
-          {/* No website, no website chat (v1 spec, "Stage 0"). The phone
-              first: a practice without a website takes its bookings by
-              phone. Then the Meta bot, for one whose patients message it. */}
+          {/* No website, no Web Chat (v1 spec, "Stage 0"). The phone first:
+              a practice without a website takes its bookings by phone. Then
+              Meta Chat, for one whose patients message it. */}
           {conflict && plan ? (
             <div className="border-red/30 bg-red/[0.04] mt-4 rounded-md border p-5">
               <RadioGroup<string>
                 name="no-website-package"
                 layout="cards"
-                label="Website chat needs a website"
-                hint={`${plan.name} includes website chat, which answers on your site. Choose a package without it:`}
-                options={noWebsiteOptions().map((option) => ({
+                label="AYA Web Chat needs a website"
+                hint={`${plan.packageName} answers on your website. Choose a package that doesn't need one:`}
+                options={noWebsiteOptions(state).map((option) => ({
                   id: option.id,
-                  label: noWebsiteOptionLabel(option, state.interval),
-                  description: NO_WEBSITE_DESCRIPTIONS[option.id],
+                  label: noWebsiteOptionLabel(option, state.interval, offer),
+                  description: NO_WEBSITE_DESCRIPTIONS[option.packageId],
                 }))}
                 value={null}
                 onChange={onPlan}
@@ -292,7 +293,7 @@ export function ClinicStep({
 const STILL_NEEDED: Record<string, string> = {
   clinicName: "your practice's legal name",
   website: "your website",
-  plan: "a package without website chat",
+  plan: "a package that doesn't need a website",
   specialty: "your specialty",
   bookingSystem: "where bookings live",
   calendarAccount: "which Google account",

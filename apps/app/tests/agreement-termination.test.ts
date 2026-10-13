@@ -182,7 +182,7 @@ async function seedPractice(label: string, options: { interval?: "month" | "year
   const agreementId = await bindAgreement(billing.organizationId, 60);
   await makeProduction([billing.clinicId, locationId]);
   const ids = await seedEntitled(billing.clinicId, {
-    planId: "complete",
+    planId: "voice-metachat-1000-1000",
     interval: options.interval ?? "month",
     planStartedAt: PERIOD_START,
     planStartAppliedAt: PERIOD_START,
@@ -1111,7 +1111,7 @@ describeDb("ending the agreement ends the Services (BAA 1.3.0 clauses 1, 17 and 
   test("before the plan starts there is nothing to refund", async () => {
     const billing = await seedClinic("term-unstarted");
     const agreementId = await bindAgreement(billing.organizationId, 20);
-    await seedEntitled(billing.clinicId, { planId: "complete" });
+    await seedEntitled(billing.clinicId, { planId: "voice-metachat-1000-1000" });
     await run("markAgreementTerminated", {
       agreementId,
       terminationDate: TODAY_ON,

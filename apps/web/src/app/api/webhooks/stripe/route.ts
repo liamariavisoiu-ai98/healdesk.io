@@ -582,15 +582,27 @@ async function markSetupLinkUsed(session: Stripe.Checkout.Session): Promise<void
   }
 }
 
+/**
+ * The plan id a Session's metadata names, as sent, and the catalog's plan for
+ * it. A Session opened before the step pricing of 13 October names one of the
+ * seven packages of 5 October ("complete"), which `getPlan` no longer knows:
+ * the lead store still records which package it was, with no price, rather
+ * than "unknown".
+ */
+function sessionPlan(session: Stripe.Checkout.Session): { id: string; plan: ReturnType<typeof getPlan> } {
+  const id = String(session.metadata?.plan ?? "").slice(0, 64);
+  return { id: id || "unknown", plan: getPlan(id) };
+}
+
 /** The lead store's view of a completed purchase. Never throws. */
 async function recordConversion(session: Stripe.Checkout.Session): Promise<void> {
   try {
     const email = session.customer_email ?? session.customer_details?.email;
     if (!email) return;
-    const plan = getPlan(String(session.metadata?.plan ?? ""));
+    const { id, plan } = sessionPlan(session);
     const interval = session.metadata?.billingInterval;
     const mrr = plan ? (interval === "year" ? plan.annualMonthlyUsd : plan.monthlyUsd) : 0;
-    await markConverted({ email, plan: plan?.id ?? "unknown", mrrUsd: mrr });
+    await markConverted({ email, plan: id, mrrUsd: mrr });
   } catch (error) {
     console.error("[healdesk] could not record conversion in the lead store", {
       error: error instanceof Error ? error.message : String(error),
@@ -611,8 +623,8 @@ async function recordDemoClaim(session: Stripe.Checkout.Session): Promise<void> 
   const slug = session.metadata?.demo;
   if (!slug) return;
   try {
-    const plan = getPlan(String(session.metadata?.plan ?? ""));
-    const claimed = await markDemoClaimed(slug, plan?.id ?? "unknown");
+    const { id, plan } = sessionPlan(session);
+    const claimed = await markDemoClaimed(slug, id);
     if (!claimed?.newly) return;
     await postInternalAlert(
       `Demo claimed: ${displayName(claimed.session)} bought ${plan?.name ?? "a package"} from their personalised demo (${slug}).`,

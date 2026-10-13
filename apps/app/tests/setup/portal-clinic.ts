@@ -59,7 +59,7 @@ export async function provisionPortalClinic(
     clinicName: `${label} Med Spa LLC`,
     specialty,
     platform,
-    plan: options.plan ?? "web-voice",
+    plan: options.plan ?? "voice-webchat-1000-1000",
     contactName: "Laura Owner",
     contactEmail: email,
     agreementId: signed.agreementId,

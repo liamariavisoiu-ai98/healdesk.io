@@ -13,7 +13,7 @@ import type { StopTarget } from "./unsubscribe";
  * The optional emails' switches (Annex X3, "Optional email"), read by the
  * sender and turned off by a stop link (lib/email/unsubscribe.ts):
  *
- *   - `usage_alerts`: the 80% and 100% allowance emails, the billing
+ *   - `usage_alerts`: the 90% and 100% allowance emails, the billing
  *     clinic's `entitlements.usage_alerts_enabled`, which Billing's switch
  *     also writes;
  *   - `daily_summary`: the morning summary, `clinic_settings.daily_summary`,

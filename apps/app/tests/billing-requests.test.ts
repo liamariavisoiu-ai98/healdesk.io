@@ -84,8 +84,8 @@ function plan(id: string) {
 
 const packageKey = (id: string, interval: "month" | "year") => stripeLookupKey(plan(id), interval);
 const priceId = (lookupKey: string) => `price_${lookupKey}`;
-const VOICE_80 = meteredPriceLookupKey("voiceMinutes", 0.8);
-const CHAT_30 = meteredPriceLookupKey("chatConversations", 0.3);
+const VOICE_BLOCK = meteredPriceLookupKey("voiceMinutes", 1.04);
+const META_CHAT_BLOCK = meteredPriceLookupKey("chatConversations", 0.78);
 
 // -----------------------------------------------------------------------------
 // A small stateful Stripe
@@ -488,15 +488,15 @@ describe("subscriptionShape", () => {
     expect(
       subscriptionShape(
         sub([
-          item("si_meter", VOICE_80),
+          item("si_meter", VOICE_BLOCK),
           item("si_hold", PLAN_START_PLACEHOLDER_LOOKUP_KEY),
-          item("si_package", packageKey("web-voice", "month"), 2),
+          item("si_package", packageKey("voice-webchat-1000-1000", "month"), 2),
         ]),
       ),
     ).toMatchObject({
       placeholderItemId: "si_hold",
-      packageItem: { id: "si_package", interval: "month", quantity: 2, plan: { id: "web-voice" } },
-      meteredKeys: [VOICE_80],
+      packageItem: { id: "si_package", interval: "month", quantity: 2, plan: { id: "voice-webchat-1000-1000" } },
+      meteredKeys: [VOICE_BLOCK],
     });
   });
 
@@ -526,10 +526,10 @@ describeDb("the billing-request worker", () => {
 
   describe("plan start (BD2, R16)", () => {
     test("swaps the placeholder for the package of the channels in service across the group, moves the card, and stamps the start", async () => {
-      // Bought Complete for two locations; web answers at the billing clinic
-      // and voice at the second location, so Web + Voice is billed.
+      // Bought Voice + Meta Chat for two locations; web answers at the billing
+      // clinic and voice at the second location, so Voice + Web Chat is billed.
       const billing = await seedBilling("start", {
-        planId: "complete",
+        planId: "voice-metachat-1000-1000",
         interval: "month",
         locations: 2,
         channelRows: [inService("web"), { channel: "meta", readyAt: at(-DAY) }],
@@ -572,10 +572,10 @@ describeDb("the billing-request worker", () => {
         {
           items: [
             { id: "si_hold", deleted: true },
-            { price: priceId(packageKey("web-voice", "month")), quantity: 2 },
+            { price: priceId(packageKey("voice-webchat-1000-1000", "month")), quantity: 2 },
             // The BOUGHT package's metered rates, on a monthly plan.
-            { price: priceId(CHAT_30) },
-            { price: priceId(VOICE_80) },
+            { price: priceId(META_CHAT_BLOCK) },
+            { price: priceId(VOICE_BLOCK) },
           ],
           billing_cycle_anchor: "now",
           proration_behavior: "none",
@@ -604,12 +604,12 @@ describeDb("the billing-request worker", () => {
       });
       const row = await entitlementsOf(billing.clinicId);
       expect(row).toMatchObject({
-        plan_code: "web-voice",
-        bought_plan_id: "complete",
+        plan_code: "voice-webchat-1000-1000",
+        bought_plan_id: "voice-metachat-1000-1000",
         billing_interval: "month",
         // Bought decides the channels; being billed for less never turns one off.
         channels_enabled: { web: true, meta: true, voice: true },
-        metered_price_keys: [CHAT_30, VOICE_80].sort(),
+        metered_price_keys: [META_CHAT_BLOCK, VOICE_BLOCK].sort(),
         // The paid start, the window and L2 come from invoice.paid (BD7).
         plan_started_at: null,
         stripe_mutation_lease_owner: null,
@@ -620,7 +620,7 @@ describeDb("the billing-request worker", () => {
 
     test("an annual plan carries no metered items, and a keyless $0 item is still the placeholder", async () => {
       const billing = await seedBilling("start-annual", {
-        planId: "chat-web",
+        planId: "webchat-1000",
         interval: "year",
         channelRows: [inService("web")],
       });
@@ -642,12 +642,12 @@ describeDb("the billing-request worker", () => {
       ];
       expect(params.items).toEqual([
         { id: "si_zero", deleted: true },
-        { price: priceId(packageKey("chat-web", "year")), quantity: 1 },
+        { price: priceId(packageKey("webchat-1000", "year")), quantity: 1 },
       ]);
       expect(params).not.toHaveProperty("default_payment_method");
       expect(options.idempotencyKey).toBe(`hd-plan-start:${billing.clinicId}:${request.id}:0:1`);
       expect(await entitlementsOf(billing.clinicId)).toMatchObject({
-        plan_code: "chat-web",
+        plan_code: "webchat-1000",
         billing_interval: "year",
         metered_price_keys: [],
       });
@@ -676,14 +676,14 @@ describeDb("the billing-request worker", () => {
 
     test("an update that already went through is recorded from Stripe, with no second update", async () => {
       const billing = await seedBilling("start-again", {
-        planId: "complete",
+        planId: "voice-metachat-1000-1000",
         channelRows: [inService("web"), inService("voice")],
       });
       await record(billing.clinicId, "plan_start");
       const { fake, stripe } = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("web-voice", "month")), item("si_meter", VOICE_80)],
+        items: [item("si_package", packageKey("voice-webchat-1000-1000", "month")), item("si_meter", VOICE_BLOCK)],
         // A cancellation set after the start does not hide that it started.
         cancelAtPeriodEnd: true,
       });
@@ -697,7 +697,7 @@ describeDb("the billing-request worker", () => {
       });
       const row = await entitlementsOf(billing.clinicId);
       expect(row.plan_start_applied_at).not.toBeNull();
-      expect(row).toMatchObject({ plan_code: "web-voice", metered_price_keys: [VOICE_80] });
+      expect(row).toMatchObject({ plan_code: "voice-webchat-1000-1000", metered_price_keys: [VOICE_BLOCK] });
       // Not a fresh start, so no "started while set to cancel" alert.
       expect(await opsAlerts("plan_start_after_cancel", billing.clinicId)).toEqual([]);
     });
@@ -784,14 +784,14 @@ describeDb("the billing-request worker", () => {
     });
 
     test("reads the row under its lock, so a plan change committing as the lease frees is priced, not the package before it (review fix)", async () => {
-      // Bought Complete, web and voice answering: Web + Voice would be billed.
+      // Bought Voice + Meta Chat, web and voice answering: Voice + Web Chat would be billed.
       // The clinic moves to AYA Web Chat before the start, and changePlan's last
       // transaction commits while the worker is reading the row. Its lease has
       // run out (slow Stripe calls), so the worker's claim waits on the row
       // lock rather than failing, and succeeds the moment the change commits:
       // a plain read before it would have priced the old package.
       const billing = await seedBilling("start-locked", {
-        planId: "complete",
+        planId: "voice-metachat-1000-1000",
         channelRows: [inService("web"), inService("voice")],
       });
       await record(billing.clinicId, "plan_start");
@@ -809,7 +809,7 @@ describeDb("the billing-request worker", () => {
       const drained = await commitWhileQueued(
         billing.clinicId,
         `update entitlements
-            set bought_plan_id = 'chat-web', plan_code = 'chat-web',
+            set bought_plan_id = 'webchat-1000', plan_code = 'webchat-1000',
                 channels_enabled = '{"web": true, "meta": false, "voice": false}'::jsonb,
                 stripe_mutation_lease_owner = null, stripe_mutation_lease_until = null
           where clinic_id = $1`,
@@ -824,24 +824,24 @@ describeDb("the billing-request worker", () => {
       // The package the clinic now owns, at its own metered rates.
       expect(params.items).toEqual([
         { id: "si_hold", deleted: true },
-        { price: priceId(packageKey("chat-web", "month")), quantity: 1 },
-        ...expectedMeteredKeys("chat-web", "month")!.map((key) => ({ price: priceId(key) })),
+        { price: priceId(packageKey("webchat-1000", "month")), quantity: 1 },
+        ...expectedMeteredKeys("webchat-1000", "month")!.map((key) => ({ price: priceId(key) })),
       ]);
       expect(await entitlementsOf(billing.clinicId)).toMatchObject({
-        plan_code: "chat-web",
-        bought_plan_id: "chat-web",
+        plan_code: "webchat-1000",
+        bought_plan_id: "webchat-1000",
       });
     }, 60_000);
 
     test("a plan start or a step-up waits, without spending an attempt, while a plan change is still being completed (review fix)", async () => {
       const starting = await seedBilling("start-change-pending", {
-        planId: "complete",
+        planId: "voice-metachat-1000-1000",
         channelRows: [inService("web")],
       });
       await record(starting.clinicId, "plan_start");
       const stepping = await seedBilling("step-change-pending", {
-        planId: "chat-web",
-        boughtPlanId: "complete",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         ...STARTED,
         channelRows: [inService("web"), inService("voice")],
       });
@@ -850,7 +850,7 @@ describeDb("the billing-request worker", () => {
         await inTenant(clinic.clinicId, (c) =>
           c.query(
             `update entitlements
-                set pending_plan_change_request_id = 'chg_1', pending_plan_change_plan_id = 'chat-web',
+                set pending_plan_change_request_id = 'chg_1', pending_plan_change_plan_id = 'webchat-1000',
                     pending_plan_change_interval = 'year'
               where clinic_id = $1`,
             [clinic.clinicId],
@@ -1061,7 +1061,7 @@ describeDb("the billing-request worker", () => {
         outcome_reason: "started",
         last_error: null,
       });
-      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("chat-web");
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("webchat-1000");
     });
 
     test("waits grow with each failed attempt, and the tenth dead-letters the request and tells ops", async () => {
@@ -1248,7 +1248,7 @@ describeDb("the billing-request worker", () => {
       });
       const before = await entitlementsOf(billing.clinicId);
       expect(before.plan_start_applied_at).toBeNull();
-      expect(before.plan_code).toBe("complete");
+      expect(before.plan_code).toBe("voice-metachat-1000-1000");
 
       // The overtaking attempt died; the next re-reads Stripe and records the start.
       await drainBillingRequests({ now: at(11 * MINUTE), stripe: w.stripe });
@@ -1260,7 +1260,7 @@ describeDb("the billing-request worker", () => {
       });
       const after = await entitlementsOf(billing.clinicId);
       expect(after.plan_start_applied_at).not.toBeNull();
-      expect(after.plan_code).toBe("chat-web");
+      expect(after.plan_code).toBe("webchat-1000");
     });
 
     test("while another holder has the Stripe mutation lease the request waits a minute without spending an attempt (R5)", async () => {
@@ -1290,8 +1290,8 @@ describeDb("the billing-request worker", () => {
 
     test("at most one request per billing clinic per batch, a cancellation first", async () => {
       const billing = await seedBilling("one-each", {
-        planId: "chat-web",
-        boughtPlanId: "complete",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         ...STARTED,
         channelRows: [inService("web"), inService("voice")],
       });
@@ -1300,7 +1300,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("chat-web", "month"))],
+        items: [item("si_package", packageKey("webchat-1000", "month"))],
       });
 
       expect(await drainBillingRequests({ now: NOW, stripe: w.stripe })).toEqual({
@@ -1362,12 +1362,13 @@ describeDb("the billing-request worker", () => {
     });
 
     test("prices the channel in from what Stripe bills now, never dropping a billed channel, and sends L3", async () => {
-      // Bought Complete. Stripe bills Web + Voice (voice joined while waiting,
-      // so it is billed but not in service); our row still says AYA Web Chat.
-      // Meta's first answer: Complete, not Web + Meta, which would drop voice.
+      // Bought Voice + Meta Chat. Stripe bills Voice + Web Chat (voice joined
+      // while waiting, so it is billed but not in service); our row still says
+      // AYA Web Chat. Meta's first answer: Voice + Meta Chat, not Meta Chat
+      // alone, which would drop voice.
       const billing = await seedBilling("step-target", {
-        planId: "chat-web",
-        boughtPlanId: "complete",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         ...STARTED,
         channelRows: [
           inService("web"),
@@ -1380,9 +1381,9 @@ describeDb("the billing-request worker", () => {
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
         items: [
-          item("si_package", packageKey("web-voice", "month")),
-          item("si_meter_voice", VOICE_80),
-          item("si_meter_chat", CHAT_30),
+          item("si_package", packageKey("voice-webchat-1000-1000", "month")),
+          item("si_meter_voice", VOICE_BLOCK),
+          item("si_meter_chat", META_CHAT_BLOCK),
         ],
       });
 
@@ -1390,7 +1391,7 @@ describeDb("the billing-request worker", () => {
         processed: 1,
       });
 
-      const complete = packageKey("complete", "month");
+      const complete = packageKey("voice-metachat-1000-1000", "month");
       expect(w.fake.callsTo("subscriptions.update")[0]!.args).toEqual([
         billing.subscriptionId,
         {
@@ -1408,15 +1409,15 @@ describeDb("the billing-request worker", () => {
         outcome: "done",
         outcome_reason: "stepped_up",
       });
-      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("complete");
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("voice-metachat-1000-1000");
       const notices = await noticesOf(billing.clinicId, "price_stepped_up");
       expect(notices).toEqual([
         {
           dedupe_key: `step_up:meta:${priceId(complete)}`,
           payload: {
             channel: "meta",
-            planName: "AYA Complete Frontdesk",
-            amountCents: 119_700,
+            planName: getPlan("voice-metachat-1000-1000")!.name,
+            amountCents: 140_000,
             interval: "month",
             isInvoicedNow: false,
             hostedInvoiceUrl: null,
@@ -1429,8 +1430,8 @@ describeDb("the billing-request worker", () => {
 
     test("an annual step-up is invoiced at once, with the invoice's page in L3", async () => {
       const billing = await seedBilling("step-annual", {
-        planId: "chat-web",
-        boughtPlanId: "web-voice",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-webchat-1000-1000",
         interval: "year",
         locations: 2,
         ...STARTED,
@@ -1440,7 +1441,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("chat-web", "year"), 2)],
+        items: [item("si_package", packageKey("webchat-1000", "year"), 2)],
         latestInvoice: {
           id: "in_stepup",
           billing_reason: "subscription_update",
@@ -1454,14 +1455,20 @@ describeDb("the billing-request worker", () => {
       const params = w.fake.callsTo("subscriptions.update")[0]!
         .args[1] as Stripe.SubscriptionUpdateParams;
       expect(params).toMatchObject({
-        items: [{ id: "si_package", price: priceId(packageKey("web-voice", "year")), quantity: 2 }],
+        items: [
+          {
+            id: "si_package",
+            price: priceId(packageKey("voice-webchat-1000-1000", "year")),
+            quantity: 2,
+          },
+        ],
         proration_behavior: "always_invoice",
       });
       expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([
         expect.objectContaining({
           payload: expect.objectContaining({
-            planName: "AYA Web Chat + Voice",
-            amountCents: 717 * 12 * 100 * 2,
+            planName: getPlan("voice-webchat-1000-1000")!.name,
+            amountCents: 960 * 12 * 100 * 2,
             interval: "year",
             isInvoicedNow: true,
             hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_test/test_stepup",
@@ -1473,8 +1480,8 @@ describeDb("the billing-request worker", () => {
 
     test("an annual step-up whose card declines is applied, and L3 says its invoice is due, not charged", async () => {
       const billing = await seedBilling("step-annual-declined", {
-        planId: "chat-web",
-        boughtPlanId: "web-voice",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-webchat-1000-1000",
         interval: "year",
         ...STARTED,
         channelRows: [inService("web"), inService("voice")],
@@ -1484,7 +1491,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("chat-web", "year"), 1)],
+        items: [item("si_package", packageKey("webchat-1000", "year"), 1)],
         latestInvoice: {
           id: "in_stepup_open",
           billing_reason: "subscription_update",
@@ -1512,8 +1519,8 @@ describeDb("the billing-request worker", () => {
 
     test("a channel the plan start already priced in changes nothing and sends no L3", async () => {
       const billing = await seedBilling("step-none", {
-        planId: "chat-web",
-        boughtPlanId: "complete",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         ...STARTED,
         channelRows: [inService("web"), inService("voice")],
       });
@@ -1521,7 +1528,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("web-voice", "month"))],
+        items: [item("si_package", packageKey("voice-webchat-1000-1000", "month"))],
       });
 
       await drainBillingRequests({ now: NOW, stripe: w.stripe });
@@ -1533,13 +1540,13 @@ describeDb("the billing-request worker", () => {
       });
       expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([]);
       // Our row follows what Stripe bills.
-      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("web-voice");
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("voice-webchat-1000-1000");
     });
 
     test("an update that went through with its outcome lost finishes as the step-up it was: L3 with its invoice, once (review fix)", async () => {
       const billing = await seedBilling("step-lost", {
-        planId: "chat-web",
-        boughtPlanId: "web-voice",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-webchat-1000-1000",
         interval: "year",
         ...STARTED,
         channelRows: [inService("web"), inService("voice")],
@@ -1548,7 +1555,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("chat-web", "year"))],
+        items: [item("si_package", packageKey("webchat-1000", "year"))],
       });
       // The update applies and invoices the difference at once; then its
       // answer is lost, and so is the re-read, so the attempt can only fail.
@@ -1580,7 +1587,7 @@ describeDb("the billing-request worker", () => {
       });
       // Charged on Stripe, and nothing recorded here.
       expect(await noticesOf(billing.clinicId, "price_stepped_up")).toEqual([]);
-      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("chat-web");
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("webchat-1000");
 
       expect(await drainBillingRequests({ now: at(2 * MINUTE), stripe: w.stripe })).toMatchObject({
         processed: 1,
@@ -1596,15 +1603,15 @@ describeDb("the billing-request worker", () => {
         outcome_reason: "stepped_up",
         attempts: 2,
       });
-      const webVoice = packageKey("web-voice", "year");
+      const webVoice = packageKey("voice-webchat-1000-1000", "year");
       const notices = await noticesOf(billing.clinicId, "price_stepped_up");
       expect(notices).toEqual([
         {
           dedupe_key: `step_up:voice:${priceId(webVoice)}`,
           payload: {
             channel: "voice",
-            planName: "AYA Web Chat + Voice",
-            amountCents: 717 * 12 * 100,
+            planName: getPlan("voice-webchat-1000-1000")!.name,
+            amountCents: 960 * 12 * 100,
             interval: "year",
             isInvoicedNow: true,
             hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_test/test_lost",
@@ -1615,7 +1622,7 @@ describeDb("the billing-request worker", () => {
         },
       ]);
       expect(() => assertPayloadAllowed(notices[0]!.payload, "price_stepped_up")).not.toThrow();
-      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("web-voice");
+      expect((await entitlementsOf(billing.clinicId)).plan_code).toBe("voice-webchat-1000-1000");
       const stepUpNotes = async () =>
         (await notesOf(billing.clinicId)).filter((reason) => reason === "step_up");
       expect(await stepUpNotes()).toHaveLength(1);
@@ -1631,12 +1638,12 @@ describeDb("the billing-request worker", () => {
     });
 
     test("reads the row under its lock, so a downgrade committing as the lease frees never prices a dropped channel back in (review fix)", async () => {
-      // Bought Complete, billed AYA Web Chat; voice answers and its step-up is
+      // Bought Voice + Meta Chat, billed AYA Web Chat; voice answers and its step-up is
       // due. The clinic downgrades to AYA Web Chat as the worker reads the row
       // (changePlan's lease has run out, as in the plan start's test).
       const billing = await seedBilling("step-locked", {
-        planId: "chat-web",
-        boughtPlanId: "complete",
+        planId: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         ...STARTED,
         channelRows: [inService("web"), inService("voice")],
       });
@@ -1649,13 +1656,13 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("chat-web", "month"))],
+        items: [item("si_package", packageKey("webchat-1000", "month"))],
       });
 
       await commitWhileQueued(
         billing.clinicId,
         `update entitlements
-            set bought_plan_id = 'chat-web',
+            set bought_plan_id = 'webchat-1000',
                 channels_enabled = '{"web": true, "meta": false, "voice": false}'::jsonb,
                 stripe_mutation_lease_owner = null, stripe_mutation_lease_until = null
           where clinic_id = $1`,
@@ -1814,7 +1821,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("complete", "month"))],
+        items: [item("si_package", packageKey("voice-metachat-1000-1000", "month"))],
         pending: [{ id: "ii_proration", subscription: billing.subscriptionId }],
       });
 
@@ -1850,7 +1857,7 @@ describeDb("the billing-request worker", () => {
       const w = world({
         customerId: billing.customerId,
         subscriptionId: billing.subscriptionId,
-        items: [item("si_package", packageKey("complete", "month"))],
+        items: [item("si_package", packageKey("voice-metachat-1000-1000", "month"))],
         status: "canceled",
       });
 

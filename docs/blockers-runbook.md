@@ -870,17 +870,23 @@ needs a second account; both are solved below.
 
 ### What one run of the setup script creates
 
-Five packages, from `packages/catalog/src/plans.ts`. Three prices each — monthly,
-annual, and a **one-time setup fee** billed on the first invoice only — plus three
-metered overage prices on two meters (below).
+Five packages, from `packages/catalog/src/plans.ts`, each sold in usage steps of 100
+(100–1,500 voice minutes and chat conversations a month) since 13 October 2026. One Product per
+package (keyed `metadata.healdesk_package_id`), carrying a monthly and an annual price for **every
+plan** on the package's grid (495 plans, 990 recurring prices) and one **one-time setup fee**
+billed on the first invoice only. A subscription carries one plan price with quantity =
+locations, exactly as before; the steps are in the plan id (`voice-metachat-500-300`).
 
-| Package | `id` | Monthly | Annual (per mo) | Setup fee |
-|---|---|---|---|---|
-| Web OR Meta Chatbot | `chat-single` | $397 | $317 | $497 |
-| Web + Meta Chatbot | `chat-dual` | $597 | $477 | $997 |
-| AI Voice Agent Alone | `voice` | $797 | $637 | $997 |
-| Web OR Meta + Voice | `chat-voice` | $897 | $717 | $997 |
-| Complete FrontDesk AI | `complete` | $1,197 | $957 | $997 |
+| Package | Per 100 a month (voice / chat) | Setup fee | Setup coupons (cohort / demo 50% / site 30%) |
+|---|---|---|---|
+| AYA Voice (`voice`) | $80 | $697 | $697 / $348 / $209 |
+| AYA Web Chat (`webchat`) | $40 | $259 | $259 / $129 / $77 |
+| AYA Meta Chat (`metachat`, includes web) | $60 | $697 | $697 / $348 / $209 |
+| AYA Voice + Web Chat (`voice-webchat`) | $80 + $40 | $956 | $956 / $478 / $286 |
+| AYA Voice + Meta Chat (`voice-metachat`) | $80 + $60 | $1,394 | $1,394 / $697 / $418 |
+
+The 5 October products (keyed `healdesk_plan_id`) and their prices are reported STALE and left
+active for anything already on them; nothing is deleted or deactivated.
 
 **There is no trial.** Provisioning builds a voice agent, allocates a number and runs a QA
 pass before the clinic sees anything, and the setup fee is what pays for that. A trial and
@@ -892,7 +898,8 @@ The annual invoice is `annualMonthlyUsd × 12`, computed by `annualTotalUsd()` s
 cannot quote $3,804 while Stripe charges $3,800.
 
 **Every price carries a `lookup_key`** of the form
-`healdesk_<planId>_<month|year|setup>_<amountInCents>` — e.g. `healdesk_chat-voice_month_89700`.
+`healdesk_<planId>_<month|year>_<amountInCents>` — e.g. `healdesk_voice-webchat-500-300_month_52000` —
+or, for the setup fee, which is per package, `healdesk_<packageId>_setup_<amountInCents>`.
 This is the single most important deviation from scalabid, which hardcodes literal price
 IDs as fallbacks with a comment admitting the risk: *"if the live Stripe account is ever
 swapped, these fallbacks become stale and customers are charged against the wrong
@@ -904,12 +911,11 @@ old price — it fails loudly with `No active Stripe price with lookup_key "…"
 script is re-run.
 
 The metered overage prices are one per distinct rate on each meter — three prices on two
-meters, billed per started block of 100 since 6 October 2026:
-`healdesk_meter_voice_minutes_block100_8000` ($80 for each started block of 100 voice
-minutes), `healdesk_meter_chat_conversations_block100_4000` ($40 a block of 100
-conversations, the single-channel chat package) and
-`healdesk_meter_chat_conversations_block100_3000` ($30, every other package with chat).
-Each is package-priced: `per_unit` at the block price, with `transform_quantity` dividing
+meters, billed per started block of 100 at the extra-100 price set on 13 October 2026:
+`healdesk_meter_voice_minutes_block100_10400` ($104 for each started block of 100 voice
+minutes), `healdesk_meter_chat_conversations_block100_5200` ($52, Web Chat) and
+`healdesk_meter_chat_conversations_block100_7800` ($78, Meta Chat). The 6 October block prices
+(`…_8000`, `…_4000`, `…_3000`) are reported STALE, not archived. Each is package-priced: `per_unit` at the block price, with `transform_quantity` dividing
 the month's metered total by 100 and rounding up, so the app still reports single minutes
 and conversations. Like the package keys, each metered key encodes its block size and
 price, so a rate change makes a new price and the old one is reported STALE. The script
@@ -1201,9 +1207,9 @@ flying the badge, while inoculating you at the same time.
 | **ISO 27001:2022** | $15K–30K + surveillance audits years 2–3 | 6–12 months | **Wrong credential for this market** |
 | **HITRUST e1 / i1** | $20K–70K / $60K–200K | Months | Not a close call |
 
-**The commercial answer is unflattering to the badge strip.** At the catalog's $397–1,197/mo
-(before setup fees), ACV is $4,764–$14,364. A $20K SOC 2 program costs the entire annual
-revenue of **2–5 customers**.
+**The commercial answer is unflattering to the badge strip.** At the catalog's $40–2,100/mo by
+usage step (before setup fees), ACV is $480–$25,200; a typical Voice 500 clinic is $4,800. A $20K SOC 2 program costs the entire annual
+revenue of **about four typical customers**.
 The evidence is that small single-location med spas and dental practices do **not** run
 vendor security reviews — a signed BAA is widely treated as sufficient diligence at this
 tier, and the "83% of buyers require SOC 2" statistic compliance vendors quote is explicitly

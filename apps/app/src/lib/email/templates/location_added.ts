@@ -59,10 +59,10 @@ export const LOCATION_ADDED_ENTRY: TemplateEntry<LocationAddedPayload> = {
   render: renderLocationAdded,
   fixture: {
     locations: 2,
-    recurringCents: 89_700,
-    setupFeeCents: 99_700,
+    recurringCents: 52_000,
+    setupFeeCents: 95_600,
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
     isBeforeStart: false,
-    billedPlanId: "web-voice",
+    billedPlanId: "voice-webchat-500-300",
   },
 };

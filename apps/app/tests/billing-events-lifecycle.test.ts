@@ -61,9 +61,9 @@ const DAY_MS = DAY * 1000;
 const NOW = new Date("2026-11-02T10:00:00.000Z");
 const T = Math.floor(NOW.getTime() / 1000);
 
-const complete = getPlan("complete")!;
-const chatWeb = getPlan("chat-web")!;
-const webVoice = getPlan("web-voice")!;
+const complete = getPlan("voice-metachat-1000-1000")!;
+const chatWeb = getPlan("webchat-1000")!;
+const webVoice = getPlan("voice-webchat-1000-1000")!;
 
 function letters(): string {
   return randomUUID().replace(/-/g, "").replace(/\d/g, "x");
@@ -482,7 +482,7 @@ describeDb("the deferred start's billing lifecycle", () => {
 
       // The package named is the one Stripe billed (the price's lookup key),
       // not plan_code, which the worker may not have written yet.
-      expect(row.plan_code).toBe("complete");
+      expect(row.plan_code).toBe("voice-metachat-1000-1000");
       expect(fake.callsTo("prices.retrieve").map((call) => call.args[0])).toEqual([price]);
 
       const notices = await noticesOf(clinicId);
@@ -492,7 +492,7 @@ describeDb("the deferred start's billing lifecycle", () => {
           dedupe_key: "plan_started",
           payload: {
             planName: chatWeb.name,
-            boughtPlanId: "complete",
+            boughtPlanId: "voice-metachat-1000-1000",
             channel: "web",
             amountCents: chatWeb.monthlyUsd * 100,
             interval: "month",
@@ -582,7 +582,7 @@ describeDb("the deferred start's billing lifecycle", () => {
 
     test("an old-checkout purchase starts its plan on the checkout invoice, without plan_started (R34)", async () => {
       const { clinicId, ids } = await boughtClinic("oldcheckout", {
-        planId: "web-voice",
+        planId: "voice-webchat-1000-1000",
         status: "provisioning",
         firstInvoice: false,
       });
@@ -1486,9 +1486,9 @@ describeDb("the deferred start's billing lifecycle", () => {
       await handleStripeEvent(e, { now: NOW });
 
       const row = await entitlementsOf(clinicId);
-      expect(row.plan_code).toBe("chat-web");
+      expect(row.plan_code).toBe("webchat-1000");
       expect(row.included_chat_conversations).toBe(chatWeb.includedChatConversations);
-      expect(row.bought_plan_id).toBe("complete");
+      expect(row.bought_plan_id).toBe("voice-metachat-1000-1000");
       expect(row.channels_enabled).toEqual({ web: true, meta: true, voice: true });
       expect(row.locations).toBe(3);
       expect(row.metered_price_keys).toEqual([...meteredKeys].sort());
@@ -1511,7 +1511,7 @@ describeDb("the deferred start's billing lifecycle", () => {
       );
       const preRow = await entitlementsOf(pre.clinicId);
       expect(preRow.locations).toBe(2);
-      expect(preRow.plan_code).toBe("complete");
+      expect(preRow.plan_code).toBe("voice-metachat-1000-1000");
       expect(preRow.metered_price_keys).toEqual([]);
     });
 

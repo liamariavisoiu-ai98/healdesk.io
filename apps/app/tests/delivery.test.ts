@@ -279,7 +279,7 @@ describeDb("delivery", () => {
       const renewsOn = "2026-09-14";
       const before = new Date(renewsAt.getTime() - 30.5 * DAY);
       await sendRenewalReminders(before);
-      const complete = getPlan("complete")!;
+      const complete = getPlan("voice-metachat-1000-1000")!;
       expect(await renewalNotices(annual.clinicId)).toEqual([
         {
           dedupe_key: `renewal:${renewsOn}:30`,

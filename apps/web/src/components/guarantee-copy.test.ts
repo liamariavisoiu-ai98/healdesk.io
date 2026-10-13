@@ -17,6 +17,9 @@ import { GUARANTEE_TEXT } from "@/lib/legal";
  * was advertised was /pricing; the owner disabled that page that day, and the
  * guarantee is now met where the prices are, at checkout's Review and pay
  * step, in full (16 CFR 239.3(b): the conditions where the claim is made).
+ * /pricing came back on 13 October 2026 without the guarantee on it, so
+ * Review and pay is still the one place it is advertised; a pricing page
+ * that names it must render GUARANTEE_TEXT in full and join this test.
  * Both render GUARANTEE_TEXT, so the cheapest way for them to drift is for
  * one of them to stop rendering it, or to render a different paragraph set.
  * This reads both as text and checks every paragraph is present in each,
@@ -44,11 +47,11 @@ const SIGNED: AgreementResult = {
 };
 const noop = () => undefined;
 
-/** Review and pay, as a buyer of the voice package sees it, from its guarantee block to its end. */
+/** Review and pay, as a buyer of AYA Voice at 500 minutes sees it, from its guarantee block to its end. */
 function reviewGuarantee(): string {
   const markup = renderToStaticMarkup(
     h(ReviewStep, {
-      plan: getPlan("voice")!,
+      plan: getPlan("voice-500")!,
       interval: "month",
       specialty: "med-spa",
       clinicName: "Glow Med Spa LLC",

@@ -634,7 +634,14 @@ async function provisionOnce({
 
     // One row per channel the package includes: where each stands, from
     // setting up to live, and what the price steps up by (contracts §2).
-    const bought = CHANNELS.filter((channel) => plan.channels[channel]);
+    // Meta Chat includes website chat, but a practice that told the funnel it
+    // has no website gets no website row: the wizard and Home would otherwise
+    // list a step it can never finish. Billing reads the rows in service, so
+    // the missing row costs it nothing (catalog planForChannels).
+    const noWebsite = options.setup?.website === null;
+    const bought = CHANNELS.filter(
+      (channel) => plan.channels[channel] && !(channel === "web" && noWebsite && plan.chatProduct === "metachat"),
+    );
     if (bought.length > 0) {
       await tx.insert(clinicChannels).values(bought.map((channel) => ({ clinicId, channel })));
     }

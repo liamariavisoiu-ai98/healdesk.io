@@ -2171,13 +2171,14 @@ function isProrationLine(line: unknown): boolean {
 
 /**
  * The setup fee is the line whose price key parses as a `setup` price
- * (`healdesk_<plan>_setup_<cents>`). When the price is not expanded on the
- * payload — the current API version sends an id — it is the one-time invoice
- * item, because a subscription-mode Session only ever puts one one-time line
- * on the first invoice and that is the fee.
+ * (`healdesk_<package>_setup_<cents>`: one per package since 13 October
+ * 2026, so the id in it is a package id, never a plan's). When the price is
+ * not expanded on the payload — the current API version sends an id — it is
+ * the one-time invoice item, because a subscription-mode Session only ever
+ * puts one one-time line on the first invoice and that is the fee.
  *
  * Parsed, not matched on a suffix: the key ends in the amount, so an
- * `endsWith("_setup")` test never matched a real key and recorded a paid $997
+ * `endsWith("_setup")` test never matched a real key and recorded a paid $956
  * fee as $0 whenever the price arrived expanded.
  */
 function isSetupLine(line: unknown): boolean {
@@ -2284,10 +2285,11 @@ function invoicePeriod(invoice: unknown): { start: Date; end: Date } {
  * The package a subscription is on: the first item whose price is ours and
  * not metered, with its quantity (the locations). The metered overage items
  * are skipped here, but they DO depend on the package since 5 October 2026
- * (a started block of 100 chat conversations is $40 on chat-web and chat-meta
- * and $30 elsewhere; packages/catalog `planMeteredPrices`), so a plan change
- * must also swap them — reading the package from the licensed item alone says
- * nothing about whether the metered items still match it. The $0
+ * (a started block of 100 chat conversations is $52 on AYA Web Chat and $78
+ * on AYA Meta Chat since 13 October; packages/catalog `planMeteredPrices`),
+ * so a plan change must also swap them — reading the package from the
+ * licensed item alone says nothing about whether the metered items still
+ * match it. The $0
  * placeholder's key does not parse as a package price, so before the plan
  * starts there is no package item and nothing here moves.
  */

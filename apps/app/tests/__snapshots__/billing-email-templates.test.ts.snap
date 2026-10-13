@@ -437,7 +437,7 @@ exports[`every branch of every billing template > location_added: a location add
   "subject": "Location added: you now have 2 healdesk locations",
   "text": "Your new location is added, so your healdesk account now covers 2 locations.
 
-Its setup fee of $997 was charged when you added it, and your plan now costs $897 more each billing period. The invoice covers the setup fee and the new location's share of this period.
+Its setup fee of $956 was charged when you added it, and your plan now costs $520 more each billing period. The invoice covers the setup fee and the new location's share of this period.
 
 The new location has its own setup to finish in healdesk.
 
@@ -460,7 +460,7 @@ exports[`every branch of every billing template > location_added: a location add
   "subject": "Location added: you now have 3 healdesk locations",
   "text": "Your new location is added, so your healdesk account now covers 3 locations.
 
-Its setup fee of $497 was charged when you added it. Its plan price of $397 starts with your plan, the day AYA first answers a patient.
+Its setup fee of $259 was charged when you added it. Its plan price of $120 starts with your plan, the day AYA first answers a patient.
 
 The new location has its own setup to finish in healdesk.
 
@@ -475,14 +475,14 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > overage_invoiced: overage on both meters, no invoice link > the words, as a snapshot 1`] = `
 {
-  "preheader": "$170 for the month to Tuesday 6 October.",
+  "preheader": "$260 for the month to Tuesday 6 October.",
   "subject": "Your healdesk invoice for usage past your allowance",
   "text": "In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:
 
-- 1 voice minute, billed as 1 block of 100 voice minutes at $80
-- 201 chat conversations, billed as 3 blocks of 100 chat conversations at $30 each
+- 1 voice minute, billed as 1 block of 100 voice minutes at $104
+- 201 chat conversations, billed as 3 blocks of 100 chat conversations at $52 each
 
-Overage is billed for each started block of 100, so that comes to $170, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $260, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -495,13 +495,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > overage_invoiced: overage on voice > the words, as a snapshot 1`] = `
 {
-  "preheader": "$80 for the month to Tuesday 6 October.",
+  "preheader": "$104 for the month to Tuesday 6 October.",
   "subject": "Your healdesk invoice for usage past your allowance",
   "text": "In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:
 
-- 30 voice minutes, billed as 1 block of 100 voice minutes at $80
+- 30 voice minutes, billed as 1 block of 100 voice minutes at $104
 
-Overage is billed for each started block of 100, so that comes to $80, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $104, charged to the card on file. The rates are provisional until we've measured what each minute and conversation costs us.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -518,13 +518,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > overage_invoiced: overage the card declined, left open to pay > the words, as a snapshot 1`] = `
 {
-  "preheader": "$80 for the month to Tuesday 6 October.",
+  "preheader": "$104 for the month to Tuesday 6 October.",
   "subject": "Your healdesk invoice for usage past your allowance",
   "text": "In the month from Sunday 6 September to Tuesday 6 October, AYA handled more than your plan includes. Past your allowance:
 
-- 30 voice minutes, billed as 1 block of 100 voice minutes at $80
+- 30 voice minutes, billed as 1 block of 100 voice minutes at $104
 
-Overage is billed for each started block of 100, so that comes to $80. The invoice for it is due now. The rates are provisional until we've measured what each minute and conversation costs us.
+Overage is billed for each started block of 100, so that comes to $104. The invoice for it is due now. The rates are provisional until we've measured what each minute and conversation costs us.
 
 Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -642,15 +642,15 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > plan_changed: plan changed after the start to annual billing, prorated > the words, as a snapshot 1`] = `
 {
-  "preheader": "AYA Web Chat + Voice, billed annually.",
-  "subject": "Your healdesk plan is now AYA Web Chat + Voice",
-  "text": "Your healdesk plan is now AYA Web Chat + Voice, billed annually.
+  "preheader": "AYA Voice + Web Chat, 500 minutes and 300 conversations, billed annually.",
+  "subject": "Your healdesk plan is now AYA Voice + Web Chat",
+  "text": "Your healdesk plan is now AYA Voice + Web Chat, 500 minutes and 300 conversations, billed annually.
 
-Until every channel in it is in service, you're billed for AYA Web Chat. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+Until every channel in it is in service, you're billed for AYA Web Chat, 300 conversations. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 The change is prorated: the invoice covers the difference for the rest of this billing period.
 
-The difference in setup fee, $500, was charged with the change.
+The difference in setup fee, $697, was charged with the change.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -667,13 +667,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > plan_changed: plan changed after the start, billed by channels in service > the words, as a snapshot 1`] = `
 {
-  "preheader": "AYA Web Chat + Voice, billed monthly.",
-  "subject": "Your healdesk plan is now AYA Web Chat + Voice",
-  "text": "Your healdesk plan is now AYA Web Chat + Voice, billed monthly.
+  "preheader": "AYA Voice + Web Chat, 500 minutes and 300 conversations, billed monthly.",
+  "subject": "Your healdesk plan is now AYA Voice + Web Chat",
+  "text": "Your healdesk plan is now AYA Voice + Web Chat, 500 minutes and 300 conversations, billed monthly.
 
-Until every channel in it is in service, you're billed for AYA Web Chat. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+Until every channel in it is in service, you're billed for AYA Web Chat, 300 conversations. Each other channel's price joins from the day it first answers. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
-The difference in setup fee, $500, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.
+The difference in setup fee, $697, was charged with the change, and that's all the invoice covers: the price you're billed hasn't changed.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -691,10 +691,10 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 exports[`every branch of every billing template > plan_changed: plan changed before the start > the words, as a snapshot 1`] = `
 {
   "preheader": "It starts the day AYA first answers a patient.",
-  "subject": "Your healdesk plan is now AYA Complete Frontdesk",
-  "text": "Your healdesk plan is now AYA Complete Frontdesk, billed monthly.
+  "subject": "Your healdesk plan is now AYA Voice + Meta Chat",
+  "text": "Your healdesk plan is now AYA Voice + Meta Chat, 500 minutes and 300 conversations, billed monthly.
 
-Monthly billing ($1,197) starts the day AYA first answers a patient.
+Monthly billing ($580) starts the day AYA first answers a patient.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -708,12 +708,12 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 exports[`every branch of every billing template > plan_changed: plan changed before the start, annual, two locations > the words, as a snapshot 1`] = `
 {
   "preheader": "It starts the day AYA first answers a patient.",
-  "subject": "Your healdesk plan is now AYA Web Chat + Voice",
-  "text": "Your healdesk plan is now AYA Web Chat + Voice, billed annually, for 2 locations.
+  "subject": "Your healdesk plan is now AYA Voice + Web Chat",
+  "text": "Your healdesk plan is now AYA Voice + Web Chat, 500 minutes and 300 conversations, billed annually, for 2 locations.
 
 It starts the day AYA first answers a patient.
 
-The difference in setup fee, $1,000, was charged with the change.
+The difference in setup fee, $1,394, was charged with the change.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -728,11 +728,11 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
-exports[`every branch of every billing template > plan_changed: plan changed, a channel dropped, named by its card > the words, as a snapshot 1`] = `
+exports[`every branch of every billing template > plan_changed: plan changed, a channel dropped, named by its package alone > the words, as a snapshot 1`] = `
 {
-  "preheader": "AYA Web or Meta Chat, billed monthly.",
-  "subject": "Your healdesk plan is now AYA Web or Meta Chat",
-  "text": "Your healdesk plan is now AYA Web or Meta Chat, billed monthly.
+  "preheader": "AYA Meta Chat, billed monthly.",
+  "subject": "Your healdesk plan is now AYA Meta Chat",
+  "text": "Your healdesk plan is now AYA Meta Chat, billed monthly.
 
 AYA stops answering on the channels your new plan doesn't cover.
 
@@ -747,9 +747,9 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > plan_changed: plan changed, the phone dropped > the words, as a snapshot 1`] = `
 {
-  "preheader": "AYA Web Chat, billed monthly.",
+  "preheader": "AYA Web Chat, 300 conversations, billed monthly.",
   "subject": "Your healdesk plan is now AYA Web Chat",
-  "text": "Your healdesk plan is now AYA Web Chat, billed monthly.
+  "text": "Your healdesk plan is now AYA Web Chat, 300 conversations, billed monthly.
 
 The change is prorated: the invoice covers the difference for the rest of this billing period.
 
@@ -779,11 +779,11 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > plan_started: plan started days before a retried first charge was paid > the words, as a snapshot 1`] = `
 {
-  "preheader": "$897 for your first month of AYA Web Chat + Voice.",
+  "preheader": "$520 for your first month of AYA Voice + Web Chat, 500 minutes and 300 conversations.",
   "subject": "AYA answered her first patient: your plan has started",
   "text": "AYA answered her first patient on the phone, so your healdesk plan started on Thursday 1 October.
 
-We've charged $897 for your first month of AYA Web Chat + Voice, which runs to Sunday 1 November.
+We've charged $520 for your first month of AYA Voice + Web Chat, 500 minutes and 300 conversations, which runs to Sunday 1 November.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 
@@ -800,11 +800,11 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > plan_started: plan started on Meta, annual, the whole package > the words, as a snapshot 1`] = `
 {
-  "preheader": "$3,804 for your first year of AYA Meta Chat.",
+  "preheader": "$1,728 for your first year of AYA Meta Chat, 300 conversations.",
   "subject": "AYA answered her first patient: your plan has started",
   "text": "AYA answered her first patient on Instagram, Messenger or WhatsApp, so your healdesk plan started on Tuesday 6 October.
 
-We've charged $3,804 for your first year of AYA Meta Chat, which runs to Wednesday 6 October 2027.
+We've charged $1,728 for your first year of AYA Meta Chat, 300 conversations, which runs to Wednesday 6 October 2027.
 
 To cancel online, sign in at https://app.healdesk.test/ and turn auto-renew off in Billing. Your plan then ends when the period you've paid for runs out.
 
@@ -819,13 +819,13 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > plan_started: plan started on website chat, billed by channels in service > the words, as a snapshot 1`] = `
 {
-  "preheader": "$397 for your first month of AYA Web Chat.",
+  "preheader": "$120 for your first month of AYA Web Chat, 300 conversations.",
   "subject": "AYA answered her first patient: your plan has started",
   "text": "AYA answered her first patient in your website chat, so your healdesk plan started on Tuesday 6 October.
 
-We've charged $397 for your first month of AYA Web Chat, which runs to Friday 6 November.
+We've charged $120 for your first month of AYA Web Chat, 300 conversations, which runs to Friday 6 November.
 
-You bought AYA Web Chat + Voice. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
+You bought AYA Voice + Web Chat, 500 minutes and 300 conversations. Until every channel in it is in service, you're billed for the ones that are: each other channel's price joins from the day it first answers, and we'll email you each time. A channel that's ready but waiting on a step of yours joins 30 days after it became ready or after your plan started, whichever is later, and we email you a week before.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 
@@ -842,11 +842,11 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > plan_started: plan started with no first-answer channel > the words, as a snapshot 1`] = `
 {
-  "preheader": "$797 for your first month of AYA Voice.",
+  "preheader": "$400 for your first month of AYA Voice, 500 minutes.",
   "subject": "Your healdesk plan has started",
   "text": "Your healdesk plan started on Tuesday 6 October.
 
-We've charged $797 for your first month of AYA Voice, which runs to Friday 6 November.
+We've charged $400 for your first month of AYA Voice, 500 minutes, which runs to Friday 6 November.
 
 View your receipt: https://pay.stripe.com/receipts/invoices/test_receipt
 
@@ -863,9 +863,9 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > price_stepped_up: Meta joined an annual plan, invoiced now > the words, as a snapshot 1`] = `
 {
-  "preheader": "AYA Complete Frontdesk, at $11,484 a year.",
+  "preheader": "AYA Voice + Meta Chat, 500 minutes and 300 conversations, at $5,568 a year.",
   "subject": "Instagram, Messenger and WhatsApp joined your plan: your new price",
-  "text": "Instagram, Messenger and WhatsApp are now part of your healdesk plan, which makes it AYA Complete Frontdesk, at $11,484 a year.
+  "text": "Instagram, Messenger and WhatsApp are now part of your healdesk plan, which makes it AYA Voice + Meta Chat, 500 minutes and 300 conversations, at $5,568 a year.
 
 The difference for the rest of this year is invoiced now and charged to the card on file.
 
@@ -884,9 +884,9 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > price_stepped_up: the phone joined a monthly plan > the words, as a snapshot 1`] = `
 {
-  "preheader": "AYA Web Chat + Voice, at $897 a month.",
+  "preheader": "AYA Voice + Web Chat, 500 minutes and 300 conversations, at $520 a month.",
   "subject": "Phone joined your plan: your new price",
-  "text": "Phone is now part of your healdesk plan, which makes it AYA Web Chat + Voice, at $897 a month.
+  "text": "Phone is now part of your healdesk plan, which makes it AYA Voice + Web Chat, 500 minutes and 300 conversations, at $520 a month.
 
 The difference for the rest of this month is prorated onto your next invoice.
 
@@ -901,9 +901,9 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > price_stepped_up: the phone joined an annual plan, the card declined > the words, as a snapshot 1`] = `
 {
-  "preheader": "AYA Web Chat + Voice, at $8,604 a year.",
+  "preheader": "AYA Voice + Web Chat, 500 minutes and 300 conversations, at $4,992 a year.",
   "subject": "Phone joined your plan: your new price",
-  "text": "Phone is now part of your healdesk plan, which makes it AYA Web Chat + Voice, at $8,604 a year.
+  "text": "Phone is now part of your healdesk plan, which makes it AYA Voice + Web Chat, 500 minutes and 300 conversations, at $4,992 a year.
 
 The difference for the rest of this year is invoiced now, and that invoice is due.
 
@@ -1015,9 +1015,9 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > renewal_upcoming: renewal in 30 days > the words, as a snapshot 1`] = `
 {
-  "preheader": "Your annual AYA Complete Frontdesk plan renews for $11,484.",
+  "preheader": "Your annual plan renews for $5,568.",
   "subject": "Your healdesk plan renews on 5 November 2027",
-  "text": "Your annual AYA Complete Frontdesk plan renews on Friday 5 November 2027, for $11,484. We'll charge the card on file.
+  "text": "Your annual plan, AYA Voice + Meta Chat, 500 minutes and 300 conversations, renews on Friday 5 November 2027, for $5,568. We'll charge the card on file.
 
 There's nothing to do if you'd like to carry on. To stop it renewing, turn auto-renew off in Billing before Friday 5 November 2027.
 
@@ -1034,9 +1034,9 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 
 exports[`every branch of every billing template > renewal_upcoming: renewal reminder at 21 days, three locations > the words, as a snapshot 1`] = `
 {
-  "preheader": "A reminder: your annual AYA Web Chat + Voice plan renews for $25,812.",
+  "preheader": "A reminder: your annual plan renews for $14,976.",
   "subject": "Your healdesk plan renews on 27 October",
-  "text": "Your annual AYA Web Chat + Voice plan renews on Tuesday 27 October, for $25,812 (3 locations). We'll charge the card on file.
+  "text": "Your annual plan, AYA Voice + Web Chat, 500 minutes and 300 conversations, renews on Tuesday 27 October, for $14,976 (3 locations). We'll charge the card on file.
 
 There's nothing to do if you'd like to carry on. To stop it renewing, turn auto-renew off in Billing before Tuesday 27 October.
 
@@ -1095,7 +1095,7 @@ exports[`every branch of every billing template > step_up_reminder: Meta waiting
   "subject": "Instagram, Messenger and WhatsApp join your plan on 13 October",
   "text": "Instagram, Messenger and WhatsApp are ready on our side and waiting on one thing from you: add a payment method to your WhatsApp Business account in Meta, which WhatsApp needs before it can send.
 
-On Tuesday 13 October, Instagram, Messenger and WhatsApp join your plan whether or not they're live, which makes it AYA Meta Chat + Voice, at $897 a month. If AYA answers there before then, they join from that first answer instead.
+On Tuesday 13 October, Instagram, Messenger and WhatsApp join your plan whether or not they're live, which makes it AYA Voice + Meta Chat, 500 minutes and 300 conversations, at $580 a month. If AYA answers there before then, they join from that first answer instead.
 
 See what to do: https://app.healdesk.test/
 
@@ -1114,7 +1114,7 @@ exports[`every branch of every billing template > step_up_reminder: Meta waiting
   "subject": "Instagram, Messenger and WhatsApp join your plan on 4 January 2027",
   "text": "Instagram, Messenger and WhatsApp are ready on our side and waiting on one thing from you: connect Instagram and Messenger with the Facebook login in healdesk.
 
-On Monday 4 January 2027, Instagram, Messenger and WhatsApp join your plan whether or not they're live, which makes it AYA Complete Frontdesk, at $1,197 a month. If AYA answers there before then, they join from that first answer instead.
+On Monday 4 January 2027, Instagram, Messenger and WhatsApp join your plan whether or not they're live, which makes it AYA Voice + Meta Chat, 500 minutes and 300 conversations, at $580 a month. If AYA answers there before then, they join from that first answer instead.
 
 Connect Instagram and Messenger: https://app.healdesk.test/
 
@@ -1133,7 +1133,7 @@ exports[`every branch of every billing template > step_up_reminder: phone waitin
   "subject": "Phone joins your plan on 13 October",
   "text": "Phone is ready on our side and waiting on one thing from you: set call forwarding on your clinic's line; the steps for your carrier are in healdesk.
 
-On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it AYA Web Chat + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.
+On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it AYA Voice + Web Chat, 500 minutes and 300 conversations, at $520 a month. If AYA answers there before then, it joins from that first answer instead.
 
 See the forwarding steps: https://app.healdesk.test/
 
@@ -1152,7 +1152,7 @@ exports[`every branch of every billing template > step_up_reminder: phone waitin
   "subject": "Phone joins your plan on 13 October",
   "text": "Phone is ready on our side and waiting on one thing from you: finish its setup in healdesk.
 
-On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it AYA Meta Chat + Voice, at $897 a month. If AYA answers there before then, it joins from that first answer instead.
+On Tuesday 13 October, phone joins your plan whether or not it's live, which makes it AYA Voice + Meta Chat, 500 minutes and 300 conversations, at $580 a month. If AYA answers there before then, it joins from that first answer instead.
 
 Finish setup: https://app.healdesk.test/
 
@@ -1171,7 +1171,7 @@ exports[`every branch of every billing template > step_up_reminder: website chat
   "subject": "Website chat joins your plan on 13 October",
   "text": "Website chat is ready on our side and waiting on one thing from you: add the chat snippet to your website.
 
-On Tuesday 13 October, website chat joins your plan whether or not it's live, which makes it AYA Web + Meta Chat, at $5,724 a year. If AYA answers there before then, it joins from that first answer instead.
+On Tuesday 13 October, website chat joins your plan whether or not it's live, which makes it AYA Meta Chat, 300 conversations, at $1,728 a year. If AYA answers there before then, it joins from that first answer instead.
 
 Get the snippet: https://app.healdesk.test/
 
@@ -1349,6 +1349,88 @@ Paying what you owe healdesk restores everything at once.
 If your clinic's line forwards to AYA, you can undo that while this is sorted out. After-hours forwarding runs on your carrier's schedule, so:
 
 - Ask the carrier to remove the forwarding; or dial *73 / *91 / *93, which cancel it on most US landlines.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > usage_80: 90% of the chat conversations, under stop and fall back > the words, as a snapshot 1`] = `
+{
+  "preheader": "Your allowance resets on 6 November. Move up a step, or let extra blocks bill.",
+  "subject": "You've used 90% of this month's chat conversations",
+  "text": "AYA has used 270 of the 300 chat conversations in this month's allowance, which resets on Friday 6 November.
+
+If it runs out before then, you can:
+
+- Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
+- Do nothing. You chose “Stop and fall back”, so once the allowance is used, AYA doesn't start new conversations: website chat becomes a contact form, and new Instagram, Messenger and WhatsApp messages wait for your team until it resets. Nothing extra is billed.
+
+Open Billing: https://app.healdesk.test/
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > usage_80: 90% of the voice minutes, extra blocks bill > the words, as a snapshot 1`] = `
+{
+  "preheader": "Your allowance resets on 6 November. Move up a step, or let extra blocks bill.",
+  "subject": "You've used 90% of this month's voice minutes",
+  "text": "AYA has used 452 of the 500 voice minutes in this month's allowance, which resets on Friday 6 November.
+
+If it runs out before then, you can:
+
+- Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
+- Do nothing. AYA keeps answering, and each started block of 100 extra voice minutes is billed at $104. That price is provisional until we've measured what each minute and conversation costs us.
+
+Open Billing: https://app.healdesk.test/
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > usage_100: all the chat conversations, extra blocks bill > the words, as a snapshot 1`] = `
+{
+  "preheader": "Extra blocks of 100 bill at $52 until 6 November.",
+  "subject": "You've used all of this month's chat conversations",
+  "text": "AYA has used all 300 chat conversations in this month's allowance. She keeps answering, and until Friday 6 November, when your allowance resets, each started block of 100 extra chat conversations is billed at $52. That price is provisional until we've measured what each minute and conversation costs us.
+
+Move up a step in Billing, for a bigger monthly allowance: it costs less than paying for extra blocks.
+
+Open Billing: https://app.healdesk.test/
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`every branch of every billing template > usage_100: all the voice minutes, under stop and fall back > the words, as a snapshot 1`] = `
+{
+  "preheader": "Until 10 January 2027, AYA falls back to your team.",
+  "subject": "You've used all of this month's voice minutes",
+  "text": "AYA has used all 1,000 voice minutes in this month's allowance. You chose “Stop and fall back”, so until Sunday 10 January 2027, when your allowance resets, AYA doesn't answer new calls: they go to your direct line. Nothing extra is billed.
+
+To keep AYA answering, move up a step in Billing, or switch to “Keep going and bill the extra”. Then each started block of 100 extra voice minutes is billed at $104. That price is provisional until we've measured what each minute and conversation costs us.
+
+Open Billing: https://app.healdesk.test/
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

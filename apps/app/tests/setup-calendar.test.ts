@@ -185,7 +185,7 @@ async function provisioned(
   if (!terms) {
     const legacy = await seedLegacyClinic(label, {
       name: "Glow Med Spa LLC",
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       contactName: "Laura Owner",
       contactEmail: email,
     });
@@ -216,7 +216,7 @@ async function provisioned(
     clinicName: "Glow Med Spa LLC",
     specialty: "med-spa",
     platform,
-    plan: "web-voice",
+    plan: "voice-webchat-1000-1000",
     contactName: "Laura Owner",
     contactEmail: email,
     agreementId: signed.agreementId,

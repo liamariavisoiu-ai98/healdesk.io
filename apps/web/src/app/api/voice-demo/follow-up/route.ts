@@ -1,4 +1,4 @@
-import { plans } from "@healdesk/catalog";
+import { allPlans, type Plan, PACKAGES } from "@healdesk/catalog";
 import { NextResponse } from "next/server";
 
 import { isValidEmail } from "@/lib/gate";
@@ -55,17 +55,30 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 const TOPICS = new Set(["start", "pricing", "discount", "terms", "sales_session", "other"]);
 
+/** Every plan by its name, lower-cased, built once: "aya voice, 500 minutes". */
+let plansByName: Map<string, Plan> | null = null;
+
 /**
- * The setup link for the package AYA named, by its catalog name; the buy
- * flow with no package chosen when she named none or one that does not
- * exist, so the email never links to a package the owner did not hear. (That
- * fallback was /pricing until the owner disabled the page on 9 October 2026;
- * the buy flow's first step shows every package and its price.)
+ * The setup link for what AYA named, by its catalog name; the buy flow with
+ * nothing chosen when she named nothing or something that does not exist, so
+ * the email never links to a plan the owner did not hear. (That fallback was
+ * /pricing until the owner disabled the page on 9 October 2026; the buy
+ * flow's first step shows every package and its price.)
+ *
+ * Since 13 October 2026 her price list names packages and the clinic picks a
+ * step for each product (lib/voice-demo-prompt.ts), so the name is usually a
+ * package's: "AYA Voice + Meta Chat" links to `?plan=voice-metachat`, which
+ * checkout opens at the default steps (lib/pricing.ts `checkoutStart`). If she
+ * named a plan in full, "AYA Voice, 500 minutes", the link carries that plan.
  */
 function setupLink(packageName: string): { url: string; plan: string | null } {
-  const plan = plans.find((p) => p.name.toLowerCase() === packageName.toLowerCase());
-  return plan
-    ? { url: `${site.url}/get-started?plan=${plan.id}`, plan: plan.name }
+  const wanted = packageName.toLowerCase();
+  plansByName ??= new Map(allPlans().map((p) => [p.name.toLowerCase(), p]));
+  const plan = plansByName.get(wanted);
+  if (plan) return { url: `${site.url}/get-started?plan=${plan.id}`, plan: plan.name };
+  const pkg = PACKAGES.find((p) => p.name.toLowerCase() === wanted);
+  return pkg
+    ? { url: `${site.url}/get-started?plan=${pkg.id}`, plan: pkg.name }
     : { url: `${site.url}/get-started`, plan: null };
 }
 

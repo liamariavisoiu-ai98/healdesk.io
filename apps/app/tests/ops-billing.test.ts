@@ -183,8 +183,8 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
     test("a location reads its billing clinic's ledgers, with flags, and parked events as ids, types and codes; no payload crosses", async () => {
       const billing = await seedClinic("ob-view");
       await seedEntitled(billing.clinicId, {
-        planId: "web-voice",
-        boughtPlanId: "complete",
+        planId: "voice-webchat-1000-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         planStartedAt: STARTED,
         channelRows: [
           { channel: "web", readyAt: STARTED, liveAt: STARTED, firstAnswerAt: STARTED },
@@ -200,7 +200,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
         await c.query(
           `update entitlements set cancel_at = $2, open_invoice_id = 'in_open_view',
              open_invoice_url = 'https://invoice.stripe.com/i/in_open_view', open_invoice_amount_cents = 89700,
-             pending_plan_change_request_id = 'req-view-pending', pending_plan_change_plan_id = 'chat-web',
+             pending_plan_change_request_id = 'req-view-pending', pending_plan_change_plan_id = 'webchat-1000',
              pending_plan_change_interval = 'year'
            where clinic_id = $1`,
           [billing.clinicId, PERIOD_END],
@@ -327,8 +327,8 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       expect(view.channelsInService).toEqual(["web", "voice"]);
       expect(view.entitlements).toMatchObject({
         status: "active",
-        boughtPlanId: "complete",
-        billedPlanId: "web-voice",
+        boughtPlanId: "voice-metachat-1000-1000",
+        billedPlanId: "voice-webchat-1000-1000",
         isLegacy: false,
         isPlanStarted: true,
         planStartedAt: STARTED.toISOString(),
@@ -407,7 +407,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
         refundDue: true,
         stuckRequests: 1,
         pendingLocation: null,
-        pendingPlanChange: { planId: "chat-web", interval: "year" },
+        pendingPlanChange: { planId: "webchat-1000", interval: "year" },
       });
 
       // Nothing from a payload or an error's message crosses, nor the
@@ -467,7 +467,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
   describe("setOverageMode and setUsageAlerts", () => {
     test("a location's switch moves its billing clinic's row, is audited once, and a replay changes nothing", async () => {
       const billing = await seedClinic("ob-overage");
-      await seedEntitled(billing.clinicId, { planId: "chat-web" });
+      await seedEntitled(billing.clinicId, { planId: "webchat-1000" });
       const locationId = await seedLocation(billing.clinicId, billing.organizationId);
 
       expect(await run("setOverageMode", { clinicId: locationId, mode: "hard_cap" })).toEqual({
@@ -944,8 +944,8 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
   }> {
     const c = await seedClinic(label);
     const ids = await seedEntitled(c.clinicId, {
-      planId: "web-voice",
-      boughtPlanId: "web-voice",
+      planId: "voice-webchat-1000-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
       planStartedAt: STARTED,
       planStartAppliedAt: STARTED,
       channelRows: [
@@ -956,7 +956,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
     const world = createStripeWorld({
       customerId: ids.stripeCustomerId!,
       subscriptionId: ids.stripeSubscriptionId!,
-      items: [{ lookupKey: "healdesk_web-voice_month_89700", quantity: 1 }],
+      items: [{ lookupKey: "healdesk_voice-webchat-1000-1000_month_120000", quantity: 1 }],
       periodStart: s(STARTED),
       periodEnd: s(PERIOD_END),
       customerDefaultPm: "pm_customer",
@@ -966,8 +966,8 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       created: s(STARTED),
       lines: [
         {
-          lookupKey: "healdesk_web-voice_month_89700",
-          amount: 89_700,
+          lookupKey: "healdesk_voice-webchat-1000-1000_month_120000",
+          amount: 120_000,
           periodStart: s(STARTED),
           periodEnd: s(PERIOD_END),
         },
@@ -989,7 +989,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       expect(await run("previewRefund", { clinicId, kind: "first_period_cancel" })).toEqual({
         status: "ok",
         kind: "first_period_cancel",
-        amountCents: 89_700,
+        amountCents: 120_000,
         cancelsPlan: true,
         planStartedOn: "2026-10-07",
         windowEndsOn: "2026-10-21",
@@ -1014,12 +1014,12 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       const args = {
         clinicId,
         kind: "first_period_cancel",
-        confirmAmountCents: 89_700,
+        confirmAmountCents: 120_000,
         reason: "Asked to cancel in the first week",
       };
       expect(await run("commitRefund", args)).toEqual({
         status: "refunded",
-        amountCents: 89_700,
+        amountCents: 120_000,
         refundedAt: NOW.toISOString(),
         isCancelRequested: true,
         auditRecorded: true,
@@ -1030,7 +1030,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
           metadata: {
             clinicSlug: slug,
             kind: "first_period_cancel",
-            amountCents: 89_700,
+            amountCents: 120_000,
             isCancelRequested: true,
           },
         }),
@@ -1051,7 +1051,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
           status: "error",
         },
       );
-      for (const confirmAmountCents of [0, -5, 12.5, "89700", undefined]) {
+      for (const confirmAmountCents of [0, -5, 12.5, "120000", undefined]) {
         expect(
           await run("commitRefund", {
             clinicId: c.clinicId,
@@ -1090,7 +1090,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
         await run("commitRefund", {
           clinicId,
           kind: "first_period_cancel",
-          confirmAmountCents: 89_700,
+          confirmAmountCents: 120_000,
           reason: "Asked to cancel in the first week",
         }),
       ).toEqual({
@@ -1168,7 +1168,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
 
     test("setAutoRenew leaves an account it cannot be changed on to stripe-actions' refusal", async () => {
       const c = await seedClinic("ob-renew-ended");
-      await seedEntitled(c.clinicId, { planId: "chat-web", planStartedAt: STARTED });
+      await seedEntitled(c.clinicId, { planId: "webchat-1000", planStartedAt: STARTED });
       await withTenant({ clinicId: c.clinicId, actor }, (tx) =>
         transition(tx, "canceled", { actor: "system", reason: "customer.subscription.deleted" }),
       );
@@ -1188,7 +1188,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
   describe("support operations", () => {
     test("retryBillingRequest re-arms a dead letter in the billing clinic's tenant, refuses one in flight and one that is not this clinic's", async () => {
       const billing = await seedClinic("ob-retry");
-      await seedEntitled(billing.clinicId, { planId: "chat-web" });
+      await seedEntitled(billing.clinicId, { planId: "webchat-1000" });
       const locationId = await seedLocation(billing.clinicId, billing.organizationId);
       const ids = await inTenant(billing.clinicId, async (c) => {
         const dead = await c.query<{ id: string }>(
@@ -1242,7 +1242,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
         message: expect.stringMatching(/No such billing request/),
       });
       const other = await seedClinic("ob-retry-other");
-      await seedEntitled(other.clinicId, { planId: "chat-web" });
+      await seedEntitled(other.clinicId, { planId: "webchat-1000" });
       expect(
         await run("retryBillingRequest", { clinicId: other.clinicId, requestId: ids.dead }),
       ).toMatchObject({
@@ -1256,7 +1256,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
 
     test("liftSuspension lifts once with the reason on record; a replay finds nothing suspended", async () => {
       const c = await seedClinic("ob-lift");
-      await seedEntitled(c.clinicId, { planId: "chat-web", planStartedAt: STARTED });
+      await seedEntitled(c.clinicId, { planId: "webchat-1000", planStartedAt: STARTED });
       await withTenant({ clinicId: c.clinicId, actor }, async (tx) => {
         await transition(tx, "past_due", { actor: "system", reason: "invoice.payment_failed" });
         await setGrace(tx.db, c.clinicId, new Date("2026-10-09T00:00:00Z"));
@@ -1284,7 +1284,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
     test("extendSetupDeadline names the deadline it extends, so a replay cannot add the days twice", async () => {
       const c = await seedClinic("ob-extend");
       const deadline = new Date("2026-10-20T00:00:00Z");
-      await seedEntitled(c.clinicId, { planId: "chat-web", setupDeadlineAt: deadline });
+      await seedEntitled(c.clinicId, { planId: "webchat-1000", setupDeadlineAt: deadline });
 
       for (const fromDeadline of [undefined, "2026-10-20", "2026-10-20T00:00:00"]) {
         expect(
@@ -1317,7 +1317,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
 
     test("retryLocationSetup and retryOverageInvoice pass the library's refusals through, and validate the month", async () => {
       const c = await seedClinic("ob-support-misc");
-      await seedEntitled(c.clinicId, { planId: "chat-web", planStartedAt: STARTED });
+      await seedEntitled(c.clinicId, { planId: "webchat-1000", planStartedAt: STARTED });
       expect(await run("retryLocationSetup", { clinicId: c.clinicId })).toEqual({
         status: "refused",
         message: "No location is waiting to be set up on this account.",
@@ -1374,7 +1374,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       const open = new Date("2026-10-07T00:00:00Z");
       const c = await seedClinic("ob-overage-retry");
       const ids = await seedEntitled(c.clinicId, {
-        planId: "web-voice",
+        planId: "voice-webchat-1000-1000",
         interval: "year",
         planStartedAt: yearStart,
       });
@@ -1442,7 +1442,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
     test("closeUnfinishedSetup needs the confirmation, refuses what the worker would skip, records once on the billing clinic", async () => {
       const billing = await seedClinic("ob-close");
       await seedEntitled(billing.clinicId, {
-        planId: "chat-web",
+        planId: "webchat-1000",
         channelRows: [{ channel: "web", readyAt: STARTED }],
       });
       const locationId = await seedLocation(billing.clinicId, billing.organizationId);
@@ -1498,7 +1498,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
     test("closeUnfinishedSetup is refused once a channel is live or the plan has started", async () => {
       const live = await seedClinic("ob-close-live");
       await seedEntitled(live.clinicId, {
-        planId: "chat-web",
+        planId: "webchat-1000",
         channelRows: [{ channel: "web", readyAt: STARTED, liveAt: STARTED }],
       });
       expect(
@@ -1506,7 +1506,7 @@ describeDb("ops: the billing panel", DB_TEST_OPTIONS, () => {
       ).toMatchObject({ status: "error", message: expect.stringMatching(/live/) });
 
       const started = await seedClinic("ob-close-started");
-      await seedEntitled(started.clinicId, { planId: "chat-web", planStartedAt: STARTED });
+      await seedEntitled(started.clinicId, { planId: "webchat-1000", planStartedAt: STARTED });
       expect(
         await run("closeUnfinishedSetup", { clinicId: started.clinicId, confirm: true }),
       ).toMatchObject({ status: "error", message: expect.stringMatching(/plan has started/) });

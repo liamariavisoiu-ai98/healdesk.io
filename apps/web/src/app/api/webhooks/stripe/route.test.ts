@@ -91,7 +91,7 @@ function firstInvoice(metadata: Record<string, string>, billingReason = "subscri
 const RECEIPT = "https://invoice.stripe.com/i/acct_1/test_receipt";
 
 /** A healdesk subscription's metadata, as createCheckout writes it. */
-const PAID = { app: "healdesk", ref: "ref_1", plan: "web-voice", billingInterval: "year", attempt: "2" };
+const PAID = { app: "healdesk", ref: "ref_1", plan: "voice-webchat-500-300", billingInterval: "year", attempt: "2" };
 
 const SAVED: Record<string, string | undefined> = {};
 const ENV = [
@@ -177,7 +177,7 @@ describe("the first paid invoice makes the account", () => {
       stripeCustomerId: "cus_1",
       stripeSubscriptionId: "sub_1",
       attempt: 2,
-      plan: "web-voice",
+      plan: "voice-webchat-500-300",
       billingInterval: "year",
       hostedInvoiceUrl: RECEIPT,
     });
@@ -218,7 +218,7 @@ describe("the first paid invoice makes the account", () => {
       stripeCustomerId: "cus_1",
       stripeSubscriptionId: "sub_1",
       attempt: 2,
-      plan: "web-voice",
+      plan: "voice-webchat-500-300",
       billingInterval: "year",
       hostedInvoiceUrl: RECEIPT,
     });
@@ -253,7 +253,7 @@ describe("a completed checkout", () => {
       metadata: {
         app: "healdesk",
         ref: "ref_1",
-        plan: "web-voice",
+        plan: "voice-webchat-500-300",
         billingInterval: "month",
         setupRequest: "req_1",
       },
@@ -266,13 +266,21 @@ describe("a completed checkout", () => {
     expect(calls).toEqual([]);
     expect(mocks.markConverted).toHaveBeenCalledWith({
       email: "owner@glowspa.test",
-      plan: "web-voice",
-      mrrUsd: 897,
+      plan: "voice-webchat-500-300",
+      // $400 of voice and $120 of Web Chat a month.
+      mrrUsd: 520,
     });
     expect(mocks.updateSetupRequest).toHaveBeenCalledWith(
       "req_1",
       expect.objectContaining({ status: "paid" }),
     );
+  });
+
+  test("a Session opened before the step pricing still records its package, with no price", async () => {
+    // "complete" was one of the seven packages of 5 October; getPlan no
+    // longer knows it, and the lead store keeps the id rather than "unknown".
+    await POST(signed(session({ metadata: { app: "healdesk", ref: "ref_1", plan: "complete", billingInterval: "month" } })));
+    expect(mocks.markConverted).toHaveBeenCalledWith({ email: "owner@glowspa.test", plan: "complete", mrrUsd: 0 });
   });
 
   test("an unfinished or foreign Session records nothing", async () => {
@@ -297,7 +305,7 @@ describe("a completed checkout", () => {
       status: "complete",
       payment_status: "paid",
       customer_email: "owner@glowspa.test",
-      metadata: { app: "healdesk", ref: "ref_1", plan: "web-voice", billingInterval: "month", setupRequest: "req_1" },
+      metadata: { app: "healdesk", ref: "ref_1", plan: "voice-webchat-500-300", billingInterval: "month", setupRequest: "req_1" },
     });
     expect((await POST(signed(succeeded))).status).toBe(200);
     expect(mocks.markConverted).toHaveBeenCalledTimes(1);

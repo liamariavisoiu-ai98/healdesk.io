@@ -533,7 +533,7 @@ function setupState(overrides: Partial<SetupState> = {}): SetupState {
     progress: new Map(),
     screens: [],
     billing: {
-      boughtPlanId: "web-voice",
+      boughtPlanId: "voice-webchat-1000-1000",
       interval: "month",
       status: "active",
       firstPaidAt: at,

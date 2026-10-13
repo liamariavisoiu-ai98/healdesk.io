@@ -90,10 +90,10 @@ async function noticesOf(clinicId: string) {
 
 async function seedBilling(label: string, options: { started: boolean; inService?: Channel[] }) {
   const clinic = await seedClinic(label);
-  const bought = getPlan("web-voice")!;
+  const bought = getPlan("voice-webchat-1000-1000")!;
   const ids = await seedEntitled(clinic.clinicId, {
-    planId: "web-voice",
-    boughtPlanId: "web-voice",
+    planId: "voice-webchat-1000-1000",
+    boughtPlanId: "voice-webchat-1000-1000",
     ...(options.started ? { planStartedAt: STARTED, planStartAppliedAt: STARTED } : {}),
     channelRows: channelList(bought).map((channel) => ({
       channel,
@@ -105,8 +105,8 @@ async function seedBilling(label: string, options: { started: boolean; inService
     subscriptionId: ids.stripeSubscriptionId!,
     items: options.started
       ? [
-          { lookupKey: "healdesk_web-voice_month_89700", quantity: 1 },
-          ...(expectedMeteredKeys("web-voice", "month") ?? []).map((lookupKey) => ({ lookupKey })),
+          { lookupKey: "healdesk_voice-webchat-1000-1000_month_120000", quantity: 1 },
+          ...(expectedMeteredKeys("voice-webchat-1000-1000", "month") ?? []).map((lookupKey) => ({ lookupKey })),
         ]
       : [{ lookupKey: "healdesk_plan_start_placeholder_month", quantity: 1 }],
     periodStart: s(STARTED),
@@ -143,7 +143,7 @@ describeDb("addLocation", () => {
   test("while LOCATION_CLINICS_READY is false it is not available, before anything is written or charged", async () => {
     location.ready = false;
     const clinic = await seedClinic("loc-flag");
-    await seedEntitled(clinic.clinicId, { planId: "web-voice", planStartedAt: STARTED });
+    await seedEntitled(clinic.clinicId, { planId: "voice-webchat-1000-1000", planStartedAt: STARTED });
     const fake = createStripeFake(); // any call at all would fail loudly
     __setStripeForTests(fake.stripe);
     expect(
@@ -186,7 +186,7 @@ describeDb("addLocation", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0]!.args[1]).toEqual({
       items: [{ id: packageItem, quantity: 2 }],
-      add_invoice_items: [{ price: "price_healdesk_web-voice_setup_99700" }],
+      add_invoice_items: [{ price: "price_healdesk_voice-webchat_setup_95600" }],
       proration_behavior: "always_invoice",
       payment_behavior: "error_if_incomplete",
       off_session: true,
@@ -212,11 +212,11 @@ describeDb("addLocation", () => {
     ]);
     expect(notices[0]!.payload).toEqual({
       locations: 2,
-      recurringCents: 89_700,
-      setupFeeCents: 99_700,
+      recurringCents: 120_000,
+      setupFeeCents: 95_600,
       hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
       isBeforeStart: false,
-      billedPlanId: "web-voice",
+      billedPlanId: "voice-webchat-1000-1000",
     });
     assertPayloadAllowed(notices[0]!.payload, "location_added");
   });
@@ -240,7 +240,7 @@ describeDb("addLocation", () => {
     });
     const [item] = world.fake.callsTo("invoiceItems.create");
     expect(item!.args[0]).toMatchObject({
-      pricing: { price: "price_healdesk_web-voice_setup_99700" },
+      pricing: { price: "price_healdesk_voice-webchat_setup_95600" },
       quantity: 1,
     });
     expect((await rowOf(clinic.clinicId)).locations).toBe(2);
@@ -429,8 +429,8 @@ describeDb("addLocation", () => {
     const open = world.addInvoice({
       status: "open",
       metadata: { hd_kind: "location_setup", hd_ref: "loc-open-1" },
-      total: 99_700,
-      amount_due: 99_700,
+      total: 95_600,
+      amount_due: 95_600,
     });
     await inTenant(unpaid.clinicId, (c) =>
       c.query(
@@ -456,8 +456,8 @@ describeDb("addLocation", () => {
     expect(await previewAddLocation(clinic.clinicId, { now: NOW })).toEqual({
       status: "ok",
       locations: 2,
-      recurringCents: 89_700,
-      setupFeeCents: 99_700,
+      recurringCents: 120_000,
+      setupFeeCents: 95_600,
       prorationCents: 59_800,
     });
     expect(world.fake.callsTo("invoices.createPreview")[0]!.args[0]).toMatchObject({

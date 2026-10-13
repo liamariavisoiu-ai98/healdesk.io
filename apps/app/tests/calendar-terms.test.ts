@@ -524,7 +524,7 @@ describeDb("calendar terms at runtime", () => {
           clinicName: "Provisioned Terms LLC",
           specialty: "med-spa",
           platform: "none",
-          plan: "web-voice",
+          plan: "voice-webchat-1000-1000",
           contactName: "Alex Chen",
           contactEmail: email,
           agreementId,

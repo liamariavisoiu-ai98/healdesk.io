@@ -4,8 +4,10 @@ import { WELCOME_NONCE_COOKIE } from "@healdesk/catalog";
 import { NextResponse } from "next/server";
 
 import {
+  chooseSetupOffer,
   createCheckout,
   expireUnrecordedCheckout,
+  demoOfferFor,
   isBillingConfigured,
   isProductionDeployment,
 } from "@/lib/billing";
@@ -13,13 +15,14 @@ import { isCampaignCode } from "@/lib/attribution";
 import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
 import { intentFields, validateOrder } from "@/lib/checkout/order";
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
-import { demoSetupCredit, getDemoSession, isDemoActive } from "@/lib/demo/sessions";
+import { demoOfferEndsAt, demoSetupCredit, getDemoSession } from "@/lib/demo/sessions";
 import { demoSiteProfile } from "@/lib/demo/to-clinic-profile";
 import { LEGAL_VERSION } from "@/lib/legal";
-import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
+import { cohortCreditEndsAt, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { demoInvitation, gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
 import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
+import { siteOfferEndsAt } from "@/lib/site-offer";
 
 /**
  * POST /api/checkout, start a purchase.
@@ -164,23 +167,27 @@ export async function POST(request: Request): Promise<Response> {
   const demoSlug = demoSlugFromCookieHeader(request.headers.get("cookie"));
   const demo = demoSlug ? await getDemoSession(demoSlug) : null;
   const contactEmail = order.contactEmail;
-  // The founding-cohort credit is a fact about the lead row, never a claim
-  // from the browser: offered by the Day 7 email and still inside its window.
+  /*
+   * The setup credit, at most one, the strongest that holds (lib/billing.ts
+   * `chooseSetupOffer`; owner, 13 October 2026). Each is a fact the server
+   * holds, never a claim from the browser: the founding-cohort credit is on
+   * the lead row, offered by the Day 7 email and inside its 14 days; the
+   * demo's share (50% from an operator's demo, 30% from a homepage one,
+   * `demoSetupCredit`) holds for the demo row's own 48 hours from being ready
+   * (`demoOfferEndsAt`); the website's 30% is the moment in the signed
+   * httpOnly offer cookie, inside its 48 hours (lib/site-offer.ts). A body
+   * field naming an offer is never read.
+   */
+  const chosen = chooseSetupOffer({
+    cohort: claimedLead ? cohortCreditEndsAt(claimedLead) : null,
+    demo: demo ? demoOfferEndsAt(demo) : null,
+    demoOffer: demo ? demoOfferFor(demoSetupCredit(demo)) : undefined,
+    site: siteOfferEndsAt(request.headers.get("cookie")),
+  });
   const attribution = {
     campaign,
     leadId: claimedLead?.id ?? null,
-    // The setup credits: the Day 7 email's, or the personalised demo's, which
-    // its banner promises, decided from the demo's own expiry on the row,
-    // never from the browser.
-    // The full credit wins when the lead holds it; otherwise a demo bought
-    // inside its week gets its share of the setup fee off: half from an
-    // operator's demo, 30% from a homepage one (demoSetupCredit).
-    offer:
-      claimedLead && cohortCreditLive(claimedLead)
-        ? ("cohort-setup" as const)
-        : demo && isDemoActive(demo)
-          ? demoSetupCredit(demo).offer
-          : null,
+    offer: chosen?.offer ?? null,
     demo: demo?.slug ?? null,
     setupRequestId: setupRequest?.id ?? null,
   };

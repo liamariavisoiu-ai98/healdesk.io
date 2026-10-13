@@ -63,7 +63,7 @@ export const renderPaymentFailed: EmailTemplate<PaymentFailedPayload> = (payload
 export const PAYMENT_FAILED_ENTRY: TemplateEntry<PaymentFailedPayload> = {
   render: renderPaymentFailed,
   fixture: {
-    amountDueCents: 89_700,
+    amountDueCents: 52_000,
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
     graceEndsAt: "2026-10-13T14:32:00.000Z",
     isFirstPlanCharge: false,

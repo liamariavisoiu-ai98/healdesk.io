@@ -169,12 +169,12 @@ describeDb("Settings → Calendar", () => {
     // Each signed BAA 1.3.0 with its calendar answers, and provisioning
     // recorded the location's first terms from them (plan C15).
     unelected = await provisionPortalClinic("calnone", {
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       bookingSystem: "mindbody",
       calendarAccount: "workspace_no_baa",
     });
     covered = await provisionPortalClinic("calcovered", {
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       bookingSystem: "google_calendar",
       calendarAccount: "workspace_baa",
     });

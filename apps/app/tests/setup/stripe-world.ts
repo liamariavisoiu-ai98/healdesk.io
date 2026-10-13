@@ -13,7 +13,9 @@ import { createStripeFake, stripeError, type StripeFake } from "./stripe-fake";
  * still fails loudly.
  *
  * Ids are deterministic and readable: a price is `price_<lookup key>`, a
- * package's product `prod_<plan>`, a meter's `prod_meter_<meter>`.
+ * plan price's product `prod_<plan id>`, a setup price's `prod_<package id>`
+ * (the setup key names the package since 13 October 2026), a meter's
+ * `prod_meter_<meter>`.
  */
 
 type Json = Record<string, unknown>;

@@ -289,9 +289,7 @@ export function decideReconcile(input: ReconcileInput): ReconcileAction[] {
               startOfJoinDay(new Date(now.getTime() + STEP_UP_NOTICE_DAYS * DAY_MS)).getTime(),
             ),
           );
-          const plan = planForChannels(
-            [...billed, ...group.inService, channel].filter((c) => bought.channels[c]),
-          );
+          const plan = planForChannels(bought, [...billed, ...group.inService, channel]);
           if (plan) {
             actions.push({
               type: "remind",

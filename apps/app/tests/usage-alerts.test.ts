@@ -15,9 +15,11 @@ import {
 import { inTenant, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
- * The 80% and 100% allowance emails (BD21, R17): hourly behind the job's
+ * The 90% and 100% allowance emails (BD21, R17): hourly behind the job's
  * switch and the clinic's own, once per threshold per meter per window, on
- * the billing clinic, and never for a window that is not open.
+ * the billing clinic, and never for a window that is not open. The first
+ * alert was at 80% until the pricing sheet of 13 October 2026; its kind is
+ * still `usage_80`.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -73,12 +75,17 @@ describeDb("usage-alerts", () => {
     expect(await notices(c.clinicId)).toEqual([]);
   });
 
-  test("80% and 100% once per meter per window, only usage_100 when first found past it, with a payload the sender accepts", async () => {
+  test("90% and 100% once per meter per window, only usage_100 when first found past it, with a payload the sender accepts", async () => {
     await switchJob(true);
     const c = await seedClinic("alerts-on");
-    // Complete: 1,000 minutes and 2,000 conversations.
+    // AYA Voice + Meta Chat: 1,000 minutes and 1,000 conversations.
     await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
-    await setUsed(c.clinicId, 850, 2_100);
+    // 85% is under the alert since 13 October 2026.
+    await setUsed(c.clinicId, 850, 850);
+    expect(await runUsageAlertsJob({ now: NOW })).toMatchObject({ status: "ok" });
+    expect(await notices(c.clinicId)).toEqual([]);
+
+    await setUsed(c.clinicId, 950, 1_100);
 
     expect(await runUsageAlertsJob({ now: NOW })).toMatchObject({ status: "ok" });
     const queued = await notices(c.clinicId);
@@ -88,12 +95,12 @@ describeDb("usage-alerts", () => {
         dedupe_key: `chat_conversations:${WINDOW_START.toISOString()}`,
         payload: {
           meter: "chat_conversations",
-          used: 2_100,
-          included: 2_000,
+          used: 1_100,
+          included: 1_000,
           windowEndsOn: "2026-11-01",
           overageMode: "allow",
-          // A started block of 100 conversations on Complete: $30, never $0.30 a unit.
-          blockRateCents: 3_000,
+          // A started block of 100 conversations on Meta Chat: $78, never $0.78 a unit.
+          blockRateCents: 7_800,
         },
       },
       {
@@ -101,11 +108,11 @@ describeDb("usage-alerts", () => {
         dedupe_key: `voice_minutes:${WINDOW_START.toISOString()}`,
         payload: {
           meter: "voice_minutes",
-          used: 850,
+          used: 950,
           included: 1_000,
           windowEndsOn: "2026-11-01",
           overageMode: "allow",
-          blockRateCents: 8_000,
+          blockRateCents: 10_400,
         },
       },
     ]);
@@ -114,7 +121,7 @@ describeDb("usage-alerts", () => {
     // The next hour queues nothing new; crossing 100% later queues its one.
     await runUsageAlertsJob({ now: new Date(NOW.getTime() + 60 * 60 * 1000) });
     expect(await notices(c.clinicId)).toHaveLength(2);
-    await setUsed(c.clinicId, 1_001, 2_200);
+    await setUsed(c.clinicId, 1_001, 1_200);
     await runUsageAlertsJob({ now: new Date(NOW.getTime() + 2 * 60 * 60 * 1000) });
     expect(
       (await notices(c.clinicId)).map((n) => `${n.kind}:${n.dedupe_key.split(":")[0]}`),
@@ -154,10 +161,10 @@ describeDb("usage-alerts", () => {
       location.clinicId,
       billing.clinicId,
     ]);
-    // Bought Web + Voice, billed as AYA Web Chat: voice is 0 on the billed row.
+    // Bought Voice + Web Chat, billed as AYA Web Chat: voice is 0 on the billed row.
     await seedEntitled(billing.clinicId, {
-      planId: "chat-web",
-      boughtPlanId: "web-voice",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
       planStartedAt: WINDOW_START,
     });
     await setUsed(billing.clinicId, 100, 0);
@@ -167,7 +174,7 @@ describeDb("usage-alerts", () => {
     expect(await notices(billing.clinicId)).toEqual([]);
     expect(await notices(location.clinicId)).toEqual([]);
 
-    await setUsed(billing.clinicId, 820, 0);
+    await setUsed(billing.clinicId, 920, 0);
     await runUsageAlertsJob({ now: NOW });
     expect((await notices(billing.clinicId)).map((n) => n.kind)).toEqual(["usage_80"]);
     expect(await notices(location.clinicId)).toEqual([]);

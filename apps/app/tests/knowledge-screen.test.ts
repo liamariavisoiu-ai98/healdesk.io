@@ -59,7 +59,7 @@ describeDb("Knowledge", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
-    clinic = await provisionPortalClinic("knowledge", { plan: "web-voice" });
+    clinic = await provisionPortalClinic("knowledge", { plan: "voice-webchat-1000-1000" });
     // Warm the page and its action up once, outside any test's clock: on a
     // busy machine the first import of a page's module graph alone can take
     // longer than a test is given.

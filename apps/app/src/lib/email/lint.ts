@@ -1,4 +1,4 @@
-import { CHANNELS, plans, pricingCards, TREATMENT_NAMES } from "@healdesk/catalog";
+import { allPlans, CHANNELS, isPlanId, PACKAGES, TREATMENT_NAMES } from "@healdesk/catalog";
 
 import { publicOrigin } from "@/lib/public-url";
 
@@ -146,10 +146,17 @@ const CATEGORY = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 const ISO_DATE =
   /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
 const E164 = /^\+[1-9]\d{6,14}$/;
-const PLAN_IDS: ReadonlySet<string> = new Set(plans.map((p) => p.id));
+/**
+ * Every name a payload may print for a plan: a package at its steps ("AYA
+ * Voice + Web Chat, 500 minutes and 300 conversations"), or a package's name
+ * alone ("AYA Voice"). A plan id is checked by parsing it (isPlanId), since
+ * the grid of packages and usage steps (owner, 13 October 2026) is 495 plans;
+ * their names are listed once, here, because a name cannot be parsed back
+ * without guessing at its spelling.
+ */
 const PLAN_NAMES: ReadonlySet<string> = new Set([
-  ...plans.map((p) => p.name),
-  ...pricingCards.map((c) => c.name),
+  ...allPlans().map((p) => p.name),
+  ...PACKAGES.map((p) => p.name),
 ]);
 const MAX_PAYLOAD_BYTES = 16 * 1024;
 const MAX_ARRAY = 200;
@@ -238,7 +245,7 @@ function checkValue(
       if (typeof value !== "string" || !CATEGORY.test(value)) fail("must be a bare category.");
       return;
     case "planId":
-      if (typeof value !== "string" || !PLAN_IDS.has(value)) fail("must be a catalog plan id.");
+      if (!isPlanId(value)) fail("must be a catalog plan id.");
       return;
     case "planName":
       if (typeof value !== "string" || !PLAN_NAMES.has(value)) fail("must be a catalog plan name.");

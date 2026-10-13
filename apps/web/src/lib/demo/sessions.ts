@@ -1,6 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { DEMO_SETUP_CREDIT, type DemoSetupCredit, isSpecialtyId, SELF_SERVE_DEMO_SETUP_CREDIT } from "@healdesk/catalog";
+import {
+  DEMO_SETUP_CREDIT,
+  isSetupCreditLive,
+  isSpecialtyId,
+  SELF_SERVE_DEMO_SETUP_CREDIT,
+  type SetupCredit,
+  setupCreditEndsAt,
+} from "@healdesk/catalog";
 
 import { sheetsClient, type Cell, type SheetsClient } from "@/lib/sheets/client";
 import {
@@ -133,6 +140,23 @@ export function isDemoActive(session: DemoSession, now: number = Date.now()): bo
   return session.status === "ready" && session.expiresAt.getTime() > now;
 }
 
+/**
+ * When the demo's setup offer (`demoSetupCredit`: 50% from an operator's demo,
+ * 30% from a homepage one) ends, or null when it has ended or the demo is not
+ * usable. 48 hours from the moment the demo was ready, which is when the
+ * clinic was sent it, not from the request: a build that took a few
+ * minutes must not eat into the clinic's two days. Never past the demo's own
+ * expiry, because a demo that no longer opens has nothing to buy from.
+ */
+export function demoOfferEndsAt(session: DemoSession, now: number = Date.now()): Date | null {
+  if (!isDemoActive(session, now)) return null;
+  const credit = demoSetupCredit(session);
+  const offeredAt = session.readyAt ?? session.createdAt;
+  if (!isSetupCreditLive(credit, offeredAt, now)) return null;
+  const ends = setupCreditEndsAt(credit, offeredAt);
+  return ends.getTime() < session.expiresAt.getTime() ? ends : session.expiresAt;
+}
+
 export function isDemoExpired(session: DemoSession, now: number = Date.now()): boolean {
   return session.expiresAt.getTime() <= now;
 }
@@ -157,12 +181,12 @@ export function isSelfServeDemo(session: Pick<DemoSession, "createdBy">): boolea
 }
 
 /**
- * The setup credit a demo's week carries: half the fee from a demo an
- * operator built, 30% from one the visitor asked for on the homepage (owner,
- * 13 October 2026). The demo's banner, the checkout's offer and the coupon
+ * The setup credit a demo carries for its first 48 hours: half the fee from a
+ * demo an operator built, 30% from one the visitor asked for on the homepage
+ * (owner, 13 October 2026). The demo's banner, the checkout's offer and the coupon
  * api/checkout applies all read it here, so they cannot disagree.
  */
-export function demoSetupCredit(session: Pick<DemoSession, "createdBy">): DemoSetupCredit {
+export function demoSetupCredit(session: Pick<DemoSession, "createdBy">): SetupCredit {
   return isSelfServeDemo(session) ? SELF_SERVE_DEMO_SETUP_CREDIT : DEMO_SETUP_CREDIT;
 }
 

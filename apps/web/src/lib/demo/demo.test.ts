@@ -13,12 +13,14 @@ import { assertPublicUrl, dominantColour, htmlToText, parseWebsiteUrl, prioritis
 import {
   __resetDemoCacheForTests,
   createDemoSession,
+  demoOfferEndsAt,
   getDemoSession,
   isDemoActive,
   isDemoSlug,
   makeDemoSlug,
   markDemoClaimed,
   purgeExpiredDemoSessions,
+  SELF_SERVE_DEMO,
   updateDemoSession,
 } from "./sessions";
 
@@ -197,10 +199,37 @@ describe("the demo register", () => {
     expect(isDemoActive(read!, new Date("2026-10-13T12:00:01Z").getTime())).toBe(false);
   });
 
+  it("holds the demo's 50% off setup for 48 hours from the demo being ready, never past its expiry", async () => {
+    const asked = new Date("2026-10-06T12:00:00Z");
+    const ready = new Date("2026-10-06T12:20:00Z");
+    const HOUR = 3_600_000;
+    const created = await createDemoSession({ clinicName: "Smith Dental", websiteUrl: "https://smithdental.com/" }, asked);
+    // Still building: nothing to buy from, so no offer.
+    expect(demoOfferEndsAt(created, ready.getTime())).toBeNull();
+
+    const built = (await updateDemoSession(created.slug, { status: "ready", readyAt: ready }))!;
+    // From when it was ready, not from when it was asked for: a slow build
+    // does not eat into the clinic's two days.
+    expect(demoOfferEndsAt(built, ready.getTime() + HOUR)?.toISOString()).toBe("2026-10-08T12:20:00.000Z");
+    expect(demoOfferEndsAt(built, ready.getTime() + 48 * HOUR - 1)).not.toBeNull();
+    expect(demoOfferEndsAt(built, ready.getTime() + 48 * HOUR)).toBeNull();
+
+    // A row from before readyAt was kept counts from its creation.
+    expect(demoOfferEndsAt({ ...built, readyAt: null }, asked.getTime() + HOUR)?.toISOString()).toBe(
+      "2026-10-08T12:00:00.000Z",
+    );
+    // A demo that stops opening first ends the offer with it.
+    const early = new Date("2026-10-07T00:00:00Z");
+    expect(demoOfferEndsAt({ ...built, expiresAt: early }, ready.getTime() + HOUR)?.toISOString()).toBe(
+      early.toISOString(),
+    );
+    expect(demoOfferEndsAt({ ...built, expiresAt: early }, early.getTime())).toBeNull();
+  });
+
   it("claims once, however often Stripe redelivers", async () => {
     const created = await createDemoSession({ clinicName: "Smith Dental", websiteUrl: "https://smithdental.com/" });
-    expect((await markDemoClaimed(created.slug, "voice"))?.newly).toBe(true);
-    const again = await markDemoClaimed(created.slug, "voice");
+    expect((await markDemoClaimed(created.slug, "voice-500"))?.newly).toBe(true);
+    const again = await markDemoClaimed(created.slug, "voice-500");
     expect(again?.newly).toBe(false);
     expect(again?.session.claimed).toBe(true);
   });
@@ -212,7 +241,7 @@ describe("the demo register", () => {
     expect(await demoInvitation(cookie)).toBeNull(); // still building
     await updateDemoSession(demo.slug, { status: "ready" });
     expect((await demoInvitation(cookie))?.slug).toBe(demo.slug);
-    await markDemoClaimed(demo.slug, "voice");
+    await markDemoClaimed(demo.slug, "voice-500");
     __resetDemoCacheForTests();
     expect(await demoInvitation(cookie)).toBeNull(); // already bought
     expect(await demoInvitation("hd_demo=peachy-zzzzzzzzzz")).toBeNull();
@@ -311,6 +340,27 @@ describe("what the demo says", () => {
     expect(text).toContain("/demo/smith-dental-k7q2mz9xwa");
     expect(text).toContain("Tuesday, October 13");
     expect(text).toMatch(/Wilmington, DE/);
+  });
+
+  it("offers half off setup until 48 hours after the demo was ready, and never after", () => {
+    const readyAt = new Date("2026-10-13T16:00:00Z");
+    const session = {
+      slug: "smith-dental-k7q2mz9xwa",
+      clinicName: "Smith Dental",
+      brandName: null,
+      status: "ready",
+      profile: PROFILE as unknown as Record<string, unknown>,
+      createdAt: readyAt,
+      readyAt,
+      expiresAt: new Date("2026-10-20T16:00:00Z"),
+    } as Parameters<typeof demoEmail>[0];
+    const fresh = demoEmail(session, readyAt.getTime()).text;
+    expect(fresh).toContain("the setup fee is 50% off when you start from the demo page before Thursday, October 15");
+    const late = demoEmail(session, readyAt.getTime() + 48 * 3_600_000).text;
+    expect(late).not.toMatch(/50%|setup fee/);
+    // A demo the visitor asked for on the homepage carries 30%, not half.
+    const homepage = demoEmail({ ...session, createdBy: SELF_SERVE_DEMO }, readyAt.getTime()).text;
+    expect(homepage).toContain("the setup fee is 30% off");
   });
 });
 

@@ -1,10 +1,7 @@
 
-import {
-  annualSavingsPercent,
-  cheapestPlan,
-  cheapestVoicePlan,
-  usd,
-} from "../pricing";
+import { DEFAULT_STEPS, planFor, PRODUCTS } from "@healdesk/catalog";
+
+import { annualSavingsPercent, setupFeeRangeLabel, usd } from "../pricing";
 import { getNiche, isNiche, NICHES, NICHE_OPTIONS } from "./niches";
 import { PERSONA } from "./persona";
 import { getPractice, PRACTICE_OPTIONS } from "./practice";
@@ -61,14 +58,15 @@ export type { PracticeKnowledge } from "./practice";
  */
 
 /**
- * The two figures the agent quotes when asked "how much?". Read from the
- * catalog rather than typed here, because this string once said "$249 a month,
- * no setup fee, 14-day trial" for months after every one of those three facts
+ * The figures the agent quotes when asked "how much?". Read from the catalog
+ * rather than typed here, because this string once said "$249 a month, no
+ * setup fee, 14-day trial" for months after every one of those three facts
  * had changed — a price quoted by the persona that the checkout then
- * contradicts is worse than no price at all.
+ * contradicts is worse than no price at all. Since the step pricing of
+ * 13 October 2026 that is each product's price per 100, the setup range and
+ * the sheet's own example, never a total for a step nobody chose.
  */
-const entryPlan = cheapestPlan();
-const entryVoicePlan = cheapestVoicePlan();
+const exampleVoicePlan = planFor("voice", { voiceMinutes: DEFAULT_STEPS.voiceMinutes });
 
 /**
  * What the tree may claim is v1 as docs/v1-product-spec.md defines it. Two
@@ -175,14 +173,19 @@ HANDLING THE OBJECTIONS THAT ACTUALLY COME UP
       it. Say that plainly and stop there; do not claim certifications that
       do not exist for anyone.
   "How much?"
-      Packages start at ${usd.format(entryPlan.monthlyUsd)} a month plus a
-      one-time ${usd.format(entryPlan.setupFeeUsd)} setup fee for chat alone; the
-      voice agent starts at ${usd.format(entryVoicePlan.monthlyUsd)} a month plus
-      a ${usd.format(entryVoicePlan.setupFeeUsd)} setup fee, and annual billing is
-      ${annualSavingsPercent()}% off. There is no free trial: the setup fee pays
-      for building and testing the agent before it goes live, say that plainly.
-      At a typical aesthetics ticket that is one or two booked appointments a
-      month to break even, say the arithmetic, do not just assert the value.
+      Priced per 100 a month, at a step the clinic picks from 100 to 1,500:
+      ${PRODUCTS.voice.name} ${usd.format(PRODUCTS.voice.perStepMonthlyUsd)} per 100 minutes,
+      ${PRODUCTS.webchat.name} ${usd.format(PRODUCTS.webchat.perStepMonthlyUsd)} per 100 conversations,
+      ${PRODUCTS.metachat.name} (Instagram, Messenger, WhatsApp and the website)
+      ${usd.format(PRODUCTS.metachat.perStepMonthlyUsd)} per 100 conversations; voice and chat
+      steps add up. ${exampleVoicePlan.includedVoiceMinutes} voice minutes is
+      ${usd.format(exampleVoicePlan.monthlyUsd)} a month. A one-time setup fee of
+      ${setupFeeRangeLabel()} depending on the package, and annual billing is
+      ${annualSavingsPercent()}% off. Every price is on the pricing page. There is no
+      free trial: the setup fee pays for building and testing the agent before it
+      goes live, say that plainly. At a typical aesthetics ticket that is one or
+      two booked appointments a month to break even, say the arithmetic, do not
+      just assert the value.
 `.trim();
 
 /** The chat demo's root layer, worded exactly as it was before the split. */

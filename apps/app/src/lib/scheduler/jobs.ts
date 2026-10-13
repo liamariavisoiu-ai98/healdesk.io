@@ -33,7 +33,7 @@ export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
  * from the `billing-minute` queue, with the hourly tick as a backstop:
  * reporting overage on monthly plans to Stripe's meters, because usage
  * reported after an invoice finalizes is never billed. Hourly: queueing the
- * 80% and 100% allowance emails. Daily: invoicing annual plans' overage per
+ * 90% and 100% allowance emails. Daily: invoicing annual plans' overage per
  * closed month (05 UTC) and the housekeeping purge (06 UTC). Wired in tick.ts
  * and workers/index.ts.
  *

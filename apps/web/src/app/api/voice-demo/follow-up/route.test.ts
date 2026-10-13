@@ -88,7 +88,7 @@ describe("what the agent is told", () => {
       email: "Sam@Clinic.com",
       topic: "sales_session",
       preferred_time: "Thursday morning",
-      recommended_package: "AYA Web Chat + Voice",
+      recommended_package: "AYA Voice + Web Chat",
       summary: "Two-chair med spa, Saturdays go to voicemail.",
     });
     expect(response.status).toBe(200);
@@ -97,7 +97,7 @@ describe("what the agent is told", () => {
     expect(sent[0]!.body).toMatchObject({ to: ["hello@healdesk.io"], reply_to: "sam@clinic.com" });
     expect(String(sent[0]!.body.subject)).toContain("session with the team");
     expect(String(sent[0]!.body.text)).toContain("Thursday morning");
-    expect(String(sent[0]!.body.text)).toContain("AYA Web Chat + Voice");
+    expect(String(sent[0]!.body.text)).toContain("AYA Voice + Web Chat");
     expect(String(sent[0]!.body.text)).toContain("Saturdays go to voicemail");
   });
 
@@ -125,18 +125,31 @@ describe("what the agent is told", () => {
       name: "Sam Rivera",
       clinic: "Radiance",
       email: "sam@radiance.com",
-      recommended_package: "AYA Web Chat + Voice",
+      recommended_package: "AYA Voice + Web Chat",
       summary: "After six the phone rings out.",
     });
     expect(response.status).toBe(200);
-    expect((await response.json()).message).toContain("AYA Web Chat + Voice is in their inbox");
+    expect((await response.json()).message).toContain("AYA Voice + Web Chat is in their inbox");
     expect(sent).toHaveLength(2);
     // Theirs first: it is the promise AYA makes.
     expect(sent[0]!.body).toMatchObject({ to: ["sam@radiance.com"], reply_to: "hello@healdesk.io" });
-    expect(String(sent[0]!.body.text)).toContain("/get-started?plan=web-voice");
+    expect(String(sent[0]!.body.text)).toContain("/get-started?plan=voice-webchat");
     expect(String(sent[0]!.body.text)).toMatch(/^Hi Sam,/);
     expect(sent[1]!.body).toMatchObject({ to: ["hello@healdesk.io"], reply_to: "sam@radiance.com" });
-    expect(String(sent[1]!.body.text)).toContain("/get-started?plan=web-voice");
+    expect(String(sent[1]!.body.text)).toContain("/get-started?plan=voice-webchat");
+  });
+
+  test("start: a plan named in full, with its step, links to that plan", async () => {
+    // The price list names packages, and checkout opens a package at the
+    // default steps; a plan named in full carries its own step.
+    const response = await post({ topic: "start", email: "sam@radiance.com", recommended_package: "AYA Voice, 300 minutes" });
+    expect((await response.json()).message).toContain("AYA Voice, 300 minutes is in their inbox");
+    expect(String(sent[0]!.body.text)).toContain("/get-started?plan=voice-300\n");
+  });
+
+  test("start: a package of 5 October links to the buy flow with none chosen", async () => {
+    await post({ topic: "start", email: "sam@radiance.com", recommended_package: "AYA Complete Frontdesk" });
+    expect(String(sent[0]!.body.text)).not.toContain("get-started?plan=");
   });
 
   test("start: a package she did not name exactly links to the buy flow with none chosen, never to a guess", async () => {
@@ -151,7 +164,7 @@ describe("what the agent is told", () => {
       "fetch",
       vi.fn(async () => new Response("down", { status: 500 })),
     );
-    const response = await post({ topic: "start", email: "sam@radiance.com", recommended_package: "AYA Web Chat + Voice" });
+    const response = await post({ topic: "start", email: "sam@radiance.com", recommended_package: "AYA Voice + Web Chat" });
     expect(response.status).toBe(502);
     expect((await response.json()).message).toContain("hello@healdesk.io");
   });

@@ -30,7 +30,7 @@ export type OverageInvoicedPayload = NoticePayloads["overage_invoiced"];
 
 /**
  * One meter's line: "130 voice minutes, billed as 2 blocks of 100 voice
- * minutes at $80 each". Null for a meter that billed no block.
+ * minutes at $104 each". Null for a meter that billed no block.
  */
 function billedBlocks(
   units: number,
@@ -100,15 +100,15 @@ export const renderOverageInvoiced: EmailTemplate<OverageInvoicedPayload> = (pay
 export const OVERAGE_INVOICED_ENTRY: TemplateEntry<OverageInvoicedPayload> = {
   render: renderOverageInvoiced,
   fixture: {
-    amountCents: 8_000,
+    amountCents: 10_400,
     windowStart: "2026-09-06T14:32:00.000Z",
     windowEnd: "2026-10-06T14:32:00.000Z",
     voiceMinutes: 30,
     chatConversationsCount: 0,
     voiceBlocksCount: 1,
     chatBlocksCount: 0,
-    voiceBlockRateCents: 8_000,
-    chatBlockRateCents: 3_000,
+    voiceBlockRateCents: 10_400,
+    chatBlockRateCents: 5_200,
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
     isPaid: true,
   },

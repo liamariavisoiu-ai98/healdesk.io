@@ -124,7 +124,7 @@ function stateWith(over: Partial<AttentionFacts["state"]> = {}): AttentionFacts[
     hasPasskey: true,
     hasBackup: true,
     billing: {
-      boughtPlanId: "chat-web",
+      boughtPlanId: "webchat-1000",
       interval: "month",
       status: "active",
       firstPaidAt: at,

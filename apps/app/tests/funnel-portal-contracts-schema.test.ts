@@ -323,12 +323,12 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
     const { clinicId } = await seedClinic("contracts-columns");
     await asApp(clinicId, async (c) => {
       await c.query(
-        `insert into entitlements (clinic_id, plan_code, billing_interval) values ($1, 'web-voice', 'month')`,
+        `insert into entitlements (clinic_id, plan_code, billing_interval) values ($1, 'voice-webchat-1000-1000', 'month')`,
         [clinicId],
       );
       const started = await c.query(
         `update entitlements
-            set plan_started_at = now(), bought_plan_id = 'complete', setup_deadline_at = now() + interval '30 days'
+            set plan_started_at = now(), bought_plan_id = 'voice-metachat-1000-1000', setup_deadline_at = now() + interval '30 days'
           where clinic_id = $1 returning clinic_id`,
         [clinicId],
       );

@@ -104,11 +104,11 @@ async function noticesOf(clinicId: string) {
   });
 }
 
-/** An annual Web + Voice clinic two allowance months into its year, with W1 and W2 closed. */
+/** An annual Voice + Web Chat clinic two allowance months into its year, with W1 and W2 closed. */
 async function seedAnnual(label: string) {
   const clinic = await seedClinic(label);
   const ids = await seedEntitled(clinic.clinicId, {
-    planId: "web-voice",
+    planId: "voice-webchat-1000-1000",
     interval: "year",
     planStartedAt: STARTED,
   });
@@ -121,7 +121,7 @@ async function seedAnnual(label: string) {
   world = createStripeWorld({
     customerId: ids.stripeCustomerId!,
     subscriptionId: ids.stripeSubscriptionId!,
-    items: [{ lookupKey: "healdesk_web-voice_year_860400" }],
+    items: [{ lookupKey: "healdesk_voice-webchat-1000-1000_year_1152000" }],
     periodStart: s(STARTED),
     periodEnd: s(new Date("2027-07-07T00:00:00Z")),
     customerDefaultPm: "pm_customer",
@@ -207,11 +207,11 @@ describeDb("annual overage", () => {
     });
     expect(create!.args[1]).toMatchObject({ idempotencyKey: `${prefix}:invoice` });
     // One item per meter: the blocks as the quantity, at the price of one block
-    // ($80 for voice, $30 for chat on Web + Voice), never units at the unit rate.
+    // ($104 for voice, $52 for chat on Voice + Web Chat), never units at the unit rate.
     const items = world.fake.callsTo("invoiceItems.create");
     expect(items.map((call) => call.args[0])).toEqual([
       expect.objectContaining({
-        price_data: { currency: "usd", product: "prod_meter_voice_minutes", unit_amount: 8_000 },
+        price_data: { currency: "usd", product: "prod_meter_voice_minutes", unit_amount: 10_400 },
         quantity: 2,
         description: "Voice minutes over allowance, 2026-07-07 to 2026-08-07: 2 blocks of 100",
       }),
@@ -219,7 +219,7 @@ describeDb("annual overage", () => {
         price_data: {
           currency: "usd",
           product: "prod_meter_chat_conversations",
-          unit_amount: 3_000,
+          unit_amount: 5_200,
         },
         quantity: 2,
         description: "Chat conversations over allowance, 2026-07-07 to 2026-08-07: 2 blocks of 100",
@@ -230,7 +230,7 @@ describeDb("annual overage", () => {
     ).toEqual([`${prefix}:item:1`, `${prefix}:item:2`]);
     expect(everyParam(world.fake)).not.toContain('"pending_invoice_items_behavior":"include"');
 
-    // 2 × $80 + 2 × $30. Per unit it would have been 200 × $0.80 + 101 × $0.30.
+    // 2 × $104 + 2 × $52. Per unit it would have been 200 × $1.04 + 101 × $0.52.
     const ledger = await ledgerOf(clinic.clinicId);
     expect(ledger).toEqual([
       expect.objectContaining({
@@ -239,9 +239,9 @@ describeDb("annual overage", () => {
         status: "invoiced",
         voice_units: 200,
         chat_units: 101,
-        voice_rate_cents: 8_000,
-        chat_rate_cents: 3_000,
-        amount_cents: 22_000,
+        voice_rate_cents: 10_400,
+        chat_rate_cents: 5_200,
+        amount_cents: 31_200,
         stripe_invoice_id: world.state.invoices[0]!.id,
       }),
       expect.objectContaining({ window_start: W2, status: "skipped", amount_cents: 0 }),
@@ -249,15 +249,15 @@ describeDb("annual overage", () => {
     const notices = await noticesOf(clinic.clinicId);
     expect(notices.map((n) => [n.kind, n.dedupe_key])).toEqual([["overage_invoiced", w1Iso]]);
     expect(notices[0]!.payload).toEqual({
-      amountCents: 22_000,
+      amountCents: 31_200,
       windowStart: w1Iso,
       windowEnd: W2.toISOString(),
       voiceMinutes: 200,
       chatConversationsCount: 101,
       voiceBlocksCount: 2,
       chatBlocksCount: 2,
-      voiceBlockRateCents: 8_000,
-      chatBlockRateCents: 3_000,
+      voiceBlockRateCents: 10_400,
+      chatBlockRateCents: 5_200,
       hostedInvoiceUrl: `https://invoice.stripe.com/i/${world.state.invoices[0]!.id}`,
       isPaid: true,
     });
@@ -287,18 +287,18 @@ describeDb("annual overage", () => {
       windowStart: W1,
     });
     const hdRef = `${clinic.clinicId}:${W1.toISOString()}`;
-    // The voice item the first run added: 4 minutes over is one block of $80.
+    // The voice item the first run added: 4 minutes over is one block of $104.
     const draft = world.addInvoice({
       status: "draft",
       metadata: { hd_kind: "annual_overage", hd_ref: hdRef },
-      total: 8_000,
-      amount_due: 8_000,
+      total: 10_400,
+      amount_due: 10_400,
       lines: {
         has_more: false,
         data: [
           {
             id: "il_earlier",
-            amount: 8_000,
+            amount: 10_400,
             metadata: { hd_kind: "annual_overage", hd_ref: hdRef, hd_item: "1" },
           },
         ],
@@ -311,7 +311,7 @@ describeDb("annual overage", () => {
     expect(items).toHaveLength(1);
     expect(items[0]!.args[0]).toMatchObject({
       invoice: draft.id,
-      price_data: { unit_amount: 3_000 },
+      price_data: { unit_amount: 5_200 },
       quantity: 1,
       metadata: { hd_item: "2" },
     });
@@ -399,10 +399,10 @@ describeDb("annual overage", () => {
       { clinicId: clinic.clinicId, windowStart: W1.toISOString(), actorLabel: "ops@healdesk.test" },
       { now: NOW },
     );
-    // Three conversations over is one started block: $30 on Web + Voice.
+    // Three conversations over is one started block: $52 on Voice + Web Chat.
     expect(retried).toEqual({
       status: "invoiced",
-      amountCents: 3_000,
+      amountCents: 5_200,
       hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
     });
     expect(

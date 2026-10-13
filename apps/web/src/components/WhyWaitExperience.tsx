@@ -130,9 +130,16 @@ export function WhyWaitExperience() {
               >
                 {site.cta.secondary.label}
               </a>
-              {/* Was "See pricing" until the owner disabled /pricing on 9 October
-                  2026: the buy flow is where packages and prices are shown. */}
-              <BuyButton variant="quiet" size="px-6 py-3.5 text-base" />
+              {/* "See pricing" until the owner disabled /pricing on 9 October
+                  2026, then the buy flow; /pricing came back with the step
+                  pricing of 13 October, and the buy button stays beside the
+                  card below. */}
+              <a
+                href="/pricing"
+                className="border-line-strong text-ink hover:border-ink inline-flex items-center justify-center rounded-sm border-[1.5px] bg-white px-6 py-3.5 text-base font-semibold transition-colors"
+              >
+                See pricing
+              </a>
             </div>
 
             <div className="border-line mt-10 border-t pt-6">
@@ -178,8 +185,8 @@ export function WhyWaitExperience() {
 
               <div className="border-line mt-7 flex flex-wrap items-center justify-between gap-4 border-t pt-6">
                 <p className="text-muted max-w-[34ch] text-[14.5px] leading-snug font-medium">
-                  Choose your package and see its price before you pay, monthly or annual; cancel
-                  at the end of any period.
+                  Choose a product and how much of it you need, from 100 minutes or conversations
+                  a month, and see the price before you pay; cancel at the end of any period.
                 </p>
                 <BuyButton className="px-6 py-3.5 text-base" />
               </div>

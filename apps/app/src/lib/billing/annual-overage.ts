@@ -41,7 +41,7 @@ import { effectivePaymentMethod, WORKER_STRIPE_OPTIONS } from "./stripe-helpers"
  * Overage is billed per STARTED block of 100 units since 6 October 2026
  * (catalog OVERAGE_BLOCK_UNITS), so each meter's month total becomes
  * `overageBlocks(units)` blocks at the block price: 1 to 100 minutes over is
- * one block of $80, 101 is two. That is the sum a monthly plan's metered
+ * one block of $104, 101 is two. That is the sum a monthly plan's metered
  * price makes at the end of its period (its `transform_quantity` divides the
  * total by 100 and rounds up), so an annual clinic pays exactly what a
  * monthly one would for the same month. The blocks are counted on the

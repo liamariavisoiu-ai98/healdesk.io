@@ -598,6 +598,16 @@ export function cohortCreditLive(lead: Pick<Lead, "cohortCreditOfferedAt">, now:
   return ageMs >= 0 && ageMs <= COHORT_SETUP_CREDIT.validDays * 24 * 60 * 60 * 1000;
 }
 
+/**
+ * When this lead's cohort credit ends, or null when it is not live. The form
+ * the setup offers are compared in (lib/billing.ts `chooseSetupOffer`): the
+ * cohort credit beats the demo's and the website's whenever it holds.
+ */
+export function cohortCreditEndsAt(lead: Pick<Lead, "cohortCreditOfferedAt">, now: Date = new Date()): Date | null {
+  if (!lead.cohortCreditOfferedAt || !cohortCreditLive(lead, now)) return null;
+  return new Date(lead.cohortCreditOfferedAt.getTime() + COHORT_SETUP_CREDIT.validDays * 24 * 60 * 60 * 1000);
+}
+
 export async function recordTouch(
   leadId: string,
   touch: { kind: "nurture"; step: number } | { kind: "abandonment" },

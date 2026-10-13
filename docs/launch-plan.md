@@ -454,31 +454,35 @@ Boulevard bundling AI: Boulevard doesn't.
 ### Recommended pricing
 
 The catalog of record is `packages/catalog/src/plans.ts`; this table is a copy for the argument
-below and the code wins if they disagree. Five packages, priced **by channel** rather than by
-minutes alone, because the cost driver differs per channel (voice minutes are metered by the
-vendor, chat conversations by LLM tokens). Annual is a flat 20% off, quoted per month.
+below and the code wins if they disagree. Since 13 October 2026 (the owner's pricing sheet) a
+clinic picks a product and then a **usage step**: 100 to 1,500 voice minutes or chat
+conversations a month, in steps of 100, every step the same price. Combined packages add the two
+products. Prices are per location; annual is a flat 20% off, quoted per month.
 
-| Package | Monthly | Annual (per mo) | Setup (once) | Voice min / mo | Chat conv / mo |
-|---|---|---|---|---|---|
-| **Web OR Meta Chatbot** | **$397** | $317 | $497 | — | 1,000 |
-| **Web + Meta Chatbot** | **$597** | $477 | $997 | — | 2,000 |
-| **AI Voice Agent Alone** | **$797** | $637 | $997 | 1,000 | — |
-| **Web OR Meta + Voice** | **$897** | $717 | $997 | 1,000 | 1,000 |
-| **Complete FrontDesk AI** | **$1,197** | $957 | $997 | 1,000 | 2,000 |
+| Product | Per 100 a month | Annual (per 100, per mo) | Each extra 100 | Setup (list) |
+|---|---|---|---|---|
+| **AYA Voice** (minutes) | **$80** | $64 | $104 | $697 |
+| **AYA Web Chat** (conversations) | **$40** | $32 | $52 | $259 |
+| **AYA Meta Chat**, includes the website (conversations) | **$60** | $48 | $78 | $697 |
 
-**Overage rates are provisional.** $0.80 a voice minute; $0.40 a chat conversation on the
-single-channel chat package and $0.30 on the rest, set by the owner on 5 October 2026 (with the
-allowances above cut the same day). The pricing page prints them marked provisional, and a monthly
-checkout attaches each package's metered prices (`OVERAGE_RATES_PROVISIONAL` is false). They are a
-judgement, not a measurement: measured voice and chat cost from pilot traffic (launch step 3.5)
-replaces them.
+Voice + Web Chat sets up for $956 and Voice + Meta Chat for $1,394. Examples: Web Chat at 300 is
+$120 a month; Voice at 500 is $400; Voice 500 + Web Chat 300 is $520; Voice 500 + Meta Chat 500
+is $700. Setup is discounted for 48 hours: 50% on a personalised demo an operator sends, 30% on one
+a visitor builds on the homepage and to anyone else buying on the website.
+
+**Overage rates are provisional.** Each started block of 100 past the step bills at the extra-100
+price above, set by the owner on 13 October 2026; the clinic is emailed at 90% of its step and
+can move up instead, which is always cheaper than a block. The pricing page prints them marked
+provisional, and a monthly checkout attaches each plan's metered prices
+(`OVERAGE_RATES_PROVISIONAL` is false). They are a judgement, not a measurement: measured voice
+and chat cost from pilot traffic (launch step 3.5) replaces them.
 
 **Why above the $295–299 cluster, not under it.** The cluster is voice-only, single-channel,
 and sold on answered calls. These packages are sold on *recovered* calls with closed-loop
 revenue reporting, and the voice packages ship a provisioned, QA-tested agent rather than a
 self-serve configurator. Below ~$199, dental analysts report buyers assume it's a chatbot with
 no real integration — **pricing too low actively hurts conversion here** — and the same logic
-runs upward: a $797 voice package with a $997 setup reads as a service, not a widget.
+runs upward: a $400 voice plan with a $697 setup reads as a service, not a widget.
 
 **Two non-price decisions, both made:**
 - **A setup fee, not $0 setup.** Provisioning builds the voice agent, allocates the number, and

@@ -74,7 +74,7 @@ function order(overrides: Record<string, unknown> = {}): Record<string, unknown>
     clinicName: "Glow Med Spa LLC",
     specialty: "med-spa",
     platform: "none",
-    plan: "web-voice",
+    plan: "voice-webchat-500-300",
     billingInterval: "month",
     contactName: "Laura Owner",
     contactEmail: "info@glowspa.test",
@@ -93,12 +93,9 @@ function order(overrides: Record<string, unknown> = {}): Record<string, unknown>
   };
 }
 
-function refusal(
-  body: Record<string, unknown>,
-  options: { metaSoldAlone?: boolean } = {},
-): string | undefined {
+function refusal(body: Record<string, unknown>): string | undefined {
   try {
-    validateIntentRequest(body, options);
+    validateIntentRequest(body);
   } catch (error) {
     if (error instanceof IntentError) return error.field;
     throw error;
@@ -143,14 +140,14 @@ describe("the funnel's answers, validated", () => {
     expect(refusal(order({ bookingSystem: "mindbody", platform: "mindbody" }))).toBeUndefined();
   });
 
-  test("website chat is never sold to a practice with no website", () => {
-    for (const plan of ["chat-web", "chat-dual", "web-voice", "complete"]) {
+  test("Web Chat is never sold to a practice with no website; Meta Chat needs none", () => {
+    for (const plan of ["webchat-300", "webchat-1500", "voice-webchat-500-300"]) {
       expect(
         refusal(order({ plan, website: null, profile: null, profileStatus: "none" })),
         plan,
       ).toBe("plan");
     }
-    for (const plan of ["voice", "chat-meta", "meta-voice"]) {
+    for (const plan of ["voice-500", "metachat-300", "voice-metachat-500-300"]) {
       expect(
         refusal(order({ plan, website: null, profile: null, profileStatus: "none" })),
         plan,
@@ -175,7 +172,7 @@ describe("the funnel's answers, validated", () => {
     expect(refusal(order({ profileStatus: "failed" }))).toBe("profile");
     expect(refusal(order({ profile: null, profileStatus: "none" }))).toBe("profileStatus");
     expect(
-      refusal(order({ plan: "voice", website: null, profile: null, profileStatus: "failed" })),
+      refusal(order({ plan: "voice-500", website: null, profile: null, profileStatus: "failed" })),
     ).toBe("profileStatus");
     expect(refusal(order({ profile: null, profileStatus: "failed" }))).toBeUndefined();
   });
@@ -206,12 +203,32 @@ describe("the funnel's answers, validated", () => {
     expect(refusal(order({ specialty: "veterinary" }))).toBe("specialty");
   });
 
-  test("Meta as the only channel is refused while Meta has not approved the app", () => {
-    // Open today (catalog META_SOLD_ALONE); closed, apps/app refuses it as apps/web does.
-    const metaAlone = order({ plan: "chat-meta", website: null, profile: null, profileStatus: "none" });
-    expect(refusal(metaAlone)).toBeUndefined();
-    expect(refusal(metaAlone, { metaSoldAlone: false })).toBe("plan");
-    expect(refusal({ ...metaAlone, plan: "meta-voice" }, { metaSoldAlone: false })).toBeUndefined();
+  test("a plan is a package at steps on the grid; the seven packages of 5 October are refused", () => {
+    for (const plan of ["voice-100", "metachat-1500", "voice-metachat-1500-100"]) {
+      expect(refusal(order({ plan })), plan).toBeUndefined();
+    }
+    for (const plan of [
+      "chat-web",
+      "chat-meta",
+      "chat-dual",
+      "voice",
+      "web-voice",
+      "meta-voice",
+      "complete",
+      "voice-150",
+      "voice-1600",
+      "voice-webchat-500",
+      "webchat-300-300",
+    ]) {
+      expect(refusal(order({ plan })), plan).toBe("plan");
+    }
+  });
+
+  test("Meta Chat is sold on its own, with no website", () => {
+    // The Meta-alone flag went with the chat-channel choice (owner, 13 October
+    // 2026): Meta Chat is a product that includes website chat, never Meta alone.
+    const metaChat = order({ plan: "metachat-300", website: null, profile: null, profileStatus: "none" });
+    expect(refusal(metaChat)).toBeUndefined();
   });
 });
 
@@ -301,7 +318,7 @@ describeDb("the funnel's answers, stored", () => {
     const response = await postIntent(
       signed(
         await signedOrder({
-          plan: "meta-voice",
+          plan: "voice-metachat-500-300",
           website: null,
           profile: null,
           profileStatus: "none",
@@ -321,7 +338,7 @@ describeDb("the funnel's answers, stored", () => {
     const refused = await postIntent(
       signed(
         await signedOrder({
-          plan: "chat-web",
+          plan: "webchat-300",
           website: null,
           profile: null,
           profileStatus: "none",

@@ -86,7 +86,7 @@ describe("effectiveIncluded (BD5)", () => {
   const base = {
     includedVoiceMinutes: 0,
     includedChatConversations: 1_000,
-    boughtPlanId: "web-voice" as string | null,
+    boughtPlanId: "voice-webchat-1000-1000" as string | null,
     locations: 1,
   };
 
@@ -96,7 +96,7 @@ describe("effectiveIncluded (BD5)", () => {
   });
 
   test("falls back to the bought package's allowance for a channel bought but not yet billed", () => {
-    // Bought Web + Voice, billed as AYA Web Chat: the phone's first call counts
+    // Bought Voice + Web Chat, billed as AYA Web Chat: the phone's first call counts
     // against the bought package's 1,000 minutes, never against 0.
     expect(effectiveIncluded(base, "voice_minutes")).toBe(1_000);
     expect(effectiveIncluded({ ...base, locations: 2 }, "voice_minutes")).toBe(2_000);
@@ -104,7 +104,7 @@ describe("effectiveIncluded (BD5)", () => {
 
   test("is 0 on a legacy row or a meter the bought package does not sell", () => {
     expect(effectiveIncluded({ ...base, boughtPlanId: null }, "voice_minutes")).toBe(0);
-    expect(effectiveIncluded({ ...base, boughtPlanId: "chat-web" }, "voice_minutes")).toBe(0);
+    expect(effectiveIncluded({ ...base, boughtPlanId: "webchat-1000" }, "voice_minutes")).toBe(0);
     expect(effectiveIncluded({ ...base, boughtPlanId: "gone-from-catalog" }, "voice_minutes")).toBe(
       0,
     );
@@ -139,14 +139,14 @@ describeDb("billing writers and recorders", () => {
   describe("bought and billed", () => {
     test("billing a smaller package moves the allowances, never the channels a bought row may answer on", async () => {
       const { clinicId } = await seedClinic("billed-new");
-      await seedEntitled(clinicId, { planId: "complete" });
+      await seedEntitled(clinicId, { planId: "voice-metachat-1000-1000" });
       const result = await inClinic(clinicId, (tx) =>
-        applyBilledPlan(tx.db, clinicId, plan("chat-web"), "month"),
+        applyBilledPlan(tx.db, clinicId, plan("webchat-1000"), "month"),
       );
       expect(result).toEqual({ changed: true });
       expect(await row(clinicId)).toMatchObject({
-        planCode: "chat-web",
-        boughtPlanId: "complete",
+        planCode: "webchat-1000",
+        boughtPlanId: "voice-metachat-1000-1000",
         channelsEnabled: { web: true, meta: true, voice: true },
         includedVoiceMinutes: 0,
         includedChatConversations: 1_000,
@@ -155,7 +155,7 @@ describeDb("billing writers and recorders", () => {
       const before = (await row(clinicId)).updatedAt;
       expect(
         await inClinic(clinicId, (tx) =>
-          applyBilledPlan(tx.db, clinicId, plan("chat-web"), "month"),
+          applyBilledPlan(tx.db, clinicId, plan("webchat-1000"), "month"),
         ),
       ).toEqual({ changed: false });
       expect((await row(clinicId)).updatedAt.getTime()).toBe(before.getTime());
@@ -163,10 +163,12 @@ describeDb("billing writers and recorders", () => {
 
     test("on a legacy row the channels still follow the billed package, through either name", async () => {
       const { clinicId } = await seedClinic("billed-legacy");
-      await seedEntitled(clinicId, { planId: "complete", legacy: true });
-      await inClinic(clinicId, (tx) => applyPlanChange(tx.db, clinicId, plan("web-voice"), "year"));
+      await seedEntitled(clinicId, { planId: "voice-metachat-1000-1000", legacy: true });
+      await inClinic(clinicId, (tx) =>
+        applyPlanChange(tx.db, clinicId, plan("voice-webchat-1000-1000"), "year"),
+      );
       expect(await row(clinicId)).toMatchObject({
-        planCode: "web-voice",
+        planCode: "voice-webchat-1000-1000",
         billingInterval: "year",
         boughtPlanId: null,
         channelsEnabled: { web: true, meta: false, voice: true },
@@ -175,12 +177,12 @@ describeDb("billing writers and recorders", () => {
 
     test("recording what was bought moves the channels and leaves billing alone", async () => {
       const { clinicId } = await seedClinic("bought");
-      await seedEntitled(clinicId, { planId: "chat-web", legacy: true });
-      await inClinic(clinicId, (tx) => applyBoughtPlan(tx.db, clinicId, plan("meta-voice")));
+      await seedEntitled(clinicId, { planId: "webchat-1000", legacy: true });
+      await inClinic(clinicId, (tx) => applyBoughtPlan(tx.db, clinicId, plan("voice-500")));
       expect(await row(clinicId)).toMatchObject({
-        planCode: "chat-web",
-        boughtPlanId: "meta-voice",
-        channelsEnabled: { web: false, meta: true, voice: true },
+        planCode: "webchat-1000",
+        boughtPlanId: "voice-500",
+        channelsEnabled: { web: false, meta: false, voice: true },
       });
     });
   });
@@ -188,20 +190,20 @@ describeDb("billing writers and recorders", () => {
   describe("the deferred start", () => {
     test("the first invoice of a bought row records the setup fee and opens no window", async () => {
       const { clinicId } = await seedClinic("first-invoice");
-      await seedEntitled(clinicId, { planId: "web-voice", firstInvoice: false });
+      await seedEntitled(clinicId, { planId: "voice-webchat-1000-1000", firstInvoice: false });
       const paidAt = new Date("2026-10-02T08:00:00Z");
       await inClinic(clinicId, (tx) =>
         recordFirstInvoice(tx.db, clinicId, {
           periodStart: new Date("2026-10-02T08:00:00Z"),
           periodEnd: new Date("2026-11-02T08:00:00Z"),
-          setupFeePaidUsd: 997,
+          setupFeePaidUsd: 956,
           paidAt,
         }),
       );
       const after = await row(clinicId);
       expect(after.currentPeriodStart).toBeNull();
       expect(after.currentPeriodEnd).toBeNull();
-      expect(after.setupFeePaidUsd).toBe("997.00");
+      expect(after.setupFeePaidUsd).toBe("956.00");
       expect(after.firstPaidAt?.toISOString()).toBe(paidAt.toISOString());
     });
 
@@ -260,13 +262,13 @@ describeDb("billing writers and recorders", () => {
       await seedEntitled(clinicId, { firstInvoice: false });
       const first = new Date("2026-10-01T00:00:00Z");
       await inClinic(clinicId, (tx) =>
-        recordSetupFeePaid(tx.db, clinicId, { usd: 497, at: first }),
+        recordSetupFeePaid(tx.db, clinicId, { usd: 259, at: first }),
       );
       await inClinic(clinicId, (tx) =>
-        recordSetupFeePaid(tx.db, clinicId, { usd: 997, at: new Date("2026-10-05T00:00:00Z") }),
+        recordSetupFeePaid(tx.db, clinicId, { usd: 956, at: new Date("2026-10-05T00:00:00Z") }),
       );
       const after = await row(clinicId);
-      expect(after.setupFeePaidUsd).toBe("997.00");
+      expect(after.setupFeePaidUsd).toBe("956.00");
       expect(after.firstPaidAt?.toISOString()).toBe(first.toISOString());
     });
   });
@@ -374,9 +376,9 @@ describeDb("billing writers and recorders", () => {
       const deadline = new Date("2026-11-05T00:00:00Z");
       await inClinic(clinicId, async (tx) => {
         await setMeteredPriceKeys(tx.db, clinicId, [
-          "healdesk_meter_voice_minutes_block100_8000",
-          "healdesk_meter_chat_conversations_block100_3000",
-          "healdesk_meter_voice_minutes_block100_8000",
+          "healdesk_meter_voice_minutes_block100_10400",
+          "healdesk_meter_chat_conversations_block100_7800",
+          "healdesk_meter_voice_minutes_block100_10400",
         ]);
         await setLocations(tx.db, clinicId, 3);
         await setCancelAt(tx.db, clinicId, cancelAt);
@@ -387,8 +389,8 @@ describeDb("billing writers and recorders", () => {
       const after = await row(clinicId);
       expect(after).toMatchObject({
         meteredPriceKeys: [
-          "healdesk_meter_chat_conversations_block100_3000",
-          "healdesk_meter_voice_minutes_block100_8000",
+          "healdesk_meter_chat_conversations_block100_7800",
+          "healdesk_meter_voice_minutes_block100_10400",
         ],
         locations: 3,
         usageAlertsEnabled: false,

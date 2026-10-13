@@ -1,18 +1,17 @@
-import { META_SOLD_ALONE } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import { LEGAL_VERSION } from "@/lib/legal";
 
-import { signRequestRefusal, validateOrder } from "./order";
+import { intentFields, signRequestRefusal, validateOrder } from "./order";
 
 /**
- * The order /api/checkout validates, read directly for the branches the
- * route's own tests cannot reach while a catalog flag is open: Meta as a
- * clinic's only channel, refused while Meta has not approved the app.
+ * The order /api/checkout validates, read directly: the plan is a package at
+ * its usage steps (the pricing sheet of 13 October 2026), parsed by the
+ * catalog, and only a package with Web Chat needs a website.
  */
 
 const ORDER = {
-  plan: "chat-meta",
+  plan: "voice-metachat-500-300",
   clinicName: "Glow Med Spa LLC",
   specialty: "med-spa",
   website: null,
@@ -28,26 +27,59 @@ const ORDER = {
   termsVersion: LEGAL_VERSION,
 };
 
-describe("Meta on its own", () => {
-  test("is sold while the catalog says so, today", () => {
-    expect(META_SOLD_ALONE).toBe(true);
-    expect(validateOrder(ORDER).ok).toBe(true);
-  });
-
-  test("is refused under the package's field, before anything else, once it is not", () => {
-    const refused = validateOrder({ ...ORDER, website: "not a website" }, { metaSoldAlone: false });
-    expect(refused).toEqual({
-      ok: false,
-      refusal: {
-        field: "plan",
-        error:
-          "Instagram, Messenger + WhatsApp is not sold on its own until Meta approves our app. Choose Website, or a package with website chat or the phone.",
-      },
+describe("the plan", () => {
+  test("is a package at its steps, and travels to apps/app under `plan`", () => {
+    const result = validateOrder(ORDER);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.order.plan.id).toBe("voice-metachat-500-300");
+    expect(result.order.plan.monthlyUsd).toBe(580);
+    expect(intentFields(result.order)).toMatchObject({
+      plan: "voice-metachat-500-300",
+      billingInterval: "month",
     });
   });
 
-  test("beside the phone it is sold either way", () => {
-    expect(validateOrder({ ...ORDER, plan: "meta-voice" }, { metaSoldAlone: false }).ok).toBe(true);
+  test("a step off the grid, a package without its steps or a retired package is no plan", () => {
+    for (const plan of ["voice-150", "voice-1600", "voice-metachat-500", "voice-metachat", "complete", "chat-web", ""]) {
+      expect(validateOrder({ ...ORDER, plan }), plan).toEqual({
+        ok: false,
+        refusal: { field: "plan", error: "Unknown plan." },
+      });
+    }
+  });
+
+  test("the steps are the buyer's, any on the grid", () => {
+    for (const plan of ["voice-100", "metachat-1500", "voice-metachat-1500-100"]) {
+      expect(validateOrder({ ...ORDER, plan }).ok, plan).toBe(true);
+    }
+  });
+});
+
+describe("a practice with no website", () => {
+  test("is sold Voice and Meta Chat, which include no website it needs", () => {
+    for (const plan of ["voice-500", "metachat-300", "voice-metachat-500-300"]) {
+      expect(validateOrder({ ...ORDER, plan }).ok, plan).toBe(true);
+    }
+  });
+
+  test("is refused Web Chat under the package's field", () => {
+    for (const plan of ["webchat-300", "voice-webchat-500-300"]) {
+      expect(validateOrder({ ...ORDER, plan }), plan).toEqual({
+        ok: false,
+        refusal: {
+          field: "plan",
+          error:
+            "AYA Web Chat needs a website. Choose AYA Voice or AYA Meta Chat, or give us your website.",
+        },
+      });
+    }
+  });
+
+  test("with a website, Web Chat is sold", () => {
+    expect(
+      validateOrder({ ...ORDER, plan: "voice-webchat-500-300", website: "glowmedspa.com", profileStatus: "failed" }).ok,
+    ).toBe(true);
   });
 });
 

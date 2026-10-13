@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import { getPlan, plans, stripeLookupKey, type PriceKind } from "@healdesk/catalog";
+import { allPlans, getPlan, stripeLookupKey, type PriceKind } from "@healdesk/catalog";
 import type Stripe from "stripe";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
@@ -46,8 +46,9 @@ import { createStripeFake, stripeError } from "./setup/stripe-fake";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 
-const webVoice = getPlan("web-voice")!;
-const complete = getPlan("complete")!;
+const webVoice = getPlan("voice-webchat-1000-1000")!;
+// Every channel, and a larger chat step than webVoice: a move onto it changes the allowances.
+const complete = getPlan("voice-metachat-1000-1500")!;
 
 const DAY = 24 * 60 * 60;
 
@@ -162,7 +163,7 @@ function subscription(
           id: "si_metered",
           price: {
             id: "price_meter",
-            lookup_key: "healdesk_meter_voice_minutes_block100_8000",
+            lookup_key: "healdesk_meter_voice_minutes_block100_10400",
             recurring: { usage_type: "metered" },
           },
         },
@@ -182,11 +183,13 @@ function subscription(
 describe("parseLookupKey", () => {
   test("round-trips stripeLookupKey for every plan and kind", () => {
     const kinds: PriceKind[] = ["month", "year", "setup"];
-    for (const plan of plans) {
+    for (const plan of allPlans()) {
       for (const kind of kinds) {
         const key = stripeLookupKey(plan, kind);
         expect(parseLookupKey(key), key).toEqual({
-          planId: plan.id,
+          // A setup key names the package (13 October 2026): the fee does not
+          // change with the steps.
+          planId: kind === "setup" ? plan.packageId : plan.id,
           kind,
           cents:
             kind === "setup"
@@ -201,8 +204,11 @@ describe("parseLookupKey", () => {
 
   test("returns null for anything that is not a package price", () => {
     expect(parseLookupKey("healdesk_meter_voice_minutes")).toBeNull();
-    // The metered prices per started block of 100 (6 October 2026), and the
-    // per-unit ones before them that a subscription may still carry.
+    // The metered prices per started block of 100 (13 October 2026, and the
+    // 6 October ones before them), and the per-unit ones of 5 October, which a
+    // subscription may still carry.
+    expect(parseLookupKey("healdesk_meter_voice_minutes_block100_10400")).toBeNull();
+    expect(parseLookupKey("healdesk_meter_chat_conversations_block100_7800")).toBeNull();
     expect(parseLookupKey("healdesk_meter_voice_minutes_block100_8000")).toBeNull();
     expect(parseLookupKey("healdesk_meter_chat_conversations_block100_3000")).toBeNull();
     expect(parseLookupKey("healdesk_meter_voice_minutes_80")).toBeNull();
@@ -310,7 +316,7 @@ describeDb("handleStripeEvent", () => {
 
     const r = await row();
     expect(r.status).toBe("active");
-    expect(r.setup_fee_paid_usd).toBe("997.00");
+    expect(r.setup_fee_paid_usd).toBe("956.00");
     // From the recurring LINE, not the invoice's own period, which on a first
     // invoice is the moment of creation.
     expect(r.current_period_start?.getTime()).toBe(start * 1000);
@@ -380,21 +386,21 @@ describeDb("handleStripeEvent", () => {
     expect(r.current_period_start?.getTime()).toBe(start * 1000);
     expect(r.current_period_end?.getTime()).toBe(end * 1000);
     // The setup fee is not touched by a renewal.
-    expect(r.setup_fee_paid_usd).toBe("997.00");
+    expect(r.setup_fee_paid_usd).toBe("956.00");
   });
 
-  test("a switch between twins in the Customer Portal moves the chat channel", async () => {
-    // Web + Voice → Meta + Voice: same price, same allowances, different
-    // channel. Before the split this was one package with the channel in a
-    // field beside it, and a portal switch could not reach that field.
-    const metaVoice = getPlan("meta-voice")!;
+  test("a move from Web Chat to Meta Chat at the same steps moves the chat channels", async () => {
+    // Voice + Web Chat → Voice + Meta Chat: the same allowances, the Meta bot
+    // added beside the website (Meta Chat includes website chat). The package
+    // id alone carries the channels, so the price is all the event needs.
+    const metaVoice = getPlan("voice-metachat-1000-1000")!;
     const e = updated(subscription(ids, { lookupKey: stripeLookupKey(metaVoice, "month") }));
     await handleStripeEvent(e);
 
     const r = await row();
-    expect(r.plan_code).toBe("meta-voice");
+    expect(r.plan_code).toBe("voice-metachat-1000-1000");
     expect(r.billing_interval).toBe("month");
-    expect(r.channels_enabled).toEqual({ web: false, meta: true, voice: true });
+    expect(r.channels_enabled).toEqual({ web: true, meta: true, voice: true });
     expect(await transitionsFor(e.id)).toBe(1);
   });
 
@@ -403,7 +409,7 @@ describeDb("handleStripeEvent", () => {
     await handleStripeEvent(e);
 
     const r = await row();
-    expect(r.plan_code).toBe("complete");
+    expect(r.plan_code).toBe("voice-metachat-1000-1500");
     expect(r.billing_interval).toBe("year");
     // The FULL new allowance — owner policy, no proration of minutes.
     expect(r.included_voice_minutes).toBe(complete.includedVoiceMinutes);
@@ -573,7 +579,7 @@ describeDb("handleStripeEvent", () => {
       invoice({ customer: "cus_notyet", subscription: "sub_notyet" }, "subscription_create", {
         periodStart: 0,
         periodEnd: 1,
-        setupCents: 99_700,
+        setupCents: 95_600,
       }),
     );
 
@@ -637,7 +643,7 @@ describeDb("handleStripeEvent", () => {
         [notYet],
       ),
     );
-    expect(rows[0]).toEqual({ status: "active", setup_fee_paid_usd: "997.00" });
+    expect(rows[0]).toEqual({ status: "active", setup_fee_paid_usd: "956.00" });
 
     const parked = await getMigratorPool().query<{ outcome: string; failures: number; resolved_clinic_id: string }>(
       `select outcome, failures, resolved_clinic_id from billing_events
@@ -705,7 +711,7 @@ describeDb("the setup fee on an invoice whose prices arrive expanded", () => {
   test("a setup line carrying its lookup key is recorded at its amount, not $0", async () => {
     // The legacy line shape an older endpoint API version sends: `line.price`
     // is the full Price object, lookup key included. The setup key ends in the
-    // amount (healdesk_web-voice_setup_99700), so it has to be parsed — a
+    // amount (healdesk_voice-webchat_setup_95600), so it has to be parsed — a
     // suffix test for "_setup" never matched and recorded $0.
     const start = Math.floor(Date.now() / 1000);
     const end = start + 30 * DAY;
@@ -751,7 +757,7 @@ describeDb("the setup fee on an invoice whose prices arrive expanded", () => {
       ),
     );
     expect(rows[0]!.status).toBe("active");
-    expect(rows[0]!.setup_fee_paid_usd).toBe("997.00");
+    expect(rows[0]!.setup_fee_paid_usd).toBe("956.00");
     expect(rows[0]!.current_period_end.getTime()).toBe(end * 1000);
   });
 });

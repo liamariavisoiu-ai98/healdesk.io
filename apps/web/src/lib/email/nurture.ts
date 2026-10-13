@@ -1,7 +1,8 @@
 import type { Lead } from "@/lib/leads";
 import { ENTITY } from "@/lib/legal";
-import { COHORT_SETUP_CREDIT, plans } from "@healdesk/catalog";
+import { COHORT_SETUP_CREDIT } from "@healdesk/catalog";
 
+import { setupFeeRangeLabel } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import { unsubscribeUrl } from "./index";
@@ -73,7 +74,7 @@ export const TOUCHES: readonly Touch[] = [
       `Two things clinic owners ask first, answered plainly.\n\n` +
       `1. It does not give medical advice. Ask it whether a treatment is safe during pregnancy and it says it can't answer that and offers to book a consultation with your provider instead. That is the product, not a limitation.\n\n` +
       `2. It does not pretend to be a person. Every call, chat and DM opens by saying it is an AI assistant, and on the phone that the call is transcribed, not recorded. You cannot switch that off.\n\n` +
-      `What it does do: answer every call, chat and DM, day or night; qualify; book straight into your Google Calendar during the conversation; take deposits in chat through your own checkout link; and show you what it handled and booked. Every package, its price and the setup fee are shown before you pay: ${site.url}/get-started\n\n` +
+      `What it does do: answer every call, chat and DM, day or night; qualify; book straight into your Google Calendar during the conversation; take deposits in chat through your own checkout link; and show you what it handled and booked. Every product, its price per step of 100 and its setup fee are on one page: ${site.url}/pricing\n\n` +
       `Reply with your booking system and I'll tell you whether it reads Google Calendar for conflicts, which decides whether she books live for you or your staff confirm each booking.` +
       footer(lead),
   },
@@ -100,7 +101,7 @@ export const TOUCHES: readonly Touch[] = [
       `Hi ${firstName(lead)},\n\n` +
       `This is the last email in this sequence; I don't chase. If the timing is wrong, nothing happens and you won't hear from me again unless you come back.\n\n` +
       `If it was a specific doubt — price, the booking system, whether a cash-pay practice even needs the HIPAA paperwork — reply with it and I'll answer it straight, including "no, not yet" where that is the answer.\n\n` +
-      `One thing I can do: a setup credit that waives the one-time setup fee in full ($${setupFeeRange()} depending on the package). It applies when you start from this link within ${COHORT_SETUP_CREDIT.validDays} days: ${site.url}/get-started?lead=${lead.id}\n\n` +
+      `One thing I can do: a setup credit that waives the one-time setup fee in full (${setupFeeRangeLabel()} depending on the package). It applies when you start from this link within ${COHORT_SETUP_CREDIT.validDays} days: ${site.url}/get-started?lead=${lead.id}\n\n` +
       `Thanks for trying it.` +
       footer(lead),
   },
@@ -133,12 +134,4 @@ export function abandonmentEmail(lead: Lead): { subject: string; text: string } 
       `${site.name}, ${ENTITY.postalAddress}\n` +
       `Stop these emails: ${unsubscribeUrl(lead.id)}`,
   };
-}
-
-/** "497–997": the smallest and largest setup fee across the packages, so the copy tracks the catalog. */
-function setupFeeRange(): string {
-  const fees = plans.map((p) => p.setupFeeUsd);
-  const lo = Math.min(...fees);
-  const hi = Math.max(...fees);
-  return lo === hi ? String(lo) : `${lo}–${hi}`;
 }

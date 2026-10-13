@@ -78,10 +78,10 @@ export const renderPlanStarted: EmailTemplate<PlanStartedPayload> = (payload, ct
 export const PLAN_STARTED_ENTRY: TemplateEntry<PlanStartedPayload> = {
   render: renderPlanStarted,
   fixture: {
-    planName: "AYA Web Chat",
-    boughtPlanId: "web-voice",
+    planName: "AYA Web Chat, 300 conversations",
+    boughtPlanId: "voice-webchat-500-300",
     channel: "web",
-    amountCents: 39_700,
+    amountCents: 12_000,
     interval: "month",
     startedOn: "2026-10-06",
     periodEndsOn: "2026-11-06",

@@ -65,6 +65,8 @@ vi.mock("@/lib/portal/step-up", () => ({
 }));
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
+/** Voice + Web Chat, 1,000 of each (13 October 2026): $1,200 a month, $956 setup. */
+const BOUGHT = "voice-webchat-1000-1000";
 const ACTOR = { type: "service", serviceName: "billing-screen-test" } as const;
 const s = (date: Date) => Math.floor(date.getTime() / 1000);
 
@@ -96,7 +98,7 @@ describeDb("Billing", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
-    clinic = await provisionPortalClinic("billing", { plan: "web-voice" });
+    clinic = await provisionPortalClinic("billing", { plan: BOUGHT });
     Object.assign(portal, {
       userId: clinic.userId,
       clinicId: clinic.clinicId,
@@ -149,13 +151,25 @@ describeDb("Billing", () => {
 
   test("before the start: the plan, its channels and location, when it starts, the switches together, a location's price, Stripe for the card, and the agreement", async () => {
     const html = await render();
-    expect(html).toContain(`${getPlan("web-voice")!.name}, billed monthly`);
+    const plan = getPlan(BOUGHT)!;
+    // The package, then its steps: the plan's full name would say them twice.
+    expect(html).toContain(`${plan.packageName}, billed monthly`);
     expect(html).toContain("Website chat · Phone · one location");
-    expect(html).toContain("Monthly billing ($897) starts the day AYA first answers a patient.");
+    expect(html).toContain("Includes 1,000 voice minutes and 1,000 chat conversations a month.");
+    expect(html).toContain("Monthly billing ($1,200) starts the day AYA first answers a patient.");
     expect(html).toContain(
       "Until every channel in your package is in service, your monthly price is the price of the channels that are.",
     );
     expect(html).toContain("Your allowance starts when your plan does.");
+    // Each meter's extra-100 price, at the bought plan's rate, and provisional.
+    expect(html).toContain(
+      "Past it: $104 for each started block of 100 extra voice minutes (provisional).",
+    );
+    expect(html).toContain(
+      "Past it: $52 for each started block of 100 extra chat conversations (provisional).",
+    );
+    expect(html).toMatch(/Their prices are provisional until we(&#x27;|’)ve measured/);
+    expect(html).not.toMatch(/\$1\.04|\$0\.52/);
     // The three switches, together, under one heading.
     const switches = html.slice(html.indexOf('id="switches"'), html.indexOf('id="change"'));
     expect(switches).toContain("When the monthly allowance runs out");
@@ -163,12 +177,21 @@ describeDb("Billing", () => {
       /role="switch"[^>]*aria-checked="true"[\s\S]*Usage alerts|Usage alerts[\s\S]*role="switch"/,
     );
     expect(switches).toContain("Auto-renew");
+    expect(switches).toContain("Emails at 90% and 100% of the allowance");
     expect(switches).toMatch(/Off means your plan won(&#x27;|’)t start/);
-    // The current plan can't be chosen again; a location says its price.
-    const plan = getPlan("web-voice")!;
-    expect(html).toMatch(
-      new RegExp(`disabled=""[^>]*/?>[\\s\\S]{0,400}${escapeRegExp(plan.name)} · your plan`),
-    );
+    // The change control starts on the current plan, which can't be asked
+    // about again; every package is offered, with a step for each meter.
+    expect(html).toContain("AYA Voice + Web Chat · your package");
+    for (const name of ["AYA Voice", "AYA Web Chat", "AYA Meta Chat", "AYA Voice + Meta Chat"]) {
+      expect(html).toContain(`>${name}<`);
+    }
+    expect(html).toContain("Voice minutes a month");
+    expect(html).toContain("Chat conversations a month");
+    expect(html).toContain('<option value="1500">1,500 minutes</option>');
+    const current = html.slice(html.indexOf(`${plan.name} · your plan`));
+    expect(current).not.toBe(html);
+    expect(current.match(/<button[^>]*>[^<]*/)![0]).toMatch(/disabled=""[^>]*>This is your plan/);
+    // A location says its price.
     expect(html).toContain(`plus a $${plan.setupFeeUsd.toLocaleString("en-US")} setup fee`);
     expect(html).toContain("Change the card");
     expect(html).toContain("See invoices");
@@ -202,6 +225,12 @@ describeDb("Billing", () => {
     const gate = () =>
       assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", actor: ACTOR });
     expect(await gate()).toEqual({ decision: "answer" });
+    // Past the alert mark (90% since 13 October 2026), the screen says what
+    // the alert email says: move up a step, or let extra blocks bill.
+    const usedUp = await render();
+    expect(usedUp).toMatch(/You(&#x27;|’)re past 90% of this month(&#x27;|’)s allowance/);
+    expect(usedUp).toContain("Moving up a step costs less than extra blocks");
+    expect(usedUp).toContain("100 chat conversations used of 100 included (100%)");
     expect(await saveBillingSwitchAction(portal.clinicSlug, "overage_mode", "hard_cap")).toEqual({
       ok: true,
       toast: expect.stringMatching(/^When the allowance runs out, calls go to your direct line/),
@@ -218,7 +247,7 @@ describeDb("Billing", () => {
       await c.query(`update clinic_channels set live_at = null`);
     });
 
-    // Usage alerts: the switch the sender asks before an 80% or 100% email.
+    // Usage alerts: the switch the sender asks before a 90% or 100% email.
     const alerts = () =>
       withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
         optionalEmailAllowed(tx, "usage_alerts"),
@@ -255,8 +284,11 @@ describeDb("Billing", () => {
 
   test("a plan change shows the setup-fee difference first; one in flight is finished by choosing it again", async () => {
     const { previewPlanAction, changePlanAction } = await actions();
-    const preview = await previewPlanAction(portal.clinicSlug, "complete", "month");
-    const delta = (getPlan("complete")!.setupFeeUsd - getPlan("web-voice")!.setupFeeUsd) * 100;
+    const target = "voice-metachat-1000-1000";
+    // A change of package pays the setup-fee difference first.
+    const preview = await previewPlanAction(portal.clinicSlug, target, "month");
+    const delta = (getPlan(target)!.setupFeeUsd - getPlan(BOUGHT)!.setupFeeUsd) * 100;
+    expect(delta).toBe(43_800);
     expect(preview).toMatchObject({
       status: "ok",
       setupFeeDeltaCents: delta,
@@ -264,10 +296,14 @@ describeDb("Billing", () => {
       isInProgress: false,
       requestId: expect.any(String),
     });
+    // A step within the package owes none (owner, 13 October 2026).
+    expect(
+      await previewPlanAction(portal.clinicSlug, "voice-webchat-1200-1000", "month"),
+    ).toMatchObject({ status: "ok", setupFeeDeltaCents: 0 });
     // Without a step-up nothing is charged.
     expect(
       await changePlanAction(portal.clinicSlug, {
-        planId: "complete",
+        planId: target,
         interval: "month",
         requestId: "req-1",
       }),
@@ -275,29 +311,30 @@ describeDb("Billing", () => {
     expect(world.fake.calls).toHaveLength(0);
 
     // A change whose outcome was lost: choosing that plan again carries it
-    // on, and the page offers it rather than greying it out.
+    // on, and the page starts on it and offers it rather than greying it out.
     await entitlements(
-      `pending_plan_change_request_id = 'req-lost', pending_plan_change_plan_id = 'complete',
+      `pending_plan_change_request_id = 'req-lost', pending_plan_change_plan_id = '${target}',
        pending_plan_change_interval = 'month'`,
     );
     try {
-      expect(await previewPlanAction(portal.clinicSlug, "complete", "month")).toMatchObject({
+      expect(await previewPlanAction(portal.clinicSlug, target, "month")).toMatchObject({
         status: "ok",
         isInProgress: true,
       });
-      expect(await previewPlanAction(portal.clinicSlug, "chat-web", "month")).toEqual({
+      expect(await previewPlanAction(portal.clinicSlug, "webchat-1000", "month")).toEqual({
         status: "refused",
         message: expect.stringMatching(
           new RegExp(
-            `^A change to ${escapeRegExp(getPlan("complete")!.name)}, billed monthly, is still being completed\\.`,
+            `^A change to ${escapeRegExp(getPlan(target)!.name)}, billed monthly, is still being completed\\.`,
           ),
         ),
       });
       const html = await render();
-      const beingChanged = `${getPlan("complete")!.name} · being changed to`;
-      const complete = html.slice(html.indexOf(beingChanged) - 600);
+      const beingChanged = `${getPlan(target)!.name} · being changed to`;
       expect(html).toContain(beingChanged);
-      expect(complete.slice(0, 600)).not.toMatch(/disabled=""[^<]*$/);
+      const button = html.slice(html.indexOf(beingChanged)).match(/<button[^>]*>[^<]*/)![0];
+      expect(button).not.toContain('disabled=""');
+      expect(button).toContain("See what it costs");
     } finally {
       await entitlements(
         `pending_plan_change_request_id = null, pending_plan_change_plan_id = null,

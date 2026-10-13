@@ -1,20 +1,24 @@
 import {
   additionalLocationChargeUsd,
-  annualTotalUsd,
   audienceSingular,
   CHANNEL_NAMES,
   channelList,
   getPlan,
   planStartSentence,
-  plans,
-  type BillingInterval,
+  USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
-import { readBillingView } from "@/lib/portal/billing";
+import {
+  extraBlockLine,
+  includedLine,
+  meterWords,
+  pastAlertMark,
+  readBillingView,
+} from "@/lib/portal/billing";
 import { portalCount, portalDay, portalMoney } from "@/lib/portal/format";
 import { requirePortal } from "@/lib/portal/access";
 import { sectionPath } from "@/lib/portal/nav";
@@ -29,7 +33,6 @@ import {
   BillingSwitch,
   ChangePlan,
   StripePortalButton,
-  type PlanOption,
 } from "./BillingControls";
 
 export const metadata: Metadata = { title: "Billing · healdesk", referrer: "no-referrer" };
@@ -37,12 +40,20 @@ export const metadata: Metadata = { title: "Billing · healdesk", referrer: "no-
 export const dynamic = "force-dynamic";
 
 /**
- * Billing (plan Part F6; spec, "Billing"): the plan, its channels and
- * locations; when it starts, or the next charge once it has; the price while
- * not every channel is in service; the usage meters; the three switches
- * together (when the allowance runs out, usage alerts, auto-renew); changing
- * the plan, with the setup-fee difference first; adding a location; Stripe's
- * own portal for the card and the invoices; and the agreement on file.
+ * Billing (plan Part F6; spec, "Billing"): the plan, its channels, locations
+ * and steps (what it includes each month); when it starts, or the next charge
+ * once it has; the price while not every channel is in service; the usage
+ * meters against what is included, with the extra-100 price of each, marked
+ * provisional; the three switches together (when the allowance runs out,
+ * usage alerts, auto-renew); changing the plan, a package and its steps, with
+ * the setup-fee difference first; adding a location; Stripe's own portal for
+ * the card and the invoices; and the agreement on file.
+ *
+ * Since the pricing sheet of 13 October 2026 a plan is a package at a usage
+ * step per product (100 to 1,500 voice minutes, chat conversations), so the
+ * plan section names the package and says the steps, and the usage section
+ * says, past the alert mark (USAGE_ALERT_PERCENT, 90%), what the alert email
+ * says: move up a step, which costs less than extra blocks, or let them bill.
  *
  * Every amount is the billing summary's or Stripe's own preview
  * (lib/portal/billing.ts), and every change is Package C's action. Nothing on
@@ -81,24 +92,6 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
       ? portalDay(setupLastDay(new Date(summary.setupDeadlineAt), tz), tz, now)
       : null;
 
-  const priceOf = (planId: string, interval: BillingInterval) => {
-    const plan = getPlan(planId)!;
-    return interval === "year"
-      ? `${portalMoney(annualTotalUsd(plan) * 100)} a year`
-      : `${portalMoney(plan.monthlyUsd * 100)} a month`;
-  };
-  const plansByInterval = Object.fromEntries(
-    (["month", "year"] as const).map((interval) => [
-      interval,
-      plans.map((plan): PlanOption => ({
-        id: plan.id,
-        name: plan.name,
-        price: priceOf(plan.id, interval),
-        current: plan.id === summary.boughtPlanId && interval === summary.interval,
-        pending: view.pendingChange?.planId === plan.id && view.pendingChange.interval === interval,
-      })),
-    ]),
-  ) as Record<"month" | "year", PlanOption[]>;
   const location = bought ? additionalLocationChargeUsd(bought, summary.interval) : null;
 
   return (
@@ -118,7 +111,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             {bought ? (
               <>
                 <p className="mt-2 font-semibold">
-                  {bought.name}, billed {summary.interval === "year" ? "annually" : "monthly"}
+                  {bought.packageName}, billed {summary.interval === "year" ? "annually" : "monthly"}
                 </p>
                 <p className="text-muted mt-1 text-sm">
                   {channelList(bought)
@@ -126,6 +119,10 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                     .join(" · ")}
                   {" · "}
                   {summary.locations === 1 ? "one location" : `${summary.locations} locations`}
+                </p>
+                <p className="mt-1 text-sm">
+                  Includes {includedLine(bought, summary.locations)} a month
+                  {summary.locations > 1 ? ", pooled across your locations" : ""}.
                 </p>
               </>
             ) : null}
@@ -209,36 +206,70 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
             {summary.usage.length === 0 ? (
               <p className="text-muted mt-2 text-sm">Nothing to measure on this plan.</p>
             ) : (
-              <ul className="mt-2 grid gap-3">
-                {summary.usage.map((meter) => {
-                  const words =
-                    meter.meter === "voice_minutes"
-                      ? (["voice minute", "voice minutes"] as const)
-                      : (["chat conversation", "chat conversations"] as const);
-                  const daysLeft =
-                    meter.isWindowOpen && meter.windowEnd
-                      ? Math.max(
-                          0,
-                          Math.ceil(
-                            (new Date(meter.windowEnd).getTime() - now.getTime()) / 86_400_000,
-                          ),
-                        )
-                      : null;
-                  return (
-                    <li key={meter.meter} className="text-sm">
-                      <p className="font-semibold">
-                        {portalCount(meter.used, words[0], words[1])} used of{" "}
-                        {meter.included.toLocaleString("en-US")} included
-                      </p>
-                      <p className="text-muted">
-                        {meter.isWindowOpen
-                          ? `${meter.overUnits > 0 ? `${portalCount(meter.overUnits, words[0], words[1])} over: ${portalMoney(meter.overageCents)} so far. ` : "No overage. "}${daysLeft === 1 ? "1 day left" : `${daysLeft} days left`} in this month's allowance.`
-                          : "Your allowance starts when your plan does."}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
+              <>
+                <ul className="mt-2 grid gap-4">
+                  {summary.usage.map((meter) => {
+                    const [one, many] = meterWords(meter.meter);
+                    const daysLeft =
+                      meter.isWindowOpen && meter.windowEnd
+                        ? Math.max(
+                            0,
+                            Math.ceil(
+                              (new Date(meter.windowEnd).getTime() - now.getTime()) / 86_400_000,
+                            ),
+                          )
+                        : null;
+                    const percent =
+                      meter.included > 0 ? Math.floor((meter.used * 100) / meter.included) : 0;
+                    const extra = bought ? extraBlockLine(bought, meter.meter) : null;
+                    return (
+                      <li key={meter.meter} className="text-sm">
+                        <p className="font-semibold">
+                          {portalCount(meter.used, one, many)} used of{" "}
+                          {meter.included.toLocaleString("en-US")} included
+                          {meter.included > 0 ? ` (${percent}%)` : ""}
+                        </p>
+                        {meter.included > 0 ? (
+                          // A native meter, coloured by the browser past the
+                          // alert mark: the portal carries no inline styles.
+                          <meter
+                            aria-hidden="true"
+                            min={0}
+                            max={100}
+                            low={USAGE_ALERT_PERCENT}
+                            high={USAGE_ALERT_PERCENT}
+                            optimum={0}
+                            value={Math.min(100, percent)}
+                            className="mt-1 h-2 w-full"
+                          />
+                        ) : null}
+                        <p className="text-muted mt-1">
+                          {meter.isWindowOpen
+                            ? `${meter.overUnits > 0 ? `${portalCount(meter.overUnits, one, many)} over: ${portalMoney(meter.overageCents)} so far. ` : "No overage. "}${daysLeft === 1 ? "1 day left" : `${daysLeft} days left`} in this month's allowance.`
+                            : "Your allowance starts when your plan does."}
+                        </p>
+                        {extra ? <p className="text-muted">Past it: {extra} (provisional).</p> : null}
+                        {meter.isWindowOpen && pastAlertMark(meter) && !ended ? (
+                          <p className="mt-1">
+                            You&rsquo;re past {USAGE_ALERT_PERCENT}% of this month&rsquo;s allowance.{" "}
+                            {summary.overageMode === "allow"
+                              ? "Moving up a step costs less than extra blocks; or do nothing, and each started block of 100 bills at the price above."
+                              : "When it's used, AYA falls back to your team until it renews; moving up a step gives her more."}{" "}
+                            <a href="#change" className="font-semibold underline">
+                              Change your plan
+                            </a>
+                          </p>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="text-muted mt-3 text-sm">
+                  Extra blocks are billed only while &ldquo;Keep going and bill the extra&rdquo; is
+                  chosen below. Their prices are provisional until we&rsquo;ve measured what each
+                  minute and conversation costs us.
+                </p>
+              </>
             )}
           </section>
 
@@ -261,7 +292,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                   slug={portal.clinicSlug}
                   settingKey="usage_alerts"
                   label="Usage alerts"
-                  line="Emails at 80% and 100% of the allowance."
+                  line={`Emails at ${USAGE_ALERT_PERCENT}% and 100% of the allowance, with the choice to move up a step.`}
                   initial={summary.usageAlertsEnabled}
                 />
                 <BillingSwitch
@@ -297,14 +328,15 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                 Change your plan
               </h2>
               <p className="text-muted mt-1 text-sm">
-                Pick a plan to see what it costs before anything is charged. A bigger package pays
-                the difference in setup fee first.
+                Choose a package and how much it includes each month, in steps of 100. Moving
+                between steps of your package has no setup fee; a bigger package pays the
+                difference in setup fee first. You see what it costs before anything is charged.
               </p>
               <ChangePlan
                 slug={portal.clinicSlug}
-                interval={summary.interval}
                 isStarted={summary.isPlanStarted}
-                plansByInterval={plansByInterval}
+                current={{ planId: bought.id, interval: summary.interval }}
+                pending={view.pendingChange}
               />
               <div className="border-line mt-2 border-t pt-3">
                 <h3 className="font-semibold">Add a location</h3>

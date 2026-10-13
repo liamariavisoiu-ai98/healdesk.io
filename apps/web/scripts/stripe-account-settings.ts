@@ -70,8 +70,12 @@ import Stripe from "stripe";
 /** Up to 22 characters; Stripe prints it in capitals. */
 const STATEMENT_DESCRIPTOR = "HEALDESK";
 
-/** The metadata stripe-setup.ts puts on every product it creates. */
-const PRODUCT_META_KEYS = ["healdesk_plan_id", "healdesk_meter"] as const;
+/**
+ * The metadata stripe-setup.ts puts on every product it creates: a package's
+ * since 13 October 2026, a 5 October package's before it (still billing the
+ * subscriptions on it), and an overage meter's.
+ */
+const PRODUCT_META_KEYS = ["healdesk_package_id", "healdesk_plan_id", "healdesk_meter"] as const;
 
 const PORTAL_META = { healdesk: "customer-portal" } as const;
 

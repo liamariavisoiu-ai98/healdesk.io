@@ -74,6 +74,18 @@ describe("nurture sequence", () => {
     expect(abandoned.text).toContain("/api/email/unsubscribe?t=");
   });
 
+  test("the cohort credit quotes the setup fees of the step pricing, and prices point at /pricing", () => {
+    // The owner's sheet of 13 October 2026: setup is $259 (Web Chat) to
+    // $1,394 (Voice + Meta Chat) at list price, and the credit waives it in
+    // full, so the email quotes the range and never one round number.
+    const last = TOUCHES[TOUCHES.length - 1]!.text(lead());
+    expect(last).toContain("waives the one-time setup fee in full ($259–$1,394 depending on the package)");
+    expect(TOUCHES[1]!.text(lead())).toContain("/pricing");
+    for (const touch of TOUCHES) {
+      expect(touch.text(lead())).not.toMatch(/\$497|\$997|50% off|half off/i);
+    }
+  });
+
   test("every touch describes v1, and nothing it does not do", () => {
     // docs/v1-product-spec.md: inbound only, no SMS, no reminders, calls are
     // transcribed and never recorded, and v1 claims booked value, never

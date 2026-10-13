@@ -23,11 +23,13 @@ export const renderRenewalUpcoming: EmailTemplate<RenewalUpcomingPayload> = (pay
   return compose(
     {
       subject: `Your healdesk plan renews on ${dayShort(payload.renewsOn, ctx)}`,
-      preheader: `${payload.noticeDays === 21 ? "A reminder: your" : "Your"} annual ${payload.planName} plan renews for ${money(payload.amountCents)}.`,
+      preheader: `${payload.noticeDays === 21 ? "A reminder: your" : "Your"} annual plan renews for ${money(payload.amountCents)}.`,
       blocks: [
         {
           type: "paragraph",
-          text: `Your annual ${payload.planName} plan renews on ${renews}, for ${money(payload.amountCents)}${locations}. We'll charge the card on file.`,
+          // The plan's name says its steps since 13 October 2026 ("AYA Voice,
+          // 500 minutes"), so it stands apart rather than before "plan".
+          text: `Your annual plan, ${payload.planName}, renews on ${renews}, for ${money(payload.amountCents)}${locations}. We'll charge the card on file.`,
         },
         {
           type: "paragraph",
@@ -44,8 +46,8 @@ export const RENEWAL_UPCOMING_ENTRY: TemplateEntry<RenewalUpcomingPayload> = {
   render: renderRenewalUpcoming,
   fixture: {
     renewsOn: "2027-11-05",
-    amountCents: 1_148_400,
-    planName: "AYA Complete Frontdesk",
+    amountCents: 556_800,
+    planName: "AYA Voice + Meta Chat, 500 minutes and 300 conversations",
     locations: 1,
     noticeDays: 30,
   },

@@ -278,8 +278,8 @@ count is being carried by clinics we could barely read.
 6. **Volume floor** — ~600–800 emailable clinics. A **floor**, not a target.
 7. **Ticket size** — pass/fail only. At the August price of $249/month,
    break-even was under one booked appointment per month for every med spa
-   segment, so it screened nothing *within* med spa. The packages now run
-   $397–1,197/month plus a setup fee (`packages/catalog/src/plans.ts`); redo the
+   segment, so it screened nothing *within* med spa. Plans now run
+   $40–2,100/month by usage step plus a setup fee (`packages/catalog/src/plans.ts`); redo the
    break-even against the package a segment would buy before relying on it.
 
 **Two expected traps, both flagged automatically:**

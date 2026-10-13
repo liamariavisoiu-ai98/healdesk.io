@@ -1,3 +1,4 @@
+import { USAGE_ALERT_PERCENT } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
@@ -16,7 +17,7 @@ import {
 } from "./usage";
 
 /**
- * The 80% and 100% allowance emails (BD21, the product spec's "Usage alerts"
+ * The 90% and 100% allowance emails (BD21, the product spec's "Usage alerts"
  * switch, Annex X L27): hourly, per meter per allowance window, on the
  * BILLING clinic, while the clinic's own switch (`usage_alerts_enabled`) is
  * on. The `usage-alerts` job row is the operator's switch for the whole job,
@@ -34,7 +35,16 @@ import {
  * `<meter>:<windowStartIso>` (R22), so an hourly re-run, or a usage_80 and a
  * usage_100 for the same window, never repeats one. When the job first finds
  * a meter already past 100% only `usage_100` goes: the clinic needs the one
- * that is true now, not a stale 80% beside it.
+ * that is true now, not a stale 90% beside it.
+ *
+ * The first alert goes at USAGE_ALERT_PERCENT of the allowance: 90% since the
+ * pricing sheet of 13 October 2026 ("When you use 90% of your included
+ * amount, we send you a short email"), 80% before it. Its notice kind is
+ * still `usage_80`: the name is a key in two CHECK constraints
+ * (billing_notices and report_deliveries), in the email registry and in rows
+ * already queued, and renaming it would buy a migration and nothing a clinic
+ * sees. Its template (email/templates/usage_alert.ts) prints
+ * USAGE_ALERT_PERCENT, never a number read off the kind's name.
  *
  * `allowance_fallback` is not this job's: recordUsage and the gate queue it
  * the moment "Stop and fall back" engages, whatever either switch says.
@@ -89,7 +99,7 @@ export async function queueUsageAlerts(now: Date = new Date()): Promise<UsageAle
           const kind =
             used * 100 >= 100 * included
               ? "usage_100"
-              : used * 100 >= 80 * included
+              : used * 100 >= USAGE_ALERT_PERCENT * included
                 ? "usage_80"
                 : null;
           if (!kind) continue;

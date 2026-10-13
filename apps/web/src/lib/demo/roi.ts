@@ -1,4 +1,4 @@
-import type { Plan } from "@healdesk/catalog";
+import { MAX_STEP_UNITS, MIN_STEP_UNITS, type Plan, STEP_UNITS } from "@healdesk/catalog";
 
 import type { ClinicProfile } from "./profile";
 
@@ -24,9 +24,28 @@ import type { ClinicProfile } from "./profile";
  * counted, so repeat treatments make the real figure larger, not smaller.
  *
  * Each package counts the enquiries it can answer: missed calls for a package
- * with the phone; unanswered messages for one with chat, half of them for a
- * single chat channel (website or Meta) and all of them for both. The owner
+ * with the phone; unanswered messages for one with chat, half of them for
+ * AYA Web Chat (the website alone) and all of them for AYA Meta Chat, which
+ * answers Instagram, Messenger and WhatsApp and the website too. The owner
  * can change the three inputs that are theirs.
+ *
+ * ## The cost side depends on the steps (13 October 2026)
+ *
+ * Since the owner's pricing sheet a plan's price is its package at the steps
+ * the clinic picks, so the multiple below is only as honest as the step it is
+ * divided by. `suggestedSteps` picks the steps from the same inputs, sized to
+ * what AYA would answer under the default coverage (overflow and after
+ * hours: the calls and messages that would otherwise go unanswered):
+ *
+ *   voice minutes = missed calls a week × 4.33 × ASSUMED_MINUTES_PER_CALL
+ *   chat conversations = missed messages a week × 4.33
+ *
+ * each rounded UP to the next step of 100 and held between the smallest and
+ * the largest step, so the suggestion covers the volume rather than leaving
+ * the first month in overage. Three minutes a call is an assumption, stated
+ * wherever it is used: no call has been measured yet, and it rounds the
+ * clinic brief's under-two-and-a-half-minute target up rather than down.
+ * The suggestion is a starting point the buyer can move, never a measurement.
  */
 
 /**
@@ -98,6 +117,32 @@ export function typicalVisit(
   return { priceUsd: fallback.valuePerBooking, priceSource: `${fallback.basis} (typical for your specialty)` };
 }
 
+/** An assumption, and labelled as one wherever it shows: see the header. */
+export const ASSUMED_MINUTES_PER_CALL = 3;
+
+/** A volume, rounded up to the step that covers it and held to the steps on sale. */
+function stepCovering(units: number): number {
+  if (!Number.isFinite(units) || units <= 0) return MIN_STEP_UNITS;
+  const step = Math.ceil(units / STEP_UNITS) * STEP_UNITS;
+  return Math.min(MAX_STEP_UNITS, Math.max(MIN_STEP_UNITS, step));
+}
+
+/**
+ * The steps to suggest for a clinic's volume (see the header): enough voice
+ * minutes for its missed calls at ASSUMED_MINUTES_PER_CALL, and enough chat
+ * conversations for its unanswered messages, each rounded up to a step of
+ * 100. The defaults (8 calls, 4 messages a week) suggest 200 minutes and 100
+ * conversations.
+ */
+export function suggestedSteps(
+  inputs: Pick<RoiInputs, "missedCallsPerWeek" | "missedMessagesPerWeek">,
+): { voiceMinutes: number; chatConversations: number } {
+  return {
+    voiceMinutes: stepCovering(inputs.missedCallsPerWeek * WEEKS_PER_MONTH * ASSUMED_MINUTES_PER_CALL),
+    chatConversations: stepCovering(inputs.missedMessagesPerWeek * WEEKS_PER_MONTH),
+  };
+}
+
 /** How much of each enquiry type a package answers. */
 export function coverage(plan: Pick<Plan, "channels">): { calls: number; messages: number } {
   const chats = Number(plan.channels.web) + Number(plan.channels.meta);
@@ -108,7 +153,7 @@ export type RoiEstimate = {
   /** Patients booked and seen in a month, rounded to one decimal. */
   patientsPerMonth: number;
   bookedValueUsd: number;
-  /** Booked value over the package's monthly price; 0 when nothing is covered. */
+  /** Booked value over the plan's monthly price, at its steps; 0 when nothing is covered. */
   multiple: number;
   /** What one month's new patients are worth over their first year, or null without a repeat rate. */
   yearValueUsd: number | null;

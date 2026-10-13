@@ -53,8 +53,8 @@ async function seedGroup(
 ): Promise<SeededClinic> {
   const clinic = await seedClinic(label);
   await seedEntitled(clinic.clinicId, {
-    planId: "web-voice",
-    boughtPlanId: "web-voice",
+    planId: "voice-webchat-1000-1000",
+    boughtPlanId: "voice-webchat-1000-1000",
     planStartedAt: at(-40 * 24 * HOUR),
   });
   await inTenant(clinic.clinicId, (c) =>

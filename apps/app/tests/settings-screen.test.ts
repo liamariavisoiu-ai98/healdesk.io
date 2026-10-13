@@ -144,8 +144,8 @@ describeDb("Settings", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
-    complete = await provisionPortalClinic("settings", { plan: "complete" });
-    chatOnly = await provisionPortalClinic("chatonly", { plan: "chat-web" });
+    complete = await provisionPortalClinic("settings", { plan: "voice-metachat-1000-1000" });
+    chatOnly = await provisionPortalClinic("chatonly", { plan: "webchat-1000" });
     // The billing row as the first invoice leaves it, so the answer gate
     // decides on the clinic's own switches rather than on billing.
     for (const clinic of [complete, chatOnly]) {

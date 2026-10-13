@@ -33,9 +33,15 @@ const { createCheckout } = await import("./billing");
 
 const REF = "11111111-2222-4333-8444-555555555555";
 
-function input(overrides: { previousOpenSessionId?: string | null; attempt?: number } = {}) {
+function input(
+  overrides: {
+    previousOpenSessionId?: string | null;
+    attempt?: number;
+    offer?: "cohort-setup" | "demo-setup-50" | "site-setup-30" | null;
+  } = {},
+) {
   return {
-    plan: getPlan("web-voice")!,
+    plan: getPlan("voice-webchat-500-300")!,
     interval: "month" as const,
     contactEmail: "owner@glowspa.test",
     intent: {
@@ -47,7 +53,7 @@ function input(overrides: { previousOpenSessionId?: string | null; attempt?: num
     attribution: {
       campaign: "spring-medspa",
       leadId: null,
-      offer: null,
+      offer: overrides.offer ?? null,
       demo: null,
       setupRequestId: "req_1",
     },
@@ -101,7 +107,7 @@ describe("the Session a press of Pay creates", () => {
     // before any money moves.
     expect(params.payment_method_types).toEqual(["card"]);
     expect(params.line_items).toEqual([
-      { price: `price_for_${stripeLookupKey(getPlan("web-voice")!, "setup")}`, quantity: 1 },
+      { price: `price_for_${stripeLookupKey(getPlan("voice-webchat-500-300")!, "setup")}`, quantity: 1 },
       { price: `price_for_${PLAN_START_PLACEHOLDER_LOOKUP_KEY}`, quantity: 1 },
     ]);
     // The card is collected even on a $0 total: the plan's first period is charged to it.
@@ -120,7 +126,7 @@ describe("the Session a press of Pay creates", () => {
     const marker = {
       app: "healdesk",
       ref: REF,
-      plan: "web-voice",
+      plan: "voice-webchat-500-300",
       billingInterval: "month",
       attempt: "3",
     };
@@ -133,6 +139,27 @@ describe("the Session a press of Pay creates", () => {
       campaign: "spring-medspa",
       setupRequest: "req_1",
     });
+  });
+
+  test("names no coupon without an offer, and exactly one, the package's, with one", async () => {
+    await createCheckout(input());
+    const [plain] = fake.create.mock.calls[0]! as [Record<string, unknown>, unknown];
+    expect(plain.discounts).toBeUndefined();
+
+    for (const [offer, coupon] of [
+      ["cohort-setup", "healdesk-cohort-setup-voice-webchat-95600"],
+      ["demo-setup-50", "healdesk-demo-setup-50-voice-webchat-47800"],
+      ["site-setup-30", "healdesk-site-setup-30-voice-webchat-28600"],
+    ] as const) {
+      fake.create.mockClear();
+      await createCheckout(input({ offer }));
+      const [params] = fake.create.mock.calls[0]! as [Record<string, unknown>, unknown];
+      expect(params.discounts, offer).toEqual([{ coupon }]);
+      // The offer's name rides on the Session for the lead store; the setup
+      // line stays, so the invoice shows the fee and the credit.
+      expect((params.metadata as Record<string, string>).offer).toBe(offer);
+      expect((params.line_items as unknown[]).length).toBe(2);
+    }
   });
 
   test("is keyed to this press of Pay, so a retried request returns the same Session", async () => {

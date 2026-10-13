@@ -26,6 +26,7 @@ import {
   disconnectCalendar,
   extendSetupDeadline,
   fetchClinicBilling,
+  fetchClinicHealth,
   fetchOnboarding,
   issueCalendarLink,
   issueStripeConnectLink,
@@ -301,8 +302,8 @@ function billingView(overrides: Record<string, unknown> = {}): Record<string, un
     channelsInService: ["web"],
     entitlements: {
       status: "active",
-      boughtPlanId: "complete",
-      billedPlanId: "chat-web",
+      boughtPlanId: "voice-metachat-500-300",
+      billedPlanId: "webchat-300",
       isLegacy: false,
       interval: "month",
       locations: 2,
@@ -421,7 +422,7 @@ function billingView(overrides: Record<string, unknown> = {}): Record<string, un
       refundDue: false,
       stuckRequests: 1,
       pendingLocation: { locationNumber: 2, chargedAt: "2026-10-08T10:00:00.000Z" },
-      pendingPlanChange: { planId: "web-voice", interval: "year" },
+      pendingPlanChange: { planId: "voice-webchat-700-300", interval: "year" },
     },
     ...overrides,
   };
@@ -445,15 +446,15 @@ describe("the billing panel's readers are strict", () => {
       firstAnswerOn: null,
     });
     expect(view.entitlements).toMatchObject({
-      boughtPlan: { id: "complete", name: expect.any(String) },
-      billedPlan: { id: "chat-web", name: expect.any(String) },
+      boughtPlan: { id: "voice-metachat-500-300", name: "AYA Voice + Meta Chat, 500 minutes and 300 conversations" },
+      billedPlan: { id: "webchat-300", name: "AYA Web Chat, 300 conversations" },
       planStartedAt: "2026-10-07 00:00 UTC",
       paidThroughOn: "2026-11-07",
       setupDeadlineAt: "2026-11-05 23:59 UTC",
       setupDeadlineIso: "2026-11-05T23:59:59.999Z",
       openInvoice: { url: "https://invoice.stripe.com/i/acct_x/test_y", amountCents: 89700 },
     });
-    expect(view.entitlements!.boughtPlan!.name).not.toBe("complete");
+    expect(view.entitlements!.boughtPlan!.name).not.toBe("voice-metachat-500-300");
     expect(view.overageInvoices[0]).toMatchObject({
       windowStartIso: "2026-09-01T00:00:00.000Z",
       windowStartOn: "2026-09-01",
@@ -467,9 +468,20 @@ describe("the billing panel's readers are strict", () => {
     expect(view.deposits.defaultAmountUsd).toBe(50.5);
     expect(view.flags.pendingLocation).toEqual({ locationNumber: 2, chargedOn: "2026-10-08" });
     expect(view.flags.pendingPlanChange).toEqual({
-      plan: { id: "web-voice", name: "AYA Web Chat + Voice" },
+      plan: { id: "voice-webchat-700-300", name: "AYA Voice + Web Chat, 700 minutes and 300 conversations" },
       interval: "year",
     });
+  });
+
+  test("a 5 October package the catalog no longer knows is shown by its id, never a blank", async () => {
+    reply({
+      data: billingView({
+        entitlements: { ...(billingView().entitlements as object), boughtPlanId: "complete", billedPlanId: "complete" },
+      }),
+    });
+    const result = await fetchClinicBilling(CLINIC);
+    if (!result.ok) throw new Error(result.message);
+    expect(result.data.entitlements!.boughtPlan).toEqual({ id: "complete", name: "complete" });
   });
 
   test("a pending plan change missing from an older apps/app reads as none", async () => {
@@ -540,7 +552,7 @@ describe("the billing panel's readers are strict", () => {
       {
         flags: {
           ...(billingView().flags as object),
-          pendingPlanChange: { planId: "web-voice", interval: "weekly" },
+          pendingPlanChange: { planId: "voice-webchat-700-300", interval: "weekly" },
         },
       },
     ],
@@ -1096,5 +1108,36 @@ describe("the Meta platform switches cross as three flags, and one op switches o
     expect(sent).toEqual([
       { op: "setMetaPlatform", args: { clinicId: CLINIC, platform: "whatsapp", enabled: false } },
     ]);
+  });
+});
+
+describe("the first-weeks list", () => {
+  function healthRow(plan: string | null) {
+    return {
+      clinicId: CLINIC,
+      slug: "radiance",
+      name: "Radiance",
+      plan,
+      wentLiveAt: "2026-10-07T00:00:00.000Z",
+      daysLive: 6,
+      conversations: { total: 3, last7: 3 },
+      recovered: { total: 0, last7: 0 },
+      bookings: 1,
+      firstRecoveredBookingAt: null,
+      lastConversationAt: null,
+      recipients: 1,
+      forwardingTested: true,
+      connected: true,
+      usage: null,
+      touches: [],
+      flags: [],
+    };
+  }
+
+  test("names a clinic's plan as the catalog does, and an id it no longer knows as itself", async () => {
+    reply({ data: { clinics: [healthRow("voice-500"), healthRow("complete"), healthRow(null)] } });
+    const result = await fetchClinicHealth();
+    if (!result.ok) throw new Error(result.message);
+    expect(result.data.map((row) => row.plan)).toEqual(["AYA Voice, 500 minutes", "complete", null]);
   });
 });

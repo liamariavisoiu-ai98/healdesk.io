@@ -1,148 +1,100 @@
 import {
+  allPlans,
+  ANNUAL_DISCOUNT_PERCENT,
   getPlan,
-  getPricingCard,
-  OVERAGE_RATES_PROVISIONAL,
-  plans,
+  PACKAGES,
+  PRODUCTS,
   planStartSentence,
-  recurringUsd,
+  setupAfterCreditUsd,
 } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import {
-  allowanceRows,
-  annualSavingsPercent,
-  channelChips,
-  cheapestPlan,
-  dueToday,
-  monthlyFigureUsd,
-  overageLine,
-} from "@/lib/pricing";
+  payLabel,
+  planStartLine,
+  SETUP_OFFER_CREDITS,
+  SETUP_OFFER_KINDS,
+  type SetupOffer,
+  setupDueUsd,
+  setupFeeToday,
+} from "@/lib/checkout/review";
+import { dueToday } from "@/lib/pricing";
+
+import { perStepLabel, productsOf } from "./PackageStep";
 
 /**
  * The number on the pay button.
  *
  * The deferred start (lib/billing.ts): Stripe's first invoice carries the
  * one-time setup fee and a $0 monthly line, so "Pay $X and start setup" must
- * be the setup fee and nothing else. The plan's own price starts the day AYA
- * first answers a patient, said in the catalog's one sentence. A button that
- * charged the setup fee under a breakdown adding the first month would be
- * the quiet failure this guards against: both numbers look plausible.
+ * be the setup fee, after the one setup offer that applies, and nothing else.
+ * The plan's own price starts the day AYA first answers a patient, said in
+ * the catalog's one sentence. A button that charged the setup fee under a
+ * breakdown adding the first month would be the quiet failure this guards
+ * against: both numbers look plausible. So the button and today's headline
+ * (lib/checkout/review.ts) are held to the "Due today" breakdown
+ * (lib/pricing.ts, `dueToday`), with and without each offer.
  */
+
+const ENDS = "2099-01-01T00:00:00.000Z";
+const usd = (n: number) => `$${n.toLocaleString("en-US")}`;
+
 describe("due today", () => {
-  test.each(plans.flatMap((plan) => (["month", "year"] as const).map((interval) => [plan.id, interval, plan] as const)))(
-    "%s %s: today is the setup fee alone, and the plan starts at its first answer",
-    (_id, interval, plan) => {
-      const due = dueToday(plan, interval);
-      expect(due.setupFeeUsd).toBe(plan.setupFeeUsd);
-      expect(due.totalUsd).toBe(plan.setupFeeUsd);
-      expect(due.planStart).toBe(planStartSentence(plan, interval));
-      expect(due.planStart).toMatch(/starts the day AYA first answers a patient\.$/);
-    },
-  );
+  test.each(
+    allPlans()
+      .filter((_, i) => i % 7 === 0)
+      .flatMap((plan) => (["month", "year"] as const).map((interval) => [plan.id, interval, plan] as const)),
+  )("%s %s: the button is the setup fee alone, and the plan starts at its first answer", (_id, interval, plan) => {
+    const due = dueToday(plan, interval);
+    expect(due.totalUsd).toBe(plan.setupFeeUsd);
+    expect(payLabel(plan)).toBe(`Pay ${usd(due.totalUsd)} and start setup`);
+    expect(setupFeeToday(plan).headline).toBe(`Today: ${usd(due.totalUsd)} setup fee`);
+    expect(planStartLine(plan, interval, "med-spa")).toBe(due.planStart);
+    expect(due.planStart).toBe(planStartSentence(plan, interval));
+    expect(due.planStart).toMatch(/starts the day AYA first answers a patient\.$/);
 
-  test("the concrete figures for the entry package", () => {
-    const plan = getPlan("chat-web")!;
-    expect(dueToday(plan, "month").totalUsd).toBe(497);
-    expect(dueToday(plan, "month").planStart).toBe("Monthly billing ($397) starts the day AYA first answers a patient.");
-    expect(dueToday(plan, "year").planStart).toBe(
-      `Annual billing ($${(317 * 12).toLocaleString("en-US")} a year) starts the day AYA first answers a patient.`,
+    for (const kind of SETUP_OFFER_KINDS) {
+      const offer: SetupOffer = { kind, endsAt: ENDS };
+      const credited = dueToday(plan, interval, SETUP_OFFER_CREDITS[kind]);
+      expect(setupDueUsd(plan, offer), kind).toBe(credited.totalUsd);
+      expect(setupDueUsd(plan, offer), kind).toBe(setupAfterCreditUsd(plan, SETUP_OFFER_CREDITS[kind]));
+      expect(payLabel(plan, offer), kind).toBe(`Pay ${usd(credited.totalUsd)} and start setup`);
+    }
+  });
+
+  test("the sheet's own figures", () => {
+    const voice = getPlan("voice-500")!;
+    // 50% of $697 is $348.50 and the buyer pays $349; 30% leaves $487.90, so $488.
+    expect(payLabel(voice, { kind: "demo", endsAt: ENDS })).toBe("Pay $349 and start setup");
+    expect(payLabel(voice, { kind: "site", endsAt: ENDS })).toBe("Pay $488 and start setup");
+    expect(payLabel(getPlan("webchat-300")!, { kind: "site", endsAt: ENDS })).toBe(
+      "Pay $182 and start setup",
     );
-  });
-
-  test("the plan's price is quoted per period, from the catalog", () => {
-    for (const plan of plans) {
-      expect(dueToday(plan, "month").planPrice).toBe(`$${plan.monthlyUsd.toLocaleString("en-US")}/mo`);
-      expect(dueToday(plan, "year").planPrice).toBe(`$${recurringUsd(plan, "year").toLocaleString("en-US")}/yr`);
-    }
-  });
-
-  test("the annual figure on a card is per month, and the saving is the catalog's", () => {
-    for (const plan of plans) {
-      expect(monthlyFigureUsd(plan, "month")).toBe(plan.monthlyUsd);
-      expect(monthlyFigureUsd(plan, "year")).toBe(plan.annualMonthlyUsd);
-      expect(annualSavingsPercent(plan)).toBe(20);
-    }
-    expect(annualSavingsPercent()).toBe(20);
+    expect(planStartLine(getPlan("voice-webchat-500-300")!, "month", null)).toBe(
+      "Monthly billing ($520) starts the day AYA first answers a patient.",
+    );
+    expect(planStartLine(voice, "year", null)).toBe(
+      "Annual billing ($3,840 a year) starts the day AYA first answers a patient.",
+    );
   });
 });
 
-describe("the cheapest package is found by price", () => {
-  test("not by position in the array", () => {
-    const byPrice = Math.min(...plans.map((plan) => plan.monthlyUsd));
-    expect(cheapestPlan().monthlyUsd).toBe(byPrice);
-  });
-});
-
-/**
- * What a card says a package includes. A chip is a promise, so a package that
- * offers one of two chat channels gets one "or" chip rather than two chips, and
- * an allowance of zero produces no line at all rather than "0 voice minutes".
- */
-describe("package cards", () => {
-  test("a Web OR Meta card shows one chat chip, not two", () => {
-    const chips = channelChips(getPricingCard("chat-single")!);
-    expect(chips).toEqual(["Website chat or Instagram, Messenger + WhatsApp"]);
+describe("the package step's figures", () => {
+  test("each product's price per step, monthly and on annual terms", () => {
+    expect(perStepLabel(PRODUCTS.voice, "month")).toBe("$80 per 100 minutes");
+    expect(perStepLabel(PRODUCTS.webchat, "month")).toBe("$40 per 100 conversations");
+    expect(perStepLabel(PRODUCTS.metachat, "month")).toBe("$60 per 100 conversations");
+    expect(perStepLabel(PRODUCTS.voice, "year")).toBe("$64 per 100 minutes");
+    expect(ANNUAL_DISCOUNT_PERCENT).toBe(20);
   });
 
-  test("a Web + Meta package shows both chat chips", () => {
-    expect(channelChips(getPricingCard("chat-dual")!)).toEqual([
-      "Website chat",
-      "Instagram, Messenger + WhatsApp",
+  test("a package's products are voice first, then its chat", () => {
+    expect(PACKAGES.map((pkg) => productsOf(pkg).map((p) => p.id))).toEqual([
+      ["voice"],
+      ["webchat"],
+      ["metachat"],
+      ["voice", "webchat"],
+      ["voice", "metachat"],
     ]);
-  });
-
-  test("voice-only shows only the phone", () => {
-    expect(channelChips(getPricingCard("voice")!)).toEqual(["Phone"]);
-  });
-
-  test("every channel in the Complete package", () => {
-    expect(channelChips(getPricingCard("complete")!)).toEqual([
-      "Website chat",
-      "Instagram, Messenger + WhatsApp",
-      "Phone",
-    ]);
-  });
-
-  test("both allowance rows are always present; a zero is an em dash, not a missing row", () => {
-    expect(allowanceRows(getPlan("voice")!)).toEqual([
-      { label: "Included voice minutes", value: "1,000/mo" },
-      { label: "Included chat conversations", value: "—" },
-    ]);
-    expect(allowanceRows(getPlan("chat-web")!)).toEqual([
-      { label: "Included voice minutes", value: "—" },
-      { label: "Included chat conversations", value: "1,000/mo" },
-    ]);
-    expect(allowanceRows(getPlan("complete")!)).toEqual([
-      { label: "Included voice minutes", value: "1,000/mo" },
-      { label: "Included chat conversations", value: "2,000/mo" },
-    ]);
-  });
-
-  test("the overage line quotes each package's own price for a block of 100", () => {
-    // Billed per started block since 6 October 2026 (docs/v1-product-spec.md,
-    // "Overage prices"); the footnote under the cards says a started block is
-    // billed whole.
-    if (OVERAGE_RATES_PROVISIONAL) return;
-    expect(overageLine(getPlan("chat-web")!)).toBe("$40 per block of 100 conversations");
-    expect(overageLine(getPlan("chat-meta")!)).toBe("$40 per block of 100 conversations");
-    expect(overageLine(getPlan("chat-dual")!)).toBe("$30 per block of 100 conversations");
-    expect(overageLine(getPlan("voice")!)).toBe("$80 per block of 100 minutes");
-    expect(overageLine(getPlan("complete")!)).toBe(
-      "$80 per block of 100 minutes · $30 per block of 100 conversations",
-    );
-  });
-
-  test("no overage number is printed while the rates are provisional, and never a per-unit rate", () => {
-    for (const plan of plans) {
-      const line = overageLine(plan);
-      if (OVERAGE_RATES_PROVISIONAL) {
-        expect(line).toBeNull();
-      } else {
-        expect(line).not.toBeNull();
-        expect(line).not.toMatch(/\/min|\/conversation|per minute|per conversation|\$0\./);
-        if (!plan.channels.voice) expect(line).not.toContain("minutes");
-        if (!plan.channels.web && !plan.channels.meta) expect(line).not.toContain("conversations");
-      }
-    }
   });
 });

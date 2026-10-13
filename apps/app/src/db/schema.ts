@@ -3060,7 +3060,7 @@ export const entitlements = pgTable(
       .default("0"),
 
     // --- 0043: usage alerts, locations, the paid period and refunds. ---
-    /** Whether the 80% and 100% allowance emails are sent. The owner's switch. */
+    /** Whether the 90% and 100% allowance emails are sent (catalog USAGE_ALERT_PERCENT). The owner's switch. */
     usageAlertsEnabled: boolean("usage_alerts_enabled").notNull().default(true),
     /**
      * Locations on the subscription: the package item's quantity. Allowances

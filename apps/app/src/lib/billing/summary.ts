@@ -249,7 +249,7 @@ export function checkPlanChange(
     return refusal("That's already your plan.");
   }
   const isStarted = hasPlanStarted(row);
-  if (isStarted && planForChannels(inService.filter((c) => newPlan.channels[c])) === null) {
+  if (isStarted && planForChannels(newPlan, inService) === null) {
     return refusal(
       "A plan change can't drop every channel that's already answering. Choose a plan that keeps at least one of them.",
     );
@@ -629,11 +629,9 @@ export async function previewChangePlan(
   const isInProgress = check.pendingRequestId !== null;
   const setupFeeDeltaCents = check.deltaPerLocationCents * locations;
   const droppedChannels = channelsDroppedBy(newPlan, group.inService);
-  const kept = (channels: Iterable<Channel>) =>
-    [...new Set(channels)].filter((channel) => newPlan.channels[channel]);
 
   if (!check.isStarted) {
-    const billedAtStart = planForChannels(kept(group.inService)) ?? newPlan;
+    const billedAtStart = planForChannels(newPlan, group.inService) ?? newPlan;
     return {
       status: "ok",
       planId: newPlan.id,
@@ -663,7 +661,7 @@ export async function previewChangePlan(
         message: "Your plan is still being set up in Stripe. Try again in a few minutes.",
       };
     }
-    const target = planForChannels(kept([...channelList(current.plan), ...group.inService]));
+    const target = planForChannels(newPlan, [...channelList(current.plan), ...group.inService]);
     if (!target) {
       return {
         status: "refused",
@@ -749,9 +747,7 @@ export async function previewAddLocation(
   const setupFeeCents = boughtPlan.setupFeeUsd * 100;
 
   if (!check.isStarted) {
-    const billedAtStart =
-      planForChannels(group.inService.filter((channel) => boughtPlan.channels[channel])) ??
-      boughtPlan;
+    const billedAtStart = planForChannels(boughtPlan, group.inService) ?? boughtPlan;
     return {
       status: "ok",
       locations,

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { AgentMark, AgentPanel } from "@/components/agent-panel/AgentPanel";
 import { VoiceCard } from "@/components/agent-panel/VoiceCard";
 import { BuyModalProvider } from "@/components/BuyModal";
+import { RefreshingOfferCountdown } from "@/components/checkout/SetupOfferBanner";
 import { ClinicChatPanel } from "@/components/demo/ClinicChatPanel";
 import { BuildProgress } from "@/components/demo/BuildProgress";
 import { DemoBuyButton } from "@/components/demo/DemoBuyButton";
@@ -17,6 +18,7 @@ import type { ClinicProfile } from "@/lib/demo/profile";
 import {
   demoBuildElapsedMs,
   demoBuildState,
+  demoOfferEndsAt,
   demoSetupCredit,
   displayName,
   getDemoSession,
@@ -141,6 +143,9 @@ export default async function DemoPage({ params }: Props) {
   const colour = session.brandColor ?? FALLBACK_COLOUR;
   const profile = profileOf(session);
   const expired = isDemoExpired(session);
+  // The demo's setup offer: 50% off for 48 hours from the demo being ready
+  // (owner, 13 October 2026; a week until then), never past the demo itself.
+  const offerEnds = demoOfferEndsAt(session);
   // "Call us" needs the demo line and the clinic agent its webhook hands calls to.
   const demoLine =
     process.env.RETELL_CLINIC_DEMO_AGENT_ID && /^\+1\d{10}$/.test(process.env.RETELL_DEMO_FROM_NUMBER ?? "")
@@ -200,8 +205,9 @@ export default async function DemoPage({ params }: Props) {
       {/* Top banner: the one-week clock, or the archive notice. */}
       {/* Sticky, so the clock, the offer and the link follow the visitor down
           the page. The offer is the setup credit checkout applies to a demo
-          bought inside its week (api/checkout), so it is never promised
-          after the clock runs out. */}
+          bought inside its 48 hours (api/checkout, from the same
+          `demoOfferEndsAt`), so it carries its own clock and is never
+          promised after that runs out, though the demo itself runs on. */}
       {expired ? (
         <div className="bg-ink sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-3 text-center text-[15px] font-semibold text-white sm:px-8">
           <span>Instance Archived — Server Allocation Window Expired for {name}</span>
@@ -215,9 +221,12 @@ export default async function DemoPage({ params }: Props) {
           <span className="flex items-center gap-2">
             Private demo for {name}. Live for <DemoCountdown expiresAt={session.expiresAt.toISOString()} />
           </span>
-          <span className="rounded-full bg-[#87d68d] px-3 py-1 text-[13.2px] font-bold text-[#172a3a]">
-            Book this week: {demoSetupCredit(session).percentOfSetupFee}% off your setup fee
-          </span>
+          {offerEnds ? (
+            <span className="inline-flex flex-wrap items-center gap-x-2 rounded-full bg-[#87d68d] px-3 py-1 text-[13.2px] font-bold text-[#172a3a]">
+              {demoSetupCredit(session).percentOfSetupFee}% off your setup fee, ends in{" "}
+              <RefreshingOfferCountdown endsAt={offerEnds.toISOString()} />
+            </span>
+          ) : null}
           <CopyDemoLink />
         </div>
       )}

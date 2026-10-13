@@ -53,6 +53,10 @@ function forwardingFacts(payload: PlanChangedPayload): ForwardingFacts | null {
 
 export const renderPlanChanged: EmailTemplate<PlanChangedPayload> = (payload, ctx) => {
   const plan = planByName(payload.planName);
+  // A plan's full name says its steps and can run past a subject's 70
+  // characters ("AYA Voice + Meta Chat, 1,500 minutes and 1,500
+  // conversations"), so the subject names the package and the body the rest.
+  const packageName = plan?.packageName ?? payload.planName;
   // The allowlist reads billedPlanId as an opaque id, not a catalog plan id,
   // so an unknown one only leaves its sentence out rather than failing the email.
   const billed = payload.billedPlanId ? (getPlan(payload.billedPlanId) ?? null) : null;
@@ -135,7 +139,7 @@ export const renderPlanChanged: EmailTemplate<PlanChangedPayload> = (payload, ct
 
   return compose(
     {
-      subject: `Your healdesk plan is now ${payload.planName}`,
+      subject: `Your healdesk plan is now ${packageName}`,
       preheader: payload.isBeforeStart
         ? `It starts the day AYA first answers a ${person(ctx)}.`
         : `${payload.planName}, billed ${billing}.`,
@@ -148,14 +152,14 @@ export const renderPlanChanged: EmailTemplate<PlanChangedPayload> = (payload, ct
 export const PLAN_CHANGED_ENTRY: TemplateEntry<PlanChangedPayload> = {
   render: renderPlanChanged,
   fixture: {
-    planName: "AYA Web Chat + Voice",
+    planName: "AYA Voice + Web Chat, 500 minutes and 300 conversations",
     interval: "month",
     locations: 1,
-    setupFeeDeltaCents: 50_000,
+    setupFeeDeltaCents: 69_700,
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
     hasDroppedChannels: false,
     isBeforeStart: false,
-    billedPlanId: "chat-web",
+    billedPlanId: "webchat-300",
     isProrated: false,
   },
 };

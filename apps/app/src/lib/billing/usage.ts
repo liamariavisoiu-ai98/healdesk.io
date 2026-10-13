@@ -3,6 +3,7 @@ import {
   overageBlockCents,
   overageChargeCents,
   OVERAGE_RATES_PROVISIONAL,
+  USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
 import { and, eq, sql } from "drizzle-orm";
 
@@ -57,7 +58,12 @@ export const USAGE_SOURCE_METER: Readonly<Record<UsageSource, UsageMeter>> = {
 /** An identifierRef() (lib/identifier-ref.ts): the only shape a usage reference may take. */
 const IDENTIFIER_REF = /^v1:[0-9a-f]{64}$/;
 
-export type UsageCrossing = 80 | 100;
+/**
+ * The marks an event can cross: the alert at USAGE_ALERT_PERCENT of the
+ * allowance (90% since the pricing sheet of 13 October 2026; it was 80%) and
+ * the allowance itself.
+ */
+export type UsageCrossing = typeof USAGE_ALERT_PERCENT | 100;
 
 export type RecordUsageInput = {
   /** The clinic that answered: a location or a billing clinic. */
@@ -96,7 +102,7 @@ export type RecordUsageResult =
       usedAfter: number;
       /** Units of this event past the allowance: what overage bills. */
       overAllowance: number;
-      /** The 80% and 100% marks this event crossed. */
+      /** The alert (USAGE_ALERT_PERCENT) and 100% marks this event crossed. */
       crossed: UsageCrossing[];
     }
   | { recorded: false; reason: "no_entitlements" | "duplicate" | "zero_quantity" };
@@ -170,7 +176,7 @@ export function overageBlockCentsFor(
  * times the block price (catalog `overageChargeCents`), the sum Stripe's
  * metered price and the annual overage invoice both make. Units times the
  * per-unit rate would show a clinic less than it will be charged for every
- * part block: 250 minutes over are three blocks, $240, not $200. 0 when the
+ * part block: 250 minutes over are three blocks, $312, not $260. 0 when the
  * package does not sell the meter.
  */
 export function overageChargeCentsFor(
@@ -217,7 +223,7 @@ function overDelta(before: number, quantity: number, included: number): number {
 
 function crossings(before: number, after: number, included: number): UsageCrossing[] {
   if (included <= 0) return [];
-  return ([80, 100] as const).filter(
+  return ([USAGE_ALERT_PERCENT, 100] as const).filter(
     (mark) => before * 100 < mark * included && after * 100 >= mark * included,
   );
 }
@@ -239,7 +245,7 @@ type Counted = Extract<RecordUsageResult, { recorded: true }> & { fallbackQueued
  *      sold, and otherwise only the part of this event beyond it;
  *   6. insert the row ON CONFLICT DO NOTHING, and move the counter only when
  *      the row went in and a window is open;
- *   7. return the 80% and 100% crossings, and queue `allowance_fallback` the
+ *   7. return the alert and 100% crossings, and queue `allowance_fallback` the
  *      moment the hard cap's 100% is reached.
  *
  * While OVERAGE_RATES_PROVISIONAL is true the units past the allowance are

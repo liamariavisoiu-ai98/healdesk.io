@@ -92,7 +92,7 @@ function validRequest(overrides: Partial<ProvisionRequest> = {}): ProvisionReque
     platform: "none",
     attributionMode: "estimated",
     averageTreatmentValueUsd: 550,
-    plan: "web-voice",
+    plan: "voice-webchat-1000-1000",
     contactName: "Alex Chen",
     contactEmail: "alex@radiance.test",
     // A real uuid: validation only checks the shape, and the database check
@@ -236,6 +236,11 @@ describe("provision request validation", () => {
     expect(() =>
       validateProvisionRequest(validRequest({ plan: "enterprise" })),
     ).toThrow(/plan/i);
+    // A plan is a package at steps on the grid (owner, 13 October 2026): a
+    // step off it, and the seven packages of 5 October, are not plans.
+    for (const plan of ["voice-550", "voice-1600", "webchat-300-300", "web-voice", "complete"]) {
+      expect(() => validateProvisionRequest(validRequest({ plan })), plan).toThrow(/plan/i);
+    }
     // "radiology" rather than a plausible ICP: this fixture previously used
     // "veterinary", which was later added as a real specialty and turned a
     // rejection test into one that asserted nothing. Pick something the
@@ -401,7 +406,7 @@ describeDb("provisioning", () => {
     // software (plan C15). A 1.2.x signature naming no platform left it null.
     expect(clinic.booking_provider).toBe("none");
     expect(clinic.average_treatment_value_usd).toBe("550.00");
-    expect(clinic.plan).toBe("web-voice");
+    expect(clinic.plan).toBe("voice-webchat-1000-1000");
 
     // Always synthetic at creation, whatever the buyer ticked. Moving to
     // production requires a signed BAA and is a separate, deliberate act.
@@ -609,7 +614,7 @@ describeDb("provisioning", () => {
         clinicName: "Entitled Clinic",
         contactEmail: "ent@example.test",
         agreementId: await signFor("Entitled Clinic", "ent@example.test"),
-        plan: "meta-voice",
+        plan: "voice-metachat-1000-1500",
         billingInterval: "year",
         stripeCustomerId: "cus_provisioned",
         stripeSubscriptionId: "sub_provisioned",
@@ -619,14 +624,15 @@ describeDb("provisioning", () => {
     const row = await readEntitlements(result.clinicId);
     // A subscription to wait on: the first invoice.paid activates it.
     expect(row.status).toBe("provisioning");
-    expect(row.plan_code).toBe("meta-voice");
+    expect(row.plan_code).toBe("voice-metachat-1000-1500");
     expect(row.billing_interval).toBe("year");
     expect(row.stripe_customer_id).toBe("cus_provisioned");
     expect(row.stripe_subscription_id).toBe("sub_provisioned");
+    // The steps bought, not a package's fixed allowance.
     expect(row.included_voice_minutes).toBe(1_000);
-    expect(row.included_chat_conversations).toBe(1_000);
-    // Meta + Voice: the package id alone says which chat channel.
-    expect(row.channels_enabled).toEqual({ web: false, meta: true, voice: true });
+    expect(row.included_chat_conversations).toBe(1_500);
+    // Voice + Meta Chat: Meta Chat includes website chat.
+    expect(row.channels_enabled).toEqual({ web: true, meta: true, voice: true });
     // Nothing paid yet; the first invoice sets this.
     expect(row.setup_fee_paid_usd).toBe("0.00");
   });
@@ -637,19 +643,19 @@ describeDb("provisioning", () => {
         clinicName: "Dev Path Clinic",
         contactEmail: "dev@example.test",
         agreementId: await signFor("Dev Path Clinic", "dev@example.test"),
-        plan: "chat-web",
+        plan: "webchat-300",
       }),
     );
 
     const row = await readEntitlements(result.clinicId);
     // Nothing will ever arrive to activate it, so it starts there.
     expect(row.status).toBe("active");
-    expect(row.plan_code).toBe("chat-web");
+    expect(row.plan_code).toBe("webchat-300");
     expect(row.billing_interval).toBe("month");
     expect(row.stripe_customer_id).toBeNull();
     expect(row.stripe_subscription_id).toBeNull();
     expect(row.included_voice_minutes).toBe(0);
-    expect(row.included_chat_conversations).toBe(1_000);
+    expect(row.included_chat_conversations).toBe(300);
     expect(row.channels_enabled).toEqual({ web: true, meta: false, voice: false });
   });
 
@@ -678,7 +684,7 @@ describeDb("provisioning", () => {
         clinicName: "Demo Practice",
         contactEmail: "demo-ops@example.test",
         agreementId: await signFor("Demo Practice", "demo-ops@example.test"),
-        plan: "complete",
+        plan: "voice-metachat-1000-1000",
       }),
       {},
       { demo: true },

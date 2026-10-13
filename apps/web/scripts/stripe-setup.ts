@@ -1,36 +1,70 @@
 /**
- * Create the Stripe products, prices and meters for the package catalog.
+ * Create the Stripe products, prices, coupons and meters for the catalog.
  *
  * Run once per Stripe environment (test, then live), and again after any
  * catalog change:
  *
  *   STRIPE_SECRET_KEY=sk_test_... npx tsx apps/web/scripts/stripe-setup.ts
- *   npx tsx apps/web/scripts/stripe-setup.ts --dry-run    # no key, no calls
+ *   npx tsx apps/web/scripts/stripe-setup.ts --dry-run          # no key, no calls
+ *   npx tsx apps/web/scripts/stripe-setup.ts --dry-run --full   # every price and coupon
  *
  * ## Why a script rather than the Dashboard
  *
  * The prices exist in two places — packages/catalog/src/plans.ts and Stripe —
- * and a clinic that is shown $397 and charged $897 is the kind of mistake that
- * ends a company. Creating them from the catalog means the two cannot disagree
- * at creation time, and re-running the script reports any drift that appeared
- * afterwards. It never edits an amount: prices in Stripe are immutable, and a
- * script that "fixed" a mismatch by creating a replacement would hide exactly
- * the disagreement a human needs to look at.
+ * and a clinic that is shown $400 and charged $1,200 is the kind of mistake
+ * that ends a company. Creating them from the catalog means the two cannot
+ * disagree at creation time, and re-running the script reports any drift that
+ * appeared afterwards. It never edits an amount: prices in Stripe are
+ * immutable, and a script that "fixed" a mismatch by creating a replacement
+ * would hide exactly the disagreement a human needs to look at.
  *
- * ## What one package is in Stripe
+ * ## What one package is in Stripe (the step pricing of 13 October 2026)
  *
- * One Product, keyed by `metadata.healdesk_plan_id`, carrying three Prices:
+ * A clinic picks a package (voice, webchat, metachat, voice + webchat, voice +
+ * metachat) and a step of 100 to 1,500 for each thing it uses. Every package
+ * is one Product, keyed by `metadata.healdesk_package_id`, carrying:
  *
- *   - `month`  recurring, monthly, at `monthlyUsd`
- *   - `year`   recurring, yearly, at `annualTotalUsd()` (12 × the quoted
- *              per-month annual figure, so the site and the invoice agree)
- *   - `setup`  ONE-TIME, at `setupFeeUsd`. Never recurring. Checkout adds it
- *              as a second line item on the first invoice. An upgrade OWES
- *              only `setupFeeDeltaUsd()`, but nothing invoices that yet —
- *              see the catalog's note on it — so it is collected by hand.
+ *   - `month`  one recurring monthly price per PLAN (package and steps), at
+ *              `monthlyUsd`: 15 for a single-product package, 225 for a
+ *              combined one;
+ *   - `year`   the same per plan, yearly, at `annualTotalUsd()` (12 × the
+ *              quoted per-month annual figure, 20% off, so the site and the
+ *              invoice agree);
+ *   - `setup`  ONE one-time price per package, at the package's setup fee.
+ *              Never recurring. Checkout adds it as a line item on the first
+ *              invoice. An upgrade OWES only `setupFeeDeltaUsd()`, but nothing
+ *              invoices that yet, so it is collected by hand.
+ *
+ * That is 990 recurring prices from `allPlans()`. The catalog header says why
+ * a price per plan and not a price per step: apps/app reads a subscription as
+ * one package price whose quantity is the number of locations. The nickname
+ * on each says its steps ("500 minutes + 300 conversations, monthly"), which
+ * is what the Dashboard lists; the lookup key is what the code reads.
+ *
+ * The 5 October packages were keyed by `metadata.healdesk_plan_id`, and one
+ * of their ids, "voice", is also a package id now. Keying the new products by
+ * a NEW metadata key is what keeps them apart: under the old key the new
+ * "voice" product would have found the old one, renamed it and re-described
+ * it, and every subscription still on the old $397 voice price would have
+ * started reading the new package's description on its invoices. The old
+ * products are left exactly as they are and listed as LEGACY, beside their
+ * prices, which are listed STALE (below).
  *
  * There is no trial. Provisioning builds a voice agent before the clinic sees
  * anything, and the setup fee is what pays for that — see the catalog header.
+ *
+ * ## The setup credits: one coupon per credit per package
+ *
+ * Three credits take a share of the setup fee off, and only one applies to a
+ * Session (lib/billing.ts decides which): the founding-cohort credit, the
+ * whole fee; the personalised demo's, 50%; the website's, 30%. Each is a
+ * Stripe coupon per package, `amount_off` the credit in whole dollars after
+ * the catalog's rounding (`setupCreditUsd`: a buyer pays the fee less the
+ * credit, rounded UP to the dollar), `duration: "once"` so it never touches a
+ * renewal. The coupon id carries the amount (`setupCouponId`) because a
+ * coupon's amount can never change: a new setup fee is a new coupon, never the
+ * old one silently applied. Stripe refuses a Session that names a coupon it
+ * does not have, so this runs before any offer is shown.
  *
  * ## Overage: two meters, one metered price per rate, billed in blocks of 100
  *
@@ -39,77 +73,103 @@
  * sums them per period, and a metered Price attached to the subscription turns
  * the sum into an invoice line. Each meter is keyed by its `event_name`, which
  * is what the app sends, and backs one price for every distinct overage rate
- * the catalog uses on that channel: three prices on two meters, voice at $80,
- * chat at $40 (the single-channel chat package) and chat at $30 (the rest). A
- * subscription carries only its own package's price, so one event stream
- * bills each clinic at its own rate.
+ * the catalog uses: three prices on two meters, $104 a block of voice
+ * minutes, $52 a block of Web Chat conversations and $78 a block of Meta Chat
+ * conversations (owner, 13 October 2026). A subscription carries only its own
+ * package's price, so one event stream bills each clinic at its own rate.
  *
- * Since 6 October 2026 overage is billed per STARTED block of 100 units (the
- * owner's decision; docs/v1-product-spec.md, "Overage prices"), so each price
- * is package-priced: `billing_scheme: per_unit` at the price of one block,
- * with `transform_quantity` dividing the period's total by 100 and rounding
- * up. 1 to 100 minutes over is one block, 101 is two. Stripe applies the
- * transform to a metered total at the end of the period, and only to a
- * per_unit price, never a tiered one. The app still sends single units and
- * never has to know the block.
+ * Overage is billed per STARTED block of 100 units (6 October 2026; kept by
+ * the sheet of 13 October), so each price is package-priced: `billing_scheme:
+ * per_unit` at the price of one block, with `transform_quantity` dividing the
+ * period's total by 100 and rounding up. 1 to 100 minutes over is one block,
+ * 101 is two. Stripe applies the transform to a metered total at the end of
+ * the period, and only to a per_unit price, never a tiered one. The app still
+ * sends single units and never has to know the block.
  *
  * Each metered price's lookup_key encodes the block size and the block price,
- * from `meteredPriceLookupKey()` (`healdesk_meter_chat_conversations_block100_3000`),
+ * from `meteredPriceLookupKey()` (`healdesk_meter_chat_conversations_block100_7800`),
  * for the same reason a package key encodes its amount: a rate or block change
- * creates a new price instead of silently resolving to the old one. The
- * prices are created here unconditionally; whether Checkout ATTACHES them is
- * decided in apps/web/src/lib/billing.ts, and it does not while the rates are
- * provisional.
+ * creates a new price instead of silently resolving to the old one. Checkout
+ * attaches none of them (lib/billing.ts); apps/app adds the package's own at
+ * the plan start.
  *
  * The per-unit metered prices of 5 October (`healdesk_meter_voice_minutes_80`)
  * are ARCHIVED here, once their meter's block prices are in place: the one
  * exception to "nothing is archived" below, because their migration is
- * automatic. Archiving only stops a price being sold. Stripe goes on billing a
- * subscription item already on one until apps/app's metered-item reconcile
- * (lib/billing/metered-items.ts, which the usage reporter runs before it
- * sends any usage) swaps the item onto the block price, and leaving them
+ * automatic. apps/app's metered-item reconcile (lib/billing/metered-items.ts)
+ * swaps a subscription's item onto its plan's block price, and leaving them
  * active would let a stale checkout keep selling per-unit overage.
+ *
+ * The block prices of 6 October ($80, $40, $30 a block) are NOT archived, by
+ * the same test failed: nothing migrates them. They bill subscriptions on the
+ * seven packages of 5 October, whose ids have left the catalog, and the
+ * reconcile leaves a subscription on a plan it cannot find alone rather than
+ * strip it. Archiving them would stop nothing (Stripe goes on billing an item
+ * already on an archived price, and no code adds them any more) and would
+ * remove the one signal that someone is still billed on them. They are listed
+ * STALE like the old package prices, for a human to archive once no
+ * subscription carries them.
  *
  * ## Idempotent by lookup_key, not by name
  *
  * Every price carries a `lookup_key` from `stripeLookupKey()`, which encodes
- * the plan id, the kind and the amount (`healdesk_web-voice_month_89700`).
- * Re-running finds the existing price by that key, checks that it still says
- * what the catalog says, and leaves it alone. A catalog price CHANGE produces a
- * new key, so it is a new price; the previous one stays active for the
- * subscriptions already on it and is reported here as STALE so a human can
- * archive it once nobody is billing on it.
+ * the plan (or, for setup, the package), the kind and the amount
+ * (`healdesk_voice-webchat-500-300_month_52000`). Re-running finds the
+ * existing price by that key, checks that it still says what the catalog
+ * says, and leaves it alone. A catalog price CHANGE produces a new key, so it
+ * is a new price; the previous one stays active for the subscriptions already
+ * on it and is reported here as STALE so a human can archive it once nobody is
+ * billing on it.
  *
  * Nothing else here is destructive: nothing is deleted, nothing but those
- * per-unit metered prices is archived, and no amount is ever updated. Beyond
- * create, a product's name and description are brought in line with the
- * catalog (see findOrCreateProduct), and `transfer_lookup_key` is used only
- * when the key is held by an INACTIVE price — Stripe keeps lookup keys unique
- * across prices, so without the transfer an archived price would block its
- * own replacement.
+ * per-unit metered prices is archived, no product is deactivated, and no
+ * amount is ever updated. Beyond create, a product's name and description and
+ * a coupon's name are brought in line with the catalog (see
+ * findOrCreateProduct), and `transfer_lookup_key` is used only when the key is
+ * held by an INACTIVE price — Stripe keeps lookup keys unique across prices,
+ * so without the transfer an archived price would block its own replacement.
+ *
+ * ## A thousand prices, safely
+ *
+ * Every price on the account is listed ONCE, active and archived together,
+ * with auto-pagination, and the run then creates only what is missing. The
+ * creates go out a few at a time (CONCURRENCY) and no faster than
+ * REQUESTS_PER_SECOND, well under Stripe's limit of 25 requests a second in
+ * test mode and 100 in live; a 429 is retried with backoff (withRateLimitRetry)
+ * and network errors, conflicts and 5xx by the SDK itself. Each create carries
+ * an idempotency key naming this run and the lookup key, so a retried request
+ * returns the price it already made. A run that dies part-way leaves whatever
+ * it made, and the next run picks up from there.
  */
 
+import { randomUUID } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import {
+  allPlans,
   annualTotalUsd,
-  channelList,
   COHORT_SETUP_CREDIT,
-  DEMO_SETUP_CREDITS,
-  demoSetupCreditUsd,
+  DEMO_SETUP_CREDIT,
+  SELF_SERVE_DEMO_SETUP_CREDIT,
   METERS,
   type MeterId,
   OVERAGE_BLOCK_UNITS,
-  OVERAGE_RATES_PROVISIONAL,
-  overageRateCents,
+  type Package,
+  type PackageId,
+  PACKAGES,
+  packageSetupFeeUsd,
   planMeteredPrices,
-  plans,
-  stripeLookupKey,
   type Plan,
-  type PriceKind,
   PLAN_START_PLACEHOLDER_LOOKUP_KEY,
   PLAN_START_PLACEHOLDER_NAME,
+  type PriceKind,
+  PRODUCTS,
+  type SetupCredit,
+  setupCouponId,
+  setupCreditUsd,
+  SITE_SETUP_CREDIT,
+  stripeLookupKey,
 } from "@healdesk/catalog";
 import Stripe from "stripe";
 
@@ -129,12 +189,23 @@ const STATEMENT_DESCRIPTOR = "HEALDESK";
  * Metadata keys. Products are keyed by metadata rather than by name so that
  * renaming a package in the catalog does not orphan its Stripe product, and so
  * scalabid's products in the same account are never mistaken for ours.
+ * `healdesk_plan_id` keyed the products of the 5 October packages; it is read
+ * here only to list them as LEGACY (see the header).
  */
-const PLAN_META = "healdesk_plan_id";
+export const PACKAGE_META = "healdesk_package_id";
+export const LEGACY_PLAN_META = "healdesk_plan_id";
 const METER_META = "healdesk_meter";
 
 /** Every key this script writes starts with this; used to spot stale prices. */
 const KEY_PREFIX = "healdesk_";
+
+/**
+ * How many creates are in flight at once, and how many requests start in any
+ * second. Stripe allows 25 a second in test mode and 100 in live; ten leaves
+ * room for anything else using the same key at the same time.
+ */
+export const CONCURRENCY = 4;
+export const REQUESTS_PER_SECOND = 10;
 
 // ---------------------------------------------------------------------------
 // The desired state, computed from the catalog with no Stripe involved.
@@ -145,19 +216,45 @@ const KEY_PREFIX = "healdesk_";
 // thing.
 // ---------------------------------------------------------------------------
 
-type DesiredPrice = {
+export type DesiredPrice = {
   lookupKey: string;
   /** Hidden from customers; what the Dashboard shows in the price list. */
   nickname: string;
   amountCents: number;
   kind: PriceKind;
+  /** The plan a recurring price bills; null for the package's setup fee. */
+  planId: string | null;
 };
 
-type DesiredPackage = {
-  plan: Plan;
+/**
+ * The setup offers, as the Session's `offer` metadata names them
+ * (lib/billing.ts `SetupOffer`), with the catalog credit each one is.
+ */
+export const SETUP_COUPON_OFFERS = [
+  { offer: "cohort-setup", credit: COHORT_SETUP_CREDIT },
+  { offer: "demo-setup-50", credit: DEMO_SETUP_CREDIT },
+  { offer: "demo-setup-30", credit: SELF_SERVE_DEMO_SETUP_CREDIT },
+  { offer: "site-setup-30", credit: SITE_SETUP_CREDIT },
+] as const satisfies readonly { offer: string; credit: SetupCredit }[];
+
+export type DesiredCoupon = {
+  /** `setupCouponId(credit, package)`: the prefix, the package and the amount. */
+  id: string;
+  /** Stripe prints it on Checkout and the invoice. At most 40 characters. */
+  name: string;
+  offer: (typeof SETUP_COUPON_OFFERS)[number]["offer"];
+  percentOfSetupFee: number;
+  amountOffCents: number;
+};
+
+export type DesiredPackage = {
+  pkg: Package;
   productName: string;
   description: string;
+  setupFeeUsd: number;
+  /** The setup price first, then every plan's month and year prices, smallest step first. */
   prices: readonly DesiredPrice[];
+  coupons: readonly DesiredCoupon[];
 };
 
 export type DesiredMeteredPrice = {
@@ -170,7 +267,7 @@ export type DesiredMeteredPrice = {
    */
   blockCents: number;
   /** The packages billed at this rate, for the nickname and the report. */
-  planIds: readonly string[];
+  packageIds: readonly PackageId[];
 };
 
 export type DesiredMeter = {
@@ -201,7 +298,7 @@ export type Desired = {
  * How every metered price turns a period's units into blocks: divide by the
  * block size and round UP, so any part of a block is a whole one (catalog
  * OVERAGE_BLOCK_UNITS). Without it the block price would bill every single
- * unit, $80 a minute; with another divisor or rounding it would bill a
+ * unit, $104 a minute; with another divisor or rounding it would bill a
  * different block. The amount and the key cannot show either, so the drift
  * check compares it field by field.
  */
@@ -214,106 +311,105 @@ function usd(cents: number): string {
   })}`;
 }
 
-function plural(n: number, noun: string): string {
-  return `${n.toLocaleString("en-US")} ${noun}${n === 1 ? "" : "s"}`;
-}
-
-/** "$80 per started block of 100 minutes": what one metered price charges. */
+/** "$104 per started block of 100 minutes": what one metered price charges. */
 function blockLabel(blockCents: number, unitLabel: string): string {
   return `${usd(blockCents)} per started block of ${OVERAGE_BLOCK_UNITS} ${unitLabel}s`;
 }
 
+/** What each product answers, in a buyer's words, for the product description. */
+const ANSWERS: Record<keyof typeof PRODUCTS, string> = {
+  voice: "phone calls",
+  webchat: "website chat",
+  metachat: "Instagram, Messenger, WhatsApp and website chat",
+};
+
 /**
- * The Product description a buyer sees on Checkout and the invoice. Built from
- * the same fields the pricing page renders so the two cannot describe
- * different packages.
+ * The Product description a buyer sees on Checkout (beside the setup fee,
+ * which is a price on this product) and on the invoice. It describes the
+ * PACKAGE, because one product carries every step: the step a clinic bought
+ * is the price, and the steps on offer are what the description can say.
+ * AYA's product names, never "chatbot" or "AI voice agent" (owner,
+ * 7 October 2026).
  */
-export function describePackage(plan: Plan): string {
-  const channels = channelList(plan);
-  const hasChat = channels.includes("web") || channels.includes("meta");
-
-  const channelText = [
-    plan.channels.web ? "Web chat" : null,
-    plan.channels.meta ? "Meta chat (Instagram, Messenger, WhatsApp)" : null,
-    plan.channels.voice ? "AI voice agent" : null,
-  ]
-    .filter((s): s is string => s !== null)
-    .join(" + ");
-
-  const allowances = [
-    plan.channels.voice
-      ? `${plural(plan.includedVoiceMinutes, "voice minute")}/mo`
-      : null,
-    hasChat
-      ? `${plural(plan.includedChatConversations, "chat conversation")}/mo`
-      : null,
-  ].filter((s): s is string => s !== null);
+export function describePackage(pkg: Package): string {
+  const products = [pkg.voice ? PRODUCTS.voice : null, pkg.chat ? PRODUCTS[pkg.chat] : null].filter(
+    (p): p is (typeof PRODUCTS)[keyof typeof PRODUCTS] => p !== null,
+  );
+  const what = products.map((p) => `${p.name} (${ANSWERS[p.id]})`).join(" + ");
+  const counted = products.map((p) => (p.unit === "minute" ? "voice minutes" : "chat conversations"));
+  const steps = counted.map((c) => `100 to 1,500 ${c}`).join(" and ");
 
   // Meta bills the clinic directly for WhatsApp messages, including service
   // replies inside the 24-hour window from 1 October 2026, and healdesk does
   // not resell them (docs/v1-product-spec.md, "Pricing consequences"). Said on
   // the product itself so the invoice line cannot read as covering them.
-  const whatsapp = plan.channels.meta
-    ? " WhatsApp message charges are billed to the clinic by Meta directly."
-    : "";
-
-  // Overage is billed per started block (6 October 2026), and the invoice
-  // shows a block price, so the product says what a block is for each meter
-  // the package bills.
-  const blocks = [
-    plan.channels.voice ? `${OVERAGE_BLOCK_UNITS} voice minutes` : null,
-    hasChat ? `${OVERAGE_BLOCK_UNITS} chat conversations` : null,
-  ].filter((s): s is string => s !== null);
+  const whatsapp = pkg.chat === "metachat" ? " WhatsApp message charges are billed to the clinic by Meta directly." : "";
 
   return (
-    `${channelText}. ` +
-    `Includes ${allowances.join(" and ")}, ${plural(plan.locations, "location")}. ` +
-    `One-time setup fee ${usd(plan.setupFeeUsd * 100)}; ` +
-    `usage over the allowance billed per started block of ${blocks.join(" or ")} ` +
-    `at the published overage rates.` +
+    `${what}. ` +
+    `Priced by the step chosen: ${steps} a month, in steps of 100, per location. ` +
+    `One-time setup fee ${usd(packageSetupFeeUsd(pkg) * 100)}; ` +
+    `usage over the included amount billed per started block of ` +
+    `${counted.map((c) => `${OVERAGE_BLOCK_UNITS} ${c}`).join(" or ")} at the published overage rates.` +
     whatsapp
   );
 }
 
-function desiredPrices(plan: Plan): DesiredPrice[] {
+/** "500 minutes + 300 conversations": a plan's steps, for a price's nickname. */
+export function stepsLabel(plan: Plan): string {
+  const parts: string[] = [];
+  if (plan.channels.voice) parts.push(`${plan.includedVoiceMinutes.toLocaleString("en-US")} minutes`);
+  if (plan.chatProduct) parts.push(`${plan.includedChatConversations.toLocaleString("en-US")} conversations`);
+  return parts.join(" + ");
+}
+
+function desiredPlanPrices(plan: Plan): DesiredPrice[] {
   return [
     {
       kind: "month",
+      planId: plan.id,
       lookupKey: stripeLookupKey(plan, "month"),
-      nickname: `${plan.name} — monthly`,
+      nickname: `${stepsLabel(plan)}, monthly`,
       amountCents: plan.monthlyUsd * 100,
     },
     {
       kind: "year",
+      planId: plan.id,
       lookupKey: stripeLookupKey(plan, "year"),
-      nickname: `${plan.name} — annual (${usd(plan.annualMonthlyUsd * 100)}/mo × 12)`,
+      nickname: `${stepsLabel(plan)}, annual (${usd(plan.annualMonthlyUsd * 100)}/mo × 12)`,
       amountCents: annualTotalUsd(plan) * 100,
-    },
-    {
-      kind: "setup",
-      lookupKey: stripeLookupKey(plan, "setup"),
-      nickname: `${plan.name} — setup fee (one-time)`,
-      amountCents: plan.setupFeeUsd * 100,
     },
   ];
 }
 
+/** One coupon per setup credit for a package; see the header. */
+export function desiredCoupons(pkg: Package): DesiredCoupon[] {
+  const fee = { packageId: pkg.id, setupFeeUsd: packageSetupFeeUsd(pkg) };
+  return SETUP_COUPON_OFFERS.map(({ offer, credit }) => ({
+    id: setupCouponId(credit, fee),
+    name: credit.name,
+    offer,
+    percentOfSetupFee: credit.percentOfSetupFee,
+    amountOffCents: setupCreditUsd(fee, credit) * 100,
+  }));
+}
+
 /**
- * One metered price per distinct rate on the meter, from the packages that
- * bill it. `planMeteredPrices()` is the same function checkout uses to pick a
- * Session's metered prices, so a package can never be sold a key this script
- * did not create, and its block price is the one apps/app's annual overage
- * invoice charges. It throws on a zero or fractional-cent rate (through
- * `overageBlockCents()`), which fires here in a dry run too: a package that
- * sells a channel must also say what its overage costs.
+ * One metered price per distinct rate on the meter, from the plans that bill
+ * it. `planMeteredPrices()` is the same function apps/app uses to pick a
+ * subscription's metered prices, so a plan can never be sold a key this
+ * script did not create, and its block price is the one apps/app's annual
+ * overage invoice charges. It throws on a zero or fractional-cent rate
+ * (through `overageBlockCents()`), which fires here in a dry run too: a
+ * package that sells a channel must also say what its overage costs.
  */
-function desiredMeteredPrices(meter: MeterId): DesiredMeteredPrice[] {
-  const byKey = new Map<string, { blockCents: number; planIds: string[] }>();
+function desiredMeteredPrices(meter: MeterId, plans: readonly Plan[]): DesiredMeteredPrice[] {
+  const byKey = new Map<string, { blockCents: number; packageIds: PackageId[] }>();
   for (const plan of plans) {
     for (const price of planMeteredPrices(plan)) {
       if (price.meter !== meter) continue;
-      const entry = byKey.get(price.lookupKey) ?? { blockCents: price.blockCents, planIds: [] };
-      entry.planIds.push(plan.id);
+      const entry = byKey.get(price.lookupKey) ?? { blockCents: price.blockCents, packageIds: [] };
+      if (!entry.packageIds.includes(plan.packageId)) entry.packageIds.push(plan.packageId);
       byKey.set(price.lookupKey, entry);
     }
   }
@@ -323,26 +419,43 @@ function desiredMeteredPrices(meter: MeterId): DesiredMeteredPrice[] {
 }
 
 export function computeDesired(): Desired {
+  const plans = allPlans();
   return {
-    packages: plans.map((plan) => ({
-      plan,
-      productName: plan.name,
-      description: describePackage(plan),
-      prices: desiredPrices(plan),
-    })),
+    packages: PACKAGES.map((pkg) => {
+      const own = plans.filter((plan) => plan.packageId === pkg.id);
+      const setupFeeUsd = packageSetupFeeUsd(pkg);
+      return {
+        pkg,
+        productName: pkg.name,
+        description: describePackage(pkg),
+        setupFeeUsd,
+        prices: [
+          {
+            kind: "setup" as const,
+            planId: null,
+            // Any of the package's plans gives the same key: setup is per package.
+            lookupKey: stripeLookupKey(own[0]!, "setup"),
+            nickname: `${pkg.name}: setup fee (one-time)`,
+            amountCents: setupFeeUsd * 100,
+          },
+          ...own.flatMap(desiredPlanPrices),
+        ],
+        coupons: desiredCoupons(pkg),
+      };
+    }),
     meters: (Object.keys(METERS) as MeterId[]).map((id) => ({
       meterId: id,
       eventName: METERS[id].eventName,
       displayName: METERS[id].displayName,
       // The product names the invoice line, which shows a block price, so the
-      // name says what a block is: "$80 × 2" reads as two blocks, not two minutes.
+      // name says what a block is: "$104 × 2" reads as two blocks, not two minutes.
       productName: `${METERS[id].displayName}, per started block of ${OVERAGE_BLOCK_UNITS}`,
       productDescription:
         `Billed per started block of ${OVERAGE_BLOCK_UNITS} ${METERS[id].unitLabel}s beyond ` +
         `the package allowance, monthly in arrears: 1 to ${OVERAGE_BLOCK_UNITS} extra ` +
         `${METERS[id].unitLabel}s is one block, ${OVERAGE_BLOCK_UNITS + 1} is two.`,
       unitLabel: METERS[id].unitLabel,
-      prices: desiredMeteredPrices(id),
+      prices: desiredMeteredPrices(id, plans),
     })),
     placeholder: {
       lookupKey: PLAN_START_PLACEHOLDER_LOOKUP_KEY,
@@ -350,6 +463,15 @@ export function computeDesired(): Desired {
       description: "No charge. Your package's price replaces this line the day AYA first answers.",
     },
   };
+}
+
+/** Every lookup key the catalog asks for. */
+export function wantedLookupKeys(desired: Desired): Set<string> {
+  return new Set<string>([
+    ...desired.packages.flatMap((p) => p.prices.map((x) => x.lookupKey)),
+    ...desired.meters.flatMap((m) => m.prices.map((x) => x.lookupKey)),
+    desired.placeholder.lookupKey,
+  ]);
 }
 
 /**
@@ -375,8 +497,35 @@ export function meteredPriceParams(
     recurring: { interval: "month", usage_type: "metered", meter: ids.meterId },
     lookup_key: rate.lookupKey,
     transfer_lookup_key: ids.transferLookupKey,
-    nickname: `${meter.displayName} — ${blockLabel(rate.blockCents, meter.unitLabel)} (${rate.planIds.join(", ")})`,
+    nickname: `${meter.displayName} — ${blockLabel(rate.blockCents, meter.unitLabel)} (${rate.packageIds.join(", ")})`,
     metadata: { [METER_META]: meter.eventName },
+  };
+}
+
+/** The parameters that create one package price: recurring and licensed, or the one-time setup fee. */
+export function packagePriceParams(
+  pkg: Package,
+  want: DesiredPrice,
+  ids: { productId: string; transferLookupKey: boolean },
+): Stripe.PriceCreateParams {
+  return {
+    product: ids.productId,
+    currency: "usd",
+    unit_amount: want.amountCents,
+    lookup_key: want.lookupKey,
+    transfer_lookup_key: ids.transferLookupKey,
+    nickname: want.nickname,
+    // The setup fee is deliberately NOT recurring: `recurring` absent makes
+    // Stripe create a one_time price, which Checkout can only add as a
+    // one-off line item — so a setup fee cannot be re-billed by accident.
+    ...(want.kind === "setup" ? {} : { recurring: { interval: want.kind, usage_type: "licensed" as const } }),
+    metadata: {
+      [PACKAGE_META]: pkg.id,
+      // The plan a price bills. On a PRICE this key has always meant the plan;
+      // only on a product does it mark the 5 October packages.
+      ...(want.planId ? { [LEGACY_PLAN_META]: want.planId } : {}),
+      healdesk_price_kind: want.kind,
+    },
   };
 }
 
@@ -392,25 +541,169 @@ export function isLegacyMeteredKey(key: string, meter?: MeterId): boolean {
 }
 
 /**
- * The per-unit keys the 5 October catalog created for a meter, one per rate:
- * what a dry run, which reads nothing from Stripe, says the live run will
- * archive. The live run archives every active per-unit key it finds, these or
- * any older rate's.
+ * The per-unit keys the 5 October catalog created, one per rate ($0.80 a
+ * voice minute; $0.40 and $0.30 a chat conversation): what a dry run, which
+ * reads nothing from Stripe, says the live run will archive. Written out
+ * because the catalog that computed them is gone; the live run archives every
+ * active per-unit key it finds, these or any older rate's.
  */
-export function catalogLegacyMeteredKeys(meter: MeterId): string[] {
-  const keys = new Set<string>();
-  for (const plan of plans) {
-    for (const price of planMeteredPrices(plan)) {
-      if (price.meter !== meter) continue;
-      keys.add(`${METERS[meter].lookupKeyPrefix}_${overageRateCents(price.rateUsd)}`);
-    }
-  }
-  return [...keys].sort();
+const PER_UNIT_KEYS_OF_5_OCTOBER: Record<MeterId, readonly string[]> = {
+  voiceMinutes: ["healdesk_meter_voice_minutes_80"],
+  chatConversations: ["healdesk_meter_chat_conversations_30", "healdesk_meter_chat_conversations_40"],
+};
+
+export function legacyPerUnitKeys(meter: MeterId): string[] {
+  return [...PER_UNIT_KEYS_OF_5_OCTOBER[meter]];
+}
+
+/**
+ * What the step pricing of 13 October left behind, for the dry run's account
+ * of what the live run will list STALE: the seven packages of 5 October and
+ * the block prices of 6 October. Only a description; the live run reports
+ * whatever active key the catalog no longer names, these or any other.
+ */
+export const SUPERSEDED_13_OCTOBER = {
+  packageIds: ["chat-web", "chat-meta", "voice", "chat-dual", "web-voice", "meta-voice", "complete"],
+  blockKeys: [
+    "healdesk_meter_voice_minutes_block100_8000",
+    "healdesk_meter_chat_conversations_block100_4000",
+    "healdesk_meter_chat_conversations_block100_3000",
+  ],
+} as const;
+
+/**
+ * Active prices with our prefix that the catalog no longer names: a previous
+ * catalog's package prices and block prices, still billing the subscriptions
+ * on them. Never touched, only surfaced, because archiving one under a live
+ * subscription is a manual decision with a migration attached. A per-unit
+ * metered price is left out: its meter's own section archived it or said why
+ * it kept it.
+ */
+export function staleLookupKeys(activeKeys: Iterable<string>, desired: Desired): string[] {
+  const wanted = wantedLookupKeys(desired);
+  return [...activeKeys]
+    .filter((k) => k.startsWith(KEY_PREFIX) && !wanted.has(k) && !isLegacyMeteredKey(k))
+    .sort();
+}
+
+/** Products of the 5 October packages: keyed by the old metadata key and not the new one. */
+export function legacyPackageProducts<P extends { metadata: Record<string, string> }>(products: readonly P[]): P[] {
+  return products.filter((p) => Boolean(p.metadata[LEGACY_PLAN_META]) && !p.metadata[PACKAGE_META]);
+}
+
+/** Coupons with one of our setup-credit prefixes that the catalog no longer names. */
+export function staleCouponIds(couponIds: Iterable<string>, desired: Desired): string[] {
+  const wanted = new Set(desired.packages.flatMap((p) => p.coupons.map((c) => c.id)));
+  // "healdesk-demo-setup" is the prefix every demo coupon has had: the 5
+  // October half, the homepage demo's 30% of the morning of 13 October (one
+  // per old package, no amount in the id), and today's two; matching on it
+  // finds every generation.
+  const prefixes = [COHORT_SETUP_CREDIT.couponId, "healdesk-demo-setup", SITE_SETUP_CREDIT.couponId];
+  return [...couponIds].filter((id) => prefixes.some((p) => id.startsWith(`${p}-`)) && !wanted.has(id)).sort();
 }
 
 // ---------------------------------------------------------------------------
-// Reporting. One line per object, one glyph per outcome, and a non-zero exit
-// when anything drifted so a deploy step that runs this cannot shrug it off.
+// Pacing. A thousand creates must not trip Stripe's rate limit, and a 429
+// that does arrive must cost a pause, not the run.
+// ---------------------------------------------------------------------------
+
+type Clock = { now: () => number; sleep: (ms: number) => Promise<void> };
+
+const realClock: Clock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+/**
+ * Starts at most `perSecond` requests a second, however many workers ask:
+ * each caller takes the next free slot, spaced 1000 / perSecond apart.
+ */
+export class Throttle {
+  private nextStart = 0;
+  private readonly gapMs: number;
+
+  constructor(
+    perSecond: number,
+    private readonly clock: Clock = realClock,
+  ) {
+    this.gapMs = 1000 / perSecond;
+  }
+
+  async slot(): Promise<void> {
+    const now = this.clock.now();
+    const at = Math.max(now, this.nextStart);
+    this.nextStart = at + this.gapMs;
+    if (at > now) await this.clock.sleep(at - now);
+  }
+}
+
+function isRateLimited(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const e = error as { statusCode?: unknown; type?: unknown };
+  return e.statusCode === 429 || e.type === "StripeRateLimitError";
+}
+
+/**
+ * Run one request, through the throttle, retrying a 429 with exponential
+ * backoff and jitter (1 s, 2 s, 4 s … capped at 16 s; six attempts). A 429 is
+ * refused before Stripe executes anything, so sending it again is safe, and
+ * the creates carry an idempotency key in any case. Anything else is thrown
+ * at once: the SDK has already retried what is safe to retry.
+ */
+export async function withRateLimitRetry<T>(
+  throttle: Throttle,
+  request: () => Promise<T>,
+  options: { attempts?: number; baseMs?: number; clock?: Clock } = {},
+): Promise<T> {
+  const attempts = options.attempts ?? 6;
+  const baseMs = options.baseMs ?? 1000;
+  const clock = options.clock ?? realClock;
+  for (let attempt = 1; ; attempt += 1) {
+    await throttle.slot();
+    try {
+      return await request();
+    } catch (error) {
+      if (!isRateLimited(error) || attempt >= attempts) throw error;
+      const wait = Math.min(baseMs * 2 ** (attempt - 1), 16_000) * (0.5 + Math.random() / 2);
+      await clock.sleep(wait);
+    }
+  }
+}
+
+/**
+ * `fn` over every item, at most `concurrency` at once, results in input
+ * order. The first failure stops new items from starting; those already
+ * running finish, and then it is thrown, so the report never claims a price
+ * that was not made.
+ */
+export async function mapLimited<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  let failure: { error: unknown } | null = null;
+  async function worker(): Promise<void> {
+    while (failure === null && next < items.length) {
+      const index = next++;
+      try {
+        results[index] = await fn(items[index]!);
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  if (failure) throw (failure as { error: unknown }).error;
+  return results;
+}
+
+// ---------------------------------------------------------------------------
+// Reporting. A line per product, coupon and meter price, a summary per
+// package for its prices (every one with --full), every drift always, and a
+// non-zero exit when anything drifted so a deploy step that runs this cannot
+// shrug it off.
 // ---------------------------------------------------------------------------
 
 type Tally = {
@@ -424,17 +717,19 @@ type Tally = {
 
 const tally: Tally = { created: 0, verified: 0, updated: 0, archived: 0, drift: 0, stale: 0 };
 
-function line(glyph: "✓" | "+" | "✗" | "~" | "-" | "·", text: string): void {
+type Glyph = "✓" | "+" | "✗" | "~" | "-" | "·";
+
+function line(glyph: Glyph, text: string): void {
   console.log(`  ${glyph} ${text}`);
 }
 
-function created(text: string): void {
+function created(text: string, print = true): void {
   tally.created += 1;
-  line("+", text);
+  if (print) line("+", text);
 }
-function verified(text: string): void {
+function verified(text: string, print = true): void {
   tally.verified += 1;
-  line("✓", text);
+  if (print) line("✓", text);
 }
 function drift(text: string): void {
   tally.drift += 1;
@@ -469,27 +764,36 @@ async function listActiveProducts(stripe: Stripe): Promise<Stripe.Product[]> {
   return out;
 }
 
-/** Every active price this script could have written, by lookup_key. */
-async function listOurActivePrices(
+/**
+ * Every price this script could have written, by lookup_key, active and
+ * archived, in one paginated pass: the active ones are what is verified, and
+ * an archived one is a holder its replacement must take the key from
+ * (`transfer_lookup_key`). Listing once is what keeps a run of a thousand
+ * prices to a dozen reads instead of a read per price.
+ */
+async function listOurPrices(
   stripe: Stripe,
-): Promise<Map<string, Stripe.Price>> {
-  const out = new Map<string, Stripe.Price>();
-  for await (const price of stripe.prices.list({ active: true, limit: 100 })) {
-    if (price.lookup_key?.startsWith(KEY_PREFIX)) out.set(price.lookup_key, price);
+): Promise<{ active: Map<string, Stripe.Price>; inactive: Map<string, Stripe.Price> }> {
+  const active = new Map<string, Stripe.Price>();
+  const inactive = new Map<string, Stripe.Price>();
+  for await (const price of stripe.prices.list({ limit: 100 })) {
+    if (!price.lookup_key?.startsWith(KEY_PREFIX)) continue;
+    (price.active ? active : inactive).set(price.lookup_key, price);
   }
-  return out;
+  return { active, inactive };
 }
 
 /**
  * Find a product by its metadata key, or create it. An existing product's
- * name and description ARE brought in line with the catalog: they carry the
- * allowances a buyer reads on Checkout and on the invoice, and a product
- * created before an allowance change would otherwise keep advertising the old
- * numbers while apps/app enforces the new ones. That is the one edit this
- * script makes, because it changes no amount: prices stay immutable here.
+ * name and description ARE brought in line with the catalog: they carry what
+ * a buyer reads on Checkout and on the invoice, and a product created before
+ * a catalog change would otherwise keep advertising the old terms while
+ * apps/app enforces the new ones. That is the one edit this script makes to a
+ * product, because it changes no amount: prices stay immutable here.
  */
 async function findOrCreateProduct(
   stripe: Stripe,
+  throttle: Throttle,
   products: Stripe.Product[],
   metaKey: string,
   metaValue: string,
@@ -501,39 +805,20 @@ async function findOrCreateProduct(
       verified(`product  ${found.name.padEnd(36)} ${found.id}`);
       return found;
     }
-    const updated = await stripe.products.update(found.id, {
-      name: params.name,
-      description: params.description,
-    });
+    const updated = await withRateLimitRetry(throttle, () =>
+      stripe.products.update(found.id, { name: params.name, description: params.description }),
+    );
     products[products.indexOf(found)] = updated;
     tally.updated += 1;
     line("~", `UPDATED: product  ${updated.name.padEnd(36)} ${updated.id}  (name or description now matches the catalog)`);
     return updated;
   }
-  const product = await stripe.products.create({
-    ...params,
-    metadata: { [metaKey]: metaValue },
-  });
+  const product = await withRateLimitRetry(throttle, () =>
+    stripe.products.create({ ...params, metadata: { [metaKey]: metaValue } }),
+  );
   products.push(product);
   created(`product  ${product.name.padEnd(36)} ${product.id}`);
   return product;
-}
-
-/**
- * Whether a price with this key exists at all, active or not. Lookup keys are
- * unique across prices, so an archived holder blocks a plain create; the
- * caller passes `transfer_lookup_key` in that case.
- */
-async function inactiveHolder(
-  stripe: Stripe,
-  lookupKey: string,
-): Promise<Stripe.Price | undefined> {
-  const found = await stripe.prices.list({
-    lookup_keys: [lookupKey],
-    active: false,
-    limit: 1,
-  });
-  return found.data[0];
 }
 
 /**
@@ -547,10 +832,7 @@ async function inactiveHolder(
  * fee that recurs, a monthly price that is yearly) is not encoded in the key
  * at all, so this is the only place it gets caught.
  */
-function packagePriceProblems(
-  price: Stripe.Price,
-  want: DesiredPrice,
-): string[] {
+export function packagePriceProblems(price: Stripe.Price, want: DesiredPrice): string[] {
   const problems: string[] = [];
   if (price.unit_amount !== want.amountCents) {
     problems.push(
@@ -583,7 +865,7 @@ function packagePriceProblems(
 /**
  * The same comparison for a block price. The block size is the field the key
  * cannot catch: the same key and amount without `transform_quantity` would
- * bill $80 for every single minute, and a different divisor or rounding a
+ * bill $104 for every single minute, and a different divisor or rounding a
  * different block, so a missing or different transform is drift.
  */
 export function meteredPriceProblems(
@@ -631,58 +913,138 @@ export function meteredPriceProblems(
   return problems;
 }
 
+/** The coupon comparison: amount, currency and duration cannot change in place, so any difference is drift. */
+export function couponProblems(coupon: Stripe.Coupon, want: DesiredCoupon): string[] {
+  const problems: string[] = [];
+  if (coupon.amount_off !== want.amountOffCents) problems.push(`amount_off is ${coupon.amount_off}, want ${want.amountOffCents}`);
+  if (coupon.percent_off !== null && coupon.percent_off !== undefined) problems.push(`percent_off is ${coupon.percent_off}, want none`);
+  if (coupon.currency !== "usd") problems.push(`currency is ${coupon.currency}`);
+  if (coupon.duration !== "once") problems.push(`duration is ${coupon.duration}, want once`);
+  if (!coupon.valid) problems.push("coupon is no longer valid");
+  return problems;
+}
+
 // ---------------------------------------------------------------------------
 // Apply.
 // ---------------------------------------------------------------------------
 
-async function syncPackage(
-  stripe: Stripe,
-  products: Stripe.Product[],
-  activePrices: Map<string, Stripe.Price>,
-  pkg: DesiredPackage,
-): Promise<void> {
-  console.log(`\n${pkg.plan.name}  (${pkg.plan.id})`);
+type Run = {
+  stripe: Stripe;
+  throttle: Throttle;
+  /** Names this run in every create's idempotency key. */
+  runId: string;
+  full: boolean;
+  products: Stripe.Product[];
+  activePrices: Map<string, Stripe.Price>;
+  inactivePrices: Map<string, Stripe.Price>;
+  coupons: Map<string, Stripe.Coupon>;
+};
 
-  const product = await findOrCreateProduct(
-    stripe,
-    products,
-    PLAN_META,
-    pkg.plan.id,
-    { name: pkg.productName, description: pkg.description, statement_descriptor: STATEMENT_DESCRIPTOR },
+async function createPrice(run: Run, params: Stripe.PriceCreateParams): Promise<Stripe.Price> {
+  return withRateLimitRetry(run.throttle, () =>
+    run.stripe.prices.create(params, { idempotencyKey: `stripe-setup:${run.runId}:${params.lookup_key}` }),
   );
+}
 
+async function syncPackage(run: Run, pkg: DesiredPackage): Promise<void> {
+  console.log(`\n${pkg.productName}  (package ${pkg.pkg.id})`);
+
+  const product = await findOrCreateProduct(run.stripe, run.throttle, run.products, PACKAGE_META, pkg.pkg.id, {
+    name: pkg.productName,
+    description: pkg.description,
+    statement_descriptor: STATEMENT_DESCRIPTOR,
+  });
+
+  // Verify what exists, then create what is missing, a few at a time.
+  const missing: DesiredPrice[] = [];
+  const counts = { verified: 0, created: 0 };
   for (const want of pkg.prices) {
-    const label = `${want.kind.padEnd(6)} ${want.lookupKey.padEnd(40)} ${usd(want.amountCents)}`;
-
-    const existing = activePrices.get(want.lookupKey);
-    if (existing) {
-      const problems = packagePriceProblems(existing, want);
-      if (problems.length === 0) verified(`${label}  ${existing.id}`);
-      else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+    const label = `${want.kind.padEnd(6)} ${want.lookupKey.padEnd(48)} ${usd(want.amountCents)}`;
+    const existing = run.activePrices.get(want.lookupKey);
+    if (!existing) {
+      missing.push(want);
       continue;
     }
+    const problems = packagePriceProblems(existing, want);
+    if (problems.length === 0) {
+      counts.verified += 1;
+      verified(`${label}  ${existing.id}`, run.full || want.kind === "setup");
+    } else {
+      drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
+    }
+  }
 
-    const holder = await inactiveHolder(stripe, want.lookupKey);
-    const price = await stripe.prices.create({
-      product: product.id,
-      currency: "usd",
-      unit_amount: want.amountCents,
-      lookup_key: want.lookupKey,
-      transfer_lookup_key: holder !== undefined,
-      nickname: want.nickname,
-      // The setup fee is deliberately NOT recurring: `recurring` absent makes
-      // Stripe create a one_time price, which Checkout can only add as a
-      // one-off line item — so a setup fee cannot be re-billed by accident.
-      ...(want.kind === "setup"
-        ? {}
-        : { recurring: { interval: want.kind, usage_type: "licensed" } }),
-      metadata: { [PLAN_META]: pkg.plan.id, healdesk_price_kind: want.kind },
-    });
-    activePrices.set(want.lookupKey, price);
-    created(
-      `${label}  ${price.id}` +
-        (holder ? `  (lookup_key moved off archived ${holder.id})` : ""),
+  const made = await mapLimited(missing, CONCURRENCY, async (want) => {
+    const holder = run.inactivePrices.get(want.lookupKey);
+    const price = await createPrice(
+      run,
+      packagePriceParams(pkg.pkg, want, { productId: product.id, transferLookupKey: holder !== undefined }),
     );
+    run.activePrices.set(want.lookupKey, price);
+    if (holder) run.inactivePrices.delete(want.lookupKey);
+    return { want, price, holder };
+  });
+  for (const { want, price, holder } of made) {
+    counts.created += 1;
+    created(
+      `${want.kind.padEnd(6)} ${want.lookupKey.padEnd(48)} ${usd(want.amountCents)}  ${price.id}` +
+        (holder ? `  (lookup_key moved off archived ${holder.id})` : ""),
+      run.full || want.kind === "setup",
+    );
+  }
+
+  const recurring = pkg.prices.filter((p) => p.kind !== "setup").length;
+  line("·", `${recurring} plan prices (month and year): ${summaryCounts(counts)}${run.full ? "" : "  (--full lists each)"}`);
+
+  await syncCoupons(run, pkg);
+}
+
+function summaryCounts(counts: { verified: number; created: number }): string {
+  return `${counts.verified} verified, ${counts.created} created`;
+}
+
+/**
+ * The package's setup-credit coupons (see the header). A coupon whose amount,
+ * currency or duration disagrees is drift, never fixed here: its amount cannot
+ * be changed in place, and a coupon already applied keeps its discount however
+ * it is edited afterwards. The name can, and Stripe prints it on Checkout and
+ * the invoice, so it follows the catalog.
+ */
+async function syncCoupons(run: Run, pkg: DesiredPackage): Promise<void> {
+  for (const want of pkg.coupons) {
+    const label = `coupon ${want.id.padEnd(48)} ${usd(want.amountOffCents)} off (${want.percentOfSetupFee}%)`;
+    const existing = run.coupons.get(want.id);
+    if (existing) {
+      const problems = couponProblems(existing, want);
+      if (problems.length > 0) {
+        drift(`${label}: ${problems.join("; ")}`);
+        continue;
+      }
+      if (existing.name !== want.name) {
+        await withRateLimitRetry(run.throttle, () => run.stripe.coupons.update(existing.id, { name: want.name }));
+        tally.updated += 1;
+        line("~", `UPDATED: ${label}  (name now matches the catalog)`);
+        continue;
+      }
+      verified(label);
+      continue;
+    }
+    const made = await withRateLimitRetry(run.throttle, () =>
+      run.stripe.coupons.create(
+        {
+          id: want.id,
+          // Stripe caps a coupon name at 40 characters; the id names the package.
+          name: want.name,
+          amount_off: want.amountOffCents,
+          currency: "usd",
+          duration: "once",
+          metadata: { [PACKAGE_META]: pkg.pkg.id, healdesk_offer: want.offer },
+        },
+        { idempotencyKey: `stripe-setup:${run.runId}:coupon:${want.id}` },
+      ),
+    );
+    run.coupons.set(made.id, made);
+    created(label);
   }
 }
 
@@ -691,27 +1053,22 @@ async function syncPackage(
 //
 // Checkout bills the setup fee and this line, so a subscription exists, holds
 // the card and bills nothing monthly until AYA first answers a patient; then
-// the package's price replaces it. A $0 price rather than a trial, so Stripe
+// the plan's price replaces it. A $0 price rather than a trial, so Stripe
 // never treats the wait as one. Verified like a package price: the amount and
 // the shape, because a placeholder that billed anything would be a charge
 // nobody agreed to.
 // ---------------------------------------------------------------------------
 const PLACEHOLDER_META = "healdesk_placeholder";
 
-async function syncPlaceholder(
-  stripe: Stripe,
-  products: Stripe.Product[],
-  activePrices: Map<string, Stripe.Price>,
-  want: DesiredPlaceholder,
-): Promise<void> {
+async function syncPlaceholder(run: Run, want: DesiredPlaceholder): Promise<void> {
   console.log(`\n${want.productName}`);
-  const product = await findOrCreateProduct(stripe, products, PLACEHOLDER_META, "plan_start", {
+  const product = await findOrCreateProduct(run.stripe, run.throttle, run.products, PLACEHOLDER_META, "plan_start", {
     name: want.productName,
     description: want.description,
     statement_descriptor: STATEMENT_DESCRIPTOR,
   });
-  const label = `month  ${want.lookupKey.padEnd(40)} ${usd(0)}`;
-  const existing = activePrices.get(want.lookupKey);
+  const label = `month  ${want.lookupKey.padEnd(48)} ${usd(0)}`;
+  const existing = run.activePrices.get(want.lookupKey);
   if (existing) {
     const problems: string[] = [];
     if (existing.unit_amount !== 0) problems.push(`amount is ${existing.unit_amount === null ? "unset" : usd(existing.unit_amount)}, must be $0`);
@@ -722,8 +1079,8 @@ async function syncPlaceholder(
     else drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
     return;
   }
-  const holder = await inactiveHolder(stripe, want.lookupKey);
-  const price = await stripe.prices.create({
+  const holder = run.inactivePrices.get(want.lookupKey);
+  const price = await createPrice(run, {
     product: product.id,
     currency: "usd",
     unit_amount: 0,
@@ -733,88 +1090,8 @@ async function syncPlaceholder(
     recurring: { interval: "month", usage_type: "licensed" },
     metadata: { healdesk_price_kind: "plan_start_placeholder" },
   });
-  activePrices.set(want.lookupKey, price);
+  run.activePrices.set(want.lookupKey, price);
   created(`${label}  ${price.id}` + (holder ? `  (lookup_key moved off archived ${holder.id})` : ""));
-}
-
-// ---------------------------------------------------------------------------
-// The setup credit: one coupon per package.
-//
-// Day 7 of the nurture sequence offers the setup fee back
-// (catalog COHORT_SETUP_CREDIT). Checkout honours it by naming the coupon on
-// the Session (`discounts`, lib/billing.ts), and Stripe refuses a Session
-// that names a coupon it does not have — so this runs before any of those
-// emails are sent. `amount_off` is the package's own setup fee, so the credit
-// and the fee it cancels can never disagree; `duration: "once"` keeps it off
-// every renewal.
-// ---------------------------------------------------------------------------
-//
-// The demo-week credits (catalog DEMO_SETUP_CREDITS) are the same shape at a
-// share of the setup fee, for a clinic that buys from its personalised demo
-// inside the demo's week: half from an operator's demo, 30% from a homepage
-// one. They run through the same function, each with its own coupons.
-type SetupCoupon = { couponId: string; name: string; offer: string; amountOffCents: (plan: (typeof plans)[number]) => number };
-
-const COHORT_COUPON: SetupCoupon = {
-  couponId: COHORT_SETUP_CREDIT.couponId,
-  name: COHORT_SETUP_CREDIT.name,
-  offer: "cohort-setup",
-  amountOffCents: (plan) => plan.setupFeeUsd * 100,
-};
-
-const DEMO_COUPONS: SetupCoupon[] = DEMO_SETUP_CREDITS.map((credit) => ({
-  couponId: credit.couponId,
-  name: credit.name,
-  offer: credit.offer,
-  amountOffCents: (plan) => Math.round(demoSetupCreditUsd(plan, credit) * 100),
-}));
-
-async function syncSetupCoupons(stripe: Stripe, coupon: SetupCoupon): Promise<void> {
-  console.log(`\n${coupon.name}`);
-  for (const plan of plans) {
-    const id = `${coupon.couponId}-${plan.id}`;
-    const amountOff = coupon.amountOffCents(plan);
-    const label = `coupon   ${id.padEnd(40)} ${usd(amountOff)}`;
-    let existing: Stripe.Coupon | null = null;
-    try {
-      existing = await stripe.coupons.retrieve(id);
-    } catch (error) {
-      if (!(error instanceof Stripe.errors.StripeError && error.code === "resource_missing")) throw error;
-    }
-    if (existing) {
-      const problems: string[] = [];
-      if (existing.amount_off !== amountOff) problems.push(`amount_off is ${existing.amount_off}, want ${amountOff}`);
-      if (existing.currency !== "usd") problems.push(`currency is ${existing.currency}`);
-      if (existing.duration !== "once") problems.push(`duration is ${existing.duration}, want once`);
-      if (!existing.valid) problems.push("coupon is no longer valid");
-      if (problems.length > 0) {
-        // A coupon's amount cannot be changed in place: delete it and re-run.
-        drift(`${label}  ${existing.id}: ${problems.join("; ")}`);
-        continue;
-      }
-      // The name can, and Stripe prints it on Checkout and the invoice, so it
-      // follows the catalog (it lost "Founding-cohort" on 6 October 2026).
-      if (existing.name !== coupon.name) {
-        await stripe.coupons.update(existing.id, { name: coupon.name });
-        tally.updated += 1;
-        line("~", `UPDATED: ${label}  ${existing.id}  (name now matches the catalog)`);
-        continue;
-      }
-      verified(`${label}  ${existing.id}`);
-      continue;
-    }
-    const made = await stripe.coupons.create({
-      id,
-      // Stripe caps a coupon name at 40 characters, and appending the package
-      // name overran it for most packages. The id already names the package.
-      name: coupon.name,
-      amount_off: amountOff,
-      currency: "usd",
-      duration: "once",
-      metadata: { [PLAN_META]: plan.id, healdesk_offer: coupon.offer },
-    });
-    created(`${label}  ${made.id}`);
-  }
 }
 
 async function listActiveMeters(stripe: Stripe): Promise<Stripe.Billing.Meter[]> {
@@ -825,13 +1102,13 @@ async function listActiveMeters(stripe: Stripe): Promise<Stripe.Billing.Meter[]>
   return out;
 }
 
-async function syncMeter(
-  stripe: Stripe,
-  products: Stripe.Product[],
-  meters: Stripe.Billing.Meter[],
-  activePrices: Map<string, Stripe.Price>,
-  want: DesiredMeter,
-): Promise<void> {
+async function listCoupons(stripe: Stripe): Promise<Map<string, Stripe.Coupon>> {
+  const out = new Map<string, Stripe.Coupon>();
+  for await (const coupon of stripe.coupons.list({ limit: 100 })) out.set(coupon.id, coupon);
+  return out;
+}
+
+async function syncMeter(run: Run, meters: Stripe.Billing.Meter[], want: DesiredMeter): Promise<void> {
   console.log(`\n${want.displayName}  (${want.eventName})`);
 
   // Meters are keyed by event_name because that is the contract with the app:
@@ -854,42 +1131,39 @@ async function syncMeter(
     if (problems.length === 0) verified(`meter    ${want.eventName.padEnd(36)} ${meter.id}`);
     else drift(`meter    ${want.eventName.padEnd(36)} ${meter.id}: ${problems.join("; ")}`);
   } else {
-    meter = await stripe.billing.meters.create({
-      display_name: want.displayName,
-      event_name: want.eventName,
-      // `sum`: each event carries the units consumed in `value`, and the
-      // period's bill is their total. `count` would ignore the value and
-      // `last` would bill only the final report.
-      default_aggregation: { formula: "sum" },
-      // Events name the customer by Stripe id. The app stores the customer id
-      // at checkout, so this is the one key it can always supply.
-      customer_mapping: { event_payload_key: "stripe_customer_id", type: "by_id" },
-      value_settings: { event_payload_key: "value" },
-    });
+    meter = await withRateLimitRetry(run.throttle, () =>
+      run.stripe.billing.meters.create({
+        display_name: want.displayName,
+        event_name: want.eventName,
+        // `sum`: each event carries the units consumed in `value`, and the
+        // period's bill is their total. `count` would ignore the value and
+        // `last` would bill only the final report.
+        default_aggregation: { formula: "sum" },
+        // Events name the customer by Stripe id. The app stores the customer id
+        // at checkout, so this is the one key it can always supply.
+        customer_mapping: { event_payload_key: "stripe_customer_id", type: "by_id" },
+        value_settings: { event_payload_key: "value" },
+      }),
+    );
     meters.push(meter);
     created(`meter    ${want.eventName.padEnd(36)} ${meter.id}`);
   }
+  const meterId = meter.id;
 
   // One product per meter so the invoice line reads "Voice minutes over
   // allowance" rather than a package name the overage does not belong to.
-  const product = await findOrCreateProduct(
-    stripe,
-    products,
-    METER_META,
-    want.eventName,
-    {
-      name: want.productName,
-      description: want.productDescription,
-      statement_descriptor: STATEMENT_DESCRIPTOR,
-    },
-  );
+  const product = await findOrCreateProduct(run.stripe, run.throttle, run.products, METER_META, want.eventName, {
+    name: want.productName,
+    description: want.productDescription,
+    statement_descriptor: STATEMENT_DESCRIPTOR,
+  });
 
   let meterDrifted = false;
   for (const rate of want.prices) {
     const label = `price  ${rate.lookupKey.padEnd(48)} ${blockLabel(rate.blockCents, want.unitLabel)}`;
-    const existing = activePrices.get(rate.lookupKey);
+    const existing = run.activePrices.get(rate.lookupKey);
     if (existing) {
-      const problems = meteredPriceProblems(existing, rate, meter.id);
+      const problems = meteredPriceProblems(existing, rate, meterId);
       if (problems.length === 0) verified(`${label}  ${existing.id}`);
       else {
         meterDrifted = true;
@@ -898,22 +1172,20 @@ async function syncMeter(
       continue;
     }
 
-    const holder = await inactiveHolder(stripe, rate.lookupKey);
-    const price = await stripe.prices.create(
+    const holder = run.inactivePrices.get(rate.lookupKey);
+    const price = await createPrice(
+      run,
       meteredPriceParams(want, rate, {
         productId: product.id,
-        meterId: meter.id,
+        meterId,
         transferLookupKey: holder !== undefined,
       }),
     );
-    activePrices.set(rate.lookupKey, price);
-    created(
-      `${label}  ${price.id}` +
-        (holder ? `  (lookup_key moved off archived ${holder.id})` : ""),
-    );
+    run.activePrices.set(rate.lookupKey, price);
+    created(`${label}  ${price.id}` + (holder ? `  (lookup_key moved off archived ${holder.id})` : ""));
   }
 
-  await archiveLegacyMeteredPrices(stripe, activePrices, want.meterId, { keep: meterDrifted });
+  await archiveLegacyMeteredPrices(run.stripe, run.activePrices, want.meterId, { keep: meterDrifted });
 }
 
 /**
@@ -924,6 +1196,8 @@ async function syncMeter(
  * price, and apps/app's reconcile moves the item onto the block price. With
  * `keep` (a block price on this meter drifted) they stay active and are
  * listed, so there is always a price on the meter that bills as it should.
+ * The block prices of 6 October are not per-unit keys and are never archived
+ * here; they are reported STALE.
  */
 export async function archiveLegacyMeteredPrices(
   stripe: Pick<Stripe, "prices">,
@@ -952,31 +1226,28 @@ export async function archiveLegacyMeteredPrices(
 }
 
 /**
- * Active prices with our prefix that the catalog no longer names. These are
- * usually a previous catalog's prices still billing existing subscriptions —
- * never touched here, only surfaced, because archiving one under a live
- * subscription is a manual decision with a migration attached.
+ * What the catalog no longer names: prices (a previous catalog's package and
+ * block prices, still billing the subscriptions on them), the products of the
+ * 5 October packages, and setup-credit coupons for packages or amounts that
+ * are gone. Never touched, only surfaced — see the header.
  */
-function reportStale(
-  activePrices: Map<string, Stripe.Price>,
-  desired: Desired,
-): void {
-  const wanted = new Set<string>([
-    ...desired.packages.flatMap((p) => p.prices.map((x) => x.lookupKey)),
-    ...desired.meters.flatMap((m) => m.prices.map((x) => x.lookupKey)),
-    desired.placeholder.lookupKey,
-  ]);
-  // A per-unit metered price still active here was KEPT by its meter's own
-  // section, which already said why; listing it again as STALE would only
-  // contradict that line.
-  const extra = [...activePrices.keys()]
-    .filter((k) => !wanted.has(k) && !isLegacyMeteredKey(k))
-    .sort();
-  if (extra.length === 0) return;
-  console.log("\nActive prices not in the current catalog");
-  for (const key of extra) {
-    const price = activePrices.get(key)!;
-    stale(`${key.padEnd(46)} ${price.id}  — archive once no subscription bills on it`);
+function reportStale(run: Run, desired: Desired): void {
+  const keys = staleLookupKeys(run.activePrices.keys(), desired);
+  const products = legacyPackageProducts(run.products);
+  const coupons = staleCouponIds(run.coupons.keys(), desired);
+  if (keys.length + products.length + coupons.length === 0) return;
+  console.log("\nNot in the current catalog (left as they are)");
+  for (const product of products) {
+    stale(
+      `product  ${product.name.padEnd(36)} ${product.id}  [${LEGACY_PLAN_META}=${product.metadata[LEGACY_PLAN_META]}]` +
+        `  — a 5 October package; archive once none of its prices bills`,
+    );
+  }
+  for (const key of keys) {
+    stale(`${key.padEnd(48)} ${run.activePrices.get(key)!.id}  — archive once no subscription bills on it`);
+  }
+  for (const id of coupons) {
+    stale(`coupon   ${id.padEnd(48)}  — no Session names it any more; delete it by hand if you like`);
   }
 }
 
@@ -984,20 +1255,37 @@ function reportStale(
 // Dry run: the same desired state, printed instead of applied.
 // ---------------------------------------------------------------------------
 
-function printDryRun(desired: Desired): void {
+function range<T>(items: readonly T[], show: (item: T) => string): string {
+  if (items.length === 0) return "none";
+  return items.length === 1 ? show(items[0]!) : `${show(items[0]!)} … ${show(items[items.length - 1]!)}`;
+}
+
+export function printDryRun(desired: Desired, options: { full: boolean } = { full: false }): void {
   console.log("DRY RUN — nothing below is sent to Stripe.\n");
   console.log("Would find-or-create, then verify against the catalog:");
   for (const pkg of desired.packages) {
-    console.log(`\n${pkg.plan.name}  (${pkg.plan.id})`);
-    line("·", `product  ${pkg.productName}  [${PLAN_META}=${pkg.plan.id}]`);
+    console.log(`\n${pkg.productName}  (package ${pkg.pkg.id})`);
+    line("·", `product  ${pkg.productName}  [${PACKAGE_META}=${pkg.pkg.id}]`);
     line("·", `         "${pkg.description}"`);
-    for (const want of pkg.prices) {
-      const shape =
-        want.kind === "setup" ? "one_time" : `recurring/${want.kind}/licensed`;
+    const setup = pkg.prices.find((p) => p.kind === "setup")!;
+    line("·", `setup  ${setup.lookupKey.padEnd(48)} ${usd(setup.amountCents).padEnd(9)} one_time`);
+    for (const kind of ["month", "year"] as const) {
+      const prices = pkg.prices.filter((p) => p.kind === kind);
+      if (options.full) {
+        for (const want of prices) {
+          line("·", `${kind.padEnd(6)} ${want.lookupKey.padEnd(48)} ${usd(want.amountCents).padEnd(9)} recurring/${kind}/licensed  "${want.nickname}"`);
+        }
+        continue;
+      }
       line(
         "·",
-        `${want.kind.padEnd(6)} ${want.lookupKey.padEnd(40)} ${usd(want.amountCents).padEnd(8)} ${shape}`,
+        `${kind.padEnd(6)} ${String(prices.length).padStart(3)} prices, recurring/${kind}/licensed, ` +
+          `${range(prices, (p) => usd(p.amountCents))}  ` +
+          `(${range(prices, (p) => p.lookupKey)})`,
       );
+    }
+    for (const coupon of pkg.coupons) {
+      line("·", `coupon ${coupon.id.padEnd(48)} ${usd(coupon.amountOffCents).padEnd(9)} amount_off/once  (${coupon.percentOfSetupFee}% of setup, "${coupon.name}")`);
     }
   }
   for (const m of desired.meters) {
@@ -1010,7 +1298,7 @@ function printDryRun(desired: Desired): void {
         "·",
         `price    ${rate.lookupKey.padEnd(48)} ${blockLabel(rate.blockCents, m.unitLabel)}  ` +
           `recurring/month/metered per_unit, transform_quantity divide_by ${BLOCK_TRANSFORM.divide_by} ` +
-          `round ${BLOCK_TRANSFORM.round}  (${rate.planIds.join(", ")})`,
+          `round ${BLOCK_TRANSFORM.round}  (${rate.packageIds.join(", ")})`,
       );
     }
     // A dry run reads nothing from Stripe, so it names the per-unit keys the
@@ -1018,23 +1306,17 @@ function printDryRun(desired: Desired): void {
     line(
       "·",
       `archive  active per-unit prices ${METERS[m.meterId].lookupKeyPrefix}_<cents> (no _block), ` +
-        `once the block prices above are in place: ${catalogLegacyMeteredKeys(m.meterId).join(", ")}`,
+        `once the block prices above are in place: ${legacyPerUnitKeys(m.meterId).join(", ")}`,
     );
   }
   console.log(`\n${desired.placeholder.productName}`);
   line("·", `product  ${desired.placeholder.productName}  [${PLACEHOLDER_META}=plan_start]`);
-  line("·", `price    ${desired.placeholder.lookupKey.padEnd(40)} ${usd(0).padEnd(8)} recurring/month/licensed`);
-  for (const coupon of [COHORT_COUPON, ...DEMO_COUPONS]) {
-    console.log(`\n${coupon.name}`);
-    for (const plan of plans) {
-      line(
-        "·",
-        `coupon   ${`${coupon.couponId}-${plan.id}`.padEnd(40)} ${usd(coupon.amountOffCents(plan)).padEnd(8)} amount_off/once`,
-      );
-    }
-  }
+  line("·", `price    ${desired.placeholder.lookupKey.padEnd(48)} ${usd(0).padEnd(9)} recurring/month/licensed`);
   console.log(
-    `\nWould also list active ${KEY_PREFIX}* prices and flag any other the catalog no longer names as STALE.`,
+    `\nWould also list as STALE, never archive or delete: every other active ${KEY_PREFIX}* price, among them\n` +
+      `the 5 October packages' (${SUPERSEDED_13_OCTOBER.packageIds.join(", ")}) and the 6 October block\n` +
+      `prices (${SUPERSEDED_13_OCTOBER.blockKeys.join(", ")});\n` +
+      `the products keyed ${LEGACY_PLAN_META}; and setup coupons the catalog no longer names.`,
   );
 }
 
@@ -1062,44 +1344,43 @@ function printNext(live: boolean): void {
   );
 }
 
-function summaryLine(desired: Desired): string {
+export function summaryLine(desired: Desired): string {
+  const planPrices = desired.packages.reduce((n, p) => n + p.prices.filter((x) => x.kind !== "setup").length, 0);
+  const coupons = desired.packages.reduce((n, p) => n + p.coupons.length, 0);
   const meteredPrices = desired.meters.reduce((n, m) => n + m.prices.length, 0);
   return (
-    `${desired.packages.length} packages, ${desired.meters.length} meters ` +
-    `carrying ${meteredPrices} metered prices (per started block of ${OVERAGE_BLOCK_UNITS}), no trial`
+    `${desired.packages.length} packages carrying ${planPrices.toLocaleString("en-US")} plan prices ` +
+    `(month and year, ${(planPrices / 2).toLocaleString("en-US")} plans) and ${desired.packages.length} setup prices, ` +
+    `${coupons} setup coupons, ${desired.meters.length} meters carrying ${meteredPrices} metered prices ` +
+    `(per started block of ${OVERAGE_BLOCK_UNITS}), no trial`
   );
 }
 
-function parseArgs(argv: readonly string[]): { dryRun: boolean } {
-  const known = new Set(["--dry-run"]);
+export function parseArgs(argv: readonly string[]): { dryRun: boolean; full: boolean } | { error: string } {
+  const known = new Set(["--dry-run", "--full"]);
   const unknown = argv.filter((a) => !known.has(a));
   if (unknown.length > 0) {
-    console.error(`Unknown argument(s): ${unknown.join(" ")}\nUsage: stripe-setup.ts [--dry-run]`);
-    process.exit(2);
+    return { error: `Unknown argument(s): ${unknown.join(" ")}\nUsage: stripe-setup.ts [--dry-run] [--full]` };
   }
-  return { dryRun: argv.includes("--dry-run") };
+  return { dryRun: argv.includes("--dry-run"), full: argv.includes("--full") };
 }
 
 async function main(): Promise<void> {
-  const { dryRun } = parseArgs(process.argv.slice(2));
+  const args = parseArgs(process.argv.slice(2));
+  if ("error" in args) {
+    console.error(args.error);
+    process.exit(2);
+  }
+  const { dryRun, full } = args;
 
   // Computed before touching the key so a catalog problem (a package selling
   // a channel with no overage rate, or a rate that is not whole cents) fails
   // in a dry run too — it is a catalog problem, not a Stripe one.
   const desired = computeDesired();
 
-  if (OVERAGE_RATES_PROVISIONAL) {
-    console.warn(
-      `\nWARNING: OVERAGE_RATES_PROVISIONAL is true. The metered prices below\n` +
-        `use placeholder rates (see packages/catalog/src/plans.ts). They will\n` +
-        `bill real overage at those rates until replaced — creating them is\n` +
-        `fine, quoting them on the pricing page is not.\n`,
-    );
-  }
-
   if (dryRun) {
     console.log(`healdesk → Stripe (dry run)\n${summaryLine(desired)}\n`);
-    printDryRun(desired);
+    printDryRun(desired, { full });
     printNext(false);
     return;
   }
@@ -1122,27 +1403,37 @@ async function main(): Promise<void> {
         `${"!".repeat(72)}\n`,
     );
   }
-  const stripe = new Stripe(key);
+  // The SDK retries network errors, conflicts and 5xx itself, with an
+  // idempotency key; withRateLimitRetry adds the 429s it does not.
+  const stripe = new Stripe(key, { maxNetworkRetries: 2 });
 
-  console.log(
-    `healdesk → Stripe (${live ? "LIVE" : "test"} mode)\n` +
-      `${summaryLine(desired)}\n`,
-  );
+  console.log(`healdesk → Stripe (${live ? "LIVE" : "test"} mode)\n${summaryLine(desired)}\n`);
 
-  const products = await listActiveProducts(stripe);
-  const activePrices = await listOurActivePrices(stripe);
-  const meters = await listActiveMeters(stripe);
+  const [products, prices, meters, coupons] = await Promise.all([
+    listActiveProducts(stripe),
+    listOurPrices(stripe),
+    listActiveMeters(stripe),
+    listCoupons(stripe),
+  ]);
+  const run: Run = {
+    stripe,
+    throttle: new Throttle(REQUESTS_PER_SECOND),
+    runId: randomUUID(),
+    full,
+    products,
+    activePrices: prices.active,
+    inactivePrices: prices.inactive,
+    coupons,
+  };
 
   for (const pkg of desired.packages) {
-    await syncPackage(stripe, products, activePrices, pkg);
+    await syncPackage(run, pkg);
   }
   for (const meter of desired.meters) {
-    await syncMeter(stripe, products, meters, activePrices, meter);
+    await syncMeter(run, meters, meter);
   }
-  await syncPlaceholder(stripe, products, activePrices, desired.placeholder);
-  await syncSetupCoupons(stripe, COHORT_COUPON);
-  for (const coupon of DEMO_COUPONS) await syncSetupCoupons(stripe, coupon);
-  reportStale(activePrices, desired);
+  await syncPlaceholder(run, desired.placeholder);
+  reportStale(run, desired);
 
   console.log(
     `\n${tally.created} created, ${tally.verified} verified, ${tally.updated} updated, ` +
@@ -1153,8 +1444,8 @@ async function main(): Promise<void> {
   if (tally.drift > 0) {
     console.error(
       `${tally.drift} object(s) disagree with the catalog. Nothing was changed ` +
-        `for them; resolve by hand (archive the wrong price, re-run) and never ` +
-        `by editing the catalog to match Stripe.`,
+        `for them; resolve by hand (archive the wrong price or delete the wrong ` +
+        `coupon, re-run) and never by editing the catalog to match Stripe.`,
     );
     process.exit(1);
   }

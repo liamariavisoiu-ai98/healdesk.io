@@ -16,10 +16,10 @@ const nextConfig: NextConfig = {
    * old link, a bookmark or a search result lands somewhere real rather than
    * on the 404.
    *
-   * /pricing → / is temporary (307). The page is disabled, not replaced:
-   * packages and prices are shown in the buy flow, with the guarantee beside
-   * them. A permanent redirect is cached by browsers and search engines with
-   * no expiry, which would outlive a pricing page that comes back.
+   * /pricing was retired the same day with a temporary (307) redirect to the
+   * homepage, temporary so that it would not outlive a pricing page that came
+   * back. It came back with the step pricing of 13 October 2026, so the
+   * redirect is gone and the address serves the page again.
    *
    * /trust → /terms#security is permanent (308): its content is the terms'
    * closing annex, "How we protect data", for good. The fragment reaches the
@@ -31,7 +31,6 @@ const nextConfig: NextConfig = {
    */
   async redirects() {
     return [
-      { source: "/pricing", destination: "/", permanent: false },
       { source: "/trust", destination: "/terms#security", permanent: true },
     ];
   },

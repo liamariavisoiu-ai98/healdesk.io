@@ -20,6 +20,8 @@ import { isUsableProfile, normalizeProfile, type ClinicProfile } from "./profile
 import { parseWebsiteUrl, scrapeClinicSite, ScrapeError, type ScrapedPage } from "./scrape";
 import {
   createDemoSession,
+  demoOfferEndsAt,
+  demoSetupCredit,
   demoUrl,
   displayName,
   getDemoSession,
@@ -361,8 +363,33 @@ function expiryDate(session: DemoSession): string {
   });
 }
 
+/**
+ * The demo's setup offer, in a sentence, while it holds (catalog
+ * `demoSetupCredit`: 50% off setup from an operator's demo, 30% from a homepage
+ * one, for 48 hours from the demo being ready,
+ * owner, 13 October 2026). Empty once it has ended, so an email an operator
+ * releases late never promises a discount checkout would refuse.
+ */
+function offerLines(session: DemoSession, now: number): string[] {
+  const ends = demoOfferEndsAt(session, now);
+  if (!ends) return [];
+  const when = ends.toLocaleString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+    timeZoneName: "short",
+  });
+  return [
+    `If you decide to go ahead, the setup fee is ${demoSetupCredit(session).percentOfSetupFee}% off when you start from the demo page before ${when}.`,
+    "",
+  ];
+}
+
 /** Subject and body, exported for the console's preview and for the test. */
-export function demoEmail(session: DemoSession): { subject: string; text: string } {
+export function demoEmail(session: DemoSession, now: number = Date.now()): { subject: string; text: string } {
   const name = displayName(session);
   return {
     subject: `Custom demo instance ready for ${name}`,
@@ -379,6 +406,7 @@ export function demoEmail(session: DemoSession): { subject: string; text: string
       "",
       `The link is private to you and stays live until ${expiryDate(session)}. Just reply to this email with any questions.`,
       "",
+      ...offerLines(session, now),
       `The ${site.name} team`,
       "",
       "--",

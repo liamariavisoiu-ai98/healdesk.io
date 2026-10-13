@@ -710,7 +710,7 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
       clinicName: "Kind Clinic",
       specialty: "med-spa",
       platform: "none",
-      plan: "web-voice",
+      plan: "voice-webchat-1000-1000",
       contactName: "Alex Chen",
       contactEmail: `alex-${randomUUID().slice(0, 8)}@kind.test`,
       agreementId: randomUUID(),

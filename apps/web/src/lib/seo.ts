@@ -32,6 +32,8 @@ import { site } from "@/lib/site";
  */
 export const PUBLIC_ROUTES = [
   { path: "/", changeFrequency: "weekly", priority: 1 },
+  // Back on 13 October 2026, with the step pricing (app/pricing/page.tsx).
+  { path: "/pricing", changeFrequency: "monthly", priority: 0.8 },
   { path: "/contact", changeFrequency: "monthly", priority: 0.7 },
   { path: "/privacy", changeFrequency: "yearly", priority: 0.3 },
   { path: "/terms", changeFrequency: "yearly", priority: 0.3 },

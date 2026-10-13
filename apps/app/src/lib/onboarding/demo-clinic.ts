@@ -59,7 +59,11 @@ export type DemoClinicInput = {
   /** The operator's name, as the signature. */
   operatorName: string;
   specialty?: SpecialtyId;
-  /** Default `complete`, so every channel can be shown. */
+  /**
+   * A step plan id. Default `voice-metachat-500-300`, Voice + Meta Chat, which
+   * is every channel (Meta Chat includes website chat), so every one can be
+   * shown; it was `complete` until the step pricing of 13 October 2026.
+   */
   plan?: string;
   timezone?: string;
   /** Kept on the signature for a template that reads them (1.3.0 on). */
@@ -107,7 +111,7 @@ export async function createDemoClinic(input: DemoClinicInput): Promise<DemoClin
     clinicName: input.name,
     specialty,
     platform: NO_PLATFORM_ID,
-    plan: input.plan ?? "complete",
+    plan: input.plan ?? "voice-metachat-500-300",
     timezone: input.timezone,
     contactName: input.operatorName,
     contactEmail: input.operatorEmail,

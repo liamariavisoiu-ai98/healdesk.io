@@ -51,6 +51,6 @@ export const GRACE_ENDING_ENTRY: TemplateEntry<GraceEndingPayload> = {
   fixture: {
     graceEndsAt: "2026-10-13T14:32:00.000Z",
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
-    amountDueCents: 89_700,
+    amountDueCents: 52_000,
   },
 };

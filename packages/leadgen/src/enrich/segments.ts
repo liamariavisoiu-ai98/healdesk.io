@@ -49,9 +49,13 @@ export const SEGMENT_RULES = Object.entries(SEGMENT_DEFINITIONS)
  * Ordered by the criteria that actually drive value for this product — see
  * docs/state-of-play.md, Part 3. Ticket size is deliberately NOT here. It was
  * left out when the plan was $249 a month, on the reasoning that one booked
- * appointment covered the cost in every one of these segments. The packages
- * now run $397 to $1,197 a month (packages/catalog/src/plans.ts), so that
- * reasoning needs re-checking per segment before it is relied on.
+ * appointment covered the cost in every one of these segments. Since the
+ * step pricing of 13 October 2026 a plan runs from $40 a month (100 web chat
+ * conversations) to $2,100 (1,500 voice minutes and 1,500 Meta Chat
+ * conversations), $400 for the sheet's own example of 500 voice minutes
+ * (packages/catalog/src/plans.ts), so that reasoning needs re-checking per
+ * segment, at the step a clinic of that segment would pick, before it is
+ * relied on.
  */
 export const LAUNCH_PRIORITY: Partial<Record<Segment, string>> = {
   injectables:

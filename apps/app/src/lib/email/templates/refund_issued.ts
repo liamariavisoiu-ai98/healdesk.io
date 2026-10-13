@@ -64,7 +64,7 @@ export const renderRefundIssued: EmailTemplate<RefundIssuedPayload> = (payload, 
 export const REFUND_ISSUED_ENTRY: TemplateEntry<RefundIssuedPayload> = {
   render: renderRefundIssued,
   fixture: {
-    amountCents: 89_700,
+    amountCents: 52_000,
     kind: "first_period_cancel",
     refundedAt: "2026-10-06T14:20:00.000Z",
   },

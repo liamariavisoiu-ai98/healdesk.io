@@ -70,7 +70,7 @@ function row(overrides: Partial<Entitlements> = {}): Entitlements {
     clinicId: CLINIC,
     stripeCustomerId: "cus_test",
     stripeSubscriptionId: "sub_test",
-    planCode: "complete",
+    planCode: "voice-metachat-1000-1000",
     billingInterval: "month",
     status: "active",
     currentPeriodStart: null,
@@ -78,12 +78,12 @@ function row(overrides: Partial<Entitlements> = {}): Entitlements {
     graceEndsAt: null,
     channelsEnabled: { web: true, meta: true, voice: true },
     includedVoiceMinutes: 1_000,
-    includedChatConversations: 2_000,
+    includedChatConversations: 1_000,
     usedVoiceMinutes: "0",
     usedChatConversations: 0,
     overageMode: "allow",
     numberReleaseAt: null,
-    setupFeePaidUsd: "997.00",
+    setupFeePaidUsd: "1394.00",
     usageAlertsEnabled: true,
     locations: 1,
     firstPaidAt: null,
@@ -95,7 +95,7 @@ function row(overrides: Partial<Entitlements> = {}): Entitlements {
     cancelAt: null,
     firstPeriodRefundedAt: null,
     planStartedAt: null,
-    boughtPlanId: "complete",
+    boughtPlanId: "voice-metachat-1000-1000",
     setupDeadlineAt: null,
     planStartAppliedAt: null,
     firstPlanInvoiceId: null,
@@ -197,7 +197,7 @@ describe("decideReconcile: the plan start (BD1, R6)", () => {
     expect(decideReconcile(input({ states, row: row({ status: "suspended" }) }))).toEqual([]);
     expect(decideReconcile(input({ states, requests: [request("cancel_now")] }))).toEqual([]);
     expect(
-      decideReconcile(input({ states, row: row({ boughtPlanId: "voice", planCode: "voice" }) })),
+      decideReconcile(input({ states, row: row({ boughtPlanId: "voice-1000", planCode: "voice-1000" }) })),
     ).toEqual([]);
   });
 
@@ -229,7 +229,7 @@ describe("decideReconcile: the plan start (BD1, R6)", () => {
 });
 
 describe("decideReconcile: step-ups (R6)", () => {
-  const started = row({ planCode: "chat-web", planStartAppliedAt: at(-10 * DAY) });
+  const started = row({ planCode: "webchat-1000", planStartAppliedAt: at(-10 * DAY) });
 
   test("records one for a channel in service the billed package lacks, once started", () => {
     expect(
@@ -255,12 +255,19 @@ describe("decideReconcile: step-ups (R6)", () => {
     const pending = request("step_up", { channelKey: "voice" });
     expect(decideReconcile(input({ row: started, states, requests: [pending] }))).toEqual([]);
   });
+
+  test("none for the website on a Meta Chat bill: AYA Meta Chat already prices it in", () => {
+    const metaChat = row({ planCode: "metachat-1000", planStartAppliedAt: at(-10 * DAY) });
+    expect(
+      decideReconcile(input({ row: metaChat, states: [answered("meta"), answered("web")] })),
+    ).toEqual([]);
+  });
 });
 
 describe("decideReconcile: waiting channels (BD4, R33)", () => {
   const startedAt = at(-40 * DAY);
   const readyAt = at(-38 * DAY);
-  const started = row({ planCode: "chat-web", planStartedAt: startedAt });
+  const started = row({ planCode: "webchat-1000", planStartedAt: startedAt });
   const states = [answered("web"), state("voice", { readyAt, waitingOn: "forwarding" })];
   const due = startOfJoinDay(new Date(readyAt.getTime() + 30 * DAY));
 
@@ -277,9 +284,9 @@ describe("decideReconcile: waiting channels (BD4, R33)", () => {
         channel: "voice",
         joinsOn: isoDate(due),
         waitingOn: "forwarding",
-        plan: getPlan("web-voice"),
+        plan: getPlan("voice-webchat-1000-1000"),
         interval: "month",
-        amountCents: 89_700,
+        amountCents: 120_000,
       },
     ]);
   });
@@ -308,10 +315,10 @@ describe("decideReconcile: waiting channels (BD4, R33)", () => {
   test("a channel already billed, a plan not started, or an ending plan gets no reminder", () => {
     const now = due;
     expect(
-      decideReconcile(input({ row: row({ ...started, planCode: "web-voice" }), states, now })),
+      decideReconcile(input({ row: row({ ...started, planCode: "voice-webchat-1000-1000" }), states, now })),
     ).toEqual([]);
     expect(
-      types(decideReconcile(input({ row: row({ planCode: "chat-web" }), states, now }))),
+      types(decideReconcile(input({ row: row({ planCode: "webchat-1000" }), states, now }))),
     ).not.toContain("remind");
     expect(
       decideReconcile(input({ row: row({ ...started, cancelAt: at(5 * DAY) }), states, now })),
@@ -566,8 +573,8 @@ describeDb("the billing reconcile job", () => {
 
   test("once started, records a step-up for a channel in service at a location that the billed package lacks", async () => {
     const billing = await seedBilling("rec-step", {
-      planId: "chat-web",
-      boughtPlanId: "complete",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-metachat-1000-1000",
       planStartAppliedAt: at(-10 * DAY),
       channelRows: [inService("web")],
     });
@@ -583,8 +590,8 @@ describeDb("the billing reconcile job", () => {
     const startedAt = at(-40 * DAY);
     const readyAt = at(-38 * DAY);
     const billing = await seedBilling("rec-wait", {
-      planId: "chat-web",
-      boughtPlanId: "web-voice",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
       locations: 2,
       planStartedAt: startedAt,
       channelRows: [inService("web"), { channel: "voice", readyAt, waitingOn: "forwarding" }],
@@ -608,8 +615,9 @@ describeDb("the billing reconcile job", () => {
         payload: {
           channel: "voice",
           joinsOn: isoDate(due),
-          planName: "AYA Web Chat + Voice",
-          amountCents: Math.round(recurringUsd(getPlan("web-voice")!, "month") * 100) * 2,
+          planName: getPlan("voice-webchat-1000-1000")!.name,
+          amountCents:
+            Math.round(recurringUsd(getPlan("voice-webchat-1000-1000")!, "month") * 100) * 2,
           interval: "month",
           waitingOn: "forwarding",
         },
@@ -634,8 +642,8 @@ describeDb("the billing reconcile job", () => {
   test("a reminder first queued after the due date (R33) moves the step-up to a week later", async () => {
     const readyAt = at(-38 * DAY);
     const billing = await seedBilling("rec-late", {
-      planId: "chat-web",
-      boughtPlanId: "web-voice",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
       planStartedAt: at(-40 * DAY),
       channelRows: [inService("web"), { channel: "voice", readyAt, waitingOn: "forwarding" }],
     });

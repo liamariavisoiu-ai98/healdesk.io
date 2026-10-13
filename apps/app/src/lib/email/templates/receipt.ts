@@ -52,7 +52,7 @@ export const renderReceipt: EmailTemplate<ReceiptPayload> = (payload, ctx) => {
 export const RECEIPT_ENTRY: TemplateEntry<ReceiptPayload> = {
   render: renderReceipt,
   fixture: {
-    amountCents: 89_700,
+    amountCents: 52_000,
     hostedInvoiceUrl: "https://invoice.stripe.com/i/acct_testplatform/test_invoice",
     periodStartsOn: "2026-10-06",
     periodEndsOn: "2026-11-06",

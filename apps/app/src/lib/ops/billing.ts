@@ -842,7 +842,7 @@ export async function opSetOverageMode(
   return switched(changed, auditRecorded);
 }
 
-/** The owner's switch for the 80% and 100% allowance emails, on the billing clinic. */
+/** The owner's switch for the 90% and 100% allowance emails, on the billing clinic. */
 export async function opSetUsageAlerts(
   args: Record<string, unknown>,
   operator: Operator,

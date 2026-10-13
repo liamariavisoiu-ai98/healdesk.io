@@ -536,13 +536,13 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
 
   test("a synthetic clinic with a billing row but no channel row treats the channel as live (R1)", async () => {
     const c = await seedClinic("gate-synthetic-billed");
-    await seedEntitled(c.clinicId, { planId: "chat-web" });
+    await seedEntitled(c.clinicId, { planId: "webchat-1000" });
     expect(
       await assistantMayAnswer({ clinicId: c.clinicId, channel: "web", now: NOW, actor }),
     ).toEqual({
       decision: "answer",
     });
-    // ...but billing still applies: Chat Web did not buy voice.
+    // ...but billing still applies: AYA Web Chat did not buy voice.
     expect(
       await assistantMayAnswer({ clinicId: c.clinicId, channel: "voice", now: NOW, actor }),
     ).toMatchObject({
@@ -578,7 +578,7 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
 
   test("Stop and fall back: a new conversation is refused once the allowance is used, and the clinic is told once", async () => {
     const c = await seedClinic("gate-cap");
-    await seedEntitled(c.clinicId, { planId: "chat-web", planStartedAt: WINDOW_START });
+    await seedEntitled(c.clinicId, { planId: "webchat-1000", planStartedAt: WINDOW_START });
     await seedChannels(c.clinicId, [{ channel: "web", liveAt: LIVE }]);
     await withTenant({ clinicId: c.clinicId, actor }, (tx) =>
       setOverageMode(tx.db, c.clinicId, "hard_cap"),
@@ -643,10 +643,10 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
 
   test("a channel bought but not yet billed is measured against the bought allowance, so the cap never refuses its first call (BD5)", async () => {
     const c = await seedClinic("gate-bd5");
-    // Bought Web + Voice, billed as AYA Web Chat: 0 voice minutes billed.
+    // Bought Voice + Web Chat, billed as AYA Web Chat: 0 voice minutes billed.
     await seedEntitled(c.clinicId, {
-      planId: "chat-web",
-      boughtPlanId: "web-voice",
+      planId: "webchat-1000",
+      boughtPlanId: "voice-webchat-1000-1000",
       planStartedAt: WINDOW_START,
     });
     await seedChannels(c.clinicId, [{ channel: "voice", liveAt: LIVE }]);

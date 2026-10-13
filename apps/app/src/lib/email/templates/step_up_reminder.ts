@@ -87,8 +87,8 @@ export const STEP_UP_REMINDER_ENTRY: TemplateEntry<StepUpReminderPayload> = {
   fixture: {
     channel: "voice",
     joinsOn: "2026-10-13",
-    planName: "AYA Web Chat + Voice",
-    amountCents: 89_700,
+    planName: "AYA Voice + Web Chat, 500 minutes and 300 conversations",
+    amountCents: 52_000,
     interval: "month",
     waitingOn: "forwarding",
   },

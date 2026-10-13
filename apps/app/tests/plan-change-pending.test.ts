@@ -163,7 +163,7 @@ const change = (
   overrides: { planId?: string; interval?: "month" | "year" } = {},
 ) => ({
   clinicId,
-  planId: overrides.planId ?? "web-voice",
+  planId: overrides.planId ?? "voice-webchat-1000-1000",
   interval: overrides.interval ?? ("month" as const),
   requestId,
   actorLabel: "owner@clinic.test",
@@ -194,11 +194,11 @@ describeDb("a plan change in flight", () => {
   });
 
   test("a lost answer, then a fresh request once the lease has run out: the difference is charged once and the change applied", async () => {
-    // Bought and billed as AYA Web Chat, moving to AYA Web Chat + Voice with voice not
-    // in service yet: the billed package stays, so the $500 difference goes
+    // Bought and billed as AYA Web Chat, moving to AYA Voice + Web Chat with voice not
+    // in service yet: the billed package stays, so the $697 difference goes
     // on a one-off invoice and a second update sets the marker.
-    const seeded = await seedBilling("pc-adopt", { bought: "chat-web", inService: ["web"] });
-    startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+    const seeded = await seedBilling("pc-adopt", { bought: "webchat-1000", inService: ["web"] });
+    startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000" });
     await inTenant(seeded.clinicId, (c) =>
       c.query(`update entitlements set used_chat_conversations = 42 where clinic_id = $1`, [
         seeded.clinicId,
@@ -213,9 +213,9 @@ describeDb("a plan change in flight", () => {
     });
     expect(setupInvoices()).toEqual([["req-a1", "paid"]]);
     expect(await rowOf(seeded.clinicId)).toMatchObject({
-      boughtPlanId: "chat-web",
+      boughtPlanId: "webchat-1000",
       pendingPlanChangeRequestId: "req-a1",
-      pendingPlanChangePlanId: "web-voice",
+      pendingPlanChangePlanId: "voice-webchat-1000-1000",
       pendingPlanChangeInterval: "month",
       stripeMutationLeaseOwner: "change_plan:req-a1",
     });
@@ -233,8 +233,8 @@ describeDb("a plan change in flight", () => {
     expect(world.state.subscription.metadata.hd_plan_change).toBe("req-a1");
     const row = await rowOf(seeded.clinicId);
     expect(row).toMatchObject({
-      boughtPlanId: "web-voice",
-      planCode: "chat-web",
+      boughtPlanId: "voice-webchat-1000-1000",
+      planCode: "webchat-1000",
       channelsEnabled: { web: true, meta: false, voice: true },
       pendingPlanChangeRequestId: null,
       pendingPlanChangePlanId: null,
@@ -249,14 +249,14 @@ describeDb("a plan change in flight", () => {
     const notices = await noticesOf(seeded.clinicId);
     expect(notices.map((n) => [n.kind, n.dedupe_key])).toEqual([["plan_changed", "plan:req-a1"]]);
     expect(notices[0]!.payload).toMatchObject({
-      setupFeeDeltaCents: 50_000,
+      setupFeeDeltaCents: 69_700,
       hostedInvoiceUrl: expect.stringMatching(/^https:\/\/invoice\.stripe\.com\//),
     });
   });
 
   test("the same after a single update that applied but lost its answer: the marker is found, and nothing is charged again", async () => {
-    const seeded = await seedBilling("pc-adopt-update", { bought: "chat-web", inService: ["web"] });
-    startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+    const seeded = await seedBilling("pc-adopt-update", { bought: "webchat-1000", inService: ["web"] });
+    startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000" });
     // Annual billing is a new billed price: one update carries the difference.
     world.state.loseNextUpdateResponse = true;
     const yearly = { interval: "year" as const };
@@ -273,7 +273,7 @@ describeDb("a plan change in flight", () => {
     expect(world.fake.callsTo("subscriptions.update")).toHaveLength(1);
     expect(world.fake.callsTo("invoices.create")).toHaveLength(0);
     expect(await rowOf(seeded.clinicId)).toMatchObject({
-      boughtPlanId: "web-voice",
+      boughtPlanId: "voice-webchat-1000-1000",
       billingInterval: "year",
       pendingPlanChangeRequestId: null,
       stripeMutationLeaseOwner: null,
@@ -282,8 +282,8 @@ describeDb("a plan change in flight", () => {
   });
 
   test("while a change is pending a different one is refused, charging nothing, and the previews say so", async () => {
-    const seeded = await seedBilling("pc-other", { bought: "chat-web", inService: ["web"] });
-    startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+    const seeded = await seedBilling("pc-other", { bought: "webchat-1000", inService: ["web"] });
+    startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000" });
     world.state.failNextUpdate = true;
     await changePlan(change(seeded.clinicId, "req-b1"), { now: NOW });
 
@@ -295,55 +295,55 @@ describeDb("a plan change in flight", () => {
     await setLeaseUntil(seeded.clinicId, new Date(Date.now() - MINUTE));
     const asked = world.fake.calls.length;
     const inProgress = new RegExp(
-      `A change to ${getPlan("web-voice")!.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, billed monthly, is still being completed`,
+      `A change to ${getPlan("voice-webchat-1000-1000")!.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, billed monthly, is still being completed`,
     );
     expect(
-      await changePlan(change(seeded.clinicId, "req-b3", { planId: "complete" }), { now: NOW }),
+      await changePlan(change(seeded.clinicId, "req-b3", { planId: "voice-metachat-1000-1000" }), { now: NOW }),
     ).toEqual({ status: "refused", message: expect.stringMatching(inProgress) });
     expect(
       await changePlan(change(seeded.clinicId, "req-b4", { interval: "year" }), { now: NOW }),
     ).toMatchObject({ status: "refused", message: expect.stringMatching(inProgress) });
     expect(world.fake.calls.length).toBe(asked);
     expect(await rowOf(seeded.clinicId)).toMatchObject({
-      boughtPlanId: "chat-web",
+      boughtPlanId: "webchat-1000",
       pendingPlanChangeRequestId: "req-b1",
     });
     expect(setupInvoices()).toEqual([["req-b1", "paid"]]);
 
     expect(
       await previewChangePlan(
-        { clinicId: seeded.clinicId, planId: "complete", interval: "month" },
+        { clinicId: seeded.clinicId, planId: "voice-metachat-1000-1000", interval: "month" },
         { now: NOW },
       ),
     ).toEqual({ status: "refused", message: expect.stringMatching(inProgress) });
     expect(
       await previewChangePlan(
-        { clinicId: seeded.clinicId, planId: "web-voice", interval: "month" },
+        { clinicId: seeded.clinicId, planId: "voice-webchat-1000-1000", interval: "month" },
         { now: NOW },
       ),
-    ).toMatchObject({ status: "ok", planId: "web-voice", isInProgress: true });
+    ).toMatchObject({ status: "ok", planId: "voice-webchat-1000-1000", isInProgress: true });
   });
 
   test("a decline, or a refusal before anything is charged, ends the change: nothing stays pending to hold up the next", async () => {
     const seeded = await seedBilling("pc-ended", {
-      bought: "complete",
-      billed: "web-voice",
+      bought: "voice-metachat-1000-1000",
+      billed: "voice-webchat-1000-1000",
       inService: ["web", "voice"],
     });
-    startedWorld(seeded, { bought: "complete", billed: "web-voice" });
+    startedWorld(seeded, { bought: "voice-metachat-1000-1000", billed: "voice-webchat-1000-1000" });
     world.state.declineNextUpdate = true;
     expect(
-      await changePlan(change(seeded.clinicId, "req-e1", { planId: "chat-web" }), { now: NOW }),
+      await changePlan(change(seeded.clinicId, "req-e1", { planId: "webchat-1000" }), { now: NOW }),
     ).toMatchObject({ status: "payment_failed" });
     expect(await rowOf(seeded.clinicId)).toMatchObject({
-      boughtPlanId: "complete",
+      boughtPlanId: "voice-metachat-1000-1000",
       pendingPlanChangeRequestId: null,
       stripeMutationLeaseOwner: null,
     });
 
     world.state.subscription.status = "trialing";
     expect(
-      await changePlan(change(seeded.clinicId, "req-e2", { planId: "chat-web" }), { now: NOW }),
+      await changePlan(change(seeded.clinicId, "req-e2", { planId: "webchat-1000" }), { now: NOW }),
     ).toMatchObject({ status: "refused", message: expect.stringMatching(/never puts one in/) });
     expect((await rowOf(seeded.clinicId)).pendingPlanChangeRequestId).toBeNull();
 
@@ -352,12 +352,12 @@ describeDb("a plan change in flight", () => {
     expect(await changePlan(change(seeded.clinicId, "req-e3"), { now: NOW })).toMatchObject({
       status: "changed",
     });
-    expect((await rowOf(seeded.clinicId)).boughtPlanId).toBe("web-voice");
+    expect((await rowOf(seeded.clinicId)).boughtPlanId).toBe("voice-webchat-1000-1000");
   });
 
   test("the hourly reconcile finishes a change left pending once it is stale, from its paid difference, charging nothing", async () => {
-    const seeded = await seedBilling("pc-reconcile", { bought: "chat-web", inService: ["web"] });
-    startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+    const seeded = await seedBilling("pc-reconcile", { bought: "webchat-1000", inService: ["web"] });
+    startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000" });
     world.state.failNextUpdate = true;
     await changePlan(change(seeded.clinicId, "req-c1"), { now: NOW });
     const paid = world.state.invoices.find((invoice) => invoice.metadata.hd_ref === "req-c1")!;
@@ -380,9 +380,8 @@ describeDb("a plan change in flight", () => {
     expect(updates).toHaveLength(2);
     expect(updates[1]!.args[1]).toEqual({
       items: [
-        { id: expect.any(String), deleted: true },
-        { price: "price_healdesk_meter_chat_conversations_block100_3000" },
-        { price: "price_healdesk_meter_voice_minutes_block100_8000" },
+        // Web Chat's chat block is the same on both packages: only voice's is added.
+        { price: "price_healdesk_meter_voice_minutes_block100_10400" },
       ],
       proration_behavior: "none",
       off_session: true,
@@ -396,11 +395,11 @@ describeDb("a plan change in flight", () => {
     );
     expect(world.state.subscription.metadata.hd_plan_change).toBe("req-c1");
     expect(await rowOf(seeded.clinicId)).toMatchObject({
-      boughtPlanId: "web-voice",
+      boughtPlanId: "voice-webchat-1000-1000",
       channelsEnabled: { web: true, meta: false, voice: true },
       meteredPriceKeys: [
-        "healdesk_meter_chat_conversations_block100_3000",
-        "healdesk_meter_voice_minutes_block100_8000",
+        "healdesk_meter_chat_conversations_block100_5200",
+        "healdesk_meter_voice_minutes_block100_10400",
       ],
       pendingPlanChangeRequestId: null,
       stripeMutationLeaseOwner: null,
@@ -409,7 +408,7 @@ describeDb("a plan change in flight", () => {
     expect(notices.map((n) => [n.kind, n.dedupe_key])).toEqual([["plan_changed", "plan:req-c1"]]);
     expect(notices[0]!.payload).toMatchObject({
       hostedInvoiceUrl: `https://invoice.stripe.com/i/${paid.id}`,
-      setupFeeDeltaCents: 50_000,
+      setupFeeDeltaCents: 69_700,
     });
     expect(await notesOf(seeded.clinicId)).toContainEqual({
       reason: "plan_change",
@@ -424,10 +423,10 @@ describeDb("a plan change in flight", () => {
 
   test("the resume of a prorating change still says it was prorated after the webhook has written the new interval to our row", async () => {
     const seeded = await seedBilling("pc-resume-prorated", {
-      bought: "chat-web",
+      bought: "webchat-1000",
       inService: ["web"],
     });
-    startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+    startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000" });
     world.state.loseNextUpdateResponse = true;
     const yearly = { interval: "year" as const };
     expect(await changePlan(change(seeded.clinicId, "req-r1", yearly), { now: NOW })).toMatchObject(
@@ -458,8 +457,8 @@ describeDb("a plan change in flight", () => {
   });
 
   test("a pending change Stripe holds no charge for is dropped: what was left open voided, a draft deleted, nothing charged", async () => {
-    const seeded = await seedBilling("pc-drop", { bought: "chat-web", inService: ["web"] });
-    startedWorld(seeded, { bought: "chat-web", billed: "chat-web" });
+    const seeded = await seedBilling("pc-drop", { bought: "webchat-1000", inService: ["web"] });
+    startedWorld(seeded, { bought: "webchat-1000", billed: "webchat-1000" });
     // An attempt that died between finalizing its invoice and paying it, and
     // one of its drafts, under the pending request.
     const open = world.addInvoice({
@@ -473,7 +472,7 @@ describeDb("a plan change in flight", () => {
     await inTenant(seeded.clinicId, (c) =>
       c.query(
         `update entitlements set pending_plan_change_request_id = 'req-d0',
-           pending_plan_change_plan_id = 'web-voice', pending_plan_change_interval = 'month'
+           pending_plan_change_plan_id = 'voice-webchat-1000-1000', pending_plan_change_interval = 'month'
          where clinic_id = $1`,
         [seeded.clinicId],
       ),
@@ -497,7 +496,7 @@ describeDb("a plan change in flight", () => {
     expect(world.fake.callsTo("invoices.pay")).toHaveLength(0);
     expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
     expect(await rowOf(seeded.clinicId)).toMatchObject({
-      boughtPlanId: "chat-web",
+      boughtPlanId: "webchat-1000",
       pendingPlanChangeRequestId: null,
       stripeMutationLeaseOwner: null,
     });
@@ -514,7 +513,7 @@ describeDb("a plan change in flight", () => {
   });
 
   test("before the start, a pending change whose difference was paid is finished locally, with no subscription update", async () => {
-    const seeded = await seedBilling("pc-pre", { bought: "chat-web", started: false });
+    const seeded = await seedBilling("pc-pre", { bought: "webchat-1000", started: false });
     install(
       createStripeWorld({
         customerId: seeded.customerId,
@@ -530,12 +529,12 @@ describeDb("a plan change in flight", () => {
     const paid = world.addInvoice({
       status: "paid",
       metadata: { hd_kind: "plan_change_setup", hd_ref: "req-pre" },
-      amount_paid: 50_000,
+      amount_paid: 69_700,
     });
     await inTenant(seeded.clinicId, (c) =>
       c.query(
         `update entitlements set pending_plan_change_request_id = 'req-pre',
-           pending_plan_change_plan_id = 'web-voice', pending_plan_change_interval = 'year'
+           pending_plan_change_plan_id = 'voice-webchat-1000-1000', pending_plan_change_interval = 'year'
          where clinic_id = $1`,
         [seeded.clinicId],
       ),
@@ -550,8 +549,8 @@ describeDb("a plan change in flight", () => {
     expect(world.fake.callsTo("subscriptions.update")).toHaveLength(0);
     expect(world.fake.callsTo("invoices.create")).toHaveLength(0);
     expect(await rowOf(seeded.clinicId)).toMatchObject({
-      boughtPlanId: "web-voice",
-      planCode: "web-voice",
+      boughtPlanId: "voice-webchat-1000-1000",
+      planCode: "voice-webchat-1000-1000",
       billingInterval: "year",
       pendingPlanChangeRequestId: null,
     });
@@ -663,7 +662,7 @@ describeDb("an interval change after the start", () => {
 
   test("annual to monthly on day 20 of an allowance month: the window re-opens from the new period, and the annual months' overage goes to the annual invoice, never to a meter", async () => {
     const seeded = await seedBilling("iv-leave-annual", {
-      bought: "web-voice",
+      bought: "voice-webchat-1000-1000",
       interval: "year",
       inService: ["web", "voice"],
       planStartedAt: A_START,
@@ -707,7 +706,7 @@ describeDb("an interval change after the start", () => {
       c.query(
         `insert into overage_invoices (clinic_id, window_start, window_end, voice_units,
            voice_rate_cents, chat_rate_cents, amount_cents, status, invoiced_at)
-         values ($1, $2, $3, 50, 8000, 3000, 8000, 'invoiced', $3)`,
+         values ($1, $2, $3, 50, 10400, 5200, 10400, 'invoiced', $3)`,
         [seeded.clinicId, W1, W2],
       ),
     );
@@ -715,7 +714,7 @@ describeDb("an interval change after the start", () => {
       createStripeWorld({
         customerId: seeded.customerId,
         subscriptionId: seeded.subscriptionId,
-        items: [{ lookupKey: "healdesk_web-voice_year_860400", quantity: 1 }],
+        items: [{ lookupKey: "healdesk_voice-webchat-1000-1000_year_1152000", quantity: 1 }],
         periodStart: s(A_START),
         periodEnd: s(new Date("2027-08-01T00:00:00Z")),
         customerDefaultPm: "pm_customer",
@@ -726,7 +725,7 @@ describeDb("an interval change after the start", () => {
     const result = await changePlan(
       {
         clinicId: seeded.clinicId,
-        planId: "web-voice",
+        planId: "voice-webchat-1000-1000",
         interval: "month",
         requestId: "req-leave-annual",
         actorLabel: "owner@clinic.test",
@@ -737,9 +736,9 @@ describeDb("an interval change after the start", () => {
     const [update] = world.fake.callsTo("subscriptions.update");
     expect(update!.args[1]).toMatchObject({
       items: [
-        { price: "price_healdesk_web-voice_month_89700", quantity: 1 },
-        { price: "price_healdesk_meter_chat_conversations_block100_3000" },
-        { price: "price_healdesk_meter_voice_minutes_block100_8000" },
+        { price: "price_healdesk_voice-webchat-1000-1000_month_120000", quantity: 1 },
+        { price: "price_healdesk_meter_chat_conversations_block100_5200" },
+        { price: "price_healdesk_meter_voice_minutes_block100_10400" },
       ],
       proration_behavior: "always_invoice",
     });
@@ -748,7 +747,7 @@ describeDb("an interval change after the start", () => {
     // with the counters from zero.
     expect(await rowOf(seeded.clinicId)).toMatchObject({
       billingInterval: "month",
-      planCode: "web-voice",
+      planCode: "voice-webchat-1000-1000",
       currentPeriodStart: A_NOW,
       currentPeriodEnd: MONTH_AFTER,
       usedVoiceMinutes: "0.00",
@@ -765,8 +764,8 @@ describeDb("an interval change after the start", () => {
         status: "pending",
         voice_units: 80,
         chat_units: 0,
-        voice_rate_cents: 8_000,
-        amount_cents: 8_000,
+        voice_rate_cents: 10_400,
+        amount_cents: 10_400,
       }),
       expect.objectContaining({
         window_start: W3,
@@ -774,8 +773,8 @@ describeDb("an interval change after the start", () => {
         status: "pending",
         voice_units: 0,
         chat_units: 30,
-        chat_rate_cents: 3_000,
-        amount_cents: 3_000,
+        chat_rate_cents: 5_200,
+        amount_cents: 5_200,
       }),
     ]);
     // Every row over the allowance from before the switch is handed over,
@@ -822,8 +821,8 @@ describeDb("an interval change after the start", () => {
     const overage = world.state.invoices.filter((i) => i.metadata.hd_kind === "annual_overage");
     expect(overage.map((i) => [i.metadata.hd_ref, i.status, i.total]).sort()).toEqual(
       [
-        [`${seeded.clinicId}:${W2.toISOString()}`, "paid", 8_000],
-        [`${seeded.clinicId}:${W3.toISOString()}`, "paid", 3_000],
+        [`${seeded.clinicId}:${W2.toISOString()}`, "paid", 10_400],
+        [`${seeded.clinicId}:${W3.toISOString()}`, "paid", 5_200],
       ].sort(),
     );
     expect((await ledgerOf(seeded.clinicId)).map((l) => l.status)).toEqual([
@@ -841,16 +840,16 @@ describeDb("an interval change after the start", () => {
       windowEnd: A_NOW.toISOString(),
       chatConversationsCount: 30,
       chatBlocksCount: 1,
-      amountCents: 3_000,
+      amountCents: 5_200,
     });
   });
 
   test("monthly to annual mid-period: the window re-opens as the first month of the new year, and nothing is handed over", async () => {
     const seeded = await seedBilling("iv-join-annual", {
-      bought: "web-voice",
+      bought: "voice-webchat-1000-1000",
       inService: ["web", "voice"],
     });
-    startedWorld(seeded, { bought: "web-voice", billed: "web-voice" });
+    startedWorld(seeded, { bought: "voice-webchat-1000-1000", billed: "voice-webchat-1000-1000" });
     await inTenant(seeded.clinicId, (c) =>
       c.query(
         `update entitlements set used_voice_minutes = 300, used_chat_conversations = 200 where clinic_id = $1`,
@@ -868,7 +867,7 @@ describeDb("an interval change after the start", () => {
       await changePlan(
         {
           clinicId: seeded.clinicId,
-          planId: "web-voice",
+          planId: "voice-webchat-1000-1000",
           interval: "year",
           requestId: "req-join-annual",
           actorLabel: "owner@clinic.test",

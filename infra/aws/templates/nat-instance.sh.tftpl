@@ -1,0 +1,83 @@
+#!/bin/bash
+# The NAT instance's first boot (nat.tf). Amazon Linux 2023, arm64.
+#
+# It forwards new connections from the VPC to TCP 443 and nothing else, and
+# rewrites their source to its own address on the way out. It never sees
+# inside them: every one is the app's own TLS to Stripe, Meta, Anthropic,
+# Resend, Google or an AWS API. The instance accepts no connection of its own:
+# no SSH, no key pair, no instance role, no agent.
+#
+# Rendered by Terraform with the VPC's CIDR; the doubled dollar signs are
+# shell variables Terraform leaves alone. Generation ${generation}: bumping
+# nat_instance_generation changes this file, which replaces the instance.
+set -euo pipefail
+
+vpc_cidr="${vpc_cidr}"
+
+# Security updates. AL2023 locks dnf to the release the image was built from,
+# so nothing would ever arrive without moving it to "latest". dnf-automatic
+# then installs security updates daily; a kernel update waits for the next
+# replacement of the instance (README, "The NAT instance").
+echo latest >/etc/dnf/vars/releasever
+
+# The address the instance launched with is its way out, so packages can be
+# fetched at once; the loop rides out the seconds before the network is up.
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  if dnf -y -q install nftables dnf-automatic; then break; fi
+  if [ "$attempt" = 10 ]; then echo "healdesk-nat: package install failed" >&2; exit 1; fi
+  sleep 15
+done
+
+cat >/etc/sysctl.d/90-healdesk-nat.conf <<'SYSCTL'
+net.ipv4.ip_forward = 1
+# Packets arrive and leave on the same interface; without these the kernel
+# would tell the tasks to bypass it, which the VPC router would then drop.
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.default.send_redirects = 0
+SYSCTL
+sysctl --system >/dev/null
+
+# "default via 10.40.0.1 dev ens5 ...": the fifth field. Read without awk,
+# which the minimal image need not carry.
+read -r _ _ _ _ iface _ < <(ip -o -4 route show to default)
+if [ -z "$${iface:-}" ]; then echo "healdesk-nat: no default route" >&2; exit 1; fi
+
+cat >/etc/sysconfig/nftables.conf <<NFT
+flush ruleset
+
+table inet filter {
+  chain input {
+    type filter hook input priority 0; policy drop;
+    iif "lo" accept
+    ct state established,related accept
+    # DHCP lease renewals.
+    udp sport 67 udp dport 68 accept
+  }
+
+  chain forward {
+    type filter hook forward priority 0; policy drop;
+    ct state established,related accept
+    ip saddr $${vpc_cidr} tcp dport 443 ct state new accept
+  }
+
+  chain output {
+    type filter hook output priority 0; policy accept;
+  }
+}
+
+table ip nat {
+  chain postrouting {
+    type nat hook postrouting priority 100;
+    oifname "$${iface}" ip saddr $${vpc_cidr} masquerade
+  }
+}
+NFT
+
+systemctl enable --now nftables.service
+nft list ruleset >/dev/null
+
+sed -i -e 's/^upgrade_type *=.*/upgrade_type = security/' \
+  -e 's/^apply_updates *=.*/apply_updates = yes/' /etc/dnf/automatic.conf
+systemctl enable --now dnf-automatic.timer
+
+echo "healdesk-nat: forwarding 443 from $${vpc_cidr} out of $${iface}"

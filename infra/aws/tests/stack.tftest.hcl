@@ -55,6 +55,22 @@ mock_provider "aws" {
     }
   }
 
+  # The NAT instance's interface and the tasks' security group, so the route
+  # tables and the instance's ingress rule can be checked against them.
+  override_resource {
+    target = aws_instance.nat
+    values = {
+      primary_network_interface_id = "eni-0bbbbbbbbbbbbbbbb"
+    }
+  }
+
+  override_resource {
+    target = aws_security_group.tasks
+    values = {
+      id = "sg-0aaaaaaaaaaaaaaaa"
+    }
+  }
+
   override_resource {
     target = aws_db_instance.main
     values = {
@@ -158,6 +174,13 @@ mock_provider "aws" {
     }
   }
 
+  # NAT gateways' ids, so the gateway-mode run can see the routes use them.
+  mock_resource "aws_nat_gateway" {
+    defaults = {
+      id = "nat-0cccccccccccccccc"
+    }
+  }
+
   mock_resource "aws_wafv2_web_acl" {
     defaults = {
       arn = "arn:aws:wafv2:us-east-1:865780386982:regional/webacl/healdesk-production/00000000-0000-0000-0000-000000000000"
@@ -195,10 +218,22 @@ variables {
 run "production_defaults" {
   command = plan
 
-  # --- web task: the app and the TLS sidecar, environment versus secrets ---
+  # --- web task: the app, the TLS sidecar and the shared worker, environment versus secrets ---
   assert {
-    condition     = toset([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name]) == toset(["app", "tls-proxy"])
-    error_message = "The web task must run exactly the app and the tls-proxy sidecar."
+    condition     = toset([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name]) == toset(["app", "tls-proxy", "worker"])
+    error_message = "The web task must run exactly the app, the tls-proxy sidecar and, with worker_placement shared (the default), the worker."
+  }
+
+  # The worker in the web task is the worker task's container under its own
+  # name: the same command, environment, secrets, stop timeout and log group,
+  # essential so its loss replaces the task.
+  assert {
+    condition = (
+      merge(one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]), { name = "app" }) ==
+      jsondecode(aws_ecs_task_definition.worker.container_definitions)[0] &&
+      one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]).essential
+    )
+    error_message = "The web task's worker container must be the worker task's container, renamed, and essential."
   }
 
   assert {
@@ -206,8 +241,8 @@ run "production_defaults" {
       for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : e.name
       ]) == toset([
       "AWS_REGION", "BETTER_AUTH_URL", "HEALDESK_ADMIN_EMAIL", "HEALDESK_APP_URL", "HEALDESK_EMAIL_FROM",
-      "HEALDESK_EMAIL_TRANSPORT", "HEALDESK_KMS_KEY_ID", "HEALDESK_KMS_PROVIDER", "HOSTNAME", "KEEP_ALIVE_TIMEOUT",
-      "NODE_ENV", "NODE_EXTRA_CA_CERTS", "PORT",
+      "HEALDESK_EMAIL_TRANSPORT", "HEALDESK_KMS_KEY_ID", "HEALDESK_KMS_PROVIDER", "HEALDESK_SES_CONFIGURATION_SET",
+      "HOSTNAME", "KEEP_ALIVE_TIMEOUT", "NODE_ENV", "NODE_EXTRA_CA_CERTS", "PORT",
     ])
     error_message = "The web app container's plain environment differs from contract section 3 and the integration brief."
   }
@@ -278,7 +313,8 @@ run "production_defaults" {
   assert {
     condition = toset([for e in jsondecode(aws_ecs_task_definition.worker.container_definitions)[0].environment : e.name]) == toset([
       "AWS_REGION", "BETTER_AUTH_URL", "HEALDESK_ADMIN_EMAIL", "HEALDESK_APP_URL", "HEALDESK_EMAIL_FROM",
-      "HEALDESK_EMAIL_TRANSPORT", "HEALDESK_KMS_KEY_ID", "HEALDESK_KMS_PROVIDER", "NODE_ENV", "NODE_EXTRA_CA_CERTS",
+      "HEALDESK_EMAIL_TRANSPORT", "HEALDESK_KMS_KEY_ID", "HEALDESK_KMS_PROVIDER", "HEALDESK_SES_CONFIGURATION_SET",
+      "NODE_ENV", "NODE_EXTRA_CA_CERTS",
     ])
     error_message = "The worker's plain environment differs from contract section 3 and the integration brief."
   }
@@ -393,20 +429,31 @@ run "production_defaults" {
   }
 
   assert {
-    condition     = aws_ecs_task_definition.web.runtime_platform[0].cpu_architecture == "X86_64" && aws_ecs_task_definition.web.cpu == "512" && aws_ecs_task_definition.web.memory == "1024"
-    error_message = "Web must be 0.5 vCPU / 1 GB on X86_64."
+    condition     = aws_ecs_task_definition.web.runtime_platform[0].cpu_architecture == "ARM64" && aws_ecs_task_definition.web.cpu == "256" && aws_ecs_task_definition.web.memory == "1024"
+    error_message = "Web must be 0.25 vCPU / 1 GB on ARM64."
   }
 
-  # --- services ---
+  # Every task definition declares the one architecture the images are built for.
+  assert {
+    condition = alltrue([
+      for d in concat(
+        [aws_ecs_task_definition.web, aws_ecs_task_definition.worker, aws_ecs_task_definition.destroy_due, aws_ecs_task_definition.patient_export, aws_ecs_task_definition.migrate, aws_ecs_task_definition.db_bootstrap],
+        values(aws_ecs_task_definition.ops_script),
+      ) : d.runtime_platform[0].cpu_architecture == "ARM64"
+    ])
+    error_message = "Every task definition must declare task_cpu_architecture: deploy-app.yml builds one set of images for all of them."
+  }
+
+  # --- services: web only; the worker shares its task ---
   assert {
     condition = (
-      aws_ecs_service.web.desired_count == 0 && aws_ecs_service.worker.desired_count == 0 &&
-      !aws_ecs_service.web.enable_execute_command && !aws_ecs_service.worker.enable_execute_command &&
+      aws_ecs_service.web.desired_count == 0 &&
+      !aws_ecs_service.web.enable_execute_command &&
       aws_ecs_service.web.deployment_circuit_breaker[0].enable && aws_ecs_service.web.deployment_circuit_breaker[0].rollback &&
-      aws_ecs_service.worker.deployment_circuit_breaker[0].enable && aws_ecs_service.worker.deployment_circuit_breaker[0].rollback &&
-      aws_ecs_service.web.tags["DesiredCount"] == "1" && aws_ecs_service.worker.tags["DesiredCount"] == "1"
+      aws_ecs_service.web.tags["DesiredCount"] == "1" &&
+      length(aws_ecs_service.worker) == 0 && length(aws_cloudwatch_metric_alarm.worker_running) == 0
     )
-    error_message = "Services start at 0 tasks, with the circuit breaker on, ECS Exec off and the DesiredCount tags for the first deploy."
+    error_message = "The web service starts at 0 tasks, with the circuit breaker on, ECS Exec off and its DesiredCount tag; a shared worker has no service and no alarm of its own."
   }
 
   assert {
@@ -542,21 +589,65 @@ run "production_defaults" {
     error_message = "The listener rules are in the wrong order or over ALB's per-rule limits."
   }
 
-  # --- WAF ---
+  # --- WAF: off in the lean default (the owner's choice of 13 October 2026) ---
+  assert {
+    condition     = length(aws_wafv2_web_acl.main) == 0 && length(aws_wafv2_web_acl_association.alb) == 0
+    error_message = "enable_waf is false by default: no web ACL and no association."
+  }
+
+  # --- egress: the NAT instance, no NAT gateway ---
   assert {
     condition = (
-      length(aws_wafv2_web_acl.main[0].rule) == 1 &&
-      one(aws_wafv2_web_acl.main[0].rule).action[0].block[0].custom_response[0].response_code == 429 &&
-      one(aws_wafv2_web_acl.main[0].rule).statement[0].rate_based_statement[0].limit == 2000 &&
-      length(one(aws_wafv2_web_acl.main[0].rule).statement[0].managed_rule_group_statement) == 0
+      length(aws_nat_gateway.main) == 0 && length(aws_eip.nat) == 0 &&
+      length(aws_instance.nat) == 1 &&
+      aws_instance.nat[0].instance_type == "t4g.nano" &&
+      !aws_instance.nat[0].source_dest_check &&
+      aws_instance.nat[0].associate_public_ip_address &&
+      aws_instance.nat[0].metadata_options[0].http_tokens == "required" &&
+      aws_instance.nat[0].credit_specification[0].cpu_credits == "standard" &&
+      aws_instance.nat[0].root_block_device[0].encrypted
     )
-    error_message = "The web ACL has one rate-based rule answering 429, and no managed groups."
+    error_message = "The lean egress is one t4g.nano NAT instance with its own public address: forwarding on, IMDSv2 only, capped credits and an encrypted disk."
+  }
+
+  assert {
+    condition = alltrue([
+      for rt in aws_route_table.private : one(rt.route).network_interface_id == aws_instance.nat[0].primary_network_interface_id && one(rt.route).nat_gateway_id == null
+    ])
+    error_message = "Both private route tables must send 0.0.0.0/0 to the NAT instance's interface."
+  }
+
+  # The instance takes only HTTPS from the tasks and sends only HTTPS out.
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.nat_from_tasks[0].from_port == 443 &&
+      aws_vpc_security_group_ingress_rule.nat_from_tasks[0].to_port == 443 &&
+      aws_vpc_security_group_ingress_rule.nat_from_tasks[0].referenced_security_group_id == aws_security_group.tasks.id &&
+      aws_vpc_security_group_egress_rule.nat_https[0].from_port == 443 &&
+      aws_vpc_security_group_egress_rule.nat_https[0].to_port == 443
+    )
+    error_message = "The NAT instance's security group admits 443 from the tasks only and sends 443 only."
+  }
+
+  assert {
+    condition = (
+      strcontains(aws_instance.nat[0].user_data, "ip saddr $${vpc_cidr} tcp dport 443 ct state new accept") &&
+      strcontains(aws_instance.nat[0].user_data, "vpc_cidr=\"10.40.0.0/16\"") &&
+      strcontains(aws_instance.nat[0].user_data, "policy drop") &&
+      length(aws_cloudwatch_metric_alarm.nat_instance_status) == 1
+    )
+    error_message = "The NAT instance's own firewall forwards new connections to 443 from the VPC and drops the rest, and its status checks are alarmed."
   }
 
   # --- database ---
   assert {
+    condition     = aws_cloudwatch_metric_alarm.rds_freeable_memory.threshold == 134217728
+    error_message = "On a db.t4g.micro the freeable-memory alarm fires below 128 MiB, an eighth of the instance."
+  }
+
+  assert {
     condition = (
-      aws_db_instance.main.engine_version == "17.11" && aws_db_instance.main.instance_class == "db.t4g.small" &&
+      aws_db_instance.main.engine_version == "17.11" && aws_db_instance.main.instance_class == "db.t4g.micro" &&
       aws_db_instance.main.allocated_storage == 20 && aws_db_instance.main.storage_type == "gp3" &&
       aws_db_instance.main.storage_encrypted && aws_db_instance.main.kms_key_id == aws_kms_key.main.arn &&
       !aws_db_instance.main.multi_az && !aws_db_instance.main.publicly_accessible &&
@@ -678,13 +769,13 @@ run "production_defaults" {
   # --- IAM: the app's task role, lock labels on (the default) ---
   assert {
     condition = (
-      length(data.aws_iam_policy_document.app_task.statement) == 1 &&
-      toset(one(data.aws_iam_policy_document.app_task.statement).actions) == toset(["kms:GenerateDataKey", "kms:Decrypt", "kms:Encrypt"]) &&
-      length([for c in one(data.aws_iam_policy_document.app_task.statement).condition : c if c.test == "Null" && c.variable == "kms:ViaService" && contains(c.values, "true")]) == 1 &&
-      length([for c in one(data.aws_iam_policy_document.app_task.statement).condition : c if c.test == "ForAllValues:StringEquals" && c.variable == "kms:EncryptionContextKeys" && toset(c.values) == toset(["healdesk:clinic", "healdesk:login"])]) == 1 &&
-      toset([for c in one(data.aws_iam_policy_document.app_task.statement).condition : c.variable if c.test == "Null" && contains(c.values, "false")]) == toset(["kms:EncryptionContext:healdesk:clinic", "kms:EncryptionContext:healdesk:login"])
+      toset([for st in data.aws_iam_policy_document.app_task.statement : st.sid]) == toset(["CredentialVault", "SendThroughThePhiConfigurationSet", "ReadThePhiConfigurationSet"]) &&
+      toset(one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).actions) == toset(["kms:GenerateDataKey", "kms:Decrypt", "kms:Encrypt"]) &&
+      length([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c if c.test == "Null" && c.variable == "kms:ViaService" && contains(c.values, "true")]) == 1 &&
+      length([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c if c.test == "ForAllValues:StringEquals" && c.variable == "kms:EncryptionContextKeys" && toset(c.values) == toset(["healdesk:clinic", "healdesk:login"])]) == 1 &&
+      toset([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c.variable if c.test == "Null" && contains(c.values, "false")]) == toset(["kms:EncryptionContext:healdesk:clinic", "kms:EncryptionContext:healdesk:login"])
     )
-    error_message = "With lock labels on, the app's KMS calls need both labels, no other context key, and no AWS service in between; and the role has nothing else while S3 and SES are off."
+    error_message = "With lock labels on, the app's KMS calls need both labels, no other context key, and no AWS service in between; besides them the role may only send through the PHI configuration set and read it (SES on, the transcript bucket off)."
   }
 
   # --- IAM: the deploy role trusts main, run by the owner ---
@@ -842,14 +933,16 @@ run "production_defaults" {
     error_message = "The idle-in-transaction alarm reads Performance Insights' counter for this instance and fires past five minutes."
   }
 
-  # --- the dormant pieces are off ---
+  # --- SES on for the transcript email; the transcript bucket stays off ---
   assert {
     condition = (
-      length(aws_s3_bucket.transcripts) == 0 && length(aws_sesv2_configuration_set.phi) == 0 &&
-      length(aws_sesv2_email_identity.main) == 0 && length(cloudflare_dns_record.ses_dkim) == 0 &&
-      output.transcript_bucket == null && output.ses_configuration_set == null
+      length(aws_s3_bucket.transcripts) == 0 && output.transcript_bucket == null &&
+      length(aws_sesv2_configuration_set.phi) == 1 &&
+      one(aws_sesv2_configuration_set.phi[0].delivery_options).tls_policy == "REQUIRE" &&
+      length(aws_sesv2_email_identity.main) == 1 &&
+      output.ses_configuration_set == "healdesk-production-phi"
     )
-    error_message = "No transcript bucket and no SES until their flags are on."
+    error_message = "SES is on (a TLS-required configuration set and the domain identity) for the emailed transcripts, and no transcript bucket exists: transcripts are never stored."
   }
 
   assert {
@@ -871,9 +964,9 @@ run "lock_labels_off" {
 
   assert {
     condition = (
-      length([for c in one(data.aws_iam_policy_document.app_task.statement).condition : c if c.test == "Null" && contains(c.values, "false")]) == 0 &&
-      length([for c in one(data.aws_iam_policy_document.app_task.statement).condition : c if c.test == "Null" && c.variable == "kms:ViaService"]) == 1 &&
-      length([for c in one(data.aws_iam_policy_document.app_task.statement).condition : c if c.test == "ForAllValues:StringEquals" && c.variable == "kms:EncryptionContextKeys"]) == 1
+      length([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c if c.test == "Null" && contains(c.values, "false")]) == 0 &&
+      length([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c if c.test == "Null" && c.variable == "kms:ViaService"]) == 1 &&
+      length([for c in one([for st in data.aws_iam_policy_document.app_task.statement : st if st.sid == "CredentialVault"]).condition : c if c.test == "ForAllValues:StringEquals" && c.variable == "kms:EncryptionContextKeys"]) == 1
     )
     error_message = "With lock labels off the labels are no longer required, but no AWS service's context and no call through a service is allowed either."
   }
@@ -973,6 +1066,92 @@ run "transcript_bucket_and_ses_on" {
   }
 }
 
+# The shape first built, every lean switch turned back: the worker as its own
+# service with its alarm, NAT gateways, the WAF, X86_64 and the larger sizes.
+run "separate_worker_nat_gateway_and_waf" {
+  command = plan
+
+  variables {
+    worker_placement      = "separate"
+    nat_mode              = "gateway"
+    nat_gateways          = 2
+    enable_waf            = true
+    task_cpu_architecture = "X86_64"
+    web_cpu               = 512
+    web_memory            = 1024
+    db_instance_class     = "db.t4g.small"
+  }
+
+  assert {
+    condition     = toset([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name]) == toset(["app", "tls-proxy"])
+    error_message = "With worker_placement separate the web task runs only the app and the sidecar."
+  }
+
+  assert {
+    condition = (
+      length(aws_ecs_service.worker) == 1 &&
+      aws_ecs_service.worker[0].desired_count == 0 &&
+      !aws_ecs_service.worker[0].enable_execute_command &&
+      aws_ecs_service.worker[0].deployment_circuit_breaker[0].enable && aws_ecs_service.worker[0].deployment_circuit_breaker[0].rollback &&
+      aws_ecs_service.worker[0].tags["DesiredCount"] == "1" &&
+      aws_ecs_service.worker[0].task_definition == aws_ecs_task_definition.worker.arn &&
+      length(aws_cloudwatch_metric_alarm.worker_running) == 1
+    )
+    error_message = "A separate worker is its own service at 0 tasks, circuit breaker on, ECS Exec off, with its DesiredCount tag and its below-desired alarm."
+  }
+
+  assert {
+    condition     = aws_ecs_task_definition.web.runtime_platform[0].cpu_architecture == "X86_64" && aws_ecs_task_definition.web.cpu == "512" && aws_ecs_task_definition.web.memory == "1024"
+    error_message = "Web follows task_cpu_architecture, web_cpu and web_memory."
+  }
+
+  assert {
+    condition = (
+      length(aws_nat_gateway.main) == 2 && length(aws_eip.nat) == 2 &&
+      length(aws_instance.nat) == 0 && length(aws_security_group.nat) == 0 && length(aws_cloudwatch_metric_alarm.nat_instance_status) == 0 &&
+      alltrue([for rt in aws_route_table.private : one(rt.route).nat_gateway_id != null && one(rt.route).network_interface_id == null])
+    )
+    error_message = "nat_mode gateway builds nat_gateways gateways, routes each private subnet to one, and no NAT instance."
+  }
+
+  assert {
+    condition = (
+      length(aws_wafv2_web_acl.main[0].rule) == 1 &&
+      one(aws_wafv2_web_acl.main[0].rule).action[0].block[0].custom_response[0].response_code == 429 &&
+      one(aws_wafv2_web_acl.main[0].rule).statement[0].rate_based_statement[0].limit == 2000 &&
+      length(one(aws_wafv2_web_acl.main[0].rule).statement[0].managed_rule_group_statement) == 0 &&
+      length(aws_wafv2_web_acl_association.alb) == 1
+    )
+    error_message = "With enable_waf the web ACL has one rate-based rule answering 429, no managed groups, and is attached to the load balancer."
+  }
+
+  assert {
+    condition     = aws_db_instance.main.instance_class == "db.t4g.small" && aws_cloudwatch_metric_alarm.rds_freeable_memory.threshold == 268435456
+    error_message = "On a db.t4g.small the freeable-memory alarm stays at 256 MiB."
+  }
+}
+
+run "refuses_a_web_size_fargate_does_not_offer" {
+  command = plan
+
+  variables {
+    web_cpu    = 256
+    web_memory = 4096
+  }
+
+  expect_failures = [var.web_memory]
+}
+
+run "refuses_another_worker_placement" {
+  command = plan
+
+  variables {
+    worker_placement = "both"
+  }
+
+  expect_failures = [var.worker_placement]
+}
+
 run "plain_http_to_tasks" {
   command = plan
 
@@ -982,8 +1161,8 @@ run "plain_http_to_tasks" {
   }
 
   assert {
-    condition     = [for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name] == ["app"]
-    error_message = "Without alb_to_task_tls there is no sidecar."
+    condition     = [for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name] == ["app", "worker"]
+    error_message = "Without alb_to_task_tls there is no sidecar: the app first, then the shared worker."
   }
 
   assert {

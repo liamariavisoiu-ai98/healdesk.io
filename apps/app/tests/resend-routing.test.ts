@@ -42,6 +42,7 @@ const KEYS = [
   "HEALDESK_EMAIL_TRANSPORT",
   "RESEND_API_KEY",
   "HEALDESK_EMAIL_FROM",
+  "HEALDESK_SES_CONFIGURATION_SET",
 ] as const;
 
 let saved: Record<string, string | undefined> = {};
@@ -117,6 +118,23 @@ describe("getTransport routes by class first", () => {
     process.env.HEALDESK_EMAIL_TRANSPORT = "ses";
     expect(getTransport("none").name).toBe("ses");
     expect(getTransport("may-carry-phi").name).toBe("ses");
+  });
+
+  // The emailed transcript (owner, 13 October 2026): with SES set up for PHI
+  // (infra/aws's enable_ses names the configuration set), the PHI class goes
+  // to SES while everything else stays on Resend. The class still decides;
+  // the PHI class can still reach nothing but SES.
+  test("with the configuration set named, PHI goes to SES and the rest stays on Resend", () => {
+    process.env.HEALDESK_EMAIL_TRANSPORT = "resend";
+    process.env.HEALDESK_SES_CONFIGURATION_SET = "healdesk-production-phi";
+    expect(getTransport("may-carry-phi").name).toBe("ses");
+    expect(getTransport("none").name).toBe("resend");
+  });
+
+  test("a class that is not exactly none routes as PHI there too", () => {
+    process.env.HEALDESK_EMAIL_TRANSPORT = "resend";
+    process.env.HEALDESK_SES_CONFIGURATION_SET = "healdesk-production-phi";
+    expect(getTransport("phi" as never).name).toBe("ses");
   });
 
   test("unset still falls to the console stub, for both classes", () => {

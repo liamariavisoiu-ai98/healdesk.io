@@ -1,7 +1,9 @@
 name: Deploy apps/app (AWS)
 
 # Builds apps/app and its two helper images, migrates the database and rolls
-# the web and worker services on ECS, by hand, from main. It runs as the
+# the web service on ECS, and the worker service when the worker has its own
+# (infra/aws, worker_placement = "separate"; by default it is a container in
+# the web task and moves with it), by hand, from main. It runs as the
 # Terraform-made role healdesk-production-github-deploy, assumed with GitHub's
 # OIDC token, and AWS gives that role only to a run of this repository on
 # main started by the owner: the role's trust policy (infra/aws/iam.tf) checks
@@ -47,9 +49,12 @@ name: Deploy apps/app (AWS)
 #
 # Everything is found at run time rather than copied in: the registry from
 # the account, each task definition from its family's latest revision (which
-# Terraform writes), and the subnets and security group for one-off tasks from
-# the web service. The workflow swaps images and registers new revisions;
-# Terraform owns everything else about them.
+# Terraform writes), the subnets and security group for one-off tasks from
+# the web service, where the worker runs from whether its service exists, and
+# the platform to build for from the web task definition's CPU architecture
+# (task_cpu_architecture: ARM64 by default, built here under emulation). The
+# workflow swaps images and registers new revisions; Terraform owns everything
+# else about them.
 #
 # Nothing this job prints comes from inside a container. A one-off task that
 # fails is reported by its exit code and ECS's stopped reason, with the name of
@@ -108,8 +113,10 @@ env:
 jobs:
   deploy:
     name: ${{ inputs.rollback_to != '' && 'rollback' || (inputs.restart_only && 'restart' || 'deploy') }}
-    # x86_64, matching the task definitions' LINUX/X86_64 runtime platform, so
-    # the native modules npm installs in the image are the ones Fargate runs.
+    # An x86_64 runner. The images are built for the platform the task
+    # definitions declare (see "Read the services"), under QEMU when that is
+    # arm64, so the native modules npm installs in the image are the ones
+    # Fargate runs.
     runs-on: ubuntu-latest
     timeout-minutes: 120
     # Named explicitly so every script runs with -e and -o pipefail; the
@@ -183,13 +190,18 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
 
-      # Terraform creates both services at 0 tasks, so nothing crash-loops
-      # before an image exists. Both still at 0 means nothing has been
+      # Terraform creates the services at 0 tasks, so nothing crash-loops
+      # before an image exists. All of them still at 0 means nothing has been
       # deployed: this run must bootstrap the database and migrate, and
       # brings each service up, after the migrations have passed, to the
       # count Terraform records in its DesiredCount tag (web_desired and
       # worker_desired, 1 by default). A service found at 0 beside a running
       # one is brought up the same way; one already running keeps its count.
+      #
+      # The worker service exists only when the worker has its own
+      # (worker_placement = "separate"). Missing, the worker is the web
+      # task's "worker" container, which "Check the task definitions" then
+      # requires, so a web task with no worker anywhere is refused.
       - name: Read the services
         id: services
         env:
@@ -209,11 +221,22 @@ jobs:
             echo "::warning::The deploy role cannot read the services' tags, so a first deploy starts one task of each."
             out=$(describe)
           fi
-          active=$(jq '[.services[] | select(.status == "ACTIVE")] | length' <<<"$out")
-          if [ "$active" != 2 ]; then
-            echo "::error::$CLUSTER does not have both $WEB_SERVICE and $WORKER_SERVICE active. Run infra.yml with apply first."
+          active() { jq -r --arg name "$1" '[.services[] | select(.serviceName == $name and .status == "ACTIVE")] | length' <<<"$out"; }
+          if [ "$(active "$WEB_SERVICE")" != 1 ]; then
+            echo "::error::$CLUSTER has no active $WEB_SERVICE. Run infra.yml with apply first."
             jq -r '.failures[]? | "  \(.arn): \(.reason)"' <<<"$out"
             exit 1
+          fi
+          worker_shared=false
+          if [ "$(active "$WORKER_SERVICE")" != 1 ]; then
+            # Missing, or deleted (ECS lists a deleted service as INACTIVE for
+            # a while), means "shared". One still DRAINING is being deleted by
+            # an apply that has not finished.
+            if jq -e --arg name "$WORKER_SERVICE" '[.services[] | select(.serviceName == $name and .status == "DRAINING")] | length > 0' <<<"$out" >/dev/null; then
+              echo "::error::$WORKER_SERVICE is still being deleted. Wait for the infra.yml apply that removed it, then deploy."
+              exit 1
+            fi
+            worker_shared=true
           fi
           field() { jq -er --arg name "$1" ".services[] | select(.serviceName == \$name) | $2" <<<"$out"; }
           first_count() {
@@ -225,9 +248,26 @@ jobs:
           family='.taskDefinition | split("/")[1] | split(":")[0]'
           network='.networkConfiguration.awsvpcConfiguration'
           web_desired=$(field "$WEB_SERVICE" .desiredCount)
-          worker_desired=$(field "$WORKER_SERVICE" .desiredCount)
           web_family=$(field "$WEB_SERVICE" "$family")
-          worker_family=$(field "$WORKER_SERVICE" "$family")
+          if [ "$worker_shared" = true ]; then
+            worker_desired=0
+            worker_family=""
+          else
+            worker_desired=$(field "$WORKER_SERVICE" .desiredCount)
+            worker_family=$(field "$WORKER_SERVICE" "$family")
+          fi
+          # Terraform's newest web revision says which CPU the tasks run on;
+          # every task definition declares the same one (infra/aws).
+          architecture=$(aws ecs describe-task-definition --task-definition "$web_family" \
+            --query 'taskDefinition.runtimePlatform.cpuArchitecture' --output text)
+          case "$architecture" in
+            ARM64) platform=linux/arm64 ;;
+            X86_64 | None) architecture=X86_64; platform=linux/amd64 ;;
+            *)
+              echo "::error::$web_family declares CPU architecture $architecture, which this workflow does not build for."
+              exit 1
+              ;;
+          esac
           subnets=$(field "$WEB_SERVICE" "$network.subnets | join(\",\")")
           security_groups=$(field "$WEB_SERVICE" "$network.securityGroups | join(\",\")")
           if [ -z "$subnets" ] || [ -z "$security_groups" ]; then
@@ -239,16 +279,25 @@ jobs:
           {
             echo "web_family=$web_family"
             echo "worker_family=$worker_family"
+            echo "worker_shared=$worker_shared"
             echo "web_desired=$web_desired"
             echo "worker_desired=$worker_desired"
             echo "web_count=$([ "$web_desired" != 0 ] || first_count "$WEB_SERVICE")"
-            echo "worker_count=$([ "$worker_desired" != 0 ] || first_count "$WORKER_SERVICE")"
+            if [ "$worker_shared" = false ]; then
+              echo "worker_count=$([ "$worker_desired" != 0 ] || first_count "$WORKER_SERVICE")"
+            fi
             echo "first_deploy=$first_deploy"
             echo "subnets=$subnets"
             echo "security_groups=$security_groups"
+            echo "architecture=$architecture"
+            echo "platform=$platform"
           } >>"$GITHUB_OUTPUT"
-          echo "$WEB_SERVICE: $web_desired task(s) desired ($web_family)"
-          echo "$WORKER_SERVICE: $worker_desired task(s) desired ($worker_family)"
+          echo "$WEB_SERVICE: $web_desired task(s) desired ($web_family, $architecture)"
+          if [ "$worker_shared" = true ]; then
+            echo "$WORKER_SERVICE: none; the worker runs inside each web task"
+          else
+            echo "$WORKER_SERVICE: $worker_desired task(s) desired ($worker_family)"
+          fi
           if [ "$MODE" != deploy ]; then
             if [ "$web_desired" = 0 ]; then
               echo "::error::Nothing has been deployed yet, so there is nothing to ${MODE/rollback/roll back}. Run a full deploy."
@@ -274,13 +323,28 @@ jobs:
       # One platform, no attestations: a single image manifest per tag, which
       # is what ECR's scan on push reads and what the lifecycle rule counts.
       # A re-run of the same commit finds its images already pushed and reuses
-      # them, since an immutable tag cannot be pushed twice.
+      # them, since an immutable tag cannot be pushed twice; so the tag names
+      # one architecture's image, and changing task_cpu_architecture needs a
+      # new commit to deploy, not a re-run of an old one. An arm64 build on
+      # this x86_64 runner runs under QEMU, from Ubuntu's own package: slower
+      # (the app's npm ci and next build take several times longer) but with
+      # no third-party action in the path that builds the PHI host's image.
       - name: Build and push the images
         id: images
         if: ${{ steps.run.outputs.mode == 'deploy' }}
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
+          PLATFORM: ${{ steps.services.outputs.platform }}
         run: |
+          if [ "$PLATFORM" = linux/arm64 ] && [ "$(uname -m)" != aarch64 ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq qemu-user-static
+            if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
+              echo "::error::qemu-user-static installed, but no arm64 binfmt handler is registered: an arm64 image cannot be built on this runner."
+              exit 1
+            fi
+          fi
+          echo "Building for $PLATFORM"
           build() {
             local output=$1 repo=$2 dockerfile=$3 context=$4
             local ref="$REGISTRY/$repo:$IMAGE_TAG" digest
@@ -292,7 +356,7 @@ jobs:
             if [[ "$digest" == sha256:* ]]; then
               echo "$ref is already in the registry; reusing it"
             else
-              docker buildx build --platform linux/amd64 --provenance=false --sbom=false --pull \
+              docker buildx build --platform "$PLATFORM" --provenance=false --sbom=false --pull \
                 --file "$dockerfile" --tag "$ref" --push "$context"
             fi
             echo "$output=$ref" >>"$GITHUB_OUTPUT"
@@ -335,7 +399,8 @@ jobs:
             echo "$2: from $(jq -r '"\(.family):\(.revision)"' "$RUNNER_TEMP/$2.json")"
           }
           fetch "$WEB_FAMILY" web
-          fetch "$WORKER_FAMILY" worker
+          # A shared worker has no family of its own to deploy: it is in web.
+          if [ -n "$WORKER_FAMILY" ]; then fetch "$WORKER_FAMILY" worker; fi
           fetch "$DESTROY_DUE_FAMILY" destroy-due
           fetch "$PATIENT_EXPORT_FAMILY" patient-export
           fetch "$ERASE_PERSON_FAMILY" erase-person
@@ -343,9 +408,13 @@ jobs:
           fetch "$REAPPLY_ERASURES_FAMILY" reapply-erasures
           if [ "$MIGRATE" = true ]; then fetch "$MIGRATE_FAMILY" migrate; fi
           if [ "$BOOTSTRAP_DB" = true ]; then fetch "$DB_BOOTSTRAP_FAMILY" db-bootstrap; fi
-          # The TLS sidecar is in the web task only while alb_to_task_tls is on.
+          # The TLS sidecar is in the web task only while alb_to_task_tls is on,
+          # and the worker only while it shares the task.
           if jq -e '.containerDefinitions[] | select(.name == "tls-proxy")' "$RUNNER_TEMP/web.json" >/dev/null; then
             echo "web_has_tls_proxy=true" >>"$GITHUB_OUTPUT"
+          fi
+          if jq -e '.containerDefinitions[] | select(.name == "worker")' "$RUNNER_TEMP/web.json" >/dev/null; then
+            echo "web_has_worker=true" >>"$GITHUB_OUTPUT"
           fi
 
       # For each family, the newest revision that ran the commit asked for and
@@ -353,8 +422,9 @@ jobs:
       # this account's registry, tagged with that one full commit, and still
       # in ECR. Terraform's own revisions never qualify: their placeholder tag
       # is not a commit and was never pushed. Web decides the commit (a short
-      # SHA must match exactly one); the worker must have run the same one,
-      # so the two never run different code. The last 50 revisions of each
+      # SHA must match exactly one); a worker with its own service must have
+      # run the same one, so the two never run different code. A shared
+      # worker is a container of the web revision, so it moves with it. The last 50 revisions of each
       # family are searched; ECR keeps 30 images, so anything older has lost
       # its image anyway.
       - name: Choose the rollback revisions
@@ -446,15 +516,18 @@ jobs:
           fi
           commit=${commits[0]}
           choose "$WEB_FAMILY" web "$commit"
-          revisions "$WORKER_FAMILY" >"$RUNNER_TEMP/worker-revisions"
-          choose "$WORKER_FAMILY" worker "$commit"
+          if [ -n "$WORKER_FAMILY" ]; then
+            revisions "$WORKER_FAMILY" >"$RUNNER_TEMP/worker-revisions"
+            choose "$WORKER_FAMILY" worker "$commit"
+          fi
           echo "commit=$commit" >>"$GITHUB_OUTPUT"
 
       # Defence in depth behind the trust policy: whatever registered the
       # revision this run starts from (deploy) or returns to (rollback), it
       # must have the shape Terraform gives its family, or nothing is
       # registered or moved. Web: app, plus tls-proxy while the hop is
-      # encrypted; worker, destroy-due, patient-export, erase-person,
+      # encrypted, plus worker exactly when the worker has no service of its
+      # own; worker, destroy-due, patient-export, erase-person,
       # amend-contact and migrate: app; db-bootstrap: db-admin. The execution
       # role everywhere, the app task role on web, worker and destroy-due, the
       # export task role on patient-export, none on the two operator scripts,
@@ -464,11 +537,16 @@ jobs:
       # No container but migrate's and db-bootstrap's may carry what
       # Terraform refuses the app tasks
       # (never_on_app_tasks in infra/aws/locals.tf), and only db-bootstrap may
-      # name a Secrets Manager secret: the RDS master user's.
+      # name a Secrets Manager secret: the RDS master user's. On a deploy,
+      # every one must also declare the CPU architecture the images were
+      # just built for.
       - name: Check the task definitions
         if: ${{ steps.run.outputs.mode == 'deploy' || steps.run.outputs.mode == 'rollback' }}
         env:
           NEVER_ON_APP_TASKS: MIGRATION_DATABASE_URL HEALDESK_LOCAL_KEK HEALDESK_DIRECT_BOOKING_ENABLED HEALDESK_PHASE_TWO_ATTRIBUTION BETTER_AUTH_SECRETS
+          MODE: ${{ steps.run.outputs.mode }}
+          WORKER_SHARED: ${{ steps.services.outputs.worker_shared }}
+          ARCHITECTURE: ${{ steps.services.outputs.architecture }}
         run: |
           role="arn:aws:iam::$AWS_ACCOUNT_ID:role/$CLUSTER"
           failed=0
@@ -480,7 +558,14 @@ jobs:
             local label=$1 file="$RUNNER_TEMP/$1.json" names task_role found
             names=$(jq -c '[.containerDefinitions[].name] | sort' "$file")
             case "$label" in
-              web) [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names" ;;
+              web)
+                if [ "$WORKER_SHARED" = true ]; then
+                  [ "$names" = '["app","worker"]' ] || [ "$names" = '["app","tls-proxy","worker"]' ] \
+                    || refuse "$label" "$file" "containers $names (no worker service exists, so the web task must carry the worker)"
+                else
+                  [ "$names" = '["app"]' ] || [ "$names" = '["app","tls-proxy"]' ] || refuse "$label" "$file" "containers $names"
+                fi
+                ;;
               worker | destroy-due | patient-export | erase-person | amend-contact | reapply-erasures | migrate) [ "$names" = '["app"]' ] || refuse "$label" "$file" "containers $names" ;;
               db-bootstrap) [ "$names" = '["db-admin"]' ] || refuse "$label" "$file" "containers $names" ;;
             esac
@@ -505,6 +590,10 @@ jobs:
                 | select(.valueFrom | contains(":secretsmanager:")) | .name] | join(" ")' "$file")
               [ -z "$found" ] || refuse "$label" "$file" "reads $found from Secrets Manager, which only db-bootstrap may"
             fi
+            if [ "$MODE" = deploy ]; then
+              found=$(jq -r '.runtimePlatform.cpuArchitecture // "X86_64"' "$file")
+              [ "$found" = "$ARCHITECTURE" ] || refuse "$label" "$file" "declares $found, but the images were built for $ARCHITECTURE"
+            fi
           }
           for label in web worker destroy-due patient-export erase-person amend-contact reapply-erasures migrate db-bootstrap; do
             if [ -f "$RUNNER_TEMP/$label.json" ]; then check "$label"; fi
@@ -525,6 +614,7 @@ jobs:
         env:
           WEB_DESIRED: ${{ steps.services.outputs.web_desired }}
           WORKER_DESIRED: ${{ steps.services.outputs.worker_desired }}
+          WORKER_SHARED: ${{ steps.services.outputs.worker_shared }}
           WEB_TARGET: ${{ steps.rollback.outputs.web_task_definition }}
           WORKER_TARGET: ${{ steps.rollback.outputs.worker_task_definition }}
         run: |
@@ -558,8 +648,11 @@ jobs:
           services=()
           targets=()
           # A worker at 0 tasks has nothing to restart; a rollback still moves
-          # it, so whatever starts it next runs the same commit as web.
-          if [ "$WORKER_DESIRED" = 0 ] && [ -z "$WORKER_TARGET" ]; then
+          # it, so whatever starts it next runs the same commit as web. A
+          # shared worker is restarted or rolled back with web.
+          if [ "$WORKER_SHARED" = true ]; then
+            echo "The worker runs inside the web tasks and moves with them."
+          elif [ "$WORKER_DESIRED" = 0 ] && [ -z "$WORKER_TARGET" ]; then
             echo "::warning::$WORKER_SERVICE runs no tasks, so it was not restarted."
           else
             services+=("$WORKER_SERVICE")
@@ -598,9 +691,18 @@ jobs:
           container-name: tls-proxy
           image: ${{ steps.images.outputs.tls_proxy_image }}
 
+      - name: Render web (worker)
+        id: render-web-worker
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.taskdefs.outputs.web_has_worker == 'true' }}
+        uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
+        with:
+          task-definition: ${{ steps.render-web.outputs.task-definition || steps.render-web-app.outputs.task-definition }}
+          container-name: worker
+          image: ${{ steps.images.outputs.app_image }}
+
       - name: Render worker
         id: render-worker
-        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.worker_shared != 'true' }}
         uses: aws-actions/amazon-ecs-render-task-definition@8d79160660ad39c402a16e5fc7cd2a32e8f7d6b7 # v1.9.1
         with:
           task-definition: ${{ runner.temp }}/worker.json
@@ -765,10 +867,11 @@ jobs:
       # The worker first: old and new workers overlapping is safe (notices are
       # leased), and it should be on the new schema before the web tier is.
       # The action waits for stability and fails if the circuit breaker rolled
-      # the deployment back. An empty desired-count keeps the current one.
+      # the deployment back. An empty desired-count keeps the current one. A
+      # shared worker deploys with the web tier, in the same tasks.
       - name: Deploy the worker
         id: deploy-worker
-        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.services.outputs.worker_shared != 'true' }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
         with:
           task-definition: ${{ steps.render-worker.outputs.task-definition }}
@@ -784,7 +887,7 @@ jobs:
         if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/amazon-ecs-deploy-task-definition@c465972ecbd160473f22e683363b422a5412a3de # v2.6.3
         with:
-          task-definition: ${{ steps.render-web.outputs.task-definition || steps.render-web-app.outputs.task-definition }}
+          task-definition: ${{ steps.render-web-worker.outputs.task-definition || steps.render-web.outputs.task-definition || steps.render-web-app.outputs.task-definition }}
           cluster: ${{ env.CLUSTER }}
           service: ${{ env.WEB_SERVICE }}
           desired-count: ${{ steps.services.outputs.web_count }}
@@ -795,8 +898,8 @@ jobs:
       # Registered only, once both services run this commit's image: the
       # after-restore check (docs/handover.md, "Restoring") is run by hand,
       # with infra/aws/scripts/run-task.sh destroy-due, which picks the
-      # revision naming the image the worker runs. This role may register it
-      # but not run it.
+      # revision naming the image the worker runs (in the web task when the
+      # worker shares it). This role may register it but not run it.
       - name: Register destroy-due
         id: register-destroy-due
         if: ${{ steps.run.outputs.mode == 'deploy' }}
@@ -900,6 +1003,8 @@ jobs:
           MODE: ${{ steps.run.outputs.mode }}
           WEB_TASK: ${{ steps.deploy-web.outputs.task-definition-arn || steps.rollback.outputs.web_task_definition }}
           WORKER_TASK: ${{ steps.deploy-worker.outputs.task-definition-arn || steps.rollback.outputs.worker_task_definition }}
+          WORKER_SHARED: ${{ steps.services.outputs.worker_shared }}
+          ARCHITECTURE: ${{ steps.services.outputs.architecture }}
           DESTROY_DUE_TASK: ${{ steps.register-destroy-due.outputs.task-definition-arn }}
           PATIENT_EXPORT_TASK: ${{ steps.register-patient-export.outputs.task-definition-arn }}
           ERASE_PERSON_TASK: ${{ steps.register-erase-person.outputs.task-definition-arn }}
@@ -914,8 +1019,8 @@ jobs:
               deploy)
                 echo "### Deployed $GITHUB_SHA"
                 echo
-                echo "- web: ${WEB_TASK##*/}"
-                echo "- worker: ${WORKER_TASK##*/}"
+                echo "- web: ${WEB_TASK##*/} ($ARCHITECTURE)"
+                if [ "$WORKER_SHARED" = true ]; then echo "- worker: inside web"; else echo "- worker: ${WORKER_TASK##*/}"; fi
                 echo "- destroy-due: ${DESTROY_DUE_TASK##*/} (registered; run by hand after a restore)"
                 echo "- patient-export: ${PATIENT_EXPORT_TASK##*/} (registered; run by hand at offboarding)"
                 echo "- erase-person: ${ERASE_PERSON_TASK##*/}, amend-contact: ${AMEND_CONTACT_TASK##*/}, reapply-erasures: ${REAPPLY_ERASURES_TASK##*/} (registered; run by hand)"
@@ -926,7 +1031,7 @@ jobs:
                 echo "### Rolled back to $ROLLED_BACK_TO"
                 echo
                 echo "- web: ${WEB_TASK##*/}"
-                echo "- worker: ${WORKER_TASK##*/}"
+                if [ "$WORKER_SHARED" = true ]; then echo "- worker: inside web"; else echo "- worker: ${WORKER_TASK##*/}"; fi
                 echo "- migrations: not run (the schema stays where it is)"
                 echo
                 echo "Make main match before the next deploy (git revert), or it brings the bad commit back."

@@ -75,8 +75,41 @@ variable "vpc_cidr" {
   }
 }
 
+variable "nat_mode" {
+  description = "How the private subnets reach the internet (Stripe, Meta, Anthropic, Resend, Google, and AWS's own APIs). \"instance\", the lean default: one small EC2 instance in the first AZ that forwards HTTPS and nothing else, about $7 a month with its address against about $37 for a NAT gateway (nat.tf). \"gateway\": AWS's managed NAT gateway, nat_gateways of them. Either way the tasks keep no public address and only the app's own TLS crosses it."
+  type        = string
+  default     = "instance"
+
+  validation {
+    condition     = contains(["instance", "gateway"], var.nat_mode)
+    error_message = "nat_mode must be \"instance\" or \"gateway\"."
+  }
+}
+
+variable "nat_instance_type" {
+  description = "The NAT instance's type when nat_mode is \"instance\". A t4g.nano forwards far more than this product's API traffic; its CPU credits are capped (standard mode), so a burst slows it rather than billing extra."
+  type        = string
+  default     = "t4g.nano"
+
+  validation {
+    condition     = can(regex("^t4g\\.(nano|micro|small)$", var.nat_instance_type))
+    error_message = "nat_instance_type must be t4g.nano, t4g.micro or t4g.small: the instance runs the arm64 Amazon Linux 2023 image."
+  }
+}
+
+variable "nat_instance_generation" {
+  description = "Bump by one to replace the NAT instance on the next apply: the new one boots the newest Amazon Linux 2023 image and kernel (the instance otherwise ignores new images). Do it every quarter, with the access review; egress pauses for the minute or two the new instance takes to boot. README, \"The NAT instance\"."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.nat_instance_generation >= 1 && floor(var.nat_instance_generation) == var.nat_instance_generation
+    error_message = "nat_instance_generation must be a whole number of at least 1."
+  }
+}
+
 variable "nat_gateways" {
-  description = "NAT gateways for the private subnets' internet egress (Stripe, Meta, Anthropic, Resend, Google). 1 is the lean default; 2 puts one in each AZ so losing an AZ does not cut egress."
+  description = "NAT gateways when nat_mode is \"gateway\". 1 is one AZ's; 2 puts one in each AZ so losing an AZ does not cut egress. Ignored in instance mode."
   type        = number
   default     = 1
 
@@ -120,9 +153,9 @@ variable "alb_idle_timeout" {
 }
 
 variable "enable_waf" {
-  description = "Attach a WAF web ACL to the load balancer with one per-IP rate-based rule and nothing else. It is the host-side rate limit the health route and the docs rely on."
+  description = "Attach a WAF web ACL to the load balancer with one per-IP rate-based rule and nothing else (about $6 a month). Off in the lean default, by the owner's choice of 13 October 2026: HIPAA does not require it, the app keeps its own in-memory rate limits (exact while web_desired is 1) and AWS Shield Standard stays on the load balancer. Turn it on before a second web task, or when traffic warrants a limit at the edge."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "waf_rate_limit" {
@@ -153,8 +186,57 @@ variable "web_desired" {
   }
 }
 
+variable "worker_placement" {
+  description = "Where the background worker runs. \"shared\", the lean default: as a third container in every web task, beside the app and the TLS sidecar, so one Fargate task carries all three. v1's worker runs light clocks (the outbox every minute, billing, the hourly tick, the calendar watch); the long sync runs that wanted a process of their own are phase two. It is essential: if it stops, ECS replaces the whole task and the web-below-desired alarm sees it. \"separate\": its own service, healdesk-<env>-worker, as first built. Workers running side by side are safe (the clock, job locks and outbox leases are held in the database), so web_desired above 1 is fine either way."
+  type        = string
+  default     = "shared"
+
+  validation {
+    condition     = contains(["shared", "separate"], var.worker_placement)
+    error_message = "worker_placement must be \"shared\" or \"separate\"."
+  }
+}
+
+variable "task_cpu_architecture" {
+  description = "The CPU architecture every task definition declares. ARM64 (Graviton), the lean default, is about 20% cheaper per vCPU-hour and per GB-hour on Fargate than X86_64. deploy-app.yml reads it from the web task definition and builds all three images for it; images of one architecture do not run on the other, so a change reaches the services with the next full deploy, never a restart."
+  type        = string
+  default     = "ARM64"
+
+  validation {
+    condition     = contains(["ARM64", "X86_64"], var.task_cpu_architecture)
+    error_message = "task_cpu_architecture must be \"ARM64\" or \"X86_64\"."
+  }
+}
+
+variable "web_cpu" {
+  description = "Fargate CPU units for each web task (1024 = one vCPU). 256 is a quarter vCPU, the lean default, shared by the app, the TLS sidecar and, when worker_placement is \"shared\", the worker. Nobody has measured the product under load on it: raise it to 512 if the app's CPU sits high."
+  type        = number
+  default     = 256
+
+  validation {
+    condition     = contains([256, 512, 1024, 2048], var.web_cpu)
+    error_message = "web_cpu must be 256, 512, 1024 or 2048."
+  }
+}
+
+variable "web_memory" {
+  description = "Fargate memory in MiB for each web task. 1024 holds Next, the sidecar and the worker together with room to spare; 256 CPU units allow 512 to 2048."
+  type        = number
+  default     = 1024
+
+  validation {
+    condition = (
+      (var.web_cpu == 256 && contains([512, 1024, 2048], var.web_memory)) ||
+      (var.web_cpu == 512 && var.web_memory >= 1024 && var.web_memory <= 4096 && var.web_memory % 1024 == 0) ||
+      (var.web_cpu == 1024 && var.web_memory >= 2048 && var.web_memory <= 8192 && var.web_memory % 1024 == 0) ||
+      (var.web_cpu == 2048 && var.web_memory >= 4096 && var.web_memory <= 16384 && var.web_memory % 1024 == 0)
+    )
+    error_message = "web_memory must be a size Fargate allows for web_cpu: 512, 1024 or 2048 for 256; 1024-4096 for 512; 2048-8192 for 1024; 4096-16384 for 2048 (whole GiB above 512)."
+  }
+}
+
 variable "worker_desired" {
-  description = "Intended number of worker tasks, for documentation and the workflow's first scale-up. One worker owns the clock; more are safe but unnecessary."
+  description = "Intended number of worker tasks when worker_placement is \"separate\", for documentation and the workflow's first scale-up. One worker owns the clock; more are safe but unnecessary. Ignored when the worker shares the web task."
   type        = number
   default     = 1
 
@@ -191,9 +273,9 @@ variable "postgres_version" {
 }
 
 variable "db_instance_class" {
-  description = "RDS instance class. db.t4g.small (2 vCPU, 2 GiB) fits the pilot's connection budget of about 14 per process with room for the engine."
+  description = "RDS instance class. db.t4g.micro (2 vCPU, 1 GiB, about $12 a month), the lean default, is the smallest RDS offers; its max_connections of roughly 100 covers the connection budget of about 14 per process (web, worker, a one-off task) with room for the engine. db.t4g.small (2 GiB, about $23) is the step up; a change is a few minutes' downtime in the maintenance window or on apply. The freeable-memory alarm scales with the class (alarms.tf)."
   type        = string
-  default     = "db.t4g.small"
+  default     = "db.t4g.micro"
 
   validation {
     condition     = startswith(var.db_instance_class, "db.")
@@ -407,9 +489,9 @@ variable "transcript_retention_days" {
 }
 
 variable "enable_ses" {
-  description = "Create the SES configuration set that requires TLS, the domain identity with its DKIM records in Cloudflare, and the task role's rights to send through them (ses.tf), and set HEALDESK_SES_CONFIGURATION_SET on the web and worker tasks. Off: v1 mail goes over Resend and none of it may carry PHI. Turning it on does not change HEALDESK_EMAIL_TRANSPORT, and the account still has to leave the SES sandbox through a support request."
+  description = "Create the SES configuration set that requires TLS, the domain identity with its DKIM records in Cloudflare, and the task role's rights to send through them (ses.tf), and set HEALDESK_SES_CONFIGURATION_SET on the web and worker tasks. On since the owner's decision of 13 October 2026 that a conversation's transcript is emailed to the clinic rather than kept: that email is classed may-carry-phi, and with the configuration set present the app sends it, and only it, through SES (lib/reporting/deliver.ts, getTransport). Everything else stays on Resend; HEALDESK_EMAIL_TRANSPORT is unchanged. The account still has to leave the SES sandbox through a support request before SES delivers to a clinic."
   type        = bool
-  default     = false
+  default     = true
 }
 
 variable "ses_domain" {

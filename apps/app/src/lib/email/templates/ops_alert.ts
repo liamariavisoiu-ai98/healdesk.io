@@ -258,6 +258,11 @@ const WORDING: Record<OpsEvent, Wording> = {
   // Raised by the nightly retention purge for each clinic whose purge threw
   // (`phase` clinic, its id), and once when a run could not purge at all
   // (`phase` run). Ids and the step only; the error is in the worker's log.
+  transcript_undelivered: {
+    title: "A transcript could not be emailed",
+    action:
+      "The transcript of the conversation below did not reach the clinic, and healdesk keeps no copy, so it is gone. The reason says why: SES refused the address, the clinic's mail server would not accept it over TLS, or SES is not set up on apps/app (HEALDESK_SES_CONFIGURATION_SET). Fix the cause so the next one arrives, and tell the clinic that one conversation's transcript was lost; its time and outcome are still on the conversation. Never ask the clinic to read the transcript to you.",
+  },
   retention_purge_failed: {
     title: "The retention purge failed",
     action:

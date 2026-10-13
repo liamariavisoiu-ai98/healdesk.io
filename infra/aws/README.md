@@ -41,18 +41,21 @@ from it.
                       app + anything else           → forward
                       any other Host                → 404 from the ALB
                80:  301 to HTTPS
-               WAF: per-IP rate limit, answers 429
+               WAF (enable_waf, off in the lean profile): per-IP rate limit, answers 429
                                        │ HTTPS to 8443, re-encrypted (self-signed certificate,
                                        │ not validated by the ALB; the hop is encrypted)
                                        ▼
-     ECS task healdesk-production-web (private subnets, no public IP)
+     ECS task healdesk-production-web (private subnets, no public IP; ARM64)
         tls-proxy (nginx, 8443) ──HTTP 127.0.0.1:3001──► app (Next standalone server)
+        worker (the same image, src/workers/index.ts; no port, no inbound traffic)
                                        │
                                        ├─ Postgres over TLS, verify-full ──► RDS healdesk-production
-                                       └─ HTTPS out through the NAT gateway ──► Stripe, Meta,
-                                          Anthropic, Resend, Google; KMS, SSM, ECR, CloudWatch Logs
+                                       └─ HTTPS out through the NAT instance ──► Stripe, Meta,
+                                          Anthropic, Resend, Google; KMS, SSM, ECR, CloudWatch Logs,
+                                          SES (the emailed transcripts)
 
- worker service healdesk-production-worker: no inbound traffic, same database and egress
+ worker_placement = "separate" moves the worker to its own service, healdesk-production-worker,
+ as first built; nat_mode = "gateway" puts NAT gateways back in place of the instance
 ```
 
 The signed routes are every `apps/app` path `apps/web` calls on `HEALDESK_APP_URL`, each
@@ -110,22 +113,24 @@ Why each piece is shaped the way it is:
 | `versions.tf`, `providers.tf`, `.terraform.lock.hcl` | Terraform `~> 1.16`; aws `~> 6.67`, cloudflare `~> 5.27`, locked with hashes for linux and macOS on both architectures; no random provider. The aws provider refuses any account but `865780386982`; default tags `Project`, `Environment`, `ManagedBy` | No other account is covered by the BAA. Nothing here generates a secret, so a `random_password` added later fails the read-only inits until someone adds the provider on purpose. The Cloudflare token comes from the `CLOUDFLARE_API_TOKEN` environment variable, never a Terraform variable, so it is never written into a saved plan |
 | `backend.tf` | S3 backend, key `healdesk/production/terraform.tfstate`, native locking (`use_lockfile`); bucket and KMS key passed with `-backend-config` | The state holds no secret value (below) but maps the whole account, so it lives in the bootstrap stack's private, versioned, KMS-encrypted bucket |
 | `variables.tf`, `locals.tf`, `production.tfvars` | Every setting, with validation (region pinned, environment 2 to 12 characters, the two hostnames under healdesk.io and different, exact main-branch OIDC subjects, `enable_voice` must stay false, `app_environment` refusing secrets, the stack's own names and the two counsel-gated switches); the per-task environment and secret maps; the signed paths; the never-set list | `production.tfvars` holds nothing secret and nothing personal. `alarm_email`, `healdesk_admin_email`, `healdesk_ops_email` and `cloudflare_zone_id` come from GitHub repository variables as `TF_VAR_*`, so they stay out of git |
-| `network.tf` | VPC `10.40.0.0/16` over us-east-1a and 1b; public subnets for the ALB and `nat_gateways` NAT gateways (1); private subnets for tasks and RDS; default security group stripped; flow logs and VPC endpoints behind variables, both off | The tasks call vendors on the internet, so NAT is needed whatever else is chosen. Endpoints only take AWS API traffic off the NAT |
+| `network.tf` | VPC `10.40.0.0/16` over us-east-1a and 1b; public subnets for the ALB and the way out; private subnets for tasks and RDS, routed to the NAT instance (`nat_mode = "instance"`) or to `nat_gateways` NAT gateways (`"gateway"`); default security group stripped; flow logs and VPC endpoints behind variables, both off | The tasks call vendors on the internet, so NAT is needed whatever else is chosen. Endpoints only take AWS API traffic off the NAT |
+| `nat.tf`, `templates/nat-instance.sh.tftpl` | The NAT instance: one `t4g.nano` (`nat_instance_type`) on the newest minimal Amazon Linux 2023 arm64 image, in the first public subnet with its own public address; source/destination check off; security group admitting 443 from the tasks only and sending 443 only; nftables forwarding new connections to 443 from the VPC and dropping everything else; IMDSv2 only, no key pair, no instance role, standard CPU credits, an encrypted root volume, automatic recovery; `dnf-automatic` security updates; alarm `nat-instance-status` | About $7 a month against about $37 for a NAT gateway, for the same job: only the app's own TLS crosses it. See "The NAT instance" below |
 | `kms.tf` | One customer-managed key, `alias/healdesk-production`: symmetric, single-region, rotating, `prevent_destroy`. Key policy: account root (delegating to IAM), CloudWatch Logs for this account's log groups, CloudTrail for this trail by `aws:SourceArn` | It encrypts the credential vault (`HEALDESK_KMS_KEY_ID`), RDS storage, the master secret, Performance Insights, every SSM parameter, ECR, every log group and the trail. The app pins its ARN, so it is never replaced. The key policy names the app's task role nowhere, and must never: a statement naming it without the lock-label conditions would make them moot |
-| `rds.tf` | PostgreSQL 17.11 on `db.t4g.small`, 20 GiB gp3, encrypted with the key, single-AZ (`db_multi_az`), private, 5432 from the tasks' security group only; 35-day backups, no final snapshot, deletion protection, `prevent_destroy`; master user `healdesk_admin` with an RDS-managed password; database `healdesk`; CA `rds-ca-rsa2048-g1`; `postgresql` log exported; Database Insights standard (free), Performance Insights under the key for 7 days. Parameter group `healdesk-production-postgres17`: `rds.force_ssl=1`, TLS 1.2 minimum, SCRAM, `log_error_verbosity=terse`, `log_statement=none`, `log_min_error_statement=panic` | Encryption at rest can only be set at creation. 35 days is the clinic agreement's backup promise (1.3.0, release gate 18): no copy of deleted data may outlive it, hence no final snapshot. The engine log never expires: terse drops DETAIL and CONTEXT lines, `none` logs no statement as it runs, and `panic` keeps the text of a *failing* statement out (at the default, `error`, a failed `ALTER ROLE ... PASSWORD '...'` or an `INSERT` carrying patient values is logged in full after its ERROR line). What remains: a primary message that quotes its own input (`invalid input syntax for type uuid: "..."`) |
+| `rds.tf` | PostgreSQL 17.11 on `db.t4g.micro` (`db_instance_class`), 20 GiB gp3, encrypted with the key, single-AZ (`db_multi_az`), private, 5432 from the tasks' security group only; 35-day backups, no final snapshot, deletion protection, `prevent_destroy`; master user `healdesk_admin` with an RDS-managed password; database `healdesk`; CA `rds-ca-rsa2048-g1`; `postgresql` log exported; Database Insights standard (free), Performance Insights under the key for 7 days. Parameter group `healdesk-production-postgres17`: `rds.force_ssl=1`, TLS 1.2 minimum, SCRAM, `log_error_verbosity=terse`, `log_statement=none`, `log_min_error_statement=panic` | Encryption at rest can only be set at creation. 35 days is the clinic agreement's backup promise (1.3.0, release gate 18): no copy of deleted data may outlive it, hence no final snapshot. The engine log never expires: terse drops DETAIL and CONTEXT lines, `none` logs no statement as it runs, and `panic` keeps the text of a *failing* statement out (at the default, `error`, a failed `ALTER ROLE ... PASSWORD '...'` or an `INSERT` carrying patient values is logged in full after its ERROR line). What remains: a primary message that quotes its own input (`invalid input syntax for type uuid: "..."`) |
 | `ssm.tf` | SecureString parameters under `/healdesk/production/`, all under the key, all created holding `__unset__` through the write-only `value_wo`: six internal (`db/APP_PASSWORD`, `db/MIGRATOR_PASSWORD`, `app/BETTER_AUTH_SECRET`, `app/HEALDESK_IDENTIFIER_REF_KEY`, `app/DATABASE_URL`, `migrator/MIGRATION_DATABASE_URL`) and eleven external under `app/`; `prevent_destroy` on all | See "Secrets and configuration" |
 | `ecr.tf` | `healdesk/app`, `healdesk/db-admin`, `healdesk/tls-proxy`: immutable tags, scan on push, the key, last 30 images kept | A git SHA always names the same bytes, and 30 images are weeks of rollback |
 | `iam.tf` | Execution role (pull our images, write our log streams, `ssm:GetParameters` on `app/*` and `migrator/*` only, the RDS master secret, decrypt only through SSM and Secrets Manager); app task role (the credential vault, below; S3 and SES statements only when their flags are on); db-admin task role (`ssm:GetParameter` and `ssm:PutParameter` on exactly the six internal parameters, the key only through SSM and only for those six); deploy role `healdesk-production-github-deploy` | The app task role may call `GenerateDataKey`, `Decrypt` and `Encrypt` on the key only as its own calls (no `kms:ViaService`), only with an encryption context of `healdesk:clinic` and `healdesk:login` and no other key, and, with `kms_require_lock_labels` (the default), with both present: statement 1 of `docs/design/google-calendar-2026-10-05.md` §5. That refuses every context an AWS service puts on its own data under the key, so the role cannot decrypt the parameters, logs or trail even with the ciphertext. The deploy role: "Who can change production", below |
 | `logs.tf` | `/healdesk/production/{web,worker,migrate,db-bootstrap,tls-proxy}` and `/aws/rds/instance/healdesk-production/postgresql`, each with the key, "Never expire" and `skip_destroy`; Container Insights and flow-log groups when those are on | AWS addendum §4.2(c) asks for maximum retention. A group AWS creates by itself would get neither our key nor the retention, so every group is created first |
 | `alb.tf` | ALB `healdesk-production` (invalid headers dropped, deletion protection, idle timeout 120 s, WAF fail-open, XFF append); target group `healdesk-production-web-https` (HTTPS:8443, health check `/api/health?probe=liveness`, deregistration 60 s); HTTP 301; HTTPS listener with `ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09` whose default is a fixed 404; rules `internal_signed` (priorities 100-102), `internal_nothing_else` (200), `public_refuses_signed` (300-302), `public` (400) | A listener made through the API otherwise defaults to a 2016 policy that allows TLS 1.0. A rule takes at most three paths, so each list is split into rules of three. No access logs: their bucket cannot use our key, and URLs carry no PHI |
 | `dns.tf` | ACM certificate for `app.healdesk.io` with `app-internal.healdesk.io` as a SAN; one validation record per name and both CNAMEs at Cloudflare, all DNS only; `aws_acm_certificate_validation` with a 30-minute create timeout | One apply writes the records, waits for issuance and creates the listener. Thirty minutes rather than the provider's 75, so a stuck validation fails inside the workflow's AWS session and leaves a clean state. ACM renews by itself while the validation records stay |
-| `waf.tf` | Web ACL `healdesk-production`, one rule `rate-limit-per-ip` (`waf_rate_limit`, 2,000 per 5 minutes per IP), custom 429; no managed groups; sampled requests off | Samples and WAF logs would store request headers, which carry session cookies and webhook bearer secrets |
-| `ecs.tf` | Cluster `healdesk-production`; task definitions `healdesk-production-{web,worker,migrate,db-bootstrap}`; services `healdesk-production-web` and `-worker` at desired 0, circuit breaker with rollback, no ECS Exec, ignoring `task_definition` and `desired_count`, the web service created only after the certificate, the listener and its rules; the disabled voice placeholder | Terraform owns the shape of each task definition; the deploy workflow owns which revision runs and the first scale-up. No ECS Exec: it would put a root shell on a container holding PHI |
+| `waf.tf` | **Off in the lean profile** (`enable_waf = false`, the owner's choice of 13 October 2026). When on: web ACL `healdesk-production`, one rule `rate-limit-per-ip` (`waf_rate_limit`, 2,000 per 5 minutes per IP), custom 429; no managed groups; sampled requests off | HIPAA does not require it, and the app keeps its own in-memory rate limits, exact while there is one web task; turn it on before a second. Samples and WAF logs would store request headers, which carry session cookies and webhook bearer secrets |
+| `ecs.tf` | Cluster `healdesk-production`; task definitions `healdesk-production-{web,worker,migrate,db-bootstrap}`, all on `task_cpu_architecture` (ARM64); web at `web_cpu`/`web_memory` (0.25 vCPU, 1 GB) carrying the app, the TLS sidecar and, with `worker_placement = "shared"`, the worker as an essential third container; service `healdesk-production-web` (and `-worker` only when the worker is `"separate"`) at desired 0, circuit breaker with rollback, no ECS Exec, ignoring `task_definition` and `desired_count`, the web service created only after the certificate, the listener and its rules; the disabled voice placeholder | Terraform owns the shape of each task definition; the deploy workflow owns which revision runs and the first scale-up. No ECS Exec: it would put a root shell on a container holding PHI. The worker's own task definition stays in both placements, so switching back needs nothing new |
 | `cloudtrail.tf` | Multi-region trail `healdesk-production`, management events read and write (KMS not excluded), log-file validation, SSE-KMS; bucket `healdesk-production-cloudtrail-865780386982`, TLS-only, versioned, no expiry; S3 data events on the transcript bucket when it exists | Every KMS `Decrypt` is a read event, and "every unwrap is a CloudTrail event" is part of the credential vault's audit story |
 | `config.tf` | Recorder `healdesk-production` for all supported resources, with a role of its own; bucket `healdesk-production-config-865780386982` (SSE-S3); rules `rds-storage-encrypted`, `s3-bucket-ssl-requests-only`, `cloud-trail-encryption-enabled`, `cloudwatch-log-group-encrypted` | The four rules the handover names; the Security Official reads the findings each quarter. A custom role, because creating Config's service-linked role fails if the console made it first |
 | `guardduty.tf` | One detector (`enable_guardduty`) | Foundational threat detection; findings are read in the console |
-| `alarms.tf`, `budgets.tf` | SNS topic `healdesk-production-alarms` emailed to `alarm_email`; nine alarms; a monthly cost budget (`monthly_budget_usd`, 250) | Alarm messages carry metric names and counts, never patient data |
-| `storage.tf`, `ses.tf` | The transcript bucket (`enable_transcript_bucket`) and the SES configuration set `healdesk-production-phi` with its domain identity and DKIM records (`enable_ses`). **Both off**: no code uses them yet | See "Deliberately not built" |
+| `alarms.tf`, `budgets.tf` | SNS topic `healdesk-production-alarms` emailed to `alarm_email`; nine alarms in the lean profile; a monthly cost budget (`monthly_budget_usd`, 250) | Alarm messages carry metric names and counts, never patient data |
+| `ses.tf` | **On** (`enable_ses`): the SES configuration set `healdesk-production-phi` with `TlsPolicy=REQUIRE`, the domain identity and its DKIM records at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the tasks and the task role's send rights on that set only | A conversation's transcript is emailed to the clinic, never kept (the owner's decision of 13 October 2026; `apps/app/src/lib/conversations/transcript-email.ts`). That email is classed `may-carry-phi`, so the app sends it, and only it, through SES; everything else stays on Resend. The account must leave the SES sandbox before it reaches a clinic (First run, step 9) |
+| `storage.tf` | The transcript bucket (`enable_transcript_bucket`). **Off, and now superseded**: transcripts are emailed, not stored | See "Deliberately not built" |
 | `outputs.tf` | `alb_dns_name`, `app_url`, `internal_url`, `github_deploy_role_arn`, `ecr_repository_urls`, `rds_endpoint`, `rds_master_secret_arn`, `kms_key_arn`, `alarm_topic_arn`, `parameters_to_fill`, `internal_parameters`, `transcript_bucket`, `ses_configuration_set` | What the next steps need. None is a secret |
 | `tests/stack.tftest.hcl` | 22 plan-only runs with both providers mocked: production defaults, lock labels off, the bucket and SES on, plain HTTP to tasks, public ids, an imported GuardDuty detector, and 16 refusals | CI's `infra` job runs it; it needs no credentials |
 | `bootstrap/bootstrap.yaml` | CloudFormation stack `healdesk-bootstrap`: state bucket `healdesk-terraform-state-865780386982` with its own key (`alias/healdesk-terraform-state`), the GitHub OIDC provider, role `healdesk-github-terraform` | What Terraform cannot create for itself. The stack refuses any other account or region; bucket and key are kept if the stack is deleted, and removed if the launch that created them rolls back (`RetainExceptOnCreate`) |
@@ -329,7 +334,10 @@ behind.
    random value, set on Vercel in step 11 with the same bytes), `STRIPE_SECRET_KEY` (the test key:
    the end-to-end test runs on this host before launch), `RESEND_API_KEY`, and the two Google
    OAuth values once the client exists. Leave `META_*`, `ANTHROPIC_API_KEY` and the two voice
-   secrets as they are.
+   secrets as they are. Then ask AWS to take SES out of its sandbox (console → Amazon SES → Get
+   set up → Request production access, transactional mail, from healdesk.io): until it does, SES
+   sends only to addresses verified in the account, so an emailed transcript would not reach a
+   clinic. The domain identity and its DKIM records are already made by the apply.
 10. **`deploy-app.yml` with `bootstrap_db` and `migrate` ticked.** A first deploy (both services at
     0) is refused without either. db-bootstrap generates the six internal values and creates the
     two roles, migrate runs the migrations and the queue install, and both services come up to
@@ -369,19 +377,24 @@ A full run, in order:
 
 1. Checks: `AWS_DEPLOY_ROLE_ARN` set, ref is main, started by the owner, the inputs consistent
    (`restart_only` and `rollback_to` exclusive; neither with `bootstrap_db`).
-2. Reads both services: task families, desired counts, and the private subnets and security group
-   the one-off tasks borrow from the web service. Both at 0 means nothing has been deployed: the
-   run must have `bootstrap_db` and `migrate`, and brings each service up to its `DesiredCount`
-   tag (`web_desired`, `worker_desired`) after the migrations pass.
-3. Builds and pushes `healdesk/app` (repo root), `healdesk/tls-proxy` and `healdesk/db-admin`,
-   `linux/amd64`, tagged with the commit SHA. An image already pushed for the commit is reused.
+2. Reads the services: task families, desired counts, the private subnets and security group
+   the one-off tasks borrow from the web service, whether a worker service exists (none means the
+   worker is a container of the web task), and the CPU architecture the web task definition
+   declares. Everything at 0 means nothing has been deployed: the run must have `bootstrap_db`
+   and `migrate`, and brings each service up to its `DesiredCount` tag (`web_desired`,
+   `worker_desired`) after the migrations pass.
+3. Builds and pushes `healdesk/app` (repo root), `healdesk/tls-proxy` and `healdesk/db-admin` for
+   that architecture (`linux/arm64` by default, under QEMU from Ubuntu's own package on the x86
+   runner, which makes the app's build several times slower), tagged with the commit SHA. An image
+   already pushed for the commit is reused, so the tag names one architecture's image: changing
+   `task_cpu_architecture` needs a new commit to deploy.
 4. Fetches each family's latest revision (Terraform's configuration, or the last deploy's),
    checks its shape, and registers new revisions with the new images. Runs db-bootstrap (if asked)
    then migrate as one-off Fargate tasks with no overrides, waiting up to 20 minutes each. A
    non-zero exit fails the job with the exit code, ECS's stopped reason and the log group and
    stream; the container's own output is never printed in the job.
-5. Rolls the worker, then the web tier, each waiting for stability (15 minutes) and failing if the
-   circuit breaker rolled it back. A service this run started from 0 whose rollout fails or is
+5. Rolls the worker service (when there is one), then the web tier, each waiting for stability
+   (15 minutes) and failing if the circuit breaker rolled it back. A shared worker rolls with web. A service this run started from 0 whose rollout fails or is
    cancelled is set back to 0 tasks (below).
 6. Smoke test: `https://app.healdesk.io/api/health?probe=liveness` until it answers 200 with
    `{"ok":true}`, from outside, through Cloudflare's DNS, the ALB and the sidecar. The summary
@@ -429,8 +442,8 @@ never run at boot and never from a laptop as routine.
 - **A failed migration says little.** `drizzle-kit migrate` can exit 1 with no error text. The
   reason is in the engine log, `/aws/rds/instance/healdesk-production/postgresql`: its ERROR line,
   never the failing statement.
-- **Connections.** Each web or worker process holds up to 10 (Drizzle) plus 4 (pg-boss); a
-  `db.t4g.small` allows roughly 200.
+- **Connections.** Each web or worker process holds up to 10 (Drizzle) plus 4 (pg-boss), shared
+  task or not; a `db.t4g.micro` allows roughly 100, a `db.t4g.small` roughly 200.
 
 `MIGRATION_DATABASE_URL` is not checked in code the way `DATABASE_URL` is (drizzle-kit and
 `install-queue.ts` read it directly); db-bootstrap writes it with `verify-full`, and nothing else
@@ -587,7 +600,7 @@ aws rds restore-db-instance-to-point-in-time \
   --vpc-security-group-ids "$RDS_SG" \
   --db-parameter-group-name healdesk-production-postgres17 \
   --ca-certificate-identifier rds-ca-rsa2048-g1 \
-  --db-instance-class db.t4g.small \
+  --db-instance-class db.t4g.micro \
   --backup-retention-period 0 \
   --no-multi-az --no-publicly-accessible --no-deletion-protection
 aws rds wait db-instance-available --db-instance-identifier "$DRILL"   # the end of the RTO
@@ -668,12 +681,14 @@ anything reads the data.
 2. Stop the service, so nothing serves or writes the restored data before step 6:
 
    ```bash
-   for s in healdesk-production-web healdesk-production-worker; do
+   # With the worker in the web task (the lean default) there is only the web service; add
+   # healdesk-production-worker to both lists when worker_placement is "separate".
+   for s in healdesk-production-web; do
      aws ecs update-service --cluster healdesk-production --service "$s" --desired-count 0 \
        --query 'service.desiredCount' --output text
    done
    aws ecs wait services-stable --cluster healdesk-production \
-     --services healdesk-production-web healdesk-production-worker
+     --services healdesk-production-web
    ```
 
 3. Restore, and make the copy production's database. **This is the open part.** What is known:
@@ -778,15 +793,20 @@ re-sets the role's password and rolls the services onto the new URL.
 
 ## Alarms and monitoring
 
-Nine alarms, all to `healdesk-production-alarms`, each prefixed `healdesk-production-`: `alb-5xx`
-and `target-5xx` (five or more in five minutes), `web-unhealthy-hosts`, `web-below-desired`
-(healthy targets below `web_desired`), `worker-below-desired` (no worker CPU samples for five
-minutes), `rds-cpu` (above 80% for 15 minutes), `rds-free-storage` (below 10%),
-`rds-freeable-memory` (below 256 MiB) and `rds-idle-in-transaction` (below). The budget emails
-`alarm_email` at 80% and 100% of `monthly_budget_usd` and when the forecast passes it. Both
-below-desired alarms are in ALARM from the first apply until the first deploy, by design; alarms
-email only when their state changes, so the first emails are usually the two OKs after the first
-deploy.
+Nine alarms in the lean profile, all to `healdesk-production-alarms`, each prefixed
+`healdesk-production-`: `alb-5xx` and `target-5xx` (five or more in five minutes),
+`web-unhealthy-hosts`, `web-below-desired` (healthy targets below `web_desired`),
+`nat-instance-status` (the NAT instance failing its EC2 status checks for three minutes),
+`rds-cpu` (above 80% for 15 minutes), `rds-free-storage` (below 10%), `rds-freeable-memory`
+(below an eighth of the instance's memory: 128 MiB on the micro) and `rds-idle-in-transaction`
+(below). With `worker_placement = "separate"` there is a tenth, `worker-below-desired` (no worker
+CPU samples for five minutes); a shared worker is an essential container, so its loss stops the
+task and `web-below-desired` fires, and a worker that runs but has stalled shows in the
+heartbeat the external uptime check reads. With `nat_mode = "gateway"` there is no
+`nat-instance-status`. The budget emails `alarm_email` at 80% and 100% of `monthly_budget_usd`
+and when the forecast passes it. The below-desired alarms are in ALARM from the first apply until
+the first deploy, by design; alarms email only when their state changes, so the first emails are
+usually the OKs after the first deploy.
 
 **The open-transaction alarm is half built.** The handover asks for an alert on any transaction
 open longer than five minutes, because one held open is the way around the record clock's day and
@@ -816,43 +836,87 @@ are part of the quarterly review in the account record.
 
 ## Costs
 
-Lean figures (us-east-1, on-demand, 730 hours, prices read on 6 October 2026), for what this module
-builds with `production.tfvars` as committed:
+Figures for us-east-1, on-demand, 730 hours. The original lines were read on 6 October 2026; the
+lean lines (Graviton Fargate, the micro database, the nano instance) are AWS's list prices,
+checked against third-party price tables on 13 October 2026 rather than AWS's own page, so read
+the first bill. This is what the module builds with `production.tfvars` as committed, the lean
+profile the owner chose on 13 October 2026:
 
 | Line | $ a month |
 | --- | --- |
 | ALB: hours 16.43, about 0.25 LCU 1.46, two public IPv4 addresses 7.30 (eight listener rules, inside the ten that are free per request) | 25.19 |
-| Fargate web task, 0.5 vCPU and 1 GB (the sidecar shares it) | 18.02 |
-| Fargate worker task, 0.5 vCPU and 1 GB | 18.02 |
-| RDS `db.t4g.small` single-AZ 23.36, 20 GiB gp3 2.30; backups free up to the storage size | 25.66 |
-| One NAT gateway, its address, about 10 GB processed | 36.95 |
+| One web task, ARM64, 0.25 vCPU and 1 GB, carrying the app, the sidecar and the worker | 8.51 |
+| RDS `db.t4g.micro` single-AZ 11.68, 20 GiB gp3 2.30; backups free up to the storage size | 13.98 |
+| NAT instance: `t4g.nano` 3.07, its public IPv4 address 3.65, its root volume about 0.64; no per-GB processing charge | 7.36 |
 | KMS: the product key and the state key, plus requests | 2.20 |
 | CloudTrail (S3 storage), CloudWatch Logs and nine alarms | 2.90 |
 | Secrets Manager: the RDS master secret only (Parameter Store standard parameters are free) | 0.40 |
 | ECR, up to 30 images per repository (the db-admin image is about 680 MB unpacked) | 1.00-2.00 |
 | AWS Config, small | 3.00 |
 | GuardDuty, foundational | 4.00 |
-| WAF: one ACL, one rule, low traffic | 6.00 |
-| **Total** | **≈ 143-144** |
+| SES: the transcript emails, $0.10 per 1,000 (more on SES's newer bundled plans) | under 0.10 |
+| **Total, running** | **≈ 70** |
 
-Fixed-rate lines are exact; usage lines are low-traffic guesses. The idle-in-transaction alarm
-reads Performance Insights once a minute; whether that read carries a charge beyond the alarm's
-$0.10 has not been measured, so check the first bill. Between the first apply and the first deploy
-the services run no tasks, so the account costs about $107 a month until then. Each KMS key's first
+Between the first apply and the first deploy the service runs no task, so the account costs about
+$61.50 a month until then. Fixed-rate lines are exact; usage lines are low-traffic guesses. The
+idle-in-transaction alarm reads Performance Insights once a minute; whether that read carries a
+charge beyond the alarm's $0.10 has not been measured, so check the first bill. Each KMS key's first
 two yearly rotations add $1 a month each. The bootstrap stack alone is about $1 a month. Data
-transfer out is expected to stay inside AWS's free 100 GB a month.
+transfer out is expected to stay inside AWS's free 100 GB a month. Not applying the module at all
+costs nothing: nothing in the account runs until `infra.yml` applies it.
+
+Nobody has measured the product under load on a quarter vCPU or on the micro database. Watch the
+web task's CPU and memory and the database's CPU, freeable memory and connections in the first
+weeks; the next step up for each is one variable.
 
 | Lever | Change |
 | --- | --- |
-| `nat_gateways = 2` (egress survives losing an AZ) | +36.50, plus processing |
-| `db_multi_az = true` | +26.39 |
-| `web_desired = 2` (multiplies the in-memory rate limits) | +18.02 |
+| `enable_waf = true` (the per-IP rate limit at the edge; do this before a second web task) | +6.00 |
+| `web_cpu = 512` (half a vCPU per web task) | +5.91 |
+| `worker_placement = "separate"` (the worker in its own 0.5 vCPU / 1 GB task) | +14.42 on ARM64 |
+| `task_cpu_architecture = "X86_64"` (no QEMU in the build; every task about 25% dearer) | +2.12 for the web task as sized |
+| `db_instance_class = "db.t4g.small"` (2 GiB) | +11.68 |
+| `nat_mode = "gateway"` (AWS's managed NAT; `nat_gateways = 2` survives losing an AZ) | +29.59 for one, +66.09 for two, plus $0.045 a GB |
+| `db_multi_az = true` | +the instance again (+11.68 on the micro) |
+| `web_desired = 2` (multiplies the in-memory rate limits; turn the WAF on first) | +8.51 |
 | `vpc_endpoints = true` (six interface endpoints in two AZs, plus S3) | +87.60, plus $0.01 a GB |
 | `enable_flow_logs = true` | CloudWatch ingestion, by traffic |
-| The voice service, later (at least two tasks) | +36.04 |
+| The voice service, later (at least two tasks) | +17.02 at the web task's size |
 | `container_insights = true`, Database Insights advanced | extra CloudWatch charges |
+| One-year commitments once the host is staying: a reserved micro database, a Compute Savings Plan on Fargate | about -5.00 |
+
+The shape first built (worker as its own service, NAT gateway, WAF, X86_64, half-vCPU tasks, the
+small database) came to about $143.50 a month running and $107 before the first deploy.
 
 `monthly_budget_usd` is 250, so the first alert comes at $200.
+
+---
+
+## The NAT instance
+
+With `nat_mode = "instance"` the private subnets reach the internet through one `t4g.nano`
+(`nat.tf`) rather than a NAT gateway. It sees only the app's own TLS, so, like a gateway, it never
+holds patient data in the clear; unlike a gateway, it is an instance to look after:
+
+- **Updates.** Its first boot points dnf at the newest Amazon Linux 2023 release and turns on
+  `dnf-automatic`, which installs security updates daily. A new kernel needs a reboot, and a new
+  image a new instance, which Terraform does not do by itself (it ignores later changes of the
+  image). Replace it every quarter, with the access review, and whenever AWS announces a kernel
+  fix that matters: add one to `nat_instance_generation` in `production.tfvars`, merge, and run
+  `infra.yml` with `plan` (it shows the instance replaced and both private routes moved to the
+  new interface) and then `apply`. The new instance boots the newest image. Egress stops for the
+  minute or two it takes to boot and fetch its two packages; requests in flight then fail and are
+  retried by their callers.
+- **Failure.** EC2's automatic recovery moves it to new hardware, with the same addresses, when
+  its host fails, and `nat-instance-status` emails the owner. A stopped instance does not come
+  back by itself: start it from the console. Until it is back the tasks cannot reach Stripe,
+  Google, Anthropic or AWS's APIs (pulling an image included), and calls fall back to the
+  clinic's line.
+- **Checking it.** It has no key pair, no role and no agent, so there is no shell on it. Its
+  console output (EC2 → the instance → Monitor and troubleshoot → Get system log) ends with
+  `healdesk-nat: forwarding 443 from 10.40.0.0/16 out of ens5` when the first boot finished.
+- **Going back.** `nat_mode = "gateway"` builds the NAT gateway(s), points the private routes at
+  them and removes the instance in one apply.
 
 ---
 
@@ -865,18 +929,15 @@ transfer out is expected to stay inside AWS's free 100 GB a month.
   path and a deregistration delay up to 3600 s (ECS waits for draining before it stops a task, and
   that, not `stopTimeout`, lets a call finish), a listener rule such as `/llm-websocket/*`, and an
   alarm on its liveness.
-- **The transcript bucket and SES, built but off.** No code writes transcripts to S3 and no v1
-  message is classed `may-carry-phi`. `enable_transcript_bucket` creates the bucket (SSE-KMS under
-  the key with bucket keys, TLS only, Block Public Access, versioned, noncurrent versions gone in
-  7 days, objects expiring at `transcript_retention_days`, CloudTrail data events) and the task
-  role's statements for it; once on it cannot be switched off without emptying it by hand.
-  `enable_ses` creates the configuration set `healdesk-production-phi` with `TlsPolicy=REQUIRE`,
-  the domain identity with its DKIM records at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the
-  tasks and the task role's send rights; it leaves `HEALDESK_EMAIL_TRANSPORT=resend`, and the
-  account still has to leave the SES sandbox. Add or confirm the account record's rows before
-  turning either on.
-- **VPC endpoints.** A variable, off: about $88 a month, and the NAT gateway is still needed for
-  the vendor APIs.
+- **The transcript bucket, built but off and now superseded.** Since the owner's decision of 13
+  October 2026 a transcript is emailed to the clinic through SES when its conversation ends and
+  kept nowhere, so nothing will write to S3. `enable_transcript_bucket` still creates the bucket
+  (SSE-KMS under the key with bucket keys, TLS only, Block Public Access, versioned, noncurrent
+  versions gone in 7 days, objects expiring at `transcript_retention_days`, CloudTrail data
+  events) and the task role's statements for it; leave it off. SES is on for the transcript email
+  (`ses.tf`); it leaves `HEALDESK_EMAIL_TRANSPORT=resend` for everything else.
+- **VPC endpoints.** A variable, off: about $88 a month, and the NAT (instance or gateway) is
+  still needed for the vendor APIs.
 - **ALB access logs.** Their bucket cannot use our key (ALB delivery supports SSE-S3 only), and
   URLs carry no PHI. **WAF logs and sampled requests**, because they store headers.
 - **Staging.** `environment` makes a second state possible (`app.staging.healdesk.io`, its own

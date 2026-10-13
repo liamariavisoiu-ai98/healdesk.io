@@ -26,23 +26,36 @@ app_environment = {
   # HEALDESK_CALL_BOOKING_URL = "<https scheduling page>"
 }
 
-# Network: one NAT gateway (2 for resilience), no VPC endpoints, no flow logs.
-nat_gateways     = 1
-vpc_endpoints    = false
-enable_flow_logs = false
+# Network: the lean profile (13 October 2026). One t4g.nano NAT instance
+# forwarding HTTPS only, about $7 a month against $37 for a NAT gateway
+# (nat.tf); nat_mode = "gateway" goes back to the managed gateway, with
+# nat_gateways of them. No VPC endpoints, no flow logs.
+nat_mode          = "instance"
+nat_instance_type = "t4g.nano"
+nat_gateways      = 1
+vpc_endpoints     = false
+enable_flow_logs  = false
 
 # Load balancer and tasks. The load balancer to task hop stays encrypted.
-alb_to_task_tls    = true
-alb_idle_timeout   = 120
-enable_waf         = true
-waf_rate_limit     = 2000
-container_insights = false
-web_desired        = 1
-worker_desired     = 1
+# The WAF is off by the owner's choice of 13 October 2026 (its rule and
+# limit stay here for the day it is turned back on). One web task, on
+# Graviton, a quarter vCPU and 1 GB, carries the app, the TLS sidecar and the
+# worker; worker_placement = "separate" gives the worker its own service again.
+alb_to_task_tls       = true
+alb_idle_timeout      = 120
+enable_waf            = false
+waf_rate_limit        = 2000
+container_insights    = false
+worker_placement      = "shared"
+task_cpu_architecture = "ARM64"
+web_cpu               = 256
+web_memory            = 1024
+web_desired           = 1
+worker_desired        = 1
 
 # Database.
 postgres_version     = "17.11"
-db_instance_class    = "db.t4g.small"
+db_instance_class    = "db.t4g.micro"
 db_allocated_storage = 20
 db_multi_az          = false
 
@@ -56,10 +69,12 @@ stripe_connect_client_id = ""
 # The credential vault's key: the app's own calls must carry both lock labels.
 kms_require_lock_labels = true
 
-# Built but off until code uses them (storage.tf, ses.tf).
+# SES is on: a conversation's transcript is emailed to the clinic through it,
+# never stored (the owner's decision of 13 October 2026). The transcript
+# bucket stays off for the same reason (storage.tf).
 enable_transcript_bucket  = false
 transcript_retention_days = 90
-enable_ses                = false
+enable_ses                = true
 
 # Monitoring and cost.
 enable_guardduty   = true

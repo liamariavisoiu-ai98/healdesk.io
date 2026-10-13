@@ -129,6 +129,12 @@ export const OPS_EVENTS = [
   // purge at all (`phase` run). A purge that fails silently keeps records
   // past the periods the agreements state.
   "retention_purge_failed",
+  // A conversation's transcript could not be emailed to its clinic
+  // (lib/conversations/transcript-email.ts; the owner's decision of 13
+  // October 2026 that transcripts are emailed, never kept): SES refused it,
+  // the receiving server would not take it over TLS, or this deployment has
+  // no SES to send it with. No copy exists, so this is the only trace.
+  "transcript_undelivered",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

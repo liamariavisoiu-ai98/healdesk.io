@@ -1,7 +1,15 @@
 # One image, several task definitions (contract section 1): the web tier and
 # the worker as services, the migrations and the role bootstrap as one-off
-# tasks the deploy workflow runs. All of them on Fargate, x86_64 (the images
-# are built on GitHub's x86 runners), in the private subnets.
+# tasks the deploy workflow runs. All of them on Fargate, in the private
+# subnets, on task_cpu_architecture (ARM64 by default; deploy-app.yml reads it
+# from the web task definition and builds the images for it).
+#
+# The worker runs in one of two places (worker_placement). Shared, the lean
+# default: a third container in every web task, so the service count is one.
+# Separate: its own service, as first built. The worker's own task definition
+# is kept in both, so its shape stays pinned by the tests and switching back
+# needs nothing new; in shared mode no service runs it and deploys leave it on
+# Terraform's revision.
 #
 # Terraform owns the shape of each task definition; the deploy workflow owns
 # which revision runs. It registers a new revision from the family's latest
@@ -184,6 +192,21 @@ locals {
       })
     }
   }
+
+  # The worker inside the web task (worker_placement = "shared"): the same
+  # container under its own name, so the web task can hold it beside "app".
+  # Essential, so a worker that stops takes its task down and ECS replaces
+  # it: a web task without its worker would look healthy to the load balancer
+  # while the clock, the outbox and billing stood still.
+  shared_worker_container = merge(local.worker_container, { name = "worker" })
+
+  worker_shared = var.worker_placement == "shared"
+
+  web_containers = concat(
+    [local.web_app_container],
+    var.alb_to_task_tls ? [local.tls_proxy_container] : [],
+    local.worker_shared ? [local.shared_worker_container] : [],
+  )
 
   # The check docs/handover.md ("Restoring") runs after any restore, before
   # the service reopens: every clinic due for destruction destroyed now, and
@@ -375,22 +398,29 @@ resource "aws_ecs_task_definition" "web" {
   family                   = local.task_families.web
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "512"
-  memory                   = "1024"
+  cpu                      = tostring(var.web_cpu)
+  memory                   = tostring(var.web_memory)
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.app_task.arn
 
-  container_definitions = var.alb_to_task_tls ? jsonencode([local.web_app_container, local.tls_proxy_container]) : jsonencode([local.web_app_container])
+  container_definitions = jsonencode(local.web_containers)
 
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.task_cpu_architecture
   }
 
   lifecycle {
     precondition {
       condition     = length(setintersection(concat(keys(local.web_environment), local.web_secret_names), local.never_on_app_tasks)) == 0
       error_message = "The web task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
+    }
+
+    # The shared worker brings its own environment and secrets into this
+    # task, so they get the worker task's refusals here too.
+    precondition {
+      condition     = !local.worker_shared || length(setintersection(concat(keys(local.worker_environment), local.worker_secret_names), local.never_on_app_tasks)) == 0
+      error_message = "The worker inside the web task must never be given any of: ${join(", ", local.never_on_app_tasks)} (contract section 3)."
     }
 
     precondition {
@@ -404,7 +434,7 @@ resource "aws_ecs_task_definition" "web" {
     }
   }
 
-  #checkov:skip=CKV_AWS_336:Next writes .next/cache at run time, so the app container needs a writable root until the image provides a writable mount, and the tls-proxy sidecar writes its key and nginx's run files at start; a read-only root for either needs a writable volume tried on Fargate first. Both run as non-root users.
+  #checkov:skip=CKV_AWS_336:Next writes .next/cache at run time, so the app container needs a writable root until the image provides a writable mount, the tls-proxy sidecar writes its key and nginx's run files at start, and the shared worker's tsx writes its cache and IPC pipe under /tmp; a read-only root for any of them needs a writable volume tried on Fargate first. All run as non-root users.
 }
 
 resource "aws_ecs_task_definition" "worker" {
@@ -420,7 +450,7 @@ resource "aws_ecs_task_definition" "worker" {
 
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.task_cpu_architecture
   }
 
   lifecycle {
@@ -456,7 +486,7 @@ resource "aws_ecs_task_definition" "patient_export" {
 
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.task_cpu_architecture
   }
 
   #checkov:skip=CKV_AWS_336:tsx compiles the script at start and writes its cache under /tmp, as the worker does; a read-only root needs a writable /tmp mount the image does not provide yet. It runs once, by hand, as a non-root user.
@@ -476,7 +506,7 @@ resource "aws_ecs_task_definition" "ops_script" {
 
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.task_cpu_architecture
   }
 
   #checkov:skip=CKV_AWS_336:tsx compiles the script at start and writes its cache under /tmp, as the worker does; a read-only root needs a writable /tmp mount the image does not provide yet. It runs once, by hand, as a non-root user.
@@ -494,7 +524,7 @@ resource "aws_ecs_task_definition" "migrate" {
 
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.task_cpu_architecture
   }
 
   #checkov:skip=CKV_AWS_336:npm and tsx write caches and temp files at run time; a read-only root needs writable mounts the image does not provide yet. The task runs once per deploy as a non-root user.
@@ -515,7 +545,7 @@ resource "aws_ecs_task_definition" "destroy_due" {
 
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.task_cpu_architecture
   }
 
   lifecycle {
@@ -541,7 +571,7 @@ resource "aws_ecs_task_definition" "db_bootstrap" {
 
   runtime_platform {
     operating_system_family = "LINUX"
-    cpu_architecture        = "X86_64"
+    cpu_architecture        = var.task_cpu_architecture
   }
 
   #checkov:skip=CKV_AWS_336:The entrypoint passes values between the AWS CLI, Python and psql through files in a private temporary directory, removed on exit; the task runs once, by hand or from the deploy workflow, and holds no long-lived state.
@@ -610,7 +640,10 @@ resource "aws_ecs_service" "web" {
   ]
 }
 
+# Only when the worker has its own service (worker_placement = "separate").
 resource "aws_ecs_service" "worker" {
+  count = local.worker_shared ? 0 : 1
+
   name             = "${local.name}-worker"
   cluster          = aws_ecs_cluster.main.id
   task_definition  = aws_ecs_task_definition.worker.arn

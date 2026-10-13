@@ -48,7 +48,7 @@ number *plus the treatment they asked about* **is** PHI.
 | `apps/web` — NO PHI (Vercel) | `apps/app` — PHI (BAA-covered host) |
 | --- | --- |
 | Marketing, pricing, specialty/SEO content | Every patient conversation: the Retell custom-LLM WebSocket endpoint, the web chat widget's API, the Meta webhooks and send adapters |
-| Chat + voice demos (they talk to *owners*) | Call and chat transcripts (no call audio is kept) and the log of every transcript open |
+| Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends and never stored (owner, 13 October 2026; no call audio is kept) |
 | The demo's scraped clinic profile (business data) | Bookings: Google Calendar availability and writes, slot holds, the manual-booking queue |
 | Checkout, Stripe, BAA signing UI, download | Deposit links through the clinic's own payment gateway |
 | Contact form, reviews (business contacts) | The clinic portal, the onboarding wizard and the portal support chat |
@@ -142,9 +142,14 @@ written on 2026-10-07 and reworked after its review on 2026-10-12. The rules
 above all pass — no `@vercel/*`, no edge, plain Node. The host is code in
 `infra/aws`, for account `865780386982` in `us-east-1`: Terraform for ECS on
 Fargate behind one load balancer, RDS for PostgreSQL 17, one KMS key, SSM
-Parameter Store, CloudTrail, Config, GuardDuty, WAF and alarms; a
+Parameter Store, CloudTrail, Config, GuardDuty, SES and alarms; a
 CloudFormation bootstrap stack; and two workflows, `infra.yml` (plan, apply)
-and `deploy-app.yml` (build, migrate, roll, restart, roll back).
+and `deploy-app.yml` (build, migrate, roll, restart, roll back). Since 13
+October 2026 it builds the owner's lean profile by default, about $70 a month
+running: one ARM64 web task of a quarter vCPU carrying the worker too
+(`worker_placement`), a `db.t4g.micro`, a NAT instance instead of a NAT
+gateway (`nat_mode`), and the WAF off (`enable_waf`); each is one variable
+from the shape first built (README, "Costs").
 `infra/aws/README.md` is the runbook. **Nothing is applied**: no AWS resource
 exists until the owner launches the bootstrap stack and runs `infra.yml`, and
 the image has never run on AWS. What has been checked is local: `terraform
@@ -211,9 +216,10 @@ checkov, cfn-lint and actionlint.
   `tsconfig.base.json`, without which tsx loses the `@/` paths. The default
   command, `node apps/app/server.js`, is the web service, behind the
   `tls-proxy` sidecar that re-encrypts the load balancer's traffic to the task.
-  The worker service runs `node --import tsx src/workers/index.ts` in
-  `/repo/apps/app`, so node gets ECS's SIGTERM itself; `npm run worker` is
-  still the local command. Migrations and `queue:install` run as the migrator
+  The worker runs `node --import tsx src/workers/index.ts` in
+  `/repo/apps/app`, so node gets ECS's SIGTERM itself, as an essential third
+  container of each web task by default, or as its own service with
+  `worker_placement = "separate"`; `npm run worker` is still the local command. Migrations and `queue:install` run as the migrator
   in a one-off task before every rollout, and the two roles are created by
   another; `deploy-app.yml` starts both, and `infra/aws/scripts/run-task.sh`
   runs either from a terminal. Two more are registered by every deploy and run
@@ -385,7 +391,14 @@ the spec edits the owner approved.
   the link in its welcome email.
 - **Email** (the plan's Annex X):
   - patient-related mail is a pointer into the portal: never a name, number,
-    time, service or any text from a conversation;
+    time, service or any text from a conversation. One exception, by the
+    owner's decision of 13 October 2026: a conversation's transcript is
+    emailed to the clinic when it ends, instead of being stored
+    (`lib/conversations/transcript-email.ts`). It is classed `may-carry-phi`,
+    so it goes only through SES with TLS required, never Resend; its subject
+    names nobody and it asks not to be replied to. The spec doc, BAA 1.3.0
+    clause 11 and the DPA still describe a stored transcript and must be
+    changed to match (`docs/design/transcript-email-2026-10-13.md`);
   - one Resend account sends all of it, product and marketing mail alike, from
     hello@healdesk.io, the only address (owner, 9 October 2026), and every
     email can be replied to; the sender is the `HEALDESK_EMAIL_FROM`
@@ -425,7 +438,7 @@ not by restoring that code.
 | --- | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` | No |
 | `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`, not yet applied | `apps/app` | **Yes** |
-| `apps/app` worker | Same cluster, its own service `healdesk-production-worker` | `apps/app` | **Yes** |
+| `apps/app` worker | Same cluster: by default a container in each web task; its own service `healdesk-production-worker` with `worker_placement = "separate"` | `apps/app` | **Yes** |
 | `apps/app` migrations and role creation | One-off tasks `healdesk-production-migrate` and `healdesk-production-db-bootstrap`, run by `deploy-app.yml` | `apps/app` | **Yes** |
 | `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same cluster, a separate long-lived service; not built (a disabled placeholder in `infra/aws/ecs.tf`) | `apps/app` | **Yes** |
 | `packages/leadgen` | Not deployed | — | No |

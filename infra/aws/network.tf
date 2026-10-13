@@ -1,7 +1,8 @@
 # One VPC across two availability zones. Public subnets hold only the load
-# balancer and the NAT gateway(s); the ECS tasks and RDS sit in private subnets
-# with no public address. The tasks still need internet egress (Stripe, Meta,
-# Anthropic, Resend, Google), which is what the NAT gateway is for.
+# balancer and the way out (the NAT instance, or NAT gateways); the ECS tasks
+# and RDS sit in private subnets with no public address. The tasks still need
+# internet egress (Stripe, Meta, Anthropic, Resend, Google, AWS's APIs), which
+# is what nat_mode chooses: nat.tf for the instance, below for gateways.
 
 resource "aws_vpc" "main" {
   cidr_block           = var.vpc_cidr
@@ -79,8 +80,12 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
+locals {
+  nat_gateway_count = var.nat_mode == "gateway" ? var.nat_gateways : 0
+}
+
 resource "aws_eip" "nat" {
-  count = var.nat_gateways
+  count = local.nat_gateway_count
 
   domain = "vpc"
 
@@ -92,7 +97,7 @@ resource "aws_eip" "nat" {
 }
 
 resource "aws_nat_gateway" "main" {
-  count = var.nat_gateways
+  count = local.nat_gateway_count
 
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
@@ -104,17 +109,19 @@ resource "aws_nat_gateway" "main" {
   depends_on = [aws_internet_gateway.main]
 }
 
-# One route table per private subnet. With a single NAT gateway both point at
-# it (in the first AZ); with two, each AZ uses its own, so losing one AZ does
-# not take the other's egress with it.
+# One route table per private subnet. With the NAT instance both point at its
+# network interface (in the first AZ). With a single NAT gateway both point at
+# it; with two, each AZ uses its own, so losing one AZ does not take the
+# other's egress with it. Exactly one of the two targets is set.
 resource "aws_route_table" "private" {
   count = length(local.azs)
 
   vpc_id = aws_vpc.main.id
 
   route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[min(count.index, var.nat_gateways - 1)].id
+    cidr_block           = "0.0.0.0/0"
+    nat_gateway_id       = var.nat_mode == "gateway" ? aws_nat_gateway.main[min(count.index, local.nat_gateway_count - 1)].id : null
+    network_interface_id = var.nat_mode == "instance" ? aws_instance.nat[0].primary_network_interface_id : null
   }
 
   tags = {

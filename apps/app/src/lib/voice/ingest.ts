@@ -98,7 +98,13 @@ export type VoiceCallEvent = {
   disclosurePlayedAt?: Date;
   recordingOptOut?: boolean;
   responseLatencySeconds?: number;
-  /** A transcript reference. Never audio: no recording is kept (21 September 2026). */
+  /**
+   * The vendor's transcript reference, read from its payload and never
+   * stored: since the owner's decision of 13 October 2026 a transcript is
+   * emailed to the clinic (lib/conversations/transcript-email.ts) and healdesk
+   * keeps no transcript and no link to one. No audio is kept either (21
+   * September 2026).
+   */
   transcriptUri?: string;
   /**
    * What the agent actually booked, when `outcome` is "booked".
@@ -453,7 +459,8 @@ export async function ingestCall(
         recoveryReason,
         outcome: event.outcome ?? null,
         treatmentInterest: event.treatmentInterest ?? null,
-        transcriptUri: event.transcriptUri ?? null,
+        // Transcripts are emailed, never kept, and neither is a link to one.
+        transcriptUri: null,
         disclosurePlayedAt: event.disclosurePlayedAt ?? null,
         recordingOptOut: event.recordingOptOut ?? false,
         responseLatencySeconds: event.responseLatencySeconds ?? null,

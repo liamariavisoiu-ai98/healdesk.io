@@ -567,6 +567,13 @@ async function client(): Promise<SesClient> {
  *   phiClass "none"          -> Resend or SES, whichever is configured
  *   phiClass "may-carry-phi" -> SES only, and only with TlsPolicy=REQUIRE
  *
+ * The PHI branch picks SES whenever SES is set up for it (the configuration
+ * set is named, which infra/aws does with enable_ses), whatever
+ * HEALDESK_EMAIL_TRANSPORT says. That is how the emailed transcript
+ * (lib/conversations/transcript-email.ts, the owner's decision of 13 October
+ * 2026) goes over SES while every other email stays on Resend: the class
+ * still decides, and the PHI class can only ever reach SES.
+ *
  * Class first, configured transport second — and that ordering is the design,
  * not a coding style. Read the other way round it would be "use what is
  * configured, and hope it suits the message", which downgrades silently the
@@ -593,14 +600,20 @@ export function getTransport(phiClass: PhiClass): EmailTransport {
   const configured = process.env.HEALDESK_EMAIL_TRANSPORT;
   const mayCarryPhi = phiClass !== "none";
 
+  // SES is set up for PHI on this deployment: PHI goes there and nowhere
+  // else. SesTransport still refuses to send unless the set's TlsPolicy is
+  // REQUIRE.
+  if (mayCarryPhi && process.env.HEALDESK_SES_CONFIGURATION_SET) return new SesTransport();
+
   if (mayCarryPhi && configured === "resend") {
     throw new PhiRoutingError(
       "Refusing to route: HEALDESK_EMAIL_TRANSPORT is 'resend' and this " +
         "message is classed as possibly carrying patient information. Resend " +
         "signs no business associate agreement and has no equivalent of SES's " +
         "TlsPolicy=REQUIRE, so it cannot be made to fail a delivery the " +
-        "receiving server will not encrypt. Set HEALDESK_EMAIL_TRANSPORT=ses " +
-        "for this deployment — sending it over Resend is not a lesser option, " +
+        "receiving server will not encrypt. Set up SES for it " +
+        "(HEALDESK_SES_CONFIGURATION_SET, which infra/aws sets with enable_ses), " +
+        "or HEALDESK_EMAIL_TRANSPORT=ses — sending it over Resend is not a lesser option, " +
         "it is the thing healdesk's business associate agreement says it does " +
         "not do.",
     );

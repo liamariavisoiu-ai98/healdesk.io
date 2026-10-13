@@ -81,6 +81,12 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
 # stops sending when no worker task is running. Missing data counts as
 # breaching, because silence is exactly the outage. Both are in alarm from the
 # first apply until the deploy workflow first scales the services up.
+#
+# When the worker shares the web task (worker_placement = "shared") it has no
+# service and no metric of its own. It is an essential container there, so a
+# worker that stops takes its task down and web-below-desired fires instead;
+# a worker that runs but has stalled shows as the heartbeat the external
+# uptime check reads from /api/health (docs/on-call.md).
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "web_running" {
@@ -100,11 +106,13 @@ resource "aws_cloudwatch_metric_alarm" "web_running" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "worker_running" {
+  count = local.worker_shared ? 0 : 1
+
   alarm_name          = "${local.name}-worker-below-desired"
   alarm_description   = "No worker task has been running for five minutes: no clock, no outbox, no billing jobs."
   namespace           = "AWS/ECS"
   metric_name         = "CPUUtilization"
-  dimensions          = { ClusterName = aws_ecs_cluster.main.name, ServiceName = aws_ecs_service.worker.name }
+  dimensions          = { ClusterName = aws_ecs_cluster.main.name, ServiceName = aws_ecs_service.worker[0].name }
   statistic           = "SampleCount"
   period              = 60
   evaluation_periods  = 5
@@ -151,16 +159,29 @@ resource "aws_cloudwatch_metric_alarm" "rds_free_storage" {
   ok_actions          = local.alarm_actions
 }
 
+# An eighth of the instance's memory: 256 MiB on a db.t4g.small, as first
+# set, and 128 MiB on a micro, where RDS's own buffers leave less free from
+# the start. A class missing from the table is read as 2 GiB.
+locals {
+  db_class_memory_mib = {
+    "db.t4g.micro"  = 1024
+    "db.t4g.small"  = 2048
+    "db.t4g.medium" = 4096
+    "db.t4g.large"  = 8192
+  }
+  db_freeable_memory_alarm_mib = lookup(local.db_class_memory_mib, var.db_instance_class, 2048) / 8
+}
+
 resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory" {
   alarm_name          = "${local.name}-rds-freeable-memory"
-  alarm_description   = "Database freeable memory below 256 MiB for fifteen minutes."
+  alarm_description   = "Database freeable memory below ${local.db_freeable_memory_alarm_mib} MiB (an eighth of a ${var.db_instance_class}) for fifteen minutes."
   namespace           = "AWS/RDS"
   metric_name         = "FreeableMemory"
   dimensions          = { DBInstanceIdentifier = aws_db_instance.main.identifier }
   statistic           = "Minimum"
   period              = 300
   evaluation_periods  = 3
-  threshold           = 268435456
+  threshold           = local.db_freeable_memory_alarm_mib * 1048576
   comparison_operator = "LessThanThreshold"
   treat_missing_data  = "missing"
   alarm_actions       = local.alarm_actions

@@ -929,13 +929,14 @@ export const conversations = pgTable(
     treatmentInterest: text("treatment_interest"),
 
     /**
-     * ⚠️ PHI. Behind an S3-compatible URL, never a platform blob API —
-     * apps/app stays portable. Transcript only: by decision of 21 September
-     * 2026 no audio recording is kept anywhere the product can reach (the
-     * `recording_uri` column was dropped in 0038, and the vendor's own
-     * recording storage is switched off in its console — launch guide,
-     * Synthflow card). A voice is an identifier on its own; a transcript is
-     * smaller, searchable, and enough for a dispute.
+     * ⚠️ PHI when set. No longer written: by the owner's decision of 13
+     * October 2026 a transcript is emailed to the clinic when its
+     * conversation ends (lib/conversations/transcript-email.ts) and healdesk
+     * keeps neither the transcript nor a link to one, so every new row has
+     * null here. The column, and the retention purge that clears it, stay
+     * until the agreements and the spec that describe a stored transcript
+     * change (BAA 1.3.0 clause 11). No audio is kept either (21 September
+     * 2026; `recording_uri` was dropped in 0038).
      */
     transcriptUri: text("transcript_uri"),
 

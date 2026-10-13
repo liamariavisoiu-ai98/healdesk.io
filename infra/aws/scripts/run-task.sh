@@ -17,8 +17,9 @@
 # Terraform's own revisions: those name the image tag terraform-placeholder,
 # which nothing pushes, so a task of one could only fail to pull. The deploy
 # workflow registers the others, with the commit's image. destroy-due and
-# patient-export run the newest revision naming the image the worker service
-# runs, so after a rollback they run the code that is live, not the code
+# patient-export run the newest revision naming the image the worker runs
+# (its own service's, or the web task's "worker" container when the worker
+# shares the web task), so after a rollback they run the code that is live, not the code
 # rolled back from; destroy-due exits non-zero while any clinic is still due
 # (docs/handover.md, "Restoring"). The network is the web service's (its
 # private subnets and security group, the one the database admits, no public
@@ -201,15 +202,27 @@ fi
 # --- destroy-due: the image the worker runs ----------------------------------
 want_image=""
 if [ "$1" != migrate ] && [ "$1" != db-bootstrap ]; then
+  # The worker's own service when it has one (worker_placement = "separate");
+  # otherwise it is the web task's "worker" container (infra/aws/ecs.tf).
   worker_td=$(aws_ ecs describe-services --cluster "$CLUSTER" --services "$WORKER_SERVICE" \
-    --query 'services[0].taskDefinition' --output text)
+    --query "services[?status=='ACTIVE'] | [0].taskDefinition" --output text)
+  worker_container=app
+  worker_where=$WORKER_SERVICE
   case "$worker_td" in
-    '' | None) fail "$WORKER_SERVICE has no task definition. Run deploy-app.yml first." ;;
+    '' | None)
+      worker_td=$(aws_ ecs describe-services --cluster "$CLUSTER" --services "$WEB_SERVICE" \
+        --query 'services[0].taskDefinition' --output text)
+      worker_container=worker
+      worker_where="$WEB_SERVICE (its worker container)"
+      ;;
+  esac
+  case "$worker_td" in
+    '' | None) fail "neither $WORKER_SERVICE nor $WEB_SERVICE has a task definition. Run deploy-app.yml first." ;;
   esac
   want_image=$(aws_ ecs describe-task-definition --task-definition "$worker_td" --output text \
-    --query "taskDefinition.containerDefinitions[?name=='app'] | [0].image")
+    --query "taskDefinition.containerDefinitions[?name=='$worker_container'] | [0].image")
   case "$want_image" in
-    None | '' | *":$PLACEHOLDER_TAG") fail "$WORKER_SERVICE runs no deployed image yet. Run deploy-app.yml first." ;;
+    None | '' | *":$PLACEHOLDER_TAG") fail "$worker_where runs no deployed worker image yet. Run deploy-app.yml first." ;;
   esac
   say "the worker runs ${want_image##*/}"
 fi

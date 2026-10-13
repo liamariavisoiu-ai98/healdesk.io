@@ -29,8 +29,13 @@ again before any clinic had signed. On 12 October 2026 the owner released
 1.3.0, the calendar-dependent version, with the calendar election, after
 Claude's own audit of the full text against the code (`agreement-changes.md`
 § 12.15), and again before any clinic had signed, so 1.3.0 replaced 1.2.2
-outright: it is the only version offered (`docs/baa-v1.3.0.txt`) and the
-go-live floor. The
+outright. On 13 October 2026 the owner decided that healdesk keeps no
+transcript (each is emailed to the practice when its conversation ends) and
+released 1.4.0, which is 1.3.0 with its transcript passages said that way
+(`agreement-changes.md` § 14), on the owner's own instruction and without
+external counsel; no clinic had signed 1.3.0, so 1.4.0 replaced it
+outright: it is the only version offered (`docs/baa-v1.4.0.txt`) and the
+go-live floor, and § 14 recommends that counsel review it. The
 reasoning: no clinic is live and no real patient data has been processed;
 the regulatory skeleton of the BAA is checkable against the text of 45 CFR
 164.504(e) and was checked; the open points that a lawyer would settle are
@@ -45,8 +50,8 @@ makes both healdesk and the clinic non-compliant. Several statutes in the
 state table could not be read on the state's own site this session and are
 marked as unverified with the one action that would verify each. The
 `approvedByCounsel` flag in `packages/catalog/src/baa.ts` is set true for
-1.3.0 (and the superseded 1.2.2, 1.2.1 and 1.2.0) on the owner's own review,
-and its doc comment says so.
+1.4.0 (and the superseded 1.3.0, 1.2.2, 1.2.1 and 1.2.0) on the owner's own
+review, and its doc comment says so.
 
 ## Rules for this folder
 

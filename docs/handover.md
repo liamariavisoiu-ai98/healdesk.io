@@ -384,7 +384,7 @@ these exceptions. `heartbeat`, `incident-deadlines` and `transcript-emails` ship
 seeds the second on; 0069 seeds the third, because it deletes every sealed transcript copy
 on its seventh day). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
-1.3.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
+1.3.0 and 1.4.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no
 switch at all: `erasure-expiry`, `booking-request-expiry`, `welcome-email` and
 `booking-requirements-defaults`. The `heartbeat` row is the liveness signal and
@@ -421,8 +421,8 @@ does, or once older than the record clock when its appointment is already gone
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
-retention clause: BAA 1.3.0 and the DPA today, and any later version only if its text
-says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
+retention clause: BAA 1.3.0 and 1.4.0 and the DPA today, and any later version only if
+its text says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
 agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
 ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
 too, are purged as well, and check that the next 03 UTC run's note no longer begins
@@ -452,9 +452,9 @@ the same rule as the database's floor):
   though these agreements give it only "on request"), so deliver it and record the
   handover before then; ops is alerted at day 21 when none is recorded
   (`export_undelivered_before_destruction`).
-- BAA 1.3.0 and the DPA: day 29 once the export is recorded as delivered, its delivery
-  when that is later, and day 89 whatever happens, each a day inside the thirty days and
-  the ninety that BAA 1.3.0 states. Record the delivery by day 29: one recorded later is
+- BAA 1.3.0, 1.4.0 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
+  recorded as delivered, its delivery when that is later, and day 89 whatever happens, each
+  a day inside the thirty days and the ninety that BAA 1.3.0 and 1.4.0 state. Record the delivery by day 29: one recorded later is
   destroyed at the next hourly run, which in the thirtieth day's last hour can fall after
   the thirty days.
 

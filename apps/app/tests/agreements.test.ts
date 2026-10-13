@@ -290,15 +290,15 @@ describe("rendering", () => {
   });
 
   test("the offered template is released, says so, and carries no draft wording", () => {
-    // 1.3.0 was released on 2026-10-12 on the owner's own review, without
-    // external counsel (the doc comment on approvedByCounsel in
+    // 1.4.0 was released on 2026-10-13 by the owner, without external
+    // counsel (the doc comment on approvedByCounsel in
     // packages/catalog/src/baa.ts records that). The document itself must
     // read as executable: a DRAFT line, or the 1.1.0 acceptance placeholder,
     // in an offered agreement is the draft preamble leaking into production.
-    expect(CURRENT_BAA_VERSION).toBe("1.3.0");
+    expect(CURRENT_BAA_VERSION).toBe("1.4.0");
     expect(currentBaaTemplate().approvedByCounsel).toBe(true);
     const text = renderBaa(currentBaaTemplate(), VARS);
-    expect(text).toContain("Version 1.3.0 — executed electronically");
+    expect(text).toContain("Version 1.4.0 — executed electronically");
     expect(text).not.toMatch(/DRAFT|NOT FOR EXECUTION|\[NAME, TITLE\]/);
     // The party is the legal entity, with its form and registered address,
     // not the trade name alone.
@@ -516,9 +516,12 @@ function describeVariant(v: BaaVariables): string {
  * entity does not limit the calendar kind (owner, Q3), so the axes are
  * crossed in full. Verified reporting is not an axis here: 1.3.0 refuses it
  * (pre-release audit, HRC-17), which the last test pins.
+ *
+ * 1.4.0, the current version since 13 October 2026, is 1.3.0 with its
+ * transcript passages said as the product now works, and has the same
+ * matrix, so both run here; only the current one is signable.
  */
-describe("every 1.3.0 variant the funnel will produce", () => {
-  const V130 = "1.3.0";
+describe.each(["1.3.0", "1.4.0"])("every %s variant the funnel will produce", (V130) => {
   const v130 = () => getBaaTemplate(V130)!;
   const SIGNER = {
     clinicLegalName: VARS.clinicLegalName,
@@ -569,7 +572,7 @@ describe("every 1.3.0 variant the funnel will produce", () => {
       const text = renderBaa(v130(), variables);
       const ids = applicableClauses(v130(), variables).map((c) => c.id);
       expect(text).toContain(variables.clinicLegalName);
-      expect(text).toContain("Version 1.3.0 — executed electronically");
+      expect(text).toContain(`Version ${V130} — executed electronically`);
       expect(text).not.toMatch(/\{\{|undefined|\[object/);
       for (const required of [
         "definitions",
@@ -642,19 +645,28 @@ describe("every 1.3.0 variant the funnel will produce", () => {
     }
   });
 
-  test("is signable since its release, by the endpoint and a direct caller alike", () => {
-    // Signing accepts the current template, whatever the overlap holds; 1.3.0
-    // is current since its release (plan C19, 12 October 2026).
+  test("is signable while it is the current version, by the endpoint and a direct caller alike", () => {
+    // Signing accepts the current template, whatever the overlap holds. 1.3.0
+    // was current from its release (plan C19, 12 October 2026) until 1.4.0
+    // replaced it outright on 13 October, with no overlap: no clinic had
+    // signed it, and it describes a stored transcript. Since then it is
+    // refused by name, as 1.2.2 was when 1.3.0 replaced it.
     const request = validSignRequest({
       templateVersion: V130,
       platform: undefined,
       bookingSystem: "none",
       calendarAccount: "workspace_baa",
     });
-    expect(currentBaaTemplate()).toBe(v130());
     expect(v130().approvedByCounsel).toBe(true);
-    expect(() => validateSignRequest(request)).not.toThrow();
-    expect(prepareAgreement(request, DATE).prepared.version).toBe(V130);
+    if (V130 === "1.4.0") {
+      expect(currentBaaTemplate()).toBe(v130());
+      expect(() => validateSignRequest(request)).not.toThrow();
+      expect(prepareAgreement(request, DATE).prepared.version).toBe(V130);
+    } else {
+      expect(currentBaaTemplate()).not.toBe(v130());
+      expect(BAA_RELEASE_OVERLAP).not.toHaveProperty(V130);
+      expect(() => validateSignRequest(request)).toThrow(AgreementError);
+    }
   });
 });
 
@@ -730,11 +742,12 @@ describe("the go-live floor", () => {
     // The drafts were never executable. 1.2.1 was released, but no clinic
     // signed it and 1.2.2 raised the floor past it (9 October 2026). No
     // clinic signed 1.2.2 either, and 1.3.0's release raised the floor past
-    // it in turn (owner, 12 October 2026; agreement-changes.md §12.15), so
-    // only 1.3.0 goes live.
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.3.0");
-    expect(isBaaVersionAcceptable("1.3.0")).toBe(true);
-    for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.3", "9.9.9", ""]) {
+    // it in turn (owner, 12 October 2026; agreement-changes.md §12.15). No
+    // clinic signed 1.3.0, and 1.4.0's release raised the floor past it the
+    // next day (owner, 13 October 2026; §14), so only 1.4.0 goes live.
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.4.0");
+    expect(isBaaVersionAcceptable("1.4.0")).toBe(true);
+    for (const version of ["1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "1.4", "9.9.9", ""]) {
       expect(isBaaVersionAcceptable(version), version).toBe(false);
     }
   });
@@ -947,18 +960,21 @@ describe("which versions can be signed", () => {
     now: new Date(now),
   });
 
-  test("the real release: 1.3.0 current, and nothing in the overlap", () => {
+  test("the real release: 1.4.0 current, and nothing in the overlap", () => {
     // Set by the release (plan C19): no clinic had signed 1.2.2, so the owner
-    // let 1.3.0 replace it outright. Read at fixed instants, the release day
-    // among them, so nothing older signs at any time.
-    expect(CURRENT_BAA_VERSION).toBe("1.3.0");
+    // let 1.3.0 replace it outright. No clinic had signed 1.3.0 either, and
+    // the owner let 1.4.0 replace it outright on 13 October 2026, since 1.3.0
+    // describes a stored transcript (agreement-changes.md §14). Read at fixed
+    // instants, both release days among them, so nothing older signs at any
+    // time.
+    expect(CURRENT_BAA_VERSION).toBe("1.4.0");
     expect(BAA_RELEASE_OVERLAP).toEqual({});
     const at = (now: string): SignableOptions => ({ now: new Date(now) });
     expect(signableTemplate(CURRENT_BAA_VERSION, at("2099-01-01T00:00:00Z"))).toBe(
       currentBaaTemplate(),
     );
-    for (const now of ["2026-10-12T12:00:00Z", "2026-10-26T12:00:00Z", "2099-01-01T00:00:00Z"]) {
-      for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
+    for (const now of ["2026-10-12T12:00:00Z", "2026-10-13T12:00:00Z", "2026-10-26T12:00:00Z", "2099-01-01T00:00:00Z"]) {
+      for (const version of ["1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
         expect(refusal(() => signableTemplate(version, at(now))), `${version} at ${now}`).toMatchObject({
           message: expect.stringMatching(/has been updated/),
           field: "templateVersion",
@@ -1858,20 +1874,20 @@ describeDb("signing", () => {
     expect(await acceptanceCount()).toBe(before);
   });
 
-  test("1.3.0, released, signs through the real release, and its signature carries both answers", async () => {
+  test("1.4.0, released, signs through the real release, and its signature carries both answers", async () => {
     const signed = await signAgreement(
       validSignRequest({
         clinicLegalName: "Released Clinic",
-        templateVersion: "1.3.0",
+        templateVersion: "1.4.0",
         platform: undefined,
         bookingSystem: "none",
         calendarAccount: "workspace_baa",
       }),
     );
-    expect(signed.version).toBe("1.3.0");
+    expect(signed.version).toBe("1.4.0");
     expect(signed.clauseIds).toContain("google-calendar-covered");
     // What the row and its audit event record about release is the
-    // template's own flag, set by the owner's release (plan C19).
+    // template's own flag, set by the owner's release (13 October 2026).
     expect(signed.approvedByCounsel).toBe(true);
 
     const variables = await storedVariables(signed.agreementId);
@@ -1886,7 +1902,22 @@ describeDb("signing", () => {
       `select document_version from baa_acceptances where id = $1`,
       [signed.agreementId],
     );
-    expect(rows[0]!.document_version).toBe("1.3.0");
+    expect(rows[0]!.document_version).toBe("1.4.0");
+
+    // 1.3.0, which 1.4.0 replaced outright, is refused by name and writes nothing.
+    const before = await acceptanceCount();
+    await expect(
+      signAgreement(
+        validSignRequest({
+          clinicLegalName: "Released Clinic",
+          templateVersion: "1.3.0",
+          platform: undefined,
+          bookingSystem: "none",
+          calendarAccount: "workspace_baa",
+        }),
+      ),
+    ).rejects.toMatchObject({ field: "templateVersion" });
+    expect(await acceptanceCount()).toBe(before);
   });
 
   test("inside an overlap after a release, the version it replaced signs as itself, and not after", async () => {

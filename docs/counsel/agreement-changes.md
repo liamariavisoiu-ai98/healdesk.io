@@ -18,7 +18,16 @@
 > `docs/baa-v1.3.0.txt`), with the calendar election, released by the owner
 > without external counsel after Claude's own audit of the full text against
 > the code. No clinic had signed 1.2.2, so 1.3.0 replaced it outright: 1.2.2
-> is no longer signable, and 1.3.0 is the go-live floor.
+> is no longer signable.
+>
+> **Since 13 October 2026 the version offered is BAA 1.4.0** (§ 14,
+> `docs/baa-v1.4.0.txt`): 1.3.0 with its transcript passages said as the
+> product now works, since the owner decided that day that each call's and
+> website chat's transcript is emailed to the practice and not kept.
+> Released by the owner on the owner's own instruction, without external
+> counsel; § 14.5 recommends that counsel review it. No clinic had signed
+> 1.3.0, so 1.4.0 replaced it outright: 1.3.0 is no longer signable, and
+> 1.4.0 is the go-live floor.
 
 ## Contents
 
@@ -35,7 +44,8 @@
 11. [How a change ships (for the engineer)](#11-how-a-change-ships-for-the-engineer)
 12. [BAA 1.3.0: calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-calendar-terms-the-q8-clauses-and-24-hours-notice) (released 12 October 2026, § 12.15)
 13. [BAA 1.2.2: the list on request, one email address, the spec's breach wording](#13-baa-122-the-list-on-request-one-email-address-the-specs-breach-wording)
-14. [Review log](#review-log-2026-10-01)
+14. [BAA 1.4.0: the transcript emailed, not kept](#14-baa-140-the-transcript-emailed-not-kept) (released 13 October 2026)
+15. [Review log](#review-log-2026-10-01)
 
 ---
 
@@ -2266,6 +2276,228 @@ apps/web's. The apps/web tests that pin 1.2.1 as the version offered move to
 1.2.2 with it. `docs/incident-response.md` keeps its 24-hour clocks as the
 internal practice; its sentences that attribute them to BAA 1.3.0 need the
 same correction as `docs/hipaa-risk-analysis.md` T12 received.
+
+---
+
+## 14. BAA 1.4.0: the transcript emailed, not kept
+
+> **Not legal advice.** The owner released BAA 1.4.0 on 13 October 2026, on
+> the owner's own instruction and **without external counsel**, the day the
+> owner decided that healdesk keeps no transcript. The text was drafted by an
+> AI assistant from the code, as the rest of this folder was. **Recommended:
+> counsel reviews 1.4.0's three changed clauses, and the points in § 14.5,
+> before the first live clinic.** No clinic had signed 1.3.0, so 1.4.0
+> replaces it outright: no overlap, and the go-live floor rises to 1.4.0.
+> The DPA, unreleased, takes the same change in place.
+
+### 14.1 What the owner decided (13 October 2026)
+
+When a call or a website chat ends, its transcript is emailed to the
+clinic's one address (its sign-in, billing and notice address) and healdesk
+keeps no transcript. A send that fails must still reach the clinic, so the
+transcript waits, encrypted, until the email has gone and for seven days
+after, and is then deleted. The conversation's record stays, without the
+words: channel, times, outcome, the booking it produced, and when the "I'm
+an AI assistant, this call is transcribed" line played, on its 90-day
+record clock. No call audio is kept, and no Meta message is kept or
+emailed, as before. The design record is
+`docs/design/transcript-email-2026-10-13.md`; its "What has to change to
+match" table names the 1.3.0 and DPA passages this release changes.
+
+1.3.0 described the opposite in three clauses: healdesk "keep[s]
+transcripts and records of those conversations" and exports, corrects or
+deletes them (clause 4, purpose e); what people say is "kept as
+transcripts" (clause 4, the information involved); and "healdesk keeps each
+conversation, with its transcript, for 90 days … Practice may shorten the
+period for transcripts in its portal" (clause 11). Released as it stood, it
+would have promised a stored, exportable, correctable transcript and a
+portal setting that no longer has anything to act on. The design record
+says a new version is cheapest now, while no clinic has signed.
+
+### 14.2 What the code does, read 13 October 2026
+
+Read at `7da5ee3` (the transcript outbox), on the branch that carries
+`8aa930d` (the transcript email).
+
+| Sentence (clause) | The code fact | Where |
+| --- | --- | --- |
+| "When a call or a website chat ends, healdesk emails its transcript" (11) | The voice endpoint and the chat API are to queue the transcript in the conversation's own tenant transaction (`queueTranscriptEmail`) and send it straight after commit (`sendQueuedTranscriptNow`); neither is built yet, so nothing produces a transcript today. The Meta channels are refused by both the queue and the renderer | `apps/app/src/lib/conversations/transcript-outbox.ts`, `transcript-email.ts` |
+| "to the email address on Practice's healdesk account, and to no other address" (11) | Each send goes to `billingRecipients`: the active owner and billing memberships' addresses, or, for a clinic provisioned before identities existed, the buyer seeded at provisioning. In v1 there is one shared sign-in, so one address; a second membership would get its own send | `apps/app/src/lib/billing/recipients.ts`; `deliverTranscriptEmail` |
+| "only over an encrypted connection, as the Safeguards clause provides" (11; clause 10's "An email whose receiving server will not negotiate encryption is failed, not sent" is unchanged) | The email is classed `may-carry-phi`; `getTransport` sends that class only through SES with a configuration set whose `TlsPolicy` is `REQUIRE`, or refuses; Resend never carries it and refuses any blind copy | `apps/app/src/lib/reporting/deliver.ts`, `resend-transport.ts`; `infra/aws/ses.tf` |
+| "healdesk holds one encrypted copy of the transcript" (11) | `transcript_emails.sealed`, sealed under the KMS key with the clinic's lock label, one row per conversation (unique index), forced row-level security, the BAA gate on insert; the runtime role cannot rewrite the copy | `apps/app/drizzle/0069_transcript_outbox.sql` |
+| "until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it" (11) | The trigger `app_transcript_email_clock` sets `destroy_after` from the database's clock: queue time plus seven days, moved once, at the first recorded send (`sent_at`, SES's acceptance), to that send plus seven days; no later send moves it. The `transcript-emails` job deletes each row once `destroy_after` has passed, every minute from the `billing-minute` queue with the hourly tick as its backstop. The copy also goes with its conversation (foreign key) and with the clinic's destruction | drizzle/0069; `runTranscriptEmailsJob`, `destroyTranscriptEmail`; `apps/app/src/lib/offboarding/offboarding.ts` |
+| "healdesk may send the email again when a send fails or the email is returned, and when Practice asks" (11) | A failed send is tried again after 1, 2, 5, 10 and 30 minutes, then hourly; an SES hard bounce, rejection, complaint or rendering failure (`/api/webhooks/ses`) marks it bounced and it is sent again an hour later; the ops operation `resendTranscript` sends it again while the copy lasts. Ops hears on the third failure and if a copy is deleted unsent (`transcript_undelivered`, ids only) | `transcript-outbox.ts`; `apps/app/src/app/api/webhooks/ses/route.ts`; `apps/app/src/lib/ops/api.ts` |
+| "healdesk keeps no other copy of a transcript, apart from the backups described below" (11) | `conversations.transcript_uri` is written null; the outbox logs ids, statuses and SES's scrubbed reason only. The archive copy to a healdesk mailbox (`HEALDESK_TRANSCRIPT_ARCHIVE_TO`) is off, and sends nothing unless `HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed`, which Terraform sets only with `transcript_archive_baa_signed`. The sealed copy is in the database's backups until they expire (35 days, the sentence after) | `transcript-email.ts` (`archiveCopyAddress`); `infra/aws/variables.tf`; `apps/app/src/lib/voice/ingest.ts` |
+| "healdesk keeps the record of each conversation, without what was said or written in it, for 90 days after it took place" (11) | The `conversations` row (channel, times, outcome, the service asked about, `disclosure_played_at`, the contact) on the record clock, which the purge runs for every 1.4.0 clinic whatever its switch (`purgeIsPromised` reads the period off this text) | `apps/app/src/lib/retention/purge.ts`; `apps/app/src/lib/agreements/what-it-says.ts` |
+| "After them healdesk has no transcript to make available, amend, export or delete" (14) | Neither export (`exportPatient`, `exportClinic`) reads `transcript_emails`; once the row is gone nothing holds the words | `apps/app/src/lib/patient-rights/export.ts` |
+
+### 14.3 The text, against 1.3.0
+
+Three clauses change; every other clause is 1.3.0's own clause object, in
+1.3.0's order, and the preamble differs only in its version line
+(`apps/app/tests/baa-golden.test.ts`, "1.4.0: the transcript emailed, not
+kept", holds it to that).
+
+| Clause | 1.3.0 | 1.4.0 |
+| --- | --- | --- |
+| 4, Where Practice is not a covered entity (purpose e) | "e. keep transcripts and records of those conversations and bookings, show them to Practice's staff, and export, correct or delete them when Practice asks;" | "e. email Practice the transcript of each call and website chat, keep records of those conversations, without what was said or written in them, and of bookings, show those records to Practice's staff, and export, correct or delete them when Practice asks;" |
+| 4 (the information involved) | "The patient information involved is what people say or write, kept as transcripts with no call audio; …" | "The patient information involved is what people say or write, which healdesk keeps no longer than the clause headed "Minimum necessary" allows and, from a call or a website chat, emails to Practice as a transcript, with no call audio; …" |
+| 11, Minimum necessary | "Anything else a person chooses to say or write is kept only in the transcript of that conversation, for the period below." | "Anything else a person chooses to say or write on a call or in a website chat is kept only in the transcript of that conversation, for no longer than the next paragraph allows." |
+| 11 (new paragraph) | — | "healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection, as the Safeguards clause provides. So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it. Until then healdesk may send the email again when a send fails or the email is returned, and when Practice asks. healdesk keeps no other copy of a transcript, apart from the backups described below; what Anthropic keeps is what the Subcontractors clause describes. Once healdesk's copy is deleted, the email is Practice's own record of what was said, and Practice is responsible for keeping, protecting and deleting it." |
+| 11 (retention) | "healdesk keeps each conversation, with its transcript, for 90 days after it took place, … Practice may shorten the period for transcripts in its portal. A backup copy …" | "healdesk keeps the record of each conversation, without what was said or written in it, for 90 days after it took place, … A backup copy …" (the sentence on shortening is gone; every other period is 1.3.0's word for word) |
+| 14, Patient access, amendment and accounting (new paragraph after the list) | — | "healdesk holds a transcript only to deliver it to Practice, and only for the days the clause headed "Minimum necessary" allows. After them healdesk has no transcript to make available, amend, export or delete: the email that carried it is Practice's own record, and Practice answers a request about a transcript from that email." |
+
+The rest of 1.3.0 already reads true of the emailed transcript: clause 10's
+email sentence is the one the transcript relies on; clause 4(c)'s deletion
+on request reaches the outbox copy, which erasure deletes with the person's
+conversations (foreign key); clause 17's export and destruction reach it
+(`destroyClinicData` deletes `transcript_emails`, and
+`app_mark_clinic_destroyed` refuses while one is left, drizzle/0069); and
+the opening-line sentence of clause 11 says only that the line is given and
+cannot be switched off. No clause of 1.3.0 or 1.4.0 relies on a stored
+transcript as the record of the AI and transcription announcement
+(§ 14.5, item 5).
+
+The DPA (unreleased, so edited in place; `docs/dpa-v1.0.0.txt` and its
+eight hashes regenerated) takes the same three changes in its own words: its
+clause 5 is `stateLawClauseBody140` with the subject "Client Information";
+its clause 10, "Minimum necessary, and who receives Client Information",
+carries 1.4.0's transcript paragraph word for word and the period of the
+record of each conversation without the words, and no longer lets Practice
+shorten the period for transcripts; its clause 13, "Clients' requests",
+gains the paragraph of 1.4.0's clause 14 with "give Practice, correct or
+delete" for "make available, amend, export or delete" (`dpa.md`, § 6, gap 2).
+
+### 14.4 What shipped
+
+| Change | Where |
+| --- | --- |
+| 1.4.0 is `BAA_TEMPLATES[0]`, `publishedOn` 2026-10-13, `approvedByCounsel: true`, which records the owner's release (the flag's doc comment); checkout offers it and signing takes it. Its clauses are `CLAUSES_1_3` with `STATE_LAW_1_4`, `MINIMUM_NECESSARY_1_4` and `PATIENT_RIGHTS_1_4` in place of 1.3.0's three; its preamble and render guard are 1.3.0's naming 1.4.0 | `packages/catalog/src/baa.ts` |
+| The shared state-law clause keeps 1.3.0's frozen wording as `stateLawClauseBody`, and 1.4.0's beside it as `stateLawClauseBody140`; the catalog's `baa.test.ts` holds the two to differing in the two sentences above and nothing else | `packages/catalog/src/baa.ts` |
+| 1.3.0 is `BAA_TEMPLATES[1]`, frozen, and no longer signable: `BAA_RELEASE_OVERLAP` is empty | `packages/catalog/src/baa.ts`; `signableTemplate` in `apps/app/src/lib/agreements.ts` |
+| The go-live floor rises to 1.4.0: provisioning, the checkout's agreement check, go-live and a supersede refuse a 1.3.0 signature | `MIN_ACCEPTABLE_BAA_VERSION` |
+| `app_baa_version_acceptable()` accepts 1.4.0 and nothing else; `app_destruction_rule()` gives 1.4.0 the export rule 1.3.0 has (its Term clause is 1.3.0's own); a DO block asserts both lists and the election list as 0068 left it | `apps/app/drizzle/0070_baa_release_1_4_0.sql`; parity tests in `apps/app/tests/database-audit.test.ts` and `destruction-clock.test.ts` |
+| `DESTRUCTION_RULES` gives 1.4.0 the export rule; `PURGE_PERIODS` reads the conversation's period in either wording, so a 1.4.0 clinic is purged nightly whatever the switch, as a 1.3.0 clinic is | `apps/app/src/lib/offboarding/offboarding.ts`; `apps/app/src/lib/agreements/what-it-says.ts` |
+| The signing screen's note beside 1.4.0's clause 11 says the transcript is emailed and healdesk's copy deleted seven days after; 1.4.0's other notes and its bullets are 1.3.0's own objects | `packages/catalog/src/baa-explainer.ts` |
+| The portal's Records card ("Keep transcripts for") is gone, with its server path: the key `transcript_retention` is refused as no setting, and setup's writer no longer takes the field. The column `clinic_settings.transcript_retention_days` stays, read by the purge, where a value saved before only ever deletes sooner | `apps/app/src/app/c/[slug]/settings/`; `apps/app/src/lib/portal/settings.ts`, `settings-view.ts`; `apps/app/src/lib/setup/settings.ts` |
+| /terms, /privacy and /data-deletion say each transcript is emailed to the clinic and not kept, the one copy deleted seven days after the email first goes, and the conversation's record kept 90 days without the words; nothing offers a shorter period; the Terms' export no longer promises transcripts, and its annex says the record of each call notes when the opening line was given rather than that the line is "the first line of every transcript". LEGAL_VERSION 2026-10-13.3 | `apps/web/src/app/terms/page.tsx`, `privacy/page.tsx`, `data-deletion/page.tsx`; `apps/web/src/lib/legal.ts` |
+| The released review copy, with the variant clauses, the election and the disclosure in appendices | `docs/baa-v1.4.0.txt` |
+
+**The floor, and nobody signed.** 1.3.0 is below the floor from this
+release, as 1.2.2 was from 1.3.0's. Nothing in the code needed it to stay
+acceptable. No clinic has signed any version: `apps/app` is deployed for no
+real clinic and has only ever held synthetic and seed data (CLAUDE.md).
+`createDemoClinic` and both signing paths sign `BAA_TEMPLATES[0]`.
+Provisioning reads a location's calendar terms from the clause ids an
+acceptance applied (`CALENDAR_CLAUSE_IDS_1_3`, `templateReadsCalendarAccount`),
+and 1.4.0 applies 1.3.0's calendar clauses under the same ids, so a 1.4.0
+signer's first location gets its terms exactly as a 1.3.0 signer's did, and
+`calendar-election/1.0.0` takes the place of 1.4.0's calendar clause word for
+word. The two-deploy window `BAA_RELEASE_OVERLAP` exists for cannot strand a
+buyer, because nothing is deployed for one to be part-way through a checkout
+on. The tests that sign "the current version" now sign 1.4.0; those that
+read 1.3.0's own behaviour name 1.3.0 as current themselves, as the tests of
+1.2.x did after 1.3.0's release.
+
+### 14.5 For counsel, and the owner
+
+Counsel review of 1.4.0 is recommended before the first live clinic, on
+these points in particular. Each open row has an owner.
+
+1. **The practice's inbox becomes the record.** After seven days healdesk
+   cannot produce, amend, export or delete a transcript, and clause 14 says
+   Practice answers from the email. Is a transcript the business associate
+   held only to deliver it part of a designated record set it must keep
+   available under 164.524 and 164.526, and may the agreement put that duty
+   on Practice once the copy is delivered? (owner; counsel)
+2. **The practice's mailbox.** The one address is often a shared info@
+   inbox, and many practices have no business associate agreement of their
+   own with their email provider. The agreement now says Practice keeps,
+   protects and deletes the email; it does not tell Practice to receive it
+   at a mailbox under such an agreement. Counsel may want that said, in the
+   agreement or at setup. (owner; counsel)
+3. **Replies.** The email comes from hello@healdesk.io, which has no
+   business associate agreement behind it, and asks not to be replied to. A
+   reply would put the transcript there. Settle it with a covered reply-to,
+   or accept the risk in writing. (owner)
+4. **The archive copy.** The code can blind-copy every transcript to a
+   healdesk mailbox, and it is off. Turned on, it is a copy healdesk keeps,
+   which 1.4.0's "healdesk keeps no other copy of a transcript" forbids:
+   turning it on needs a new agreement version (and a mailbox held under a
+   business associate agreement, which the code already requires). (owner)
+5. **The call-announcement record (state-disclosure.md, R1).** For
+   Washington and Connecticut the record that the "this call is transcribed"
+   line was given was to be the transcript's first line and its timestamp.
+   healdesk no longer keeps the transcript, so the record it holds is
+   `conversations.disclosure_played_at`, the fixed audio asset the line is
+   played from, and the vendor's call log; the emailed transcript, in
+   Practice's hands, may carry the line too. No clause of 1.3.0 or 1.4.0
+   relies on a stored transcript for it, and the Terms annex no longer says
+   the line is "the first line of every transcript". Put to counsel with R1.
+   (counsel)
+6. **A transcript that never goes.** After seven days of failed sends the
+   copy is deleted and the transcript is lost; ops hears at the third
+   failure and at the deletion, and a person tells the clinic. Clause 10's
+   "healdesk tells Practice rather than send it in the clear" is kept by
+   that person: nothing tells the clinic automatically. (owner)
+7. **The seven days depend on a switch.** The deletion runs in the
+   `transcript-emails` job, seeded on, through `runSwitchedJob`: an
+   operator who switches it off stops the deletion, and the copies outlive
+   the seven days clause 11 states. `offboarding-destroy` and
+   `retention-purge` run for every clinic whose agreement promises them
+   whatever their switch (`runWideningJob`); the outbox's deletion should
+   too, or the console should refuse to switch it off. (engineering)
+8. **The voice vendor's copy.** Retell transcribes the call and keeps what
+   its per-agent retention setting says. It is a subcontractor bound to the
+   same restrictions, so its retention must be set to its minimum, and no
+   longer than healdesk's seven days, before the first call; Anthropic's
+   30 days are what clause 13 states. (owner; infra)
+9. **Raw vendor payloads.** The pre-Retell Synthflow webhook still stores
+   its raw payload (`webhook_events.raw_payload`, up to 30 days), which can
+   carry a transcript, beside "healdesk keeps no other copy". That route
+   serves no clinic in v1; it must be removed, or stop keeping the
+   transcript, before any real call reaches it, and the Retell endpoint must
+   store none (the design record's "Raw vendor payloads"). (engineering)
+10. **Backups.** The sealed copy is in the database's backups until they
+    expire, within 35 days of its deletion, which clause 11's "apart from
+    the backups described below" says.
+11. **Outside this change.** The spec (`docs/v1-product-spec.md`, an export)
+    still describes a stored, searchable transcript and a 30- or 7-day
+    shortening; the owner's spec doc changes and is re-exported. Product
+    copy outside the agreements and the legal pages still describes kept
+    transcripts: the cancellation email promises "your export of
+    transcripts" (`apps/app/src/lib/email/templates/canceled.ts`), the
+    homepage FAQ says "transcripts automatically after 90 days, or sooner
+    if you choose" (`apps/web/src/components/KnowMore.tsx`), the demo's
+    product brief says "Opening a transcript needs a second factor"
+    (`apps/web/src/lib/knowledge/index.ts`), and the vendor register's
+    hosting and voice rows list transcripts (`apps/web/src/lib/subprocessors.ts`).
+    (funnel; owner)
+
+### 14.6 Golden hashes
+
+Frozen from the release (`apps/app/tests/baa-golden.test.ts`):
+
+| Document and variant | SHA-256 |
+| --- | --- |
+| 1.4.0 covered_estimated (the sample, and covered_outbound) | `090b15ed4e7c18484e478f9fd7513fe98fac7538970aff02966913d19d081f1c` |
+| 1.4.0 notcovered_estimated | `860a6b5c3ee77c81d51f0926664027bd15636ab8122d8723331f574cd16776c0` |
+| 1.4.0 unknown_estimated | `24fbf49533fa8dc3f305177398bbc357343f254893f2ae6ac7cf3dbd3032194b` |
+| 1.4.0 uncovered_nobaa | `8368172f436a9745c5f49b3618f0868fb4699f0949d126ef18b11533aa6535b8` |
+| 1.4.0 uncovered_personal | `44783845eb1f726364f4880165ceac442577a5cebaafacdfb1bc2c421515ac40` |
+| 1.4.0 notused_mindbody | `2bba813e83d84759fd11da4b3f7100668ac09b7fd967a996f68bdb59c866b7fe` |
+| 1.4.0 notused_other | `2991f7af136e30740ff9ef1571abc388310c2d6f05d3250d8c1913614f5d8d2b` |
+| 1.4.0 live_calcom | `7b847d7578719c64b59a58a5a60db1abcea3a66b53d631e048ba20ea1c12c642` |
+| 1.4.0 live_highlevel_personal | `e82033ab4c71ee1ac6463098229b0aa3553702612cc6599ec5401362bb640ff7` |
+| 1.4.0 live_calendly_nobaa | `015d11feb12702430ae5cdfae6b1b198960d01a5d1d4e06ee8f9aade6064f433` |
+| DPA 1.0.0 sample, regenerated | `97058d2d2ca9ec0483a1cf2e2d459ee7d3ae3d0c9949ad38cc8dd052104dad05` |
+
+No released hash moved: 1.3.0 / covered_estimated is still
+`d9117482bba644006763a9d613d94ec0a38a3f8888a95b61ad6fbb6f3a68acb3`, 1.2.2 and
+every older version reproduce as before, and so do the election
+(`63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa`, rendered
+against 1.3.0) and the Google Calendar disclosure. The DPA's other seven
+hashes moved with its sample (`packages/catalog/src/dpa.test.ts`).
 
 ---
 

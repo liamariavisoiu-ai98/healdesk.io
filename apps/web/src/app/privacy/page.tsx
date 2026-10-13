@@ -98,6 +98,18 @@ export const metadata: Metadata = {
  *     no payment link there, where it said it could "book an appointment or
  *     send the clinic's own payment link": lib/meta/front-door.ts creates
  *     booking requests only, and nothing calls depositLinkMessage.
+ *
+ * Revised on 13 October 2026 as LEGAL_VERSION 2026-10-13.3, for BAA 1.4.0
+ * (agreement-changes.md § 14): the owner decided that day that healdesk
+ * keeps no transcript. Section 6 says each call's and website chat's
+ * transcript is emailed to the clinic, that the one encrypted copy held to
+ * send a failed email again goes seven days after the email is first
+ * accepted (or after it was queued, if it never is), and that the
+ * conversation's record, without what was said, goes at 90 days, where it
+ * said each conversation and its transcript went at 90 days "or sooner if
+ * the clinic chooses a shorter period". Section 12's "or sooner if the
+ * clinic chooses" is "or sooner if the clinic asks us to delete them": the
+ * portal setting it leaned on shortened transcripts only, and is gone.
  */
 export default function PrivacyPage() {
   return (
@@ -415,10 +427,13 @@ export default function PrivacyPage() {
           <li>Customer billing records: for as long as tax and accounting law require.</li>
           <li>The record of a signed Business Associate Agreement: for six years after the relationship ends, as HIPAA requires.</li>
           <li>
-            Inside the product, a clinic&apos;s patient conversations: each conversation and its
-            transcript is deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it took
-            place, or sooner if the clinic chooses a shorter period, and no call audio is kept at
-            all. The clinic&apos;s Business Associate Agreement with us governs the rest.
+            Inside the product, a clinic&apos;s patient conversations: we keep no transcript. When
+            a call or a website chat ends, its transcript is emailed to the clinic, and the one
+            encrypted copy we hold so that a failed email can be sent again is deleted seven days
+            after the email is first accepted for delivery, or seven days after it was queued if it
+            never is. The record of each conversation, without what was said, is deleted
+            automatically {TRANSCRIPT_RETENTION_DAYS} days after it took place, and no call audio
+            is kept at all. The clinic&apos;s Business Associate Agreement with us governs the rest.
           </li>
         </ul>
       </Section>
@@ -644,8 +659,8 @@ export default function PrivacyPage() {
             clinic&apos;s agreement allows, and are deleted automatically within the periods that
             agreement sets, which run at most {TRANSCRIPT_RETENTION_DAYS} days from the latest of
             the request, its appointment and the last change to those details, or sooner if the
-            clinic chooses. If you wrote to a clinic, that clinic controls the record; see section
-            13.
+            clinic asks us to delete them. If you wrote to a clinic, that clinic controls the
+            record; see section 13.
           </li>
         </ul>
       </Section>

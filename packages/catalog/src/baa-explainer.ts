@@ -160,13 +160,22 @@ const TERMS_1_3_0: Readonly<Record<string, BaaExplainerTerm>> = {
 };
 
 /**
+ * 1.3.0's nine bullets. 1.4.0 shows the same list, the same object: its Term
+ * clause is 1.3.0's own, and no bullet speaks of transcripts.
+ */
+const BULLETS_1_3_0: readonly BaaExplainerTerm[] = BAA_EXPLAINER.terms.map(
+  (term) => TERMS_1_3_0[term.citation] ?? term,
+);
+
+/**
  * "Why you're signing this", for a version whose clauses the shared bullets
  * would understate, keyed by template version: the same nine bullets in the
  * same order, with the ones that version words differently replaced.
  */
 export const BAA_EXPLAINER_TERMS_BY_VERSION: Readonly<Record<string, readonly BaaExplainerTerm[]>> =
   {
-    "1.3.0": BAA_EXPLAINER.terms.map((term) => TERMS_1_3_0[term.citation] ?? term),
+    "1.4.0": BULLETS_1_3_0,
+    "1.3.0": BULLETS_1_3_0,
   };
 
 /**
@@ -205,8 +214,9 @@ const BAA_EXPLAINERS_BY_VERSION: Readonly<Record<string, BaaExplainer>> = Object
  * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.2, the
  * version signed until 1.3.0's release, for 1.2.1 before it, and for any
  * version that words no bullet differently, so what that screen shows for
- * them stays byte for byte what it showed; for 1.3.0, the current version,
- * the same heading, lead, objection and disclaimer above 1.3.0's bullets.
+ * them stays byte for byte what it showed; for 1.3.0, and for 1.4.0, the
+ * current version, the same heading, lead, objection and disclaimer above
+ * 1.3.0's bullets.
  * The signing screen takes the explainer from here with the version it
  * renders, never BAA_EXPLAINER directly (agreement-changes.md §12.14, release
  * gate 11).
@@ -347,21 +357,57 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
  * give fifteen days, with an objection that has to come before the change takes effect,
  * which in a day is the part that matters, and states Anthropic's agreement
  * as a promise about when it is signed.
+ *
+ * In 1.4.0 the minimum-necessary clause also says that healdesk keeps no
+ * transcript: each call's and website chat's goes to the practice's account
+ * address by email, and healdesk's encrypted copy is deleted seven days after
+ * the email first goes, after which the email is the practice's record (owner,
+ * 13 October 2026). Its note says so; 1.4.0's other two notes are 1.3.0's,
+ * the same objects, since those clauses are 1.3.0's own.
  */
+const CLAUSE_NOTES_1_3_0: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> = {
+  "data-sources-none": {
+    plain:
+      "healdesk holds no credentials to your booking, practice-management or point-of-sale " +
+      "system and reads nothing from one, apart from whatever Google Calendar access the " +
+      "calendar clause describes. Patient information reaches healdesk from the conversations " +
+      "themselves (with the number, messaging account or network address they come from), " +
+      "from your staff through healdesk, and from your payment processor's notice that a " +
+      "deposit link was paid",
+    citation: "164.504(e)(2)(i)",
+  },
+  "minimum-necessary": {
+    plain:
+      "When someone books, the assistant asks only for what a receptionist would write on a " +
+      "callback slip: a first name, a number you can call, a preferred time and one or two " +
+      "others, and on calls, where your settings or your specialty's defaults ask for them, a " +
+      "last name, the service, whether they're new or returning, consultation or treatment, " +
+      "and a preferred practitioner. It asks for no email, history, medication or diagnosis, " +
+      "and never takes a card number. It says it is an AI assistant in its first line on every " +
+      "channel, and on calls that the call is transcribed; you cannot switch that off",
+    citation: "164.502(b)",
+  },
+  subcontractors: {
+    plain:
+      "Every vendor that handles patient information signs the same obligations with " +
+      "healdesk before it does. The language model is Anthropic's: it receives conversation " +
+      "content only under a business associate agreement with healdesk, signed before any " +
+      "patient's information reaches it, keeps that content for 30 days, for abuse detection " +
+      "and security, then deletes it (content its safety systems flag, or the law requires it " +
+      "to keep, may be held for up to two years), and never trains on it. You're told by email " +
+      `at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor handles patient ` +
+      "information, and may end the agreement without penalty if you object on reasonable " +
+      "grounds before the change takes effect: the service ends with it, and fees you paid " +
+      "for the time after are refunded",
+    citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
+  },
+};
+
 export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
   Record<string, Partial<Record<ExplainedClauseId, BaaExplainerTerm>>>
 > = {
-  "1.3.0": {
-    "data-sources-none": {
-      plain:
-        "healdesk holds no credentials to your booking, practice-management or point-of-sale " +
-        "system and reads nothing from one, apart from whatever Google Calendar access the " +
-        "calendar clause describes. Patient information reaches healdesk from the conversations " +
-        "themselves (with the number, messaging account or network address they come from), " +
-        "from your staff through healdesk, and from your payment processor's notice that a " +
-        "deposit link was paid",
-      citation: "164.504(e)(2)(i)",
-    },
+  "1.4.0": {
+    ...CLAUSE_NOTES_1_3_0,
     "minimum-necessary": {
       plain:
         "When someone books, the assistant asks only for what a receptionist would write on a " +
@@ -370,24 +416,15 @@ export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
         "last name, the service, whether they're new or returning, consultation or treatment, " +
         "and a preferred practitioner. It asks for no email, history, medication or diagnosis, " +
         "and never takes a card number. It says it is an AI assistant in its first line on every " +
-        "channel, and on calls that the call is transcribed; you cannot switch that off",
+        "channel, and on calls that the call is transcribed; you cannot switch that off. " +
+        "healdesk doesn't keep transcripts: when a call or website chat ends, its transcript is " +
+        "emailed to your account's address, and healdesk deletes its encrypted copy seven days " +
+        "after the email goes. From then on that email is your practice's record, to keep and " +
+        "protect",
       citation: "164.502(b)",
     },
-    subcontractors: {
-      plain:
-        "Every vendor that handles patient information signs the same obligations with " +
-        "healdesk before it does. The language model is Anthropic's: it receives conversation " +
-        "content only under a business associate agreement with healdesk, signed before any " +
-        "patient's information reaches it, keeps that content for 30 days, for abuse detection " +
-        "and security, then deletes it (content its safety systems flag, or the law requires it " +
-        "to keep, may be held for up to two years), and never trains on it. You're told by email " +
-        `at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor handles patient ` +
-        "information, and may end the agreement without penalty if you object on reasonable " +
-        "grounds before the change takes effect: the service ends with it, and fees you paid " +
-        "for the time after are refunded",
-      citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
-    },
   },
+  "1.3.0": CLAUSE_NOTES_1_3_0,
 };
 
 /**

@@ -71,13 +71,17 @@ import type { TenantTx } from "@/lib/tenant";
  * night the booking request, appointment or conversation it amends goes, in
  * the same call, and never before.
  *
- * ## The periods, as BAA 1.3.0's clause 11 states them
+ * ## The periods, as BAA 1.3.0's and 1.4.0's clause 11 state them
  *
  * The record clock is the clinic's `retention_record_days`
  * (TRANSCRIPT_RETENTION_DAYS, 90, unless the practice shortens it):
  *
  *   - a conversation, with its transcript reference: the record clock after
- *     it took place (the media clock clears the reference sooner);
+ *     it took place (the media clock clears the reference sooner). 1.4.0
+ *     calls it "the record of each conversation, without what was said or
+ *     written in it": since 13 October 2026 no row carries a reference, and
+ *     the transcript itself waits only in the outbox, for seven days
+ *     (lib/conversations/transcript-outbox.ts), going with its conversation;
  *   - an appointment: the record clock after its time;
  *   - a booking request: the record clock after the latest of when it was
  *     made, the time it was confirmed for and its appointment's time;
@@ -275,11 +279,15 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .limit(1);
   if (!clinic) return result;
 
-  // The transcript clock: the practice's portal setting (Settings, 90, 30 or
-  // 7 days; clinic_settings.transcript_retention_days) may shorten the media
-  // clock, never lengthen it, and reaches transcripts only, no other record
-  // (BAA 1.3.0 clause 11, "Practice may shorten the period for transcripts
-  // in its portal"). A clinic with no settings row keeps the media clock.
+  // The transcript clock: clinic_settings.transcript_retention_days (90, 30
+  // or 7 days) may shorten the media clock, never lengthen it, and reaches
+  // transcripts only, no other record (BAA 1.3.0 clause 11, "Practice may
+  // shorten the period for transcripts in its portal"). Since 13 October 2026
+  // nothing sets it: healdesk keeps no transcript (each is emailed to the
+  // clinic; BAA 1.4.0 clause 11), the portal's setting is gone, and new rows
+  // carry no transcript_uri. It is still read, because a value saved before
+  // only ever makes this delete sooner. A clinic with no settings row keeps
+  // the media clock.
   const [settings] = await tx.db
     .select({ transcriptDays: clinicSettings.transcriptRetentionDays })
     .from(clinicSettings)

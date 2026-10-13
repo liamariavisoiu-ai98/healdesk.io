@@ -74,15 +74,20 @@ import { wrap } from "./wrap";
  * server-side, and the client sends back a hash of what it displayed so a
  * mismatch is refused rather than recorded.
  *
- * ⚖️ Version 1.3.0, the calendar-dependent version, is the current template
- * and is what clinics now sign. It was released on 2026-10-12 by the owner,
- * on the owner's own review and without external counsel, after Claude's
- * own audit of the full text against the code (plan C19); the doc comment
- * on `approvedByCounsel` records exactly what that flag now means. It
- * replaced 1.2.2 outright: no clinic had signed 1.2.2, so it is no longer
- * signable and the go-live floor (MIN_ACCEPTABLE_BAA_VERSION) is 1.3.0.
- * 1.2.2, released on 2026-10-09, 1.2.1 and 1.2.0, each released on
- * 2026-10-01, 1.0.0, which counsel approved in September 2026,
+ * ⚖️ Version 1.4.0 is the current template and is what clinics now sign. It
+ * is 1.3.0, the calendar-dependent version, with its three transcript
+ * passages said as the product now works: each call's and website chat's
+ * transcript is emailed to the practice and not kept (owner, 13 October
+ * 2026). It was released on 2026-10-13 by the owner, on the owner's own
+ * instruction and without external counsel; the doc comment on
+ * `approvedByCounsel` records exactly what that flag now means, and
+ * docs/counsel/agreement-changes.md §14 recommends counsel review it. It
+ * replaced 1.3.0 outright: no clinic had signed 1.3.0, so it is no longer
+ * signable and the go-live floor (MIN_ACCEPTABLE_BAA_VERSION) is 1.4.0.
+ * 1.3.0, released on 2026-10-12 after Claude's own audit of the full text
+ * against the code (plan C19), 1.2.2, released on 2026-10-09, 1.2.1 and
+ * 1.2.0, each released on 2026-10-01, 1.0.0, which counsel approved in
+ * September 2026,
  * 1.1.0-draft, which was never offered, and 0.1.0-draft are
  * retained below them and never offered again: accounts created against
  * 1.0.0 and 0.1.0-draft signed that exact text, and their stored hash has to
@@ -232,8 +237,9 @@ export type BaaTemplate = {
    *
    * The name predates the decision it now records. 1.0.0 was approved by
    * counsel; versions 1.2.0 and 1.2.1 were released on 2026-10-01, 1.2.2 on
-   * 2026-10-09 and 1.3.0 on 2026-10-12, each on the owner's own review
-   * without external counsel, and this flag is what records each release.
+   * 2026-10-09, 1.3.0 on 2026-10-12 and 1.4.0 on 2026-10-13, each by the
+   * owner without external counsel, and this flag is what records each
+   * release.
    * Not renamed, because provisioning, agreements, AgreementStep and the
    * tests all read it by this name.
    */
@@ -1994,7 +2000,15 @@ function byId120(id: string): BaaClause {
   return clause;
 }
 
-/** The transcript retention the agreement states; the code's default (apps/app clinics.retention_media_days). */
+/**
+ * The 90 days the agreements state, and the code's default (apps/app
+ * clinics.retention_media_days and retention_record_days). Named for what
+ * 1.2.x and 1.3.0 kept for it, a conversation with its transcript; from
+ * 1.4.0, and in the DPA, it is the period of the record of a conversation
+ * without its words, and of appointments, booking requests and contacts,
+ * since no transcript is kept (owner, 13 October 2026). Not renamed: the
+ * legal pages, the purge and the agreements all read it by this name.
+ */
 export const TRANSCRIPT_RETENTION_DAYS = 90;
 
 const CLAUSES_1_2_1: readonly BaaClause[] = [
@@ -2552,14 +2566,52 @@ const STATE_LAW_HEADINGS: Record<
  * no calendar purpose, data or recipient except under a calendar election.
  *
  * Released with BAA 1.3.0 on 2026-10-12, and frozen from then with its golden
- * hashes, for the DPA too, which renders it as it stands: a new wording is a
- * new function beside this one, never an edit to it.
+ * hashes: a new wording is a new function beside this one, never an edit to
+ * it. BAA 1.4.0's wording, which the DPA renders since 13 October 2026, is
+ * `stateLawClauseBody140`, beside it; both are built by `stateLawClause`,
+ * which changes the 1.3.0 text in nothing (the 1.3.0 golden hashes hold it).
  */
-export function stateLawClauseBody(input: {
+export function stateLawClauseBody(input: StateLawClauseInput): string {
+  return stateLawClause(input, "kept");
+}
+
+/**
+ * The same clause in BAA 1.4.0's words, and the DPA's (owner, 13 October
+ * 2026: transcripts are emailed to the practice, not kept). Two sentences
+ * differ from `stateLawClauseBody`, each because the 1.3.0 one describes a
+ * stored transcript the product no longer keeps:
+ *
+ *   - purpose e: healdesk emails the practice the transcript of each call and
+ *     website chat, and keeps records of those conversations without what
+ *     was said or written in them, where 1.3.0 "keep[s] transcripts and
+ *     records of those conversations" and exports, corrects or deletes them;
+ *   - the data involved: what people say or write is kept no longer than the
+ *     minimum-necessary clause allows and, from a call or a website chat,
+ *     emailed to the practice as a transcript, where 1.3.0 has it "kept as
+ *     transcripts".
+ *
+ * Everything else is 1.3.0's, word for word (packages/catalog's baa.test.ts
+ * holds the two together). Frozen with BAA 1.4.0's golden hashes from its
+ * release on 2026-10-13; the DPA renders it as it stands until the DPA is
+ * released, and from then a new wording is a new function here too.
+ */
+export function stateLawClauseBody140(input: StateLawClauseInput): string {
+  return stateLawClause(input, "emailed");
+}
+
+/** What `stateLawClauseBody` and `stateLawClauseBody140` take. */
+export type StateLawClauseInput = {
   subject: StateLawSubject;
   kind?: "baa" | "dpa";
   sync: BookingSync;
-}): string {
+};
+
+/**
+ * Both wordings of the clause. `transcripts` is the only difference between
+ * them: "kept" is BAA 1.3.0's, "emailed" is BAA 1.4.0's and the DPA's. Not
+ * exported, so no caller can reach a wording by a flag rather than by name.
+ */
+function stateLawClause(input: StateLawClauseInput, transcripts: "kept" | "emailed"): string {
   const S = input.subject;
   const kind = input.kind ?? (S === "patient information" ? "baa" : "dpa");
   const baa = kind === "baa";
@@ -2624,8 +2676,12 @@ export function stateLawClauseBody(input: {
     `d. pass messages, including urgent ones and requests for a person, to Practice's staff or ` +
       `the contacts Practice names, and pass calls through, or transfer them, to Practice's own ` +
       `lines;`,
-    `e. keep transcripts and records of those conversations and bookings, show them to ` +
-      `Practice's staff, and export, correct or delete them when Practice asks;`,
+    transcripts === "kept"
+      ? `e. keep transcripts and records of those conversations and bookings, show them to ` +
+        `Practice's staff, and export, correct or delete them when Practice asks;`
+      : `e. email Practice the transcript of each call and website chat, keep records of those ` +
+        `conversations, without what was said or written in them, and of bookings, show those ` +
+        `records to Practice's staff, and export, correct or delete them when Practice asks;`,
     `f. count conversations, minutes and bookings, to bill Practice and to report them to it;`,
     `g. read a conversation that Practice flags, or that a fault or a complaint makes it ` +
       `necessary to read, to correct the assistant for Practice;` +
@@ -2644,7 +2700,11 @@ export function stateLawClauseBody(input: {
 
   paragraphs.push(
     wrap(
-      `The ${S} involved is what people say or write, kept as transcripts with no call audio; ` +
+      (transcripts === "kept"
+        ? `The ${S} involved is what people say or write, kept as transcripts with no call audio; `
+        : `The ${S} involved is what people say or write, which healdesk keeps no longer than ` +
+          `${headed(H.minimum)} allows and, from a call or a website chat, emails to Practice as ` +
+          `a transcript, with no call audio; `) +
         `their names and telephone numbers; the services and times they ask about, and the other ` +
         `booking details ${headed(H.minimum)} lists; messaging-account identifiers; the number or ` +
         `network address a call or chat comes from; and booking and deposit status. ` +
@@ -3006,15 +3066,16 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
  * said "every later use and export". The DPA's matching sentences took the
  * same change (§12.15).
  *
- * It sits at BAA_TEMPLATES[0], so checkout offers it and validateSignRequest
- * and signAgreement (apps/app/src/lib/agreements.ts) sign it, and nothing
- * else: it replaced 1.2.2 outright, with no overlap. Provisioning's approval
- * gate reads the bound acceptance's own version (plan C15) against
- * MIN_ACCEPTABLE_BAA_VERSION, now 1.3.0, so a clinic signed under it goes
- * live and one signed under 1.2.2 does not. Frozen from the release: a
- * later wording is a new version, and its golden hashes
- * (apps/app/tests/baa-golden.test.ts, agreement-changes.md §12.12) never
- * move.
+ * It sat at BAA_TEMPLATES[0], and was what checkout offered and
+ * validateSignRequest and signAgreement (apps/app/src/lib/agreements.ts)
+ * signed, from its release until 1.4.0 replaced it on 2026-10-13, outright
+ * and with no overlap, before any clinic had signed it: it describes a
+ * stored transcript, which the product stopped keeping that day (above
+ * CLAUSES_1_4). It had replaced 1.2.2 the same way. Below
+ * MIN_ACCEPTABLE_BAA_VERSION, now 1.4.0, so go-live refuses it. Frozen from
+ * its release: its golden hashes (apps/app/tests/baa-golden.test.ts,
+ * agreement-changes.md §12.12) never move, and 1.4.0 reuses every clause
+ * object of it but three.
  */
 const CLAUSES_1_3: readonly BaaClause[] = [
   {
@@ -3875,10 +3936,18 @@ const CLAUSES_1_3: readonly BaaClause[] = [
  * Delaware mailbox (ICD-18, PT-19).
  */
 function preamble130(v: BaaVariables): string {
+  return preambleFrom130(v, "1.3.0");
+}
+
+/**
+ * 1.3.0's preamble with the version line naming `version`: 1.4.0 keeps every
+ * other word of it (preamble140), as it keeps every clause but three.
+ */
+function preambleFrom130(v: BaaVariables, version: string): string {
   const title = v.signatoryTitle?.trim() ? `, ${v.signatoryTitle.trim()}` : "";
   return [
     `HEALDESK BUSINESS ASSOCIATE AGREEMENT`,
-    `Version 1.3.0 — executed electronically`,
+    `Version ${version} — executed electronically`,
     ``,
     wrap(
       `This agreement is entered into under 45 CFR 164.502(e) and 164.504(e) and takes effect on ` +
@@ -3921,19 +3990,28 @@ function preamble130(v: BaaVariables): string {
  * buildBaaSelections always produces.
  */
 function validate130(v: BaaVariables): void {
+  validateFrom130(v, "1.3.0");
+}
+
+/**
+ * 1.3.0's render guard, its refusals naming `version`: 1.4.0 refuses exactly
+ * what 1.3.0 refuses (validate140), since it changes no clause the guard
+ * protects.
+ */
+function validateFrom130(v: BaaVariables, version: string): void {
   if (v.attributionMode !== "estimated") {
     throw new BaaRenderError(
-      "Version 1.3.0 has no verified-reporting clause: verified reporting is phase two and is not offered in v1.",
+      `Version ${version} has no verified-reporting clause: verified reporting is phase two and is not offered in v1.`,
     );
   }
   if (!isBookingSystemId(v.bookingSystem)) {
     throw new BaaRenderError(
-      `Version 1.3.0 needs the practice's booking system; got ${JSON.stringify(v.bookingSystem ?? null)}.`,
+      `Version ${version} needs the practice's booking system; got ${JSON.stringify(v.bookingSystem ?? null)}.`,
     );
   }
   if (!isCalendarAccount(v.calendarAccount)) {
     throw new BaaRenderError(
-      `Version 1.3.0 needs the kind of Google account that holds the calendar; got ${JSON.stringify(v.calendarAccount ?? null)}.`,
+      `Version ${version} needs the kind of Google account that holds the calendar; got ${JSON.stringify(v.calendarAccount ?? null)}.`,
     );
   }
   const named = bookingSystemName(v.bookingSystem);
@@ -3944,10 +4022,253 @@ function validate130(v: BaaVariables): void {
   }
 }
 
+// -----------------------------------------------------------------------------
+// 1.4.0: transcripts emailed to the practice, not kept
+// -----------------------------------------------------------------------------
+
+/**
+ * ⚖️ 1.3.0 describes a stored transcript: healdesk "keep[s] transcripts and
+ * records of those conversations", what people say is "kept as transcripts",
+ * "healdesk keeps each conversation, with its transcript, for 90 days", and
+ * "Practice may shorten the period for transcripts in its portal". On 13
+ * October 2026 the owner decided that healdesk keeps no transcript: when a
+ * call or a website chat ends, its transcript is emailed to the practice's
+ * one address through SES with TLS required, and the conversation's record
+ * stays without the words (apps/app lib/conversations/transcript-email.ts;
+ * docs/design/transcript-email-2026-10-13.md). To survive a failed send the
+ * transcript waits, sealed under the KMS key, in an outbox until SES has
+ * accepted it and for seven days after, or seven days after it was queued if
+ * it never went, and is then deleted (lib/conversations/transcript-outbox.ts;
+ * drizzle/0069, whose trigger holds the seven days on the database's clock).
+ * 1.4.0 says that, released by the owner on 2026-10-13 without external
+ * counsel (agreement-changes.md §14). Against 1.3.0, three clauses change and
+ * nothing else does; every other clause is 1.3.0's own object, in 1.3.0's
+ * order, so the two documents are the same everywhere else byte for byte:
+ *
+ *   state-law        stateLawClauseBody140: purpose e emails the transcript of
+ *                    each call and website chat and keeps records of those
+ *                    conversations without the words; the data involved is
+ *                    kept no longer than the Minimum necessary clause allows
+ *                    and, from a call or a website chat, emailed to Practice.
+ *   minimum          "Anything else a person chooses to say or write" is kept
+ *                    only in the transcript of a call or website chat, for no
+ *                    longer than the next paragraph allows. A new paragraph
+ *                    says what happens to a transcript: emailed to the email
+ *                    address on Practice's account and no other, only over an
+ *                    encrypted connection; one encrypted copy held to send it
+ *                    again, deleted seven days after SES first accepted it, or
+ *                    after it was queued if it never was; sent again when a
+ *                    send fails or the email is returned, and when Practice
+ *                    asks; no other copy (the archive copy the code can send
+ *                    to a healdesk mailbox is off, and turning it on needs a
+ *                    new version); then the email is Practice's record. The
+ *                    retention paragraph keeps "the record of each
+ *                    conversation, without what was said or written in it"
+ *                    for 90 days, where 1.3.0 kept "each conversation, with
+ *                    its transcript", and drops "Practice may shorten the
+ *                    period for transcripts in its portal": there is none to
+ *                    shorten, and the portal's setting is gone.
+ *   patient rights   A paragraph after the list: healdesk holds a transcript
+ *                    only to deliver it, for those seven days, and after them
+ *                    has none to make available, amend, export or delete; the
+ *                    email is Practice's record, and Practice answers a
+ *                    request about a transcript from it.
+ *
+ * The record of the AI and transcription announcement, which Washington and
+ * Connecticut may ask for (docs/counsel/state-disclosure.md, R1), was to be
+ * the stored transcript's first line; it is now the conversation's
+ * disclosure_played_at and the fixed audio asset the line is played from. No
+ * clause of 1.3.0 or 1.4.0 relies on a stored transcript for it: both say only
+ * that the opening line is given and cannot be switched off.
+ *
+ * 22 clauses are registered and 20 render, as in 1.3.0; the render guard is
+ * 1.3.0's (validate140). It replaced 1.3.0 outright on its release, with no
+ * overlap: no clinic had signed 1.3.0 (apps/app has only ever held synthetic
+ * data), and 1.3.0 describes a stored transcript the product no longer
+ * keeps, so MIN_ACCEPTABLE_BAA_VERSION is 1.4.0. Frozen from the release: a
+ * later wording is a new version, and its golden hashes
+ * (apps/app/tests/baa-golden.test.ts, agreement-changes.md §14) never move.
+ */
+const STATE_LAW_1_4: BaaClause = {
+  id: "state-law",
+  heading: STATE_LAW_CLAUSE_HEADING,
+  appliesWhen: ALWAYS,
+  body: (v) =>
+    stateLawClauseBody140({ subject: "patient information", kind: "baa", sync: bookingSyncOf(v) }),
+};
+
+/**
+ * 1.3.0's Minimum necessary clause with the transcript said as the code now
+ * does it (see above CLAUSES_1_4). The first three paragraphs are 1.3.0's but
+ * for one sentence; the periods are still the nightly purge's
+ * (apps/app src/lib/retention/purge.ts), which apps/app's what-it-says.ts
+ * reads off this text to decide that the purge is promised; and the seven
+ * days are drizzle/0069's trigger's.
+ */
+const MINIMUM_NECESSARY_1_4: BaaClause = {
+  id: "minimum-necessary",
+  heading: HEADINGS_1_3.minimum,
+  appliesWhen: ALWAYS,
+  body: () =>
+    wrap(
+      `Each party will limit its use, disclosure and requests of PHI to the minimum necessary ` +
+        `to accomplish the purpose, consistent with 45 CFR 164.502(b).`,
+    ) +
+    "\n\n" +
+    wrap(
+      `When someone wants to book, the assistant asks the person booking for no more than a ` +
+        `receptionist would write on a callback slip:`,
+    ) +
+    "\n\n" +
+    [
+      `a. on every channel: a first name, a telephone number Practice can call, a preferred day ` +
+        `or time, and one or two other times that could work;`,
+      `b. on a call, where Practice's settings or its specialty's defaults ask for them: a last ` +
+        `name and the service asked about; and`,
+      `c. on a call, on the same condition: whether the person is a new or returning patient, ` +
+        `whether the visit is a consultation or a treatment, and any practitioner they would ` +
+        `like to see.`,
+    ]
+      .map(item)
+      .join("\n") +
+    "\n\n" +
+    wrap(
+      `It asks for no email address and no history, medication or diagnosis, and it never ` +
+        `takes a card number. Anything else a person chooses to say or write on a call or in a ` +
+        `website chat is kept only in the transcript of that conversation, for no longer than ` +
+        `the next paragraph allows. healdesk does not keep the messages a person sends on ` +
+        `Instagram, Messenger or WhatsApp. From those channels it keeps only the details in (a) ` +
+        `(a first name and a telephone number, each checked by automated filters designed to ` +
+        `keep clinical content out, and preferred times only in a fixed day-and-time form) and ` +
+        `the identifier Meta attaches to the conversation. On every channel the assistant's ` +
+        `opening line says that it is an AI assistant and, on a call, that the call is ` +
+        `transcribed; Practice cannot switch that statement off or edit it out.`,
+    ) +
+    "\n\n" +
+    wrap(
+      `healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails ` +
+        `its transcript to the email address on Practice's healdesk account, and to no other ` +
+        `address, only over an encrypted connection, as the Safeguards clause provides. So that ` +
+        `an email that fails or is returned can be sent again, healdesk holds one encrypted copy ` +
+        `of the transcript until seven days after the email was first accepted for delivery ` +
+        `or, if it never is, seven days after the transcript was queued for sending, and then ` +
+        `deletes it. Until then healdesk may send the email again when a send fails or the ` +
+        `email is returned, and when Practice asks. healdesk keeps no other copy of a ` +
+        `transcript, apart from the backups described below; what Anthropic keeps is what the ` +
+        `Subcontractors clause describes. Once healdesk's copy is deleted, the email is ` +
+        `Practice's own record of what was said, and Practice is responsible for keeping, ` +
+        `protecting and deleting it.`,
+    ) +
+    "\n\n" +
+    wrap(
+      `healdesk keeps the record of each conversation, without what was said or written in it, ` +
+        `for ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and each appointment record ` +
+        `for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time. It keeps each ` +
+        `booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was ` +
+        `made, the time it was confirmed for and its appointment's time. A person's contact ` +
+        `details are kept while any conversation, appointment record or booking request of ` +
+        `theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last ` +
+        `time those details were recorded or changed. A backup copy of anything healdesk ` +
+        `deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion. No call audio is ` +
+        `kept at all. The Term clause governs what is held after termination.`,
+    ),
+};
+
+/**
+ * 1.3.0's patient-rights clause, with one paragraph after the list: a
+ * transcript is held only to deliver it, and after the seven days healdesk
+ * has none to make available, amend, export or delete, so the practice
+ * answers from the email (the owner's decision of 13 October 2026; the
+ * design record's "The clinic's inbox becomes the record").
+ */
+const PATIENT_RIGHTS_1_4: BaaClause = {
+  id: "patient-rights",
+  heading: HEADINGS_1_3.patientRights,
+  appliesWhen: ALWAYS,
+  body: () =>
+    wrap(
+      `When a patient asks to see their information, to have it corrected, or to be told who ` +
+        `it was disclosed to, Practice answers them. healdesk gives Practice what it needs to ` +
+        `answer within ten business days of being asked:`,
+    ) +
+    "\n\n" +
+    [
+      `a. Access. healdesk will make available the PHI it holds about that patient in a ` +
+        `designated record set, so Practice can meet its obligations under 45 CFR 164.524.`,
+      `b. Amendment. healdesk will make that information available for amendment and will ` +
+        `incorporate any amendment Practice directs, under 45 CFR 164.526. healdesk corrects a ` +
+        `person's contact details in its own copy. It does not rewrite a booking request, an ` +
+        `appointment record or the record of a conversation: it appends the amendment to that ` +
+        `record and links the two, as 45 CFR 164.526(c)(1) provides. Every later export of that ` +
+        `record, and every screen of healdesk's that shows it, then carries the amendment.`,
+      `c. Accounting. healdesk will maintain and make available the information Practice needs ` +
+        `to give a patient an accounting of disclosures under 45 CFR 164.528.`,
+    ]
+      .map(item)
+      .join("\n") +
+    "\n\n" +
+    wrap(
+      `healdesk holds a transcript only to deliver it to Practice, and only for the days ` +
+        `${headed(HEADINGS_1_3.minimum)} allows. After them healdesk has no transcript to make ` +
+        `available, amend, export or delete: the email that carried it is Practice's own ` +
+        `record, and Practice answers a request about a transcript from that email.`,
+    ) +
+    "\n\n" +
+    wrap(
+      `If a patient makes one of these requests, or any other request about their ` +
+        `information, to healdesk itself rather than to Practice, healdesk will not act on it. ` +
+        `It will pass the request to Practice within five business days and, in its reply to ` +
+        `the patient, tell them that healdesk cannot act on it and has passed it to Practice.`,
+    ),
+};
+
+/** 1.3.0's clauses in 1.3.0's order, with the three objects above in place of its own. */
+const CLAUSES_1_4: readonly BaaClause[] = CLAUSES_1_3.map((clause) => {
+  switch (clause.id) {
+    case STATE_LAW_1_4.id:
+      return STATE_LAW_1_4;
+    case MINIMUM_NECESSARY_1_4.id:
+      return MINIMUM_NECESSARY_1_4;
+    case PATIENT_RIGHTS_1_4.id:
+      return PATIENT_RIGHTS_1_4;
+    default:
+      return clause;
+  }
+});
+
+/** 1.3.0's preamble, naming version 1.4.0. */
+function preamble140(v: BaaVariables): string {
+  return preambleFrom130(v, "1.4.0");
+}
+
+/** 1.3.0's render guard, its refusals naming version 1.4.0. */
+function validate140(v: BaaVariables): void {
+  validateFrom130(v, "1.4.0");
+}
+
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
   // read [0], so a version stays at [0] until its successor is approved for
   // release too.
+  {
+    version: "1.4.0",
+    publishedOn: "2026-10-13",
+    // Approved for release by the OWNER on 2026-10-13, on the owner's own
+    // instruction and without external counsel: as the field's doc comment
+    // on BaaTemplate defines it, the flag records the owner's release, not a
+    // lawyer's approval. agreement-changes.md §14 recommends counsel review
+    // it. 1.3.0 with its three transcript passages said as the code now does
+    // it (above CLAUSES_1_4).
+    approvedByCounsel: true,
+    preamble: preamble140,
+    clauses: CLAUSES_1_4,
+    validate: validate140,
+  },
+  // Released on 2026-10-12 and offered until 1.4.0 replaced it on
+  // 2026-10-13, outright and with no overlap: no clinic signed it, and it
+  // describes a stored transcript the product no longer keeps. Retained and
+  // frozen all the same, as every released version is. Below
+  // MIN_ACCEPTABLE_BAA_VERSION, so go-live refuses it.
   {
     version: "1.3.0",
     publishedOn: "2026-10-12",
@@ -4052,14 +4373,26 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * judgement made at each release, and a floor makes it a constant raised on
  * purpose rather than a side effect of publishing.
  *
- * 1.3.0. Raised from 1.2.2 with the 1.3.0 release on 2026-10-12 (plan C19;
- * agreement-changes.md §12.15), on the owner's decision of that day that 1.3.0
- * replaces 1.2.2 outright. No clinic had signed 1.2.2, so nobody has to
- * re-accept, and a 1.2.2 document has no Payments clause, no clause for a
+ * 1.4.0. Raised from 1.3.0 with the 1.4.0 release on 2026-10-13
+ * (agreement-changes.md §14), on the owner's decision of that day that
+ * transcripts are emailed to the practice and not kept. No clinic had signed
+ * 1.3.0 (apps/app has only ever held synthetic and seed data, and no real
+ * account is bound to any agreement), so nobody has to re-accept, and a 1.3.0
+ * document says healdesk keeps each conversation with its transcript for 90
+ * days, lets the practice shorten that in its portal, and exports, corrects
+ * and deletes transcripts on request, none of which the product now does. It
+ * refuses 1.3.0, 1.2.2, 1.2.1, 1.2.0, 1.0.0 and every unreleased draft.
+ * Nothing in the code needed 1.3.0 to stay acceptable: createDemoClinic and
+ * every signing path sign BAA_TEMPLATES[0], and 1.4.0 carries 1.3.0's
+ * calendar clauses under the same ids, so provisioning gives a 1.4.0 signer's
+ * first location its calendar terms exactly as it gave a 1.3.0 signer's.
+ *
+ * 1.3.0 had been the floor since its own release on 2026-10-12 (plan C19;
+ * agreement-changes.md §12.15), raised from 1.2.2 the same way: no clinic had
+ * signed 1.2.2, and a 1.2.2 document has no Payments clause, no clause for a
  * practice that is not a covered entity, and one Google Calendar clause that
  * is untrue for a practice whose booking system does not read Google
- * Calendar. It refuses 1.2.2, 1.2.1, 1.2.0, 1.0.0 and every unreleased draft.
- * 1.2.2 had been the floor since its own release on 2026-10-09, raised from
+ * Calendar. 1.2.2 had been the floor since its own release on 2026-10-09, raised from
  * 1.2.1 the same way: no clinic had signed 1.2.1, whose document pointed
  * clinics at a subcontractor page that no longer exists, gave a notice
  * address that is no longer used and promised breach deadlines the owner had
@@ -4072,15 +4405,15 @@ export const CURRENT_BAA_VERSION = BAA_TEMPLATES[0]!.version;
  * (`recordAgreementTerms`) and the database allows only at sequence 1
  * (calendar_elections_agreement_shape, drizzle/0057). That reasoning protected
  * clinics holding 1.2.2, and there are none, so it no longer applies: every
- * clinic is provisioned under 1.3.0 and takes its first location's calendar
- * terms from the agreement itself.
+ * clinic is provisioned under the current version and takes its first
+ * location's calendar terms from the agreement itself, as 1.4.0's are taken.
  *
  * At each release: decide whether the new version raises the floor, and add
  * every acceptable version to app_baa_version_acceptable() in a migration.
  * Go-live refuses any version that SQL list leaves out, and the parity test
  * in apps/app/tests/database-audit.test.ts fails until the two agree.
  */
-export const MIN_ACCEPTABLE_BAA_VERSION = "1.3.0";
+export const MIN_ACCEPTABLE_BAA_VERSION = "1.4.0";
 
 /**
  * Whether a clinic may go live under an agreement of this version: the
@@ -4099,7 +4432,8 @@ export function isBaaVersionAcceptable(version: string): boolean {
 }
 
 /**
- * The calendar clause ids of 1.3.0. An acceptance whose `appliedClauses`
+ * The calendar clause ids of 1.3.0, which 1.4.0 carries as the same objects.
+ * An acceptance whose `appliedClauses`
  * holds one of them carries calendar terms for the location provisioned
  * against it; one that holds none (every earlier version) leaves the location
  * to its first calendar election.
@@ -4134,8 +4468,13 @@ export function templateReadsCalendarAccount(template: BaaTemplate): boolean {
  * fails while any version listed here is below the floor. The 1.3.0 release
  * (plan C19, 2026-10-12) lists nothing either: no clinic had signed 1.2.2,
  * and the owner decided that day that 1.3.0 replaces it outright and that
- * 1.2.2 need not stay signable, so the floor rose past it with no window.
- * apps/app's signing reads it (signableTemplate in
+ * 1.2.2 need not stay signable, so the floor rose past it with no window. The
+ * 1.4.0 release (2026-10-13) lists nothing for the same reason: no clinic
+ * had signed 1.3.0, and nothing has been deployed for a buyer to be part-way
+ * through a checkout on (apps/app has never run for a real clinic), so the
+ * two-deploy window this exists for cannot strand anyone; 1.3.0 describes a
+ * stored transcript, and a document saying that should not be signable a day
+ * longer than it has to be. apps/app's signing reads it (signableTemplate in
  * apps/app/src/lib/agreements.ts): a version listed here signs only if it
  * was released, and only before its deadline, which must be an ISO 8601
  * instant with its own offset, such as "2026-10-12T12:00:00Z". A deadline in

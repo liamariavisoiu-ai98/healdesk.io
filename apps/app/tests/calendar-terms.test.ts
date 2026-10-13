@@ -494,7 +494,7 @@ describeDb("calendar terms at runtime", () => {
   );
 
   test(
-    "a location provisioned under a 1.3.0 signature is under its signed terms from the start, and the database reads them too (C15)",
+    "a location provisioned under a signature from 1.3.0 on is under its signed terms from the start, and the database reads them too (C15)",
     async () => {
       const sign = async (
         email: string,
@@ -531,13 +531,15 @@ describeDb("calendar terms at runtime", () => {
           idempotencyKey: `terms_${randomUUID()}`,
         });
 
-      // Google Calendar alone, in a Workspace without Google's BAA: uncovered terms.
+      // Google Calendar alone, in a Workspace without Google's BAA: uncovered
+      // terms. Signed as whatever is current: 1.4.0 since 13 October 2026,
+      // which carries 1.3.0's calendar clauses under the same ids.
       const email = `owner-${randomUUID().slice(0, 8)}@provisioned.test`;
-      const signed = await sign(
-        email,
-        { bookingSystem: "google_calendar", calendarAccount: "workspace_no_baa" },
-        "1.3.0",
-      );
+      const signed = await sign(email, {
+        bookingSystem: "google_calendar",
+        calendarAccount: "workspace_no_baa",
+      });
+      expect(signed.version).toBe(CURRENT_BAA_VERSION);
       const clinic = await provision(email, signed.agreementId);
       expect(await terms(clinic.clinicId)).toMatchObject({
         kind: "uncovered",
@@ -547,11 +549,11 @@ describeDb("calendar terms at runtime", () => {
         clauseId: "google-calendar-uncovered",
         source: "agreement",
         sequence: 1,
-        documentVersion: "1.3.0",
+        documentVersion: CURRENT_BAA_VERSION,
         documentReleased: true,
         ownerConfirmed: false,
         agreementId: signed.agreementId,
-        agreementVersion: "1.3.0",
+        agreementVersion: CURRENT_BAA_VERSION,
         allowsWrite: true,
         demo: false,
       });
@@ -574,6 +576,19 @@ describeDb("calendar terms at runtime", () => {
         name: "ProvisioningError",
         field: "agreementId",
         message: expect.stringContaining("Version 1.2.2 of the business associate agreement can't be used"),
+      });
+      // Nor under 1.3.0 since 1.4.0 replaced it outright (13 October 2026),
+      // though it carries the same calendar terms: the floor is 1.4.0.
+      const replacedEmail = `owner-${randomUUID().slice(0, 8)}@replaced.test`;
+      const replaced = await sign(
+        replacedEmail,
+        { bookingSystem: "google_calendar", calendarAccount: "workspace_no_baa" },
+        "1.3.0",
+      );
+      await expect(provision(replacedEmail, replaced.agreementId)).rejects.toMatchObject({
+        name: "ProvisioningError",
+        field: "agreementId",
+        message: expect.stringContaining("Version 1.3.0 of the business associate agreement can't be used"),
       });
     },
     SLOW,

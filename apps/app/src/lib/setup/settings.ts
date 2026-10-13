@@ -8,7 +8,6 @@ import {
   getBookingSystem,
   GREETING_MAX_CHARS,
   isCalendarAccount,
-  TRANSCRIPT_RETENTION_DAYS_OPTIONS,
   type AssistantLanguage,
   type AssistantTone,
   type BookingDetail,
@@ -158,15 +157,22 @@ export type SetupSettingsPatch = Partial<{
   transferE164: string | null;
   dailySummary: boolean;
   coverageMode: CoverageModeId;
-  transcriptRetentionDays: TranscriptRetentionDays;
+  // No transcriptRetentionDays: nothing may change it any more. healdesk
+  // keeps no transcript (owner, 13 October 2026; BAA 1.4.0 clause 11), and
+  // the portal's "Keep transcripts for" is gone (lib/portal/settings.ts). The
+  // column stays, read above and by the purge, which a value saved before
+  // only ever makes delete sooner.
 }>;
 
-/** The column each history field is, in SetupSettings' names. */
+/**
+ * The column each history field is, in SetupSettings' names.
+ * transcript_retention_days stays a history field (SETTINGS_HISTORY_FIELDS)
+ * for the rows written while it could change; nothing writes a new one.
+ */
 const HISTORY: Partial<Record<keyof SetupSettings, SettingsHistoryField>> = {
   urgentHelpE164: "urgent_help_e164",
   vetReferralE164: "vet_referral_e164",
   transferE164: "transfer_e164",
-  transcriptRetentionDays: "transcript_retention_days",
   autoConfirmBookings: "auto_confirm_bookings",
 };
 
@@ -453,16 +459,6 @@ function validate(patch: SetupSettingsPatch): Partial<SetupSettings> {
       throw new SetupSettingsError("coverageMode", "Choose which calls reach AYA.");
     }
     out.coverageMode = patch.coverageMode;
-  }
-  if (patch.transcriptRetentionDays !== undefined) {
-    if (
-      !(TRANSCRIPT_RETENTION_DAYS_OPTIONS as readonly number[]).includes(
-        patch.transcriptRetentionDays,
-      )
-    ) {
-      throw new SetupSettingsError("transcriptRetentionDays", "Choose 90, 30 or 7 days.");
-    }
-    out.transcriptRetentionDays = patch.transcriptRetentionDays;
   }
   return out;
 }

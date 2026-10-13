@@ -37,13 +37,15 @@ const render = (selections: BaaSelections, version: string) =>
   prepareBaa(getBaaTemplate(version)!, { ...selections, ...SIGNER } as BaaVariables);
 
 describe("which templates ask the calendar questions", () => {
-  test("1.3.0 does; every earlier version does not", () => {
+  test("1.3.0 and 1.4.0 do; every earlier version does not", () => {
     expect(templateReadsCalendarAccount(getBaaTemplate("1.3.0")!)).toBe(true);
+    expect(templateReadsCalendarAccount(getBaaTemplate("1.4.0")!)).toBe(true);
     for (const version of ["1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"]) {
       expect(templateReadsCalendarAccount(getBaaTemplate(version)!), version).toBe(false);
     }
-    // Since 1.3.0's release the offered template asks both questions.
-    expect(currentBaaTemplate().version).toBe("1.3.0");
+    // Since 1.3.0's release the offered template asks both questions; 1.4.0,
+    // offered since 13 October 2026, carries 1.3.0's calendar clauses.
+    expect(currentBaaTemplate().version).toBe("1.4.0");
     expect(templateReadsCalendarAccount(currentBaaTemplate())).toBe(true);
   });
 });

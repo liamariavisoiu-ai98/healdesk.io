@@ -419,26 +419,12 @@ describeDb("Settings", () => {
     ]);
   });
 
-  test("how long transcripts are kept: lengthening is free; shortening needs a step-up, is stored, keeps its history and emails the clinic", async () => {
-    // BAA 1.3.0 clause 11: "Practice may shorten these periods in its portal".
-    // The clinic's agreement in effect is put on BAA 1.2.2 here, as a clinic
-    // bound before 1.3.0 replaced it (12 October 2026) would be: provisioning
-    // refuses 1.2.2 since, so it is bound as the migrator, newer than the
-    // 1.3.0 the clinic was provisioned under. 1.2.2 states no purge periods,
-    // so the nightly clean-up waits for its switch. The next test binds a
-    // newer 1.3.0 again.
-    const [clinicRow] = await sql<{ organization_id: string }>(
-      `select organization_id from clinics where id = $1`,
-      [portal.clinicId],
-    );
-    await sql(
-      `insert into baa_acceptances
-         (organization_id, document_version, document_hash, rendered_text, variables, assent_label,
-          accepted_by_name, accepted_by_email, accepted_at, bound_at)
-       values ($1, '1.2.2', repeat('e', 64), 'AGREEMENT (test)', '{}'::jsonb, 'I agree', 'Alex Chen',
-               'alex@settings.test', now(), now())`,
-      [clinicRow!.organization_id],
-    );
+  test("there is no setting for how long transcripts are kept: the key is refused, nothing is stored, and no card offers it", async () => {
+    // The owner's decision of 13 October 2026: a transcript is emailed to the
+    // clinic when its conversation ends, and healdesk keeps none (BAA 1.4.0
+    // clause 11). Until then Settings had a Records card, "Keep transcripts
+    // for", under BAA 1.3.0's "Practice may shorten the period for
+    // transcripts in its portal"; with nothing to keep, nothing may offer it.
     const stored = () =>
       inTenant(
         portal.clinicId,
@@ -455,77 +441,39 @@ describeDb("Settings", () => {
         portal.clinicId,
         async (c) =>
           (
-            await c.query<{ before_value: string; after_value: string; actor_label: string }>(
-              `select before_value, after_value, actor_label from clinic_settings_history
-                where field = 'transcript_retention_days' order by changed_at`,
+            await c.query<{ id: string }>(
+              `select id from clinic_settings_history where field = 'transcript_retention_days'`,
             )
           ).rows,
       );
-    const notices = () =>
-      inTenant(
-        portal.clinicId,
-        async (c) =>
-          (
-            await c.query<{ payload: Record<string, unknown> }>(
-              `select payload from billing_notices
-                where kind = 'setting_changed' and payload->>'field' = 'transcript_retention_days'`,
-            )
-          ).rows,
-      );
+    const before = (await stored()) ?? 90;
 
-    // Shortening without a live passkey: refused, nothing stored.
-    expect(await save("transcript_retention", 7)).toEqual({
-      ok: false,
-      message: expect.stringMatching(/deletes the older ones for good, so it needs Face ID/),
-      stepUpHref: expect.stringMatching(/\/step-up\?next=/),
-    });
-    expect((await stored()) ?? 90).toBe(90);
+    // Refused as no setting at all, with or without a live passkey, whatever
+    // the value, and nothing stored, kept in the history or emailed.
+    for (const steppedUpNow of [false, true]) {
+      steppedUp = steppedUpNow;
+      for (const value of [7, 30, 90, "7"]) {
+        expect(await save("transcript_retention", value), String(value)).toEqual({
+          ok: false,
+          message: "That isn't one of your settings.",
+        });
+      }
+    }
+    expect((await stored()) ?? 90).toBe(before);
     expect(await history()).toEqual([]);
-    expect(await save("transcript_retention", 45)).toMatchObject({
-      ok: false,
-      message: "Choose 90, 30 or 7 days.",
-    });
+    const notices = await inTenant(
+      portal.clinicId,
+      async (c) =>
+        (
+          await c.query(
+            `select id from billing_notices
+              where kind = 'setting_changed' and payload->>'field' = 'transcript_retention_days'`,
+          )
+        ).rows,
+    );
+    expect(notices).toEqual([]);
 
-    // With one: stored, its history kept, and the clinic told, in days.
-    steppedUp = true;
-    // This clinic is on BAA 1.2.2, which the nightly clean-up waits for its
-    // switch on, and the switch is off: nothing is promised for tonight.
-    expect(await save("transcript_retention", 7)).toEqual({
-      ok: true,
-      toast:
-        "Transcripts older than 7 days will be removed from your records once healdesk's nightly clean-up is on for your account. Until then, nothing is removed.",
-    });
-    expect(await stored()).toBe(7);
-    expect(await history()).toEqual([
-      { before_value: "90", after_value: "7", actor_label: "Front desk Mac" },
-    ]);
-    const sent = await notices();
-    expect(sent).toHaveLength(1);
-    expect(sent[0]!.payload).toMatchObject({
-      field: "transcript_retention_days",
-      beforeDays: 90,
-      afterDays: 7,
-      willPurgeTonight: false,
-      deviceName: "Front desk Mac",
-      settingsUrl: expect.stringMatching(new RegExp(`/c/${portal.clinicSlug}/settings#records$`)),
-    });
-    expect(() => assertPayloadAllowed(sent[0]!.payload, "setting_changed")).not.toThrow();
-
-    // Lengthening needs no step-up and sends no email; the history keeps it.
-    steppedUp = false;
-    expect(await save("transcript_retention", 30)).toEqual({
-      ok: true,
-      toast:
-        "Transcripts are kept for 30 days, then removed from your records. Nothing already removed comes back.",
-    });
-    expect(await stored()).toBe(30);
-    expect((await history()).map((h) => [h.before_value, h.after_value])).toEqual([
-      ["90", "7"],
-      ["7", "30"],
-    ]);
-    expect(await notices()).toHaveLength(1);
-
-    // The card offers it beside the channels, and says what shortening does first.
+    // The page offers no such choice.
     const { default: SettingsPage } = await import("@/app/c/[slug]/settings/page");
     const html = renderToStaticMarkup(
       await SettingsPage({
@@ -533,103 +481,10 @@ describeDb("Settings", () => {
         searchParams: Promise.resolve({}),
       }),
     );
-    expect(html).toContain('id="records"');
-    expect(html.indexOf('id="channels"')).toBeLessThan(html.indexOf('id="records"'));
-    expect(html.indexOf('id="records"')).toBeLessThan(html.indexOf('id="how-aya-talks"'));
-    expect(html).toContain("applies once healdesk&#x27;s nightly clean-up is on for your account");
-    expect(html).not.toContain("nightly clean-up, for good");
-  });
-
-  test("the Records card promises a removal tonight only where the nightly purge runs for the clinic (R3)", async () => {
-    const { renderSettingChanged } = await import("@/lib/email/templates/setting_changed");
-    const { default: SettingsPage } = await import("@/app/c/[slug]/settings/page");
-    const card = async () =>
-      renderToStaticMarkup(
-        await SettingsPage({
-          params: Promise.resolve({ slug: portal.clinicSlug }),
-          searchParams: Promise.resolve({}),
-        }),
-      );
-    const lastNotice = async () =>
-      (
-        await inTenant(
-          portal.clinicId,
-          async (c) =>
-            (
-              await c.query<{ payload: Record<string, unknown> }>(
-                `select payload from billing_notices
-                  where kind = 'setting_changed' and payload->>'field' = 'transcript_retention_days'
-                  order by created_at desc limit 1`,
-              )
-            ).rows,
-        )
-      )[0]!.payload;
-    const tonight =
-      "Tonight healdesk removes transcripts older than 7 days from your records, with the raw call and message data behind them. Lengthening it again won't bring them back.";
-    const setJob = (on: boolean) =>
-      sql(`update scheduled_jobs set enabled = $1 where name = 'retention-purge'`, [on]);
-    const reset = async () => {
-      steppedUp = false;
-      await save("transcript_retention", 90);
-      steppedUp = true;
-    };
-
-    try {
-      // The switch on: every clinic is purged nightly, this one included.
-      await setJob(true);
-      await reset();
-      expect(await card()).toContain(
-        "Shortening it removes older transcripts from your records at the next nightly clean-up.",
-      );
-      expect(await save("transcript_retention", 7)).toEqual({ ok: true, toast: tonight });
-      expect(await lastNotice()).toMatchObject({ afterDays: 7, willPurgeTonight: true });
-
-      // The switch off, and the clinic on BAA 1.3.0, which states the
-      // purge's periods: purged nightly whatever the switch says.
-      await setJob(false);
-      await reset();
-      const rows = await sql<{ organization_id: string }>(
-        `select organization_id from clinics where id = $1`,
-        [portal.clinicId],
-      );
-      await sql(
-        `insert into baa_acceptances
-           (organization_id, document_version, document_hash, rendered_text, variables, assent_label,
-            accepted_by_name, accepted_by_email, accepted_at, bound_at)
-         values ($1, '1.3.0', repeat('f', 64), 'AGREEMENT (test)', '{}'::jsonb, 'I agree', 'Alex Chen',
-                 'alex@settings.test', now(), now())`,
-        [rows[0]!.organization_id],
-      );
-      expect(await save("transcript_retention", 7)).toEqual({ ok: true, toast: tonight });
-      expect(await card()).toContain("at the next nightly clean-up.");
-    } finally {
-      await setJob(false);
-    }
-
-    // The email says the same thing the toast did, each way.
-    const email = (willPurgeTonight: boolean) =>
-      renderSettingChanged(
-        {
-          field: "transcript_retention_days",
-          beforeMasked: null,
-          afterMasked: null,
-          beforeDays: 90,
-          afterDays: 7,
-          willPurgeTonight,
-          changedAt: "2026-10-12T14:32:00Z",
-          settingsUrl: "https://app.healdesk.test/c/x/settings#records",
-        },
-        {
-          clinicName: "Radiance",
-          audience: "patients",
-          reason: "You get this because you run Radiance's account.",
-          raisedAt: new Date("2026-10-12T14:32:00Z"),
-          timeZone: "America/New_York",
-        },
-      ).text;
-    expect(email(true)).toMatch(/Each night healdesk removes transcripts older than this/);
-    expect(email(false)).toMatch(/once healdesk's nightly clean-up is on for your account/);
-    expect(email(false)).not.toMatch(/Each night|can't be brought back/);
+    expect(html).toContain('id="channels"');
+    expect(html).not.toContain('id="records"');
+    expect(html).not.toMatch(/Keep transcripts for|transcript_retention/);
+    expect(html).not.toMatch(/transcripts? (are|is) kept/i);
   });
 
   test("deposits: Take deposits waits for a connected account and an amount; each switch changes what AYA does with a booking that needs one", async () => {

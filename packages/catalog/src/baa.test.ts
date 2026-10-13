@@ -8,6 +8,7 @@ import {
   prepareBaa,
   STATE_LAW_CLAUSE_HEADING,
   stateLawClauseBody,
+  stateLawClauseBody140,
   type BaaVariables,
 } from "./baa";
 import { buildBaaSelections } from "./baa-selections";
@@ -123,6 +124,53 @@ describe("the shared state-law clause", () => {
     );
   });
 
+  test("in 1.4.0's words differs from 1.3.0's only where a transcript was kept", () => {
+    // The owner's decision of 13 October 2026: a transcript is emailed to the
+    // practice, not kept. Purpose e and the data involved say so; every other
+    // sentence is the released 1.3.0 clause's, which stateLawClauseBody keeps.
+    const template = getBaaTemplate("1.4.0")!;
+    for (const { label, variables } of everyDocument()) {
+      const clause = template.clauses.find((c) => c.id === "state-law")!;
+      const sync =
+        BOOKING_SYSTEMS.find((s) => s.id === variables.bookingSystem)!.readsGoogleCalendar === "yes"
+          ? "live"
+          : "manual";
+      expect(clause.body(variables), label).toBe(
+        stateLawClauseBody140({ subject: "patient information", sync }),
+      );
+    }
+    for (const subject of ["patient information", "Client Information"] as const) {
+      for (const sync of ["live", "manual"] as const) {
+        const label = `${subject}/${sync}`;
+        const kept = unwrap(stateLawClauseBody({ subject, sync }));
+        const emailed = unwrap(stateLawClauseBody140({ subject, sync }));
+        expect(kept, label).toContain(
+          "e. keep transcripts and records of those conversations and bookings, show them to Practice's staff, and export, correct or delete them when Practice asks;",
+        );
+        expect(emailed, label).toContain(
+          "e. email Practice the transcript of each call and website chat, keep records of those conversations, without what was said or written in them, and of bookings, show those records to Practice's staff, and export, correct or delete them when Practice asks;",
+        );
+        expect(kept, label).toContain(`The ${subject} involved is what people say or write, kept as transcripts with no call audio;`);
+        expect(emailed, label).toMatch(
+          new RegExp(
+            `The ${subject} involved is what people say or write, which healdesk keeps no longer than the clause headed "Minimum necessary[^"]*" allows and, from a call or a website chat, emails to Practice as a transcript, with no call audio;`,
+          ),
+        );
+        expect(emailed, label).not.toMatch(/keep transcripts|kept as transcripts/);
+        // Everything else is the same text: take the two changed sentences
+        // out of each, and what is left is identical.
+        const strip = (text: string) =>
+          text
+            .replace(/e\. (keep transcripts|email Practice the transcript)[^;]*;/, "e.")
+            .replace(/The \w+ information involved is what people say or write, [^;]*;/i, "");
+        expect(strip(emailed), label).toBe(strip(kept));
+        for (const line of stateLawClauseBody140({ subject, sync }).split("\n")) {
+          expect(line.length, line).toBeLessThanOrEqual(78);
+        }
+      }
+    }
+  });
+
   test("states one combination rule, one sale-or-share promise and one backup period", () => {
     const flat = unwrap(stateLawClauseBody({ subject: "patient information", sync: "live" }));
     expect(flat.match(/will not combine/g)).toHaveLength(1);
@@ -142,9 +190,9 @@ describe("the Payments clause", () => {
   });
 });
 
-describe("1.3.0's render guard", () => {
+describe.each(["1.3.0", "1.4.0"])("%s's render guard", (version) => {
   test("refuses verified reporting, the phase-two read-back it does not describe", () => {
-    const template = getBaaTemplate("1.3.0")!;
+    const template = getBaaTemplate(version)!;
     expect(template.clauses.map((c) => c.id)).not.toContain("data-sources-verified");
     const verified = buildBaaSelections({
       specialtyId: "med-spa",
@@ -156,14 +204,14 @@ describe("1.3.0's render guard", () => {
     });
     expect(() => prepareBaa(template, { ...verified, ...SIGNER })).toThrow(BaaRenderError);
     expect(() => prepareBaa(template, { ...verified, ...SIGNER })).toThrow(
-      /no verified-reporting clause/,
+      new RegExp(`Version ${version.replaceAll(".", "\\.")} has no verified-reporting clause`),
     );
   });
 });
 
-describe("every 1.3.0 document", () => {
+describe.each(["1.3.0", "1.4.0"])("every %s document", (version) => {
   test("names other clauses only by headings it has, and fits 78 columns", () => {
-    const template = getBaaTemplate("1.3.0")!;
+    const template = getBaaTemplate(version)!;
     for (const { label, variables } of everyDocument()) {
       const { text } = prepareBaa(template, variables);
       const headings = [...text.matchAll(/^\d+\. (.+)$/gm)].map((m) => m[1]!);

@@ -753,12 +753,13 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
   }
 
   test("a BAA clinic is stored with its regime, its kind and the answer it signed", async () => {
-    // 1.3.0, the current version and the go-live floor (1.2.2 is below it
-    // since 1.3.0 replaced it outright, 12 October 2026), so the row carries
-    // the two calendar answers and the clause they chose, as signing stores
-    // them, and provisioning records the location's terms from it.
+    // The current version and the go-live floor (1.4.0 since 13 October
+    // 2026, which replaced 1.3.0 outright as 1.3.0 had replaced 1.2.2), so
+    // the row carries the two calendar answers and the clause they chose, as
+    // signing stores them, and provisioning records the location's terms
+    // from it.
     const calendar = { bookingSystem: "none", calendarAccount: "workspace_baa" } as const;
-    const baa = prepareBaa(getBaaTemplate("1.3.0")!, {
+    const baa = prepareBaa(getBaaTemplate(CURRENT_BAA_VERSION)!, {
       clinicLegalName: "Kind Clinic",
       specialty: "Med Spas, Dermatology & Aesthetics",
       signatoryName: "Alex Chen",

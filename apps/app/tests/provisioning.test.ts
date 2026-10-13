@@ -41,8 +41,8 @@ import {
  * longer accepts, and nothing else changes. And for the floor as it stood
  * before a release raised it: a version in `floor.restored` is one it accepts
  * again, so a test can provision a document from before that release. BAA
- * 1.3.0 is released (plan C19, 12 October 2026), accepted for real, and the
- * floor: 1.2.2 is refused for real.
+ * 1.4.0 is released (13 October 2026), accepted for real, and the floor: 1.3.0
+ * and 1.2.2 are refused for real.
  *
  * And for a booking system the catalogue reclassifies after a practice has
  * signed, as a vendor's written confirmation would (plan Q4): a system in
@@ -124,7 +124,7 @@ async function signFor(
     isCoveredEntity: false,
     attributionMode: "estimated",
     platform: "none",
-    // BAA 1.3.0, the current version, reads both calendar answers.
+    // The current version (1.4.0, as 1.3.0 before it) reads both calendar answers.
     bookingSystem: "none",
     calendarAccount: "workspace_no_baa",
     assentLabel: BAA_ASSENT_LABEL,
@@ -136,8 +136,8 @@ async function signFor(
 type SignedAnswers = {
   /**
    * A version other than the current one, signed as if it were current: how
-   * 1.2.0 was signed before 1.2.1 replaced it, 1.2.1 before 1.2.2, and 1.2.2
-   * before 1.3.0 replaced it.
+   * 1.2.0 was signed before 1.2.1 replaced it, 1.2.1 before 1.2.2, 1.2.2
+   * before 1.3.0, and 1.3.0 before 1.4.0 replaced it.
    */
   version?: string;
   platform?: string;
@@ -790,12 +790,27 @@ describeDb("provisioning", () => {
         platform: "none",
       }),
     });
+    const transcriptEmail = "transcripts@gate.test";
+    const transcripts = validRequest({
+      clinicName: "Transcript Gate Clinic",
+      contactEmail: transcriptEmail,
+      platform: "calcom",
+      // 1.3.0, released on 12 October and replaced outright by 1.4.0 on 13
+      // October before any clinic signed it, since it describes a stored
+      // transcript: below the floor 1.4.0 raised, calendar terms and all.
+      agreementId: await signWith("Transcript Gate Clinic", transcriptEmail, {
+        version: "1.3.0",
+        bookingSystem: "calcom",
+        calendarAccount: "workspace_baa",
+      }),
+    });
 
     for (const [request, version] of [
       [draft, "1.1.0-draft"],
       [superseded, "1.2.0"],
       [replaced, "1.2.1"],
       [outright, "1.2.2"],
+      [transcripts, "1.3.0"],
     ] as const) {
       // A refusal, not a 500: the row never changes, so a retry would only
       // meet it again, and a paid purchase belongs with ops.
@@ -810,8 +825,8 @@ describeDb("provisioning", () => {
       expect(await written(request), version).toEqual({ clinics: 0, claims: 0, bound: false });
     }
 
-    // The version's own standing is all the gate asks: 1.3.0, released,
-    // current and the floor since 12 October 2026, provisions, with its
+    // The version's own standing is all the gate asks: 1.4.0, released,
+    // current and the floor since 13 October 2026, provisions, with its
     // calendar terms.
     const releasedEmail = "released@gate.test";
     const released = validRequest({
@@ -832,7 +847,7 @@ describeDb("provisioning", () => {
     // MIN_ACCEPTABLE_BAA_VERSION, or a rollback), Stripe's redelivery of the
     // same purchase still replays, rather than meeting a 422 and a
     // provisioning_rejected alert for a clinic that is already there.
-    floor.withdrawn = ["1.3.0"];
+    floor.withdrawn = [CURRENT_BAA_VERSION];
     expect(await provisionClinic(released)).toEqual({
       organizationId: first.organizationId,
       clinicId: first.clinicId,
@@ -926,10 +941,11 @@ describeDb("provisioning", () => {
     expect(await mismatchEventsOf(split.organizationId)).toEqual([]);
   });
 
-  test("a 1.3.0 signature gives the location it sets up its first calendar terms: the agreement row, sequence 1, as signed", async () => {
+  test("a signature from 1.3.0 on gives the location it sets up its first calendar terms: the agreement row, sequence 1, as signed", async () => {
+    // Signed as whatever is current: 1.4.0 since 13 October 2026, which
+    // carries 1.3.0's calendar clauses under the same ids.
     const email = "terms@calendar.test";
     const agreementId = await signWith("Covered Terms Clinic", email, {
-      version: "1.3.0",
       bookingSystem: "calcom",
       calendarAccount: "workspace_baa",
     });
@@ -955,7 +971,7 @@ describeDb("provisioning", () => {
         calendar_account: "workspace_baa",
         booking_sync: "live",
         booking_system: "calcom",
-        document_version: "1.3.0",
+        document_version: CURRENT_BAA_VERSION,
         document_hash: acceptance[0]!.document_hash,
         document_released: true,
         owner_confirmed: false,
@@ -995,7 +1011,6 @@ describeDb("provisioning", () => {
         contactEmail: oneWayEmail,
         platform: "none",
         agreementId: await signWith("One Way Clinic", oneWayEmail, {
-          version: "1.3.0",
           bookingSystem: "mindbody",
           calendarAccount: "workspace_no_baa",
         }),
@@ -1023,7 +1038,7 @@ describeDb("provisioning", () => {
     ]);
   });
 
-  test("a 1.3.0 row that does not hold the calendar terms it was signed with is refused before anything is written", async () => {
+  test("a row from 1.3.0 on that does not hold the calendar terms it was signed with is refused before anything is written", async () => {
     // Not a row signing writes: its render guard needs both answers, and it
     // records the one clause they select, which is always a clause for the
     // account kind signed. Refused here rather than failing inside the
@@ -1062,7 +1077,7 @@ describeDb("provisioning", () => {
         bookingSync: "manual",
         appliedClauses: ["parties", "google-calendar-covered"],
       },
-      // No calendar clause at all, which every 1.3.0 document applies.
+      // No calendar clause at all, which every document from 1.3.0 on applies.
       { bookingSystem: "calcom", calendarAccount: "workspace_baa", appliedClauses: ["parties"] },
     ];
     for (const variables of malformed) {
@@ -1070,7 +1085,7 @@ describeDb("provisioning", () => {
         clinicName: "Malformed Terms Clinic",
         contactEmail: "malformed@calendar.test",
         platform: "calcom",
-        agreementId: await seedUnboundAcceptance("1.3.0", {
+        agreementId: await seedUnboundAcceptance(CURRENT_BAA_VERSION, {
           clinicLegalName: "Malformed Terms Clinic",
           isCoveredEntity: false,
           ...variables,
@@ -1094,7 +1109,6 @@ describeDb("provisioning", () => {
     // election, which widens and so needs the owner.
     const email = "reclassified@calendar.test";
     const agreementId = await signWith("Reclassified Clinic", email, {
-      version: "1.3.0",
       bookingSystem: "boulevard",
       calendarAccount: "workspace_baa",
     });
@@ -1118,7 +1132,7 @@ describeDb("provisioning", () => {
           calendar_account: "workspace_baa",
           booking_sync: "manual",
           booking_system: "boulevard",
-          document_version: "1.3.0",
+          document_version: CURRENT_BAA_VERSION,
         },
       ]);
       expect(await bookingProviderOf(result.clinicId)).toBe("boulevard");

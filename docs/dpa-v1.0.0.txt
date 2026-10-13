@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 7b4a1a973f99462ac956feb704c9e5747917a101cd6b566e5ff4e98ab335bc49).
+(SHA-256 97058d2d2ca9ec0483a1cf2e2d459ee7d3ae3d0c9949ad38cc8dd052104dad05).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -168,9 +168,10 @@ EFFECTIVE 6 October 2026
     d. pass messages, including urgent ones and requests for a person, to
        Practice's staff or the contacts Practice names, and pass calls
        through, or transfer them, to Practice's own lines;
-    e. keep transcripts and records of those conversations and bookings, show
-       them to Practice's staff, and export, correct or delete them when
-       Practice asks;
+    e. email Practice the transcript of each call and website chat, keep
+       records of those conversations, without what was said or written in
+       them, and of bookings, show those records to Practice's staff, and
+       export, correct or delete them when Practice asks;
     f. count conversations, minutes and bookings, to bill Practice and to
        report them to it;
     g. read a conversation that Practice flags, or that a fault or a complaint
@@ -178,14 +179,17 @@ EFFECTIVE 6 October 2026
     h. keep the Services secure, find and fix faults, detect and prevent fraud
        and abuse, and meet healdesk's own legal obligations.
 
-  The Client Information involved is what people say or write, kept as
-  transcripts with no call audio; their names and telephone numbers; the
-  services and times they ask about, and the other booking details the clause
-  headed "Minimum necessary, and who receives Client Information" lists;
-  messaging-account identifiers; the number or network address a call or chat
-  comes from; and booking and deposit status. Where a calendar election for a
-  location lets healdesk use a calendar, it also includes free and busy times
-  on that calendar and the appointments healdesk adds to it.
+  The Client Information involved is what people say or write, which healdesk
+  keeps no longer than the clause headed "Minimum necessary, and who receives
+  Client Information" allows and, from a call or a website chat, emails to
+  Practice as a transcript, with no call audio; their names and telephone
+  numbers; the services and times they ask about, and the other booking
+  details the clause headed "Minimum necessary, and who receives Client
+  Information" lists; messaging-account identifiers; the number or network
+  address a call or chat comes from; and booking and deposit status. Where a
+  calendar election for a location lets healdesk use a calendar, it also
+  includes free and busy times on that calendar and the appointments healdesk
+  adds to it.
 
   healdesk processes Client Information while Practice uses the Services and,
   to pass calls through to Practice's direct line, for as long afterwards as
@@ -368,17 +372,30 @@ EFFECTIVE 6 October 2026
   assistant and, on a call, that the call is transcribed; Practice cannot
   switch that statement off or edit it out. No call audio is kept at all.
 
-  healdesk keeps each conversation, with its transcript, for 90 days after it
-  took place, and each appointment record for 90 days after the appointment's
-  time. It keeps each booking request for 90 days after the latest of when it
-  was made, the time it was confirmed for and its appointment's time. A
-  client's contact details are kept while any conversation, appointment record
-  or booking request of theirs is kept, and in any case until 90 days after
-  the last time those details were recorded or changed. Practice may shorten
-  the period for transcripts in its portal. A backup copy of anything healdesk
-  deletes expires within 35 days of the deletion. The clause headed "Term,
-  termination, and what happens to the information" governs what is held after
-  the Services end.
+  healdesk does not keep transcripts. When a call or a website chat ends,
+  healdesk emails its transcript to the email address on Practice's healdesk
+  account, and to no other address, only over an encrypted connection, as the
+  Safeguards clause provides. So that an email that fails or is returned can
+  be sent again, healdesk holds one encrypted copy of the transcript until
+  seven days after the email was first accepted for delivery or, if it never
+  is, seven days after the transcript was queued for sending, and then deletes
+  it. Until then healdesk may send the email again when a send fails or the
+  email is returned, and when Practice asks. healdesk keeps no other copy of a
+  transcript, apart from the backups described below; what Anthropic keeps is
+  what the Subcontractors clause describes. Once healdesk's copy is deleted,
+  the email is Practice's own record of what was said, and Practice is
+  responsible for keeping, protecting and deleting it.
+
+  healdesk keeps the record of each conversation, without what was said or
+  written in it, for 90 days after it took place, and each appointment record
+  for 90 days after the appointment's time. It keeps each booking request for
+  90 days after the latest of when it was made, the time it was confirmed for
+  and its appointment's time. A client's contact details are kept while any
+  conversation, appointment record or booking request of theirs is kept, and
+  in any case until 90 days after the last time those details were recorded or
+  changed. A backup copy of anything healdesk deletes expires within 35 days
+  of the deletion. The clause headed "Term, termination, and what happens to
+  the information" governs what is held after the Services end.
 
   healdesk discloses Client Information only to: Practice itself; healdesk's
   subcontractors, under the Subcontractors clause; the systems Practice
@@ -494,6 +511,12 @@ EFFECTIVE 6 October 2026
   healdesk keeps Practice's own message asking for the deletion, both used
   only to delete the information again if a backup is restored; then both are
   removed.
+
+  healdesk holds a transcript only to deliver it to Practice, and only for the
+  days the clause headed "Minimum necessary, and who receives Client
+  Information" allows. After them healdesk has no transcript to give Practice,
+  correct or delete: the email that carried it is Practice's own record, and
+  Practice answers a request about a transcript from that email.
 
   If a client makes such a request, or any other request about their
   information, to healdesk itself rather than to Practice, healdesk will not
@@ -726,17 +749,30 @@ veterinary practice or pet spa"):
   that the call is transcribed; Practice cannot switch that statement off or
   edit it out. No call audio is kept at all.
 
-  healdesk keeps each conversation, with its transcript, for 90 days after it
-  took place, and each appointment record for 90 days after the appointment's
-  time. It keeps each booking request for 90 days after the latest of when it
-  was made, the time it was confirmed for and its appointment's time. A
-  client's contact details are kept while any conversation, appointment record
-  or booking request of theirs is kept, and in any case until 90 days after
-  the last time those details were recorded or changed. Practice may shorten
-  the period for transcripts in its portal. A backup copy of anything healdesk
-  deletes expires within 35 days of the deletion. The clause headed "Term,
-  termination, and what happens to the information" governs what is held after
-  the Services end.
+  healdesk does not keep transcripts. When a call or a website chat ends,
+  healdesk emails its transcript to the email address on Practice's healdesk
+  account, and to no other address, only over an encrypted connection, as the
+  Safeguards clause provides. So that an email that fails or is returned can
+  be sent again, healdesk holds one encrypted copy of the transcript until
+  seven days after the email was first accepted for delivery or, if it never
+  is, seven days after the transcript was queued for sending, and then deletes
+  it. Until then healdesk may send the email again when a send fails or the
+  email is returned, and when Practice asks. healdesk keeps no other copy of a
+  transcript, apart from the backups described below; what Anthropic keeps is
+  what the Subcontractors clause describes. Once healdesk's copy is deleted,
+  the email is Practice's own record of what was said, and Practice is
+  responsible for keeping, protecting and deleting it.
+
+  healdesk keeps the record of each conversation, without what was said or
+  written in it, for 90 days after it took place, and each appointment record
+  for 90 days after the appointment's time. It keeps each booking request for
+  90 days after the latest of when it was made, the time it was confirmed for
+  and its appointment's time. A client's contact details are kept while any
+  conversation, appointment record or booking request of theirs is kept, and
+  in any case until 90 days after the last time those details were recorded or
+  changed. A backup copy of anything healdesk deletes expires within 35 days
+  of the deletion. The clause headed "Term, termination, and what happens to
+  the information" governs what is held after the Services end.
 
   healdesk discloses Client Information only to: Practice itself; healdesk's
   subcontractors, under the Subcontractors clause; the systems Practice
@@ -810,9 +846,10 @@ Google account (replaces clause 5):
     d. pass messages, including urgent ones and requests for a person, to
        Practice's staff or the contacts Practice names, and pass calls
        through, or transfer them, to Practice's own lines;
-    e. keep transcripts and records of those conversations and bookings, show
-       them to Practice's staff, and export, correct or delete them when
-       Practice asks;
+    e. email Practice the transcript of each call and website chat, keep
+       records of those conversations, without what was said or written in
+       them, and of bookings, show those records to Practice's staff, and
+       export, correct or delete them when Practice asks;
     f. count conversations, minutes and bookings, to bill Practice and to
        report them to it;
     g. read a conversation that Practice flags, or that a fault or a complaint
@@ -820,15 +857,17 @@ Google account (replaces clause 5):
     h. keep the Services secure, find and fix faults, detect and prevent fraud
        and abuse, and meet healdesk's own legal obligations.
 
-  The Client Information involved is what people say or write, kept as
-  transcripts with no call audio; their names and telephone numbers; the
-  services and times they ask about, and the other booking details the clause
-  headed "Minimum necessary, and who receives Client Information" lists;
-  messaging-account identifiers; the number or network address a call or chat
-  comes from; and booking and deposit status. It also includes free and busy
-  times on each calendar that the clause headed "Google Calendar", or a
-  calendar election that takes its place, lets healdesk use, and the
-  appointments healdesk adds to those calendars.
+  The Client Information involved is what people say or write, which healdesk
+  keeps no longer than the clause headed "Minimum necessary, and who receives
+  Client Information" allows and, from a call or a website chat, emails to
+  Practice as a transcript, with no call audio; their names and telephone
+  numbers; the services and times they ask about, and the other booking
+  details the clause headed "Minimum necessary, and who receives Client
+  Information" lists; messaging-account identifiers; the number or network
+  address a call or chat comes from; and booking and deposit status. It also
+  includes free and busy times on each calendar that the clause headed "Google
+  Calendar", or a calendar election that takes its place, lets healdesk use,
+  and the appointments healdesk adds to those calendars.
 
   healdesk processes Client Information while Practice uses the Services and,
   to pass calls through to Practice's direct line, for as long afterwards as

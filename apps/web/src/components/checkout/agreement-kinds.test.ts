@@ -47,7 +47,7 @@ import {
  * apps/app/src/lib/agreements.ts, from the signature request's answers), for
  * every combination the funnel can produce: every offered specialty, every
  * covered-entity answer, every booking system and every kind of Google
- * account. Since 12 October 2026 the current version is 1.3.0, whose
+ * account. Since 13 October 2026 the current version is 1.4.0 (1.3.0 from 12 October), whose
  * calendar clause both answers choose.
  */
 
@@ -174,7 +174,7 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
     RENDER_TIMEOUT_MS,
   );
 
-  test("1.3.0 names the booking system answered; 1.2.2 named its phase-two platform, or none", () => {
+  test("1.3.0 on names the booking system answered; 1.2.2 named its phase-two platform, or none", () => {
     const input = (bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"]) =>
       ({
         clinicLegalName: "Glow Med Spa LLC",
@@ -188,7 +188,7 @@ describe("the agreement the buyer reads is the one apps/app stores", () => {
       }) as const;
     const render = (bookingSystem: (typeof BOOKING_SYSTEMS)[number]["id"]) =>
       AGREEMENT_COPY.baa.render(input(bookingSystem)).text;
-    expect(AGREEMENT_COPY.baa.version).toBe("1.3.0");
+    expect(AGREEMENT_COPY.baa.version).toBe("1.4.0");
     expect(render("mindbody")).toContain("Mindbody");
     expect(render("calendly")).toContain("Calendly");
     // A 1.2.2 screen, loaded before the release, rendered the platform the
@@ -318,28 +318,28 @@ describe("the DPA the buyer reads is the one apps/app stores, once it is release
 describe("AGREEMENT_COPY", () => {
   test("holds the Business Associate Agreement, with its own explainer and assent wording", () => {
     expect(AGREEMENT_COPY.baa.title).toBe("Business Associate Agreement");
-    // The current version's explainer: BAA_EXPLAINER's frame above 1.3.0's bullets.
+    // The current version's explainer: BAA_EXPLAINER's frame above 1.3.0's bullets, which 1.4.0 keeps.
     expect(AGREEMENT_COPY.baa.explainer.heading).toBe(BAA_EXPLAINER.heading);
-    expect(AGREEMENT_COPY.baa.explainer.terms).toBe(baaExplainerTerms("1.3.0"));
+    expect(AGREEMENT_COPY.baa.explainer.terms).toBe(baaExplainerTerms("1.4.0"));
     expect(AGREEMENT_COPY.baa.assentLabel).toBe("I agree to the Business Associate Agreement");
     expect(AGREEMENT_COPY.baa.version).toBe(currentBaaTemplate().version);
     expect(AGREEMENT_COPY.baa.fileStem).toBe("healdesk-baa");
   });
 
   test("1.2.2, the version signed until 1.3.0's release, shows exactly BAA_EXPLAINER's bullets", () => {
-    expect(AGREEMENT_COPY.baa.version).toBe("1.3.0");
+    expect(AGREEMENT_COPY.baa.version).toBe("1.4.0");
     expect(AGREEMENT_COPY.baa.released).toBe(true);
     const v122 = baaAgreementCopy(getBaaTemplate("1.2.2")!);
     expect(v122.explainer).toBe(BAA_EXPLAINER);
     expect(v122.explainer.terms).toBe(BAA_EXPLAINER.terms);
   });
 
-  test("an entry reads everything off its template: 1.3.0 shows 1.3.0's bullets, notes and text (gate 11)", () => {
-    const template = getBaaTemplate("1.3.0")!;
+  test("an entry reads everything off its template: 1.4.0 shows its bullets, notes and text (gate 11)", () => {
+    const template = getBaaTemplate("1.4.0")!;
     const copy = baaAgreementCopy(template);
-    expect(copy.version).toBe("1.3.0");
+    expect(copy.version).toBe("1.4.0");
     expect(copy.released).toBe(template.approvedByCounsel);
-    expect(copy.explainer.terms).toBe(baaExplainerTerms("1.3.0"));
+    expect(copy.explainer.terms).toBe(baaExplainerTerms("1.4.0"));
     const bullets = copy.explainer.terms.map((t) => t.plain).join("\n");
     expect(bullets).not.toMatch(/use it only|materially breach/);
     expect(bullets).toContain("limit its use and disclosure");
@@ -356,7 +356,7 @@ describe("AGREEMENT_COPY", () => {
       effectiveDate: "2026-10-06",
     } as const;
     const preview = copy.render(input);
-    expect(preview.text).toContain("Version 1.3.0 — executed electronically");
+    expect(preview.text).toContain("Version 1.4.0 — executed electronically");
     const variables: BaaVariables = {
       ...buildBaaSelections({
         specialtyId: input.specialty,
@@ -375,11 +375,11 @@ describe("AGREEMENT_COPY", () => {
     expect(preview.text).toBe(renderBaa(template, variables));
     expect(preview.notes.map(({ id, plain }) => [id, plain])).toEqual(
       applicableClauses(template, variables).flatMap((clause) => {
-        const note = clauseExplainer("1.3.0", clause.id);
+        const note = clauseExplainer("1.4.0", clause.id);
         return note ? [[clause.id, note.plain]] : [];
       }),
     );
-    // The current entry, 1.3.0's since its release, is the same explainer, and
+    // The current entry, 1.4.0's since its release, is the same explainer, and
     // building another leaves it untouched.
     expect(AGREEMENT_COPY.baa.explainer).toBe(copy.explainer);
     expect(baaAgreementCopy(getBaaTemplate("1.2.2")!).explainer).toBe(BAA_EXPLAINER);

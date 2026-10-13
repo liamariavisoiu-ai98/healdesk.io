@@ -69,14 +69,19 @@ const ACTOR = { type: "service", serviceName: "test" } as const;
  * say "within thirty days", and 1.0.0 and 0.1.0-draft "on termination".
  */
 const THIRTY_DAY_VERSIONS = ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"];
-const EXPORT_RULE_VERSIONS = ["1.3.0", "dpa/1.0.0"];
+const EXPORT_RULE_VERSIONS = ["1.4.0", "1.3.0", "dpa/1.0.0"];
 /**
  * A word for each version, for the labels clinics are seeded under. A label
  * of digits can give a slug the audit's PHI scan reads as a telephone number
  * once a random suffix of digits follows it, and destruction's security event
  * carries the slug.
  */
-const WORD: Record<string, string> = { "1.2.1": "flat", "1.3.0": "next", "dpa/1.0.0": "dpa" };
+const WORD: Record<string, string> = {
+  "1.2.1": "flat",
+  "1.3.0": "next",
+  "1.4.0": "latest",
+  "dpa/1.0.0": "dpa",
+};
 
 // -----------------------------------------------------------------------------
 // The rule, as a pure function of the agreement's version and the dates
@@ -1108,7 +1113,7 @@ describeDb("the destruction clock in the database", () => {
       .map((t) => t.version)
       .filter((v) => exportRuleIsPromised(v))
       .sort();
-    expect(promising).toEqual(["1.3.0", "dpa/1.0.0"]);
+    expect(promising).toEqual(["1.3.0", "1.4.0", "dpa/1.0.0"]);
     // No text, no promise: an unknown version waits for the switch.
     expect(exportRuleIsPromised("9.9.9")).toBe(false);
     expect(exportRuleIsPromised(null)).toBe(false);

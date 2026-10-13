@@ -933,10 +933,10 @@ export const conversations = pgTable(
      * October 2026 a transcript is emailed to the clinic when its
      * conversation ends (lib/conversations/transcript-email.ts) and healdesk
      * keeps neither the transcript nor a link to one, so every new row has
-     * null here. The column, and the retention purge that clears it, stay
-     * until the agreements and the spec that describe a stored transcript
-     * change (BAA 1.3.0 clause 11). No audio is kept either (21 September
-     * 2026; `recording_uri` was dropped in 0038).
+     * null here. BAA 1.4.0 and the DPA describe no stored transcript (13
+     * October 2026); the column, and the retention purge that clears it,
+     * stay until the spec that still describes one changes. No audio is kept
+     * either (21 September 2026; `recording_uri` was dropped in 0038).
      */
     transcriptUri: text("transcript_uri"),
 

@@ -7,7 +7,7 @@ import {
   PAYMENTS_CLAUSE_HEADING,
   STATE_LAW_CLAUSE_HEADING,
   TRANSCRIPT_RETENTION_DAYS,
-  stateLawClauseBody,
+  stateLawClauseBody140,
 } from "./baa";
 import {
   bookingSyncFor,
@@ -60,9 +60,10 @@ import { wrap } from "./wrap";
  * shared one so that nothing here can move a BAA golden hash; what the two
  * documents share is quoted from one place:
  *
- *   - the state-law processor clause is `stateLawClauseBody` in this
+ *   - the state-law processor clause is `stateLawClauseBody140` in this
  *     document's words (subject "Client Information"): the fuller clause BAA
- *     1.3.0 carries, as the funnel and the BAA's pre-release redraft agreed on
+ *     1.3.0 carries, with BAA 1.4.0's two transcript sentences (emailed to
+ *     Practice, not kept; 13 October 2026), as the funnel and the BAA's pre-release redraft agreed on
  *     6 October 2026, with no PHI and no patient in it, this document's
  *     headings for the clauses it names, the CMIA sentence, and its calendar
  *     purposes and data following the booking sync. The Payments clause is
@@ -462,14 +463,16 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ),
   },
 
-  // BAA 1.3.0's state-law clause, in this document's words (the subject
-  // chooses them), its calendar text following the booking sync as there.
+  // BAA 1.4.0's state-law clause, in this document's words (the subject
+  // chooses them), its calendar text following the booking sync as there:
+  // 1.3.0's but for purpose e and the data involved, which since 13 October
+  // 2026 say that a transcript is emailed to Practice rather than kept.
   {
     id: "state-law",
     heading: STATE_LAW_CLAUSE_HEADING,
     appliesWhen: ALWAYS,
     body: (v) =>
-      stateLawClauseBody({
+      stateLawClauseBody140({
         subject: "Client Information",
         sync: bookingSyncFor(v.bookingSystem),
       }),
@@ -574,10 +577,21 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * every DPA practice whatever its switch (purgeIsPromised, release gate 9).
    * Until 12 October 2026 the DPA stated none during the term (dpa.md, gap
    * 2) while its practices were purged at 90 days. Where 1.3.0 said
-   * "Practice may shorten these periods in its portal", this says what the
-   * portal does: its Settings shortens transcripts, to 30 or 7 days, and no
-   * other period (clinic_settings.transcript_retention_days). 1.3.0 says the
-   * same since its release audit of 12 October 2026.
+   * "Practice may shorten these periods in its portal", this said what the
+   * portal did: its Settings shortened transcripts, to 30 or 7 days, and no
+   * other period.
+   *
+   * Since 13 October 2026 healdesk keeps no transcript (the owner's decision
+   * of that day; BAA 1.4.0 clause 11 says the same in its own words): when a
+   * call or a website chat ends its transcript is emailed to Practice's one
+   * address, one sealed copy waits in the outbox until SES has accepted the
+   * email and for seven days after (or seven days after it was queued if it
+   * never went), and then the email is Practice's record (apps/app
+   * lib/conversations/transcript-outbox.ts, drizzle/0069). So the period here
+   * is the conversation's record without its words, and the sentence letting
+   * Practice shorten the period for transcripts is gone with the portal
+   * setting it described. Edited in place, the DPA being unreleased; its
+   * golden hashes and docs/dpa-v1.0.0.txt moved with it.
    */
   {
     id: "minimum-necessary",
@@ -604,17 +618,32 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ) +
       "\n\n" +
       wrap(
-        `healdesk keeps each conversation, with its transcript, for ${TRANSCRIPT_RETENTION_DAYS} ` +
-          `days after it took place, and each appointment record for ${TRANSCRIPT_RETENTION_DAYS} ` +
-          `days after the appointment's time. It keeps each booking request for ` +
-          `${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was made, the time it was ` +
-          `confirmed for and its appointment's time. A client's contact details are kept while any ` +
-          `conversation, appointment record or booking request of theirs is kept, and in any case ` +
-          `until ${TRANSCRIPT_RETENTION_DAYS} days after the last time those details were recorded ` +
-          `or changed. Practice may shorten the period for transcripts in its portal. A backup copy ` +
-          `of anything healdesk deletes expires within ${BACKUP_RETENTION_DAYS} days of the ` +
-          `deletion. The clause headed "Term, termination, and what happens to the information" ` +
-          `governs what is held after the Services end.`,
+        `healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails ` +
+          `its transcript to the email address on Practice's healdesk account, and to no other ` +
+          `address, only over an encrypted connection, as the Safeguards clause provides. So that ` +
+          `an email that fails or is returned can be sent again, healdesk holds one encrypted copy ` +
+          `of the transcript until seven days after the email was first accepted for delivery ` +
+          `or, if it never is, seven days after the transcript was queued for sending, and then ` +
+          `deletes it. Until then healdesk may send the email again when a send fails or the ` +
+          `email is returned, and when Practice asks. healdesk keeps no other copy of a ` +
+          `transcript, apart from the backups described below; what Anthropic keeps is what the ` +
+          `Subcontractors clause describes. Once healdesk's copy is deleted, the email is ` +
+          `Practice's own record of what was said, and Practice is responsible for keeping, ` +
+          `protecting and deleting it.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk keeps the record of each conversation, without what was said or written in it, ` +
+          `for ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and each appointment record ` +
+          `for ${TRANSCRIPT_RETENTION_DAYS} days after the appointment's time. It keeps each ` +
+          `booking request for ${TRANSCRIPT_RETENTION_DAYS} days after the latest of when it was ` +
+          `made, the time it was confirmed for and its appointment's time. A client's contact ` +
+          `details are kept while any conversation, appointment record or booking request of ` +
+          `theirs is kept, and in any case until ${TRANSCRIPT_RETENTION_DAYS} days after the last ` +
+          `time those details were recorded or changed. A backup copy of anything healdesk ` +
+          `deletes expires within ${BACKUP_RETENTION_DAYS} days of the deletion. The clause headed ` +
+          `"Term, termination, and what happens to the information" governs what is held after ` +
+          `the Services end.`,
       ) +
       "\n\n" +
       wrap(
@@ -807,6 +836,12 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * fallback a restore after a total loss needs (docs/handover.md, "Deletion
    * requests" and "Restoring"), then deleted. Until then the sentence said
    * only that the record held no number, while the runbook kept the message.
+   *
+   * The second paragraph is BAA 1.4.0 clause 14's in this document's words
+   * (owner, 13 October 2026): a transcript is held only to deliver it, for
+   * the seven days the Minimum necessary clause states, and after them
+   * healdesk has none to give, correct or delete, so Practice answers from
+   * the email that carried it.
    */
   {
     id: "requests",
@@ -829,6 +864,14 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `addresses and messaging accounts, and healdesk keeps Practice's own message asking ` +
           `for the deletion, both used only to delete the information again if a backup is ` +
           `restored; then both are removed.`,
+      ) +
+      "\n\n" +
+      wrap(
+        `healdesk holds a transcript only to deliver it to Practice, and only for the days the ` +
+          `clause headed "Minimum necessary, and who receives Client Information" allows. After ` +
+          `them healdesk has no transcript to give Practice, correct or delete: the email that ` +
+          `carried it is Practice's own record, and Practice answers a request about a ` +
+          `transcript from that email.`,
       ) +
       "\n\n" +
       wrap(

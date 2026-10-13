@@ -158,9 +158,12 @@ describe("the terms describe v1 as the spec defines it", () => {
     // The Business Associate Agreement's Term clause: an export within thirty
     // days of termination, then destruction. The terms must not promise a
     // different order or a different clock.
+    // No transcript is in it since 13 October 2026: each reached the clinic
+    // by email when its conversation ended (BAA 1.4.0 clause 11).
     expect(text).toContain(
-      "Within 30 days of the end we deliver an export of your data — transcripts and the booking log — and we then destroy our copies when and as the Business Associate Agreement says.",
+      "Within 30 days of the end we deliver an export of your data — the records of your conversations and the booking log; the transcripts themselves reached you by email as each conversation ended — and we then destroy our copies when and as the Business Associate Agreement says.",
     );
+    expect(text).not.toContain("transcripts and the booking log");
     expect(text).not.toContain("before destroying our copies on the schedule");
   });
 });
@@ -368,10 +371,16 @@ describe("the annex on how we protect data", () => {
     expect(annex).not.toMatch(/five calendar days|within five business days of/);
   });
 
-  test("says transcripts are deleted automatically, and claims no audit", () => {
+  test("says transcripts are emailed to the clinic and not kept, and claims no audit", () => {
+    // BAA 1.4.0 clause 11 (owner, 13 October 2026; LEGAL_VERSION 2026-10-13.3).
     expect(annex).toContain(
-      `Each conversation and its transcript is deleted ${TRANSCRIPT_RETENTION_DAYS} days after it took place, or sooner if you choose a shorter period in your portal.`,
+      "Transcripts are emailed to the clinic, not kept. When a call or a website chat ends, its transcript is emailed to the address on the clinic's account, only over an encrypted connection. The one encrypted copy we hold so that a failed email can be sent again is deleted seven days after the email is first accepted for delivery, or seven days after it was queued if it never is; from then on the email is the clinic's record.",
     );
+    expect(annex).toContain(
+      `The record of each conversation, without what was said, is deleted ${TRANSCRIPT_RETENTION_DAYS} days after it took place.`,
+    );
+    expect(annex).not.toMatch(/shorter period in your portal|first line of every transcript/);
+    expect(annex).toContain("the record of each call notes when it was given");
     expect(annex).toContain("No SOC 2 report exists.");
   });
 

@@ -15,30 +15,52 @@ edited and re-exported; the export in this repository is never edited by hand.
 - `apps/app/src/lib/conversations/transcript-email.ts`. `renderTranscriptEmail()` builds the
   email: a fixed subject that names nobody, the conversation's time in the clinic's zone, each
   turn labelled (Assistant / Caller / Visitor), everything escaped in the HTML, cut with a note
-  past 200,000 characters. `emailTranscriptToClinic()` sends it to the addresses it is given,
-  classed `may-carry-phi`. It writes nothing to the database. A failed send is logged and raises
-  the ops alert `transcript_undelivered` with the conversation's and the clinic's ids and SES's
-  reason, never the words. Calls and web chats only: the Meta channels are refused, because
-  healdesk keeps no Meta message (BAA 1.3.0 clause 11) and an email would be a way of keeping one.
+  past 200,000 characters. `sendTranscriptEmail()` sends it classed `may-carry-phi`, never
+  throws, and returns what the transport said. Calls and web chats only: the Meta channels are
+  refused, because healdesk keeps no Meta message (BAA 1.3.0 clause 11) and an email would be a
+  way of keeping one.
+- **The outbox** (owner, 13 October 2026: "if a send fails, it still can recover the transcript
+  or retry until it works"). `lib/conversations/transcript-outbox.ts` and `drizzle/0069`:
+  - the conversation's own transaction queues the transcript, sealed under the KMS key with the
+    clinic's lock label, in `transcript_emails` (forced row-level security, the BAA gate on
+    insert, one row per conversation), and sends it straight after commit;
+  - a failed send is tried again after 1, 2, 5, 10 and 30 minutes, then hourly; ops hears on
+    the third failure (`transcript_undelivered`, ids and SES's reason only), and again if a copy
+    is deleted unsent;
+  - SES's events reach `/api/webhooks/ses` through a signed SNS topic (`infra/aws/ses.tf`): a
+    delivery is recorded, a hard bounce, rejection, complaint or rendering failure marks the
+    transcript bounced and it is sent again an hour later;
+  - the database deletes nothing itself but holds the clock: `destroy_after` is seven days after
+    the first accepted send (or after queueing, if it never went), set by trigger from the
+    database's clock, and no later send moves it. The `transcript-emails` job, every minute
+    from the `billing-minute` queue with the hourly tick as its backstop, deletes each row on
+    its day. It ships switched on because it carries that deletion;
+  - `resendTranscript` (the ops operation of the same name) sends it again while the copy lasts;
+  - the copy goes with its conversation (foreign key) and with the clinic's destruction
+    (`destroyClinicData`, `app_mark_clinic_destroyed`).
+- **The archive copy** (owner: "a copy of the transcript always sent in bcc to
+  hello@healdesk.io"). Built as a blind copy to one mailbox, `HEALDESK_TRANSCRIPT_ARCHIVE_TO`
+  (Terraform `transcript_archive_to`), sent only when `HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed`
+  (`transcript_archive_baa_signed = true`). It is off: hello@healdesk.io is on a provider with
+  no business associate agreement (`packages/catalog/src/sender-identity.ts`), and a transcript
+  sent there would be a disclosure no agreement covers. It turns on for a mailbox held under one,
+  for example a Google Workspace address once Google's BAA is accepted.
 - `getTransport()` (`lib/reporting/deliver.ts`) sends the `may-carry-phi` class through SES
   whenever SES is set up for it (`HEALDESK_SES_CONFIGURATION_SET`), while every other email stays
-  on Resend. SES refuses to send unless the configuration set's `TlsPolicy` is `REQUIRE`, so a
-  receiving server that will not negotiate TLS gets nothing. Without SES the PHI class is refused,
-  as before.
+  on Resend, which also refuses a blind copy. SES refuses to send unless the configuration set's
+  `TlsPolicy` is `REQUIRE`, so a receiving server that will not negotiate TLS gets nothing.
 - `infra/aws`: `enable_ses = true` (the configuration set, the domain identity and its DKIM
-  records, the task role's send rights). The transcript bucket stays off and is superseded.
+  records, the task role's send rights, the events topic and its subscription). The transcript
+  bucket stays off and is superseded.
 - The old Synthflow call ingest no longer stores the vendor's transcript link
   (`conversations.transcript_uri` is written as null).
-- Tests: `apps/app/tests/transcript-email.test.ts`, and routing cases in
-  `tests/resend-routing.test.ts`.
+- Tests: `apps/app/tests/transcript-email.test.ts`, `transcript-outbox.test.ts` (database),
+  `ses-events.test.ts`, routing cases in `tests/resend-routing.test.ts`, and the Terraform runs.
 
 ## What is not built
 
-- **No caller yet.** The Retell voice endpoint and the web chat's API are not built; each calls
-  `emailTranscriptToClinic()` when its conversation ends, with the addresses read from
-  `billingRecipients()` inside the tenant context and the send made outside the transaction.
-- **The SES sandbox.** The account has to be taken out of it (infra/aws/README.md, First run,
-  step 9) before a transcript can reach a clinic.
+- **The SES sandbox.** The account has to be taken out of it (infra/aws/README.md, First run)
+  before a transcript can reach a clinic.
 
 ## What has to change to match
 
@@ -60,8 +82,9 @@ A new agreement version (BAA 1.4.0, DPA 1.1.0) is cheapest now, while no clinic 
 
 ## Risks the decision accepts, and the ones to settle
 
-- **A failed send loses the transcript.** There is no stored copy to send again. Ops hears of
-  each one (`transcript_undelivered`); the clinic has to be told.
+- **A transcript that never goes is lost after seven days.** The outbox retries for that long
+  and ops hears at the third failure and at the deletion; after that there is no copy to send,
+  and the clinic has to be told by a person.
 - **The clinic's inbox becomes the record.** One shared address, often with no business associate
   agreement of the clinic's own with its mail provider. healdesk can no longer delete a
   transcript after 90 days, correct it, or include it in an export or a patient's access

@@ -380,8 +380,9 @@ npm test -w @healdesk/app          # database suites skip without TEST_APP_URL
 `queue:install` is separate because pg-boss creates a schema, and CREATE is a privilege
 the runtime role deliberately does not have. The worker is a plain Node entry point, not
 a Next route. Jobs are enabled from the ops console, and most ship switched off, with
-these exceptions. `heartbeat` and `incident-deadlines` ship on (0066 seeds the latter
-on). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
+these exceptions. `heartbeat`, `incident-deadlines` and `transcript-emails` ship on (0066
+seeds the second on; 0069 seeds the third, because it deletes every sealed transcript copy
+on its seventh day). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
 1.3.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no

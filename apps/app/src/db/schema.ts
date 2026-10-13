@@ -5242,3 +5242,78 @@ export const TENANT_SCOPED_TABLES = [
   "erasure_requests",
   "record_amendments",
 ] as const;
+
+// -----------------------------------------------------------------------------
+// The transcript outbox (the owner's decisions of 13 October 2026)
+// -----------------------------------------------------------------------------
+
+/** Where an emailed transcript stands. */
+export const TRANSCRIPT_EMAIL_STATUSES = ["pending", "sent", "delivered", "bounced"] as const;
+export type TranscriptEmailStatus = (typeof TRANSCRIPT_EMAIL_STATUSES)[number];
+
+/**
+ * A conversation's transcript on its way to the clinic, and the only copy
+ * healdesk holds of it. A transcript is emailed when its conversation ends
+ * (lib/conversations/transcript-outbox.ts); this row is what lets a failed
+ * send be retried, and a bounced one sent again, instead of lost.
+ *
+ * ⚠️ PHI, and sealed: `sealed` is the transcript's turns, envelope-encrypted
+ * under the KMS key with the clinic's lock label (login `transcript`) and
+ * this row's id in the AAD, so a copied row opens nowhere else. Tenant RLS,
+ * forced, and the BAA gate (drizzle/0069). The row, and the copy with it, is
+ * deleted at `destroy_after`: seven days after the transcript was first
+ * accepted by SES, or seven days after it was queued if it never was. A
+ * delivered transcript is kept that long only so a clinic that lost the
+ * email can be sent it again. It also goes with its conversation (erasure,
+ * the record clock, destruction), through the foreign key's cascade.
+ *
+ * Never stored here: the clinic's address (read at each send, from the
+ * sign-in), and anything SES says beyond a status and its own reason.
+ */
+export const transcriptEmails = pgTable(
+  "transcript_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    conversationId: uuid("conversation_id").notNull(),
+    /** The sealed transcript (lib/crypto/envelope.ts). */
+    sealed: jsonb("sealed").$type<SealedPayload>().notNull(),
+    status: text("status").$type<TranscriptEmailStatus>().notNull().default("pending"),
+    /** Sends tried, accepted or not. */
+    attempts: integer("attempts").notNull().default(0),
+    /** When the next send may start; moved forward as a lease while one is in flight. */
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** SES's reason for the last failure or bounce: a status line, never the email. */
+    lastError: text("last_error"),
+    /** SES's message id for the last accepted send, which its delivery events name. */
+    sesMessageId: text("ses_message_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    /** When the row, and the sealed copy with it, is deleted. */
+    destroyAfter: timestamp("destroy_after", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    uniqueIndex("transcript_emails_conversation_idx").on(t.conversationId),
+    index("transcript_emails_due_idx").on(t.clinicId, t.nextAttemptAt).where(sql`${t.status} in ('pending', 'bounced')`),
+    index("transcript_emails_destroy_idx").on(t.clinicId, t.destroyAfter),
+    uniqueIndex("transcript_emails_ses_message_idx").on(t.sesMessageId).where(sql`${t.sesMessageId} is not null`),
+    // Composite, so a transcript can only belong to a conversation of its own
+    // clinic; it goes when the conversation goes.
+    foreignKey({
+      name: "transcript_emails_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }).onDelete("cascade"),
+    check("transcript_emails_status_check", sql`${t.status} in ('pending', 'sent', 'delivered', 'bounced')`),
+    check("transcript_emails_attempts_check", sql`${t.attempts} >= 0`),
+    check("transcript_emails_last_error_check", sql`${t.lastError} is null or char_length(${t.lastError}) <= 500`),
+    check("transcript_emails_destroy_check", sql`${t.destroyAfter} > ${t.createdAt}`),
+    check(
+      "transcript_emails_sent_check",
+      sql`(${t.status} = 'pending') or (${t.sentAt} is not null and ${t.sesMessageId} is not null)`,
+    ),
+  ],
+);

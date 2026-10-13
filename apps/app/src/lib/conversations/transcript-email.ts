@@ -2,7 +2,6 @@ import { SENDER_IDENTITY } from "@healdesk/catalog";
 
 import { escapeHtml } from "@/lib/email/templates/compose";
 import { log } from "@/lib/log";
-import { notifyOps } from "@/lib/ops/notify";
 import {
   getTransport,
   type DeliveryResult,
@@ -13,22 +12,22 @@ import { PhiRoutingError } from "@/lib/reporting/resend-transport";
 
 /**
  * A conversation's transcript, emailed to the clinic when the conversation
- * ends, and kept nowhere by healdesk (the owner's decision of 13 October
- * 2026).
+ * ends (the owner's decisions of 13 October 2026).
  *
  * ## What changed, and what did not
  *
  * Until now the transcript was to be stored, behind `conversations.transcript_uri`,
  * for the portal's Conversations screen and the 90-day clock. Instead the
- * words go to the clinic's own address once, and the conversation row keeps
- * only what is not words: the channel, the times, the outcome, when the
- * "I'm an AI, this call is transcribed" line played. Nothing here writes to
- * the database. The text exists in this process's memory for the length of
- * the send, and then in the clinic's inbox.
+ * words go to the clinic's own address, and the conversation row keeps only
+ * what is not words: the channel, the times, the outcome, when the "I'm an
+ * AI, this call is transcribed" line played. healdesk's only copy is sealed
+ * in the outbox (transcript-outbox.ts) until the email has gone and for
+ * seven days after, and is then deleted. This module writes nothing: it
+ * renders the email and sends it once.
  *
- * The voice endpoint (Retell, not built) and the web chat's API (not built)
- * call `emailTranscriptToClinic()` when a conversation ends; nothing else
- * produces a transcript today. The Meta channels never do: healdesk keeps no
+ * The voice endpoint and the web chat's API queue the transcript when a
+ * conversation ends (queueTranscriptEmail in transcript-outbox.ts); nothing
+ * else produces one. The Meta channels never do: healdesk keeps no
  * Meta message (BAA 1.3.0 clause 11), and this would be a way of keeping one.
  *
  * ## Why SES, and only SES
@@ -49,10 +48,11 @@ import { PhiRoutingError } from "@/lib/reporting/resend-transport";
  *
  * ## When it cannot be delivered
  *
- * There is no stored copy to send again, so a failed send loses the
- * transcript. That is the trade the decision accepted. What is not lost is
- * the fact: each failure raises `transcript_undelivered` to ops with the
- * conversation's and the clinic's ids and SES's reason, never the words.
+ * The transcript waits, sealed, in the outbox (transcript-outbox.ts) until it
+ * has gone, and for seven days after: a failed send is tried again with
+ * back-off, a bounce that SES reports is sent again, and ops hears of each
+ * one that will not go (`transcript_undelivered`, ids only). This module
+ * renders and sends once; the outbox decides when.
  */
 
 /** The class every transcript email declares. One constant, used to route and to label. */
@@ -91,7 +91,7 @@ const DO_NOT_REPLY =
   "Please don't reply to this email: a reply would send this transcript to healdesk's general inbox, which isn't meant to hold patient information.";
 
 const KEEP_IT =
-  "This email holds patient information. healdesk keeps no copy of it, so it is the only record of what was said: file it where your practice keeps patient records, and then delete it from this inbox.";
+  "This email holds patient information. healdesk deletes its own encrypted copy seven days after sending it, so this email is the record of what was said: file it where your practice keeps patient records, and then delete it from this inbox.";
 
 /** A conversation longer than this is cut, with a note, rather than refused. */
 export const MAX_TRANSCRIPT_CHARACTERS = 200_000;
@@ -208,76 +208,85 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
   return { subject: TRANSCRIPT_SUBJECT, text, html };
 }
 
-export type EmailTranscriptOptions = {
+export type SendTranscriptOptions = {
   /** A fake in tests. Otherwise getTransport()'s choice for the PHI class: SES, or a refusal. */
   transport?: EmailTransport;
-  /** A fake in tests. Otherwise notifyOps, which never throws. */
-  notify?: typeof notifyOps;
-};
-
-export type TranscriptDelivery = {
-  /** One result per address, in the order given. */
-  results: DeliveryResult[];
-  /** True when at least one address got it. */
-  delivered: boolean;
+  /**
+   * The archive copy's address, blind-copied on the same message
+   * (archiveCopyAddress()). Never shown to the clinic.
+   */
+  bcc?: string | null;
 };
 
 /**
- * Email the transcript to the clinic's address (in v1 there is one, the
- * sign-in's: lib/billing/recipients.ts reads it inside the tenant context,
- * before this is called, so no transaction is held open across the send).
+ * Send the rendered transcript to one clinic address, classed may-carry-phi.
  *
- * Never throws for a delivery fact: a refused route (no SES on this
- * deployment), an address SES will not take or an SES error are each a
- * failed result and one ops alert. It throws only for what is a bug in the
- * caller: a Meta channel, an empty transcript, no address at all.
+ * The outbox (transcript-outbox.ts) is the only caller: it holds the sealed
+ * copy, decides when to try again and tells ops when it cannot. This sends
+ * once and reports. A route refused (no SES on this deployment) or a
+ * transport that throws is a failed result, never an exception, so the
+ * outbox can record it and try again.
  */
-export async function emailTranscriptToClinic(
-  input: TranscriptEmailInput,
-  to: readonly string[],
-  options: EmailTranscriptOptions = {},
-): Promise<TranscriptDelivery> {
-  if (to.length === 0) {
-    throw new TranscriptEmailError("Refusing to render a transcript with nowhere to send it.");
-  }
-  const rendered = renderTranscriptEmail(input);
-  const ids = { conversationId: input.conversationId, clinicId: input.clinic.id, channel: input.channel };
-  const notify = options.notify ?? notifyOps;
-
+export async function sendTranscriptEmail(
+  rendered: RenderedTranscriptEmail,
+  target: { to: string; clinicId: string; clinicName: string },
+  options: SendTranscriptOptions = {},
+): Promise<DeliveryResult & { transport: string }> {
   let transport: EmailTransport;
   try {
     transport = options.transport ?? getTransport(TRANSCRIPT_PHI_CLASS);
   } catch (error) {
-    // No covered route on this deployment. Nothing went anywhere.
     const reason =
       error instanceof PhiRoutingError
         ? "no SES configuration set: the transcript cannot be sent anywhere else"
         : error instanceof Error
           ? error.message
           : "no transport";
-    log.error("transcript email refused", { ...ids, reason });
-    await notify("transcript_undelivered", { ...ids, reason });
-    return { results: to.map(() => ({ status: "failed", reason })), delivered: false };
+    return { status: "failed", reason, transport: "none" };
   }
-
-  const results: DeliveryResult[] = [];
-  for (const address of to) {
-    let result: DeliveryResult;
-    try {
-      result = await transport.send(
-        { to: address, clinicId: input.clinic.id, clinicName: input.clinic.name },
-        { ...rendered, phiClass: TRANSCRIPT_PHI_CLASS },
-      );
-    } catch (error) {
-      result = { status: "failed", reason: error instanceof Error ? error.message : "send failed" };
-    }
-    results.push(result);
-    if (result.status === "sent") {
-      log.info("transcript emailed", { ...ids, transport: transport.name, status: "sent" });
-    } else {
-      log.error("transcript email failed", { ...ids, transport: transport.name, status: result.status, reason: result.reason });
-      await notify("transcript_undelivered", { ...ids, status: result.status, reason: result.reason });
-    }
+  try {
+    const result = await transport.send(
+      { ...target, ...(options.bcc ? { bcc: [options.bcc] } : {}) },
+      { ...rendered, phiClass: TRANSCRIPT_PHI_CLASS },
+    );
+    return { ...result, transport: transport.name };
+  } catch (error) {
+    return {
+      status: "failed",
+      reason: error instanceof Error ? error.message : "send failed",
+      transport: transport.name,
+    };
   }
-  return { results, delivered: results.some((r) => r.status === "sent") };
 }
+
+/**
+ * The archive copy (the owner's request of 13 October 2026: a copy of every
+ * transcript to healdesk's own mailbox).
+ *
+ * Off unless both are set: HEALDESK_TRANSCRIPT_ARCHIVE_TO, the address, and
+ * HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed, the operator's statement that the
+ * mailbox behind that address is held under a business associate agreement
+ * with its email provider (for example Google Workspace with Google's BAA
+ * accepted). A transcript is patient information, and a mailbox outside an
+ * agreement is a disclosure the clinic's BAA does not allow: hello@healdesk.io
+ * has none behind it today (packages/catalog/src/sender-identity.ts), so
+ * naming it without the statement sends nothing and says why, once per
+ * process.
+ */
+export function archiveCopyAddress(): string | null {
+  const to = process.env.HEALDESK_TRANSCRIPT_ARCHIVE_TO?.trim();
+  if (!to) return null;
+  if (process.env.HEALDESK_TRANSCRIPT_ARCHIVE_BAA !== "signed") {
+    if (!warnedArchive) {
+      warnedArchive = true;
+      log.warn("transcript archive copy off", {
+        reason:
+          "HEALDESK_TRANSCRIPT_ARCHIVE_TO is set but HEALDESK_TRANSCRIPT_ARCHIVE_BAA is not 'signed': no copy goes to a mailbox without a business associate agreement",
+      });
+    }
+    return null;
+  }
+  return to;
+}
+
+let warnedArchive = false;

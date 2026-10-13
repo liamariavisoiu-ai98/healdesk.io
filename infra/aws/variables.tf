@@ -494,6 +494,28 @@ variable "enable_ses" {
   default     = true
 }
 
+variable "transcript_archive_to" {
+  description = "One mailbox that gets a blind copy of every emailed transcript (HEALDESK_TRANSCRIPT_ARCHIVE_TO), or empty for none. A transcript is patient information, so the copy goes only to a mailbox held under a business associate agreement, and only once transcript_archive_baa_signed says so. Never hello@healdesk.io while its provider has signed none."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.transcript_archive_to == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.transcript_archive_to))
+    error_message = "transcript_archive_to must be one email address, or empty."
+  }
+
+  validation {
+    condition     = var.transcript_archive_to == "" || var.transcript_archive_baa_signed
+    error_message = "transcript_archive_to needs transcript_archive_baa_signed = true: no transcript is copied to a mailbox not held under a business associate agreement."
+  }
+}
+
+variable "transcript_archive_baa_signed" {
+  description = "The owner's statement that the mailbox in transcript_archive_to is held under a signed business associate agreement with its mail provider (for example Google Workspace with Google's BAA accepted). Sets HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed; without it the app sends no copy."
+  type        = bool
+  default     = false
+}
+
 variable "ses_domain" {
   description = "The SES sending domain: the domain of HEALDESK_EMAIL_FROM."
   type        = string

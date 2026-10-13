@@ -67,6 +67,12 @@ export type DeliveryTarget = {
   to: string;
   clinicId: string;
   clinicName: string;
+  /**
+   * Blind copies. Carried by SesTransport only, for the transcript's archive
+   * copy (lib/conversations/transcript-email.ts, archiveCopyAddress), and
+   * refused by every other transport rather than dropped.
+   */
+  bcc?: readonly string[];
 };
 
 /**
@@ -281,14 +287,21 @@ export class SesTransport implements EmailTransport {
      * rest of a monthly-report batch should carry on without it.
      */
     let to: string;
+    let bcc: string[];
     try {
       to = normaliseRecipient(target.to);
+      bcc = (target.bcc ?? []).map(normaliseRecipient);
     } catch (error) {
       return {
         status: "failed",
         reason:
           error instanceof Error ? error.message : "Unusable recipient address",
       };
+    }
+    if (bcc.length > 0 && (message.attachments?.length ?? 0) > 0) {
+      // The raw path writes its own headers and has no Bcc; nothing that
+      // carries a file needs one.
+      return { status: "failed", reason: "A blind copy cannot ride on a message with attachments." };
     }
 
     const attachments = message.attachments ?? [];
@@ -335,7 +348,7 @@ export class SesTransport implements EmailTransport {
     const sent = await ses.send(
       new ses.SendEmailCommand({
         FromEmailAddress: from,
-        Destination: { ToAddresses: [to] },
+        Destination: { ToAddresses: [to], ...(bcc.length > 0 ? { BccAddresses: bcc } : {}) },
         ConfigurationSetName: configurationSet,
         Content: content,
       }),

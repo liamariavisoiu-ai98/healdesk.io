@@ -117,6 +117,7 @@ import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { resendTranscript } from "@/lib/conversations/transcript-outbox";
 import { isDemoClinic } from "@/lib/booking/terms";
 import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
 import {
@@ -389,6 +390,11 @@ const OPERATIONS = [
   // a live seal-and-open of a throwaway value. Never the key's full ARN, never
   // a credential, never an AWS error message.
   "getCredentialKeyStatus",
+  // The transcript outbox (drizzle/0069): send a conversation's transcript to
+  // the clinic again, while its sealed copy lasts (seven days after it first
+  // went). Takes the conversation's id and returns whether a copy was there;
+  // never the transcript, never an address.
+  "resendTranscript",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -458,6 +464,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   // grant revoked at Google.
   "issueCalendarLink",
   "disconnectCalendar",
+  // Mutating: it queues an email of patient information to the clinic.
+  "resendTranscript",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -998,6 +1006,8 @@ export async function runOperation(
       return opEmailEvent(args);
     case "getCredentialKeyStatus":
       return opGetCredentialKeyStatus();
+    case "resendTranscript":
+      return opResendTranscript(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -4048,6 +4058,33 @@ async function opRetryCalendarWrite(
   }
   const auditRecorded = await audit(operator, "calendar_write_retried", { clinicSlug: clinic.slug, appointmentId, outcome });
   return ok({ status: "retried", outcome, auditRecorded } satisfies RetryCalendarWriteState);
+}
+
+export type ResendTranscriptState =
+  | { status: "queued"; auditRecorded: boolean }
+  | { status: "gone" }
+  | { status: "error"; message: string };
+
+/**
+ * Send a conversation's transcript to the clinic's own address again, from
+ * its sealed copy, at the outbox's next minute. "gone" once the copy's seven
+ * days are up: healdesk keeps no transcript after that, and has nothing to
+ * send. The address is always the clinic's; the console cannot name one.
+ */
+async function opResendTranscript(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies ResendTranscriptState);
+  const conversationId = stringArg(args, "conversationId");
+  if (!conversationId || !UUID_SHAPED.test(conversationId)) {
+    return ok({ status: "error", message: "That is not a conversation id." } satisfies ResendTranscriptState);
+  }
+  const queued = await resendTranscript(clinic.id, conversationId, actorFor(operator));
+  if (!queued) return ok({ status: "gone" } satisfies ResendTranscriptState);
+  const auditRecorded = await audit(operator, "transcript_resent", { clinicSlug: clinic.slug, conversationId });
+  return ok({ status: "queued", auditRecorded } satisfies ResendTranscriptState);
 }
 
 /** §B.4: the calendar-write ledger on its own, for a refresh after a retry. */

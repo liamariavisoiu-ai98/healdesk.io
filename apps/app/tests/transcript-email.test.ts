@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import {
-  emailTranscriptToClinic,
+  archiveCopyAddress,
   MAX_TRANSCRIPT_CHARACTERS,
   renderTranscriptEmail,
+  sendTranscriptEmail,
   TRANSCRIPT_SUBJECT,
   TranscriptEmailError,
   type TranscriptEmailInput,
@@ -40,7 +41,13 @@ class FakeTransport implements EmailTransport {
   }
 }
 
-const KEYS = ["HEALDESK_EMAIL_TRANSPORT", "HEALDESK_SES_CONFIGURATION_SET", "RESEND_API_KEY"] as const;
+const KEYS = [
+  "HEALDESK_EMAIL_TRANSPORT",
+  "HEALDESK_SES_CONFIGURATION_SET",
+  "RESEND_API_KEY",
+  "HEALDESK_TRANSCRIPT_ARCHIVE_TO",
+  "HEALDESK_TRANSCRIPT_ARCHIVE_BAA",
+] as const;
 let saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -66,7 +73,7 @@ describe("renderTranscriptEmail", () => {
     expect(email.text).toContain("Caller: Hi, it's Dana Okonkwo");
     expect(email.text).toContain("Tuesday, October 13, 2026 at 4:05 PM EDT");
     expect(email.text).toContain(`Reference: ${INPUT.conversationId}`);
-    expect(email.text).toMatch(/keeps no copy/);
+    expect(email.text).toMatch(/deletes its own encrypted copy seven days after/);
     expect(email.text).toMatch(/Please don't reply/);
   });
 
@@ -120,54 +127,61 @@ describe("renderTranscriptEmail", () => {
   });
 });
 
-describe("emailTranscriptToClinic", () => {
+describe("sendTranscriptEmail", () => {
+  const TARGET = { to: "owner@radiance.test", clinicId: INPUT.clinic.id, clinicName: "Radiance Med Spa" };
+
   test("it declares the PHI class, so getTransport can only ever pick SES for it", async () => {
     const transport = new FakeTransport();
-    const notify = vi.fn(async () => {});
-    const result = await emailTranscriptToClinic(INPUT, ["owner@radiance.test"], { transport, notify });
-    expect(result.delivered).toBe(true);
+    const result = await sendTranscriptEmail(renderTranscriptEmail(INPUT), TARGET, { transport });
+    expect(result.status).toBe("sent");
     expect(transport.sent).toHaveLength(1);
     expect(transport.sent[0]!.message.phiClass).toBe("may-carry-phi");
-    expect(transport.sent[0]!.target).toEqual({ to: "owner@radiance.test", clinicId: INPUT.clinic.id, clinicName: "Radiance Med Spa" });
-    expect(notify).not.toHaveBeenCalled();
+    expect(transport.sent[0]!.target).toEqual(TARGET);
   });
 
-  test("a failed send is reported to ops by ids and reason, never with the words", async () => {
-    const transport = new FakeTransport(() => ({ status: "failed", reason: "MessageRejected: TLS required" }));
-    const notify = vi.fn(async () => {});
-    const result = await emailTranscriptToClinic(INPUT, ["owner@radiance.test"], { transport, notify });
-    expect(result.delivered).toBe(false);
-    expect(notify).toHaveBeenCalledTimes(1);
-    const [event, fields] = notify.mock.calls[0] as unknown as [string, Record<string, unknown>];
-    expect(event).toBe("transcript_undelivered");
-    expect(fields).toMatchObject({ conversationId: INPUT.conversationId, clinicId: INPUT.clinic.id, channel: "voice", status: "failed" });
-    expect(JSON.stringify(fields)).not.toMatch(/Dana|Botox|Okonkwo/);
+  test("the archive copy rides as a blind copy, never as a second recipient", async () => {
+    const transport = new FakeTransport();
+    await sendTranscriptEmail(renderTranscriptEmail(INPUT), TARGET, { transport, bcc: "archive@healdesk.test" });
+    expect(transport.sent[0]!.target.to).toBe("owner@radiance.test");
+    expect(transport.sent[0]!.target.bcc).toEqual(["archive@healdesk.test"]);
   });
 
-  test("a transport that throws is a failed delivery, not an exception", async () => {
+  test("a transport that throws is a failed result, not an exception", async () => {
     const transport: EmailTransport = {
       name: "throws",
       send: async () => {
         throw new Error("SES timed out");
       },
     };
-    const notify = vi.fn(async () => {});
-    const result = await emailTranscriptToClinic(INPUT, ["owner@radiance.test"], { transport, notify });
-    expect(result.results).toEqual([{ status: "failed", reason: "SES timed out" }]);
-    expect(notify).toHaveBeenCalledTimes(1);
+    const result = await sendTranscriptEmail(renderTranscriptEmail(INPUT), TARGET, { transport });
+    expect(result).toMatchObject({ status: "failed", reason: "SES timed out" });
   });
 
-  test("with Resend configured and no SES, nothing is sent anywhere and ops hears of it", async () => {
+  test("with Resend configured and no SES, nothing is sent anywhere", async () => {
     process.env.HEALDESK_EMAIL_TRANSPORT = "resend";
     process.env.RESEND_API_KEY = "re_test";
-    const notify = vi.fn(async () => {});
-    const result = await emailTranscriptToClinic(INPUT, ["owner@radiance.test"], { notify });
-    expect(result.delivered).toBe(false);
-    expect(result.results[0]).toMatchObject({ status: "failed", reason: expect.stringMatching(/no SES configuration set/) });
-    expect(notify).toHaveBeenCalledWith("transcript_undelivered", expect.objectContaining({ conversationId: INPUT.conversationId }));
+    const result = await sendTranscriptEmail(renderTranscriptEmail(INPUT), TARGET);
+    expect(result).toMatchObject({ status: "failed", reason: expect.stringMatching(/no SES configuration set/) });
+  });
+});
+
+describe("archiveCopyAddress", () => {
+  test("off with no address", () => {
+    expect(archiveCopyAddress()).toBeNull();
   });
 
-  test("with no address there is nothing to send to, which is the caller's bug", async () => {
-    await expect(emailTranscriptToClinic(INPUT, [], { transport: new FakeTransport(), notify: vi.fn() })).rejects.toThrow(TranscriptEmailError);
+  // A transcript is patient information: no copy goes to a mailbox nobody has
+  // said is held under a business associate agreement.
+  test("an address without the BAA statement sends no copy", () => {
+    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_TO = "hello@healdesk.io";
+    expect(archiveCopyAddress()).toBeNull();
+    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_BAA = "yes";
+    expect(archiveCopyAddress()).toBeNull();
+  });
+
+  test("an address with the statement gets the copy", () => {
+    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_TO = " transcripts@healdesk.io ";
+    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_BAA = "signed";
+    expect(archiveCopyAddress()).toBe("transcripts@healdesk.io");
   });
 });

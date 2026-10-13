@@ -129,7 +129,7 @@ Why each piece is shaped the way it is:
 | `config.tf` | Recorder `healdesk-production` for all supported resources, with a role of its own; bucket `healdesk-production-config-865780386982` (SSE-S3); rules `rds-storage-encrypted`, `s3-bucket-ssl-requests-only`, `cloud-trail-encryption-enabled`, `cloudwatch-log-group-encrypted` | The four rules the handover names; the Security Official reads the findings each quarter. A custom role, because creating Config's service-linked role fails if the console made it first |
 | `guardduty.tf` | One detector (`enable_guardduty`) | Foundational threat detection; findings are read in the console |
 | `alarms.tf`, `budgets.tf` | SNS topic `healdesk-production-alarms` emailed to `alarm_email`; nine alarms in the lean profile; a monthly cost budget (`monthly_budget_usd`, 250) | Alarm messages carry metric names and counts, never patient data |
-| `ses.tf` | **On** (`enable_ses`): the SES configuration set `healdesk-production-phi` with `TlsPolicy=REQUIRE`, the domain identity and its DKIM records at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the tasks and the task role's send rights on that set only | A conversation's transcript is emailed to the clinic, never kept (the owner's decision of 13 October 2026; `apps/app/src/lib/conversations/transcript-email.ts`). That email is classed `may-carry-phi`, so the app sends it, and only it, through SES; everything else stays on Resend. The account must leave the SES sandbox before it reaches a clinic (First run, step 9) |
+| `ses.tf` | **On** (`enable_ses`): the SES configuration set `healdesk-production-phi` with `TlsPolicy=REQUIRE`, the domain identity and its DKIM records at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the tasks and the task role's send rights on that set only; the set's events (delivery, bounce, complaint, rejection) to the SNS topic `healdesk-production-ses-events`, signed (v2), subscribed over HTTPS at `/api/webhooks/ses`, whose ARN the web task gets as `HEALDESK_SES_EVENTS_TOPIC_ARN`. `transcript_archive_to` adds a blind copy of every transcript to one mailbox, only with `transcript_archive_baa_signed = true` | A conversation's transcript is emailed to the clinic, never kept (the owner's decision of 13 October 2026; `apps/app/src/lib/conversations/transcript-email.ts`). That email is classed `may-carry-phi`, so the app sends it, and only it, through SES; everything else stays on Resend. The account must leave the SES sandbox before it reaches a clinic (First run, step 9) |
 | `storage.tf` | The transcript bucket (`enable_transcript_bucket`). **Off, and now superseded**: transcripts are emailed, not stored | See "Deliberately not built" |
 | `outputs.tf` | `alb_dns_name`, `app_url`, `internal_url`, `github_deploy_role_arn`, `ecr_repository_urls`, `rds_endpoint`, `rds_master_secret_arn`, `kms_key_arn`, `alarm_topic_arn`, `parameters_to_fill`, `internal_parameters`, `transcript_bucket`, `ses_configuration_set` | What the next steps need. None is a secret |
 | `tests/stack.tftest.hcl` | 22 plan-only runs with both providers mocked: production defaults, lock labels off, the bucket and SES on, plain HTTP to tasks, public ids, an imported GuardDuty detector, and 16 refusals | CI's `infra` job runs it; it needs no credentials |
@@ -356,7 +356,14 @@ behind.
     to `https://app.healdesk.io/api/ops` answers the ALB's 404; the worker log shows
     `credential key self-check passed`; healdesk.io/admin's Ops page loads, which proves the signed
     path end to end, and its first sign-in enrols a new authenticator, because its second factor
-    lives in this host's database, which is new.
+    lives in this host's database, which is new. Last, SES's events: in the console, SNS →
+    Subscriptions, the `https://app.healdesk.io/api/webhooks/ses` subscription to
+    `healdesk-production-ses-events` should read Confirmed (the app confirms it itself when SNS
+    asks). It reads "Pending confirmation" when infra.yml created it before the web service was
+    up, since SNS asks once; ask again from CloudShell, now that the app answers:
+    `aws sns subscribe --topic-arn <the topic's ARN> --protocol https --notification-endpoint https://app.healdesk.io/api/webhooks/ses`.
+    Until it is confirmed, a transcript that bounces at the clinic's mail server is not sent
+    again (every other retry still runs).
 
 ---
 
@@ -883,7 +890,6 @@ weeks; the next step up for each is one variable.
 | `enable_flow_logs = true` | CloudWatch ingestion, by traffic |
 | The voice service, later (at least two tasks) | +17.02 at the web task's size |
 | `container_insights = true`, Database Insights advanced | extra CloudWatch charges |
-| One-year commitments once the host is staying: a reserved micro database, a Compute Savings Plan on Fargate | about -5.00 |
 
 The shape first built (worker as its own service, NAT gateway, WAF, X86_64, half-vCPU tasks, the
 small database) came to about $143.50 a month running and $107 before the first deploy.

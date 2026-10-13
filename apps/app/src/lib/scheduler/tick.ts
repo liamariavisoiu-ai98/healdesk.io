@@ -3,6 +3,7 @@ import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
+import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
@@ -112,6 +113,12 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5;
   // the agreements' own limit is 60 calendar days).
   await record("incident-deadlines", () => runIncidentDeadlinesJob({ now }));
+  // The transcript outbox (drizzle/0069): sent every minute from the
+  // `billing-minute` queue; this is its backstop for a worker whose queue
+  // was never installed. It carries the seven-day deletion of every sealed
+  // copy, so it ships switched on, and each row's lease makes the overlap
+  // harmless (lib/conversations/transcript-outbox.ts).
+  await record("transcript-emails", () => runTranscriptEmailsJob({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

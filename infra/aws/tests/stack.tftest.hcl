@@ -242,7 +242,7 @@ run "production_defaults" {
       ]) == toset([
       "AWS_REGION", "BETTER_AUTH_URL", "HEALDESK_ADMIN_EMAIL", "HEALDESK_APP_URL", "HEALDESK_EMAIL_FROM",
       "HEALDESK_EMAIL_TRANSPORT", "HEALDESK_KMS_KEY_ID", "HEALDESK_KMS_PROVIDER", "HEALDESK_SES_CONFIGURATION_SET",
-      "HOSTNAME", "KEEP_ALIVE_TIMEOUT", "NODE_ENV", "NODE_EXTRA_CA_CERTS", "PORT",
+      "HEALDESK_SES_EVENTS_TOPIC_ARN", "HOSTNAME", "KEEP_ALIVE_TIMEOUT", "NODE_ENV", "NODE_EXTRA_CA_CERTS", "PORT",
     ])
     error_message = "The web app container's plain environment differs from contract section 3 and the integration brief."
   }
@@ -945,6 +945,31 @@ run "production_defaults" {
     error_message = "SES is on (a TLS-required configuration set and the domain identity) for the emailed transcripts, and no transcript bucket exists: transcripts are never stored."
   }
 
+  # SES's events reach the app: from this configuration set only, signed (v2),
+  # over HTTPS to the public host, and the web task knows which topic to trust.
+  assert {
+    condition = (
+      length(aws_sns_topic.ses_events) == 1 &&
+      aws_sns_topic.ses_events[0].name == "healdesk-production-ses-events" &&
+      aws_sns_topic.ses_events[0].signature_version == 2 &&
+      one(data.aws_iam_policy_document.ses_events[0].statement).actions == toset(["sns:Publish"]) &&
+      toset(flatten([for c in one(data.aws_iam_policy_document.ses_events[0].statement).condition : c.values if c.variable == "aws:SourceArn"])) == toset(["arn:aws:ses:us-east-1:865780386982:configuration-set/healdesk-production-phi"]) &&
+      toset(flatten([for c in one(data.aws_iam_policy_document.ses_events[0].statement).condition : c.values if c.variable == "aws:SourceAccount"])) == toset(["865780386982"]) &&
+      toset(one(aws_sesv2_configuration_set_event_destination.phi_events[0].event_destination).matching_event_types) == toset(["DELIVERY", "BOUNCE", "COMPLAINT", "REJECT", "RENDERING_FAILURE", "DELIVERY_DELAY"]) &&
+      aws_sns_topic_subscription.ses_events_app[0].protocol == "https" &&
+      aws_sns_topic_subscription.ses_events_app[0].endpoint == "https://app.healdesk.io/api/webhooks/ses" &&
+      !aws_sns_topic_subscription.ses_events_app[0].raw_message_delivery &&
+      strcontains(aws_ecs_task_definition.web.container_definitions, "HEALDESK_SES_EVENTS_TOPIC_ARN") &&
+      !strcontains(aws_ecs_task_definition.worker.container_definitions, "HEALDESK_SES_EVENTS_TOPIC_ARN")
+    )
+    error_message = "SES's events go to a signed (v2) SNS topic only this configuration set may publish to, subscribed over HTTPS at the app's /api/webhooks/ses, and the web task is told the topic's ARN."
+  }
+
+  assert {
+    condition     = !strcontains(aws_ecs_task_definition.web.container_definitions, "HEALDESK_TRANSCRIPT_ARCHIVE") && !strcontains(aws_ecs_task_definition.worker.container_definitions, "HEALDESK_TRANSCRIPT_ARCHIVE")
+    error_message = "No archive copy of a transcript unless the owner names a mailbox and states it is under a BAA."
+  }
+
   assert {
     condition     = aws_iam_role.app_task.name == "healdesk-production-app-task" && aws_ecs_cluster.main.name == "healdesk-production"
     error_message = "Fixed names from the contract."
@@ -1364,4 +1389,32 @@ run "refuses_the_missing_personal_values" {
     healdesk_admin_email = ""
   }
   expect_failures = [var.cloudflare_zone_id, var.alarm_email, var.healdesk_admin_email]
+}
+
+run "transcript_archive_needs_the_baa_statement" {
+  command = plan
+
+  variables {
+    transcript_archive_to = "transcripts@healdesk.io"
+  }
+
+  expect_failures = [var.transcript_archive_to]
+}
+
+run "transcript_archive_with_the_baa_statement" {
+  command = plan
+
+  variables {
+    transcript_archive_to         = "transcripts@healdesk.io"
+    transcript_archive_baa_signed = true
+  }
+
+  assert {
+    condition = (
+      strcontains(aws_ecs_task_definition.web.container_definitions, "transcripts@healdesk.io") &&
+      strcontains(aws_ecs_task_definition.worker.container_definitions, "transcripts@healdesk.io") &&
+      strcontains(aws_ecs_task_definition.worker.container_definitions, "HEALDESK_TRANSCRIPT_ARCHIVE_BAA")
+    )
+    error_message = "With a mailbox and the owner's BAA statement, both tasks that send transcripts get the archive address and the statement."
+  }
 }

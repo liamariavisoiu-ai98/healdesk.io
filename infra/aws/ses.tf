@@ -1,7 +1,8 @@
-# SES, for mail classed may-carry-phi: built, and off (enable_ses = false).
-# v1 mail goes over Resend (HEALDESK_EMAIL_TRANSPORT=resend) and none of it
-# may carry PHI. Turned on, this is what lib/reporting/deliver.ts needs to
-# send through SES:
+# SES, for mail classed may-carry-phi: on (enable_ses = true) since the owner's
+# decision of 13 October 2026 that a conversation's transcript is emailed to
+# the clinic rather than kept. Every other email goes over Resend
+# (HEALDESK_EMAIL_TRANSPORT=resend), and none of it may carry PHI. This is
+# what lib/reporting/deliver.ts needs to send through SES:
 #
 #   - a configuration set whose delivery policy is REQUIRE, so SES never falls
 #     back to cleartext for a server that will not negotiate TLS. The app
@@ -10,7 +11,11 @@
 #     only), beside Resend's own selector;
 #   - HEALDESK_SES_CONFIGURATION_SET on the web and worker tasks (locals.tf)
 #     and the task role's SendEmail and GetConfigurationSet on these two and
-#     nothing else (iam.tf).
+#     nothing else (iam.tf);
+#   - SES's events for the set (delivery, bounce, complaint, rejection,
+#     rendering failure, delay) published to an SNS topic that posts them to
+#     the app's /api/webhooks/ses, which checks SNS's signature and turns a
+#     bounce into another try (lib/conversations/transcript-outbox.ts).
 #
 # It does not switch HEALDESK_EMAIL_TRANSPORT, which stays the owner's
 # decision, and the account still leaves SES's sandbox only through a support
@@ -20,6 +25,8 @@ locals {
   ses_configuration_set_name = "${local.name}-phi"
   ses_configuration_set_arn  = "arn:aws:ses:${var.region}:${local.account_id}:configuration-set/${local.ses_configuration_set_name}"
   ses_identity_arn           = "arn:aws:ses:${var.region}:${local.account_id}:identity/${var.ses_domain}"
+  ses_events_topic_name      = "${local.name}-ses-events"
+  ses_events_endpoint        = "${local.app_url}/api/webhooks/ses"
 
   # Easy DKIM always hands back three tokens, known once the identity exists.
   ses_dkim_tokens = var.enable_ses ? try(aws_sesv2_email_identity.main[0].dkim_signing_attributes[0].tokens, []) : []
@@ -71,4 +78,123 @@ resource "cloudflare_dns_record" "ses_dkim" {
       error_message = "SES did not return the three Easy DKIM tokens for ${var.ses_domain}."
     }
   }
+}
+
+# ---------------------------------------------------------------------------
+# SES's events, to the app
+# ---------------------------------------------------------------------------
+#
+# The transcript outbox records SES's acceptance of each transcript; what
+# happens after (a delivery, or a bounce from the clinic's mail server) only
+# SES knows, and it says so through these events. The app's endpoint
+# (app/api/webhooks/ses) accepts a message only from this topic
+# (HEALDESK_SES_EVENTS_TOPIC_ARN) and only with SNS's signature, version 2,
+# checked against a certificate fetched from sns.<region>.amazonaws.com.
+#
+# The events carry no transcript: SES's message id, the clinic's address, the
+# fixed subject and a mail server's diagnostic. That is why the topic is not
+# encrypted, like the alarm topic: SES publishes to an encrypted topic only
+# through a key-policy grant the contract keeps out of the main key.
+#
+# The subscription is HTTPS to the public host and is confirmed by the app
+# when SNS posts the confirmation, so it stays "pending confirmation" until
+# the web service is up. If it was created before the first deploy, re-run
+# infra.yml after it (the runbook's first run says when), or confirm it from
+# the SNS console.
+
+resource "aws_sns_topic" "ses_events" {
+  count = var.enable_ses ? 1 : 0
+
+  name              = local.ses_events_topic_name
+  signature_version = 2
+
+  #checkov:skip=CKV_AWS_26:SES events carry a message id, the clinic's address, a fixed subject and a mail server's diagnostic, never a transcript; encrypting with our key would need a key-policy grant for SES the contract keeps out of the main key.
+}
+
+data "aws_iam_policy_document" "ses_events" {
+  count = var.enable_ses ? 1 : 0
+
+  statement {
+    sid       = "SesPublishesThisConfigurationSetsEvents"
+    actions   = ["sns:Publish"]
+    resources = [aws_sns_topic.ses_events[0].arn]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ses.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [local.account_id]
+    }
+
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values   = [local.ses_configuration_set_arn]
+    }
+  }
+}
+
+resource "aws_sns_topic_policy" "ses_events" {
+  count = var.enable_ses ? 1 : 0
+
+  arn    = aws_sns_topic.ses_events[0].arn
+  policy = data.aws_iam_policy_document.ses_events[0].json
+}
+
+resource "aws_sesv2_configuration_set_event_destination" "phi_events" {
+  count = var.enable_ses ? 1 : 0
+
+  configuration_set_name = aws_sesv2_configuration_set.phi[0].configuration_set_name
+  event_destination_name = "transcript-outbox"
+
+  event_destination {
+    enabled = true
+    matching_event_types = [
+      "DELIVERY",
+      "BOUNCE",
+      "COMPLAINT",
+      "REJECT",
+      "RENDERING_FAILURE",
+      "DELIVERY_DELAY",
+    ]
+
+    sns_destination {
+      topic_arn = aws_sns_topic.ses_events[0].arn
+    }
+  }
+
+  depends_on = [aws_sns_topic_policy.ses_events]
+}
+
+resource "aws_sns_topic_subscription" "ses_events_app" {
+  count = var.enable_ses ? 1 : 0
+
+  topic_arn              = aws_sns_topic.ses_events[0].arn
+  protocol               = "https"
+  endpoint               = local.ses_events_endpoint
+  endpoint_auto_confirms = false
+  raw_message_delivery   = false
+
+  # SNS retries an HTTPS delivery the app did not answer 2xx: a deploy, a
+  # restart or a database blip loses no event. Twenty tries over about an
+  # hour, then the event is dropped; the outbox's own retries do not depend
+  # on it, only the bounce does.
+  delivery_policy = jsonencode({
+    healthyRetryPolicy = {
+      minDelayTarget     = 5
+      maxDelayTarget     = 600
+      numRetries         = 20
+      numNoDelayRetries  = 0
+      numMinDelayRetries = 2
+      numMaxDelayRetries = 10
+      backoffFunction    = "exponential"
+    }
+    throttlePolicy = {
+      maxReceivesPerSecond = 10
+    }
+  })
 }

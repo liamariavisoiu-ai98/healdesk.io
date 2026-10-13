@@ -654,7 +654,8 @@ describeDb("database audit (0031)", () => {
     // In the catalogue's own (C collation) order. 0057 added the slot holds
     // (a time tied to a call and a contact) and the named providers with
     // their services (whose patient someone is, beside a booking); 0064 the
-    // amendments Practice directs to a request or a conversation.
+    // amendments Practice directs to a request or a conversation; 0069 the
+    // transcript outbox's sealed copies (on INSERT only: see the migration).
     const expected = [
       "appointments",
       "booking_requests",
@@ -670,6 +671,7 @@ describeDb("database audit (0031)", () => {
       "slot_holds",
       "suppressions",
       "transactions",
+      "transcript_emails",
       "webhook_events",
     ];
     const { rows } = await getMigratorPool().query<{ relname: string }>(`

@@ -2,6 +2,7 @@ import { reconcilePeriod } from "@/lib/sync/reconcile-store";
 import { monthContaining, previousMonth } from "@/lib/attribution/period";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
+import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { runBillingNoticesJob } from "@/lib/email/outbox";
 import {
   getBoss,
@@ -146,19 +147,21 @@ async function main(): Promise<void> {
   });
 
   // The billing minute clock: the billing-request worker (plan starts,
-  // step-ups, cancellations and setup closures on Stripe) and then the usage
-  // meter report, each behind its own job row's switch and each recording its
-  // own run. Neither takes runJob's 60-minute lock: every request and every
+  // step-ups, cancellations and setup closures on Stripe), the usage meter
+  // report and the transcript outbox (a conversation's emailed transcript,
+  // retried until SES takes it, and each sealed copy deleted on its day),
+  // each behind its own job row's switch and each recording its own run. Neither takes runJob's 60-minute lock: every request and every
   // usage row is leased on its own, so a run that overlaps the next does no
   // harm and a crash costs a minute, not an hour. Guarded, unlike the clocks
   // above: an environment where `queue:install` has not been re-run since
   // this queue arrived logs that it is missing and the worker carries on, and
-  // the hourly tick still runs both jobs as their backstop.
+  // the hourly tick still runs every one of them as its backstop.
   await startGuardedClock(boss, QUEUE_BILLING_MINUTE, "* * * * *", async () => {
     const failures: string[] = [];
     for (const [job, run] of [
       ["billing-requests", () => runBillingRequestsJob()],
       ["usage-meter-report", () => runUsageMeterReportJob()],
+      ["transcript-emails", () => runTranscriptEmailsJob()],
     ] as const) {
       try {
         const outcome = await run();
@@ -167,7 +170,7 @@ async function main(): Promise<void> {
         failures.push(`${job}: ${describeError(error)}`);
       }
     }
-    // Thrown only after both have run, so one failing never skips the other,
+    // Thrown only after all have run, so one failing never skips another,
     // and pg-boss records the run; the next minute's starts afresh either way.
     if (failures.length > 0) throw new Error(failures.join("; "));
   });

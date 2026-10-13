@@ -95,6 +95,14 @@ export const JOB_CALENDAR_WATCH = "calendar-watch";
  */
 export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
 /**
+ * The transcript outbox (lib/conversations/transcript-outbox.ts, drizzle/0069):
+ * every minute from the billing-minute queue, it sends each queued transcript,
+ * retries failed and bounced ones and deletes each sealed copy at its
+ * destroy_after. Seeded ON by drizzle/0069, because the deletion it carries is
+ * an agreement's promise; it leases its own rows.
+ */
+export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

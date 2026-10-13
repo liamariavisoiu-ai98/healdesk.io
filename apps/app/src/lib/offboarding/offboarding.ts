@@ -18,6 +18,7 @@ import {
   securityEvents,
   slotHolds,
   transactions,
+  transcriptEmails,
   webhookEvents,
 } from "@/db/schema";
 import { agreementStatesTheExportRule } from "@/lib/agreements/what-it-says";
@@ -527,6 +528,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   const requests = await tx.db.execute<{ n: number }>(sql`select app_destroy_booking_requests(${c}::uuid) as n`);
   deleted.booking_requests = requests.rows[0]?.n ?? 0;
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
+  // The transcript outbox (drizzle/0069): each sealed copy goes with its
+  // conversation by the foreign key's cascade, and is deleted here first so
+  // the count is in the record and the stamp's check names it.
+  await del("transcript_emails", () => tx.db.delete(transcriptEmails).where(eq(transcriptEmails.clinicId, c)).returning({ id: transcriptEmails.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
   // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
   await del("chat_threads", () => tx.db.delete(chatThreads).where(eq(chatThreads.clinicId, c)).returning({ id: chatThreads.partyRef }));

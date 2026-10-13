@@ -466,6 +466,9 @@ describeDb("delivery", () => {
           "welcome-email",
           // Missed incident deadlines (drizzle/0066), hourly behind its switch.
           "incident-deadlines",
+          // The transcript outbox's backstop (drizzle/0069): every minute from
+          // the billing-minute queue, and hourly here, behind its switch.
+          "transcript-emails",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.

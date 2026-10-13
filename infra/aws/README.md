@@ -917,11 +917,10 @@ answer 503.
 
 Records and drills still open (the compliance map's §4): this module's first apply and deploy;
 the restore drill (T9); the rotation runbook (T6; the table above is its draft, not yet adopted or
-exercised); the tabletop exercise; the Security Official's name, sign-off and the account's
-alternate contacts reaching them; attorney review, a penetration test and the access review; the
-automatic fall-through to the clinic's line (T14), and until it exists, a check that Retell's own
-failure behaviour forwards to the clinic's direct line; and every v1 surface the spec still lists
-as unbuilt.
+exercised); the tabletop exercise; the Security Official's name and sign-off; attorney review, a
+penetration test and the access review; the automatic fall-through to the clinic's line (T14), and
+until it exists, a check that Retell's own failure behaviour forwards to the clinic's direct line;
+and every v1 surface the spec still lists as unbuilt.
 
 ---
 

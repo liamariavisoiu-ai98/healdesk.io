@@ -1,7 +1,8 @@
 # Access control policy — §164.308(a)(3), (a)(4) and §164.312(a)
 
 **Effective:** 13 September 2026; amended 1 October 2026 for the v1 product
-(the operator console's location, the vendor list, and clinic portal access).
+(the operator console's location, the vendor list, and clinic portal access),
+and 13 October 2026 for the AWS account as it was set up.
 **Applies to:** everyone with any access to production systems, including the
 founder, and, for the clinic portal section, every clinic user.
 
@@ -11,7 +12,7 @@ founder, and, for the clinic portal section, every clinic user.
 | --- | --- | --- | --- |
 | The operator console (`/admin` on `apps/web`) | Internal staff only | Password (scrypt hash) + TOTP second factor. It holds no database client: it reaches `apps/app` only through the HMAC-signed ops API, which returns projections (clinic configuration, scheduler state, contract metadata), never a patient row | Removing the operator's credentials; sessions expire |
 | The production database, as a person | Nobody, routinely | A break-glass connection as `healdesk_migrator` from a named laptop, for a migration or an incident, recorded in the audit log by hand before and after | Rotating the migrator password |
-| The host console (AWS) | The Security Official | Root account locked with hardware MFA; day-to-day through an IAM user with MFA and least privilege | Deleting the IAM user |
+| The host console (AWS) | The Security Official | Root has a passkey or security key as its MFA device and no access keys, and is kept for billing and account changes. Day-to-day work goes through the Security Official's own IAM user, `lia@healdesk`, with MFA and AdministratorAccess rather than a narrower policy: the administrator launches the bootstrap stack, which writes IAM, and an identity that can write IAM can grant itself anything ([infra/aws/README.md](../../infra/aws/README.md), "Who can change production") | Deleting the IAM user |
 | Vendor consoles (Retell, Anthropic, Stripe, the database provider, Meta Business Manager and the Meta app, Google Cloud (the calendar OAuth app), Resend) | The Security Official | Unique password + MFA, in a password manager. Every clinic's Page and WhatsApp tokens are issued to Healdesk's Meta app, and every clinic's calendar token to Healdesk's Google Cloud OAuth client, so both consoles are production access | Vendor-side removal |
 
 ## Clinic portal access

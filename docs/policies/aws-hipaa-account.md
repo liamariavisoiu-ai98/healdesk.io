@@ -93,7 +93,8 @@ PHI within 60 days of its discovery (§3.4.3), without saying which individuals
 or data were affected (§3.4, §3.8): that mapping is ours, from `audit_log`.
 At least six months' notice before a service leaves the list, less under the
 §1 carve-outs; 90 days if AWS terminates (§5.2). Notices go to the account's
-contact addresses: [confirm they reach the Security Official]. Our clinic BAA
+contact addresses: its security, operations and billing alternate contacts all
+name the Security Official at hello@healdesk.io (set 13 October 2026). Our clinic BAA
 (1.2.2, and 1.3.0, the floor since 12 October 2026; `packages/catalog/src/baa.ts`) promises notice without unreasonable
 delay and in no case later than 60 calendar days after our discovery, and we
 work to 24 hours internally ([incident-response.md](../incident-response.md));

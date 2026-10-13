@@ -14,6 +14,7 @@ Append-only. One line per event, newest last.
 | --- | --- | --- | --- | --- |
 | 2026-09-13 | Founder | All (see access-control.md) | Granted | Sole operator |
 | 2026-10-13 | Founder | AWS account `865780386982`: IAM user `lia@healdesk`, console and CLI, AdministratorAccess, MFA | Granted | Day-to-day administration of the BAA host in place of root, which is kept for billing and account changes (access-control.md, the host console row). Revoked by deleting the user |
+| 2026-10-13 | Founder | AWS account `865780386982`: the root user's access keys | Revoked | None remain on root, which keeps a passkey or security key as its MFA device and is used only for billing and account changes; day-to-day work moved to `lia@healdesk` the same day |
 
 ## Reviews
 

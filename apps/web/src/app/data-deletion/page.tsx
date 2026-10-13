@@ -64,10 +64,15 @@ export default function DataDeletionPage() {
       <Section id="clinics" title="If you are a clinic that uses healdesk">
         <ul className="list-disc space-y-3 pl-6">
           <li>
-            <strong>Instagram, Messenger and WhatsApp.</strong> Disconnect the channel from the
-            Channels screen of your portal, or remove {site.name} from the business integrations
-            in your Facebook, Instagram or WhatsApp settings. Either stops Meta sending us anything
-            further.
+            {/* Revised 13 Oct 2026 (LEGAL_VERSION 2026-10-13.2). The portal has no
+                Channels screen: each platform has a switch in Settings, and a
+                platform switched off has its messages skipped before anything is
+                stored (app/api/webhooks/meta/route.ts), while Meta keeps sending
+                them until its integration is removed. */}
+            <strong>Instagram, Messenger and WhatsApp.</strong> Switch the channel off in Settings
+            in your portal: we stop answering it and keep nothing from new messages. To stop Meta
+            sending them to us at all, remove {site.name} from the business integrations in your
+            Facebook, Instagram or WhatsApp settings.
           </li>
           <li>
             <strong>Google Calendar.</strong> Disconnect it from your portal, or remove{" "}

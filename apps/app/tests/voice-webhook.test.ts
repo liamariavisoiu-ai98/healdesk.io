@@ -61,7 +61,7 @@ describe("reading the vendor payload", () => {
     expect(event.endedAt?.toISOString()).toBe("2026-09-02T18:04:30.000Z");
     expect(event.outcome).toBe("booked");
     expect(event.rangAtClinicFirst).toBe(true);
-    expect(event.booking?.scheduledFor.toISOString()).toBe("2026-09-10T15:00:00.000Z");
+    expect(event.booking?.scheduledFor?.toISOString()).toBe("2026-09-10T15:00:00.000Z");
     expect(event.booking?.treatment).toBe("Botox");
     expect(event.booking?.alternativeWindows).toEqual(["Friday morning"]);
     // No audio reference, even when the vendor sends one (21 September 2026).

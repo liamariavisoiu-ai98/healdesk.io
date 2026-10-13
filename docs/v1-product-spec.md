@@ -1,5 +1,5 @@
 <!-- Source of truth. Exported verbatim from the "Healdesk v1: Products, Behaviour and Limits" doc,
-     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-06.
+     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-13.
      Do not edit this copy: change the doc, then re-export. The "Launch plan" it links to is
      tab 2 of the same doc, and is the only live task list. -->
 
@@ -46,7 +46,7 @@ One brain, four adapters. Claude decides everything. Each channel is a translati
 
 Answers the clinic's phone. The clinic keeps its published number and sets conditional call forwarding, so unanswered or after-hours calls land on a Healdesk number the patient never sees or dials directly. The agent answers questions from the clinic's own menu and pricing, qualifies the caller, checks live calendar availability and books the appointment during the call.
 
-Built on Retell for telephony and speech, with the conversation itself driven by Claude through a Healdesk-hosted endpoint that Retell opens a WebSocket to at the start of each call. Recording and transcript retention are configured down at the vendor, with per-agent retention and PII controls; the working transcript lives in Healdesk under the clinic's retention policy.
+Built on Retell for telephony and speech, with the conversation itself driven by Claude through a Healdesk-hosted endpoint that Retell opens a WebSocket to at the start of each call. Recording and transcript retention are configured down at the vendor, with per-agent retention and PII controls; the transcript is emailed to the clinic when the call ends, and Healdesk keeps only an encrypted copy until it is delivered and for seven days after, then deletes it (owner, 13 October 2026).
 
 Language coverage comes from the voice platform, which supports 55 languages across 63 regional locale variants. The clinic picks which languages its agent should handle; the agent answers in the caller's language and stays in it for the rest of the conversation.
 
@@ -320,7 +320,7 @@ Step 1 carries the most value and the least friction, which is why it comes firs
 
 **Leaving and coming back.** Every step saves as it is completed. A clinic that stops at step three can close the tab and resume from the link in its welcome email, and the portal shows exactly where it stopped. Whatever was already connected stays live in the meantime. Abandonment is not a broken account, it is a partially live one.
 
-**More than one location.** Healdesk is sold per location, one per purchase. Each location has its own hours, its own number, its own calendar and its own agent configuration. More locations are added from Billing at the package price again plus its setup fee once, on the same subscription and renewal date, with the allowances pooled. When the website lists several locations, the wizard's first screen asks which one this setup is for.
+**More than one location.** Healdesk is sold per location, one per purchase. Each location has its own hours, its own number, its own calendar and its own agent configuration. More locations are added from Billing at the plan's price again plus its setup fee once, on the same subscription and renewal date, with the allowances pooled. When the website lists several locations, the wizard's first screen asks which one this setup is for.
 
 ### Stage 3, the build, no clinic involvement
 
@@ -556,7 +556,7 @@ Quick edits, no re-scrape needed.
 
 ### 4. Conversations
 
-Every call, chat and DM, searchable, with the transcript, the outcome, and whether it produced a booking. Second factor required to open one. Export available.
+Every call, chat and DM, searchable, with the outcome and whether it produced a booking. The words are not kept: each call's and web chat's transcript is emailed to the clinic when it ends, and can be sent again for seven days. Second factor required to open one. Export available.
 
 ### 5. Bookings
 
@@ -615,7 +615,7 @@ Settings shows the Channels, Behaviour and Escalation switches below as cards on
 | Switch | Options | Default | Effect |
 | --- | --- | --- | --- |
 | When the monthly allowance runs out | Keep going and bill the extra / Stop and fall back | Keep going | Keep going bills the extra in blocks of 100 minutes or 100 conversations. Stop and fall back means calls forward to the clinic's line and chat becomes a contact form rather than producing a surprise invoice |
-| Usage alerts | On / Off | On | Emails at 80 percent and 100 percent of the allowance |
+| Usage alerts | On / Off | On | Emails at 90 percent and 100 percent of the included amount; at 90 percent the clinic can move up a step or let the next 100 bill at the extra-100 price |
 | Auto-renew | On / Off | On | Off is a cancellation at period end, reversible until the date |
 
 Defaults matter more than the switches. A clinic that changes nothing should get a conservative, safe assistant: warm tone, no upselling, no deposits until a gateway is connected, alerts switched on.
@@ -630,7 +630,7 @@ Help also offers a support phone line on Healdesk's Retell number, whose agent k
 
 - Answers how-to questions: how to change the greeting, why a channel is not live, what a switch does, how to read an invoice.
 - Knows the state of the account it is sitting in, so "why is my phone not working" gets "your forwarding has not been set yet, here are your carrier's steps" rather than a generic article.
-- Handles the most common ticket categories without a human: forwarding help, reconnecting a calendar, changing a plan, finding a transcript.
+- Handles the most common ticket categories without a human: forwarding help, reconnecting a calendar, changing a plan, getting a transcript sent again.
 - Escalates to a person by email with the account context attached, and says plainly when it is doing that.
 
 ### One rule that has to be in the interface
@@ -721,8 +721,8 @@ The scoping decision rests on this table, so it is worth being precise rather th
 | Data | Where it goes | Treat as PHI? |
 | --- | --- | --- |
 | Caller or messager name, phone number, the treatment they asked about, preferred time | Healdesk database, the clinic's calendar | **Yes.** An identifier plus a fact about care sought from a healthcare provider. Do not assume a callback slip is exempt because it feels administrative |
-| Call audio and call transcript | Voice vendor in transit, Healdesk database at rest | Yes |
-| Chat and DM transcripts | Healdesk database | Yes on web. On Meta channels, scoped to stay non-clinical by design |
+| Call audio and call transcript | Voice vendor in transit; the transcript emailed to the clinic through Amazon SES with TLS required; Healdesk keeps an encrypted copy only until it is delivered and seven days after. No call audio is kept | Yes |
+| Chat and DM transcripts | Web chat: emailed to the clinic like a call's, the encrypted copy kept while the chat is open and seven days after it is sent. Meta DMs: not kept | Yes on web. On Meta channels, scoped to stay non-clinical by design |
 | Calendar event | The clinic's own Google Calendar, under the clinic's own agreement with Google | Yes, and it is the clinic's system, which is the right place for it |
 | Payment amount, generic descriptor, reference id | Stripe or the clinic's gateway | No, provided no clinical context travels with it |
 | Anything typed into the portal support chat | Healdesk support | Must be kept non-clinical. The interface says so permanently |
@@ -767,8 +767,8 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 - Collect the minimum: what a receptionist would write on a callback slip. Nothing clinical, no history, no medication, no diagnosis.
 - No clinical detail in any payment artifact, any Meta message, or the support chat.
 - Vendor-side call recording and transcript retention off everywhere it can be turned off.
-- Transcripts live in Healdesk infrastructure under a stated retention period: 90 days by default, which the clinic can shorten to 30 or 7 days. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
-- Second factor before any transcript can be opened, and an access log of who opened what.
+- Transcripts are not stored: each is emailed to the clinic through Amazon SES, with TLS required, when its conversation ends, and Healdesk deletes its encrypted copy seven days after it first goes. The conversation record, without the words, keeps a 90-day clock. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
+- Second factor before any conversation or booking can be opened, and an access log of who opened what.
 - Offboarding is export first, then destroy, on a clock that matches the agreement text.
 - Breach notification runs to the clinic without unreasonable delay and inside 60 days, and vendor notices flow upward into that obligation.
 - Non-payment never produces a dead phone line. Every degradation path, whether a usage cap, a suspension or a cancellation, ends with calls forwarding to the clinic's own line. A patient calling a medical clinic must always reach someone
@@ -846,7 +846,7 @@ One cheap bridge worth building: a single outcome control on each booking in the
 
 The setup fee is never refunded: provisioning work starts the moment it is paid, and a clinic that does not finish its own steps has still cost that work. It has 30 days to finish setup, after which an account with no channel live is closed. That makes the first month the place where risk has to be reversed.
 
-The guarantee is tied to something Healdesk controls and can measure: calls and messages answered. Not to revenue, not to bookings, not to anything that depends on the clinic's own demand, pricing or follow-through. Promising revenue outcomes on a $797 retainer to a clinic whose ad spend you do not control is a refund queue waiting to happen.
+The guarantee is tied to something Healdesk controls and can measure: calls and messages answered. Not to revenue, not to bookings, not to anything that depends on the clinic's own demand, pricing or follow-through. Promising revenue outcomes on a $400-a-month plan to a clinic whose ad spend you do not control is a refund queue waiting to happen.
 
 The shape: if the assistant does not answer every call and message routed to it during the first month, which runs from the plan start, the first month's retainer is refunded. It is a promise about reliability, which is exactly what a clinic doubts before buying and exactly what the product guarantees.
 
@@ -884,7 +884,7 @@ The assumption that a compliant database starts at Supabase Team plus an unpubli
 
 Recommendation: **Neon on Scale, or AWS RDS under the agreement already in hand.** Both are self-serve, both are an order of magnitude cheaper, and neither puts a four-figure fixed cost in front of the first client.
 
-One correction on the zero-PHI idea that gets suggested around this: routing transcripts straight into the clinic's own records system so the database never holds patient data is sound in principle, but it does not work in v1. There is no records-system integration in v1, and the portal promises the clinic searchable transcripts, which means Healdesk stores them. Keep the principle, which is to hold the minimum and redact at the boundary, and use a database that carries an agreement, because it will hold patient data.
+One correction on the zero-PHI idea that gets suggested around this: routing transcripts straight into the clinic's own records system so the database never holds patient data is sound in principle, but it does not work in v1. There is no records-system integration in v1, and the portal promises the clinic searchable conversation records, which means Healdesk still holds patient data. The transcripts themselves now go to the clinic by email and are not kept (owner, 13 October 2026). Keep the principle, which is to hold the minimum and redact at the boundary, and use a database that carries an agreement, because it will hold patient data.
 
 ### What still has to be computed
 
@@ -895,11 +895,11 @@ One correction on the zero-PHI idea that gets suggested around this: routing tra
 | Chat cost per conversation | Not established | The largest unknown in the product. The clinic profile rides in the system prompt on every turn, so a long conversation is not cheap. Needs measuring on real traffic before the top tier's 2,000 included conversations can be priced |
 | Concurrency | 20 concurrent calls included on the voice platform's pay-as-you-go, extra slots about $8 each a month | Whether 20 is enough at 15 to 20 clinics |
 | WhatsApp | From 1 October 2026, service messages cost $0.0034 per delivered message in North America, after 1,000 free per number each month | A per-clinic counter to track it |
-| Overage prices | Set provisionally by the owner on 5 October 2026 and billed in blocks since 6 October: $80 for each started block of 100 extra voice minutes ($0.80 a minute); $40 for each started block of 100 extra chat conversations on the single-channel chat package and $30 on the rest ($0.40 and $0.30 a conversation). Included allowances cut on 5 October: chat to 1,000 / 2,000 / 1,000 / 2,000 conversations and the top tier's voice to 1,000 minutes | Measured cost times target margin, from pilot traffic (launch step 3.5). Until then the rates are a judgement, and the pricing page marks them provisional |
+| Overage prices | Set provisionally by the owner on 13 October 2026 (the pricing sheet), billed per started block of 100 at each product's extra-100 price: $104 for voice minutes, $52 for Web Chat conversations, $78 for Meta Chat conversations. An extra block costs 30 percent more than moving up a step. Included amounts are the step each clinic picks: 100 to 1,500 voice minutes and chat conversations a month, in steps of 100, at $80, $40 (Web Chat) and $60 (Meta Chat, which includes the website) per 100 | Measured cost times target margin, from pilot traffic (launch step 3.5). Until then the rates are a judgement, and the pricing page marks them provisional |
 
 ### The exercise to run
 
-For each of the five packages, model three cases: light use, expected use, and the included allowance fully consumed. The third is the one that matters, because it is the worst case the pricing promises. Then:
+For each of the five packages, at the steps clinics actually pick, model three cases: light use, expected use, and the chosen step fully consumed. The third is the one that matters, because it is the worst case the pricing promises. Then:
 
 - Set overage prices from measured cost, not from what feels sellable.
 - State the infrastructure breakeven openly. With a cheap database it is low, on the order of the first one or two clients rather than five.
@@ -935,7 +935,7 @@ Per channel, not global, and it describes the step rather than the time: website
 
 ### Pricing consequences
 
-The Meta chatbot SKU is priced on the assumption that inbound conversation is free. From 1 October 2026 Meta charges for service replies inside the WhatsApp window: $0.0034 per delivered message in North America, after 1,000 free per number each month. Count billable WhatsApp messages per clinic from day one rather than reconstructing them from invoices later.
+AYA Meta Chat is priced on the assumption that inbound conversation is free. From 1 October 2026 Meta charges for service replies inside the WhatsApp window: $0.0034 per delivered message in North America, after 1,000 free per number each month. Count billable WhatsApp messages per clinic from day one rather than reconstructing them from invoices later.
 
 ## Open items
 

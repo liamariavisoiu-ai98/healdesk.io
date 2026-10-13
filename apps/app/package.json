@@ -17,6 +17,7 @@
     "queue:install": "tsx --env-file-if-exists=.env.local scripts/install-queue.ts",
     "email:seed": "tsx --env-file-if-exists=.env.local scripts/email-seed.ts",
     "worker": "tsx --env-file-if-exists=.env.local src/workers/index.ts",
+    "voice": "tsx --env-file-if-exists=.env.local src/voice/server.ts",
     "patient-export": "tsx --env-file-if-exists=.env.local scripts/patient-export.ts",
     "destroy-due": "tsx --env-file-if-exists=.env.local scripts/destroy-due.ts",
     "reapply-erasures": "tsx --env-file-if-exists=.env.local scripts/reapply-erasures.ts",
@@ -52,7 +53,8 @@
     "react-dom": "^19.2.0",
     "resend": "^6.26.0",
     "stripe": "^22.6.1",
-    "tsx": "^4.23.12"
+    "tsx": "^4.23.12",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
@@ -61,6 +63,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.18.1",
     "dotenv": "^16.6.1",
     "drizzle-kit": "^0.31.1",
     "postcss": "^8.5.1",

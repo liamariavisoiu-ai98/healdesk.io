@@ -112,7 +112,7 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const LINK_ACTOR: ActorContext = { type: "service", serviceName: "booking-link" };
 const EXPIRY_ACTOR: ActorContext = { type: "service", serviceName: "booking-expiry" };
 
-export type BookingChannel = "voice" | "meta";
+export type BookingChannel = "voice" | "meta" | "web_chat";
 export type BookingThread = { platform: MetaPlatform; externalId: string; senderId: string };
 
 export type BookingFields = {
@@ -373,8 +373,9 @@ export type CreateBookingRequestInput =
       lastInboundAt?: Date;
     }
   | {
-      channel: "voice";
-      /** The caller, already upserted by the ingest or the booking engine. */
+      /** A call, or a web chat (lib/chat/web-chat.ts), which has no thread to answer on either. */
+      channel: "voice" | "web_chat";
+      /** The caller, already upserted by the ingest, the booking engine or the chat. */
       contactId: string;
       /** The call's conversation; null for a request the booking engine logs during the call, before the post-call record exists. */
       conversationId: string | null;
@@ -403,7 +404,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
     .limit(1);
 
   let contactId: string;
-  if (input.channel === "voice") {
+  if (input.channel !== "meta") {
     contactId = input.contactId;
   } else {
     const [existing] = await tx.db
@@ -423,7 +424,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
   }
 
   let collectedFields: Record<string, string> = {};
-  if (input.channel === "voice" && input.collectedFields) {
+  if (input.channel !== "meta" && input.collectedFields) {
     const requirements = resolveBookingRequirements(clinic?.specialty ?? "", clinic?.requirements ?? null);
     const { accepted, refused } = cleanCollectedFields(requirements, input.collectedFields);
     collectedFields = accepted;
@@ -446,17 +447,17 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       clinicId: tx.clinicId,
       contactId,
       channel: input.channel,
-      conversationId: input.channel === "voice" ? input.conversationId : null,
+      conversationId: input.channel !== "meta" ? input.conversationId : null,
       platform: input.channel === "meta" ? input.thread.platform : null,
       externalId: input.channel === "meta" ? input.thread.externalId : null,
       senderId: input.channel === "meta" ? input.thread.senderId : null,
       connectionId: input.channel === "meta" ? input.connectionId : null,
       preferredWindow: input.channel === "meta" ? input.fields.preferredWindow : input.preferredWindow,
       alternativeWindows,
-      treatment: input.channel === "voice" ? input.treatment : null,
+      treatment: input.channel !== "meta" ? input.treatment : null,
       collectedFields,
-      vendorCallId: input.channel === "voice" ? (input.vendorCallId ?? null) : null,
-      bookedVia: input.channel === "voice" ? (input.bookedVia ?? "desk") : "desk",
+      vendorCallId: input.channel !== "meta" ? (input.vendorCallId ?? null) : null,
+      bookedVia: input.channel !== "meta" ? (input.bookedVia ?? "desk") : "desk",
       tokenHash: hashToken(token),
       expiresAt: sql`now() + make_interval(days => ${BOOKING_REQUEST_TTL_DAYS})`,
       lastInboundAt: input.channel === "meta" ? (input.lastInboundAt ?? now) : null,
@@ -487,7 +488,9 @@ export const PLATFORM_LABEL: Record<MetaPlatform, string> = { messenger: "Messen
 
 /** "Messenger", "WhatsApp", or "a phone call": for the desk's email and page. */
 export function channelLabel(channel: BookingChannel, platform: MetaPlatform | null): string {
-  return channel === "voice" ? "a phone call" : platform ? PLATFORM_LABEL[platform] : "a message";
+  if (channel === "voice") return "a phone call";
+  if (channel === "web_chat") return "the website chat";
+  return platform ? PLATFORM_LABEL[platform] : "a message";
 }
 
 export function bookingRequestUrl(token: string): string {

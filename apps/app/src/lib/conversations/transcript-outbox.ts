@@ -32,9 +32,15 @@ import {
  * and is then deleted (drizzle/0069 holds the seven days on the database's
  * clock, whatever this code does).
  *
- *   queue    the voice endpoint and the chat API, inside the conversation's
- *            tenant transaction: queueTranscriptEmail(). Then, after commit,
- *            sendQueuedTranscriptNow() so the clinic has it in seconds.
+ *   queue    a call, when it ends, inside the post-call ingest's tenant
+ *            transaction (lib/voice/ingest.ts): queueTranscriptEmail(). Then,
+ *            after commit, sendQueuedTranscriptNow() so the clinic has it in
+ *            seconds.
+ *   open     a web chat while it lasts (lib/chat/web-chat.ts): its row is
+ *            `open`, its sealed copy rewritten at each message, and it is due
+ *            once the visitor has been quiet for WEB_CHAT_QUIET_MS, or at once
+ *            when they end it; the claim turns it `pending` for good
+ *            (drizzle/0070).
  *   send     claim the row (a two-minute lease and an attempt, in one
  *            conditional UPDATE, so two workers never send it twice), open
  *            the copy outside any transaction, send through SES to the
@@ -190,11 +196,14 @@ export async function deliverTranscriptEmail(
         .set({
           nextAttemptAt: new Date(now.getTime() + LEASE_MS),
           attempts: sql`${transcriptEmails.attempts} + 1`,
+          // An open web chat whose quiet time is up has ended: it goes to the
+          // send, and its copy can no longer change (drizzle/0070).
+          status: sql`case when ${transcriptEmails.status} = 'open' then 'pending' else ${transcriptEmails.status} end`,
         })
         .where(
           and(
             eq(transcriptEmails.id, id),
-            inArray(transcriptEmails.status, ["pending", "bounced"]),
+            inArray(transcriptEmails.status, ["open", "pending", "bounced"]),
             lte(transcriptEmails.nextAttemptAt, now),
           ),
         )
@@ -340,6 +349,101 @@ export async function destroyTranscriptEmail(
     }
   }
   return deleted.length > 0;
+}
+
+// -----------------------------------------------------------------------------
+// An open web chat (drizzle/0070)
+// -----------------------------------------------------------------------------
+
+/** How long a web chat waits for the visitor before it is over and its transcript goes. */
+export const WEB_CHAT_QUIET_MS = 30 * 60 * 1000;
+
+/** What an open web chat's row holds, sealed: the transcript so far and the chat's own state. */
+export type OpenChatState<Extra extends object = Record<string, unknown>> = SealedTranscript & { state: Extra };
+
+/**
+ * Open a web chat's row with its first turns, inside the conversation's
+ * transaction. The BAA gate refuses it for a production clinic without an
+ * agreement in effect.
+ */
+export async function openChatTranscript<Extra extends object>(
+  tx: TenantTx,
+  input: { conversationId: string; startedAt: Date; turns: readonly TranscriptTurn[]; state: Extra; now?: Date },
+): Promise<string> {
+  const clientNumber = await clientNumberOf(tx);
+  const id = randomUUID();
+  const now = input.now ?? new Date();
+  const payload: OpenChatState<Extra> = {
+    channel: "web_chat",
+    startedAt: input.startedAt.toISOString(),
+    turns: input.turns.map((t) => ({ speaker: t.speaker, text: t.text })),
+    state: input.state,
+  };
+  const sealed = await seal(JSON.stringify(payload), { clinicId: tx.clinicId, credentialId: id }, label(clientNumber));
+  await tx.db.insert(transcriptEmails).values({
+    id,
+    clinicId: tx.clinicId,
+    conversationId: input.conversationId,
+    sealed,
+    status: "open",
+    nextAttemptAt: new Date(now.getTime() + WEB_CHAT_QUIET_MS),
+    destroyAfter: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000),
+  });
+  tx.audit.record({ action: "create", resourceType: "transcript_email", resourceId: id, metadata: { conversationId: input.conversationId, channel: "web_chat", status: "open" } });
+  return id;
+}
+
+/**
+ * The open chat for a conversation, still inside its quiet time, or null: a
+ * chat that has gone to the send, or whose quiet time is up, takes no more
+ * messages (the visitor's next message starts a new conversation).
+ */
+export async function readOpenChat<Extra extends object>(
+  tx: TenantTx,
+  conversationId: string,
+  now: Date = new Date(),
+): Promise<{ id: string; payload: OpenChatState<Extra> } | null> {
+  const [row] = await tx.db
+    .select({ id: transcriptEmails.id, sealed: transcriptEmails.sealed, status: transcriptEmails.status, nextAttemptAt: transcriptEmails.nextAttemptAt })
+    .from(transcriptEmails)
+    .where(and(eq(transcriptEmails.conversationId, conversationId), eq(transcriptEmails.clinicId, tx.clinicId)))
+    .limit(1);
+  if (!row || row.status !== "open" || row.nextAttemptAt.getTime() <= now.getTime()) return null;
+  const clientNumber = await clientNumberOf(tx);
+  const payload = JSON.parse(await open(row.sealed, { clinicId: tx.clinicId, credentialId: row.id }, label(clientNumber))) as OpenChatState<Extra>;
+  return { id: row.id, payload };
+}
+
+/**
+ * Write an open chat's new state and push its quiet time back. Returns false
+ * when the chat is no longer open (the job took it between the read and
+ * this write): the caller starts a new conversation.
+ */
+export async function updateOpenChat<Extra extends object>(
+  tx: TenantTx,
+  id: string,
+  payload: OpenChatState<Extra>,
+  options: { now?: Date; end?: boolean } = {},
+): Promise<boolean> {
+  const now = options.now ?? new Date();
+  const clientNumber = await clientNumberOf(tx);
+  const sealed = await seal(JSON.stringify(payload), { clinicId: tx.clinicId, credentialId: id }, label(clientNumber));
+  const rows = await tx.db
+    .update(transcriptEmails)
+    .set({
+      sealed,
+      // Ended by the visitor: due now. Otherwise, quiet time from now.
+      nextAttemptAt: options.end ? now : new Date(now.getTime() + WEB_CHAT_QUIET_MS),
+    })
+    .where(and(eq(transcriptEmails.id, id), eq(transcriptEmails.status, "open")))
+    .returning({ id: transcriptEmails.id });
+  return rows.length > 0;
+}
+
+async function clientNumberOf(tx: TenantTx): Promise<number> {
+  const [clinic] = await tx.db.select({ clientNumber: clinics.clientNumber }).from(clinics).where(eq(clinics.id, tx.clinicId));
+  if (!clinic) throw new Error("No clinic in this tenant.");
+  return clinic.clientNumber;
 }
 
 /**

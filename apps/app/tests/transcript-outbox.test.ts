@@ -215,8 +215,10 @@ describeDb("the transcript outbox", () => {
     await expect(attempt(`update transcript_emails set destroy_after = now() + interval '1 year' where id = $1`)).rejects.toThrow(
       /permission denied/,
     );
+    // The runtime role may write `sealed` only to grow an open web chat
+    // (drizzle/0070); a queued call's copy is refused by the trigger.
     await expect(attempt(`update transcript_emails set sealed = '{}'::jsonb where id = $1`)).rejects.toThrow(
-      /permission denied/,
+      /never rewritten/,
     );
     // Even the owner of the table cannot rewrite the copy.
     await expect(

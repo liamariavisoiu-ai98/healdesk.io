@@ -1588,8 +1588,8 @@ export const bookingRequests = pgTable(
      * request; whether the assistant takes a request or books directly is
      * the clinic's booking mode (clinics.booking_mode).
      */
-    channel: text("channel").$type<"voice" | "meta">().notNull().default("meta"),
-    /** The call the request was taken on, for voice. */
+    channel: text("channel").$type<"voice" | "meta" | "web_chat">().notNull().default("meta"),
+    /** The call or web chat the request was taken on. */
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     /** messenger | instagram | whatsapp; null for a voice request. */
     platform: text("platform").$type<"messenger" | "instagram" | "whatsapp">(),
@@ -5248,7 +5248,7 @@ export const TENANT_SCOPED_TABLES = [
 // -----------------------------------------------------------------------------
 
 /** Where an emailed transcript stands. */
-export const TRANSCRIPT_EMAIL_STATUSES = ["pending", "sent", "delivered", "bounced"] as const;
+export const TRANSCRIPT_EMAIL_STATUSES = ["open", "pending", "sent", "delivered", "bounced"] as const;
 export type TranscriptEmailStatus = (typeof TRANSCRIPT_EMAIL_STATUSES)[number];
 
 /**
@@ -5266,6 +5266,13 @@ export type TranscriptEmailStatus = (typeof TRANSCRIPT_EMAIL_STATUSES)[number];
  * delivered transcript is kept that long only so a clinic that lost the
  * email can be sent it again. It also goes with its conversation (erasure,
  * the record clock, destruction), through the foreign key's cascade.
+ *
+ * `open` is a web chat still going (lib/chat/web-chat.ts): the only state of
+ * its conversation healdesk holds, sealed the same way and rewritten at each
+ * message, and due to be sent once the visitor has been quiet until
+ * `next_attempt_at`, or at once when they end it. Only an open row's copy may
+ * change, and only while it stays open (drizzle/0070). A call is queued
+ * `pending` when it ends.
  *
  * Never stored here: the clinic's address (read at each send, from the
  * sign-in), and anything SES says beyond a status and its own reason.
@@ -5297,7 +5304,7 @@ export const transcriptEmails = pgTable(
   },
   (t) => [
     uniqueIndex("transcript_emails_conversation_idx").on(t.conversationId),
-    index("transcript_emails_due_idx").on(t.clinicId, t.nextAttemptAt).where(sql`${t.status} in ('pending', 'bounced')`),
+    index("transcript_emails_due_idx").on(t.clinicId, t.nextAttemptAt).where(sql`${t.status} in ('open', 'pending', 'bounced')`),
     index("transcript_emails_destroy_idx").on(t.clinicId, t.destroyAfter),
     uniqueIndex("transcript_emails_ses_message_idx").on(t.sesMessageId).where(sql`${t.sesMessageId} is not null`),
     // Composite, so a transcript can only belong to a conversation of its own
@@ -5307,13 +5314,13 @@ export const transcriptEmails = pgTable(
       columns: [t.clinicId, t.conversationId],
       foreignColumns: [conversations.clinicId, conversations.id],
     }).onDelete("cascade"),
-    check("transcript_emails_status_check", sql`${t.status} in ('pending', 'sent', 'delivered', 'bounced')`),
+    check("transcript_emails_status_check", sql`${t.status} in ('open', 'pending', 'sent', 'delivered', 'bounced')`),
     check("transcript_emails_attempts_check", sql`${t.attempts} >= 0`),
     check("transcript_emails_last_error_check", sql`${t.lastError} is null or char_length(${t.lastError}) <= 500`),
     check("transcript_emails_destroy_check", sql`${t.destroyAfter} > ${t.createdAt}`),
     check(
       "transcript_emails_sent_check",
-      sql`(${t.status} = 'pending') or (${t.sentAt} is not null and ${t.sesMessageId} is not null)`,
+      sql`(${t.status} in ('open', 'pending')) or (${t.sentAt} is not null and ${t.sesMessageId} is not null)`,
     ),
   ],
 );

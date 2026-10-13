@@ -2714,7 +2714,7 @@ export type CalendarWriteRow = {
   slotAt: string;
   status: "writing" | "written" | "failed" | "unknown";
   error: string | null;
-  requestChannel: "voice" | "meta";
+  requestChannel: "voice" | "meta" | "web_chat";
 };
 
 function stepsView(state: OnboardingState) {

@@ -2044,7 +2044,7 @@ export type CalendarWriteRow = {
   slotAt: string;
   status: "writing" | "written" | "failed" | "unknown";
   error: string | null;
-  requestChannel: "voice" | "meta";
+  requestChannel: "voice" | "meta" | "web_chat";
 };
 
 export type DepositPolicy = { required: boolean; amountUsd: number | null; collection: "front_desk" | "stripe_connect" };
@@ -2294,7 +2294,7 @@ function readCalendarWrite(entry: unknown): CalendarWriteRow {
     slotAt: text(w.slotAt, "calendarWrite.slotAt"),
     status: literal(w.status, ["writing", "written", "failed", "unknown"], "calendarWrite.status"),
     error: optionalText(w.error, "calendarWrite.error"),
-    requestChannel: literal(w.requestChannel, ["voice", "meta"], "calendarWrite.requestChannel"),
+    requestChannel: literal(w.requestChannel, ["voice", "meta", "web_chat"], "calendarWrite.requestChannel"),
   };
 }
 

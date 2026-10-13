@@ -7,6 +7,8 @@ import { unsafeDb, type Transaction } from "@/db";
 import { bookingRequests, clinics, clinicSettings, contacts, conversations } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
 import { recordUsage } from "@/lib/billing/usage";
+import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
+import { queueTranscriptEmail, sendQueuedTranscriptNow } from "@/lib/conversations/transcript-outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { cleanAlternatives, cleanCollectedFields, createBookingRequest, notifyDesk } from "@/lib/meta/booking-requests";
@@ -120,8 +122,12 @@ export type VoiceCallEvent = {
    * index instead of creating a duplicate beside it.
    */
   booking?: {
-    /** The time the agent extracted. The desk confirms; this is a request. */
-    scheduledFor: Date;
+    /**
+     * The time the agent extracted. The desk confirms; this is a request.
+     * Optional when `preferredWindow` carries the caller's words, as the
+     * Retell process sends it (lib/voice/retell.ts): one of the two is needed.
+     */
+    scheduledFor?: Date;
     /** The window in the caller's own words, when the agent captured it. */
     preferredWindow?: string;
     /** Up to two other times, verbatim (§D.1). Cleaned like the primary; a dirty one is dropped. */
@@ -136,6 +142,13 @@ export type VoiceCallEvent = {
   };
   /** `field_<id>` extractor values, keyed by catalogue id; validated against the clinic's set before anything is stored (§H.6). */
   collectedFields?: Record<string, string>;
+  /**
+   * The call's words, turn by turn, from the Retell process. Queued in the
+   * transcript outbox in the same transaction as the conversation and emailed
+   * to the clinic straight after (lib/conversations/transcript-outbox.ts);
+   * never stored anywhere else. A call already ingested queues nothing.
+   */
+  transcriptTurns?: readonly TranscriptTurn[];
 };
 
 export class VoiceIngestError extends Error {
@@ -162,6 +175,8 @@ export type IngestResult = {
    * where the caller asked for more than one).
    */
   bookingRequestId: string | null;
+  /** The transcript queued for the clinic, when the call carried one. */
+  transcriptEmailId?: string | null;
 };
 
 /**
@@ -319,9 +334,11 @@ export function bookingRequestFrom(
   // the time the agent extracted, written in the clinic's own clock so the
   // desk reads "Tue 24 Sep, 2:00 PM" and not a UTC instant.
   const said = event.booking.preferredWindow?.trim().replace(/\s+/g, " ").slice(0, 120);
+  // Refusal 4: neither words nor a time.
+  if (!said && !event.booking.scheduledFor) return null;
   const preferredWindow =
     said ||
-    event.booking.scheduledFor.toLocaleString("en-US", {
+    event.booking.scheduledFor!.toLocaleString("en-US", {
       timeZone: clinicTimezone,
       weekday: "short",
       day: "numeric",
@@ -605,10 +622,24 @@ export async function ingestCall(
     // conversation it stamped it from commit or roll back together.
     await observeForwardingCall(tx, clinic, event, row.id);
 
-    return { result: { conversationId: row.id, recoveryReason, duplicate: false, bookingRequestId }, metering };
+    // The transcript, sealed in the outbox with the conversation it belongs
+    // to: both commit or neither does.
+    const transcriptEmailId = event.transcriptTurns?.length
+      ? await queueTranscriptEmail(tx, {
+          conversationId: row.id,
+          channel: "voice",
+          startedAt: event.startedAt,
+          turns: event.transcriptTurns,
+        })
+      : null;
+
+    return { result: { conversationId: row.id, recoveryReason, duplicate: false, bookingRequestId, transcriptEmailId }, metering };
   });
 
   const { result, metering } = ingested;
+  // The clinic has the transcript in seconds; a failure here is the outbox's
+  // to retry, every minute, and never the call's.
+  if (result.transcriptEmailId) await sendQueuedTranscriptNow(event.clinicId, result.transcriptEmailId, { transport: deps.transport });
   if (metering && "minutes" in metering) {
     try {
       await recordUsage({

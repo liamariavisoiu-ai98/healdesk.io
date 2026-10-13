@@ -41,13 +41,13 @@ import { inTenant, seedChannels, seedClinic } from "./setup/factories";
  * PT-12 and PT-13), held in code.
  *
  * Clause 16 promises: "healdesk checks each message a person sends there for
- * clinical content before the language model sees it, and keeps none,
- * repeats none and carries none into a summary", and "Its first reply in
- * each conversation says that it is an AI assistant and that the channel is
- * not secure". So: a clinical message gets the fixed hand-off line, an
- * urgent one the fixed urgent line, neither reaches the model or any table,
- * and the first reply of each conversation, on every Meta platform, opens
- * with metaChannelGreeting() while no later one does.
+ * clinical content before the language model sees it, and keeps no message
+ * there and no summary of one", and "Its first reply in each conversation
+ * says that it is an AI assistant and that the channel is not secure". So: a
+ * clinical message gets the fixed hand-off line, an urgent one the fixed
+ * urgent line, neither reaches the model or any table, and the first reply of
+ * each conversation, on every Meta platform, opens with metaChannelGreeting()
+ * while no later one does.
  *
  * The rule for "conversation" is lib/meta/greeting.ts's: a message sent
  * more than 24 hours after the person's previous one starts a new

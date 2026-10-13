@@ -2517,8 +2517,9 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
  * no-rewrite trigger, 0039 and 0041), a conversation is the record of what
  * was said, and an appointment is the booking as the clinic's calendar holds
  * it, so none is edited on Practice's word: the amendment is appended beside
- * it and linked to it, and every later use and export of the record carries
- * it (lib/patient-rights/amendments.ts).
+ * it and linked to it, and every later export of the record, and every
+ * screen of healdesk's that shows it, carries it
+ * (lib/patient-rights/amendments.ts).
  *
  * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
  * BAA gate. Each target is a foreign key that carries clinic_id with the

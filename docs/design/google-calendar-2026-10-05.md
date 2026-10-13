@@ -10,7 +10,7 @@ what remains, §8 lists the owner's decisions, and §9 what the sessions still h
 
 `docs/v1-product-spec.md` wins over this file, and §6 of
 `docs/design/funnel-portal-contracts-2026-10-06.md` is the funnel's side of §2. "Built" means in
-the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
+the code on 13 October 2026. The plan's commit names, C0 to C20, are kept.
 
 ## 1. Built, and what remains
 
@@ -28,26 +28,25 @@ the code on 8 October 2026. The plan's commit names, C0 to C20, are kept.
 | C8      | Connecting, choosing calendars, disconnecting, revoking (§2, §4)                                   | Built                                          |
 | C9      | Booking mode and Auto-confirm (§2)                                                                 | Built                                          |
 | C10     | The five-minute calendar watch                                                                     | Built, ships off; one email deferred (below)   |
-| C11     | Privacy §11 and `/data-deletion` say what the code does                                            | To build                                       |
+| C11     | Privacy §11 and `/data-deletion` say what the code does                                            | Built; `/data-deletion` (below)                |
 | C12     | Availability, the desk path, migration B, the harness parked; HRC-04 at each desk write (§4)       | Built (568a56d)                                |
 | C13     | The booking engine (§6); HRC-04 at each write (§4)                                                 | Built; its alerts are §6's                     |
 | C14     | The harness wired to the engine, and the fixed lines                                               | Built; the demo clinic only                    |
 | C15     | Provisioning reads the signed acceptance                                                           | Built                                          |
 | C17     | The console's cards; `setBookingMode` and `directBookingAllowed` removed                           | Built                                          |
 | C18     | Elections and account changes from the portal (§2)                                                 | Built                                          |
-| C19     | Release 1.3.0 and `calendar-election/1.0.0`                                                        | When Claude's own audit finds no blocker       |
-| C20     | Empty `BAA_RELEASE_OVERLAP`                                                                        | Once C19 is deployed                           |
+| C19     | Release 1.3.0 and `calendar-election/1.0.0`                                                        | Built (068f04e; below)                         |
+| C20     | Empty `BAA_RELEASE_OVERLAP`                                                                        | Not needed: no overlap was opened              |
 
-- **1.3.0** is a draft at `BAA_TEMPLATES[1]` (`approvedByCounsel: false`), merged on main clause by
-  clause as the owner chose (6dc50a7; `docs/counsel/agreement-changes.md` §12, the choices in
-  §12.13). Nothing offers it, signing refuses it, and so does provisioning, whose approval gate
-  judges the bound acceptance's own version by `isBaaVersionAcceptable` (C15). C19 adds a migration
-  so that `app_baa_version_acceptable` accepts it, and decides whether `MIN_ACCEPTABLE_BAA_VERSION`
-  rises. If it rises past 1.2.1, C19 leaves 1.2.1 out of `BAA_RELEASE_OVERLAP`: a buyer could sign
-  it and then be refused at Pay, by the checkout intent's own check (`agreementMismatch`), and at
-  go-live, and the go-live floor test fails while a listed version is below the floor. A 1.2.1
-  purchase whose intent was checked before such a release and paid after it is refused at
-  provisioning instead, after paying, and reaches ops as a refused provisioning.
+- **C19, 1.3.0** (068f04e): BAA 1.3.0 and `calendar-election/1.0.0` released 12 October 2026, floor
+  1.3.0, no overlap. The owner released both on the owner's own review and Claude's audit of the
+  full text against the code (`docs/counsel/agreement-changes.md` §12.15). 1.3.0 is
+  `BAA_TEMPLATES[0]`, so checkout offers it and signing and provisioning take it. No clinic had
+  signed 1.2.2, so the owner had 1.3.0 replace it outright: `MIN_ACCEPTABLE_BAA_VERSION` is 1.3.0,
+  `app_baa_version_acceptable` and `app_calendar_election_released` say the same (drizzle/0068),
+  and `BAA_RELEASE_OVERLAP` stayed empty. **C20** is not needed: no overlap was opened.
+- **C11:** privacy §11's Google section and its one-calendar-per-provider wording shipped in the
+  funnel's legal pages 2026-10-12.2. `/data-deletion`'s Meta line is being corrected separately.
 - **One calendar per provider.** The 1.3.0 calendar clauses are to say "the calendar, or one
   calendar per provider, that Practice chooses" (6 October). `google-calendar-disclosure/1`, which
   C8's page is the first to show, says so since the pre-release audit (`agreement-changes.md`
@@ -94,11 +93,11 @@ app.healdesk.io; apps/web never does.
   `admin_blocked`, `failed`, `scopes`, `no_refresh`, `probe`, `mismatch`, `different_account`,
   `election_needed`, `account_in_use`, `already_connected`, `terms`, `disclosure` or
   `unavailable`.
-- **Before C19 no real clinic can connect.** A clinic that signed 1.2.1, as every clinic does
-  until C19, resolves to `needs_election`, and no election is possible until C19 releases
-  `calendar-election/1.0.0`: draft terms count only for a demo clinic (plan §2.8). Until then
-  setup step 3 is to show the funnel plan's "Bookings arrive as requests your team confirms."
-  rather than the button.
+- **Before C19 no real clinic could connect.** A clinic that signed 1.2.1, as every clinic did
+  until C19, resolves to `needs_election`, and no election was possible until C19 released
+  `calendar-election/1.0.0` on 12 October 2026: draft terms count only for a demo clinic (plan
+  §2.8). Until then setup step 3 was to show the funnel plan's "Bookings arrive as requests your
+  team confirms." rather than the button.
 - **`getCalendarConnection(clinicId)`** (C8): the status, the account and its kind, the calendar
   booked into, when it was last checked and since when it has been broken; C8 fixes the fields. The
   account's email address reaches the clinic only, never an ops projection, an audit row or a log.
@@ -176,11 +175,14 @@ app.healdesk.io; apps/web never does.
   incomplete. Names are the clinic's own words, shown to it and never audited or logged. With more
   than one, the portal's picker defaults to primary, and a choice re-runs the connect-time check
   and audits `calendar_target_changed` without the name. A covered clinic's choice is narrower
-  (§4).
+  (§4). It, `chooseCalendar` and the provider functions answer `refused` (`offboarding` or
+  `terms`), opening no token and asking Google nothing, once the location has left or while its
+  terms use no calendar (§4, "Ending access").
 - **Named providers** (C8, C9): `listProviderCalendars`, `saveProviders` (each calendar checked as
   the shared one is, §4) and `setProviderServices`, for setup step 3.2 and Settings → Calendar. The
   switch is the funnel's `clinic_settings.booking_detail`, `generic` (the default) or
-  `named_provider`, added in its M3.
+  `named_provider`, added in its M3. Saving the list lets go of the live holds on a calendar it
+  takes out of use (§4).
 - **`effectiveBookingMode(clinicId) → { mode: "direct" | "requests", reason, reasons }`** (C9,
   `lib/booking/mode.ts`; an optional `{ actor, request }` as above) is `bookingModeFor`'s `live` or
   `manual`. `bookingModeFor(tx)`, which C12 and C13 call, reads every fact fresh in the caller's
@@ -283,7 +285,7 @@ before; 1.3.0 names the booking system and carries both answers. The sync is der
 so nobody can sign live booking for a one-way system.
 
 **`baa.ts`** adds `templateReadsCalendarAccount`, `CALENDAR_CLAUSE_IDS_1_3`, `calendarAccountOf`,
-`bookingSyncOf` and `BAA_RELEASE_OVERLAP`, empty until C19; **`agreement-kind.ts`**, the funnel's,
+`bookingSyncOf` and `BAA_RELEASE_OVERLAP`, which C19 left empty; **`agreement-kind.ts`**, the funnel's,
 has `agreementKindFor`, which signing asks through `agreementKindForRequest`.
 
 **Signing (C3).** `SignAgreementRequest` gains `bookingSystem` and `calendarAccount`, and
@@ -323,9 +325,14 @@ The constants and the adapter are built (C1), and C8's connect flow applies them
   set to `named_provider` and an active provider mapped to the service, availability, holds and
   writes (C12, C13) use that provider's calendar, otherwise the shared one, and holds and the
   overlap guard key on the clinic and the calendar. Each provider's calendar is one on which the
-  location's account has the owner role, and passes the same checks, HRC-04's included. "The
-  person they saw last time" is a provider the patient names, never one looked up beyond the
-  clinic's own records.
+  location's account has the owner role, and passes the same checks, HRC-04's included. A
+  calendar that leaves use when `saveProviders` drops or moves a provider (no saved provider has
+  it, and it is not the location's own) has its live holds released in the same transaction
+  (`provider_removed`), raising `calendar_check` for a write in flight there (§6), and the writer
+  refuses a claimed hold whose calendar is neither the location's own nor an active provider's
+  (`calendar_not_in_use`, the request the desk's), so nothing lands on a calendar the clinic has
+  just removed (C19 re-audit, 13 October 2026). "The person they saw last time" is a provider the
+  patient names, never one looked up beyond the clinic's own records.
 - **A covered clinic stays in its own domain** (owner, 6 October, HRC-04). Under `workspace_baa`
   terms only the primary calendar, or a secondary one shown to belong to the connected account's
   own Workspace organisation, may be chosen, as the shared calendar or a provider's. Since C8:
@@ -358,7 +365,12 @@ The constants and the adapter are built (C1), and C8's connect flow applies them
   away. When Google answers that the grant is gone, the token is erased too, and after a lost
   calendar scope the grant is revoked. A row revoked with `broken_at` is one Google took away; a
   deliberate disconnect clears it, so the clinic is not told "access was removed in your Google
-  Account".
+  Account". Until the sweep has erased it (a location whose sweep failed keeps its token sealed
+  until the next watch run, C10), a token is never opened for a location that has left or whose
+  terms are not covered or uncovered: the writers ask `writableConnection`, and the portal's and
+  the calendar link page's reads (`listCalendars`, `chooseCalendar`, the provider functions)
+  answer `refused`, `offboarding` or `terms`, before any decrypt (C19 re-audit, 13 October 2026;
+  BAA 1.3.0's calendar clause: healdesk "stops using the token when the Services end").
 - **What is stored:** the sealed refresh token, never an access token; the Google `sub` only as
   `account_ref = sha256hex("google:" + sub)`, which keeps one live connection per account across
   clinics; the account's email address in the connection's metadata, for the clinic only.

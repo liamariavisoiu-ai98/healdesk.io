@@ -3,12 +3,14 @@ import { describe, expect, test } from "vitest";
 import { guardReply, publishedTimesOf } from "@/lib/meta/front-door";
 
 /**
- * The Meta reply guard names no treatment and confirms no appointment
- * details (BAA 1.3.0 clause 16), whatever the model wrote and whether or not
- * the clinic has a menu configured. A clock time passes only when it is one
- * of the clinic's own opening or closing times, which is how the front door
- * answers "when are you open?"; every other time, and every calendar date,
- * gives the fixed hand-off.
+ * The Meta reply guard: BAA 1.3.0 clause 16's automated filters, which check
+ * every reply the model writes there to keep treatment names and appointment
+ * details out, replacing a refused one with a fixed reply, whatever the model
+ * wrote and whether or not the clinic has a menu configured. They catch the
+ * wordings below; the clause says no filter catches every wording. A clock
+ * time passes only when it is one of the clinic's own opening or closing
+ * times, which is how the front door answers "when are you open?"; every
+ * other time, and every calendar date, gives the fixed hand-off.
  */
 
 const HOURS = {

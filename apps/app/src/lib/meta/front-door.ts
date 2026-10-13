@@ -59,18 +59,18 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  *
  * Every message is screened before the model sees it, as BAA 1.3.0 promises
  * ("healdesk checks each message a person sends there for clinical content
- * before the language model sees it, and keeps none, repeats none and
- * carries none into a summary"; docs/counsel/agreement-changes.md §12.14,
- * gate 4, PT-12). A complication or an urgent symptom (the catalog's
- * findUrgentContent) gets the fixed urgent line: 911, then the clinic's own
- * number. Anything else clinical (findClinicalContent, the vocabulary that
- * guards everything else the product stores) gets the fixed hand-off line,
- * which moves the person to a call and says why in one sentence. Here, and
- * nowhere off Meta, that vocabulary counts the everyday skin and hair
- * conditions too (owner, 7 October 2026): "do you treat rosacea?" or "I have
- * bad acne" is a condition named on a channel with no BAA. Either way the
- * model is not called and nothing is extracted, so nothing of the message
- * reaches a booking draft, a booking request, the audit row or a log.
+ * before the language model sees it, and keeps no message there and no
+ * summary of one"; docs/counsel/agreement-changes.md §12.14, gate 4, PT-12).
+ * A complication or an urgent symptom (the catalog's findUrgentContent) gets
+ * the fixed urgent line: 911, then the clinic's own number. Anything else
+ * clinical (findClinicalContent, the vocabulary that guards everything else
+ * the product stores) gets the fixed hand-off line, which moves the person to
+ * a call and says why in one sentence. Here, and nowhere off Meta, that
+ * vocabulary counts the everyday skin and hair conditions too (owner, 7
+ * October 2026): "do you treat rosacea?" or "I have bad acne" is a condition
+ * named on a channel with no BAA. Either way the model is not called and
+ * nothing is extracted, so nothing of the message reaches a booking draft, a
+ * booking request, the audit row or a log.
  *
  * The first reply of each conversation opens with metaChannelGreeting(), and
  * no later reply repeats it (gate 4, PT-13; lib/meta/greeting.ts says what a

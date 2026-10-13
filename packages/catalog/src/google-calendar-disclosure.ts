@@ -16,9 +16,14 @@ import { createHash } from "node:crypto";
  * Versioned like a document, because a stored acceptance points at it.
  * Wording changes are a new version. A new RECIPIENT of calendar-derived
  * times (Meta, when Meta booking is built) is a new version that is not
- * added to GOOGLE_CALENDAR_DISCLOSURE_COMPATIBLE, so every connection
- * accepted under the old one is asked to reconnect: nobody's consent is
- * stretched to cover a recipient they were never told about.
+ * added to GOOGLE_CALENDAR_DISCLOSURE_COMPATIBLE, so no connection accepted
+ * under the old one is used for booking until the clinic accepts the new
+ * one: nobody's consent is stretched to cover a recipient they were never
+ * told about. The email asking such a clinic to reconnect (plan §9.2 step 5)
+ * is deferred, not built (apps/app lib/scheduler/calendar-watch.ts), so
+ * until it exists no version may leave GOOGLE_CALENDAR_DISCLOSURE_COMPATIBLE:
+ * the booking mode would put every such location on requests
+ * (`calendar_disclosure_outdated`) and tell no clinic why.
  *
  * `timeRecipients` names the subprocessor-register rows the times reach
  * (apps/web/src/lib/subprocessors.ts). apps/web/src/lib/google-disclosure
@@ -106,9 +111,11 @@ export const GOOGLE_CALENDAR_DISCLOSURE: GoogleCalendarDisclosure = {
 
 /**
  * The versions a stored connection may have been accepted under and still
- * be used. A connection on any other version is to get the booking-mode
- * reason `calendar_disclosure_outdated` (plan C9), and the watch is to ask
- * the clinic to reconnect (plan C10).
+ * be used. A connection on any other version gets the booking-mode reason
+ * `calendar_disclosure_outdated` (plan C9) and books by request. The notice
+ * asking that clinic to reconnect (plan C10) is deferred, so no version may
+ * be taken out of this list until that notice exists
+ * (apps/app lib/scheduler/calendar-watch.ts).
  */
 export const GOOGLE_CALENDAR_DISCLOSURE_COMPATIBLE: readonly string[] = [
   GOOGLE_CALENDAR_DISCLOSURE_VERSION,

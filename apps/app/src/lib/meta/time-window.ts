@@ -1,7 +1,9 @@
 /**
- * The closed time grammar a Meta booking window must fit (BAA 1.3.0 clause
- * 11, "Clinical content sent on Instagram, Messenger or WhatsApp is not kept
- * at all"; clause 16, "keeps none, repeats none").
+ * The closed time grammar a Meta booking window must fit. BAA 1.3.0 clause
+ * 11 has healdesk keep nothing from Instagram, Messenger or WhatsApp but the
+ * details in its item (a), with "preferred times only in a fixed
+ * day-and-time form", and the identifier Meta attaches to the conversation;
+ * this grammar is that form.
  *
  * A Meta request keeps one free-text field, the preferred day or time, and
  * its alternatives, for the request's 90 days. A list of refused words could

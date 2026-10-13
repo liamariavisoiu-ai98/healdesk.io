@@ -21,12 +21,14 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  * also be cleared). It does not rewrite a booking request, an appointment
  * record or the record of a conversation: it appends the amendment to that
  * record and links the two, as 45 CFR 164.526(c)(1) provides, and every
- * later use and export of that record then carries the amendment. An
- * appointment is the booking as the clinic's calendar holds it, which a sync
- * or a reschedule may move, so a correction of its service, practitioner or
- * time is appended beside it rather than written over the calendar's; the
- * clause has named it since the release audit of 12 October 2026. Release
- * gate 8 (PT-17) is this file and `record_amendments` (drizzle/0064).
+ * later export of that record, and every screen of healdesk's that shows it,
+ * then carries the amendment (the clause's words since its second read of 12
+ * October 2026). An appointment is the booking as the clinic's calendar holds
+ * it, which a sync or a reschedule may move, so a correction of its service,
+ * practitioner or time is appended beside it rather than written over the
+ * calendar's; the clause has named it since the release audit of 12 October
+ * 2026. Release gate 8 (PT-17) is this file and `record_amendments`
+ * (drizzle/0064).
  *
  * A booking request's facts never change (the no-rewrite trigger, 0039 and
  * 0041), and a conversation is the record of what was said, so neither is
@@ -46,7 +48,8 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *     clinic's own tenant with the member as `recordedBy`, and it must show
  *     the amendments beside each record wherever the portal shows or exports
  *     that record, as `exportPatient` and `exportClinic` do here: the clause
- *     promises that every later use carries them.
+ *     promises them in every later export and on every screen of healdesk's
+ *     that shows the record.
  *
  * The amendment's text is Practice's words about a patient, so it is PHI: it
  * is stored here and nowhere else, never written to the audit trail or a
@@ -203,8 +206,8 @@ export async function amendmentCount(tx: TenantTx, target: AmendmentTarget): Pro
 
 /**
  * The amendments of the given records of one kind, oldest first, by the id
- * of the record each amends. What an export, or any later use, puts beside
- * the record.
+ * of the record each amends. What an export, or a screen that shows the
+ * record, puts beside it.
  */
 export async function amendmentsFor(
   tx: TenantTx,

@@ -656,8 +656,10 @@ export type BookingDecision = "accepted" | "declined" | "confirmed" | "reschedul
  * time, never a provider, and never that anything is booked: a confirmed or
  * accepted request says only that the practice has reviewed it and will call
  * (META_CHANNEL_PROHIBITIONS[0], "Confirming the person is, was, or will be a
- * patient"; BAA 1.3.0 clause 16, "confirms no appointment details"). The
- * appointment itself is settled on the phone.
+ * patient"; BAA 1.3.0 clause 16, under which the assistant is instructed not
+ * to confirm appointment details there). These lines are fixed text, not the
+ * model's, so no filter has to catch them. The appointment itself is settled
+ * on the phone.
  */
 export function followUpLine(clinicName: string, decision: BookingDecision): string {
   switch (decision) {
@@ -713,11 +715,11 @@ export type ResolvedBookingRequest = {
   /**
    * How many amendments the practice has directed to this request
    * (record_amendments, lib/patient-rights/amendments.ts): a count, never
-   * their words. BAA 1.3.0's clause 14(b) has every later use of the
-   * request carry them, but this view opens with the emailed token alone,
-   * no passkey, and the plan has /booking/<token> show no patient fields,
-   * so it says that the request was amended and where the words are, and
-   * nothing they say (review of 12 October 2026).
+   * their words. BAA 1.3.0's clause 14(b) has every screen of healdesk's
+   * that shows the request carry them, but this view opens with the emailed
+   * token alone, no passkey, and the plan has /booking/<token> show no
+   * patient fields, so it says that the request was amended and where the
+   * words are, and nothing they say (review of 12 October 2026).
    */
   amendmentCount: number;
 };

@@ -37,10 +37,10 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *
  * Each booking request, appointment and conversation carries its amendments beside it
  * (`amendments`, oldest first; lib/patient-rights/amendments.ts), as BAA
- * 1.3.0's clause 14(b) promises: "Every later use and export of that record
- * then carries the amendment." So does the whole clinic's bundle. The
- * portal's export (M5) must do the same, and so must any screen that shows a
- * request or a conversation.
+ * 1.3.0's clause 14(b) promises: "Every later export of that record, and
+ * every screen of healdesk's that shows it, then carries the amendment." So
+ * does the whole clinic's bundle. The portal's export (M5) must do the same,
+ * and so must any screen that shows a request or a conversation.
  *
  * Each bundle also carries the deposits the clinic took through its own
  * Stripe account for the person's appointments (the whole clinic's, in its

@@ -1,7 +1,9 @@
 /**
  * The treatment vocabulary no reply on Instagram, Messenger or WhatsApp may
- * use (BAA 1.3.0 clause 16: "The assistant names no treatment and confirms
- * no appointment details there").
+ * use. BAA 1.3.0 clause 16 has the assistant instructed not to name a
+ * treatment there, and every reply the language model writes there checked
+ * by automated filters designed to keep treatment names out, a refused reply
+ * replaced by a fixed one; this list is one of those filters.
  *
  * The clinic's own menu is refused by name already (the front door's guard
  * gets every service it has configured), but a menu says "Neurotoxin" where

@@ -150,11 +150,15 @@ running: one ARM64 web task of a quarter vCPU carrying the worker too
 (`worker_placement`), a `db.t4g.micro`, a NAT instance instead of a NAT
 gateway (`nat_mode`), and the WAF off (`enable_waf`); each is one variable
 from the shape first built (README, "Costs").
-`infra/aws/README.md` is the runbook. **The owner reports it applied** (13
-October 2026): the bootstrap stack launched, the external secrets pasted, the
-alarm email confirmed and the Vercel variables set. Nothing in this repository
-records whether `deploy-app.yml` has run, so whether the image has run on AWS
-is unverified here; ask before assuming. What has been checked here is local:
+`infra/aws/README.md` is the runbook. **Whether it is applied is unsettled.**
+The owner reported on 13 October 2026 that the bootstrap stack is launched, the
+external secrets pasted, the alarm email confirmed and the Vercel variables
+set; but GitHub's record that day shows one `infra.yml` run, a plan with its
+apply skipped (on 719b584, before the lean profile), and no `deploy-app.yml`
+run at all, and `put-external-secrets.sh` refuses a parameter an apply has not
+created. Check the account (the ECS cluster `healdesk-production`, the SSM
+parameters) before assuming anything exists, and assume the image has never
+run on AWS. What has been checked here is local:
 `terraform validate`, `terraform test` against mocked providers, tflint,
 checkov, cfn-lint, actionlint, and the app image built for arm64 and booted
 under emulation (13 October 2026).
@@ -447,7 +451,7 @@ not by restoring that code.
 | Workspace | Target | Root directory | PHI |
 | --- | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` | No |
-| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`, applied by the owner (reported 13 October 2026) | `apps/app` | **Yes** |
+| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`; reported applied by the owner on 13 October 2026, but GitHub records only a plan (see above) | `apps/app` | **Yes** |
 | `apps/app` worker | Same cluster: by default a container in each web task; its own service `healdesk-production-worker` with `worker_placement = "separate"` | `apps/app` | **Yes** |
 | `apps/app` migrations and role creation | One-off tasks `healdesk-production-migrate` and `healdesk-production-db-bootstrap`, run by `deploy-app.yml` | `apps/app` | **Yes** |
 | `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same cluster, its own long-lived service `healdesk-production-voice`, created only with `enable_voice` (off by default) | `apps/app` | **Yes** |
@@ -456,7 +460,7 @@ not by restoring that code.
 The BAA host is the AWS account designated under the AWS BAA, in `us-east-1`
 (`docs/policies/aws-hipaa-account.md`). The database is Amazon RDS for
 PostgreSQL 17 under that agreement, the owner's choice of 7 October 2026 over
-Neon, defined in `infra/aws/rds.tf` and, by the owner's report of 13 October 2026, provisioned. Vercel is a BAA
+Neon, defined in `infra/aws/rds.tf`; whether it is provisioned is unsettled (see above). Vercel is a BAA
 host only on Enterprise.
 
 The voice endpoint cannot be a route handler or a serverless function. Retell

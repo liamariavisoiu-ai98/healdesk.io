@@ -16,6 +16,7 @@ import {
   type AuditReport,
 } from "./audit";
 import { fetchGoogleHours, type GoogleHours } from "./google-hours";
+import { scheduleOfferEndedEmail } from "./offer-ended";
 import { isUsableProfile, normalizeProfile, type ClinicProfile } from "./profile";
 import { parseWebsiteUrl, scrapeClinicSite, ScrapeError, type ScrapedPage } from "./scrape";
 import {
@@ -197,6 +198,7 @@ export async function runDemoBuild(slug: string, options: { sendEmail?: boolean 
     const done = await recordVerdict(slug, gated);
     const emailWanted = options.sendEmail || session.emailRequested;
     if (done?.status === "ready" && emailWanted && !done.emailSentAt) await sendDemoEmail(done);
+    if (done) await afterShipping(done);
     return done;
   } catch (error) {
     const reason =
@@ -345,7 +347,29 @@ export async function releaseHeldDemo(slug: string, operator: string): Promise<D
     buildNote: `Released by ${operator} on ${now.toISOString().slice(0, 10)} despite the audit.`,
   });
   if (released && released.emailRequested && !released.emailSentAt) await sendDemoEmail(released);
+  if (released) await afterShipping(released);
   return released;
+}
+
+/**
+ * Once a demo may be handed over, its "discount just expired" email is
+ * scheduled for the moment the setup offer ends (lib/demo/offer-ended.ts),
+ * whether or not its link was emailed: the prospect has the link either way.
+ * Only a demo the audit cleared, for the same reason the link is held back.
+ * Never throws: it runs inside runDemoBuild's `try`, whose `catch` would
+ * mark a demo that shipped as failed.
+ */
+async function afterShipping(session: DemoSession): Promise<void> {
+  if (handoffBlocker(session)) return;
+  try {
+    const scheduled = await scheduleOfferEndedEmail(session);
+    if (scheduled.status !== "sent") console.info("[healdesk] offer-ended email not scheduled", { slug: session.slug, ...scheduled });
+  } catch (error) {
+    console.error("[healdesk] offer-ended email not scheduled", {
+      slug: session.slug,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 // -----------------------------------------------------------------------------

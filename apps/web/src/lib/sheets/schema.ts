@@ -297,6 +297,13 @@ export type DemoSession = {
   auditedAt: Date | null;
   /** Fingerprint of the profile the verdict was given for; a changed profile is unaudited. */
   auditHash: string | null;
+  /**
+   * Resend's id for the "your discount just expired" email, scheduled for the
+   * moment the setup offer ends (lib/demo/offer-ended.ts); null while none is.
+   */
+  offerEmailId: string | null;
+  /** When that email was called off: the demo was bought, or its reader opted out, before it went. */
+  offerEmailCancelledAt: Date | null;
 };
 
 export const DEMO_SESSIONS: Tab = {
@@ -334,6 +341,8 @@ export const DEMO_SESSIONS: Tab = {
     col("audit_report", "auditReport", "json"),
     col("audited_at", "auditedAt", "timestamp"),
     col("audit_hash", "auditHash", "text"),
+    col("offer_email_id", "offerEmailId", "text"),
+    col("offer_email_cancelled_at", "offerEmailCancelledAt", "timestamp"),
   ],
 };
 

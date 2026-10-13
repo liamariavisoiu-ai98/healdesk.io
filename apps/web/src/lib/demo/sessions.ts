@@ -1,6 +1,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { DEMO_SETUP_CREDIT, type DemoSetupCredit, isSpecialtyId, SELF_SERVE_DEMO_SETUP_CREDIT } from "@healdesk/catalog";
+import {
+  DEMO_SETUP_CREDIT,
+  DEMO_SETUP_CREDIT_HOURS,
+  type DemoSetupCredit,
+  isSpecialtyId,
+  SELF_SERVE_DEMO_SETUP_CREDIT,
+} from "@healdesk/catalog";
 
 import { sheetsClient, type Cell, type SheetsClient } from "@/lib/sheets/client";
 import {
@@ -157,13 +163,31 @@ export function isSelfServeDemo(session: Pick<DemoSession, "createdBy">): boolea
 }
 
 /**
- * The setup credit a demo's week carries: half the fee from a demo an
- * operator built, 30% from one the visitor asked for on the homepage (owner,
- * 13 October 2026). The demo's banner, the checkout's offer and the coupon
- * api/checkout applies all read it here, so they cannot disagree.
+ * The setup credit a demo carries while its offer is open: half the fee from
+ * a demo an operator built, 30% from one the visitor asked for on the
+ * homepage (owner, 13 October 2026). The demo's banner, the checkout's offer
+ * and the coupon api/checkout applies all read it here, so they cannot
+ * disagree.
  */
 export function demoSetupCredit(session: Pick<DemoSession, "createdBy">): DemoSetupCredit {
   return isSelfServeDemo(session) ? SELF_SERVE_DEMO_SETUP_CREDIT : DEMO_SETUP_CREDIT;
+}
+
+/**
+ * When the setup credit stops: `DEMO_SETUP_CREDIT_HOURS` after the demo was
+ * asked for, the moment its week is counted from too, and never after the
+ * demo itself ends (a row whose expiry was shortened by hand). Counted from
+ * the row's creation rather than from when the build landed, so a rebuild
+ * cannot restart it.
+ */
+export function demoOfferEndsAt(session: Pick<DemoSession, "createdAt" | "expiresAt">): Date {
+  const ends = session.createdAt.getTime() + DEMO_SETUP_CREDIT_HOURS * 60 * 60 * 1000;
+  return new Date(Math.min(ends, session.expiresAt.getTime()));
+}
+
+/** The demo works and its setup credit still holds: what api/checkout charges by and the pages promise by. */
+export function isDemoOfferOpen(session: DemoSession, now: number = Date.now()): boolean {
+  return isDemoActive(session, now) && demoOfferEndsAt(session).getTime() > now;
 }
 
 /** The name to show: the site's own if it gave one, else what the operator typed. */
@@ -202,6 +226,9 @@ function decode(cells: readonly Cell[]): DemoSession {
     auditReport: r.auditReport ?? null,
     auditedAt: r.auditedAt ?? null,
     auditHash: r.auditHash ?? null,
+    // And before the offer-ended email's.
+    offerEmailId: r.offerEmailId ?? null,
+    offerEmailCancelledAt: r.offerEmailCancelledAt ?? null,
   };
 }
 
@@ -260,6 +287,13 @@ export async function getDemoSession(slug: string, options: { fresh?: boolean } 
 }
 
 /** Newest first, for the operator console. Throws when the Sheet is unreachable. */
+/** One demo by its row id, for links that must not carry the slug (the offer-ended email's opt-out). Fresh from the Sheet. */
+export async function getDemoSessionById(id: string): Promise<DemoSession | null> {
+  const client = await store();
+  const found = (await readAll(client)).find((r) => r.value.id === id);
+  return found ? remember(found.value) : null;
+}
+
 export async function listDemoSessions(limit = 50): Promise<DemoSession[]> {
   const client = await store();
   return (await readAll(client))
@@ -317,6 +351,8 @@ export async function createDemoSession(input: NewDemo, now: Date = new Date()):
     auditReport: null,
     auditedAt: null,
     auditHash: null,
+    offerEmailId: null,
+    offerEmailCancelledAt: null,
   };
   const client = await store();
   await client.appendRows(DEMO_SESSIONS.title, [recordToRow(DEMO_SESSIONS, session)]);

@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
 import { postInternalAlert } from "@/lib/demo/alert";
+import { cancelOfferEndedEmail } from "@/lib/demo/offer-ended";
 import { displayName, markDemoClaimed } from "@/lib/demo/sessions";
 import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
 import { updateSetupRequest } from "@/lib/setup-requests";
@@ -613,7 +614,12 @@ async function recordDemoClaim(session: Stripe.Checkout.Session): Promise<void> 
   try {
     const plan = getPlan(String(session.metadata?.plan ?? ""));
     const claimed = await markDemoClaimed(slug, plan?.id ?? "unknown");
-    if (!claimed?.newly) return;
+    if (!claimed) return;
+    // Bought before the offer ended: the "your discount just expired" email
+    // Resend holds for that moment must not go. On every delivery, not just
+    // the first, so a cancel that failed once is tried again on Stripe's retry.
+    await cancelOfferEndedEmail(claimed.session);
+    if (!claimed.newly) return;
     await postInternalAlert(
       `Demo claimed: ${displayName(claimed.session)} bought ${plan?.name ?? "a package"} from their personalised demo (${slug}).`,
     );

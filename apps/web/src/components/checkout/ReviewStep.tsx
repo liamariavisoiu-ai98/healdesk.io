@@ -53,9 +53,12 @@ export function ReviewStep({
   onClose,
   headingRef,
   setupCreditUsd = 0,
+  setupCreditPercent = 0,
 }: {
-  /** The demo-week credit Stripe's coupon takes off the setup fee, in dollars; 0 for no offer. */
+  /** The demo credit Stripe's coupon takes off the setup fee, in dollars; 0 for no offer. */
   setupCreditUsd?: number;
+  /** That credit's share of the setup fee: 50 from an operator's demo, 30 from a homepage one. */
+  setupCreditPercent?: number;
   plan: Plan;
   interval: BillingInterval;
   specialty: SpecialtyId | null;
@@ -111,7 +114,7 @@ export function ReviewStep({
         <p className="font-display text-[26.4px] leading-tight font-medium">{fee.headline}</p>
         {setupCreditUsd > 0 ? (
           <p className="mt-1 text-sm font-semibold text-[#2f7d3a]">
-            {usd.format(plan.setupFeeUsd)} less {usd.format(setupCreditUsd)}: 50% off, booked during your demo.
+            {usd.format(plan.setupFeeUsd)} less {usd.format(setupCreditUsd)}: {setupCreditPercent}% off, your demo offer.
           </p>
         ) : null}
         <p className="text-muted mt-2 text-sm">

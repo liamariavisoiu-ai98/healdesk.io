@@ -125,7 +125,7 @@ export default async function GetStartedPage({
             lockedEmail={invited?.email}
             returnedFromPayment={cancelled === "1"}
             // With or without a setup link: the checkout route takes the
-            // demo's setup credit off whenever the demo is inside its week,
+            // demo's setup credit off whenever the demo's offer is open,
             // so the page shows it whenever that is true.
             demo={demo ? demoCheckout(demo) : undefined}
             // Stripe Tax is the server's setting; the page only says so.

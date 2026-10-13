@@ -601,6 +601,7 @@ export function CheckoutFlow({
         onClose={onClose}
         headingRef={headingRef}
         setupCreditUsd={demo?.offerEndsAt ? demoSetupCreditUsd(plan, { percentOfSetupFee: demo.offerPercent }) : 0}
+        setupCreditPercent={demo?.offerEndsAt ? demo.offerPercent : 0}
       />
     );
   }

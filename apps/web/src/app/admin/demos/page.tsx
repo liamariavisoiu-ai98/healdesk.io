@@ -1,3 +1,4 @@
+import { DEMO_SETUP_CREDIT, DEMO_SETUP_CREDIT_HOURS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
@@ -6,6 +7,7 @@ import { isEmailConfigured } from "@/lib/email";
 import { AUDIT_THRESHOLDS, auditReportOf, type AuditIssue } from "@/lib/demo/audit";
 import { handoffBlocker } from "@/lib/demo/build";
 import {
+  demoOfferEndsAt,
   demoUrl,
   displayName,
   isDemoBuildStalled,
@@ -44,6 +46,13 @@ export const maxDuration = 300;
 function when(date: Date | null): string {
   if (!date) return "—";
   return date.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "UTC" }) + " UTC";
+}
+
+/** Where the "discount just expired" email stands (lib/demo/offer-ended.ts), or nothing when none was scheduled. */
+function offerEmailNote(session: DemoSession, now: number = Date.now()): string {
+  if (session.offerEmailCancelledAt) return " · offer-ended email cancelled";
+  if (!session.offerEmailId) return "";
+  return ` · offer-ended email ${demoOfferEndsAt(session).getTime() > now ? "scheduled" : "sent"}`;
 }
 
 function statusOf(session: DemoSession): { label: string; tone: string } {
@@ -138,7 +147,10 @@ export default async function DemosPage() {
       <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">Demos</h1>
       <p className="text-muted mt-2 max-w-[70ch] text-[15.6px]">
         When a prospect asks for the AI demo, paste their website here. You get a private link to a page where their clinic&rsquo;s voice
-        agent and website chat sit side by side, built from their own site, live for seven days.
+        agent and website chat sit side by side, built from their own site, live for seven days. Its{" "}
+        {DEMO_SETUP_CREDIT.percentOfSetupFee}% setup discount holds for the first {DEMO_SETUP_CREDIT_HOURS} hours, counted from when you
+        build it, so send the link the same day. When it ends, a prospect with an email on the demo who has not bought is told so by
+        email, with a way to write to us, book a call or buy anyway.
       </p>
       <p className="text-muted mt-2 max-w-[70ch] text-[14.4px]">
         Claude Opus 5.5 audits every demo against the clinic&rsquo;s site before the link opens or is emailed. It ships at{" "}
@@ -185,8 +197,10 @@ export default async function DemosPage() {
                 </a>
               </div>
               <p className="text-muted mt-1 text-[13.8px]">
-                {session.leadEmail ?? "no email"} · created {when(session.createdAt)} by {session.createdBy ?? "?"} · expires {when(session.expiresAt)}
+                {session.leadEmail ?? "no email"} · created {when(session.createdAt)} by {session.createdBy ?? "?"} · offer ends{" "}
+                {when(demoOfferEndsAt(session))} · expires {when(session.expiresAt)}
                 {session.emailSentAt ? ` · emailed ${when(session.emailSentAt)}` : ""}
+                {offerEmailNote(session)}
                 {profile ? ` · ${profile.services.length} services, ${profile.faqs.length} FAQs` : ""}
                 {session.scrapeSource ? ` · via ${session.scrapeSource}` : ""}
               </p>

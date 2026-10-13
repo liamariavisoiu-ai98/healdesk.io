@@ -75,3 +75,26 @@ describe("the unsubscribe route, for a setup request", () => {
     expect((await findSetupRequest(saved.id))!.unsubscribedAt).toBeNull();
   });
 });
+
+describe("the unsubscribe route, for a demo's offer-ended email", () => {
+  test("one click opts the demo's address out at its lead, where every later email is checked", async () => {
+    const { createDemoSession } = await import("@/lib/demo/sessions");
+    const { demoUnsubscribeUrl } = await import("@/lib/email");
+    const { canEmail, findLeadByEmail, recordDemoUnlock } = await import("@/lib/leads");
+    const lead = await recordDemoUnlock({ email: "owner@radiance.com", isBusinessEmail: true });
+    if (!lead.ok) throw new Error("the fake Sheet refused the lead");
+    const demo = await createDemoSession({ clinicName: "Radiance", websiteUrl: "https://radiance.com/", leadEmail: "owner@radiance.com" });
+
+    const page = await GET(new Request(demoUnsubscribeUrl(demo.id)));
+    expect(page.status).toBe(200);
+    const after = await findLeadByEmail("owner@radiance.com");
+    expect(canEmail(after!, "relationship")).toEqual({ ok: false, reason: "unsubscribed" });
+  });
+
+  test("an address with no lead behind it is still told it is done", async () => {
+    const { createDemoSession } = await import("@/lib/demo/sessions");
+    const { demoUnsubscribeUrl } = await import("@/lib/email");
+    const demo = await createDemoSession({ clinicName: "Radiance", websiteUrl: "https://radiance.com/", leadEmail: "owner@radiance.com" });
+    expect((await POST(new Request(demoUnsubscribeUrl(demo.id), { method: "POST" }))).status).toBe(200);
+  });
+});

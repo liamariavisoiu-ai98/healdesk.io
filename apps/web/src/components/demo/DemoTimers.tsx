@@ -4,12 +4,14 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 /**
- * The two clocks on a personalised demo page.
+ * The clocks on a personalised demo page.
  *
  * `DemoCountdown` is the top banner's one-week timer. It counts to the same
  * `expires_at` the API routes refuse after, and when it reaches zero it asks
  * the server to re-render, so the page turns into the archived state at the
- * moment the demo actually stops working rather than on the next visit.
+ * moment the demo actually stops working rather than on the next visit. The
+ * setup offer's 48-hour clock is the same component counting to the offer's
+ * end, so its promise comes down the moment checkout stops honouring it.
  *
  * `RefreshWhileBuilding` re-renders a page whose demo is still being built,
  * every few seconds, until the server says otherwise.
@@ -25,7 +27,14 @@ function parts(ms: number) {
   };
 }
 
-export function DemoCountdown({ expiresAt }: { expiresAt: string }) {
+export function DemoCountdown({
+  expiresAt,
+  spanMs = 7 * 86_400_000,
+}: {
+  expiresAt: string;
+  /** The clock's whole length, which it reads before its first tick: the demo's week unless told otherwise. */
+  spanMs?: number;
+}) {
   const router = useRouter();
   const end = new Date(expiresAt).getTime();
   // Rendered on the server first: start from null so the server and the
@@ -35,7 +44,7 @@ export function DemoCountdown({ expiresAt }: { expiresAt: string }) {
   useEffect(() => {
     // This effect subscribes to the browser's clock, and it takes the first
     // reading as it subscribes. Left to the first tick, the banner would claim
-    // the full seven days for a second after it mounts, whatever is really left.
+    // the clock's full length for a second after it mounts, whatever is really left.
     // eslint-disable-next-line react-hooks/set-state-in-effect -- first clock reading, at mount
     setNow(Date.now());
     const id = window.setInterval(() => {
@@ -49,7 +58,7 @@ export function DemoCountdown({ expiresAt }: { expiresAt: string }) {
     return () => window.clearInterval(id);
   }, [end, router]);
 
-  const { days, hours, minutes, seconds } = parts(end - (now ?? end - 7 * 86_400_000));
+  const { days, hours, minutes, seconds } = parts(end - (now ?? end - spanMs));
   const cell = (value: number, label: string) => (
     <span className="inline-flex items-baseline gap-0.5">
       <span className="font-display tabular-nums text-[17px] font-semibold">{value.toString().padStart(2, "0")}</span>

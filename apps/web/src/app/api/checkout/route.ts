@@ -13,7 +13,7 @@ import { isCampaignCode } from "@/lib/attribution";
 import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
 import { intentFields, validateOrder } from "@/lib/checkout/order";
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
-import { demoSetupCredit, getDemoSession, isDemoActive } from "@/lib/demo/sessions";
+import { demoSetupCredit, getDemoSession, isDemoOfferOpen } from "@/lib/demo/sessions";
 import { demoSiteProfile } from "@/lib/demo/to-clinic-profile";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { cohortCreditLive, findLeadById, markCheckoutStarted, normalizeEmail } from "@/lib/leads";
@@ -170,15 +170,16 @@ export async function POST(request: Request): Promise<Response> {
     campaign,
     leadId: claimedLead?.id ?? null,
     // The setup credits: the Day 7 email's, or the personalised demo's, which
-    // its banner promises, decided from the demo's own expiry on the row,
-    // never from the browser.
+    // its banner promises, decided from the demo's own row, never from the
+    // browser.
     // The full credit wins when the lead holds it; otherwise a demo bought
-    // inside its week gets its share of the setup fee off: half from an
-    // operator's demo, 30% from a homepage one (demoSetupCredit).
+    // in the 48 hours after it was asked for gets its share of the setup fee
+    // off: half from an operator's demo, 30% from a homepage one
+    // (demoSetupCredit, isDemoOfferOpen).
     offer:
       claimedLead && cohortCreditLive(claimedLead)
         ? ("cohort-setup" as const)
-        : demo && isDemoActive(demo)
+        : demo && isDemoOfferOpen(demo)
           ? demoSetupCredit(demo).offer
           : null,
     demo: demo?.slug ?? null,

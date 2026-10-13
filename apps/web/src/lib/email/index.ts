@@ -33,6 +33,18 @@ export type OutboundEmail = {
   to: string;
   subject: string;
   text: string;
+  /**
+   * An HTML part beside the text, for mail whose links are buttons. The text
+   * stays the whole message on its own: a client that shows only text, or a
+   * reader who turned HTML off, misses nothing but the styling.
+   */
+  html?: string;
+  /**
+   * Hand the message to Resend now and have it sent at this moment, up to 30
+   * days ahead. The result's `providerId` is then what `cancelScheduledEmail`
+   * takes, while the moment has not come.
+   */
+  scheduledAt?: Date;
   replyTo?: string;
   /** Present on marketing mail; absent on transactional mail. */
   unsubscribeUrl?: string;
@@ -94,6 +106,8 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
         reply_to: message.replyTo ?? site.email,
         subject: message.subject,
         text: message.text,
+        ...(message.html ? { html: message.html } : {}),
+        ...(message.scheduledAt ? { scheduled_at: message.scheduledAt.toISOString() } : {}),
         headers,
         // `app` lets the one Resend account's webhook tell this site's mail
         // from the product's (Annex X3). Tag values allow letters, digits,
@@ -131,6 +145,30 @@ export async function sendSafely(message: OutboundEmail): Promise<SendResult> {
     return await send(message);
   } catch (error) {
     return { status: "failed", reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Call off a message `send()` scheduled, before its moment. Resend refuses
+ * once the message has gone, which is reported as a failure with Resend's
+ * reason. Development without a transport has nothing to cancel.
+ */
+export async function cancelScheduledEmail(providerId: string): Promise<SendResult> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return { status: "skipped", reason: "no transport configured" };
+  try {
+    const response = await fetch(`https://api.resend.com/emails/${encodeURIComponent(providerId)}/cancel`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      const detail = (await response.text().catch(() => "")).slice(0, 200);
+      return { status: "failed", reason: `resend ${response.status}: ${detail}` };
+    }
+    return { status: "sent", providerId };
+  } catch (error) {
+    return { status: "failed", reason: error instanceof Error ? error.message : "unknown error" };
   }
 }
 
@@ -194,22 +232,39 @@ export function setupUnsubscribeUrl(requestId: string): string {
   return `${site.url}/api/email/unsubscribe?t=${encodeURIComponent(`s.${requestId}.${sig}`)}`;
 }
 
-export type UnsubscribeTarget = { kind: "lead" | "setup"; id: string };
+/**
+ * The opt-out on the email that says a demo's setup offer has ended
+ * (lib/demo/offer-ended.ts), which is about one demo: a demo can exist with
+ * no lead behind it. `d.<demo id>.<hmac over "demo:<id>">`, the setup shape
+ * under its own purpose string.
+ */
+export function demoUnsubscribeUrl(demoId: string): string {
+  const sig = createHmac("sha256", unsubscribeKey()).update(`demo:${demoId}`).digest("base64url");
+  return `${site.url}/api/email/unsubscribe?t=${encodeURIComponent(`d.${demoId}.${sig}`)}`;
+}
+
+export type UnsubscribeTarget = { kind: "lead" | "setup" | "demo"; id: string };
+
+const SCOPED: Record<string, { kind: "setup" | "demo"; purpose: string }> = {
+  "s.": { kind: "setup", purpose: "setup" },
+  "d.": { kind: "demo", purpose: "demo" },
+};
 
 export function verifyUnsubscribeTarget(token: string | null | undefined): UnsubscribeTarget | null {
   if (!token) return null;
-  if (token.startsWith("s.")) {
+  const scope = SCOPED[token.slice(0, 2)];
+  if (scope) {
     const rest = token.slice(2);
     const dot = rest.lastIndexOf(".");
     if (dot <= 0) return null;
     const id = rest.slice(0, dot);
     const sig = rest.slice(dot + 1);
     if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-    const expected = createHmac("sha256", unsubscribeKey()).update(`setup:${id}`).digest("base64url");
+    const expected = createHmac("sha256", unsubscribeKey()).update(`${scope.purpose}:${id}`).digest("base64url");
     const a = Buffer.from(sig);
     const b = Buffer.from(expected);
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-    return { kind: "setup", id };
+    return { kind: scope.kind, id };
   }
   const leadId = verifyUnsubscribeToken(token);
   return leadId ? { kind: "lead", id: leadId } : null;

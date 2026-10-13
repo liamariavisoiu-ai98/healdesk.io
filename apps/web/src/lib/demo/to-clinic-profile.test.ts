@@ -64,6 +64,8 @@ function demo(overrides: Partial<DemoSession> = {}): DemoSession {
     auditReport: null,
     auditedAt: at,
     auditHash: null,
+    offerEmailId: null,
+    offerEmailCancelledAt: null,
     ...overrides,
   };
 }

@@ -113,8 +113,8 @@ export type CheckoutIntent = {
      * "cohort-setup" when the lead was offered the founding-cohort credit
      * inside its window; a demo credit's offer ("demo-setup-half" from an
      * operator's demo, "demo-setup-30" from a homepage one) when the buyer
-     * came from a personalised demo still inside its week (catalog
-     * DEMO_SETUP_CREDITS).
+     * came from a personalised demo whose offer is still open (catalog
+     * DEMO_SETUP_CREDITS, DEMO_SETUP_CREDIT_HOURS).
      */
     offer?: "cohort-setup" | DemoSetupCredit["offer"] | null;
     /** The personalised demo's slug, when the buyer came from its "Book Onboarding" (lib/demo). */
@@ -133,7 +133,7 @@ export function cohortCouponIdFor(plan: Plan): string {
   return `${COHORT_SETUP_CREDIT.couponId}-${plan.id}`;
 }
 
-/** The coupon `stripe:setup` creates for one package's demo-week credit, or null when the offer is not one. */
+/** The coupon `stripe:setup` creates for one package's demo credit, or null when the offer is not one. */
 export function demoCouponIdFor(plan: Plan, offer: string | null | undefined): string | null {
   const credit = DEMO_SETUP_CREDITS.find((c) => c.offer === offer);
   return credit ? `${credit.couponId}-${plan.id}` : null;

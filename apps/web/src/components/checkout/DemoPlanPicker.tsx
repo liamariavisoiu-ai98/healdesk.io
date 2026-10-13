@@ -127,7 +127,7 @@ export function DemoPlanPicker({
                             <>
                               <span className="line-through">{usd.format(plan.setupFeeUsd)}</span>{" "}
                               <span className="font-semibold text-[#2f7d3a]">
-                                {usd.format(plan.setupFeeUsd - demoSetupCreditUsd(plan, { percentOfSetupFee: setupCreditPercent }))} this week
+                                {usd.format(plan.setupFeeUsd - demoSetupCreditUsd(plan, { percentOfSetupFee: setupCreditPercent }))} with your demo offer
                               </span>
                             </>
                           ) : (

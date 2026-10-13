@@ -749,10 +749,11 @@ async function syncPlaceholder(
 // every renewal.
 // ---------------------------------------------------------------------------
 //
-// The demo-week credits (catalog DEMO_SETUP_CREDITS) are the same shape at a
-// share of the setup fee, for a clinic that buys from its personalised demo
-// inside the demo's week: half from an operator's demo, 30% from a homepage
-// one. They run through the same function, each with its own coupons.
+// The demo credits (catalog DEMO_SETUP_CREDITS) are the same shape at a share
+// of the setup fee, for a clinic that buys from its personalised demo in the
+// 48 hours after asking for it (DEMO_SETUP_CREDIT_HOURS): half from an
+// operator's demo, 30% from a homepage one. They run through the same
+// function, each with its own coupons.
 type SetupCoupon = { couponId: string; name: string; offer: string; amountOffCents: (plan: (typeof plans)[number]) => number };
 
 const COHORT_COUPON: SetupCoupon = {

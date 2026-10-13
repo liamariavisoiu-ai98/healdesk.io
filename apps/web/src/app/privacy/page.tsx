@@ -1,8 +1,9 @@
-import { TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
+import { DEMO_SETUP_CREDIT_HOURS, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 
 import { LegalPage, Section } from "@/components/LegalPage";
 import { CookieChoice } from "@/components/analytics/CookieChoice";
+
 import { CALL_CONSENT, CONSENT_NOTICE_VERSION, MARKETING_CONSENT_LABEL, DEMO_ACCESS_DAYS } from "@/lib/consent";
 import { OWN_DEMO_KEY } from "@/lib/demo/remembered";
 import { DEMO_LIFETIME_MS, DEMO_RETENTION_AFTER_EXPIRY_DAYS } from "@/lib/demo/sessions";
@@ -209,7 +210,11 @@ export default function PrivacyPage() {
                 homepage's "See it in your own branding", and the personalised
                 demo's "Call us", which keeps the number you will call from.
                 The "Show me" sentence was added 12 Oct 2026 under the same
-                unpublished version, with the preview (api/own-demo/preview). */}
+                unpublished version, with the preview (api/own-demo/preview).
+                The setup discount's sentence was added 13 Oct 2026 (LEGAL_VERSION
+                2026-10-13.3) with the email that says it has ended
+                (lib/demo/offer-ended.ts), which made "email you its link
+                once" no longer the whole of it. */}
             <strong>If you ask for your own demo.</strong> &ldquo;See it in your own branding&rdquo;
             on the homepage asks for your clinic&apos;s website and your email. &ldquo;Show
             me&rdquo; first reads the website&apos;s front page once, to draw its name, logo and
@@ -217,8 +222,10 @@ export default function PrivacyPage() {
             website&apos;s public pages, and the practice&apos;s public business listing for its
             opening hours, and our AI model provider turns them into a private demo page in your
             clinic&apos;s name. We keep the website, your email and what was read with the demo,
-            and email you its link once. Our team gets a copy of the request and may reply; it is
-            not added to a marketing list. If you tell us the number you will call the demo line
+            and email you its link once. Its setup discount lasts {DEMO_SETUP_CREDIT_HOURS} hours; if
+            it ends before you buy, we email you once more to say so, and that email carries a
+            one-click unsubscribe. Our team gets a copy of the request and may reply; it is not
+            added to a marketing list. If you tell us the number you will call the demo line
             from, we keep it with the demo so the line answers as your clinic. A demo is live for{" "}
             {DEMO_LIFETIME_DAYS} days; section 6 says when it is deleted.
           </li>

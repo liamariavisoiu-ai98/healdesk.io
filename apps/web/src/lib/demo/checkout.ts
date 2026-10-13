@@ -4,7 +4,7 @@ import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
 import { getSpecialty } from "@/lib/specialties";
 
 import { REPEAT_VISITS, typicalVisit } from "./roi";
-import { demoSetupCredit, displayName, isDemoActive, profileOf, type DemoSession } from "./sessions";
+import { demoOfferEndsAt, demoSetupCredit, displayName, isDemoOfferOpen, profileOf, type DemoSession } from "./sessions";
 
 /**
  * What the purchase knows from the demo a buyer came from, worked out once
@@ -25,7 +25,7 @@ export function demoCheckout(session: DemoSession): DemoCheckout {
       bookingRate: specialty.economics.bookingRate,
       repeat: REPEAT_VISITS[specialty.id] ?? null,
     },
-    offerEndsAt: isDemoActive(session) ? session.expiresAt.toISOString() : undefined,
+    offerEndsAt: isDemoOfferOpen(session) ? demoOfferEndsAt(session).toISOString() : undefined,
     // The share api/checkout takes off for this demo, so the page shows the figure Stripe charges.
     offerPercent: demoSetupCredit(session).percentOfSetupFee,
   };

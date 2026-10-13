@@ -1,3 +1,4 @@
+import { DEMO_SETUP_CREDIT_HOURS } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -17,10 +18,12 @@ import type { ClinicProfile } from "@/lib/demo/profile";
 import {
   demoBuildElapsedMs,
   demoBuildState,
+  demoOfferEndsAt,
   demoSetupCredit,
   displayName,
   getDemoSession,
   isDemoExpired,
+  isDemoOfferOpen,
   isDemoSlug,
   isSelfServeDemo,
   profileOf,
@@ -35,7 +38,8 @@ import { site } from "@/lib/site";
  *   - building (or failed): a holding screen that re-renders itself until
  *     the build lands. A failed build looks the same to the prospect; the
  *     reason is in the operator's console, not on their screen.
- *   - active: the countdown banner, the voice agent and the website chat side
+ *   - active: the countdown banner (with the setup offer and its own clock for
+ *     the demo's first 48 hours), the voice agent and the website chat side
  *     by side under the clinic's own name, logo and colour, the demo-mode
  *     disclaimer, and the way to buy.
  *   - expired: the archived banner, both panels locked, the way to buy
@@ -200,8 +204,9 @@ export default async function DemoPage({ params }: Props) {
       {/* Top banner: the one-week clock, or the archive notice. */}
       {/* Sticky, so the clock, the offer and the link follow the visitor down
           the page. The offer is the setup credit checkout applies to a demo
-          bought inside its week (api/checkout), so it is never promised
-          after the clock runs out. */}
+          bought in its first 48 hours (api/checkout, isDemoOfferOpen), shown
+          with its own clock, which re-renders the page when it runs out, so
+          it is never promised after checkout stops honouring it. */}
       {expired ? (
         <div className="bg-ink sticky top-0 z-50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 px-5 py-3 text-center text-[15px] font-semibold text-white sm:px-8">
           <span>Instance Archived — Server Allocation Window Expired for {name}</span>
@@ -215,9 +220,12 @@ export default async function DemoPage({ params }: Props) {
           <span className="flex items-center gap-2">
             Private demo for {name}. Live for <DemoCountdown expiresAt={session.expiresAt.toISOString()} />
           </span>
-          <span className="rounded-full bg-[#87d68d] px-3 py-1 text-[13.2px] font-bold text-[#172a3a]">
-            Book this week: {demoSetupCredit(session).percentOfSetupFee}% off your setup fee
-          </span>
+          {isDemoOfferOpen(session) ? (
+            <span className="flex flex-wrap items-center justify-center gap-x-2 rounded-full bg-[#87d68d] px-3 py-1 text-[13.2px] font-bold text-[#172a3a]">
+              {demoSetupCredit(session).percentOfSetupFee}% off your setup fee, ends in
+              <DemoCountdown expiresAt={demoOfferEndsAt(session).toISOString()} spanMs={DEMO_SETUP_CREDIT_HOURS * 3_600_000} />
+            </span>
+          ) : null}
           <CopyDemoLink />
         </div>
       )}

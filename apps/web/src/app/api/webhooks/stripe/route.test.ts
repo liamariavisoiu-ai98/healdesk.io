@@ -35,6 +35,9 @@ vi.mock("@/lib/leads", () => ({
 vi.mock("@/lib/setup-requests", () => ({ updateSetupRequest: mocks.updateSetupRequest }));
 
 const { POST } = await import("./route");
+const { __resetDemoCacheForTests, createDemoSession, getDemoSession, updateDemoSession } = await import("@/lib/demo/sessions");
+const { FakeSheets, __setSheetsClientForTests } = await import("@/lib/sheets/client");
+const { __resetSheetSchemaForTests } = await import("@/lib/sheets/schema");
 
 const WEBHOOK_SECRET = "whsec_test_route";
 const PROVISION_SECRET = "provision-test-secret";
@@ -99,6 +102,7 @@ const ENV = [
   "STRIPE_WEBHOOK_SECRET",
   "HEALDESK_APP_URL",
   "HEALDESK_PROVISION_SECRET",
+  "RESEND_API_KEY",
 ] as const;
 
 beforeEach(() => {
@@ -273,6 +277,29 @@ describe("a completed checkout", () => {
       "req_1",
       expect.objectContaining({ status: "paid" }),
     );
+  });
+
+  test("a demo bought before its offer ended has its \"discount just expired\" email called off", async () => {
+    __setSheetsClientForTests(new FakeSheets());
+    __resetSheetSchemaForTests();
+    __resetDemoCacheForTests();
+    process.env.RESEND_API_KEY = "re_test";
+    try {
+      const demo = await createDemoSession({ clinicName: "Glow Spa", websiteUrl: "https://glowspa.test/", leadEmail: "owner@glowspa.test" });
+      await updateDemoSession(demo.slug, { status: "ready", offerEmailId: "re_scheduled" });
+      const response = await POST(
+        signed(session({ metadata: { app: "healdesk", ref: "ref_1", plan: "web-voice", billingInterval: "month", demo: demo.slug } })),
+      );
+      expect(response.status).toBe(200);
+      expect(calls.map((c) => c.url)).toContain("https://api.resend.com/emails/re_scheduled/cancel");
+      __resetDemoCacheForTests();
+      const row = await getDemoSession(demo.slug);
+      expect(row?.claimed).toBe(true);
+      expect(row?.offerEmailCancelledAt).toBeInstanceOf(Date);
+    } finally {
+      __setSheetsClientForTests(null);
+      __resetSheetSchemaForTests();
+    }
   });
 
   test("an unfinished or foreign Session records nothing", async () => {

@@ -1,5 +1,7 @@
 "use client";
 
+import { DEMO_SETUP_CREDIT_HOURS } from "@healdesk/catalog";
+
 import { DemoCountdown } from "@/components/demo/DemoTimers";
 import { patientValuePerYear, type RoiInputs } from "@/lib/demo/roi";
 import { usd } from "@/lib/pricing";
@@ -20,7 +22,11 @@ export type DemoCheckout = {
     bookingRate: number;
     repeat: RoiInputs["repeat"];
   };
-  /** The demo's expiry (ISO) while its offer still holds; absent after it. */
+  /**
+   * When the demo's setup offer ends (ISO), 48 hours after the demo was asked
+   * for (demoOfferEndsAt in lib/demo/sessions.ts), while it still holds;
+   * absent after it, though the demo itself works on to the end of its week.
+   */
   offerEndsAt?: string;
   /**
    * The share of the setup fee the offer takes off: 50 from an operator's
@@ -30,7 +36,7 @@ export type DemoCheckout = {
   offerPercent: number;
 };
 
-/** The offer, unmissable: the demo's own clock, the one the checkout's coupon honours. */
+/** The offer, unmissable: the offer's own clock, the one the checkout's coupon honours. */
 export function DemoOfferBanner({ endsAt, percent }: { endsAt: string; percent: number }) {
   return (
     <div className="bg-brand-gradient shadow-sm mb-5 flex flex-wrap items-center justify-between gap-3 rounded-md px-5 py-4 text-white">
@@ -41,7 +47,7 @@ export function DemoOfferBanner({ endsAt, percent }: { endsAt: string; percent: 
         </span>
       </span>
       <span className="rounded-sm bg-white/15 px-3 py-2 text-[14.4px] font-semibold">
-        Ends in <DemoCountdown expiresAt={endsAt} />
+        Ends in <DemoCountdown expiresAt={endsAt} spanMs={DEMO_SETUP_CREDIT_HOURS * 3_600_000} />
       </span>
     </div>
   );

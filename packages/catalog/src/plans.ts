@@ -221,11 +221,12 @@ export const COHORT_SETUP_CREDIT = {
 
 /**
  * A setup credit for a clinic that buys from its personalised demo inside the
- * demo's week. One coupon per package, `amount_off` that share of the
- * package's setup fee and applied once, so it comes off the setup line of the
- * first invoice and nothing off the subscription. stripe:setup creates them;
- * the demo page and the checkout show the same figure. `offer` is what the
- * checkout records on the Stripe Session and the coupon's metadata.
+ * offer's first `DEMO_SETUP_CREDIT_HOURS`. One coupon per package,
+ * `amount_off` that share of the package's setup fee and applied once, so it
+ * comes off the setup line of the first invoice and nothing off the
+ * subscription. stripe:setup creates them; the demo page and the checkout
+ * show the same figure. `offer` is what the checkout records on the Stripe
+ * Session and the coupon's metadata.
  */
 export type DemoSetupCredit = {
   couponId: string;
@@ -235,10 +236,20 @@ export type DemoSetupCredit = {
   offer: "demo-setup-half" | "demo-setup-30";
 };
 
+/**
+ * How long a demo's setup credit holds, in hours from the moment the demo is
+ * asked for, whoever asked: 48, down from the demo's whole week (owner,
+ * 13 October 2026). The demo itself still works for its week
+ * (DEMO_LIFETIME_MS in apps/web's lib/demo/sessions.ts); only the price ends
+ * sooner. The demo page's offer, the checkout's banner and the coupon
+ * api/checkout applies all count to the same moment.
+ */
+export const DEMO_SETUP_CREDIT_HOURS = 48;
+
 /** Half the setup fee off, from a demo an operator built for a prospect (owner, 7 October 2026). */
 export const DEMO_SETUP_CREDIT = {
   couponId: "healdesk-demo-setup-half",
-  name: "Demo week: 50% off setup",
+  name: "Demo offer: 50% off setup",
   percentOfSetupFee: 50,
   offer: "demo-setup-half",
 } as const satisfies DemoSetupCredit;
@@ -250,7 +261,7 @@ export const DEMO_SETUP_CREDIT = {
  */
 export const SELF_SERVE_DEMO_SETUP_CREDIT = {
   couponId: "healdesk-demo-setup-30",
-  name: "Demo week: 30% off setup",
+  name: "Demo offer: 30% off setup",
   percentOfSetupFee: 30,
   offer: "demo-setup-30",
 } as const satisfies DemoSetupCredit;

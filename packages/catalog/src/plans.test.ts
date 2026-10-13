@@ -445,7 +445,12 @@ describe("selling Meta on its own", () => {
   });
 });
 
-describe("the demo-week setup credit", () => {
+describe("the demo setup credit", () => {
+  test("holds for 48 hours, not the demo's week (owner, 13 October 2026)", async () => {
+    const { DEMO_SETUP_CREDIT_HOURS } = await import("./plans");
+    expect(DEMO_SETUP_CREDIT_HOURS).toBe(48);
+  });
+
   test("is half the setup fee, in whole dollars, never less than half", async () => {
     const { demoSetupCreditUsd, plans: all } = await import("./plans");
     for (const plan of all) {
@@ -474,6 +479,8 @@ describe("the demo-week setup credit", () => {
     for (const credit of DEMO_SETUP_CREDITS) {
       expect(credit.name.length).toBeLessThanOrEqual(40);
       expect(credit.name).toContain(`${credit.percentOfSetupFee}%`);
+      // Stripe prints the name on Checkout and the invoice: it names no length the offer no longer has.
+      expect(credit.name).not.toMatch(/week/i);
     }
   });
 });

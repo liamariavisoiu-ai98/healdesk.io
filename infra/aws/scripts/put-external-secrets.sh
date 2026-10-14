@@ -10,7 +10,7 @@
 # Terraform creates each app parameter holding "__unset__" and never sees its
 # value (infra/aws/ssm.tf); the image's entrypoint treats "__unset__" as
 # unset, so a feature stays off until its key is pasted here.
-# CLOUDFLARE_API_TOKEN is the exception: infra.yml reads it before Terraform
+# CLOUDFLARE_API_TOKEN is the exception: infra.yml and host.yml read it before Terraform
 # runs, so this script creates it, under the bootstrap stack's key
 # (alias/healdesk-terraform-state), which no task role can use. Every other
 # parameter keeps the key it was created with.
@@ -45,8 +45,6 @@ KEYS=(
   META_APP_SECRET
   META_VERIFY_TOKEN
   ANTHROPIC_API_KEY
-  HEALDESK_VOICE_WEBHOOK_SECRET
-  HEALDESK_VOICE_TOOLS_SECRET
   HEALDESK_RETELL_LLM_SECRET
   CLOUDFLARE_API_TOKEN
 )
@@ -75,10 +73,8 @@ hint_for() {
     META_APP_SECRET) echo "the Meta app's secret" ;;
     META_VERIFY_TOKEN) echo "the webhook verify token set in Meta's dashboard" ;;
     ANTHROPIC_API_KEY) echo "a key of the HIPAA-enabled Anthropic organisation, never the marketing one" ;;
-    HEALDESK_VOICE_WEBHOOK_SECRET) echo "the voice provider's webhook signing secret" ;;
-    HEALDESK_VOICE_TOOLS_SECRET) echo "the voice provider's tool-call secret" ;;
     HEALDESK_RETELL_LLM_SECRET) echo "the secret in every clinic's Retell agent URL (wss://app.healdesk.io/llm-websocket/<this>/<clinic id>): 32 to 200 random letters, digits, - or _, such as the output of openssl rand -hex 32; the same value goes into each agent" ;;
-    CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml only" ;;
+    CLOUDFLARE_API_TOKEN) echo "Cloudflare API token (Edit zone DNS, healdesk.io), read by infra.yml and host.yml only" ;;
   esac
 }
 
@@ -88,7 +84,7 @@ hint_for() {
 # endpoint to Retell's calls (enable_voice), and may stay __unset__ until then.
 patient_facing() {
   case "$1" in
-    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_VOICE_WEBHOOK_SECRET | HEALDESK_VOICE_TOOLS_SECRET | HEALDESK_RETELL_LLM_SECRET) return 0 ;;
+    META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET) return 0 ;;
   esac
   return 1
 }
@@ -325,5 +321,5 @@ if [ "$pasted_app" = true ]; then
   say "tasks read their parameters when they start: run deploy-app.yml with restart_only so the services (web, worker, voice) use the new values."
 fi
 if [ "$pasted_ci" = true ]; then
-  say "infra.yml reads CLOUDFLARE_API_TOKEN at its next run."
+  say "infra.yml and host.yml read CLOUDFLARE_API_TOKEN at their next run."
 fi

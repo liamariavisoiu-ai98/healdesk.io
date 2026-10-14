@@ -97,7 +97,28 @@ resource "aws_db_parameter_group" "main" {
   }
 }
 
+# Standby (variables.tf) removes the instance and nothing else here: the
+# security group, the subnet group, the parameter group and the engine log's
+# group are free and stay, so the instance comes back into the same network
+# with the same settings. It keeps its identifier, so it keeps its endpoint
+# (<identifier>.<the account's hash>.<region>.rds.amazonaws.com), which is why
+# the two database URLs in Parameter Store still name it after a standby.
+#
+# What used to be prevent_destroy is now three other things, because a
+# literal prevent_destroy makes standby's plan fail rather than remove it:
+# deletion_protection, which AWS enforces on every delete that does not come
+# after standby's first apply; the plan guard (scripts/plan-guard.sh), which
+# infra.yml and host.yml run on every saved plan and which refuses one that
+# deletes or replaces this instance unless it is standby's second apply; and
+# ignore_changes on snapshot_identifier. That argument forces a new instance
+# when it changes; leaving it empty after a restore changes nothing (it is
+# computed as well as optional), but an apply that named another snapshot
+# while the instance exists (a re-run, a hand-typed -var) would replace the
+# database with that copy. tests/restore.tftest.hcl applies a restore and
+# plans both.
 resource "aws_db_instance" "main" {
+  count = var.standby ? 0 : 1
+
   identifier     = local.name
   engine         = "postgres"
   engine_version = var.postgres_version
@@ -130,11 +151,24 @@ resource "aws_db_instance" "main" {
   # clinic agreement (1.3.0, release gate 18) promises that no copy of deleted
   # data outlives 35 days. So no final snapshot on deletion; the automated
   # backups are kept after a deletion and expire on their own 35-day clock.
-  backup_retention_period  = 35
-  skip_final_snapshot      = true
-  delete_automated_backups = false
-  copy_tags_to_snapshot    = true
-  deletion_protection      = true
+  #
+  # The one exception is standby's: its first apply records a final snapshot
+  # named healdesk-<environment>-standby-<time> in the state, and its second
+  # deletes the instance, which takes it. host.yml allows that only while no
+  # clinic is in production and no agreement is in effect, so the snapshot
+  # holds synthetic data, and it deletes the older standby snapshots once the
+  # new one is available.
+  backup_retention_period   = 35
+  skip_final_snapshot       = var.final_snapshot_identifier == ""
+  final_snapshot_identifier = var.final_snapshot_identifier == "" ? null : var.final_snapshot_identifier
+  delete_automated_backups  = false
+  copy_tags_to_snapshot     = true
+  deletion_protection       = var.deletion_protection
+
+  # Back from standby: the database as it was when it went, from its final
+  # snapshot (host.yml finds the newest, and names it only when the instance
+  # does not exist). Ignored once the instance exists (below).
+  snapshot_identifier = var.restore_snapshot_identifier == "" ? null : var.restore_snapshot_identifier
 
   enabled_cloudwatch_logs_exports = ["postgresql"]
 
@@ -159,10 +193,18 @@ resource "aws_db_instance" "main" {
   depends_on = [aws_cloudwatch_log_group.rds_postgresql]
 
   lifecycle {
-    prevent_destroy = true
+    ignore_changes = [snapshot_identifier]
   }
 
   #checkov:skip=CKV_AWS_157:Multi-AZ is a variable (db_multi_az), off in the lean pilot by the owner's decision; a database outage degrades to the clinic's direct line.
   #checkov:skip=CKV_AWS_118:Enhanced Monitoring writes to RDSOSMetrics, an account-wide log group AWS creates without our KMS key; standard metrics and Database Insights are used instead.
   #checkov:skip=CKV_AWS_161:IAM database authentication does not fit long-lived pg pools on a static URL (15-minute tokens) and costs 300-1000 MiB of instance memory; passwords are SCRAM over verified TLS.
+}
+
+# The instance's endpoint, id and master secret, or null in standby, for the
+# db-bootstrap task definition, the execution role, the alarms and the outputs.
+locals {
+  db_address           = one(aws_db_instance.main[*].address)
+  db_resource_id       = one(aws_db_instance.main[*].resource_id)
+  db_master_secret_arn = try(aws_db_instance.main[0].master_user_secret[0].secret_arn, null)
 }

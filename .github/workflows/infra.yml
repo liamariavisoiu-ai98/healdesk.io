@@ -32,6 +32,16 @@ name: Infra (AWS)
 # clear, sensitive ones included, and an artifact would keep them in GitHub for
 # weeks. The artifact is the rendered plan instead, in which Terraform redacts
 # every sensitive value.
+#
+# The host's switch (host.yml, README "Standby") is followed, not undone: the
+# plan passes -var standby=true while host.yml has recorded standby in
+# Parameter Store, so a change merged while the host is in standby is applied
+# to the host in standby. And it passes -var subscribe_ses_events=false while
+# the app does not answer its liveness probe, because SNS refuses to
+# subscribe an endpoint that does not answer. Every saved plan goes through
+# scripts/plan-guard.sh before it is shown as ready or applied: it refuses
+# one that deletes the key, a parameter, an image repository, a bucket, or the
+# database, which only host.yml's standby removes.
 
 on:
   workflow_dispatch:
@@ -63,6 +73,9 @@ env:
   # task role can use. Read with the Terraform role, never a GitHub secret:
   # those reach every branch's workflows.
   CLOUDFLARE_TOKEN_PARAMETER: /healdesk/production/ci/CLOUDFLARE_API_TOKEN
+  # The switch host.yml last made, active or standby (absent: active).
+  HOST_MODE_PARAMETER: /healdesk/production/host/mode
+  LIVENESS_URL: https://app.healdesk.io/api/health?probe=liveness
 
 jobs:
   terraform:
@@ -159,6 +172,36 @@ jobs:
       - name: terraform validate
         run: terraform validate -no-color
 
+      # The -var arguments the plan adds after production.tfvars (the header).
+      - name: Read the host's switch
+        id: host
+        run: |
+          if mode=$(aws ssm get-parameter --name "$HOST_MODE_PARAMETER" \
+            --query Parameter.Value --output text 2>"$RUNNER_TEMP/mode.err"); then
+            :
+          elif grep -q ParameterNotFound "$RUNNER_TEMP/mode.err"; then
+            mode=active
+          else
+            cat "$RUNNER_TEMP/mode.err" >&2
+            exit 1
+          fi
+          case "$mode" in
+            active) args="" ;;
+            standby) args="-var standby=true -var deletion_protection=false" ;;
+            *)
+              echo "::error::$HOST_MODE_PARAMETER reads '$mode', not active or standby. host.yml writes it; run host.yml with the mode the host should be in."
+              exit 1
+              ;;
+          esac
+          if ! body=$(curl --silent --max-time 10 --fail "$LIVENESS_URL") || ! jq -e '.ok == true' <<<"$body" >/dev/null 2>&1; then
+            args="$args -var subscribe_ses_events=false"
+            echo "$LIVENESS_URL does not answer ok: the plan leaves SES's events unsubscribed."
+          fi
+          echo "The host is $mode (host.yml's last switch)."
+          echo "mode=$mode" >>"$GITHUB_OUTPUT"
+          echo "args=${args# }" >>"$GITHUB_OUTPUT"
+          echo "### The host is $mode" >>"$GITHUB_STEP_SUMMARY"
+
       # The token is masked before anything could print it and exported to
       # Terraform alone, in this step's shell; GITHUB_ENV would hand it to
       # every later step and action.
@@ -169,7 +212,9 @@ jobs:
           TF_VAR_healdesk_admin_email: ${{ vars.HEALDESK_ADMIN_EMAIL }}
           TF_VAR_healdesk_ops_email: ${{ vars.HEALDESK_OPS_EMAIL }}
           TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+          SWITCH_ARGS: ${{ steps.host.outputs.args }}
         run: |
+          read -ra host_args <<<"$SWITCH_ARGS"
           if ! token=$(aws ssm get-parameter --name "$CLOUDFLARE_TOKEN_PARAMETER" --with-decryption \
             --query Parameter.Value --output text 2>"$RUNNER_TEMP/ssm.err"); then
             if grep -q ParameterNotFound "$RUNNER_TEMP/ssm.err"; then
@@ -187,7 +232,7 @@ jobs:
           export CLOUDFLARE_API_TOKEN="$token"
           set +e
           terraform plan -input=false -lock-timeout=5m -var-file=production.tfvars \
-            -out=tfplan -detailed-exitcode
+            "${host_args[@]}" -out=tfplan -detailed-exitcode
           code=$?
           set -e
           case "$code" in
@@ -201,6 +246,16 @@ jobs:
             echo
             grep -E '^(Plan:|No changes\.)' plan.txt || true
           } >>"$GITHUB_STEP_SUMMARY"
+          # The JSON form holds every value in clear: checked, then deleted.
+          json=$(mktemp)
+          terraform show -json tfplan >"$json"
+          status=0
+          bash scripts/plan-guard.sh "$json" || status=$?
+          rm -f "$json"
+          if [ "$status" != 0 ]; then
+            echo "The plan guard refused this plan; it will not be applied." >>"$GITHUB_STEP_SUMMARY"
+            exit "$status"
+          fi
 
       - name: Upload the rendered plan
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -226,8 +281,8 @@ jobs:
         if: ${{ inputs.action == 'apply' && steps.plan.outputs.changes == 'false' }}
         run: echo "::notice::The plan found no changes, so nothing was applied."
 
-      # What the next steps need: github_deploy_role_arn for the
-      # AWS_DEPLOY_ROLE_ARN variable, and parameters_to_fill for the owner.
+      # What the next steps need: parameters_to_fill for the owner, and the
+      # rest for the runbook (deploy-app.yml finds the deploy role itself).
       # Printed after every apply, changes or not, so a re-run shows them
       # again. Sensitive outputs print as <sensitive>.
       - name: terraform output

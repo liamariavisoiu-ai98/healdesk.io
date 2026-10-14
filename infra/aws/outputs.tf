@@ -1,9 +1,15 @@
 # What the owner and the workflows need after an apply (contract section 6).
-# None of these is a secret.
+# None of these is a secret. The ones naming something standby removes are
+# null while the host is in standby.
+
+output "standby" {
+  description = "Whether this apply left the host in standby (variables.tf): no database, load balancer, NAT or service."
+  value       = var.standby
+}
 
 output "alb_dns_name" {
-  description = "The load balancer's DNS name; both origins are DNS-only CNAMEs to it."
-  value       = aws_lb.main.dns_name
+  description = "The load balancer's DNS name; both origins are DNS-only CNAMEs to it. Null in standby."
+  value       = one(aws_lb.main[*].dns_name)
 }
 
 output "app_url" {
@@ -17,7 +23,7 @@ output "internal_url" {
 }
 
 output "github_deploy_role_arn" {
-  description = "Role for deploy-app.yml; set it as the GitHub variable AWS_DEPLOY_ROLE_ARN."
+  description = "Role for deploy-app.yml. deploy-app.yml derives it from AWS_TERRAFORM_ROLE_ARN's account when the AWS_DEPLOY_ROLE_ARN variable is unset, so the variable is optional."
   value       = aws_iam_role.github_deploy.arn
 }
 
@@ -27,13 +33,13 @@ output "ecr_repository_urls" {
 }
 
 output "rds_endpoint" {
-  description = "Host name of the RDS instance (port 5432). Connect by this name: verify-full checks it against the certificate."
-  value       = aws_db_instance.main.address
+  description = "Host name of the RDS instance (port 5432). Connect by this name: verify-full checks it against the certificate. Null in standby; the same name when the instance comes back, since it keeps its identifier."
+  value       = local.db_address
 }
 
 output "rds_master_secret_arn" {
-  description = "Secrets Manager ARN of the RDS-managed master credentials, rotated every 7 days and used only by the db-bootstrap task."
-  value       = aws_db_instance.main.master_user_secret[0].secret_arn
+  description = "Secrets Manager ARN of the RDS-managed master credentials, rotated every 7 days and used only by the db-bootstrap task. Null in standby; a new secret when the instance comes back."
+  value       = local.db_master_secret_arn
 }
 
 output "kms_key_arn" {
@@ -68,12 +74,12 @@ output "export_bucket" {
 
 output "voice_websocket_url" {
   description = "The custom LLM WebSocket URL for each clinic's Retell agent, while enable_voice is on; null otherwise. Fill in the two placeholders: the value pasted as app/HEALDESK_RETELL_LLM_SECRET and the clinic's id. Retell appends the call id. The secret itself is never in this output: Terraform does not hold it."
-  value       = var.enable_voice ? "wss://${var.app_domain}/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>" : null
+  value       = var.enable_voice && !var.standby ? "wss://${var.app_domain}/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>" : null
 }
 
 output "voice_service" {
-  description = "The voice endpoint's ECS service, while enable_voice is on; null otherwise. deploy-app.yml rolls it with web and worker."
-  value       = var.enable_voice ? aws_ecs_service.voice[0].name : null
+  description = "The voice endpoint's ECS service, while enable_voice is on and the host is not in standby; null otherwise. deploy-app.yml rolls it with web and worker."
+  value       = one(aws_ecs_service.voice[*].name)
 }
 
 output "ses_configuration_set" {

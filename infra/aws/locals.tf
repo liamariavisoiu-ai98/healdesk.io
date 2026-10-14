@@ -101,14 +101,6 @@ locals {
     },
     { for k, v in { HEALDESK_OPS_EMAIL = var.healdesk_ops_email } : k => v if v != "" },
     var.enable_ses ? { HEALDESK_SES_CONFIGURATION_SET = local.ses_configuration_set_name } : {},
-    # The archive copy of each transcript (lib/conversations/transcript-email.ts):
-    # a blind copy to one mailbox, and only when the owner has stated that
-    # mailbox is held under a business associate agreement. Set together or
-    # not at all (variables.tf).
-    var.transcript_archive_to != "" && var.transcript_archive_baa_signed ? {
-      HEALDESK_TRANSCRIPT_ARCHIVE_TO  = var.transcript_archive_to
-      HEALDESK_TRANSCRIPT_ARCHIVE_BAA = "signed"
-    } : {},
   )
 
   web_environment = merge(
@@ -169,8 +161,6 @@ locals {
     "HEALDESK_OPS_EMAIL",
     "HEALDESK_SES_CONFIGURATION_SET",
     "HEALDESK_SES_EVENTS_TOPIC_ARN",
-    "HEALDESK_TRANSCRIPT_ARCHIVE_BAA",
-    "HEALDESK_TRANSCRIPT_ARCHIVE_TO",
     "HOSTNAME",
     "KEEP_ALIVE_TIMEOUT",
     "META_APP_ID",

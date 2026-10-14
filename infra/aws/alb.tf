@@ -7,6 +7,12 @@
 # No access logs: the log bucket for an ALB cannot use a KMS key (only S3's
 # own keys), and URLs carry no PHI (one-time tokens are opaque path segments).
 # Recorded as a deliberate choice in the build report.
+#
+# Standby (variables.tf) removes the load balancer, its listeners, rules and
+# target groups: about $25 a month with its two public addresses. The
+# security groups and their rules are free and stay. The certificate stays
+# too (dns.tf), with its validation records, so the listener comes back
+# without waiting for ACM.
 
 resource "aws_security_group" "alb" {
   name        = "${local.name}-alb"
@@ -48,6 +54,8 @@ resource "aws_vpc_security_group_egress_rule" "alb_to_web" {
 }
 
 resource "aws_lb" "main" {
+  count = var.standby ? 0 : 1
+
   name               = local.name
   internal           = false
   load_balancer_type = "application"
@@ -57,8 +65,9 @@ resource "aws_lb" "main" {
 
   # Requests whose header names are not valid HTTP are dropped rather than
   # passed to the app.
+  # Off only for standby's first apply, so that its second can remove it.
   drop_invalid_header_fields = true
-  enable_deletion_protection = true
+  enable_deletion_protection = var.deletion_protection
   idle_timeout               = var.alb_idle_timeout
 
   # Append the client's address to X-Forwarded-For (the default, explicit
@@ -80,6 +89,8 @@ resource "aws_lb" "main" {
 # the hop. The protocol is in the name so that flipping the variable creates
 # the new group before the old one is destroyed.
 resource "aws_lb_target_group" "web" {
+  count = var.standby ? 0 : 1
+
   name             = "${local.name}-web-${lower(local.web_target_protocol)}"
   vpc_id           = aws_vpc.main.id
   target_type      = "ip"
@@ -129,7 +140,7 @@ resource "aws_lb_target_group" "web" {
 # beside the new ones, and deploy-app.yml waits for the new tasks to serve,
 # not for the old ones to stop.
 resource "aws_lb_target_group" "voice" {
-  count = var.enable_voice ? 1 : 0
+  count = var.enable_voice && !var.standby ? 1 : 0
 
   name             = "${local.name}-voice-${var.alb_to_task_tls ? "tls" : "http"}"
   vpc_id           = aws_vpc.main.id
@@ -160,7 +171,9 @@ resource "aws_lb_target_group" "voice" {
 }
 
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.main.arn
+  count = var.standby ? 0 : 1
+
+  load_balancer_arn = aws_lb.main[0].arn
   port              = 80
   protocol          = "HTTP"
 
@@ -185,7 +198,9 @@ resource "aws_lb_listener" "http" {
 # itself and never reaches the app: an unknown Host, the balancer's own DNS
 # name, a bare IP.
 resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.main.arn
+  count = var.standby ? 0 : 1
+
+  load_balancer_arn = aws_lb.main[0].arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09"
@@ -233,14 +248,14 @@ locals {
 }
 
 resource "aws_lb_listener_rule" "internal_signed" {
-  count = length(local.signed_path_groups)
+  count = var.standby ? 0 : length(local.signed_path_groups)
 
-  listener_arn = aws_lb_listener.https.arn
+  listener_arn = aws_lb_listener.https[0].arn
   priority     = 100 + count.index
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.web.arn
+    target_group_arn = aws_lb_target_group.web[0].arn
   }
 
   condition {
@@ -257,7 +272,9 @@ resource "aws_lb_listener_rule" "internal_signed" {
 }
 
 resource "aws_lb_listener_rule" "internal_nothing_else" {
-  listener_arn = aws_lb_listener.https.arn
+  count = var.standby ? 0 : 1
+
+  listener_arn = aws_lb_listener.https[0].arn
   priority     = 200
 
   action {
@@ -278,9 +295,9 @@ resource "aws_lb_listener_rule" "internal_nothing_else" {
 }
 
 resource "aws_lb_listener_rule" "public_refuses_signed" {
-  count = length(local.signed_path_groups)
+  count = var.standby ? 0 : length(local.signed_path_groups)
 
-  listener_arn = aws_lb_listener.https.arn
+  listener_arn = aws_lb_listener.https[0].arn
   priority     = 300 + count.index
 
   action {
@@ -315,9 +332,9 @@ resource "aws_lb_listener_rule" "public_refuses_signed" {
 # through as it is; the pings Retell sends every two seconds (the session asks
 # for them) keep the socket inside the idle timeout.
 resource "aws_lb_listener_rule" "voice" {
-  count = var.enable_voice ? 1 : 0
+  count = var.enable_voice && !var.standby ? 1 : 0
 
-  listener_arn = aws_lb_listener.https.arn
+  listener_arn = aws_lb_listener.https[0].arn
   priority     = 350
 
   action {
@@ -339,12 +356,14 @@ resource "aws_lb_listener_rule" "voice" {
 }
 
 resource "aws_lb_listener_rule" "public" {
-  listener_arn = aws_lb_listener.https.arn
+  count = var.standby ? 0 : 1
+
+  listener_arn = aws_lb_listener.https[0].arn
   priority     = 400
 
   action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.web.arn
+    target_group_arn = aws_lb_target_group.web[0].arn
   }
 
   condition {

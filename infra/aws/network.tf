@@ -81,7 +81,10 @@ resource "aws_route_table_association" "public" {
 }
 
 locals {
-  nat_gateway_count = var.nat_mode == "gateway" ? var.nat_gateways : 0
+  # None in standby (variables.tf): the gateways and their addresses go with
+  # everything else that costs by the hour, and come back with new addresses,
+  # which nothing allowlists.
+  nat_gateway_count = var.nat_mode == "gateway" && !var.standby ? var.nat_gateways : 0
 }
 
 resource "aws_eip" "nat" {
@@ -113,16 +116,38 @@ resource "aws_nat_gateway" "main" {
 # network interface (in the first AZ). With a single NAT gateway both point at
 # it; with two, each AZ uses its own, so losing one AZ does not take the
 # other's egress with it. Exactly one of the two targets is set.
+#
+# In standby there is no NAT and no default route: nothing runs in these
+# subnets to need one. The routes are written as an argument rather than as
+# route blocks because the provider reads `route` in attributes-as-blocks
+# mode: an empty list removes the route, where zero blocks (a dynamic block
+# with nothing in it) would leave it behind as a blackhole the provider no
+# longer manages. Argument syntax needs every attribute of the object, so a
+# provider that adds one fails validate here until it is added, which CI
+# catches.
 resource "aws_route_table" "private" {
   count = length(local.azs)
 
   vpc_id = aws_vpc.main.id
 
-  route {
-    cidr_block           = "0.0.0.0/0"
-    nat_gateway_id       = var.nat_mode == "gateway" ? aws_nat_gateway.main[min(count.index, local.nat_gateway_count - 1)].id : null
-    network_interface_id = var.nat_mode == "instance" ? aws_instance.nat[0].primary_network_interface_id : null
-  }
+  route = var.standby ? [] : [
+    {
+      cidr_block                 = "0.0.0.0/0"
+      nat_gateway_id             = var.nat_mode == "gateway" ? aws_nat_gateway.main[min(count.index, local.nat_gateway_count - 1)].id : null
+      network_interface_id       = var.nat_mode == "instance" ? aws_instance.nat[0].primary_network_interface_id : null
+      carrier_gateway_id         = null
+      core_network_arn           = null
+      destination_prefix_list_id = null
+      egress_only_gateway_id     = null
+      gateway_id                 = null
+      ipv6_cidr_block            = null
+      local_gateway_id           = null
+      odb_network_arn            = null
+      transit_gateway_id         = null
+      vpc_endpoint_id            = null
+      vpc_peering_connection_id  = null
+    },
+  ]
 
   tags = {
     Name = "${local.name}-private-${local.azs[count.index]}"

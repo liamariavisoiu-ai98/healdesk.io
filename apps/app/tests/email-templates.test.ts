@@ -158,16 +158,6 @@ describe("the template registry", () => {
     expect(byPackage).toEqual({
       WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
       WP1: ["channel_live"],
-      F: [
-        "booking_request",
-        "request_still_open",
-        "request_missed",
-        "deposit_to_collect",
-        "handover",
-        "urgent",
-        "website_message",
-        "calendar_check",
-      ],
       WP4: ["daily_summary", "weekly_recap"],
       WP3: ["ai_paused"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
@@ -190,7 +180,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, and the live alerts", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -229,6 +219,14 @@ describe("the template registry", () => {
       "steps_sent",
       "calendar_link",
       "calendar_election_recorded",
+      "booking_request",
+      "request_still_open",
+      "request_missed",
+      "deposit_to_collect",
+      "handover",
+      "urgent",
+      "website_message",
+      "calendar_check",
     ]);
   });
 

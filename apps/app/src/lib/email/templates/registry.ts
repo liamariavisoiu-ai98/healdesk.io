@@ -2,6 +2,16 @@ import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
+import {
+  BOOKING_REQUEST_ENTRY,
+  CALENDAR_CHECK_ENTRY,
+  DEPOSIT_TO_COLLECT_ENTRY,
+  HANDOVER_ENTRY,
+  REQUEST_MISSED_ENTRY,
+  REQUEST_STILL_OPEN_ENTRY,
+  URGENT_ENTRY,
+  WEBSITE_MESSAGE_ENTRY,
+} from "./booking_alert";
 import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
 import { CALENDAR_ELECTION_RECORDED_ENTRY } from "./calendar_election_recorded";
 import { CALENDAR_LINK_ENTRY } from "./calendar_link";
@@ -111,6 +121,16 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The calendar backend's two (plan §2.6, §4.1).
   calendar_link: CALENDAR_LINK_ENTRY,
   calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
+  // The live alerts (M5, package F): pointers into Bookings, sent at once at
+  // any hour, L12 in-process after commit.
+  booking_request: BOOKING_REQUEST_ENTRY,
+  request_still_open: REQUEST_STILL_OPEN_ENTRY,
+  request_missed: REQUEST_MISSED_ENTRY,
+  deposit_to_collect: DEPOSIT_TO_COLLECT_ENTRY,
+  handover: HANDOVER_ENTRY,
+  urgent: URGENT_ENTRY,
+  website_message: WEBSITE_MESSAGE_ENTRY,
+  calendar_check: CALENDAR_CHECK_ENTRY,
 };
 
 /**
@@ -121,7 +141,6 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
  */
 export type OwingPackage =
   | "B"
-  | "F"
   | "WP1"
   | "WP3"
   | "WP4"
@@ -168,6 +187,17 @@ type BillingTemplatedKind =
   | "card_expiring"
   | "connect_connected";
 
+/** The live alerts templated above (package F). */
+type LiveAlertKind =
+  | "booking_request"
+  | "request_still_open"
+  | "request_missed"
+  | "deposit_to_collect"
+  | "handover"
+  | "urgent"
+  | "website_message"
+  | "calendar_check";
+
 /** Every kind still waiting for its template, with the session that owes it. */
 export const PENDING_TEMPLATES: Record<
   Exclude<
@@ -186,6 +216,7 @@ export const PENDING_TEMPLATES: Record<
     | "steps_sent"
     | "calendar_link"
     | "calendar_election_recorded"
+    | LiveAlertKind
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -196,15 +227,6 @@ export const PENDING_TEMPLATES: Record<
   address_changing: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
   // WP1: the channel events.
   channel_live: { owner: "plan", package: "WP1", ships: "M6 (L1)" },
-  // F: the live alerts, through notifyBookingAlert.
-  booking_request: { owner: "plan", package: "F", ships: "M5 (L7)" },
-  request_still_open: { owner: "plan", package: "F", ships: "M5 (L8)" },
-  request_missed: { owner: "plan", package: "F", ships: "M5 (L9)" },
-  deposit_to_collect: { owner: "plan", package: "F", ships: "M5 (L10)" },
-  handover: { owner: "plan", package: "F", ships: "M5 (L11)" },
-  urgent: { owner: "plan", package: "F", ships: "M5 (L12)" },
-  website_message: { owner: "plan", package: "F", ships: "M5 (L20)" },
-  calendar_check: { owner: "plan", package: "F", ships: "M5 (L34)" },
   // WP4: the claims function's emails.
   daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
   weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },

@@ -101,8 +101,7 @@ function exported(result: ExportResult, done: string): ExportActionResult {
     case "no_details":
       return {
         ok: false,
-        message:
-          "This conversation has no number or address on file to find the person's records by.",
+        message: "This conversation names no one in your records, so there is no one to export.",
       };
     case "requester":
       return { ok: false, message: "Choose who asked for the export." };

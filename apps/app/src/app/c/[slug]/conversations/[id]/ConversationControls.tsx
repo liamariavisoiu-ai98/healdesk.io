@@ -77,9 +77,9 @@ export function PersonExport(props: {
   return (
     <div className="mt-3">
       <p className="text-muted text-sm" id="person-export-note">
-        Everything healdesk holds about this {person}, found by their number and address, with any
-        amendments and the log of who opened it: what you need to answer their request to see their
-        records.
+        Everything healdesk holds about this {person}, under this name and any record with the same
+        number or address, with any amendments and the log of who opened it: what you need to answer
+        their request to see their records.
       </p>
       <label htmlFor="person-export-who" className="mt-3 block text-sm font-semibold">
         Who asked

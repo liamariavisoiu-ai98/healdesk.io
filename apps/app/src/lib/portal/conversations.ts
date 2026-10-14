@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
-import { clinics, contacts } from "@/db/schema";
+import { clinics } from "@/db/schema";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import {
   canResend,
@@ -891,10 +891,12 @@ export async function exportClinicRecords(
 /**
  * One person's records, from a conversation that names them (exportPatient):
  * how a clinic answers that person's request to see what is held. Who asked
- * is chosen from the closed set, never typed. Found by the contact's number
- * and address, so every record under the same details is in it. Behind the
- * step-up and logged as an export of the contacts it holds; O4 tells the
- * clinic's address. The file is named by the time only, never the person.
+ * is chosen from the closed set, never typed. By the conversation's contact
+ * id (exportPatient's `contactId`): that contact, and every contact under the
+ * same number or address, so every record of theirs is in it, and the
+ * conversation's own contact even with neither. Behind the step-up and logged
+ * as an export of the contacts it holds; O4 tells the clinic's address. The
+ * file is named by the time only, never the person.
  */
 export async function exportPersonRecords(
   page: PatientPage,
@@ -907,16 +909,7 @@ export async function exportPersonRecords(
   if (!isConversationId(conversationId)) return { ok: false, reason: "not_found" };
   return withPatientPage(page, async (tx) => {
     const detail = await findConversation(tx, conversationId);
-    const contact = detail?.contactId
-      ? (
-          await tx.db
-            .select({ id: contacts.id, phone: contacts.phone, email: contacts.email })
-            .from(contacts)
-            .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, detail.contactId)))
-            .limit(1)
-        )[0]
-      : undefined;
-    if (!detail || !contact || (!contact.phone && !contact.email)) {
+    if (!detail?.contactId) {
       await logPatientAccess(tx, {
         action: "read",
         resourceType: "conversation",
@@ -924,11 +917,7 @@ export async function exportPersonRecords(
       });
       return { ok: false, reason: detail ? "no_details" : "not_found" };
     }
-    const bundle = await exportPatient(tx, {
-      ...(contact.phone ? { phone: contact.phone } : {}),
-      ...(contact.email ? { email: contact.email } : {}),
-      requestedBy: asked,
-    });
+    const bundle = await exportPatient(tx, { contactId: detail.contactId, requestedBy: asked });
     await logPatientAccess(tx, {
       action: "export",
       resourceType: "patient_bundle",

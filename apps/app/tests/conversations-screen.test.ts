@@ -1208,8 +1208,7 @@ describeDb("Conversations", () => {
       await actions.exportPersonAction(desk.clinic.slug, nobody.conversationId, "practice"),
     ).toEqual({
       ok: false,
-      message:
-        "This conversation has no number or address on file to find the person's records by.",
+      message: "This conversation names no one in your records, so there is no one to export.",
     });
 
     const result = await actions.exportPersonAction(
@@ -1242,11 +1241,23 @@ describeDb("Conversations", () => {
       expect.objectContaining({
         action: "export",
         resource_type: "patient_bundle",
-        metadata: expect.objectContaining({ requestedBy: "person_via_practice" }),
+        metadata: expect.objectContaining({ requestedBy: "person_via_practice", by: "contact_id" }),
       }),
     );
     const notices = await exportNotices(c);
     expect(notices.map((n) => n.payload.field)).toEqual(["person_export"]);
+
+    // A contact with only a name is still exported: found by its id, not its details.
+    const nameOnly = await seedCall(c, { startedAt: new Date(), name: "Only A Name" });
+    const named = await actions.exportPersonAction(
+      desk.clinic.slug,
+      nameOnly.conversationId,
+      "practice",
+    );
+    if (!named.ok) throw new Error(named.message);
+    expect(
+      (JSON.parse(named.body) as { contacts: { id: string }[] }).contacts.map((v) => v.id),
+    ).toEqual([nameOnly.contactId]);
     expect(JSON.stringify(notices)).not.toMatch(/Maria|0134/);
   });
 
@@ -1300,8 +1311,14 @@ describeDb("Conversations", () => {
     expect(await exportNotices(c)).toHaveLength(before);
     // Logged as the attempt it was, a read that found nothing, not as an export.
     const access = await accessRows(desk);
-    expect(access.at(-1)).toMatchObject({ action: "read", resource_type: "clinic_bundle", resource_id: c });
-    expect(access.filter((r) => r.action === "export" && r.resource_type === "clinic_bundle")).toHaveLength(2);
+    expect(access.at(-1)).toMatchObject({
+      action: "read",
+      resource_type: "clinic_bundle",
+      resource_id: c,
+    });
+    expect(
+      access.filter((r) => r.action === "export" && r.resource_type === "clinic_bundle"),
+    ).toHaveLength(2);
   });
 
   test("the menu opens Conversations for a live channel, or once there is a conversation or a Meta thread", async () => {

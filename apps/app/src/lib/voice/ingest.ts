@@ -96,7 +96,7 @@ export type VoiceCallEvent = {
    * The urgent screen matched on the call (the Retell process sets it when
    * answerTurn says so). Kept beside `outcome`, which says
    * `escalated_to_human` for an urgent hit and a handover alike, so the
-   * portal can tell them apart (conversations.urgent, drizzle/0076).
+   * portal can tell them apart (conversations.urgent, drizzle/0077).
    */
   urgent?: boolean;
   treatmentInterest?: string;

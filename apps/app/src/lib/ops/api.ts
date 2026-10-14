@@ -136,7 +136,7 @@ import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { recordDailyQuota } from "@/lib/email/quota";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
-import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
+import { WRITABLE_APPOINTMENT_STATUSES, writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import {
   listTranscriptDeliveries,
   resendTranscript,
@@ -3733,6 +3733,21 @@ async function opRetryCalendarWrite(
   const appointmentId = stringArg(args, "appointmentId");
   if (!appointmentId || !UUID_SHAPED.test(appointmentId)) {
     return ok({ status: "error", message: "That is not an appointment id." } satisfies RetryCalendarWriteState);
+  }
+  // A booking staff marked cancelled, showed or no-show on Bookings is never
+  // written: the retry would put a cancelled appointment on the clinic's
+  // calendar, blocking that time on every channel. writeToCalendar's claim
+  // refuses it too; this says why.
+  const [booking] = await withTenant({ clinicId: clinic.id, actor: actorFor(operator) }, (tx) =>
+    tx.db
+      .select({ status: appointments.status })
+      .from(appointments)
+      .where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)))
+      .limit(1),
+  );
+  if (!booking) return ok({ status: "error", message: "No such appointment." } satisfies RetryCalendarWriteState);
+  if (!(WRITABLE_APPOINTMENT_STATUSES as readonly string[]).includes(booking.status)) {
+    return ok({ status: "error", message: `That appointment is marked ${booking.status.replace("_", "-")}, so nothing is written to the calendar for it.` } satisfies RetryCalendarWriteState);
   }
   let outcome: CalendarWriteOutcome;
   try {

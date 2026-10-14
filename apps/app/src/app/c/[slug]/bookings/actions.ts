@@ -214,6 +214,8 @@ export async function decideBooking(
 export type OutcomeFormState =
   | { status: "idle" }
   | { status: "saved"; message: string; outcome: AppointmentOutcome }
+  /** Cancelling an appointment still ahead: what it does, before it is done. */
+  | { status: "confirm"; message: string }
   | { status: "failed"; message: string };
 
 const OUTCOME_SAVED: Record<AppointmentOutcome, string> = {
@@ -221,6 +223,13 @@ const OUTCOME_SAVED: Record<AppointmentOutcome, string> = {
   no_show: "Marked as a no-show.",
   cancelled: "Marked as cancelled here. Cancel it in your calendar too if it's still there.",
 };
+
+/** What Cancelled does to an appointment still ahead, said before it is done. */
+const CANCEL_CONFIRM_LINE =
+  "Cancelling frees this time in healdesk, so AYA may book it for someone else. It doesn't change your calendar, and it can't be undone here.";
+/** A calendar write still on its way (plan §7.12): cancelling now could let it land afterwards. */
+const CANCEL_CHECKING_LINE =
+  "We're still checking whether this booking reached your calendar. Try again in a minute.";
 
 export async function markOutcome(
   slug: string,
@@ -236,19 +245,24 @@ export async function markOutcome(
   let result: Awaited<ReturnType<typeof markAppointmentOutcome>>;
   try {
     result = await withPatientPage(page, (tx) =>
-      markAppointmentOutcome(tx, appointmentId, outcome),
+      markAppointmentOutcome(tx, appointmentId, outcome, new Date(), {
+        confirmed: formData.get("confirm") === "1",
+      }),
     );
   } catch (error) {
     if (error instanceof AppointmentNotFoundError) notFound();
     throw error;
   }
   if (!result.ok) {
+    if (result.reason === "confirm") return { status: "confirm", message: CANCEL_CONFIRM_LINE };
     return {
       status: "failed",
       message:
         result.reason === "not_yet"
           ? "Showed and No-show can be marked once the appointment has started."
-          : "That didn't go through. Reload Bookings and try again.",
+          : result.reason === "checking"
+            ? CANCEL_CHECKING_LINE
+            : "That didn't go through. Reload Bookings and try again.",
     };
   }
   revalidatePath(bookingsPath(String(slug)));

@@ -356,8 +356,12 @@ async function readBookedAppointments(tx: TenantTx, now: Date): Promise<BookedAp
 
 export type OutcomeResult =
   | { ok: true; status: AppointmentOutcome; changed: boolean }
-  /** `not_yet`: showed and no-show wait for the appointment's start. */
-  | { ok: false; reason: "not_found" | "not_yet" | "invalid" };
+  /**
+   * `not_yet`: showed and no-show wait for the appointment's start.
+   * `checking`: its calendar write has not settled, so it cannot be cancelled yet.
+   * `confirm`: cancelling one still ahead asks first.
+   */
+  | { ok: false; reason: "not_found" | "not_yet" | "checking" | "confirm" | "invalid" };
 
 /** Thrown inside the patient transaction for an id that is not this clinic's appointment, so it rolls back with no row. */
 export class AppointmentNotFoundError extends Error {
@@ -377,20 +381,31 @@ export function isAppointmentOutcome(value: unknown): value is AppointmentOutcom
  * patient transaction (withPatientPage), by the device whose passkey is
  * live: an access row for the appointment it read and an update row for the
  * change, each naming the passkey. Showed and No-show wait until the
- * appointment has started; Cancelled may be marked any time, and only marks
- * it here: the clinic cancels in its own calendar too. An id that is not one
- * of this clinic's appointments throws AppointmentNotFoundError, so the
- * transaction rolls back and leaves no row.
+ * appointment has started. Cancelled only marks it here: the clinic cancels
+ * in its own calendar too. It frees the time in healdesk (availability no
+ * longer counts it busy) and cannot be put back to booked, so for an
+ * appointment still ahead it asks first (`confirmed`). It is refused while
+ * the appointment's calendar write is still `writing` or `unknown`: under
+ * this row lock, a write that has not settled could otherwise land a
+ * cancelled booking in the clinic's calendar afterwards (the calendar
+ * write's claim and the desk sweep never write one that is not on either).
+ * An id that is not one of this clinic's appointments throws
+ * AppointmentNotFoundError, so the transaction rolls back and leaves no row.
  */
 export async function markAppointmentOutcome(
   tx: PatientTx,
   appointmentId: string,
   outcome: AppointmentOutcome,
   now: Date = new Date(),
+  opts: { confirmed?: boolean } = {},
 ): Promise<OutcomeResult> {
   if (!UUID.test(appointmentId)) throw new AppointmentNotFoundError();
   const [row] = await tx.db
-    .select({ status: appointments.status, scheduledFor: appointments.scheduledFor })
+    .select({
+      status: appointments.status,
+      scheduledFor: appointments.scheduledFor,
+      calendarWriteStatus: appointments.calendarWriteStatus,
+    })
     .from(appointments)
     .where(
       and(
@@ -413,10 +428,15 @@ export async function markAppointmentOutcome(
     resourceType: "appointment",
     resourceId: appointmentId,
   });
-  if (outcome !== "cancelled" && row.scheduledFor.getTime() > now.getTime()) {
-    return { ok: false, reason: "not_yet" };
-  }
+  const ahead = row.scheduledFor.getTime() > now.getTime();
+  if (outcome !== "cancelled" && ahead) return { ok: false, reason: "not_yet" };
   if (row.status === outcome) return { ok: true, status: outcome, changed: false };
+  if (outcome === "cancelled") {
+    if (row.calendarWriteStatus === "writing" || row.calendarWriteStatus === "unknown") {
+      return { ok: false, reason: "checking" };
+    }
+    if (ahead && opts.confirmed !== true) return { ok: false, reason: "confirm" };
+  }
   await tx.db
     .update(appointments)
     .set({ status: outcome, updatedAt: sql`now()` })

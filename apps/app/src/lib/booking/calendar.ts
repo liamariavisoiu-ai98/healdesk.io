@@ -9,7 +9,7 @@ import {
   type ConnectorError,
   type GoogleOAuthClient,
 } from "@healdesk/connectors";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import {
   agentConfigs,
@@ -93,6 +93,12 @@ export const MAX_SLOTS_PER_DAY = 6;
 export const STUCK_CLAIM_MINUTES = 2;
 /** The desk path stops claiming a write after this many attempts. */
 export const MAX_WRITE_ATTEMPTS = 5;
+/**
+ * The appointment statuses a calendar write may still go out for: a booking
+ * that is on. Cancelled, showed and no-show (marked on Bookings) are never
+ * written, and neither is a phase-two rescheduled row.
+ */
+export const WRITABLE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"] as const;
 
 /** Failure reasons after which Google may still hold the booking. Anything else is an answer. */
 const UNKNOWN_OUTCOME_REASONS: ReadonlySet<string> = new Set(["timeout", "network", "unconfirmed"]);
@@ -492,7 +498,10 @@ async function claim(
   // The claim. Whoever moves the row to `writing` with a new lease owns the
   // attempt; a claim older than two minutes is taken over (a writer that
   // died or hung), the coalesce covering a row claimed before the claim
-  // stamp existed. Five attempts at most.
+  // stamp existed. Five attempts at most. Only a booking still on: an
+  // appointment staff marked cancelled, showed or no-show on Bookings is
+  // never written, whichever path asks (the confirm, the sweep, the ops
+  // retry), so a write that was still unsettled never lands afterwards.
   const lease = randomUUID();
   const [claimed] = await tx.db
     .update(appointments)
@@ -508,6 +517,7 @@ async function claim(
         eq(appointments.id, appointmentId),
         eq(appointments.clinicId, tx.clinicId),
         sql`${appointments.calendarWriteAttempts} < ${MAX_WRITE_ATTEMPTS}`,
+        inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
         claimable(allowed),
       ),
     )
@@ -727,7 +737,9 @@ const SWEEP_ACTOR: ActorContext = { type: "service", serviceName: "calendar-watc
  * last 24 hours, at most 20 a run, oldest first, each through
  * writeToCalendar, which reads Google back before it creates anything and
  * stops at five attempts. `failed` is never swept: it is retried only by ops
- * (`retryCalendarWrite`), after someone has looked at why.
+ * (`retryCalendarWrite`), after someone has looked at why. Nor is a booking
+ * staff marked cancelled, showed or no-show on Bookings: its write would put
+ * a cancelled appointment in the clinic's calendar, busy on every channel.
  *
  * Exported for the calendar watch (lib/scheduler/calendar-watch.ts), which
  * calls it once per run; it never throws.
@@ -763,6 +775,8 @@ export async function sweepDeskWrites(
               eq(appointments.clinicId, tx.clinicId),
               sql`${appointments.updatedAt} > ${since}`,
               sql`${appointments.calendarWriteAttempts} < ${MAX_WRITE_ATTEMPTS}`,
+              // A booking staff marked cancelled, showed or no-show is never written.
+              inArray(appointments.status, [...WRITABLE_APPOINTMENT_STATUSES]),
               sql`(${appointments.calendarWriteStatus} = 'unknown'
                    or (${appointments.calendarWriteStatus} = 'writing'
                        and coalesce(${appointments.calendarWriteClaimedAt}, ${appointments.updatedAt})

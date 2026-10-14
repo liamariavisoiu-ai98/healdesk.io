@@ -1,3 +1,4 @@
+import type { Channel } from "@healdesk/catalog";
 import type { ReactNode } from "react";
 
 import type { PortalGrant } from "@/lib/portal/access";
@@ -28,6 +29,8 @@ export type ShellProps = {
   section: PortalSection;
   audience: "patients" | "clients";
   status: AnsweringStatus;
+  /** The channels that have gone live, for what the menu's unbuilt screens say. */
+  liveChannels?: readonly Channel[];
   timeZone: string;
   /** Every clinic this sign-in opens; the switcher shows only when there are several. */
   locations: readonly PortalGrant[];
@@ -35,7 +38,10 @@ export type ShellProps = {
 };
 
 export function PortalShell(props: ShellProps) {
-  const nav = portalNav(props.slug, props.section, { live: props.status.kind !== "not_yet" });
+  const nav = portalNav(props.slug, props.section, {
+    live: props.status.kind !== "not_yet",
+    liveChannels: props.liveChannels ?? [],
+  });
   const others = props.locations.filter((l) => l.slug !== props.slug);
 
   return (

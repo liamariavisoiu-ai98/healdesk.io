@@ -17,6 +17,8 @@
  * Pure, so the menu is one table test.
  */
 
+import type { Channel } from "@healdesk/catalog";
+
 export type PortalSection =
   "home" | "settings" | "knowledge" | "conversations" | "bookings" | "billing";
 
@@ -51,16 +53,28 @@ const AFTER_GO_LIVE: ReadonlySet<PortalSection> = new Set<PortalSection>([
 /** What a patient screen says instead of linking before any channel is live. */
 export const OPENS_AFTER_GO_LIVE = "Opens after go-live";
 
+/** What Bookings says after go-live until its screen is built: requests go to the desk (lib/meta/booking-requests.ts). */
+export const BOOKINGS_BY_EMAIL = "Each request is emailed to your team";
+
 /**
- * What a patient screen not in this build says after go-live: where what it
- * will hold reaches the clinic meanwhile. Transcripts go to the clinic's
- * address (lib/conversations/transcript-outbox.ts); booking requests to the
- * desk's (lib/meta/booking-requests.ts).
+ * What Conversations says after go-live until its screen is built, for the
+ * channels that are live: a call's and a website chat's transcript is
+ * emailed to the clinic's address (lib/conversations/transcript-outbox.ts);
+ * an Instagram, Messenger or WhatsApp conversation is never emailed, and
+ * stays in the app it happened in.
  */
-export const BY_EMAIL_UNTIL_BUILT: Readonly<Record<"conversations" | "bookings", string>> = {
-  conversations: "Each transcript is emailed to you",
-  bookings: "Each request is emailed to your team",
-};
+export function conversationsUntilBuilt(live: readonly Channel[]): string {
+  const emailed = [
+    ...(live.includes("voice") ? ["call"] : []),
+    ...(live.includes("web") ? ["website chat"] : []),
+  ];
+  const meta = live.includes("meta");
+  const transcripts =
+    emailed.length > 0 ? `Each ${emailed.join(" and ")} transcript is emailed to you` : "";
+  if (!meta) return transcripts || "Each transcript is emailed to you";
+  const dms = "Instagram, Messenger and WhatsApp messages stay in those apps";
+  return transcripts ? `${transcripts}; ${dms}` : dms;
+}
 
 /** The path of a section on a clinic's portal. */
 export function sectionPath(slug: string, section: PortalSection): string {
@@ -76,12 +90,12 @@ export function isBuiltSection(section: PortalSection): boolean {
 /**
  * The menu for the clinic `slug`, in order, with `active` marked. `live` is
  * whether any of the clinic's channels has gone live (lib/portal/header.ts's
- * answering status is anything but "not yet").
+ * answering status is anything but "not yet"), and `liveChannels` which.
  */
 export function portalNav(
   slug: string,
   active: PortalSection | null,
-  options: { live?: boolean } = {},
+  options: { live?: boolean; liveChannels?: readonly Channel[] } = {},
 ): NavItem[] {
   const live = options.live === true;
   const items: NavItem[] = [];
@@ -93,7 +107,8 @@ export function portalNav(
       } else if (BUILT.has(section)) {
         items.push(link);
       } else {
-        const note = BY_EMAIL_UNTIL_BUILT[section as "conversations" | "bookings"];
+        const note =
+          section === "bookings" ? BOOKINGS_BY_EMAIL : conversationsUntilBuilt(options.liveChannels ?? []);
         items.push({ section, label, href: null, current: false, note });
       }
     } else if (BUILT.has(section)) {

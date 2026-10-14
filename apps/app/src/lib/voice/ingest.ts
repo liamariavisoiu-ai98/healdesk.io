@@ -92,6 +92,13 @@ export type VoiceCallEvent = {
     | "escalated_to_human"
     | "spam"
     | "abandoned";
+  /**
+   * The urgent screen matched on the call (the Retell process sets it when
+   * answerTurn says so). Kept beside `outcome`, which says
+   * `escalated_to_human` for an urgent hit and a handover alike, so the
+   * portal can tell them apart (conversations.urgent, drizzle/0078).
+   */
+  urgent?: boolean;
   treatmentInterest?: string;
   /** Proof the AI disclosure played before audio reached transcription. */
   disclosurePlayedAt?: Date;
@@ -476,6 +483,7 @@ export async function ingestCall(
         channel: "voice",
         recoveryReason,
         outcome: event.outcome ?? null,
+        urgent: event.urgent ?? false,
         treatmentInterest: event.treatmentInterest ?? null,
         // Transcripts are emailed, never kept, and neither is a link to one.
         transcriptUri: null,

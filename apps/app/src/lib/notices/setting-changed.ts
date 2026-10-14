@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { clinics } from "@/db/schema";
 import { isAllowedDeviceName } from "@/lib/email/lint";
-import type { SettingChangedField } from "@/lib/email/templates/setting_changed";
+import type { ExportField, SettingChangedField } from "@/lib/email/templates/setting_changed";
 import { describeError, log } from "@/lib/log";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import type { TenantTx } from "@/lib/tenant";
@@ -101,6 +101,70 @@ export async function notifySettingChanged(
       log.error("setting-changed email not queued", {
         clinicId: tx.clinicId,
         field: change.field,
+        error: describeError(error),
+      });
+    } catch {
+      // Nothing reaches the caller; see above.
+    }
+  }
+}
+
+/**
+ * O4 for an export from the portal (plan Part D4, Annex X5): queued in the
+ * transaction that produced the export, keyed on that export's own id so one
+ * download is one email however the request is retried. What was exported
+ * (the whole clinic's records, or one person's), when, and from which device;
+ * never whose. Like notifySettingChanged it never throws and never breaks the
+ * export: the insert runs in a savepoint and a failure is logged.
+ */
+export async function notifyRecordsExported(
+  tx: TenantTx,
+  exported: {
+    field: ExportField;
+    /** The export's own id, which nothing else carries: the dedupe key. */
+    exportId: string;
+    actorLabel: string;
+    at: Date;
+  },
+): Promise<void> {
+  try {
+    if (publicOriginProblem()) {
+      log.error("export email not queued: no public origin", {
+        clinicId: tx.clinicId,
+        field: exported.field,
+      });
+      return;
+    }
+    await tx.db.transaction(async (savepoint) => {
+      const [clinic] = await savepoint
+        .select({ slug: clinics.slug })
+        .from(clinics)
+        .where(eq(clinics.id, tx.clinicId))
+        .limit(1);
+      if (!clinic) return;
+      const device = exported.actorLabel.trim().slice(0, 60);
+      const deviceName =
+        device !== NOT_A_DEVICE_LABEL && isAllowedDeviceName(device) ? device : null;
+      await enqueuePlanNotice(
+        savepoint,
+        tx.clinicId,
+        "setting_changed",
+        `setting_changed:export:${exported.exportId}`,
+        {
+          field: exported.field,
+          beforeMasked: null,
+          afterMasked: null,
+          changedAt: exported.at.toISOString(),
+          ...(deviceName ? { deviceName } : {}),
+          settingsUrl: publicUrl(`/c/${clinic.slug}/settings#sign-in`),
+        },
+      );
+    });
+  } catch (error) {
+    try {
+      log.error("export email not queued", {
+        clinicId: tx.clinicId,
+        field: exported.field,
         error: describeError(error),
       });
     } catch {

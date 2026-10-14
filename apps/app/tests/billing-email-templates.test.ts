@@ -733,15 +733,29 @@ describe("undoing call forwarding", () => {
     }
   }
 
-  /** What the catalog says, for the routing the template should have asked about. */
+  /** What the catalog says for the clinic's own carrier, system and coverage mode, passed as they are. */
   function catalogUndo(facts: Facts): string[] {
     return forwardingInstructions({
-      carrier: facts.routing === "after_hours_only" ? null : facts.carrier,
+      carrier: facts.carrier,
       phoneSystemType: facts.phoneSystem,
-      routing: facts.routing === "all_calls" ? "always" : "conditional",
+      routing: facts.routing,
       destinationE164: "",
     }).undo.map((step) => [step.label, step.dial].filter(Boolean).join(" "));
   }
+
+  test("After hours only on a known landline carrier gets that carrier's all-call cancel code, not 'ask your carrier'", () => {
+    for (const carrier of ["verizon", "att", "tmobile", "spectrum", "comcast"] as const) {
+      const facts: Facts = { carrier, phoneSystem: "landline", routing: "after_hours_only" };
+      const { text } = render(
+        variant("suspended", "suspended", { kind: "grace_expired", hostedInvoiceUrl: null, amountDueCents: null, ...facts }),
+      );
+      const [cancel] = catalogUndo(facts);
+      expect(cancel, carrier).toMatch(/^Cancel all-call forwarding: [*#]/);
+      expect(text, carrier).toContain(`- ${cancel}`);
+      expect(text, carrier).toContain("dial this ");
+      expect(text, carrier).not.toContain("on your carrier's schedule");
+    }
+  });
 
   test("the suspension prints exactly the catalog's undo steps for every carrier, system and mode", () => {
     for (const facts of cases) {

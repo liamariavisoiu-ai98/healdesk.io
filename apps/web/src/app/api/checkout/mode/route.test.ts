@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { __resetDemoCacheForTests, createDemoSession, updateDemoSession } from "@/lib/demo/sessions";
+import { replyByDate } from "@/lib/reply-by";
+import { issueSetupToken, SETUP_COOKIE, setupLinkExpiry } from "@/lib/setup-link";
+import { createSetupRequest, updateSetupRequest } from "@/lib/setup-requests";
 import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 import { SITE_OFFER_COOKIE, siteOfferToken } from "@/lib/site-offer";
@@ -65,5 +68,80 @@ describe("the setup offer in the mode answer", () => {
       percentOfSetupFee: 50,
       endsAt: new Date(readyAt.getTime() + 48 * HOUR).toISOString(),
     });
+  });
+});
+
+/**
+ * The answer the static pages' purchase modal opens on, in pilot mode: the
+ * form unless the setup cookie holds a valid link, and then the purchase,
+ * pre-filled from that request alone. Never cached, by any answer: a cached
+ * pilot answer would keep a buyer with a fresh link on the form, and a cached
+ * valid one would show one requester's details to the next browser.
+ */
+describe("the mode answer in pilot mode", () => {
+  beforeEach(() => {
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "");
+  });
+
+  async function invite(): Promise<{ cookie: string; requestId: string }> {
+    const created = await createSetupRequest({
+      name: "Alex Chen",
+      clinicName: "Radiance Med Spa",
+      website: "radiancemedspa.com",
+      email: "info@radiancemedspa.com",
+      channels: ["phone", "web"],
+      leadId: null,
+      ipAddress: null,
+    });
+    if (!created.ok) throw new Error("the fake Sheet refused a request");
+    const expiresAt = setupLinkExpiry();
+    await updateSetupRequest(created.request.id, { status: "invited", invitedAt: new Date(), linkExpiresAt: expiresAt });
+    const token = issueSetupToken(created.request.id, "info@radiancemedspa.com", expiresAt);
+    return { cookie: `${SETUP_COOKIE}=${encodeURIComponent(token)}`, requestId: created.request.id };
+  }
+
+  test("without a setup link: the form, with the day we reply by, and nothing about anyone", async () => {
+    const response = await ask();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toEqual({ mode: "pilot", link: "none", replyBy: replyByDate() });
+  });
+
+  test("a forged link is invalid, and is answered like no link", async () => {
+    const response = await ask(`${SETUP_COOKIE}=8a0c6f4e-1d2b-4c3a-9e8f-7a6b5c4d3e2f.9999999999999.forged`);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ mode: "pilot", link: "invalid", replyBy: replyByDate() });
+  });
+
+  test("a used link says so", async () => {
+    const link = await invite();
+    await updateSetupRequest(link.requestId, { status: "paid", paidAt: new Date() });
+    expect(await (await ask(link.cookie)).json()).toMatchObject({ mode: "pilot", link: "used" });
+  });
+
+  test("a valid link: the purchase, pre-filled from its own request and nothing else", async () => {
+    const link = await invite();
+    const response = await ask(link.cookie);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      mode: "pilot",
+      link: "valid",
+      setup: {
+        name: "Alex Chen",
+        clinicName: "Radiance Med Spa",
+        email: "info@radiancemedspa.com",
+        website: "radiancemedspa.com",
+      },
+      creditUntil: null,
+      salesTax: false,
+      offer: null,
+    });
+    expect(JSON.stringify(body)).not.toContain(link.requestId);
+  });
+
+  test("the public answer is never cached either", async () => {
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
+    expect((await ask()).headers.get("cache-control")).toBe("no-store");
   });
 });

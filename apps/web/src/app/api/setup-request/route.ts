@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { checkoutMode } from "@/lib/checkout-mode";
 import { sendSafely } from "@/lib/email";
 import { setupRequestAck, setupRequestInternal } from "@/lib/email/setup-emails";
 import { isValidEmail } from "@/lib/gate";
@@ -24,6 +25,14 @@ export const dynamic = "force-dynamic";
  * defences against using the form to mail a stranger apply: a per-IP limit,
  * a honeypot, at most one acknowledgement per address per day, and nothing
  * in it the person typed but the address it goes to.
+ *
+ * ## Only while the purchase is by invitation
+ *
+ * The mode is enforced here as on the purchase routes (plan Part A2). In
+ * public mode anyone may buy, so a request would promise a reply with a setup
+ * link nobody needs, and would put the person on a queue instead of the
+ * purchase: it is refused, saved nowhere and mailed to nobody, with the
+ * purchase's address, and `mode: "public"` so the form can say where to go.
  */
 
 const RATE_LIMIT = 5;
@@ -41,6 +50,13 @@ function fail(message: string, status: number, field?: string): NextResponse {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  if (checkoutMode() === "public") {
+    return NextResponse.json(
+      { error: `Purchases are open. Start at ${site.url}/get-started.`, mode: "public" },
+      { status: 409 },
+    );
+  }
+
   const ip = clientKey(request.headers);
   const limit = await rateLimit(`setup-request:${ip}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!limit.ok) {

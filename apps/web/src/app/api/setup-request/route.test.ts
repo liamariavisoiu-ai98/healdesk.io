@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { recordDemoUnlock } from "@/lib/leads";
 import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
+import { site } from "@/lib/site";
 
 import { POST } from "./route";
 
@@ -141,6 +142,25 @@ describe("POST /api/setup-request", () => {
     const rows = sheets.records("setup_requests");
     expect(rows[0]!.lead_id).toBe(lead.leadId);
     expect(rows[1]!.lead_id).toBe("");
+  });
+
+  test("in public mode it is refused, saving and sending nothing, and says where the purchase is", async () => {
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
+    const response = await post(VALID);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: `Purchases are open. Start at ${site.url}/get-started.`,
+      mode: "public",
+    });
+    expect(sheets.tabs.get("setup_requests") ?? []).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("anything but exactly public is pilot mode, where requests are taken", async () => {
+    for (const mode of ["", "pilot", "publik", "public-ish"]) {
+      vi.stubEnv("HEALDESK_CHECKOUT_MODE", mode);
+      expect((await post({ ...VALID, email: `info${mode.length}@radiancemedspa.com` })).status, mode).toBe(200);
+    }
   });
 
   test("in production, a store that isn't there is an honest 503 naming the inbox", async () => {

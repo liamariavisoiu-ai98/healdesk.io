@@ -11,9 +11,13 @@ import type { Metadata } from "next";
 import { notFound, redirect } from "next/navigation";
 
 import type { ActorContext } from "@/lib/audit";
+import { connectConfigured } from "@/lib/billing/connect";
+import { getDepositSettings } from "@/lib/billing/deposits";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
+import { connectedMetaPlatforms, META_PLATFORM_NAMES } from "@/lib/channels/meta-platforms";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
+import { env } from "@/lib/env";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import {
@@ -25,8 +29,20 @@ import {
 } from "@/lib/setup/calendar";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
+import {
+  forwardingView,
+  voiceForwardingReady,
+  waitsOnDirectLine,
+  type ForwardingFacts,
+} from "@/lib/setup/forwarding";
 import { formatPhone, helpContacts } from "@/lib/setup/help";
 import { serviceInputOf } from "@/lib/setup/knowledge";
+import {
+  depositCollectionLine,
+  readConnectOutcome,
+  setupStripeView,
+  type ConnectOutcome,
+} from "@/lib/setup/payments";
 import { providersStep } from "@/lib/setup/providers";
 import {
   neighbours,
@@ -38,8 +54,10 @@ import {
 } from "@/lib/setup/screens";
 import type { SetupScreenId } from "@/lib/setup/screen-ids";
 import { skipCost } from "@/lib/setup/skip-costs";
+import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
+import { withTenant } from "@/lib/tenant";
 
 import { HelpPanel } from "../HelpPanel";
 
@@ -90,11 +108,16 @@ export default async function SetupPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ s?: string | string[]; calendar?: string | string[] }>;
+  searchParams: Promise<{
+    s?: string | string[];
+    calendar?: string | string[];
+    connect?: string | string[];
+    meta?: string | string[];
+  }>;
 }) {
   const { slug } = await params;
   const portal = await requirePortal(slug);
-  const { s, calendar } = await searchParams;
+  const { s, calendar, connect, meta } = await searchParams;
   const actor = await portalActor(portal);
   const who: ActorContext = { type: "user", userId: portal.userId, label: actor.label };
   const state = await loadSetupState({
@@ -117,7 +140,12 @@ export default async function SetupPage({
   }
 
   const notice = readCalendarNotice(calendar);
-  const requested = requestedScreen(state.screens, s, notice);
+  // Stripe's return from 2.4's Connect Stripe opens the deposits screen
+  // again, saying how it went (lib/setup/payments.ts).
+  const connectOutcome = readConnectOutcome(connect);
+  const requested =
+    requestedScreen(state.screens, s, notice) ??
+    (connectOutcome && state.screens.includes("deposits") ? "deposits" : null);
   if (!requested) {
     const resume = resumeScreen(state.screens, state.progress);
     redirect(resume ? `${home}/setup?s=${resume}` : home);
@@ -145,6 +173,8 @@ export default async function SetupPage({
           actor: who,
           steppedUp: actor.steppedUp,
           notice: screen === "calendar" ? notice : null,
+          connectOutcome: screen === "deposits" ? connectOutcome : null,
+          metaProblem: screen === "channels" && typeof meta === "string" ? meta : null,
         })}
       </section>
       <HelpPanel audience={audience} />
@@ -245,6 +275,10 @@ type Nav = {
   steppedUp: boolean;
   /** What Google's return, or a calendar button, said happened: the calendar step only. */
   notice: CalendarNotice | null;
+  /** What Stripe's return said happened: the deposits screen only. */
+  connectOutcome: ConnectOutcome | null;
+  /** A Meta login that could not start (`?meta=`): the channels screen only. */
+  metaProblem: string | null;
 };
 
 function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
@@ -379,17 +413,11 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
 
     case "deposits":
       return (
-        <DepositsScreen
-          {...common}
-          services={knowledge.services.map((s) => ({
-            name: s.name,
-            depositUsd: s.depositUsd ?? null,
-          }))}
-          collectionLine={
-            channels.includes("voice") && channels.length === 1
-              ? "On a call AYA can't take a card, so she books the appointment and flags the deposit for your team to collect."
-              : "Until a payment account is connected, AYA books the appointment and flags the deposit for your team to collect."
-          }
+        <DepositsStep
+          state={state}
+          common={common}
+          actor={nav.actor}
+          outcome={nav.connectOutcome}
         />
       );
 
@@ -426,31 +454,151 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
     case "providers":
       return <ProvidersStep state={state} common={common} actor={nav.actor} />;
 
-    case "channels": {
-      const finished = state.screens
-        .filter((id) => id !== "channels" && SCREEN_DEFINITIONS[id].step !== "end")
-        .every((id) => state.progress.has(id));
+    case "channels":
       return (
-        <ChannelsScreen
+        <ChannelsStep
+          state={state}
           slug={nav.slug}
           backHref={nav.backHref}
-          callBookingUrl={helpContacts().callBookingUrl}
-          rows={state.channels.map((c) => {
-            const step = channelNextStep(c, finished);
-            return {
-              channel: c.channel,
-              name: CHANNEL_NAMES[c.channel],
-              status: channelStatusWord(c.status),
-              line: setupSentence(c.channel, step),
-            };
-          })}
+          actor={nav.actor}
+          metaProblem={nav.metaProblem}
         />
       );
-    }
 
     case "backup":
       return <BackupScreen slug={nav.slug} doneHref={nav.home} />;
   }
+}
+
+/**
+ * 2.4, with what the payment account says: whether Stripe is connected
+ * decides the first line and the Connect Stripe button (lib/setup/payments.ts),
+ * read here because setup's own state does not carry it.
+ */
+async function DepositsStep({
+  state,
+  common,
+  actor,
+  outcome,
+}: {
+  state: SetupState;
+  common: { slug: string; backHref: string | null; skipCost: string };
+  actor: ActorContext;
+  outcome: ConnectOutcome | null;
+}) {
+  const channels = state.channels.map((c) => c.channel);
+  const deposits = await withTenant({ clinicId: state.clinic.id, actor }, getDepositSettings);
+  return (
+    <DepositsScreen
+      {...common}
+      services={state.knowledge.services.map((s) => ({
+        name: s.name,
+        depositUsd: s.depositUsd ?? null,
+      }))}
+      collectionLine={depositCollectionLine({ channels, isConnected: deposits.isConnected })}
+      stripe={setupStripeView({
+        slug: common.slug,
+        channels,
+        isConnected: deposits.isConnected,
+        connectConfigured: connectConfigured(),
+        outcome,
+      })}
+    />
+  );
+}
+
+/**
+ * Step 4, bought channels only, with each one's step where it is ready:
+ * the website line once website chat is open, the Meta login until a
+ * platform is connected, and the forwarding steps only once voice is ready
+ * for the clinic (lib/setup/forwarding.ts). Before that, each says what it
+ * waits for in words, with no number and no codes.
+ */
+async function ChannelsStep({
+  state,
+  slug,
+  backHref,
+  actor,
+  metaProblem,
+}: {
+  state: SetupState;
+  slug: string;
+  backHref: string | null;
+  actor: ActorContext;
+  metaProblem: string | null;
+}) {
+  const finished = state.screens
+    .filter((id) => id !== "channels" && SCREEN_DEFINITIONS[id].step !== "end")
+    .every((id) => state.progress.has(id));
+  const bought = state.channels.map((c) => c.channel);
+  const connected = bought.includes("meta")
+    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) =>
+        connectedMetaPlatforms(tx.db, tx.clinicId),
+      )
+    : [];
+  const metaLogin = Boolean(env.metaAppId() && env.metaAppSecret() && env.metaLoginConfigId());
+  const facts: ForwardingFacts = {
+    voice: state.channels.find((c) => c.channel === "voice"),
+    assistantNumberE164: state.clinic.assistantNumberE164,
+    directLineE164: state.settings.directLineE164,
+  };
+  return (
+    <ChannelsScreen
+      slug={slug}
+      backHref={backHref}
+      // This app's /help/call, as Help links it, which sends the browser on
+      // to the scheduling page set now; never the scheduling page itself.
+      callBookingUrl={helpContacts().callBookingUrl ? "/help/call" : null}
+      metaProblem={metaProblem}
+      rows={state.channels.map((c) => {
+        const step = channelNextStep(c, finished);
+        const row = {
+          channel: c.channel,
+          name: CHANNEL_NAMES[c.channel],
+          status: channelStatusWord(c.status),
+          line: setupSentence(c.channel, step),
+        };
+        // A step shown below the row is the one the row names, whatever
+        // else is left in setup: the line never says "after setup" beside it.
+        switch (c.channel) {
+          case "web":
+            return snippetOpen(c)
+              ? {
+                  ...row,
+                  line: setupSentence("web", "snippet"),
+                  snippet: widgetSnippet(state.clinic.slug),
+                }
+              : row;
+          case "meta":
+            return {
+              ...row,
+              meta: {
+                connected: connected.map((p) => META_PLATFORM_NAMES[p]),
+                canConnect: metaLogin,
+              },
+            };
+          case "voice":
+            return voiceForwardingReady(facts)
+              ? {
+                  ...row,
+                  line: setupSentence("voice", "forwarding"),
+                  forwarding: forwardingView({
+                    assistantNumberE164: state.clinic.assistantNumberE164!,
+                    carrier: state.clinic.carrier,
+                    phoneSystemType: state.clinic.phoneSystemType,
+                    coverageMode: state.settings.coverageMode,
+                  }),
+                }
+              : {
+                  ...row,
+                  directLineHref: waitsOnDirectLine(facts)
+                    ? `/c/${slug}/setup?s=direct_line`
+                    : null,
+                };
+        }
+      })}
+    />
+  );
 }
 
 async function CalendarStep({

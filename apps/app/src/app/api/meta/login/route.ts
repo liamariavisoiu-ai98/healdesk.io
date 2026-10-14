@@ -1,9 +1,11 @@
 import { withinConnectAttemptLimit } from "@/lib/connections/attempt-limit";
-import { resolveConnectionLink } from "@/lib/connections/links";
+import { issueConnectionLink, resolveConnectionLink } from "@/lib/connections/links";
 import { env } from "@/lib/env";
 import { META_CALLBACK_PATH, metaApp, publicUrl, requestContextFrom, seeOther } from "@/lib/meta/connect-http";
 import { loginDialogUrl } from "@/lib/meta/graph";
 import { encodeLoginCookie, loginCookieHeader, newNonce } from "@/lib/meta/login-state";
+import { requirePortal } from "@/lib/portal/access";
+import { portalActor } from "@/lib/portal/actor";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -19,9 +21,20 @@ export const runtime = "nodejs";
  *
  * The token goes into an HttpOnly cookie and only a random nonce goes to Meta
  * as `state` (lib/meta/login-state.ts).
+ *
+ * The same button sits in the portal, at setup step 4 (plan Part E), where
+ * the form carries the clinic's slug instead of a token: the clinic's own
+ * signed-in session is the authority there (requirePortal, which answers a
+ * stranger with sign-in or not found), and a one-day `meta` link is minted
+ * for it here, under the person's own name, so everything from Facebook's
+ * dialog on, the callback included, runs exactly as it does for a mailed
+ * link. Nothing new reaches Meta, and the session cookie, being SameSite=Lax,
+ * never rides along on another site's form post.
  */
 export async function POST(request: Request): Promise<Response> {
   const form = await request.formData().catch(() => null);
+  const clinic = form?.get("clinic");
+  if (typeof clinic === "string" && clinic !== "") return fromPortal(request, clinic);
   const raw = form?.get("token");
   const token = typeof raw === "string" ? raw : "";
   const back = (problem: string) => seeOther(publicUrl(`/channels/meta/${encodeURIComponent(token)}?problem=${problem}`));
@@ -36,6 +49,50 @@ export async function POST(request: Request): Promise<Response> {
   const configId = env.metaLoginConfigId();
   if (!app || !configId) return back("not_configured");
 
+  const nonce = newNonce();
+  const dialog = loginDialogUrl({
+    appId: app.appId,
+    configId,
+    redirectUri: publicUrl(META_CALLBACK_PATH),
+    state: nonce,
+  });
+  return seeOther(dialog, loginCookieHeader(encodeLoginCookie({ token, nonce })));
+}
+
+/** A clinic slug, as provisioning makes them. */
+const SLUG = /^[a-z0-9][a-z0-9-]{0,99}$/;
+
+/** How long a link minted for the portal's button lasts: one sitting at Facebook's dialog, with room to retry. */
+const PORTAL_LINK_DAYS = 1;
+
+/**
+ * The portal's button (setup step 4): the clinic's signed-in session, then a
+ * fresh single-use `meta` link for it, then Facebook. A problem before
+ * Facebook comes back to the channels screen, which says what it was.
+ */
+async function fromPortal(request: Request, slug: string): Promise<Response> {
+  if (!SLUG.test(slug)) {
+    return new Response("Not found.", { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
+  // Outside any try: both answer by throwing Next's redirect or not-found.
+  const portal = await requirePortal(slug);
+  const back = (problem: string) =>
+    seeOther(publicUrl(`/c/${encodeURIComponent(portal.clinicSlug)}/setup?s=channels&meta=${problem}`));
+
+  const context = requestContextFrom(request);
+  if (!withinConnectAttemptLimit("submit", `portal-meta:${portal.clinicId}`, context.ipAddress ?? null)) {
+    return back("throttled");
+  }
+  const app = metaApp();
+  const configId = env.metaLoginConfigId();
+  if (!app || !configId) return back("not_configured");
+
+  const actor = await portalActor(portal);
+  const { token } = await issueConnectionLink(
+    portal.clinicId,
+    { purpose: "meta", expiresInDays: PORTAL_LINK_DAYS },
+    { actor: { type: "user", userId: portal.userId, label: actor.label }, request: context },
+  );
   const nonce = newNonce();
   const dialog = loginDialogUrl({
     appId: app.appId,

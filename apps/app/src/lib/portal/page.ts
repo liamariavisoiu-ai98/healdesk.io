@@ -1,13 +1,20 @@
 import { audienceFor, type Channel } from "@healdesk/catalog";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
+import { clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { withTenant } from "@/lib/tenant";
 
 import { portalGrants, type PortalContext, type PortalGrant } from "./access";
 import { portalActor, type PortalActor } from "./actor";
-import { answeringStatus, type AnsweringStatus } from "./header";
+import {
+  answeringControl,
+  answeringStatus,
+  type AnsweringControl,
+  type AnsweringStatus,
+  type HeaderPause,
+} from "./header";
 import type { PortalSection } from "./nav";
 
 /**
@@ -28,6 +35,10 @@ export type PortalPage = {
   locations: PortalGrant[];
   /** The patient screens the menu links to (openPatientScreens). */
   opened: PortalSection[];
+  /** The header's pause, for its banner: who paused AYA, and when. */
+  pause: HeaderPause;
+  /** When the page was read: the clock the header's times are told against. */
+  now: Date;
 };
 
 export async function loadPortalPage(
@@ -45,7 +56,24 @@ export async function loadPortalPage(
   if (!state) return null;
   const locations = await portalGrants(portal.userId);
   const opened = await openPatientScreens(portal.clinicId, actorContext, state);
-  return { actor, actorContext, state, locations, opened };
+  const pause = await readHeaderPause(portal.clinicId, actorContext);
+  return { actor, actorContext, state, locations, opened, pause, now };
+}
+
+/** The pause's stamps, which the channel states leave out: who paused AYA and since when. */
+async function readHeaderPause(clinicId: string, actor: ActorContext): Promise<HeaderPause> {
+  return withTenant({ clinicId, actor }, async (tx) => {
+    const [row] = await tx.db
+      .select({
+        pausedAt: clinicSettings.aiPausedAt,
+        byLabel: clinicSettings.aiPausedByLabel,
+        until: clinicSettings.aiPausedUntil,
+      })
+      .from(clinicSettings)
+      .where(eq(clinicSettings.clinicId, tx.clinicId))
+      .limit(1);
+    return row ?? { pausedAt: null, byLabel: null, until: null };
+  });
 }
 
 /**
@@ -81,6 +109,7 @@ export function shellProps(
   section: PortalSection;
   audience: "patients" | "clients";
   status: AnsweringStatus;
+  answering: AnsweringControl | null;
   liveChannels: Channel[];
   timeZone: string;
   locations: PortalGrant[];
@@ -92,6 +121,13 @@ export function shellProps(
     section,
     audience: audienceFor(page.state.clinic.specialty),
     status: answeringStatus(page.state.channels),
+    answering: answeringControl({
+      channels: page.state.channels,
+      directLineE164: page.state.settings.directLineE164,
+      pause: page.pause,
+      timeZone: page.state.clinic.timezone,
+      now: page.now,
+    }),
     liveChannels: page.state.channels.filter((c) => c.liveAt !== null).map((c) => c.channel),
     timeZone: page.state.clinic.timezone,
     locations: page.locations,

@@ -57,6 +57,10 @@ export const SANCTIONED: Readonly<Record<string, string>> = {
     "the shell's business data (the practice, its setup, its locations), no patient",
   "src/app/c/[slug]/keep-open.ts#patientPageStatus": "the guard's question about the step-up",
   "src/app/c/[slug]/keep-open.ts#keepPatientPageOpen": "the guard's Keep open: a touch",
+  "src/app/c/[slug]/pause-actions.ts#pauseAyaAction":
+    "the header's AYA is answering switch: writes the clinic's pause, reads no patient",
+  "src/app/c/[slug]/pause-actions.ts#resumeAyaAction":
+    "the header's AYA is answering switch: clears the clinic's pause, reads no patient",
 };
 
 const REQUIRE_PATIENT_PAGE = "src/lib/portal/patient-page.ts#requirePatientPage";

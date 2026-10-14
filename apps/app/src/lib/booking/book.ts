@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { toE164 } from "@healdesk/connectors";
-import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
 import {
   agentConfigs,
@@ -500,7 +500,17 @@ type Prior = {
 };
 
 async function priorOf(tx: TenantTx, bookingKey: string): Promise<Prior | null> {
-  const [request] = await tx.db
+  // One statement, so the request and its hold come from one snapshot. Read
+  // apart, a record step committing between the two reads (the hold
+  // converted and the request confirmed together, writer.ts) showed a retry
+  // the request still `requested` beside a hold already `converted`, and
+  // the retry answered "already logged" for a booking that had gone in.
+  const latestHold = sql`(
+    select h.id from slot_holds h
+     where h.booking_request_id = ${bookingRequests.id}
+     order by h.created_at desc
+     limit 1)`;
+  const [row] = await tx.db
     .select({
       id: bookingRequests.id,
       status: bookingRequests.status,
@@ -508,29 +518,50 @@ async function priorOf(tx: TenantTx, bookingKey: string): Promise<Prior | null> 
       preferredWindow: bookingRequests.preferredWindow,
       confirmedFor: bookingRequests.confirmedFor,
       appointmentId: bookingRequests.appointmentId,
+      holdId: slotHolds.id,
+      holdStatus: slotHolds.status,
+      holdStartsAt: slotHolds.startsAt,
+      holdMinutes: slotHolds.durationMinutes,
+      holdHolderRef: slotHolds.holderRef,
+      holdCalendarId: slotHolds.calendarId,
     })
     .from(bookingRequests)
+    .leftJoin(slotHolds, eq(slotHolds.id, latestHold))
     .where(
       and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.vendorCallId, bookingKey)),
     )
     .limit(1);
-  if (!request) return null;
-  const [hold] = await tx.db
-    .select({
-      id: slotHolds.id,
-      status: slotHolds.status,
-      startsAt: slotHolds.startsAt,
-      minutes: slotHolds.durationMinutes,
-      holderRef: slotHolds.holderRef,
-      calendarId: slotHolds.calendarId,
-    })
-    .from(slotHolds)
-    .where(eq(slotHolds.bookingRequestId, request.id))
-    .orderBy(desc(slotHolds.createdAt))
-    .limit(1);
-  if (!hold) return { ...request, hold: null };
-  const { calendarId, ...rest } = hold;
-  return { ...request, hold: { ...rest, providerId: await providerOnCalendar(tx, calendarId) } };
+  if (!row) return null;
+  const {
+    holdId,
+    holdStatus,
+    holdStartsAt,
+    holdMinutes,
+    holdHolderRef,
+    holdCalendarId,
+    ...request
+  } = row;
+  if (
+    holdId === null ||
+    holdStatus === null ||
+    holdStartsAt === null ||
+    holdMinutes === null ||
+    holdHolderRef === null ||
+    holdCalendarId === null
+  ) {
+    return { ...request, hold: null };
+  }
+  return {
+    ...request,
+    hold: {
+      id: holdId,
+      status: holdStatus,
+      startsAt: holdStartsAt,
+      minutes: holdMinutes,
+      holderRef: holdHolderRef,
+      providerId: await providerOnCalendar(tx, holdCalendarId),
+    },
+  };
 }
 
 /**

@@ -4,6 +4,7 @@ import { FakeSheets, __setSheetsClientForTests } from "./sheets/client";
 import { __resetSheetSchemaForTests } from "./sheets/schema";
 import {
   GLOBAL_CAP_KEYS,
+  isGlobalCapKey,
   __resetRateLimiterForTests,
   clientKey,
   isOverLimit,
@@ -103,6 +104,13 @@ describe("rateLimit (the global daily caps)", () => {
       "voice-demo-webcall:global:day",
       "webcall:global:day",
     ]);
+  });
+
+  it("also shares the contact form's per-address acknowledgement limit, and nothing else per visitor", () => {
+    expect(isGlobalCapKey("contact-ack:0123456789abcdef")).toBe(true);
+    expect(isGlobalCapKey("contact:10.0.0.1")).toBe(false);
+    expect(isGlobalCapKey("setup-request:10.0.0.1")).toBe(false);
+    expect(isGlobalCapKey("admin-sign-in:10.0.0.1")).toBe(false);
   });
 
   it("goes through the counters tab and survives a fresh instance", async () => {

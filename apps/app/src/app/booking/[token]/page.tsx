@@ -1,4 +1,4 @@
-import { BOOKING_FIELDS } from "@healdesk/catalog";
+import { audienceSingular, collectedFieldRows } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
@@ -85,15 +85,17 @@ export default async function BookingRequestPage({ params, searchParams }: { par
   const direct = req.status === "confirmed" && (req.decidedByLabel ?? "").startsWith("assistant");
   const unconfirmedDirect = req.bookedVia === "agent_direct" && !direct;
   const service = req.treatment ?? req.collectedFields.service ?? null;
-  const collected = Object.entries(req.collectedFields).filter(([id]) => id !== "service");
-  const labelFor = (id: string) => BOOKING_FIELDS.find((f) => f.id === id)?.label ?? id.replace(/_/g, " ");
+  // In catalogue order, in the practice's words: a vet's "client", and its
+  // client's animal by name and species (collectedFieldRows).
+  const collected = collectedFieldRows(req.collectedFields, req.audience).filter((row) => row.id !== "service");
+  const person = audienceSingular(req.audience);
 
   const heading = direct
     ? "Booked by the assistant on the call"
     : unconfirmedDirect && open
       ? "The assistant couldn't confirm this booking reached your calendar"
       : open
-      ? "A patient would like to book"
+      ? `A ${person} would like to book`
       : acceptedPending
         ? "Accepted — awaiting your call"
         : rescheduling
@@ -123,8 +125,8 @@ export default async function BookingRequestPage({ params, searchParams }: { par
       {collected.length ? (
         <dl className="mt-3 grid gap-3 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
           <p className="text-[13px] font-bold tracking-[0.06em] text-[color:var(--color-muted)] uppercase">Collected by the assistant</p>
-          {collected.map(([id, value]) => (
-            <Row key={id} label={labelFor(id)} value={value} />
+          {collected.map((row) => (
+            <Row key={row.id} label={row.label} value={row.value} />
           ))}
         </dl>
       ) : null}
@@ -136,7 +138,7 @@ export default async function BookingRequestPage({ params, searchParams }: { par
         // say.
         <p className="mt-3 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
           {req.amendmentCount === 1 ? "1 amendment" : `${req.amendmentCount} amendments`} at your practice&rsquo;s direction. Read
-          {req.amendmentCount === 1 ? " it" : " them"} in the patient&rsquo;s export before you act on this request.
+          {req.amendmentCount === 1 ? " it" : " them"} in the {person}&rsquo;s export before you act on this request.
         </p>
       ) : null}
 

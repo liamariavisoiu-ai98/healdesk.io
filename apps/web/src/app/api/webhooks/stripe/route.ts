@@ -114,7 +114,8 @@ const COMPLETION_EVENTS: ReadonlySet<EventType> = new Set<EventType>([
 
 /**
  * The buyer left. Nothing to provision and nothing to relay; the lead store
- * records the abandonment so the one follow-up email can go (lib/email).
+ * records the expiry, with the purchase's ref, so the one follow-up email (P7,
+ * 24 hours later, lib/email/nurture.ts) can go.
  * Subscribe the endpoint to this event too (docs/handover.md).
  */
 const ABANDONMENT_EVENTS: ReadonlySet<EventType> = new Set<EventType>(["checkout.session.expired"]);
@@ -225,7 +226,8 @@ export async function POST(request: Request): Promise<Response> {
   if (ABANDONMENT_EVENTS.has(event.type)) {
     const session = event.data.object as Stripe.Checkout.Session;
     if (session.metadata?.app === APP_MARKER && session.customer_email) {
-      await markCheckoutAbandoned(session.customer_email);
+      // The ref lets P7 read the purchase's own records when it is due.
+      await markCheckoutAbandoned(session.customer_email, { ref: session.metadata?.ref ?? null });
     }
     return Response.json({ received: true });
   }

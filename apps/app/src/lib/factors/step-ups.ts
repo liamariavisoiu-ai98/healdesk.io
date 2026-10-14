@@ -5,8 +5,6 @@ import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { unsafeDb, type Queryable } from "@/db";
 import { stepUps, userFactors } from "@/db/schema";
 
-import { STEP_UP_IDLE_MS, STEP_UP_MAX_MS } from "./step-up-windows";
-
 /**
  * Passkey step-ups, as rows (plan Part D2). What a page asks of them lives in
  * lib/portal/step-up.ts; this file is the store, and imports nothing from
@@ -25,7 +23,10 @@ import { STEP_UP_IDLE_MS, STEP_UP_MAX_MS } from "./step-up-windows";
  * way: step_ups.factor_id references user_factors, which holds both kinds.
  */
 
-export { STEP_UP_IDLE_MS, STEP_UP_MAX_MS };
+/** Idle limit: patient pages clear and ask again after this long untouched. */
+export const STEP_UP_IDLE_MS = 15 * 60 * 1000;
+/** Absolute limit, however busy the page: one passkey tap holds for a working day. */
+export const STEP_UP_MAX_MS = 8 * 60 * 60 * 1000;
 
 /**
  * SHA-256 of a Better Auth session token, the only form in which a step-up or
@@ -44,13 +45,20 @@ export type LiveStepUp = {
   createdAt: Date;
   lastActivityAt: Date;
   /**
-   * How long it stays live from the statement that read it if nothing touches
-   * it again: until 15 minutes after the last activity or the 8-hour limit,
-   * whichever comes first, on the database's clock. Right after a touch it is
-   * what a patient page's "Keep open" counts down from.
+   * When it lapses if nothing touches it again: 15 minutes after the last
+   * activity or the 8-hour limit, whichever comes first. Absolute, on the
+   * database's clock, like `checkedAt`; the browser counts down from the
+   * difference of the two, never from a figure a cached page could replay.
    */
-  expiresInMs: number;
+  expiresAt: Date;
+  /** The database's now() for the statement that read it. */
+  checkedAt: Date;
+  /** Whether the 8-hour limit is the one that applies, which activity cannot extend. */
+  capped: boolean;
 };
+
+const IDLE = sql`${STEP_UP_IDLE_MS} * interval '1 millisecond'`;
+const MAX = sql`${STEP_UP_MAX_MS} * interval '1 millisecond'`;
 
 const returning = {
   id: stepUps.id,
@@ -59,11 +67,16 @@ const returning = {
   createdAt: stepUps.createdAt,
   lastActivityAt: stepUps.lastActivityAt,
   // In an UPDATE's RETURNING the columns are the new row, so after a touch
-  // this is measured from the activity just recorded.
-  expiresInMs: sql<number>`greatest(0, floor(extract(epoch from (least(
-      ${stepUps.lastActivityAt} + ${STEP_UP_IDLE_MS} * interval '1 millisecond',
-      ${stepUps.createdAt} + ${STEP_UP_MAX_MS} * interval '1 millisecond'
-    ) - now())) * 1000))`.mapWith(Number),
+  // these are measured from the activity just recorded.
+  expiresAt:
+    sql<Date>`least(${stepUps.lastActivityAt} + ${IDLE}, ${stepUps.createdAt} + ${MAX})`.mapWith(
+      stepUps.createdAt,
+    ),
+  checkedAt: sql<Date>`now()`.mapWith(stepUps.createdAt),
+  capped:
+    sql<boolean>`${stepUps.createdAt} + ${MAX} <= ${stepUps.lastActivityAt} + ${IDLE}`.mapWith(
+      Boolean,
+    ),
 };
 
 /**
@@ -106,8 +119,8 @@ export async function recordStepUp(
 function liveCondition() {
   return and(
     isNull(stepUps.revokedAt),
-    gt(stepUps.lastActivityAt, sql`now() - ${STEP_UP_IDLE_MS} * interval '1 millisecond'`),
-    gt(stepUps.createdAt, sql`now() - ${STEP_UP_MAX_MS} * interval '1 millisecond'`),
+    gt(stepUps.lastActivityAt, sql`now() - ${IDLE}`),
+    gt(stepUps.createdAt, sql`now() - ${MAX}`),
     sql`exists (select 1 from ${userFactors} f where f.id = ${stepUps.factorId} and f.kind = 'passkey' and f.revoked_at is null)`,
   );
 }
@@ -119,7 +132,10 @@ function liveCondition() {
  * if the row is still live when the UPDATE takes its lock: a step-up that
  * lapsed, or whose passkey was removed, a moment ago is not revived by a
  * request that read it first. The 8-hour CHECK on the table is the backstop
- * if this condition is ever loosened.
+ * if this condition is ever loosened. It never moves activity back: two
+ * requests touching at once each see now() as their transaction began, and
+ * the one that began first may update second, which the table's trigger
+ * would refuse as activity moving backwards (and the request would fail).
  */
 export async function findLiveStepUp(
   db: Queryable,
@@ -150,7 +166,7 @@ export async function findLiveStepUp(
     .limit(1);
   const [row] = await db
     .update(stepUps)
-    .set({ lastActivityAt: sql`now()` })
+    .set({ lastActivityAt: sql`greatest(${stepUps.lastActivityAt}, now())` })
     .where(and(inArray(stepUps.id, latest), liveCondition()))
     .returning(returning);
   return row ?? null;

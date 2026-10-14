@@ -934,7 +934,7 @@ export const conversations = pgTable(
      * alert was raised. Written by the voice ingest and web chat beside
      * `outcome`, which says `escalated_to_human` for an urgent hit and a
      * handover alike, so the Conversations screen can tell them apart
-     * (drizzle/0077). A fact, never inferred afterwards; false for every row
+     * (drizzle/0078). A fact, never inferred afterwards; false for every row
      * written before it.
      */
     urgent: boolean("urgent").notNull().default(false),

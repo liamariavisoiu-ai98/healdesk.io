@@ -9,7 +9,7 @@ import {
 import { portalDay } from "@/lib/portal/format";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
-import { requirePatientPage } from "@/lib/portal/patient-page";
+import { patientGuardProps, requirePatientPage } from "@/lib/portal/patient-page";
 
 import { FeedbackProvider } from "../feedback";
 import { PatientPageGuard } from "../PatientPageGuard";
@@ -53,7 +53,7 @@ export default async function ConversationsPage({ params }: { params: Promise<{ 
           {address ?? "your clinic's address"} when it ends. Open one to see whether it arrived, or
           to send it again. Instagram, Messenger and WhatsApp keep only when each person last wrote.
         </p>
-        <PatientPageGuard slug={page.portal.clinicSlug} expiresInMs={page.stepUp.expiresInMs}>
+        <PatientPageGuard {...patientGuardProps(page)}>
           <ConversationsView
             slug={page.portal.clinicSlug}
             timeZone={shell.timeZone}

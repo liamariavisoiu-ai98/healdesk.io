@@ -629,11 +629,6 @@ export function annualTotalUsd(plan: Plan): number {
   return plan.annualMonthlyUsd * 12;
 }
 
-/** The first period plus the setup fee at list price. */
-export function firstInvoiceUsd(plan: Plan, interval: BillingInterval): number {
-  return recurringUsd(plan, interval) + plan.setupFeeUsd;
-}
-
 /**
  * Setup fee owed on an upgrade: the difference between the two packages'
  * fees, never negative. A step change within a package owes nothing; Web Chat

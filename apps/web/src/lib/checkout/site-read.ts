@@ -5,8 +5,9 @@ import { type ClinicProfile, parseClinicProfile, summarizeClinicProfile } from "
  *
  * Step 2 asks /api/clinic-site to read the website once, in the background,
  * and the answer is kept here, in this tab's sessionStorage, until Pay sends
- * it into the checkout intent. apps/web keeps nothing of it on the server,
- * and apps/app checks it again before it stores it.
+ * it into the checkout intent. On the server it is kept only inside that
+ * purchase's sealed record in the marketing Sheet (lib/checkout/records.ts),
+ * and apps/app checks it again when it imports the record.
  *
  * A read belongs to the website it read. Change the website afterwards and
  * the read no longer describes this purchase, so it is not sent.

@@ -13,7 +13,7 @@ import { readConversation } from "@/lib/portal/conversations";
 import { portalDay, portalMoment } from "@/lib/portal/format";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
-import { requirePatientPage } from "@/lib/portal/patient-page";
+import { patientGuardProps, requirePatientPage } from "@/lib/portal/patient-page";
 import { PATIENT_REQUESTERS, REQUESTER_LABELS } from "@/lib/patient-rights/requesters";
 
 import { FeedbackProvider } from "../../feedback";
@@ -70,7 +70,7 @@ export default async function ConversationPage({
             All conversations
           </a>
         </p>
-        <PatientPageGuard slug={clinicSlug} expiresInMs={page.stepUp.expiresInMs}>
+        <PatientPageGuard {...patientGuardProps(page)}>
           <h1 className="text-2xl font-semibold">
             {CHANNEL_NAMES[detail.channel]} · {when(detail.startedAt)}
           </h1>

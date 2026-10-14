@@ -97,7 +97,7 @@ describe("sending a setup link (P4)", () => {
     expect(mail!.body.subject).toBe("Your setup link for Radiance Med Spa");
     expect(mail!.body.headers["List-Unsubscribe"]).toMatch(/^<https:\/\/.+\/api\/email\/unsubscribe\?t=s\./);
     expect(mail!.body.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
-    expect(mail!.idempotencyKey).toBe(`setup-link:${saved.id}:${stored.linkExpiresAt!.getTime()}`);
+    expect(mail!.idempotencyKey).toBe(`hd-setup-link-${saved.id}-1-${stored.linkExpiresAt!.getTime()}`);
 
     vi.stubEnv("HEALDESK_CHECKOUT_MODE", "");
     expect(await gateState(tokenIn(mail!.body.text))).toMatchObject({ mode: "pilot", link: "valid" });
@@ -183,5 +183,23 @@ describe("nurture stops for anyone who asked for setup", () => {
     expect(run.nurtureSent).toBe(0);
     expect(run.skipped).toBe(1);
     expect(sent.filter((m) => m.body.to[0] === "info@radiance.com")).toHaveLength(0);
+  });
+});
+
+describe("each nurture touch is keyed to its lead and step", () => {
+  test("hd-nurture-<step>-<lead id>-1, so a retried run inside Resend's day sends it once", async () => {
+    const lead = await recordDemoUnlock({
+      email: "laura@glowmedspa.com",
+      isBusinessEmail: true,
+      marketingConsent: true,
+      noticeVersion: "v",
+      consentText: "Email me",
+    });
+    if (!lead.ok) throw new Error("no lead");
+    const run = await runNurture(new Date(Date.now() + 25 * 60 * 60 * 1000));
+    expect(run.nurtureSent).toBe(1);
+    const [touch] = sent;
+    expect(touch!.idempotencyKey).toBe(`hd-nurture-0-${lead.leadId}-1`);
+    expect((touch!.body as unknown as { tags: unknown[] }).tags).toContainEqual({ name: "kind", value: "nurture-0" });
   });
 });

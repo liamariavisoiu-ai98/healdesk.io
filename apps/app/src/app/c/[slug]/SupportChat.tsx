@@ -165,8 +165,13 @@ export function SupportChat(props: {
     if (storageKey && loaded && !busy) saveMessages(storageKey, messages);
   }, [storageKey, loaded, messages, busy]);
 
+  // Focus moves into the panel when it opens, and back to the button that
+  // opened it when it closes, once that button is on screen again.
+  const wasOpen = useRef(false);
   useEffect(() => {
     if (open) inputRef.current?.focus();
+    else if (wasOpen.current) openerRef.current?.focus();
+    wasOpen.current = open;
   }, [open]);
 
   useEffect(() => {
@@ -179,10 +184,7 @@ export function SupportChat(props: {
     setOpen(true);
   }, []);
 
-  const hide = useCallback(() => {
-    setOpen(false);
-    openerRef.current?.focus();
-  }, []);
+  const hide = useCallback(() => setOpen(false), []);
 
   const update = (id: string, change: (m: ChatMessage) => ChatMessage) =>
     setMessages((all) => all.map((m) => (m.id === id ? change(m) : m)));
@@ -315,17 +317,16 @@ export function SupportChat(props: {
         </button>
       </div>
 
-      {open ? null : (
-        <button
-          type="button"
-          onClick={(e) => show(e.currentTarget)}
-          aria-expanded={false}
-          aria-controls={ids.panel}
-          className="bg-ink fixed bottom-4 right-4 z-10 min-h-12 rounded-full px-5 text-sm font-bold text-white shadow-lg"
-        >
-          Help
-        </button>
-      )}
+      {/* Kept mounted while the panel is open, so focus can come back to it. */}
+      <button
+        type="button"
+        onClick={(e) => show(e.currentTarget)}
+        aria-expanded={open}
+        aria-controls={ids.panel}
+        className={`bg-ink fixed bottom-4 right-4 z-10 min-h-12 rounded-full px-5 text-sm font-bold text-white shadow-lg ${open ? "hidden" : ""}`}
+      >
+        Help
+      </button>
 
       <div role="status" aria-live="polite" className="sr-only">
         {announcement}

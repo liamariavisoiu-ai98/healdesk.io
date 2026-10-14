@@ -93,7 +93,9 @@ describe("agreementKindFor", () => {
       });
     }
     expect(specialtyOffered("veterinary", false)).toBe(false);
-    expect(specialtyOffered("veterinary", true)).toBe(true);
+    // Released, a vet is still not offered until the product is ready for it (VETERINARY_READY).
+    expect(specialtyOffered("veterinary", true)).toBe(false);
+    expect(specialtyOffered("veterinary", true, true)).toBe(true);
   });
 
   test("a veterinary practice is offered only with the DPA released AND the product ready for it", () => {
@@ -138,22 +140,31 @@ describe("agreementKindFor", () => {
 describe("veterinary readiness", () => {
   // Each item names the thing that must exist before a vet can buy, and is
   // true only because it does: these hold each one to its substance.
-  test("the gate is exactly these items, all in place; the vet practice cases are package B's and the DPA flag the owner's", () => {
-    expect(VETERINARY_READINESS).toEqual({ urgentSet: true, referralNumber: true, clientWording: true });
-    expect(VETERINARY_READY).toBe(true);
-    // Readiness never releases the DPA: the vet chip stays off until the owner does.
+  test("the gate is exactly these items; the vet practice cases are package B's, so no vet is offered yet", () => {
+    expect(VETERINARY_READINESS).toEqual({
+      urgentSet: true,
+      referralNumber: true,
+      clientWording: true,
+      vetPracticeCases: false,
+    });
+    expect(VETERINARY_READY).toBe(false);
+    // Whatever the DPA's flag, which stays the owner's: not offered.
     expect(isDpaReleased()).toBe(false);
     expect(specialtyOffered("veterinary")).toBe(false);
+    expect(specialtyOffered("veterinary", true)).toBe(false);
+    expect(specialtyOffered("veterinary", false)).toBe(false);
   });
 
   test("urgentSet: a veterinary practice is screened with its own set, which an animal's emergency trips", () => {
     expect(urgentSetFor("veterinary")).toBe("veterinary");
     expect(URGENT_FAMILY_COUNT.veterinary).toBeGreaterThan(0);
     expect(findUrgentContent("my dog ate a whole bar of chocolate", "veterinary")).toMatchObject({ emergency: "veterinary" });
+    // And it tells a person's emergency from an animal's.
+    expect(findUrgentContent("my husband collapsed", "veterinary")).toMatchObject({ emergency: "911" });
     expect(findUrgentContent("my dog ate a whole bar of chocolate")).toBeNull();
   });
 
-  test("referralNumber: the veterinary reply gives the emergency referral number, never 911", () => {
+  test("referralNumber: the veterinary reply gives the emergency referral number first, and 911 only for a person", () => {
     const reply = fixedUrgentReply({
       channel: "web_chat",
       emergency: "veterinary",
@@ -164,7 +175,7 @@ describe("veterinary readiness", () => {
       teamAlerted: false,
     });
     expect(reply).toContain("(415) 555-0911");
-    expect(reply).not.toMatch(/\b911\b/);
+    expect(reply.indexOf("(415) 555-0911")).toBeLessThan(reply.indexOf("If a person is hurt or in danger, call 911 now."));
   });
 
   test("clientWording: a veterinary practice's people are clients", () => {

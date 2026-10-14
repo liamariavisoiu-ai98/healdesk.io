@@ -227,3 +227,36 @@ describe("the everyday skin and hair conditions, which only the Meta channels co
     ]);
   });
 });
+
+describe("findClinicalContent in Spanish", () => {
+  // The review of 14 October: with Spanish on, the reply guard passed these.
+  test.each([
+    ["Es seguro durante el embarazo y no tiene efectos secundarios.", "a safety claim"],
+    ["La dosis habitual es de 20 unidades.", "dosing"],
+    ["No tiene riesgos ni complicaciones.", "side effects or risks"],
+    ["Usted es una candidata ideal para el relleno.", "candidacy"],
+    ["Esos síntomas son normales.", "diagnosis, symptoms or triage"],
+    ["La recuperación toma dos días.", "recovery or aftercare"],
+    ["Deje de tomar anticoagulantes una semana antes.", "medication or interactions"],
+    ["Si tiene una infección, espere.", "a medical condition"],
+    ["Resultados garantizados.", "a results guarantee"],
+    ["Está clínicamente probado.", "an efficacy claim"],
+  ])("%j is clinical (%s)", (text, label) => {
+    expect(findClinicalContent({ reply: text })[0]?.label).toBe(label);
+  });
+
+  test.each([
+    "El botox cuesta $12 por unidad.",
+    "Abrimos de lunes a viernes, de 9 a 5.",
+    "¿Aceptan seguro? Sí, el equipo le puede explicar.",
+    "Quisiera una cita para el martes.",
+    "El estacionamiento es gratis.",
+  ])("%j is not clinical", (text) => {
+    expect(findClinicalContent({ reply: text })).toEqual([]);
+  });
+
+  test("an everyday condition in Spanish counts only where conditions do, on Meta", () => {
+    expect(findClinicalContent({ message: "Tengo mucho acné" }, { conditions: true })).not.toEqual([]);
+    expect(findClinicalContent({ message: "Tengo mucho acné" })).toEqual([]);
+  });
+});

@@ -1,4 +1,4 @@
-import type { UrgentEmergency } from "./urgent-content";
+import type { UrgentEmergency, UrgentLanguage } from "./urgent-content";
 
 /**
  * The fixed reply to a complication or an urgent symptom, on every channel
@@ -9,7 +9,8 @@ import type { UrgentEmergency } from "./urgent-content";
  * Fixed text only, built here so the phone, the website chat and the Meta
  * channels cannot word it three ways. No model writes any of it, and nothing
  * the person said goes into it: the matcher (./urgent-content.ts) hands over
- * which emergency service applies, never the words.
+ * which emergency service applies and which language to answer in, never the
+ * words. English and Spanish, the two languages the screens read.
  *
  * In order:
  *   1. The AI line: the assistant says what it is, which is also why it is
@@ -18,9 +19,11 @@ import type { UrgentEmergency } from "./urgent-content";
  *      "hang up and call 911" on a call, where the person is still on our
  *      line. For an animal (a veterinary practice), the emergency vet the
  *      practice refers to, by its number (clinic_settings.vet_referral_e164),
- *      never 911.
+ *      and then, always, 911 for a person who is hurt or in danger: whoever
+ *      wrote may be the one in trouble.
  *   3. The practice's own number: its urgent-help number as apps/app's
- *      lib/setup/urgent.ts resolves it. A veterinary practice's own number
+ *      lib/setup/urgent.ts resolves it, never on a call the number that
+ *      forwards back to the assistant. A veterinary practice's own number
  *      comes after the emergency vet's, and only while it is open (or when
  *      it has given no referral clinic), since a closed practice cannot see
  *      an emergency.
@@ -45,6 +48,8 @@ export type UrgentReplyInput = {
   channel: UrgentReplyChannel;
   /** From the matcher's finding: 911 for a person, the emergency vet for an animal. */
   emergency: UrgentEmergency;
+  /** From the matcher's finding: the language the person wrote in. English when absent. */
+  language?: UrgentLanguage;
   clinicName: string;
   /** The practice's urgent-help number, written for the channel; null when it has none. */
   clinicNumber: string | null;
@@ -56,44 +61,139 @@ export type UrgentReplyInput = {
   teamAlerted: boolean;
 };
 
-export const URGENT_AI_LINE = "I'm an AI assistant, so I can't help with anything urgent here.";
-export const URGENT_TEAM_TOLD_LINE = "I've told the team.";
-export const URGENT_LEAVE_NUMBER_LINE = "Leave a number for the clinic to call you.";
+type Lines = {
+  ai: string;
+  call911: (voice: boolean) => string;
+  person911: (voice: boolean) => string;
+  vet: (voice: boolean, referral: string | null) => string;
+  clinic: (name: string, number: string | null) => string;
+  told: string;
+  leaveNumber: string;
+};
 
-function emergencyLine(input: UrgentReplyInput): string {
-  const voice = input.channel === "voice";
-  if (input.emergency === "911") {
-    return voice
-      ? "If this is an emergency, hang up and call 911 now."
-      : "If this is an emergency, call 911 now.";
-  }
-  const referral = input.referralNumber ?? null;
-  if (referral) {
-    return voice
-      ? `If this is an emergency, hang up and call the emergency vet on ${referral}.`
-      : `If this is an emergency, call the emergency vet now on ${referral}.`;
-  }
-  return voice
-    ? "If this is an emergency, hang up and call your nearest emergency vet."
-    : "If this is an emergency, call your nearest emergency vet now.";
-}
+const LINES: Readonly<Record<UrgentLanguage, Lines>> = {
+  en: {
+    ai: "I'm an AI assistant, so I can't help with anything urgent here.",
+    call911: (voice) =>
+      voice
+        ? "If this is an emergency, hang up and call 911 now."
+        : "If this is an emergency, call 911 now.",
+    person911: (voice) =>
+      voice
+        ? "If a person is hurt or in danger, hang up and call 911 now."
+        : "If a person is hurt or in danger, call 911 now.",
+    vet: (voice, referral) =>
+      referral
+        ? voice
+          ? `If this is an emergency, hang up and call the emergency vet on ${referral}.`
+          : `If this is an emergency, call the emergency vet now on ${referral}.`
+        : voice
+          ? "If this is an emergency, hang up and call your nearest emergency vet."
+          : "If this is an emergency, call your nearest emergency vet now.",
+    clinic: (name, number) =>
+      number ? `Otherwise, please call ${name} on ${number}.` : `Otherwise, please call ${name}.`,
+    told: "I've told the team.",
+    leaveNumber: "Leave a number for the clinic to call you.",
+  },
+  es: {
+    ai: "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí.",
+    call911: (voice) =>
+      voice
+        ? "Si es una emergencia, cuelgue y llame al 911 ahora."
+        : "Si es una emergencia, llame al 911 ahora.",
+    person911: (voice) =>
+      voice
+        ? "Si una persona está herida o en peligro, cuelgue y llame al 911 ahora."
+        : "Si una persona está herida o en peligro, llame al 911 ahora.",
+    vet: (voice, referral) =>
+      referral
+        ? voice
+          ? `Si es una emergencia, cuelgue y llame al veterinario de urgencias al ${referral}.`
+          : `Si es una emergencia, llame ahora al veterinario de urgencias al ${referral}.`
+        : voice
+          ? "Si es una emergencia, cuelgue y llame al veterinario de urgencias más cercano."
+          : "Si es una emergencia, llame ahora al veterinario de urgencias más cercano.",
+    clinic: (name, number) =>
+      number ? `Si no, llame a ${name} al ${number}.` : `Si no, llame a ${name}.`,
+    told: "Ya avisé al equipo.",
+    leaveNumber: "Deje un número para que la clínica le llame.",
+  },
+};
 
-function clinicLine(input: UrgentReplyInput): string | null {
-  const number = input.clinicNumber;
-  if (input.emergency === "911") {
-    return number
-      ? `Otherwise, please call ${input.clinicName} on ${number}.`
-      : `Otherwise, please call ${input.clinicName}.`;
-  }
-  // An animal: the practice's own number while it is open, or whenever there
-  // is no referral clinic to send the client to.
-  const offered = !input.referralNumber || input.clinicOpen !== false;
-  return number && offered ? `Otherwise, please call ${input.clinicName} on ${number}.` : null;
-}
+export const URGENT_AI_LINE = LINES.en.ai;
+export const URGENT_TEAM_TOLD_LINE = LINES.en.told;
+export const URGENT_LEAVE_NUMBER_LINE = LINES.en.leaveNumber;
+export const URGENT_PERSON_LINE = LINES.en.person911(false);
 
 export function fixedUrgentReply(input: UrgentReplyInput): string {
-  const lines = [URGENT_AI_LINE, emergencyLine(input), clinicLine(input)];
-  if (input.teamAlerted) lines.push(URGENT_TEAM_TOLD_LINE);
-  if (input.channel === "web_chat") lines.push(URGENT_LEAVE_NUMBER_LINE);
+  const t = LINES[input.language ?? "en"];
+  const voice = input.channel === "voice";
+  const lines: (string | null)[] = [t.ai];
+  if (input.emergency === "911") {
+    lines.push(t.call911(voice), t.clinic(input.clinicName, input.clinicNumber));
+  } else {
+    const referral = input.referralNumber ?? null;
+    lines.push(t.vet(voice, referral), t.person911(voice));
+    // The practice's own number while it is open, or whenever there is no
+    // referral clinic to send the client to.
+    const offered = !referral || input.clinicOpen !== false;
+    lines.push(
+      input.clinicNumber && offered ? t.clinic(input.clinicName, input.clinicNumber) : null,
+    );
+  }
+  if (input.teamAlerted) lines.push(t.told);
+  if (input.channel === "web_chat") lines.push(t.leaveNumber);
   return lines.filter((line): line is string => Boolean(line)).join(" ");
+}
+
+// -----------------------------------------------------------------------------
+// A message in a language no screen reads
+// -----------------------------------------------------------------------------
+
+export type OtherLanguageReplyInput = {
+  channel: UrgentReplyChannel;
+  clinicName: string;
+  /** The practice's urgent-help number, written for the channel; null when it has none. */
+  clinicNumber: string | null;
+  /** A veterinary practice's emergency referral number: given for an animal, beside 911 for a person. */
+  referralNumber?: string | null;
+  /** Whether the practice's patients are animals. */
+  veterinary?: boolean;
+};
+
+/**
+ * The fixed reply to a message in a language other than English or Spanish
+ * (./message-language.ts): the urgent screen cannot read it, so no model
+ * answers it. In English, then in Spanish: what the assistant is and which
+ * languages it answers in, 911 in an emergency (and at a veterinary practice
+ * the emergency vet too), and the practice's number.
+ */
+export function otherLanguageReply(input: OtherLanguageReplyInput): string {
+  const voice = input.channel === "voice";
+  const referral = input.referralNumber ?? null;
+  const en = [
+    "I'm an AI assistant, and I can only help in English or Spanish.",
+    voice
+      ? "If this is an emergency, hang up and call 911 now."
+      : "If this is an emergency, call 911 now.",
+    input.veterinary
+      ? referral
+        ? `For an animal's emergency, call the emergency vet on ${referral}.`
+        : null
+      : null,
+    LINES.en.clinic(input.clinicName, input.clinicNumber),
+  ];
+  const es = [
+    "Soy un asistente de IA y solo puedo ayudar en inglés o en español.",
+    voice
+      ? "Si es una emergencia, cuelgue y llame al 911 ahora."
+      : "Si es una emergencia, llame al 911 ahora.",
+    input.veterinary
+      ? referral
+        ? `Si un animal tiene una emergencia, llame al veterinario de urgencias al ${referral}.`
+        : null
+      : null,
+    LINES.es.clinic(input.clinicName, input.clinicNumber),
+  ];
+  return [...en, ...es].filter((line): line is string => Boolean(line)).join(" ");
 }

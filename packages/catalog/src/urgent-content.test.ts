@@ -54,10 +54,10 @@ describe("findUrgentContent", () => {
     ["it's urgent, please", "an emergency"],
     ["should I go to the hospital?", "an emergency"],
   ])("%j is urgent (%s)", (text, label) => {
-    expect(findUrgentContent(text)).toEqual({ label, emergency: "911" });
+    expect(findUrgentContent(text)).toEqual({ label, emergency: "911", language: "en" });
     // The set for people is the same for every specialty HIPAA can reach.
     for (const specialty of ["med-spa", "dental", "plastic-surgery", "massage-chiro", null]) {
-      expect(findUrgentContent(text, specialty), String(specialty)).toEqual({ label, emergency: "911" });
+      expect(findUrgentContent(text, specialty), String(specialty)).toEqual({ label, emergency: "911", language: "en" });
     }
   });
 
@@ -111,7 +111,7 @@ describe("findUrgentContent", () => {
 
   test("it names the family that matched and the emergency service, never the words", () => {
     const finding = findUrgentContent("My lips are swelling after the filler");
-    expect(Object.keys(finding ?? {}).sort()).toEqual(["emergency", "label"]);
+    expect(Object.keys(finding ?? {}).sort()).toEqual(["emergency", "label", "language"]);
     expect(JSON.stringify(finding)).not.toMatch(/lips|filler/);
   });
 
@@ -119,6 +119,7 @@ describe("findUrgentContent", () => {
     expect(findUrgentContent("I think I have a complication from the botox")).toEqual({
       label: "a reaction or a complication",
       emergency: "911",
+      language: "en",
     });
     expect(findUrgentContent("Are there any complications?")).toBeNull();
     expect(findClinicalContent({ message: "Are there any complications?" })).not.toEqual([]);
@@ -140,6 +141,101 @@ describe("findUrgentContent", () => {
       expect(findClinicalContent({ message: text }, { conditions: true }), text).not.toEqual([]);
       expect(findClinicalContent({ message: text }), text).toEqual([]);
     }
+  });
+});
+
+describe("findUrgentContent: a crisis, in every way it is said", () => {
+  // The review of 14 October: the crisis family missed these, at every practice.
+  test.each([
+    "I'm thinking of ending my life",
+    "I'm going to end it all",
+    "I took too many pills",
+    "I don't want to live anymore",
+    "she wants to die",
+    "my wife wants to hurt herself",
+    "I overdosed",
+    "I took an overdose",
+    "I wanna die",
+    "I swallowed a bottle of pills",
+  ])("%j is a crisis, and 911's", (text) => {
+    expect(findUrgentContent(text)).toEqual({ label: "a crisis", emergency: "911", language: "en" });
+  });
+
+  test.each([
+    "Is it OK to take my pills before the appointment?",
+    "I'd die for clear skin lol",
+    "I took the day off for my appointment",
+    "Do I need to stop my medication before Botox?",
+  ])("%j is not a crisis", (text) => {
+    expect(findUrgentContent(text)).toBeNull();
+  });
+});
+
+describe("findUrgentContent: a question about the practice's emergency service is read past, an emergency never", () => {
+  test.each([
+    "Do you offer emergency appointments?",
+    "Do you have emergency hours on the weekend?",
+    "Is there an emergency line I can call after hours?",
+    "How much is an emergency visit?",
+    "Is it urgent to book a consultation before my trip?",
+  ])("%j is a question for the desk", (text) => {
+    expect(findUrgentContent(text)).toBeNull();
+  });
+
+  test.each([
+    ["Do you take urgent appointments? I'm in severe pain", "severe pain"],
+    ["Do you have emergency hours? My lips are swelling", "swelling"],
+    ["it's an emergency, are you open?", "an emergency"],
+    ["Help! Do you have emergency appointments?", "an emergency"],
+    ["I need an emergency appointment", "an emergency"],
+    ["is this an emergency?", "an emergency"],
+  ])("%j is still urgent (%s)", (text, label) => {
+    expect(findUrgentContent(text)).toMatchObject({ label, emergency: "911" });
+  });
+
+  test("the practice's own name is read past, and only its name", () => {
+    expect(findUrgentContent("Is Urgent Smiles Dental open on Saturday?", "dental", { clinicName: "Urgent Smiles Dental" })).toBeNull();
+    expect(findUrgentContent("Is Urgent Smiles Dental open on Saturday?", "dental")).not.toBeNull();
+    expect(
+      findUrgentContent("Urgent Smiles Dental, I knocked out my front tooth", "dental", { clinicName: "Urgent Smiles Dental" }),
+    ).toMatchObject({ label: "a wound or an injury" });
+  });
+});
+
+describe("findUrgentContent in Spanish", () => {
+  // Spanish is the second language the assistant answers in, so the screen reads it at every practice.
+  test.each([
+    ["No puedo respirar", "breathing, the throat or the chest"],
+    ["Me cuesta respirar desde la inyección", "breathing, the throat or the chest"],
+    ["Siento dolor en el pecho", "breathing, the throat or the chest"],
+    ["Tengo una reacción alérgica después del relleno", "an allergic reaction"],
+    ["Es una emergencia, mi labio se está poniendo blanco", "an emergency"],
+    ["Tengo los labios hinchados", "swelling"],
+    ["Está sangrando y no para de sangrar", "bleeding"],
+    ["Tengo fiebre después del procedimiento", "an infection or a burn"],
+    ["Tengo visión borrosa", "a change in the skin or in sight"],
+    ["Tengo un dolor insoportable", "severe pain"],
+    ["Me desmayé después de la cita", "consciousness or the nerves"],
+    ["Se me rompió un diente", "a wound or an injury"],
+    ["Quiero suicidarme", "a crisis"],
+    ["Me quiero morir", "a crisis"],
+    ["Me tomé demasiadas pastillas", "a crisis"],
+    ["Tuve una mala reacción al peeling", "a reaction or a complication"],
+  ])("%j is urgent (%s), and its reply is Spanish", (text, label) => {
+    expect(findUrgentContent(text, "med-spa")).toEqual({ label, emergency: "911", language: "es" });
+  });
+
+  test.each([
+    "¿Cuánto cuesta el botox?",
+    "Quisiera una cita para el martes por la mañana",
+    "¿Dónde puedo estacionar?",
+    "nada urgente, solo una pregunta sobre precios",
+    "¿Tienen citas de urgencia?",
+    "¿Aceptan seguro?",
+    "Mi número es 415-911-2345",
+    "¿Usan crema anestésica?",
+  ])("%j is not urgent", (text) => {
+    expect(findUrgentContent(text, "med-spa")).toBeNull();
   });
 });
 
@@ -200,12 +296,106 @@ describe("findUrgentContent for a veterinary practice", () => {
     ["it's an emergency", "an emergency"],
     ["should I take him to the animal hospital?", "an emergency"],
   ])("%j is urgent (%s) and points to the emergency vet", (text, label) => {
-    expect(findUrgentContent(text, "veterinary")).toEqual({ label, emergency: "veterinary" });
+    expect(findUrgentContent(text, "veterinary")).toEqual({ label, emergency: "veterinary", language: "en" });
   });
 
-  test("a client in crisis themselves is a person: 911, whatever the practice treats", () => {
-    for (const text of ["I want to kill myself", "I just want to die", "I've been thinking about suicide"]) {
-      expect(findUrgentContent(text, "veterinary"), text).toEqual({ label: "a crisis", emergency: "911" });
+  // The review of 14 October: these reached the model.
+  test.each([
+    ["my dog isn't moving", "a collapse or a seizure"],
+    ["he won't wake up", "a collapse or a seizure"],
+    ["my dog was attacked by a pit bull", "an accident or an injury"],
+    ["she ate something and is now shaking", "a poisoning or something swallowed"],
+    ["my dog overdosed on my pills", "a poisoning or something swallowed"],
+    ["should I call 911 for my dog?", "an emergency"],
+  ])("%j is an animal's emergency (%s)", (text, label) => {
+    expect(findUrgentContent(text, "veterinary")).toEqual({ label, emergency: "veterinary", language: "en" });
+  });
+
+  test("a client in crisis themselves is a person: 911, by the very family the set for people uses", () => {
+    for (const text of [
+      "I want to kill myself",
+      "I just want to die",
+      "I've been thinking about suicide",
+      "she wants to die",
+      "my wife wants to hurt herself",
+      "I overdosed",
+      "I took an overdose",
+      "I'm thinking of ending my life",
+      "I'm going to end it all",
+      "I took too many pills",
+      "I don't want to live anymore",
+      "my dog died and I want to kill myself",
+    ]) {
+      expect(findUrgentContent(text, "veterinary"), text).toEqual({ label: "a crisis", emergency: "911", language: "en" });
+      expect(findUrgentContent(text, "med-spa"), text).toEqual({ label: "a crisis", emergency: "911", language: "en" });
+    }
+  });
+
+  // The review of 14 October: a person's own emergency at a veterinary
+  // practice went to the emergency vet.
+  test.each([
+    "I swallowed a bottle of pills",
+    "call 911, my husband collapsed",
+    "I need an ambulance",
+    "I can't breathe",
+    "my son swallowed a battery",
+    "I'm having an allergic reaction",
+    "my baby isn't breathing",
+    "I'm having chest pains",
+    "my husband is having a heart attack",
+    "I was bitten by a dog and it won't stop bleeding",
+    "my face is swelling and my throat feels tight",
+    "call 911",
+  ])("%j is a person's emergency at a vet: 911", (text) => {
+    expect(findUrgentContent(text, "veterinary")).toMatchObject({ emergency: "911" });
+  });
+
+  test("an animal's emergency still goes to the emergency vet when the client says I", () => {
+    for (const text of [
+      "I think my dog ate a whole bar of chocolate",
+      "I just found my cat collapsed",
+      "I can't get my dog to stand up, he collapsed",
+      "I'm worried, my dog is vomiting blood",
+    ]) {
+      expect(findUrgentContent(text, "veterinary"), text).toMatchObject({ emergency: "veterinary" });
+    }
+  });
+
+  test("in Spanish too: an animal's emergency, and a person's", () => {
+    expect(findUrgentContent("mi perro comió chocolate", "veterinary")).toEqual({
+      label: "a poisoning or something swallowed",
+      emergency: "veterinary",
+      language: "es",
+    });
+    expect(findUrgentContent("mi gato no puede orinar", "veterinary")).toMatchObject({ emergency: "veterinary", language: "es" });
+    expect(findUrgentContent("mi perro no se mueve", "veterinary")).toMatchObject({ emergency: "veterinary", language: "es" });
+    expect(findUrgentContent("lo atropelló un carro", "veterinary")).toMatchObject({ emergency: "veterinary", language: "es" });
+    expect(findUrgentContent("mi esposo no puede respirar", "veterinary")).toMatchObject({ emergency: "911", language: "es" });
+    expect(findUrgentContent("me quiero morir", "veterinary")).toMatchObject({ label: "a crisis", emergency: "911", language: "es" });
+    expect(findUrgentContent("¿Cuánto cuesta vacunar a mi perro?", "veterinary")).toBeNull();
+    expect(findUrgentContent("¿Tienen citas de urgencia para gatos?", "veterinary")).toBeNull();
+  });
+
+  // The review of 14 October: a hospital's name and a question about its
+  // emergency service fired the urgent reply.
+  test("the practice's name and a question about its service are read past; an emergency never", () => {
+    const named = { clinicName: "Oakwood Animal Hospital" };
+    for (const text of [
+      "Hi, is Oakwood Animal Hospital open on Saturday?",
+      "Thanks Oakwood Animal Hospital, see you tomorrow",
+      "Do you offer emergency appointments?",
+      "Is it urgent to get my puppy vaccinated?",
+      "is the vet hospital open Sunday",
+    ]) {
+      expect(findUrgentContent(text, "veterinary", named), text).toBeNull();
+    }
+    for (const [text, label] of [
+      ["Hi Oakwood Animal Hospital, my dog was hit by a car", "an accident or an injury"],
+      ["Do you take emergency appointments? he was hit by a car", "an accident or an injury"],
+      ["it's an emergency, are you open?", "an emergency"],
+      ["should I take him to the animal hospital?", "an emergency"],
+    ] as const) {
+      expect(findUrgentContent(text, "veterinary", named), text).toMatchObject({ label, emergency: "veterinary" });
     }
   });
 
@@ -238,6 +428,21 @@ describe("findUrgentContent for a veterinary practice", () => {
     "my number is 415-911-2345",
     "Our dog died last week, do you arrange cremation?",
     "I can't see a booking link on your website",
+    // The review of 14 October.
+    "I'd like to book a spay",
+    "Do you do dental cleaning?",
+    "how much for vaccinations",
+    "my dog loves eating bones, what treats do you sell?",
+    "my dog is due for her heartworm pills",
+    "Do you board dogs over the holidays?",
+    "My dog needs his nails trimmed, he hates it and yelps",
+    "Can I bring in the bloodwork from the other vet?",
+    "My dog chews his toy ball all day",
+    "we just had a litter of puppies, when can they get shots",
+    "how long does a dental take? she will be under anaesthesia",
+    "do you sell flea and tick medication?",
+    "My dog ate his food too fast",
+    "I'm not breathing easy about the cost lol",
   ])("%j is not urgent at a veterinary practice", (text) => {
     expect(findUrgentContent(text, "veterinary")).toBeNull();
   });

@@ -19,6 +19,10 @@
         "ANTHROPIC_API_KEY",
         "HEALDESK_GATE_SECRET",
         "NEXT_PUBLIC_SITE_URL",
+        // The clinic portal's public origin, for the site's "Sign in" link
+        // (apps/web lib/portal-link.ts). Inlined into the bundle; unset, the
+        // navbar and the footer show no link.
+        "NEXT_PUBLIC_PORTAL_URL",
         "HEALDESK_APP_URL",
         "HEALDESK_PROVISION_SECRET",
         "STRIPE_SECRET_KEY",

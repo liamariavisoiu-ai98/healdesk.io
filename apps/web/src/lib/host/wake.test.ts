@@ -75,7 +75,7 @@ describe("wakeHostForPaidInvoice", () => {
     expect(email!.subject).toMatch(/payment arrived while the AWS host was in standby: it is being turned on/);
     expect(email!.text).toContain("evt_1");
     expect(email!.text).toContain("/admin/host");
-    expect(email!.idempotencyKey).toBe("host-wake:2026-10-14T12");
+    expect(email!.idempotencyKey).toBe("hd-host-wake-2026-10-14T12-1");
     expect(email!.text).not.toContain("github_pat_wake_test");
   });
 
@@ -89,7 +89,7 @@ describe("wakeHostForPaidInvoice", () => {
     await wakeHostForPaidInvoice({ kind: "unreachable" }, "evt_1", deps(T0 + WAKE_INTERVAL_MS));
     expect(dispatches).toBe(2);
     expect(emails).toHaveLength(2);
-    expect(emails[1]!.idempotencyKey).toBe("host-wake:2026-10-14T13");
+    expect(emails[1]!.idempotencyKey).toBe("hd-host-wake-2026-10-14T13-1");
   });
 
   test("does nothing for a host that answered", async () => {

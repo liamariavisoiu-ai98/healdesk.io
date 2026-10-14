@@ -1,10 +1,12 @@
 import { COHORT_SETUP_CREDIT } from "@healdesk/catalog";
 
+import { directBookingOpen } from "@/lib/admin/ops-client";
 import { chooseSetupOffer, demoOfferFor, SETUP_OFFER_CREDITS, type SetupOffer } from "@/lib/billing";
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
 import { demoOfferEndsAt, demoSetupCredit, getDemoSession } from "@/lib/demo/sessions";
 import { replyByDate } from "@/lib/reply-by";
 import { creditUntil, gateState } from "@/lib/setup-gate";
+import { requestChannels } from "@/lib/setup-requests";
 import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 import { siteOfferEndsAt } from "@/lib/site-offer";
 
@@ -32,9 +34,12 @@ export type ModeOffer = { kind: SetupOffer; percentOfSetupFee: number; endsAt: s
  *   was expired, replaced or already used, and the date we reply by.
  *
  * What comes back about the request is what the person who holds the link
- * already gave us: their name, clinic, website and address. Nothing else.
+ * already gave us: their name, clinic, website, address and the channels they
+ * asked for. Nothing else.
  * Beside the purchase goes one setting of this server's, whether Stripe Tax
- * is on, so Review and pay can say "Plus sales tax where it applies", and the
+ * is on, so Review and pay can say "Plus sales tax where it applies", the
+ * owner's direct-booking switch as apps/app reports it (`directBooking`, for
+ * step 2's line on how bookings are made; off when apps/app cannot say), and the
  * setup offer that would apply (`offer`, since 13 October 2026): the
  * founding-cohort credit of the lead a setup link came from, the 50% of the
  * personalised demo the buyer came from, or the website's 30% once the
@@ -50,8 +55,8 @@ export async function GET(request: Request): Promise<Response> {
   const cookieHeader = request.headers.get("cookie");
 
   if (state.mode === "public") {
-    const offer = await offerFor(cookieHeader, null);
-    return Response.json({ mode: "public", salesTax, offer }, { headers });
+    const [offer, directBooking] = await Promise.all([offerFor(cookieHeader, null), directBookingOpen()]);
+    return Response.json({ mode: "public", salesTax, directBooking, offer }, { headers });
   }
   if (state.link !== "valid") {
     // The date the form promises a reply by, worked out here so the page and
@@ -60,7 +65,7 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const until = await creditUntil(state.request, COHORT_SETUP_CREDIT.validDays).catch(() => null);
-  const offer = await offerFor(cookieHeader, until);
+  const [offer, directBooking] = await Promise.all([offerFor(cookieHeader, until), directBookingOpen()]);
   return Response.json(
     {
       mode: "pilot",
@@ -70,9 +75,12 @@ export async function GET(request: Request): Promise<Response> {
         clinicName: state.request.clinicName,
         email: state.request.email,
         website: state.request.website,
+        // What they asked AYA on, so the purchase opens on that package.
+        channels: requestChannels(state.request),
       },
       creditUntil: until?.toISOString() ?? null,
       salesTax,
+      directBooking,
       offer,
     },
     { headers },

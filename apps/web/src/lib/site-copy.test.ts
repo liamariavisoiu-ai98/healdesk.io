@@ -47,6 +47,13 @@ import { SUBPROCESSORS } from "@/lib/subprocessors";
  *   own access"). v1 has one shared sign-in per clinic, at the clinic's one
  *   email address, and each phone or computer adds its own passkey; the
  *   spec's three roles are deferred past v1.
+ * - Newness words: "pilot", "beta", "early access", "first clinics",
+ *   "founding", "cohort". Nothing a client sees suggests we are new (the
+ *   owner's rule of 5 October 2026; plan Part A6), on any page, in the
+ *   purchase or in the nurture emails, whose templates are copy under src/.
+ *   The code keeps "pilot" and "cohort" as values it compares, which the
+ *   rule leaves alone; the coupon names Stripe prints are checked in
+ *   packages/catalog (plans.test.ts).
  * - Any @healdesk.io address but hello@. It is the only one, for legal
  *   notices, privacy requests and everything else (owner, 9 October 2026):
  *   the legal pages named legal@ and privacy@, mailboxes nobody reads.
@@ -100,6 +107,14 @@ const BANNED: readonly { pattern: RegExp; label: string }[] = [
   {
     pattern: /\b(?!hello@)[\w.+-]+@healdesk\.io\b/i,
     label: "an address other than hello@healdesk.io: it is the only one",
+  },
+  {
+    // Read only in prose: a piece with a space in it, or one that starts with
+    // a capital, as a label does. A bare lowercase literal ("pilot",
+    // "cohort-setup") is a value the code compares, which no reader sees.
+    pattern:
+      /^(?=[\s\S]*\s|[A-Z])[\s\S]*\b(?:[Pp]ilot|PILOT|[Bb]eta|BETA|[Ee]arly [Aa]ccess|[Ff]irst [Cc]linics|[Ff]ounding|FOUNDING|[Cc]ohort|COHORT)\b/,
+    label: "a newness word ('pilot', 'beta', 'early access', 'first clinics', 'founding', 'cohort')",
   },
 ];
 
@@ -271,6 +286,23 @@ describe("the site makes none of the claims it may not make", () => {
       }
     }
     expect(offenders).toEqual([]);
+  });
+
+  test("the newness rule reads prose and labels, not the values the code compares", () => {
+    const { pattern } = BANNED.find((rule) => rule.label.startsWith("a newness word"))!;
+    for (const prose of [
+      "Join our pilot programme",
+      "Founding member pricing",
+      "Beta",
+      "Early access for the first clinics",
+      "A setup credit for our first cohort.",
+      "You're one of our first clinics",
+    ]) {
+      expect(prose, prose).toMatch(pattern);
+    }
+    for (const value of ["pilot", "cohort-setup", "cohort", "beta"]) expect(value).not.toMatch(pattern);
+    // Nurture's touches are copy under src/, so the scan reads them too.
+    expect(COPY.get("lib/email/nurture.ts")?.some((piece) => piece.includes("setup credit"))).toBe(true);
   });
 
   test("every quoted exception is still where it says it is", () => {

@@ -1,4 +1,9 @@
-import { OVERAGE_RATES_PROVISIONAL, TRANSCRIPT_RETENTION_DAYS, USAGE_ALERT_PERCENT } from "@healdesk/catalog";
+import {
+  isDpaReleased,
+  OVERAGE_RATES_PROVISIONAL,
+  TRANSCRIPT_RETENTION_DAYS,
+  USAGE_ALERT_PERCENT,
+} from "@healdesk/catalog";
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
@@ -515,5 +520,117 @@ describe("the Meta assistant takes booking requests and sends no payment link", 
     );
     expect(text).toContain("sends a hosted deposit link in website chat");
     expect(text).not.toMatch(/can book and (?:can )?send your own payment link/);
+  });
+});
+
+/**
+ * "Business Associate Agreement" only where the BAA itself is meant (plan
+ * Part A6: "Data Agreement" is defined, BAA or DPA, "with a test that fails on
+ * stray 'Business Associate Agreement' wording outside BAA passages").
+ *
+ * Section 2 defines the Data Agreement as the BAA or, for a practice that
+ * signs the data protection agreement in its place, the DPA. So the defined
+ * term "Business Associate Agreement" belongs only where the BAA is the point:
+ * the definition, section 9 on HIPAA's own agreement, and the claims only the
+ * BAA makes. Everywhere else the agreement meant is the practice's Data
+ * Agreement, whichever kind it signed.
+ *
+ * While the DPA is unreleased (catalog `isDpaReleased()`), every practice
+ * signs the BAA, so a passage that says "Business Associate Agreement" where
+ * it means the Data Agreement is still true, and is listed below as such. The
+ * release of the DPA fails this test until each of those reads "Data
+ * Agreement". Any use in neither list fails at once. The lowercase noun (a
+ * vendor's business associate agreement) and the plural are the general
+ * term, not the document, and are not read.
+ */
+describe('"Business Associate Agreement" only where the BAA is meant', () => {
+  const DEFINED_TERM = /Business Associate Agreement(?!s)|BUSINESS ASSOCIATE AGREEMENT(?!S)/;
+
+  /** Where the BAA itself is the point. */
+  const BAA_PASSAGES: readonly { text: string; why: string }[] = [
+    { text: "Patient information is governed by the separate Business Associate Agreement you sign at checkout.", why: "section 2's definition" },
+    { text: "the Business Associate Agreement controls (section 9).", why: "section 2's definition" },
+    { text: "In these terms your Data Agreement means that Business Associate Agreement or", why: "the definition of the Data Agreement" },
+    { text: "Patient information and the Business Associate Agreement", why: "section 9's title: HIPAA's agreement" },
+    { text: "Where your Practice is a covered entity under HIPAA, the Business Associate Agreement you sign at checkout is the agreement required by 45 CFR 164.502(e)", why: "section 9: HIPAA's own requirement" },
+    { text: "is given to you on request, under the Business Associate Agreement.", why: "section 9: the BAA's subcontractor clause" },
+    { text: "The Business Associate Agreement states the same.", why: "section 9: the BAA's own statement of the model provider's retention" },
+    { text: "which is the exception the Business Associate Agreement makes", why: "the annex: the BAA's telephone exception" },
+    { text: "ours are in the Business Associate Agreement.", why: "the annex: HIPAA's obligations" },
+    { text: "the way to check ours is to read the Business Associate Agreement", why: "the annex: HIPAA's obligations" },
+  ];
+
+  /** True only while every practice signs the BAA: the Data Agreement is meant. */
+  const WHILE_EVERY_PRACTICE_SIGNS_THE_BAA: readonly string[] = [
+    "we keep only the signed Business Associate Agreement and the billing records",
+    "It does not limit your rights under the Business Associate Agreement",
+    "we then destroy our copies when and as the Business Associate Agreement says.",
+    "Patient information is covered by the Business Associate Agreement, not by this section.",
+    "EXCEPT AS EXPRESSLY STATED IN THESE TERMS OR THE BUSINESS ASSOCIATE AGREEMENT",
+    "The Business Associate Agreement allocates liability for patient information consistently with this section",
+    "Nothing in these terms or in the Business Associate Agreement shifts to you a civil money penalty",
+    "These terms, the Business Associate Agreement and the order you complete at checkout are the entire agreement",
+    "The Business Associate Agreement you sign at checkout governs patient information.",
+    "runs on separate infrastructure, under the Business Associate Agreement,",
+    "The list of these subcontractors is given to clinics on request, under the Business Associate Agreement.",
+  ];
+
+  /** Every sentence of the terms that uses the defined term, as a reader sees it. */
+  function sentences(): string[] {
+    const markup = renderToStaticMarkup(h(TermsPage));
+    const main = markup.slice(markup.indexOf("<main"), markup.indexOf("</main>"));
+    return main
+      .replace(/<style[\s\S]*?<\/style>/g, "")
+      .split(/<\/(?:p|li|td|th|h[1-6]|summary)>/)
+      .map((block) =>
+        block
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&quot;/g, '"')
+          .replace(/&#x27;/g, "'")
+          .replace(/&amp;/g, "&")
+          .replace(/\s+/g, " ")
+          .trim(),
+      )
+      .flatMap((block) => block.split(/(?<=[.!?;])\s+(?=[A-Z"])/))
+      .filter((sentence) => DEFINED_TERM.test(sentence));
+  }
+
+  const found = sentences();
+  const isBaaPassage = (s: string) => BAA_PASSAGES.some((p) => s.includes(p.text));
+  const isInterim = (s: string) => WHILE_EVERY_PRACTICE_SIGNS_THE_BAA.some((p) => s.includes(p));
+
+  test("the scan finds the definition, so it is reading the terms", () => {
+    expect(found.some((s) => s.includes("In these terms your Data Agreement means"))).toBe(true);
+    expect(found.length).toBeGreaterThan(10);
+  });
+
+  test("every use is a BAA passage, or one listed as true while every practice signs the BAA", () => {
+    expect(found.filter((s) => !isBaaPassage(s) && !isInterim(s))).toEqual([]);
+  });
+
+  test("once the DPA is released, none of the interim uses is left", () => {
+    const interim = found.filter((s) => !isBaaPassage(s) && isInterim(s));
+    if (isDpaReleased()) {
+      expect(
+        interim,
+        'The DPA is released, so a practice may have signed it: these must say "Data Agreement" (bump LEGAL_VERSION).',
+      ).toEqual([]);
+    } else {
+      expect(interim.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("every listed passage is still in the terms, so neither list outlives its sentence", () => {
+    for (const { text } of BAA_PASSAGES) expect(found.some((s) => s.includes(text)), text).toBe(true);
+    for (const text of WHILE_EVERY_PRACTICE_SIGNS_THE_BAA) {
+      expect(found.some((s) => s.includes(text)), text).toBe(true);
+    }
+  });
+
+  test("the rule catches a stray use, and leaves the general noun alone", () => {
+    const stray = "Your Business Associate Agreement ends when your subscription does.";
+    expect(DEFINED_TERM.test(stray) && !isBaaPassage(stray) && !isInterim(stray)).toBe(true);
+    expect(DEFINED_TERM.test("each under a business associate agreement with us")).toBe(false);
+    expect(DEFINED_TERM.test("Meta, which does not sign Business Associate Agreements.")).toBe(false);
   });
 });

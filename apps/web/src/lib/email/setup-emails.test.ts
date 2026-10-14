@@ -96,9 +96,12 @@ describe("setup and contact emails", () => {
   });
 
   test("the request to us names everything an operator needs, in plain words", () => {
-    const internal = setupRequestInternal(REQUEST, { creditLive: false });
+    const internal = setupRequestInternal(REQUEST, { creditLive: false, replyBy: "Tuesday 7 October" });
     expect(internal.text).toContain("phone, website chat and WhatsApp");
     expect(internal.text).toContain("/admin/setup");
+    // The day P2 promised them, never "the next business day" (X1.3).
+    expect(internal.text).toContain("We promised them a reply by Tuesday 7 October.");
+    expect(internal.text).not.toMatch(/next business day|within one business day/i);
     expect(channelList(null)).toBe("not said");
   });
 });

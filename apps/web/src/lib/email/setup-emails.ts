@@ -36,17 +36,32 @@ export function longDate(date: Date): string {
   }).format(date);
 }
 
+/** The most a subject may be (Annex X4): longer ones are cut by the inbox, mid-word. */
+export const SUBJECT_MAX = 70;
+
+/** A clinic's name cut, with an ellipsis, to fit `room` characters of a subject. */
+export function nameForSubject(name: string, room: number): string {
+  const clean = name.replace(/\s+/g, " ").trim();
+  return clean.length <= room ? clean : `${clean.slice(0, Math.max(1, room - 1)).trimEnd()}…`;
+}
+
 /** The first word of the name as typed, or "there". */
 export function firstName(name: string): string {
   const first = name.trim().split(/\s+/)[0] ?? "";
   return /^[\p{L}'-]{1,40}$/u.test(first) ? first : "there";
 }
 
+/**
+ * The sender identity, as on the site (Annex X1.9): the operating entity and
+ * the US mailing address for correspondence, which is also the postal
+ * address CAN-SPAM asks of commercial mail.
+ */
 function identity(): string[] {
   return [entityLine(), `${ENTITY.postalAddressLabel}: ${ENTITY.postalAddress}`];
 }
 
-function transactionalFooter(why: string): string {
+/** The footer of every apps/web email that offers no opt-out: why it came, who replies, who sent it. */
+export function transactionalFooter(why: string): string {
   return [
     "",
     "--",
@@ -56,7 +71,8 @@ function transactionalFooter(why: string): string {
   ].join("\n");
 }
 
-function commercialFooter(why: string, unsubscribeUrl: string): string {
+/** The footer of every commercial email (P1, P4, P5, P7): the same, plus the one-click way to stop them. */
+export function commercialFooter(why: string, unsubscribeUrl: string): string {
   return [
     "",
     "--",
@@ -90,10 +106,17 @@ export function setupRequestAck(request: SetupRequest, replyBy: string): Rendere
   };
 }
 
-/** P3: the request itself, to us. Reply-to is the requester. */
-export function setupRequestInternal(request: SetupRequest, opts: { creditLive: boolean }): RenderedEmail {
+/**
+ * P3: the request itself, to us. Reply-to is the requester. `replyBy` is the
+ * day P2 promised them, the same string, so the inbox shows the date that is
+ * owed rather than "the next business day" (X1.3: an exact time).
+ */
+export function setupRequestInternal(
+  request: SetupRequest,
+  opts: { creditLive: boolean; replyBy: string },
+): RenderedEmail {
   return {
-    subject: `Setup request: ${request.clinicName}`,
+    subject: `Setup request: ${nameForSubject(request.clinicName, SUBJECT_MAX - "Setup request: ".length)}`,
     text: [
       `Name:      ${request.name}`,
       `Clinic:    ${request.clinicName}`,
@@ -102,7 +125,7 @@ export function setupRequestInternal(request: SetupRequest, opts: { creditLive: 
       `Channels:  ${channelList(request.channels)}`,
       `From the Day 7 email: ${request.leadId ? (opts.creditLive ? "yes, setup credit still valid" : "yes, credit expired") : "no"}`,
       "",
-      `Send their setup link from ${site.url}/admin/setup. We promised a reply by the next business day.`,
+      `Send their setup link from ${site.url}/admin/setup. We promised them a reply by ${opts.replyBy}.`,
     ].join("\n"),
   };
 }
@@ -116,7 +139,7 @@ export function setupLinkEmail(
     ? `Your setup fee is waived if you complete your purchase by ${longDate(opts.creditUntil)}.\n\n`
     : "";
   return {
-    subject: `Your setup link for ${request.clinicName}`,
+    subject: `Your setup link for ${nameForSubject(request.clinicName, SUBJECT_MAX - "Your setup link for ".length)}`,
     text:
       `Hi ${firstName(request.name)},\n\n` +
       `Here is your setup link for ${request.clinicName}:\n\n${opts.link}\n\n` +

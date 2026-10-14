@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
-import { attachAnalyticsClient, isAnalyticsExcludedPath } from "@/lib/analytics";
+import { attachAnalyticsClient, isAnalyticsExcludedPath, scrubEvent } from "@/lib/analytics";
 import { getConsent, onConsentChange, type ConsentState } from "@/lib/consent-store";
 
 /**
@@ -26,6 +26,8 @@ import { getConsent, onConsentChange, type ConsentState } from "@/lib/consent-st
  *   - respect_dnt: a browser that asks not to be tracked is not tracked.
  *   - capture_pageview "history_change": one pageview per client-side route
  *     change; never on the excluded paths.
+ *   - before_send `scrubEvent`: the purchase pages' query strings (a lead id,
+ *     a campaign, a package) never leave the browser in a URL property.
  */
 export function PostHogProvider() {
   const pathname = usePathname();
@@ -64,6 +66,7 @@ export function PostHogProvider() {
           mask_all_element_attributes: true,
           respect_dnt: true,
           person_profiles: "identified_only",
+          before_send: scrubEvent,
         });
       }
       instance.opt_in_capturing();

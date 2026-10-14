@@ -115,7 +115,7 @@ export default function RootLayout({
       <body className="min-h-screen antialiased">
         {children}
         {/* Analytics initialises only after the visitor accepts the notice,
-            and never on /get-started/done or /admin. No advertising pixel or
+            and never on /admin or a personalised demo. No advertising pixel or
             tag manager may ever be added here — see src/lib/analytics.ts and
             docs/architecture.md "No conversion attribution to ad platforms". */}
         <RevealOnScroll />

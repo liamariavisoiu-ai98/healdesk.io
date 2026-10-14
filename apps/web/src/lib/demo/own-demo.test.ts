@@ -7,7 +7,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 const sendSafely = vi.fn();
-vi.mock("@/lib/email", () => ({ sendSafely: (...args: unknown[]) => sendSafely(...args) }));
+vi.mock("@/lib/email", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/email")>()),
+  sendSafely: (...args: unknown[]) => sendSafely(...args),
+}));
 const postInternalAlert = vi.fn();
 vi.mock("@/lib/demo/alert", () => ({ postInternalAlert: (...args: unknown[]) => postInternalAlert(...args) }));
 const runDemoBuild = vi.fn();

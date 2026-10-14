@@ -157,7 +157,6 @@ describe("the template registry", () => {
     }
     expect(byPackage).toEqual({
       WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
-      WP1: ["channel_live"],
       F: [
         "booking_request",
         "request_still_open",
@@ -219,6 +218,7 @@ describe("the template registry", () => {
       "setting_changed",
       "channel_ready",
       "steps_sent",
+      "channel_live",
       "calendar_link",
       "calendar_election_recorded",
       "terms_notice",

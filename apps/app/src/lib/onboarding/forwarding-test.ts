@@ -47,6 +47,30 @@ export type ForwardingClinicFacts = {
   publishedPhoneE164: string | null;
 };
 
+/**
+ * Whether a call that started at `at` is inside a forwarding test's window:
+ * the window open now, or the one that observed its first call, until it
+ * ended. The first call closes the open window (observeForwardingCall), but
+ * the operator may ring again from another phone inside the same five
+ * minutes, and every one of those calls is Healdesk's own: none is billed as
+ * minutes or counted as phone's first answer (lib/channels/events.ts).
+ */
+export function inForwardingTestWindow(
+  clinic: { forwardingTestUntil: Date | null; forwardingTestObserved?: ForwardingTestObservation | null },
+  at: Date,
+): boolean {
+  const ends = [
+    clinic.forwardingTestUntil?.getTime(),
+    clinic.forwardingTestObserved?.windowUntil
+      ? Date.parse(clinic.forwardingTestObserved.windowUntil)
+      : undefined,
+  ];
+  const t = at.getTime();
+  return ends.some(
+    (end) => end !== undefined && !Number.isNaN(end) && t <= end && t >= end - FORWARDING_TEST_WINDOW_MS,
+  );
+}
+
 export type ForwardingOutcome = "ignored" | "passed" | "failed" | "caller_id_lost";
 
 function condition(event: VoiceCallEvent): ForwardingTestObservation["condition"] {
@@ -74,6 +98,7 @@ export function evaluateForwardingCall(
     callerIsClinic,
     observation: {
       arrivedAt: event.startedAt.toISOString(),
+      windowUntil: new Date(until!).toISOString(),
       conversationId,
       callerIdPreserved: Boolean(event.callerPhone) && !callerIsClinic,
       condition: condition(event),

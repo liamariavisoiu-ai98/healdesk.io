@@ -258,6 +258,16 @@ const WORDING: Record<OpsEvent, Wording> = {
   // Raised by the nightly retention purge for each clinic whose purge threw
   // (`phase` clinic, its id), and once when a run could not purge at all
   // (`phase` run). Ids and the step only; the error is in the worker's log.
+  first_answer_not_recorded: {
+    title: "A channel's first answer was not recorded",
+    action:
+      "AYA answered a patient on the live channel below, but its first answer, and the plan start or price step-up that goes with it, could not be recorded, so billing for that channel has not begun. The conversation itself is recorded. The next answered conversation on the channel tries again; if this repeats, read the error lines for the first answer in apps/app's log and check the channel on the clinic's billing page in the console.",
+  },
+  web_widget_to_confirm: {
+    title: "Confirm a clinic's website chat is on its site",
+    action:
+      "The clinic below has website chat waiting on its line, and the chat was opened from what claims to be its website. A claim is not proof, so website chat stays off until you look: open the clinic's website, check the chat is there and answers, then press \"The line is on their website\" on the clinic's onboarding page in the console.",
+  },
   transcript_undelivered: {
     title: "A transcript could not be emailed",
     action:

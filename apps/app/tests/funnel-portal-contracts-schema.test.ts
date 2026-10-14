@@ -10,7 +10,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { seedClinic } from "./setup/factories";
+import { inTenant, seedClinic } from "./setup/factories";
 
 /**
  * drizzle/0044 (the funnel and portal contracts), asserted.
@@ -125,11 +125,10 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
       delete: true,
     });
     // Where table-level UPDATE is withheld, these are the only columns left.
+    // Since 0079 the lifecycle stamps (ready_at, live_at, first_answer_at)
+    // are the channel definers' alone.
     expect(await updatableColumns("clinic_channels")).toEqual([
       "enabled",
-      "first_answer_at",
-      "live_at",
-      "ready_at",
       "updated_at",
       "waiting_on",
     ]);
@@ -139,7 +138,9 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
 
   test("a channel's first answer is recorded once; every other kind may repeat", async () => {
     const { clinicId } = await seedClinic("first-answer");
-    await asApp(clinicId, async (c) => {
+    // As the migrator, the definers' owner: since 0079 the runtime role
+    // inserts none of these kinds itself.
+    await inTenant(clinicId, async (c) => {
       const insert = (channel: string | null, kind: string) =>
         c.query(`insert into channel_events (clinic_id, channel, kind) values ($1, $2, $3)`, [
           clinicId,
@@ -176,8 +177,8 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
     const { clinicId } = await seedClinic("append-only");
     await asApp(clinicId, async (c) => {
       const { rows } = await c.query<{ id: string }>(
-        `insert into channel_events (clinic_id, channel, kind, actor, detail)
-         values ($1, 'web', 'ready', 'system', '{"count": 1}') returning id`,
+        `insert into channel_events (clinic_id, channel, kind, actor, detail, waiting_on)
+         values ($1, 'web', 'waiting', 'system', '{"count": 1}', 'snippet') returning id`,
         [clinicId],
       );
       const id = rows[0]!.id;
@@ -205,9 +206,9 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
     await asApp(clinicId, async (c) => {
       await c.query(`savepoint s`);
       const refused: [string | null, string, string | null][] = [
-        [null, "live", null],
-        [null, "first_answer", null],
-        ["sms", "ready", null],
+        [null, "turned_on", null],
+        [null, "waiting", null],
+        ["sms", "waiting", null],
         ["web", "renamed", null],
         ["voice", "waiting", "fax"],
       ];
@@ -259,12 +260,22 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
       await c.query(`rollback to savepoint s`);
 
       const moved = await c.query(
-        `update clinic_channels set ready_at = now(), waiting_on = 'snippet', enabled = false, updated_at = now()
+        `update clinic_channels set waiting_on = 'snippet', enabled = false, updated_at = now()
           where clinic_id = $1 and channel = 'web' returning channel`,
         [clinicId],
       );
       expect(moved.rows).toHaveLength(1);
       await c.query(`savepoint t`);
+      // The lifecycle stamps are the channel definers' (0079).
+      for (const column of ["ready_at", "live_at", "first_answer_at"]) {
+        await expect(
+          c.query(`update clinic_channels set ${column} = now() where clinic_id = $1 and channel = 'web'`, [
+            clinicId,
+          ]),
+          column,
+        ).rejects.toMatchObject({ code: "42501" });
+        await c.query(`rollback to savepoint t`);
+      }
       await expect(
         c.query(
           `update clinic_channels set channel = 'meta' where clinic_id = $1 and channel = 'web'`,

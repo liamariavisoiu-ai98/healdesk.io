@@ -1,5 +1,5 @@
 {
-  "id": "57bd5a42-1e90-4cc1-bc85-3d75c1966982",
+  "id": "ef9c70e8-6521-4d2b-b17b-5ca4fd265eb9",
   "prevId": "46ff5725-26e1-4a6f-bef0-be64b881376e",
   "version": "7",
   "dialect": "postgresql",
@@ -2319,6 +2319,34 @@
           "method": "btree",
           "with": {}
         },
+        "channel_events_input_once_idx": {
+          "name": "channel_events_input_once_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"channel_events\".\"kind\" in ('audit_passed', 'runtime_seen')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "channel_events_clinic_idx": {
           "name": "channel_events_clinic_idx",
           "columns": [
@@ -2366,11 +2394,11 @@
         },
         "channel_events_kind_check": {
           "name": "channel_events_kind_check",
-          "value": "\"channel_events\".\"kind\" in ('ready', 'waiting', 'live', 'first_answer', 'paused', 'resumed', 'turned_off', 'turned_on')"
+          "value": "\"channel_events\".\"kind\" in ('ready', 'waiting', 'live', 'first_answer', 'paused', 'resumed', 'turned_off', 'turned_on', 'audit_passed', 'runtime_seen')"
         },
         "channel_events_waiting_on_check": {
           "name": "channel_events_waiting_on_check",
-          "value": "\"channel_events\".\"waiting_on\" is null or \"channel_events\".\"waiting_on\" in ('setup', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
+          "value": "\"channel_events\".\"waiting_on\" is null or \"channel_events\".\"waiting_on\" in ('setup', 'direct_line', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
         },
         "channel_events_channel_required": {
           "name": "channel_events_channel_required",
@@ -2756,7 +2784,7 @@
         },
         "clinic_channels_waiting_on_check": {
           "name": "clinic_channels_waiting_on_check",
-          "value": "\"clinic_channels\".\"waiting_on\" is null or \"clinic_channels\".\"waiting_on\" in ('setup', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
+          "value": "\"clinic_channels\".\"waiting_on\" is null or \"clinic_channels\".\"waiting_on\" in ('setup', 'direct_line', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
         }
       },
       "isRLSEnabled": false
@@ -6064,49 +6092,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "agreement_notify_by": {
-          "name": "agreement_notify_by",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "agreement_version": {
-          "name": "agreement_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reported_at": {
-          "name": "reported_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reports_sent": {
-          "name": "reports_sent",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "not_reportable_at": {
-          "name": "not_reportable_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "not_reportable_reason": {
-          "name": "not_reportable_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decided_by": {
-          "name": "decided_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "opened_by": {
           "name": "opened_by",
           "type": "text",
@@ -6197,12 +6182,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "incidents_decision_check": {
-          "name": "incidents_decision_check",
-          "value": "not (\"incidents\".\"reported_at\" is not null and \"incidents\".\"not_reportable_at\" is not null)\n          and (\"incidents\".\"not_reportable_at\" is null) = (\"incidents\".\"not_reportable_reason\" is null)\n          and (\"incidents\".\"reported_at\" is null) = (\"incidents\".\"reports_sent\" = 0)\n          and \"incidents\".\"reports_sent\" >= 0"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.meta_booking_drafts": {

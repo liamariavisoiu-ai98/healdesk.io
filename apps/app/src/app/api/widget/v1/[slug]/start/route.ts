@@ -15,7 +15,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const req = await widgetRequest(request, slug);
   if (req instanceof Response) return req;
   try {
-    return json(await startWebChat(req.clinic), 200, req.origin);
+    return json(await startWebChat(req.clinic, new Date(), req.origin), 200, req.origin);
   } catch (error) {
     log.error("web chat start failed", { clinicId: req.clinic.clinicId, error: describeError(error) });
     return json({ mode: "contact_form", reason: "unavailable" }, 200, req.origin);

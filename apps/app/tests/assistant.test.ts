@@ -277,6 +277,9 @@ describe("answerTurn", () => {
     expect(chat.reply).toBe(refusalLine(FACTS, "web_chat"));
     expect(chat.reply).toBe("Sorry, that's not something I can help with. The team at Radiance Med Spa can: please call them on (415) 555-0199.");
     expect(chat.reply).not.toBe(FAILURE_LINE);
+    expect(refusalLine({ ...FACTS, phone: null, urgentPhone: null }, "web_chat")).toBe(
+      "Sorry, that's not something I can help with. The team at Radiance Med Spa can help, and they get back to people within a day.",
+    );
     // On a call, which came in on the main number, the number that reaches a person.
     const call = await answerTurn({ facts: FACTS, channel: "voice", history: [], text: "hi", responder: refusing });
     expect(call.source).toBe("refusal");

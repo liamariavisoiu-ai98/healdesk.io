@@ -114,7 +114,9 @@ export function refusalLine(facts: Pick<AssistantFacts, "clinicName" | "phone" |
   const number = numberFor(channel, channel === "voice" ? (facts.urgentPhone ?? facts.phone) : (facts.phone ?? facts.urgentPhone));
   return (
     `Sorry, that's not something I can help with. ` +
-    `The team at ${facts.clinicName} can${number ? `: please call them on ${number}` : ", and they'll get back to you within a day"}.`
+    (number
+      ? `The team at ${facts.clinicName} can: please call them on ${number}.`
+      : `The team at ${facts.clinicName} can help, and they get back to people within a day.`)
   );
 }
 

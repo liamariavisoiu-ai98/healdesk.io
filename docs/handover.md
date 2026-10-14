@@ -286,10 +286,11 @@ task stays unproven until the first `host.yml` turn-on.
   since the KMS client refuses any other region; `@aws-sdk/client-kms` ships in the image (fixed
   6 October 2026). **Open:** reading the worker's start-up line ("credential key self-check
   passed") after the first deploy, to confirm the task role reaches the key with the lock labels
-  required (the read-only ops operation `getCredentialKeyStatus` asks the web tier the same, but
-  nothing in `/admin` calls it yet); the rotation runbook, drafted in the runbook's "Rotating
-  secrets" (the key and `HEALDESK_IDENTIFIER_REF_KEY` never rotate) and not yet adopted or
-  exercised.
+  required (the read-only ops operation `getCredentialKeyStatus` asks the web tier the same, and
+  `/admin/map` shows its answer on the key-safe bridge); the rotation runbook, drafted in the
+  runbook's "Rotating secrets" (the key and `HEALDESK_IDENTIFIER_REF_KEY` never rotate) and not
+  yet adopted or exercised. `/admin/map` suggests a schedule per key and counts from the dates
+  recorded with its "I rotated it today" button (the marketing Sheet's `key_rotations` tab).
 - *S3:* **built in `infra/aws`, switched off** (`enable_transcript_bucket = false`), because no
   code uses S3 yet: a bucket in the designated region; SSE-KMS with our key and bucket keys; a
   policy denying non-TLS requests and uploads under any other encryption; Block Public Access;

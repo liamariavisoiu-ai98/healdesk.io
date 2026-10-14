@@ -13,20 +13,6 @@ import {
 } from "@/lib/reviews";
 import { SAMPLE, SAMPLE_REVIEWS } from "@/lib/reviews.sample";
 
-/**
- * Reviews, guarded where they can go wrong.
- *
- * Until 30 September 2026 the homepage carried a wall of placeholder
- * testimonials and an invented "286 clinics, 4.9" rating. The wall's design
- * came back on 3 October 2026 with its content split off: the homepage shows
- * PUBLISHED, or while that is empty the placeholder set in reviews.sample.ts
- * (labelled as examples until 12 October 2026, when the owner replaced the
- * label with the section's heading). src/lib/reviews.ts says why. Pinned
- * here: that the switch to PUBLISHED holds, that
- * no placeholder leaks into PUBLISHED, that the header's numbers are counted
- * rather than typed, and that the attribution line says as little as it can.
- */
-
 const HOMEPAGE = fileURLToPath(new URL("../app/page.tsx", import.meta.url));
 const SRC = fileURLToPath(new URL("..", import.meta.url));
 const PORTRAITS = fileURLToPath(

@@ -167,7 +167,7 @@ export function DecideForm({
         <input name="name" maxLength={80} autoComplete="name" className={field} />
       </label>
       <label className="grid gap-1">
-        <span className={label}>Note for yourselves (optional, never sent to the patient)</span>
+        <span className={label}>Note for yourselves (optional, never sent to them)</span>
         <textarea name="note" maxLength={500} rows={2} className={field} />
       </label>
       {state.status === "failed" ? (

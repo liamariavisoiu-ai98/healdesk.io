@@ -10,7 +10,7 @@ import {
 } from "@/lib/admin/operator";
 
 /**
- * The chrome around the admin area: one header, five sections, one sign-out.
+ * The chrome around the admin area: one header, its sections, one sign-out.
  *
  * ## Why this is not the marketing `Nav`
  *
@@ -95,13 +95,14 @@ export const metadata: Metadata = {
 
 /**
  * The surfaces this console has, in the order somebody uses them: what
- * changed, what is running, whether the AWS host is on, who asked to be set
- * up, who is in the funnel, the personalised demos built for them, and what
- * has been signed.
+ * changed, what is running, how every tool links up and which keys are in
+ * place, whether the AWS host is on, who asked to be set up, who is in the
+ * funnel, the personalised demos built for them, and what has been signed.
  */
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
   { href: "/admin/ops", label: "Ops" },
+  { href: "/admin/map", label: "Map" },
   { href: "/admin/host", label: "Host" },
   { href: "/admin/setup", label: "Setup" },
   { href: "/admin/crm", label: "CRM" },

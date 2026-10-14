@@ -123,6 +123,16 @@ describe("what the console says when apps/app fails (F12)", () => {
     reply({ error: "Unauthorized.", code: "unauthorized" }, 401);
     expect(await setOverageMode(CLINIC, "allow")).toMatchObject({ code: "refused" });
   });
+
+  test("an operation the application does not know yet is 'outdated', not a refusal to go hunting a secret for", async () => {
+    reply({ error: "Unknown operation.", code: "unknown_operation" }, 400);
+    expect(await setOverageMode(CLINIC, "allow")).toEqual({
+      ok: false,
+      code: "outdated",
+      message:
+        "The application is running an older version that does not know this yet. Nothing was changed; deploy it, then try again.",
+    });
+  });
 });
 
 // -----------------------------------------------------------------------------

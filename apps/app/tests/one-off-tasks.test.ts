@@ -1,11 +1,14 @@
 import { spawnSync } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic } from "./setup/factories";
+import { inTenant, seedClinic, seedContact } from "./setup/factories";
 
 /**
  * demo-clinic and channels-link as the AWS host runs them (14 October 2026).
@@ -109,6 +112,50 @@ describeDb("the one-off tasks run from their environment alone", () => {
     expect(second.status).toBe(2);
     expect(second.stderr).toMatch(/A demo clinic already exists/);
   }, 180_000);
+
+  test("patient-export exports one person by a contact's id from the environment, and nothing about them is passed in", async () => {
+    const c = await seedClinic("export-by-env");
+    const contactId = await seedContact(c.clinicId, "+15550100977");
+    await seedContact(c.clinicId, "+15550100978"); // someone else
+    const out = mkdtempSync(join(tmpdir(), "healdesk-export-"));
+    try {
+      const run = runScript("patient-export", ["--out", out], {
+        HEALDESK_EXPORT_CLINIC_ID: c.clinicId,
+        HEALDESK_EXPORT_CONTACT_ID: contactId,
+        HEALDESK_EXPORT_REQUESTED_BY: "person_via_practice",
+      });
+      expect(run.status, run.stderr).toBe(0);
+      // Counts only on the terminal.
+      expect(run.stdout).toMatch(/contacts 1, conversations 0/);
+      expect(run.stdout).not.toContain("+15550100977");
+      const [file] = readdirSync(out);
+      expect(file).toMatch(new RegExp(`^patient-${c.clinicId}-`));
+      const bundle = JSON.parse(readFileSync(join(out, file!), "utf8")) as {
+        contacts: { id: string }[];
+      };
+      expect(bundle.contacts.map((r) => r.id)).toEqual([contactId]);
+    } finally {
+      rmSync(out, { recursive: true, force: true });
+    }
+  }, 120_000);
+
+  test("patient-export refuses an empty or malformed contact id, and a typed bundle to the bucket", () => {
+    const clinic = "0f8e1c2a-1111-4222-8333-444455556666";
+    const empty = runScript("patient-export", [], {
+      HEALDESK_EXPORT_CLINIC_ID: clinic,
+      HEALDESK_EXPORT_CONTACT_ID: "",
+      HEALDESK_EXPORT_REQUESTED_BY: "practice",
+    });
+    expect(empty.status).toBe(1);
+    expect(empty.stderr).toMatch(/HEALDESK_EXPORT_CONTACT_ID\) must be the contact's uuid/);
+    const viaArgs = runScript(
+      "patient-export",
+      ["--clinic", clinic, "--phone", "+15550100977", "--requested-by", "practice"],
+      { HEALDESK_EXPORT_BUCKET: "healdesk-test-exports" },
+    );
+    expect(viaArgs.status).toBe(1);
+    expect(viaArgs.stderr).toMatch(/one person by --contact/);
+  }, 120_000);
 
   test("demo-clinic refuses an address that is not the operator's, from the environment as from the command line", () => {
     const run = runScript("demo-clinic", [], {

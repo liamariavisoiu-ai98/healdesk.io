@@ -13,11 +13,18 @@ const nextConfig: NextConfig = {
   output: "standalone",
 
   // Required from node_modules at run time instead of bundled into the server
-  // chunks. For the two AWS SDK clients that means each chunk carries a
-  // `require` and the standalone output traces the package in beside it. Why
-  // they are dependencies imported by a literal specifier is explained above
-  // AwsKmsKeyWrapper in src/lib/crypto/kms.ts.
-  serverExternalPackages: ["pg", "@aws-sdk/client-kms", "@aws-sdk/client-sesv2"],
+  // chunks. For the AWS SDK clients that means each chunk carries a `require`
+  // and the standalone output traces the package in beside it. Why they are
+  // dependencies imported by a literal specifier is explained above
+  // AwsKmsKeyWrapper in src/lib/crypto/kms.ts. Every @aws-sdk package that
+  // src imports belongs here (tests/aws-sdk-externals.test.ts): S3 is the
+  // export bucket's (src/lib/patient-rights/export-store.ts).
+  serverExternalPackages: [
+    "pg",
+    "@aws-sdk/client-kms",
+    "@aws-sdk/client-sesv2",
+    "@aws-sdk/client-s3",
+  ],
 
   async headers() {
     return [

@@ -11,19 +11,22 @@ import type { NoticeClass, NoticeOwner } from "./kinds";
  * account, so a bounce, complaint or suppression on one of those calls
  * notifyOps as well.
  *
- * Only the kinds the platform itself has to know about are listed: the one it
- * builds (I1) and the three the relay must recognise. P6 and I2 join with the
- * milestones that build them. A link email (X1.5) mints its single-use token at
- * send time and never stores it, which is also why none of these can be an
- * outbox row: the outbox stores its payloads.
+ * Every direct kind apps/app sends is listed, built or not: I1, the three the
+ * relay must recognise, and (since 14 October 2026) I2 and I4, so the
+ * packages that build them find their names here. P6 is apps/web's. A link
+ * email (X1.5) mints its single-use token at send time and never stores it,
+ * which is also why none of these can be an outbox row: the outbox stores its
+ * payloads.
  *
- * Two of them have a clinic. The welcome email (B1) goes to a clinic's address
- * with a fresh "Continue setup" link, so it cannot be an outbox row either.
- * It keeps its once-per-clinic state on the ledger, report_deliveries, whose
- * kinds CHECK takes it from `LEDGER_DIRECT_KINDS`, and carries the `clinic`
- * and `delivery` tags like an outbox send, so the webhook relay can mark its
- * row. O11 goes to someone the clinic names, with the steps it asked us to
- * send on, and keeps its sends on the same ledger.
+ * Some of them have a clinic. The welcome email (B1) goes to a clinic's
+ * address with a fresh "Continue setup" link, so it cannot be an outbox row
+ * either. It keeps its once-per-clinic state on the ledger,
+ * report_deliveries, whose kinds CHECK takes it from `LEDGER_DIRECT_KINDS`,
+ * and carries the `clinic` and `delivery` tags like an outbox send, so the
+ * webhook relay can mark its row. O11 goes to someone the clinic names, with
+ * the steps it asked us to send on, and keeps its sends on the same ledger.
+ * So do O5 (a link email, and to an address that is not yet the clinic's),
+ * L22 (a link email) and E6 (to the address captured before destruction).
  *
  * Pure data, like kinds.ts.
  */
@@ -107,6 +110,53 @@ export const DIRECT_KIND_REGISTRY = {
     linkEmail: false,
     locksOut: false,
   }),
+
+  // The rest of Annex X5's direct kinds, registered with the outbox's
+  // (14 October 2026) so the ledger's CHECK widens once. Each has a clinic
+  // but cannot be an outbox row: a link email may never store its token, and
+  // the outbox sends only to the clinic's address as it stands at send time.
+  /**
+   * O5, from Settings: the single-use link that confirms a new sign-in
+   * address, sent to the NEW address (X1.5 names O5's confirmation a link
+   * email).
+   */
+  address_change_confirm: direct("O5", "transactional", "plan", {
+    linkEmail: true,
+    locksOut: false,
+    ledger: true,
+  }),
+  /**
+   * O5's notice: "Your sign-in address is changing", with "Stop this
+   * change", to the old address from Settings, or to both from ops'
+   * changeClinicEmail, naming the end of the 72-hour objection window.
+   */
+  address_changing: direct("O5", "transactional", "plan", {
+    linkEmail: false,
+    locksOut: false,
+    ledger: true,
+  }),
+  /**
+   * L22: "Sign your updated agreement", with a signed single-use link, and
+   * its reminders at 3 and 7 days, each a fresh link under its own period key.
+   */
+  agreement_to_sign: direct("L22", "transactional", "plan", {
+    linkEmail: true,
+    locksOut: false,
+    ledger: true,
+  }),
+  /**
+   * E6: "Your data has been destroyed", to the address captured before
+   * destruction, which by then may no longer be the clinic's sign-in.
+   */
+  data_destroyed: direct("E6", "transactional", "plan", {
+    linkEmail: false,
+    locksOut: false,
+    ledger: true,
+  }),
+  /** I2: the 07:00 ops digest, to HEALDESK_OPS_EMAIL. Ids and counts only. */
+  ops_digest: direct("I2", "transactional", "plan", { linkEmail: false, locksOut: false }),
+  /** I4: each flagged answer, and two flags in seven days, to ops. Ids and counts only. */
+  flag_alert: direct("I4", "transactional", "plan", { linkEmail: false, locksOut: false }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;
@@ -118,4 +168,11 @@ export const DIRECT_KINDS = Object.keys(DIRECT_KIND_REGISTRY) as readonly Direct
  * because db/schema.ts builds report_deliveries' kinds CHECK from it.
  * tests/email-templates.test.ts holds it to the flag.
  */
-export const LEDGER_DIRECT_KINDS = ["welcome", "steps_sent"] as const;
+export const LEDGER_DIRECT_KINDS = [
+  "welcome",
+  "steps_sent",
+  "address_change_confirm",
+  "address_changing",
+  "agreement_to_sign",
+  "data_destroyed",
+] as const;

@@ -118,12 +118,14 @@ export const auth = betterAuth({
      * sign-in, permanently — the account was created, the password was set, and
      * the user was then told their email was unverified with no way to verify it.
      *
-     * More importantly it was redundant here. Accounts cannot be created except
-     * by following an invitation link sent to a specific address, and the create
-     * hook below refuses any sign-up without a matching pending invitation. So
-     * receiving that link already proves control of the address — which is the
-     * only thing verification establishes. Requiring a second proof of the same
-     * fact bought nothing and broke the product.
+     * More importantly it is redundant here. Better Auth creates no account:
+     * provisioning writes the clinic's one user itself (`ensureOwner` in
+     * lib/provisioning.ts), and the create hook below refuses any user Better
+     * Auth would make without a pending invitation, of which none is written.
+     * Every sign-in is a single-use link, mailed to the address or handed to
+     * the browser that paid at /welcome, so using one already proves control
+     * of the address or of the purchase, which is what verification would
+     * establish. A second proof of the same fact buys nothing.
      *
      * If open sign-up is ever enabled, this must go back to true AND a verifier
      * must be configured in the same change.
@@ -198,6 +200,13 @@ export const auth = betterAuth({
       },
     },
     user: {
+      /**
+       * The gate on any user Better Auth itself would create: by invitation
+       * only. No invitation is written in v1 (one shared sign-in per clinic),
+       * so it refuses every one. The clinic's user is made by provisioning,
+       * which writes it directly (`ensureOwner` in lib/provisioning.ts) and
+       * never passes through these hooks.
+       */
       create: {
         async before(user) {
           const email = user.email?.toLowerCase();
@@ -225,13 +234,13 @@ export const auth = betterAuth({
         },
 
         /**
-         * Turn the accepted invitation into actual access.
+         * Turn an accepted invitation into actual access, should invitations
+         * come back with the spec's deferred roles.
          *
-         * Without this the account existed and could sign in, and then had
+         * Without this the account would exist and could sign in, with
          * membership of nothing — `resolveTenantContext` joins through
-         * `clinic_memberships`, so every clinic page returned "no access" and
-         * the console was empty. The user had completed signup successfully and
-         * arrived at a product that behaved as though they had not.
+         * `clinic_memberships`, so every clinic page would say "no access".
+         * Provisioning writes the owner's membership itself, beside its user.
          *
          * Runs after the user row exists, because the membership references it.
          * Failures here are logged rather than thrown: the account is already

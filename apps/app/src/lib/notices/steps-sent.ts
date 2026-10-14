@@ -16,7 +16,7 @@ import { unsubscribeHeaders, stepsStopUrl } from "@/lib/email/unsubscribe";
 import { describeError, log } from "@/lib/log";
 import { claimDelivery, recordDelivery } from "@/lib/reporting/recipients";
 import { emailCallUrl } from "@/lib/setup/help";
-import { readSetupSettings, routingForCoverageMode } from "@/lib/setup/settings";
+import { readSetupSettings } from "@/lib/setup/settings";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -166,7 +166,7 @@ export async function sendStepsOn(
       return {
         deliveryId,
         clinic,
-        routing: routingForCoverageMode(settings.coverageMode),
+        routing: settings.coverageMode,
       } as const;
     },
   );

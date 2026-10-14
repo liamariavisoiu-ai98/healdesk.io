@@ -21,11 +21,11 @@ import { UNSUBSCRIBE_PATH_PREFIX } from "./lint";
  * shows a confirmation page whose button posts, so a link scanner cannot
  * unsubscribe anyone, and a POST carrying "List-Unsubscribe=One-Click" turns
  * the switch off at once (lib/email/stop.ts). The switches are the ones
- * Settings and Billing show: the daily summary and usage alerts; and O11's
- * link stops a clinic's sent-on steps reaching the address it went to.
- * Product updates (M7) and commercial mail have no switch on a clinic yet, so
- * a link for them changes nothing, and tests/email-templates.test.ts fails the
- * day an optional or commercial kind gets a template without that route.
+ * Settings and Billing show, the daily summary and usage alerts, and product
+ * updates (L33); and O11's link stops a clinic's sent-on steps reaching the
+ * address it went to. Commercial mail has no switch on a clinic, so a link
+ * for it changes nothing, and tests/email-templates.test.ts fails the day an
+ * optional or commercial kind gets a template without that route.
  */
 
 /**

@@ -60,6 +60,7 @@ const ACTIONS: Actions = {
   setAutoConfirm: NOT_IN_A_RENDER,
   sendCalendarLink: NOT_IN_A_RENDER,
   disconnectCalendar: NOT_IN_A_RENDER,
+  attestAudit: NOT_IN_A_RENDER,
 };
 
 const COVERED: BookingView = {
@@ -101,6 +102,7 @@ const COVERED: BookingView = {
 function page(
   booking: BookingView | "unreadable" | null,
   platforms: OnboardingView["meta"]["platforms"] = null,
+  channels: OnboardingView["channels"] = null,
 ): string {
   const view: OnboardingView = {
     clinic: {
@@ -145,6 +147,7 @@ function page(
     timezone: "America/New_York",
     calendarWrites: [],
     booking,
+    channels,
   };
   return text(h(OnboardingPanel, { view: { ok: true, data: view }, actions: ACTIONS }));
 }
@@ -326,5 +329,52 @@ describe("the Meta front door shows the clinic's own platform switches beneath i
     const said = metaSection(page(COVERED, null));
     expect(said).not.toMatch(/Instagram: (on|off)/);
     expect(said).not.toContain("beneath the front door");
+  });
+});
+
+describe("the channels card", () => {
+  test("each channel says where it stands and what it still needs; the audit is offered only until it passed or the channel is live", () => {
+    const said = page(null, null, [
+      {
+        channel: "voice",
+        readyAt: "2026-10-14T15:00:00.000Z",
+        waitingOn: "forwarding",
+        liveAt: null,
+        firstAnswerAt: null,
+        auditPassed: true,
+        missing: ["clinic_step"],
+      },
+      {
+        channel: "web",
+        readyAt: null,
+        waitingOn: null,
+        liveAt: null,
+        firstAnswerAt: null,
+        auditPassed: false,
+        missing: ["go_live", "audit", "clinic_step"],
+      },
+      {
+        channel: "meta",
+        readyAt: "2026-10-10T15:00:00.000Z",
+        waitingOn: null,
+        liveAt: "2026-10-11T15:00:00.000Z",
+        firstAnswerAt: null,
+        auditPassed: true,
+        missing: [],
+      },
+    ]);
+    const card = said.slice(said.indexOf("Channels"));
+    expect(card).toContain("Phone · ready since 2026-10-14, waiting on forwarding · audit passed");
+    expect(card).toContain("Forwarding isn't confirmed: run the forwarding test above. clinic_step");
+    expect(card).toContain("Website chat · not ready on our side");
+    expect(card).toContain("The widget hasn't loaded on the clinic's own website yet. clinic_step");
+    expect(card).toContain("Instagram, Messenger & WhatsApp · live since 2026-10-11, no patient answered yet");
+    // Offered once: for website chat, whose audit hasn't passed and which isn't live.
+    expect(card.match(/audit passed/g)).toHaveLength(3);
+    expect(card.match(/I checked AYA’s answers/g)).toHaveLength(1);
+  });
+
+  test("an apps/app with no channel states says so rather than showing nothing", () => {
+    expect(page(null)).toContain("apps/app sent no channel states");
   });
 });

@@ -211,6 +211,9 @@ type OperatorOp =
   | "startForwardingTest"
   | "listClinicHealth"
   | "recordClinicTouch"
+  // Channel events: the operator says a channel's audit passed, until the
+  // practice questions exist (apps/app lib/channels/audit-seam.ts).
+  | "attestChannelAudit"
   | "attachMetaChannel"
   | "setMetaFrontDoor"
   | "setMetaPlatform"
@@ -1619,6 +1622,46 @@ export type OnboardingView = {
    * and the rest of the page still shows.
    */
   booking: BookingView | "unreadable" | null;
+  /**
+   * Each bought channel's go-live state, as apps/app's channel events record
+   * it: ready on our side, what it waits on, live, its first answer, whether
+   * its audit has passed, and what still stands between it and live. Null
+   * from an apps/app older than the projection.
+   */
+  channels: OnboardingChannelView[] | null;
+};
+
+/** What a channel still needs before it goes live, as apps/app names it (lib/channels/events.ts). */
+export type ChannelLiveInput =
+  | "leaving"
+  | "go_live"
+  | "audit"
+  | "runtime"
+  | "setup"
+  | "direct_line"
+  | "clinic_step";
+const CHANNEL_LIVE_INPUTS: readonly ChannelLiveInput[] = [
+  "leaving",
+  "go_live",
+  "audit",
+  "runtime",
+  "setup",
+  "direct_line",
+  "clinic_step",
+];
+
+export type ChannelId = "web" | "meta" | "voice";
+const CHANNEL_IDS: readonly ChannelId[] = ["web", "meta", "voice"];
+
+export type OnboardingChannelView = {
+  channel: ChannelId;
+  readyAt: string | null;
+  waitingOn: string | null;
+  liveAt: string | null;
+  firstAnswerAt: string | null;
+  auditPassed: boolean;
+  /** Empty once live. A code this console does not know is left out, never guessed at. */
+  missing: ChannelLiveInput[];
 };
 
 /** One reason a location takes requests: apps/app's code, and its sentence in the clinic's words. */
@@ -1782,6 +1825,24 @@ function readOnboardingView(value: unknown): OnboardingView {
         }),
       };
     })(),
+    channels:
+      data.channels === undefined || data.channels === null
+        ? null
+        : list(data.channels, "getOnboarding.channels").map((entry) => {
+            const ch = object(entry, "getOnboarding.channel");
+            return {
+              channel: literal(ch.channel, CHANNEL_IDS, "channel.channel"),
+              readyAt: optionalString(ch.readyAt),
+              waitingOn: optionalString(ch.waitingOn),
+              liveAt: optionalString(ch.liveAt),
+              firstAnswerAt: optionalString(ch.firstAnswerAt),
+              auditPassed: ch.auditPassed === true,
+              missing: list(ch.missing ?? [], "channel.missing").filter(
+                (m): m is ChannelLiveInput =>
+                  typeof m === "string" && (CHANNEL_LIVE_INPUTS as readonly string[]).includes(m),
+              ),
+            };
+          }),
     steps: list(data.steps, "getOnboarding.steps").map((entry) => {
       const row = object(entry, "step");
       return {
@@ -3384,6 +3445,15 @@ export function attachMetaChannel(
 
 export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
   return careWrite("setMetaFrontDoor", { clinicId, enabled });
+}
+
+/**
+ * A channel's audit passed, as the operator attests it until the practice
+ * questions exist: recorded once by apps/app, which then moves the channel
+ * on as far as its other inputs allow.
+ */
+export function attestChannelAudit(clinicId: string, channel: ChannelId) {
+  return careWrite("attestChannelAudit", { clinicId, channel });
 }
 
 /** One of the clinic's own platform switches, beneath the front door. */

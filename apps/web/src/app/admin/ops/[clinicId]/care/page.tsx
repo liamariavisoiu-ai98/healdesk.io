@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
+import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
 import type { ErasureStepOutcome } from "@/lib/admin/patient-rights";
 import {
@@ -17,6 +18,7 @@ import {
   startOffboarding as offboardUpstream,
   type IncidentClass,
 } from "@/lib/admin/ops-client";
+import { isHostUnreachable } from "@/lib/host/state";
 
 import { CarePanel } from "./CarePanel";
 
@@ -50,6 +52,7 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
   if (!UUID.test(clinicId)) notFound();
 
   const view = await fetchClinicCare(clinicId);
+  if (isHostUnreachable(view)) return <HostStandbyPage title="Care" back={{ href: "/admin/ops", label: "Back to ops" }} />;
   const path = `/admin/ops/${clinicId}/care`;
 
   async function addRecipient(email: string, label?: string) {

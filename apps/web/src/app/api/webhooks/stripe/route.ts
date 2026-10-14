@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
 import { postInternalAlert } from "@/lib/demo/alert";
+import { wakeHostForPaidInvoice } from "@/lib/host/wake";
 import { displayName, markDemoClaimed } from "@/lib/demo/sessions";
 import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
 import { updateSetupRequest } from "@/lib/setup-requests";
@@ -338,6 +339,9 @@ async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, rel
     hostedInvoiceUrl: first.hostedInvoiceUrl,
   });
   const result = await relayTo("/api/provision", body, relay);
+  // Nothing answered (the AWS host in standby, say): turn it on, then answer
+  // 500 below as before, so Stripe retries until the account is made.
+  await wakeHostForPaidInvoice(result, event.id);
   switch (result.kind) {
     case "ok":
       // 200 (replayed) and 201 (created) are both success.

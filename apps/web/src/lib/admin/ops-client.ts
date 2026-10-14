@@ -221,7 +221,10 @@ type OperatorOp =
   // calendar link mailed to the practice's own address, and a disconnect.
   | "setAutoConfirm"
   | "issueCalendarLink"
-  | "disconnectCalendar";
+  | "disconnectCalendar"
+  // The AWS host's standby switch (/admin/host): three counts, asked before
+  // standby is dispatched.
+  | "hostStandbyCheck";
 
 /**
  * The operations that happen BEFORE there is a session, and there are exactly
@@ -3895,6 +3898,36 @@ export function disconnectCalendar(clinicId: string): Promise<OpsResult<Disconne
       status: "disconnected",
       revokedAtGoogle: bool(data.revokedAtGoogle, "disconnectCalendar.revokedAtGoogle"),
       auditRecorded: bool(data.auditRecorded, "disconnectCalendar.auditRecorded"),
+    };
+  });
+}
+
+// -----------------------------------------------------------------------------
+// The AWS host's standby switch
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether anything real is on the AWS host, as apps/app counts it
+ * (lib/ops/host-standby.ts): clinics in production, agreements in effect,
+ * transcripts SES has not taken. `/api/admin/host` asks before it dispatches
+ * standby, which deletes the database after a snapshot and stops every task,
+ * and refuses unless all three are 0. Counts only cross; a read.
+ */
+export type HostStandbyCheck = {
+  ok: boolean;
+  productionClinics: number;
+  boundAgreements: number;
+  openTranscripts: number;
+};
+
+export function hostStandbyCheck(): Promise<OpsResult<HostStandbyCheck>> {
+  return callOps("hostStandbyCheck", "read", {}, (value) => {
+    const data = object(value, "hostStandbyCheck");
+    return {
+      ok: bool(data.ok, "hostStandbyCheck.ok"),
+      productionClinics: count(data.productionClinics, "hostStandbyCheck.productionClinics"),
+      boundAgreements: count(data.boundAgreements, "hostStandbyCheck.boundAgreements"),
+      openTranscripts: count(data.openTranscripts, "hostStandbyCheck.openTranscripts"),
     };
   });
 }

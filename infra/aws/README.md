@@ -9,11 +9,13 @@ helper images, four terminal scripts, and the three workflows that switch, apply
 The website (`apps/web`, including `/admin`) stays on Vercel. healdesk.io's DNS stays at
 Cloudflare.
 
-**Status, 14 October 2026: applied, not deployed.** `infra.yml` applied the module for the first
-time on 14 October (three applies; the third fixed what AWS and Cloudflare refused on the first two).
-No image has been pushed and db-bootstrap has not run, so the services are at 0 tasks and the
-database holds nothing. The standby switch ("Standby", below) and `host.yml` are new on the same
-day and have not run against AWS. What has been checked locally: `terraform fmt`,
+**Status, 14 October 2026: applied and deployed.** `infra.yml` applied the module for the first
+time on 14 October (the third attempt fixed what AWS and Cloudflare refused on the first two, and a
+second apply followed), and `deploy-app.yml` then deployed three times that day, the first with
+db-bootstrap. Checked live on 14 October: `https://app.healdesk.io/api/health` answers `ok` with
+the database `ok` and a worker heartbeat minutes old. The standby switch ("Standby", below) and
+`host.yml` are new on the same day; this status does not record a run of either against AWS. What
+has been checked locally: `terraform fmt`,
 `init -lockfile=readonly`, `validate` and `test` (39 runs against mocked providers in
 `tests/stack.tftest.hcl` and `tests/restore.tftest.hcl`), actionlint with shellcheck, the plan
 guard against fixture plans, and `host-apply.sh` against fake `aws` and `terraform` commands; tflint,

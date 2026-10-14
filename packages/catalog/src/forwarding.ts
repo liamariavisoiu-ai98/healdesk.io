@@ -11,19 +11,28 @@
  * rather than guessing, because a wrong code either does nothing or takes the
  * clinic's line away from its staff.
  *
- * Unconditional forwarding is never the default and is shown only for the
- * "always" routing mode, with its own warning.
+ * Unconditional forwarding is never the default. It is shown for the two
+ * modes that send whole stretches of time to AYA, each with its own warning.
  *
- * The spec has three coverage modes: All calls; Overflow and after hours (the
- * default); After hours only. The last two also forward everything outside
- * opening hours, driven by the clinic's hours and holiday closures.
- * `CallRouting` predates them and takes no hours: "always" is All calls, and
- * "conditional" is only the busy and no-answer half of Overflow and after
- * hours. After-hours forwarding and the After hours only mode are not
- * expressed here yet; they need the clinic's hours as an input, time-of-day
- * rules for VoIP, and the carrier's scheduled forwarding for a landline,
- * which has no star code for it. The type and the signature stay as they are
- * until that is built, because apps/app imports both.
+ * The spec has three coverage modes (`CoverageModeId`, which
+ * clinic_settings.coverage_mode stores, the single source), and each is set
+ * up differently:
+ *
+ *   - All calls: every call forwarded, all the time (*72 / *73 on the
+ *     common landlines).
+ *   - Overflow and after hours, the default: forwarded when the line is busy
+ *     or nobody answers (*90 and *92 / *91 and *93). While the clinic is
+ *     closed nobody answers, so the same pair covers after hours.
+ *   - After hours only: every call forwarded while the clinic is closed and
+ *     none while it is open. On a landline that is all-call forwarding
+ *     switched on at closing and off at opening, every day
+ *     (AFTER_HOURS_ONLY_LANDLINE_NOTE); its undo is all-call forwarding's
+ *     (*73), never the busy and no-answer pair. A cloud phone system does it
+ *     with a business-hours rule.
+ *
+ * `routing` takes a coverage mode, or `CallRouting`, which predates them and
+ * is still what clinics.call_routing and some stored email payloads hold:
+ * "always" reads as All calls and "conditional" as Overflow and after hours.
  *
  * Every degradation path (Pause AI, the allowance cap's "Stop and fall back",
  * suspension, cancellation, an outage) sends calls to a direct clinic line.
@@ -32,9 +41,21 @@
  * line is not built here either.
  */
 
+import type { CoverageModeId } from "./assistant-settings";
+
 export type Carrier = "verizon" | "att" | "tmobile" | "spectrum" | "comcast" | "other";
 export type PhoneSystemType = "landline" | "voip" | "unknown";
 export type CallRouting = "conditional" | "always";
+
+/** Which calls reach AYA, as forwarding is set up for it: a coverage mode, or the older routing. */
+export type ForwardingCoverage = CoverageModeId | CallRouting;
+
+/** The coverage mode a forwarding input means: "always" is All calls, "conditional" the default. */
+export function coverageForForwarding(routing: ForwardingCoverage): CoverageModeId {
+  if (routing === "always") return "all_calls";
+  if (routing === "conditional") return "overflow_after_hours";
+  return routing;
+}
 
 export const CARRIERS: readonly { id: Carrier; name: string }[] = [
   { id: "verizon", name: "Verizon" },
@@ -90,10 +111,12 @@ function fill(code: string, number: string): string {
 export function forwardingInstructions(input: {
   carrier: Carrier | null;
   phoneSystemType: PhoneSystemType;
-  routing: CallRouting;
+  /** Which calls reach AYA: the clinic's coverage mode, or the older call routing. */
+  routing: ForwardingCoverage;
   /** The Healdesk number the clinic forwards to, E.164. */
   destinationE164: string;
 }): ForwardingInstruction {
+  const coverage = coverageForForwarding(input.routing);
   const notes: string[] = [
     "Forwarding is reversible in one step, by you, with no call to us. The undo codes are below.",
     "Dial each code from the clinic's own line (the handset or the main line, not a cell phone).",
@@ -104,9 +127,11 @@ export function forwardingInstructions(input: {
       steps: [
         {
           label:
-            input.routing === "always"
+            coverage === "all_calls"
               ? "In your phone system's admin (RingCentral, Nextiva, Dialpad, 8x8…), set the main number's call handling to forward all calls to:"
-              : "In your phone system's admin (RingCentral, Nextiva, Dialpad, 8x8…), set the main number's call handling so that after it rings the front desk for 3–4 rings, or when the line is busy, it forwards to:",
+              : coverage === "after_hours_only"
+                ? "In your phone system's admin (RingCentral, Nextiva, Dialpad, 8x8…), add a business-hours rule to the main number: outside your opening hours, and on the days you're closed, forward all calls to:"
+                : "In your phone system's admin (RingCentral, Nextiva, Dialpad, 8x8…), set the main number's call handling so that after it rings the front desk for 3–4 rings, or when the line is busy, it forwards to:",
           dial: input.destinationE164,
         },
         {
@@ -114,7 +139,15 @@ export function forwardingInstructions(input: {
           dial: "",
         },
       ],
-      undo: [{ label: "Remove the forwarding rule in the same admin screen.", dial: "" }],
+      undo: [
+        {
+          label:
+            coverage === "after_hours_only"
+              ? "Remove the after-hours rule in the same admin screen."
+              : "Remove the forwarding rule in the same admin screen.",
+          dial: "",
+        },
+      ],
       notes: [
         ...notes,
         "Cloud phone systems forward by rule, not by star code. If your admin screen names these settings differently, send us a screenshot and we'll point at the right one.",
@@ -129,13 +162,23 @@ export function forwardingInstructions(input: {
       steps: [
         {
           label:
-            input.routing === "always"
+            coverage === "all_calls"
               ? "Ask your carrier to forward all calls on the main line to:"
-              : "Ask your carrier to forward calls on busy and on no-answer (after 3–4 rings) from the main line to:",
+              : coverage === "after_hours_only"
+                ? "Ask your carrier to forward all calls on the main line while you're closed (scheduled forwarding), or for the codes that switch all-call forwarding on at closing and off at opening, to:"
+                : "Ask your carrier to forward calls on busy and on no-answer (after 3–4 rings) from the main line to:",
           dial: input.destinationE164,
         },
       ],
-      undo: [{ label: "Ask the carrier to remove the forwarding; or dial *73 / *91 / *93, which cancel it on most US landlines.", dial: "" }],
+      undo: [
+        {
+          label:
+            coverage === "after_hours_only"
+              ? "Ask the carrier to remove the forwarding; or dial *73, which cancels all-call forwarding on most US landlines."
+              : "Ask the carrier to remove the forwarding; or dial *73 / *91 / *93, which cancel it on most US landlines.",
+          dial: "",
+        },
+      ],
       notes: [
         ...notes,
         "We don't know your carrier's exact codes yet, so we won't guess. Tell us who bills you for the line and this page will show the codes.",
@@ -144,7 +187,29 @@ export function forwardingInstructions(input: {
     };
   }
 
-  if (input.routing === "always") {
+  if (coverage === "after_hours_only") {
+    return {
+      steps: [
+        {
+          label: "Each day when you close, forward ALL calls to your assistant:",
+          dial: fill(codes.alwaysOn, input.destinationE164),
+        },
+        {
+          label: "Each day when you open, cancel it so your staff get the line back:",
+          dial: codes.alwaysOff,
+        },
+      ],
+      undo: [{ label: "Cancel all-call forwarding:", dial: codes.alwaysOff }],
+      notes: [
+        ...notes,
+        "You chose \"After hours only\". Your staff answer every call while you're open; your assistant answers only while you're closed, and each of those counts as a call that would otherwise have rung out.",
+        "On a landline this is two codes a day. Forget the first at closing and calls ring unanswered as they do today; forget the second at opening and your staff won't get the line until you dial it. Ask your carrier whether it offers scheduled forwarding, which does this for you.",
+      ],
+      needsCarrierHelp: false,
+    };
+  }
+
+  if (coverage === "all_calls") {
     return {
       steps: [{ label: "Forward ALL calls to your assistant (your staff will not get the line back until you undo this):", dial: fill(codes.alwaysOn, input.destinationE164) }],
       undo: [{ label: "Cancel all-call forwarding:", dial: codes.alwaysOff }],

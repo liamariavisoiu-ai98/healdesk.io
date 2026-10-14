@@ -49,6 +49,7 @@ import {
   ONBOARDING_STEPS,
   resolveBookingRequirements,
   serviceNameScreen,
+  type CoverageModeId,
   type ForwardingInstruction,
   type OnboardingState,
 } from "@healdesk/catalog";
@@ -168,6 +169,7 @@ import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/schedu
 import { SETUP_CLOSURE_REASON } from "@/lib/setup/closure-email";
 import { moveSetupDeadlineToZone } from "@/lib/setup/practice";
 import { toCents } from "@/lib/setup/prices";
+import { readSetupSettings, routingForCoverageMode } from "@/lib/setup/settings";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { log } from "@/lib/log";
 
@@ -2138,6 +2140,16 @@ export type OnboardingView = {
     attributionMode: "estimated" | "verified";
     isCoveredEntity: boolean | null;
     phoneSystemType: "landline" | "voip" | "unknown";
+    /**
+     * Which calls reach AYA: clinic_settings.coverage_mode, the single source,
+     * which the forwarding codes below follow.
+     */
+    coverageMode: CoverageModeId;
+    /**
+     * The routing the console's phone form shows and sets, read from the
+     * coverage mode: 'always' for All calls, 'conditional' for the two that
+     * ring the clinic first. Never clinics.call_routing itself.
+     */
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
@@ -2236,13 +2248,14 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView } = await withTenant(
+  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView, coverageMode } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
       const connections = await listConnections(tx.db, tx.clinicId);
       return {
         agent: await getAgentConfig(tx),
+        coverageMode: (await readSetupSettings(tx.db, tx.clinicId)).coverageMode,
         metaPlatforms: await readMetaPlatformSwitches(tx.db, tx.clinicId),
         bookingRequests: await bookingRequestCounts(tx),
         booking: await readBookingState(tx),
@@ -2274,7 +2287,8 @@ async function opGetOnboarding(
       attributionMode: clinic.attributionMode,
       isCoveredEntity: clinic.isCoveredEntity,
       phoneSystemType: clinic.phoneSystemType,
-      callRouting: clinic.callRouting,
+      coverageMode,
+      callRouting: routingForCoverageMode(coverageMode),
       callRoutingConfirmedAt: clinic.callRoutingConfirmedAt?.toISOString() ?? null,
       carrier: clinic.carrier,
       assistantNumberE164: clinic.assistantNumberE164,
@@ -2307,7 +2321,9 @@ async function opGetOnboarding(
       ? forwardingInstructions({
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
           phoneSystemType: clinic.phoneSystemType,
-          routing: clinic.callRouting,
+          // The coverage mode, so After hours only gets its own codes (all-call
+          // forwarding at closing, off at opening) instead of the busy pair.
+          routing: coverageMode,
           destinationE164: clinic.assistantNumberE164,
         })
       : null,

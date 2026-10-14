@@ -1,6 +1,6 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { unsafeDb } from "@/db";
@@ -12,7 +12,12 @@ import {
   startPasskeyAuthentication,
   type SessionBinding,
 } from "@/lib/factors/passkeys";
-import { hashSessionToken, recordStepUp, STEP_UP_IDLE_MS } from "@/lib/factors/step-ups";
+import {
+  findLiveStepUp,
+  hashSessionToken,
+  recordStepUp,
+  STEP_UP_IDLE_MS,
+} from "@/lib/factors/step-ups";
 import { checkSecondFactorCode, enrolTotp, proposeTotp, totpStep } from "@/lib/factors/totp";
 import { withTenant } from "@/lib/tenant";
 
@@ -67,10 +72,15 @@ vi.mock("@simplewebauthn/server", async (importOriginal) => {
   return { ...actual, verifyAuthenticationResponse: mocks.verifyAuthenticationResponse };
 });
 
-const { logPatientAccess, PatientAccessNotLoggedError, requirePatientPage, withPatientPage } =
-  await import("@/lib/portal/patient-page");
-const { keepPatientPageOpen } = await import("@/app/c/[slug]/keep-open");
-const { STEP_UP_IDLE_MS: CLIENT_IDLE_MS } = await import("@/lib/factors/step-up-windows");
+const {
+  logPatientAccess,
+  MAX_PATIENT_IDS_PER_ROW,
+  PatientAccessNotLoggedError,
+  patientGuardProps,
+  requirePatientPage,
+  withPatientPage,
+} = await import("@/lib/portal/patient-page");
+const { keepPatientPageOpen, patientPageStatus } = await import("@/app/c/[slug]/keep-open");
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ORIGIN = "http://localhost:3001";
@@ -236,9 +246,10 @@ async function auditRows(clinicId: string) {
       ip_address: string | null;
       user_agent: string | null;
       metadata: Record<string, unknown> | null;
+      request_id: string | null;
     }>(
       `select actor_type, actor_user_id, actor_label, action, resource_type, resource_id,
-              resource_ids, result_count, ip_address, user_agent, metadata
+              resource_ids, result_count, ip_address, user_agent, metadata, request_id
          from audit_log where clinic_id = $1 order by occurred_at, id`,
       [clinicId],
     );
@@ -246,11 +257,11 @@ async function auditRows(clinicId: string) {
   });
 }
 
-describe("the browser's clock", () => {
-  test("counts with the idle window the database enforces", () => {
-    expect(CLIENT_IDLE_MS).toBe(STEP_UP_IDLE_MS);
-  });
-});
+/** How long a step-up has left by its two absolute times, as the browser counts it. */
+const left = (stepUp: { expiresAt: Date; checkedAt: Date }) =>
+  stepUp.expiresAt.getTime() - stepUp.checkedAt.getTime();
+const answerLeft = (answer: Awaited<ReturnType<typeof patientPageStatus>>) =>
+  answer.ok ? Date.parse(answer.expiresAt) - Date.parse(answer.now) : null;
 
 describeDb("patient pages", () => {
   beforeAll(async () => {
@@ -347,12 +358,13 @@ describeDb("patient pages", () => {
     await expect(
       recordStepUp(unsafeDb, { ...link.binding, factorId: totpId, deviceLabel: "Authenticator" }),
     ).rejects.toThrow(/passkeys/);
-    await agedStepUp(link, totpId, { createdMinutesAgo: 1, activeMinutesAgo: 1 });
+    const planted = await agedStepUp(link, totpId, { createdMinutesAgo: 1, activeMinutesAgo: 1 });
     expect(await outcome(() => requirePatientPage(clinic.slug))).toEqual({
       ok: false,
       redirect: `/c/${clinic.slug}/step-up?next=${encodeURIComponent(`/c/${clinic.slug}/bookings`)}`,
     });
-    expect(await keepPatientPageOpen(clinic.slug)).toEqual({ ok: false });
+    expect(await patientPageStatus(clinic.slug, planted)).toEqual({ ok: false });
+    expect(await keepPatientPageOpen(clinic.slug, planted)).toEqual({ ok: false });
     expect(await auditRows(clinic.clinicId)).toEqual([]);
   });
 
@@ -370,19 +382,38 @@ describeDb("patient pages", () => {
     });
     const opened = await outcome(() => requirePatientPage(clinic.slug));
     if (!opened.ok) throw new Error(opened.redirect);
-    expect(opened.value.stepUp).toMatchObject({ passkeyId: factorId, stepUpId: busyId });
-    expect(opened.value.stepUp.expiresInMs).toBeGreaterThan(STEP_UP_IDLE_MS - 5_000);
-    expect(opened.value.stepUp.expiresInMs).toBeLessThanOrEqual(STEP_UP_IDLE_MS);
+    expect(opened.value.stepUp).toMatchObject({
+      passkeyId: factorId,
+      stepUpId: busyId,
+      capped: false,
+    });
+    expect(left(opened.value.stepUp)).toBe(STEP_UP_IDLE_MS);
     const idle = await pool.query<{ s: string }>(
       `select extract(epoch from (now() - last_activity_at)) as s from step_ups where id = $1`,
       [busyId],
     );
     expect(Number(idle.rows[0]!.s)).toBeLessThan(5);
-    // "Keep open" is activity too, and says how long the page now has.
-    const kept = await keepPatientPageOpen(clinic.slug);
-    expect(kept.ok && kept.expiresInMs).toBeGreaterThan(STEP_UP_IDLE_MS - 5_000);
+    // The guard's status asks without counting as activity; "Keep open" counts.
+    const activity = async () =>
+      (
+        await pool.query<{ at: Date }>(
+          `select last_activity_at as at from step_ups where id = $1`,
+          [busyId],
+        )
+      ).rows[0]!.at.getTime();
+    const before = await activity();
+    const status = await patientPageStatus(clinic.slug, busyId);
+    expect(status).toMatchObject({ ok: true, stepUpId: busyId, capped: false });
+    expect(answerLeft(status)).toBeLessThanOrEqual(STEP_UP_IDLE_MS);
+    expect(await activity()).toBe(before);
+    const kept = await keepPatientPageOpen(clinic.slug, busyId);
+    expect(answerLeft(kept)).toBe(STEP_UP_IDLE_MS);
+    expect(await activity()).toBeGreaterThan(before);
+    // About a page rendered under another step-up, the answer is no.
+    expect(await patientPageStatus(clinic.slug, randomUUID())).toEqual({ ok: false });
+    expect(await keepPatientPageOpen(clinic.slug, randomUUID())).toEqual({ ok: false });
 
-    // Sixteen minutes idle: closed, and "Keep open" cannot bring it back.
+    // Sixteen minutes idle: closed, and neither question brings it back.
     const away = await signIn(clinic.staffUserId);
     browse(away, `/c/${clinic.slug}/conversations`);
     const awayId = await agedStepUp(away, factorId, {
@@ -390,7 +421,8 @@ describeDb("patient pages", () => {
       activeMinutesAgo: 16,
     });
     expect((await outcome(() => requirePatientPage(clinic.slug))).ok).toBe(false);
-    expect(await keepPatientPageOpen(clinic.slug)).toEqual({ ok: false });
+    expect(await patientPageStatus(clinic.slug, awayId)).toEqual({ ok: false });
+    expect(await keepPatientPageOpen(clinic.slug, awayId)).toEqual({ ok: false });
     const stale = await pool.query<{ s: string }>(
       `select extract(epoch from (now() - last_activity_at)) as s from step_ups where id = $1`,
       [awayId],
@@ -398,23 +430,55 @@ describeDb("patient pages", () => {
     expect(Number(stale.rows[0]!.s)).toBeGreaterThan(15 * 60);
 
     // Five minutes short of eight hours: open, but only until the eight hours,
-    // whatever "Keep open" asks.
+    // whatever "Keep open" asks, and the page is told so.
     const late = await signIn(clinic.staffUserId);
     browse(late, `/c/${clinic.slug}/conversations`);
-    await agedStepUp(late, factorId, { createdMinutesAgo: 8 * 60 - 5, activeMinutesAgo: 1 });
+    const lateId = await agedStepUp(late, factorId, {
+      createdMinutesAgo: 8 * 60 - 5,
+      activeMinutesAgo: 1,
+    });
     const capped = await outcome(() => requirePatientPage(clinic.slug));
     if (!capped.ok) throw new Error(capped.redirect);
-    expect(capped.value.stepUp.expiresInMs).toBeLessThanOrEqual(5 * 60 * 1000);
-    expect(capped.value.stepUp.expiresInMs).toBeGreaterThan(4 * 60 * 1000);
-    const keptLate = await keepPatientPageOpen(clinic.slug);
-    expect(keptLate.ok && keptLate.expiresInMs).toBeLessThanOrEqual(5 * 60 * 1000);
+    expect(capped.value.stepUp.capped).toBe(true);
+    expect(left(capped.value.stepUp)).toBeLessThanOrEqual(5 * 60 * 1000);
+    expect(left(capped.value.stepUp)).toBeGreaterThan(4 * 60 * 1000);
+    const keptLate = await keepPatientPageOpen(clinic.slug, lateId);
+    expect(keptLate).toMatchObject({ ok: true, capped: true });
+    expect(answerLeft(keptLate)).toBeLessThanOrEqual(5 * 60 * 1000);
 
     // Past eight hours: closed, however recently it was used.
     const done = await signIn(clinic.staffUserId);
     browse(done, `/c/${clinic.slug}/conversations`);
-    await agedStepUp(done, factorId, { createdMinutesAgo: 8 * 60 + 2, activeMinutesAgo: 3 });
+    const doneId = await agedStepUp(done, factorId, {
+      createdMinutesAgo: 8 * 60 + 2,
+      activeMinutesAgo: 3,
+    });
     expect((await outcome(() => requirePatientPage(clinic.slug))).ok).toBe(false);
-    expect(await keepPatientPageOpen(clinic.slug)).toEqual({ ok: false });
+    expect(await keepPatientPageOpen(clinic.slug, doneId)).toEqual({ ok: false });
+  });
+
+  test("two requests touching at once both succeed, and activity never moves back", async () => {
+    const clinic = await seedClinic("race");
+    const { factorId } = await addPasskey(clinic.staffUserId, "Front desk Mac");
+    const link = await signIn(clinic.staffUserId);
+    const id = await agedStepUp(link, factorId, { createdMinutesAgo: 5, activeMinutesAgo: 5 });
+
+    // The first request's transaction begins first, so its now() is the
+    // earlier; the second touches and commits before the first gets to it.
+    const latest = await unsafeDb.transaction(async (first) => {
+      await first.execute(sql`select now()`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      const second = await findLiveStepUp(unsafeDb, link.binding, { touch: true });
+      expect(second?.id).toBe(id);
+      const touched = await findLiveStepUp(first, link.binding, { touch: true });
+      expect(touched?.id).toBe(id);
+      return second!.lastActivityAt.getTime();
+    });
+    const { rows } = await getMigratorPool().query<{ at: Date }>(
+      `select last_activity_at as at from step_ups where id = $1`,
+      [id],
+    );
+    expect(rows[0]!.at.getTime()).toBe(latest);
   });
 
   test("each open writes one access row naming the passkey and the device, and ids only", async () => {
@@ -437,6 +501,12 @@ describeDb("patient pages", () => {
       passkeyId: factorId,
       deviceLabel: "Front desk Mac",
       stepUpId: granted.id,
+    });
+    // What the guard gets: identifiers, and no clock of its own.
+    expect(patientGuardProps(page)).toEqual({
+      slug: clinic.slug,
+      stepUpId: granted.id,
+      renderId: page.request.requestId,
     });
 
     // One record: the row is written in the transaction that reads it.
@@ -474,6 +544,15 @@ describeDb("patient pages", () => {
         resourceIds: [],
       });
     });
+    // A long list keeps every id it showed: no sample, no truncation.
+    const many = Array.from({ length: 60 }, () => randomUUID());
+    await withPatientPage(page, async (tx) => {
+      await logPatientAccess(tx, {
+        action: "read",
+        resourceType: "booking_request",
+        resourceIds: many,
+      });
+    });
     await withPatientPage(page, async (tx) => {
       await logPatientAccess(tx, {
         action: "export",
@@ -490,6 +569,8 @@ describeDb("patient pages", () => {
       ip_address: "203.0.113.7",
       user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
       metadata: { passkeyId: factorId, stepUpId: granted.id },
+      // Every row the page wrote carries its request id.
+      request_id: page.request.requestId,
     };
     expect(rows).toEqual([
       {
@@ -513,8 +594,16 @@ describeDb("patient pages", () => {
         action: "read",
         resource_type: "booking_request",
         resource_id: null,
-        resource_ids: null,
+        resource_ids: [],
         result_count: 0,
+      },
+      {
+        ...common,
+        action: "read",
+        resource_type: "booking_request",
+        resource_id: null,
+        resource_ids: many,
+        result_count: 60,
       },
       {
         ...common,
@@ -551,6 +640,11 @@ describeDb("patient pages", () => {
       { action: "update", resourceType: "booking_request", resourceId: id },
       { action: "read", resourceType: "booking_request" },
       { action: "read", resourceType: "booking_request", resourceId: id, resourceIds: [id] },
+      {
+        action: "read",
+        resourceType: "booking_request",
+        resourceIds: Array.from({ length: MAX_PATIENT_IDS_PER_ROW + 1 }, () => id),
+      },
     ]) {
       await expect(
         withPatientPage(page, (tx) => logPatientAccess(tx, bad as never)),
@@ -570,18 +664,69 @@ describeDb("patient pages", () => {
       }),
     ).rejects.toThrow("the read failed");
 
-    // A page's step-up cannot be logged against another clinic's transaction.
-    await expect(
-      withTenant({ clinicId: other.clinicId, actor: { type: "system" } }, (tx) =>
-        logPatientAccess(
-          { ...tx, page },
-          { action: "read", resourceType: "booking_request", resourceId: id },
+    // A row goes only in a transaction withPatientPage opened: not in a plain
+    // tenant transaction dressed up with the page, its clinic's or another's.
+    for (const clinicId of [clinic.clinicId, other.clinicId]) {
+      await expect(
+        withTenant({ clinicId, actor: { type: "system" } }, (tx) =>
+          logPatientAccess(
+            { ...tx, page },
+            { action: "read", resourceType: "booking_request", resourceId: id },
+          ),
         ),
-      ),
-    ).rejects.toThrow(/its own clinic/);
+      ).rejects.toThrow(/withPatientPage opened/);
+    }
 
     expect(await auditRows(clinic.clinicId)).toEqual([]);
     expect(await auditRows(other.clinicId)).toEqual([]);
+  });
+
+  test("only a page requirePatientPage issued opens anything, and it cannot be changed", async () => {
+    const victim = await seedClinic("victim");
+    const attacker = await seedClinic("attacker");
+    await seedConversation(victim.clinicId, { startedAt: new Date() });
+    const { credentialId } = await addPasskey(attacker.staffUserId, "Front desk Mac");
+    const link = await signIn(attacker.staffUserId);
+    await stepUp(link.binding, credentialId);
+    browse(link, `/c/${attacker.slug}/conversations`);
+    const page = await requirePatientPage(attacker.slug);
+
+    // The reviewer's forgery: the victim's clinic and a passkey that does not exist.
+    const forged = {
+      portal: { ...page.portal, clinicId: victim.clinicId },
+      stepUp: { ...page.stepUp, passkeyId: randomUUID() },
+      request: page.request,
+    };
+    let reads = 0;
+    const read = async (tx: Parameters<Parameters<typeof withPatientPage>[1]>[0]) => {
+      reads += 1;
+      const rows = await tx.db.select({ id: conversations.id }).from(conversations);
+      await logPatientAccess(tx, {
+        action: "read",
+        resourceType: "conversation",
+        resourceIds: rows.map((r) => r.id),
+      });
+      return rows;
+    };
+    await expect(withPatientPage(forged, read)).rejects.toThrow(/requirePatientPage issued/);
+    // A copy of an issued page is not that page.
+    await expect(withPatientPage({ ...page }, read)).rejects.toThrow(/requirePatientPage issued/);
+    expect(() => patientGuardProps(forged)).toThrow(/requirePatientPage issued/);
+    expect(reads).toBe(0);
+    // And an issued page cannot be pointed somewhere else.
+    expect(() => {
+      (page.portal as { clinicId: string }).clinicId = victim.clinicId;
+    }).toThrow(TypeError);
+    expect(() => {
+      (page.stepUp as { passkeyId: string }).passkeyId = randomUUID();
+    }).toThrow(TypeError);
+    expect(() => {
+      (page as { portal: unknown }).portal = forged.portal;
+    }).toThrow(TypeError);
+    expect(page.portal.clinicId).toBe(attacker.clinicId);
+
+    expect(await auditRows(victim.clinicId)).toEqual([]);
+    expect(await auditRows(attacker.clinicId)).toEqual([]);
   });
 
   test("another clinic's sign-in gets not found, stepped up or not", async () => {
@@ -626,7 +771,7 @@ describeDb("patient pages", () => {
     const macKey = await addPasskey(clinic.staffUserId, "Front desk Mac");
     const phone = await signIn(clinic.staffUserId);
     const mac = await signIn(clinic.staffUserId);
-    await stepUp(phone.binding, phoneKey.credentialId);
+    const phoneStep = await stepUp(phone.binding, phoneKey.credentialId);
     await stepUp(mac.binding, macKey.credentialId);
 
     browse(phone, `/c/${clinic.slug}/bookings`);
@@ -650,7 +795,8 @@ describeDb("patient pages", () => {
       ok: false,
       redirect: `/c/${clinic.slug}/step-up?next=${encodeURIComponent(`/c/${clinic.slug}/bookings`)}`,
     });
-    expect(await keepPatientPageOpen(clinic.slug)).toEqual({ ok: false });
+    expect(await patientPageStatus(clinic.slug, phoneStep.id)).toEqual({ ok: false });
+    expect(await keepPatientPageOpen(clinic.slug, phoneStep.id)).toEqual({ ok: false });
 
     // The Mac's own step-up, made with its own passkey, stands.
     browse(mac, `/c/${clinic.slug}/bookings`);

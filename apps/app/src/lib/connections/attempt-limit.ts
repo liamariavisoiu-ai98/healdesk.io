@@ -173,6 +173,34 @@ export function withinSignInRequestLimit(email: string, address: string | null):
   return inboxOk && addressOk;
 }
 
+/**
+ * How often one inbox may be named on /sign-in/help, and how often one client
+ * may ask at all (plan Part D5). Tighter than /sign-in: each request costs
+ * Stripe reads, and one that sends nothing tells ops (through notifyOps,
+ * which keeps one email an hour per clinic), so the per-inbox bound is three
+ * in ten minutes and the per-client bound ten. The same map and the same
+ * hashing as the sign-in limit, and counted whether or not the address has
+ * an account, so meeting it says nothing about which addresses do.
+ */
+const SIGN_IN_HELP_LIMITS = { perInbox: 3, perAddress: 10 } as const;
+
+export function withinSignInHelpLimit(email: string, address: string | null): boolean {
+  const now = Date.now();
+  reclaim(now);
+
+  const inboxOk = take(
+    `sign_in_help:e:${createHash("sha256").update(email).digest("hex")}`,
+    SIGN_IN_HELP_LIMITS.perInbox,
+    now,
+  );
+  const addressOk =
+    address === null
+      ? true
+      : take(`sign_in_help:a:${address}`, SIGN_IN_HELP_LIMITS.perAddress, now);
+
+  return inboxOk && addressOk;
+}
+
 function take(key: string, limit: number, now: number): boolean {
   const existing = windows.get(key);
 

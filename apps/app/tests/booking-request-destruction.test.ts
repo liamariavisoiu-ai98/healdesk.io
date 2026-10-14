@@ -215,6 +215,8 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   overage_invoices: "billing evidence",
   report_deliveries: "the ledger of every email sent to the clinic",
   report_recipients: "the clinic's own addresses for its email",
+  sign_in_address_changes:
+    "the record of each change of the clinic's address, the notice address its agreement names; business contact data, no patient (0079)",
   sync_runs: "append-only by grant: what each sync ran, no patient",
   usage_events: "billing evidence: the usage ledger the clinic was charged from",
 };

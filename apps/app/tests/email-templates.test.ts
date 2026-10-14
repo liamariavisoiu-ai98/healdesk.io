@@ -39,7 +39,9 @@ import {
   ORDER_REASON,
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
+import { addressConfirmReason } from "@/lib/email/templates/address_change_confirm";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
+import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import { stepsReason } from "@/lib/email/templates/steps_sent";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
@@ -91,7 +93,10 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
   const scope = carriesUnsubscribe(kind) ? "commercial" : null;
   return {
     clinicName:
-      kind === "ops_alert" || kind === "sign_in_link" || kind === "device_changed"
+      kind === "ops_alert" ||
+      kind === "sign_in_link" ||
+      kind === "sign_in_help_link" ||
+      kind === "device_changed"
         ? null
         : "Radiance Med Spa",
     audience,
@@ -100,7 +105,11 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
         ? OPS_REASON
         : kind === "sign_in_link"
           ? SIGN_IN_REASON
-          : kind === "order_confirmed_delayed"
+          : kind === "sign_in_help_link"
+            ? SIGN_IN_HELP_REASON
+            : kind === "address_change_confirm"
+              ? addressConfirmReason("Radiance Med Spa")
+              : kind === "order_confirmed_delayed"
             ? ORDER_REASON
             : kind === "device_changed"
               ? ACCOUNT_REASON
@@ -156,7 +165,6 @@ describe("the template registry", () => {
       (byPackage[pending.package] ??= []).push(kind);
     }
     expect(byPackage).toEqual({
-      WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
       WP1: ["channel_live"],
       F: [
         "booking_request",
@@ -190,7 +198,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, and O6 and O5's two", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -229,6 +237,9 @@ describe("the template registry", () => {
       "steps_sent",
       "calendar_link",
       "calendar_election_recorded",
+      "sign_in_help_link",
+      "address_change_confirm",
+      "address_changing",
     ]);
   });
 

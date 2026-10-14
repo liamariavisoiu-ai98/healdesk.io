@@ -41,6 +41,9 @@ export type SetupScreenOutcome = (typeof SETUP_SCREEN_OUTCOMES)[number];
  * (`clinic_settings_history`): where calls and urgent callers are sent, how
  * long records are kept, and whether AYA books on its own. Each is a
  * clinic_settings column; plan Part D4 puts them behind a step-up once set.
+ * `sign_in_email` is the clinic's one address (its sign-in, the Stripe
+ * customer's email and the agreement's notice address), recorded masked when
+ * a change of it takes effect (lib/sign-in/address-change.ts).
  */
 export const SETTINGS_HISTORY_FIELDS = [
   "direct_line_e164",
@@ -49,5 +52,6 @@ export const SETTINGS_HISTORY_FIELDS = [
   "vet_referral_e164",
   "transcript_retention_days",
   "auto_confirm_bookings",
+  "sign_in_email",
 ] as const;
 export type SettingsHistoryField = (typeof SETTINGS_HISTORY_FIELDS)[number];

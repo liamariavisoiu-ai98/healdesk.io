@@ -1,6 +1,8 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { ADDRESS_CHANGE_CONFIRM_ENTRY } from "./address_change_confirm";
+import { ADDRESS_CHANGING_ENTRY } from "./address_changing";
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
 import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
 import { CALENDAR_ELECTION_RECORDED_ENTRY } from "./calendar_election_recorded";
@@ -30,6 +32,7 @@ import { RESTORED_ENTRY } from "./restored";
 import { SETTING_CHANGED_ENTRY } from "./setting_changed";
 import { SETUP_CLOSED_ENTRY } from "./setup_closed";
 import { SETUP_REMINDER_ENTRY } from "./setup_reminder";
+import { SIGN_IN_HELP_LINK_ENTRY } from "./sign_in_help_link";
 import { SIGN_IN_LINK_ENTRY } from "./sign_in_link";
 import { STEP_UP_REMINDER_ENTRY } from "./step_up_reminder";
 import { STEPS_SENT_ENTRY } from "./steps_sent";
@@ -111,6 +114,11 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The calendar backend's two (plan §2.6, §4.1).
   calendar_link: CALENDAR_LINK_ENTRY,
   calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
+  // WP8 (plan Part D5): O6 from /sign-in/help, and O5's confirmation link and
+  // notice for a change of the clinic's one address.
+  sign_in_help_link: SIGN_IN_HELP_LINK_ENTRY,
+  address_change_confirm: ADDRESS_CHANGE_CONFIRM_ENTRY,
+  address_changing: ADDRESS_CHANGING_ENTRY,
 };
 
 /**
@@ -128,7 +136,6 @@ export type OwingPackage =
   | "WP5"
   | "WP6"
   | "WP7"
-  | "WP8"
   | "WP9"
   | "WP10"
   | "WP11"
@@ -186,14 +193,13 @@ export const PENDING_TEMPLATES: Record<
     | "steps_sent"
     | "calendar_link"
     | "calendar_election_recorded"
+    | "sign_in_help_link"
+    | "address_change_confirm"
+    | "address_changing"
     | BillingTemplatedKind
   >,
   PendingTemplate
 > = {
-  // WP8: /sign-in/help (D5), and the sign-in address change.
-  sign_in_help_link: { owner: "plan", package: "WP8", ships: "M2, sign-in (O6)" },
-  address_change_confirm: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
-  address_changing: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
   // WP1: the channel events.
   channel_live: { owner: "plan", package: "WP1", ships: "M6 (L1)" },
   // F: the live alerts, through notifyBookingAlert.

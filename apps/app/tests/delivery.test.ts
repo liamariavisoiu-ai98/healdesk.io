@@ -473,6 +473,10 @@ describeDb("delivery", () => {
           // switched job, because "no longer than it needs one" waits for no
           // switch.
           "erasure-expiry",
+          // A change of a clinic's address takes effect when its 72 hours are
+          // up (plan Part D5): a sweep, not a switched job, because the clinic
+          // was told the moment.
+          "address-changes",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -483,6 +487,7 @@ describeDb("delivery", () => {
         if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
         if (job === "welcome-email") continue; // a sweep: retries only a welcome provisioning recorded as owed
         if (job === "erasure-expiry") continue; // a sweep: empties and deletes only expired deletion records
+        if (job === "address-changes") continue; // a sweep: applies only the changes whose 72 hours are up
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         expect(status, job).toBe("disabled");
       }
@@ -490,6 +495,7 @@ describeDb("delivery", () => {
       expect(jobs["booking-request-expiry"]).toBe("ok");
       expect(jobs["welcome-email"]).toBe("ok");
       expect(jobs["erasure-expiry"]).toBe("ok");
+      expect(jobs["address-changes"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

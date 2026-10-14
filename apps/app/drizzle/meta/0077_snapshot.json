@@ -1,5 +1,5 @@
 {
-  "id": "df2206a7-f54d-4966-8f11-a4c3ff585f6a",
+  "id": "8e31c184-1730-46fb-bbdd-78878f4fcf28",
   "prevId": "316fd82f-627c-4b33-b10f-26fa4239c313",
   "version": "7",
   "dialect": "postgresql",
@@ -2319,6 +2319,34 @@
           "method": "btree",
           "with": {}
         },
+        "channel_events_input_once_idx": {
+          "name": "channel_events_input_once_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "kind",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"channel_events\".\"kind\" in ('audit_passed', 'runtime_seen')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "channel_events_clinic_idx": {
           "name": "channel_events_clinic_idx",
           "columns": [
@@ -2370,7 +2398,7 @@
         },
         "channel_events_waiting_on_check": {
           "name": "channel_events_waiting_on_check",
-          "value": "\"channel_events\".\"waiting_on\" is null or \"channel_events\".\"waiting_on\" in ('setup', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
+          "value": "\"channel_events\".\"waiting_on\" is null or \"channel_events\".\"waiting_on\" in ('setup', 'direct_line', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
         },
         "channel_events_channel_required": {
           "name": "channel_events_channel_required",
@@ -2756,7 +2784,7 @@
         },
         "clinic_channels_waiting_on_check": {
           "name": "clinic_channels_waiting_on_check",
-          "value": "\"clinic_channels\".\"waiting_on\" is null or \"clinic_channels\".\"waiting_on\" in ('setup', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
+          "value": "\"clinic_channels\".\"waiting_on\" is null or \"clinic_channels\".\"waiting_on\" in ('setup', 'direct_line', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
         }
       },
       "isRLSEnabled": false

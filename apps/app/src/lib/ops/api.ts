@@ -9,6 +9,7 @@ import {
   auditLog,
   baaAcceptances,
   bookingRequests,
+  clinicChannels,
   clinics,
   connectionLinks,
   providerConnections,
@@ -92,7 +93,14 @@ import {
 } from "@/lib/ops/calendar-ops";
 import { readMetaPlatformSwitches, setMetaPlatformEnabled } from "@/lib/channels/meta-platforms";
 import { AuditSeamError, attestChannelAudit } from "@/lib/channels/audit-seam";
-import { channelInputs, decideChannel, evaluateChannels, readReadinessFacts, type LiveInput } from "@/lib/channels/events";
+import {
+  channelInputs,
+  confirmWidgetOnSite,
+  decideChannel,
+  evaluateChannels,
+  readReadinessFacts,
+  type LiveInput,
+} from "@/lib/channels/events";
 import { readChannelStates } from "@/lib/channels/state";
 import { isChannel } from "@/lib/channels/switch";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
@@ -364,6 +372,9 @@ const OPERATIONS = [
   // it needs to go live (lib/channels/audit-seam.ts). Recorded, once per
   // channel, and never a default.
   "attestChannelAudit",
+  // Website chat's line, confirmed on the clinic's site by an operator who
+  // looked: never an Origin header, which anyone can send. Recorded once.
+  "confirmWebWidget",
   // The Meta front door: a sealed token per platform, the per-clinic switch,
   // and the clinic's own Instagram, Messenger and WhatsApp switches beneath it.
   "attachMetaChannel",
@@ -469,6 +480,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "startForwardingTest",
   "recordClinicTouch",
   "attestChannelAudit",
+  "confirmWebWidget",
   "attachMetaChannel",
   "setMetaFrontDoor",
   "setMetaPlatform",
@@ -985,6 +997,8 @@ export async function runOperation(
       return opRecordClinicTouch(args, operator);
     case "attestChannelAudit":
       return opAttestChannelAudit(args, operator);
+    case "confirmWebWidget":
+      return opConfirmWebWidget(args, operator);
     case "attachMetaChannel":
       return opAttachMetaChannel(args, operator);
     case "setMetaFrontDoor":
@@ -3347,6 +3361,40 @@ async function opAttestChannelAudit(
     throw error;
   }
   if (recorded) await audit(operator, "channel_audit_attested", { clinicSlug: clinic.slug, channel });
+  return care.updated();
+}
+
+/**
+ * Website chat's line is on the clinic's website: the operator opened the
+ * site and saw the chat (the console says how). The only way website chat's
+ * runtime is recorded, because a widget load's Origin header proves nothing
+ * (lib/channels/events.ts). Recorded once, then the channel moves on as far
+ * as its other inputs allow. Refused for a clinic that did not buy website
+ * chat, and for one that has left.
+ */
+async function opConfirmWebWidget(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  if (clinic.offboardingStartedAt || clinic.destroyedAt) return care.error("This clinic has left.");
+  const recorded = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      const [row] = await tx.db
+        .select({ channel: clinicChannels.channel })
+        .from(clinicChannels)
+        .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.channel, "web")))
+        .limit(1);
+      if (!row) return null;
+      const result = await confirmWidgetOnSite(tx);
+      await evaluateChannels(tx, { only: "web", actor: "ops" });
+      return result.recorded;
+    },
+  );
+  if (recorded === null) return care.error("The clinic didn't buy website chat.");
+  if (recorded) await audit(operator, "web_widget_confirmed", { clinicSlug: clinic.slug });
   return care.updated();
 }
 

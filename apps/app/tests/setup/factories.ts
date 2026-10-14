@@ -328,10 +328,33 @@ export async function seedEntitled(
 
 /**
  * clinic_channels rows for a clinic (a billing clinic or one of its
- * locations), on the RUNTIME role inside its tenant, as provisioning and the
- * channel lifecycle write them.
+ * locations), inside its tenant: a bare row on the RUNTIME role, as
+ * provisioning writes it; a row already carrying a lifecycle stamp
+ * (ready_at, live_at, first_answer_at) as the migrator, standing in for the
+ * channel definers that alone may write those since drizzle/0077.
  */
 export async function seedChannels(clinicId: string, rows: readonly SeedChannelRow[]): Promise<void> {
+  const stamped = rows.some((row) => row.readyAt || row.liveAt || row.firstAnswerAt);
+  if (stamped) {
+    await inTenant(clinicId, async (client) => {
+      for (const row of rows) {
+        await client.query(
+          `insert into clinic_channels (clinic_id, channel, enabled, ready_at, waiting_on, live_at, first_answer_at)
+           values ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            clinicId,
+            row.channel,
+            row.enabled ?? true,
+            row.readyAt ?? null,
+            row.waitingOn ?? null,
+            row.liveAt ?? null,
+            row.firstAnswerAt ?? null,
+          ],
+        );
+      }
+    });
+    return;
+  }
   const [{ withTenant }, { clinicChannels }] = await Promise.all([
     import("@/lib/tenant"),
     import("@/db/schema"),

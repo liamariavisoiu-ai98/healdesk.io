@@ -129,10 +129,11 @@ export function isLocalOrigin(origin: string | null | undefined): boolean {
 }
 
 /**
- * The widget is on the clinic's own website: an origin `originAllowed`
- * accepts for the website on file, and not a local page. A clinic with no
- * website on file has no site to be seen on, so this is never true for one.
- * It is how website chat's runtime is first seen (lib/channels/events.ts).
+ * The request says it comes from the clinic's own website: an origin
+ * `originAllowed` accepts for the website on file, and not a local page. A
+ * clinic with no website on file has no site to be seen on, so this is never
+ * true for one. Only a reason to ask an operator to look: any client can
+ * send any Origin (lib/channels/events.ts noteWidgetLoaded).
  */
 export function isClinicSiteOrigin(origin: string | null, website: string | null): boolean {
   if (!website || !origin || isLocalOrigin(origin)) return false;
@@ -186,12 +187,12 @@ function openingLine(facts: Pick<AssistantFacts, "clinicName" | "greeting">): st
 
 /**
  * Start: the gate, then the opening line and a token with no conversation
- * yet. A start from the clinic's own website is first recorded as website
- * chat's runtime seen there, which may take the channel live before the gate
- * is asked (lib/channels/events.ts).
+ * yet. A start that says it comes from the clinic's own website asks an
+ * operator, once, to confirm the line is on the site; it records nothing,
+ * because an Origin header is never proof (lib/channels/events.ts).
  */
 export async function startWebChat(clinic: WebChatClinic, now: Date = new Date(), origin: string | null = null): Promise<{ mode: "chat"; opening: string; token: string } | { mode: "contact_form"; reason: string }> {
-  if (isClinicSiteOrigin(origin, clinic.website)) await noteWidgetLoaded(clinic.clinicId, { now, actor: ACTOR });
+  if (isClinicSiteOrigin(origin, clinic.website)) await noteWidgetLoaded(clinic.clinicId, { actor: ACTOR });
   const decision = await assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", now, actor: ACTOR });
   if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason };
   const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
@@ -297,15 +298,24 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
           disclosurePlayedAt: new Date(state.openedAt),
         });
         tx.audit.record({ action: "create", resourceType: "conversation", resourceId: conversationId, metadata: { channel: "web_chat" } });
-        // The gate answered and the visitor wrote: website chat's first
-        // answer, if it is one, with its plan start or step-up. Never undoes
-        // the conversation (lib/channels/events.ts).
-        await recordFirstAnswer(
-          tx,
-          { channel: "web", source: "runtime", gateAnswered: true, personAnswered: true, localTest: isLocalOrigin(deps.origin), conversationId },
-          now,
-        );
       }
+      // The gate answered, the visitor wrote and AYA answered, not only with
+      // the failure line: website chat's first answer, if it is one, with its
+      // plan start or step-up. On any such message, so a chat whose first
+      // reply failed counts from its first real one. Never undoes the
+      // conversation (lib/channels/events.ts).
+      await recordFirstAnswer(
+        tx,
+        {
+          channel: "web",
+          source: "runtime",
+          gateAnswered: true,
+          personAnswered: turn.source !== "fallback",
+          localTest: isLocalOrigin(deps.origin),
+          conversationId,
+        },
+        now,
+      );
       const next: ChatState = { ...state, capture: turn.capture };
       if (turn.urgent && !state.urgentAlerted) {
         await notifyBookingAlert(tx, "urgent", {});

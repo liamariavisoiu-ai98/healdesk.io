@@ -1436,6 +1436,13 @@ export const emailDailyQuota = pgTable(
 /** What the forwarding test saw. Facts from the call; no caller in it. */
 export type ForwardingTestObservation = {
   arrivedAt: string;
+  /**
+   * When the test's window ended. Every call inside it is Healdesk's own,
+   * not only the first, so none of them is phone's first answer or billed
+   * minutes (lib/onboarding/forwarding-test.ts). Absent on an observation
+   * recorded before 0077.
+   */
+  windowUntil?: string;
   conversationId: string;
   callerIdPreserved: boolean;
   /** Which forward condition fired, where the carrier told us. */
@@ -4136,6 +4143,9 @@ export const stripeConnectStates = pgTable(
 /** The one thing a channel ready on our side is waiting for the clinic to do. */
 export const CHANNEL_WAITING_ON = [
   "setup",
+  // Phone's: the direct line, where every call AYA can't answer goes, is not
+  // on file (drizzle/0077). Its own state so the portal and L4 can name it.
+  "direct_line",
   "forwarding",
   "snippet",
   "meta_connect",
@@ -4242,6 +4252,11 @@ export const channelEvents = pgTable(
     uniqueIndex("channel_events_first_answer_idx")
       .on(t.clinicId, t.channel)
       .where(sql`${t.kind} = 'first_answer'`),
+    // Each of `live`'s recorded inputs once per channel (drizzle/0077), so
+    // its definer records it with ON CONFLICT and takes no row lock.
+    uniqueIndex("channel_events_input_once_idx")
+      .on(t.clinicId, t.channel, t.kind)
+      .where(sql`${t.kind} in ('audit_passed', 'runtime_seen')`),
     index("channel_events_clinic_idx").on(t.clinicId, t.occurredAt),
     check(
       "channel_events_channel_check",

@@ -49,6 +49,7 @@ describe("the notice kind registry", () => {
     expect([...PLAN_NOTICE_KINDS].sort()).toEqual([
       "calendar_reconnected",
       "calendar_stopped",
+      "channel_live",
       "channel_ready",
       "setting_changed",
       "setup_closed",
@@ -64,6 +65,8 @@ describe("the notice kind registry", () => {
     expect(NOTICE_KIND_REGISTRY.setting_changed).toMatchObject({ annex: "O4", quietHours: "any_hour" });
     // O10 is a step to take, not an alert: it waits for the clinic's daytime.
     expect(NOTICE_KIND_REGISTRY.channel_ready).toMatchObject({ annex: "O10", quietHours: "daytime" });
+    // L1 says what is now true and asks nothing: it waits for daytime too.
+    expect(NOTICE_KIND_REGISTRY.channel_live).toMatchObject({ annex: "L1", quietHours: "daytime" });
     for (const kind of PLAN_NOTICE_KINDS) {
       expect(NOTICE_KIND_REGISTRY[kind]).toMatchObject({
         class: "transactional",

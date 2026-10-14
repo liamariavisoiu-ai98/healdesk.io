@@ -10,6 +10,7 @@ import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { answerTurn, EMPTY_CAPTURE, FAILURE_LINE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
+import { noteWidgetLoaded, recordFirstAnswer } from "@/lib/channels/events";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
@@ -116,6 +117,28 @@ export function originAllowed(origin: string | null, website: string | null): bo
   return host === site || host === `www.${site}` || host.endsWith(`.${site}`);
 }
 
+/** A page served from the visitor's own machine: the clinic trying its widget locally. */
+export function isLocalOrigin(origin: string | null | undefined): boolean {
+  if (!origin) return false;
+  try {
+    const host = new URL(origin).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The widget is on the clinic's own website: an origin `originAllowed`
+ * accepts for the website on file, and not a local page. A clinic with no
+ * website on file has no site to be seen on, so this is never true for one.
+ * It is how website chat's runtime is first seen (lib/channels/events.ts).
+ */
+export function isClinicSiteOrigin(origin: string | null, website: string | null): boolean {
+  if (!website || !origin || isLocalOrigin(origin)) return false;
+  return originAllowed(origin, website);
+}
+
 // -----------------------------------------------------------------------------
 // The token
 // -----------------------------------------------------------------------------
@@ -161,8 +184,14 @@ function openingLine(facts: Pick<AssistantFacts, "clinicName" | "greeting">): st
   return `${disclosureFor({ clinicName: facts.clinicName, channel: "web_chat" })} ${facts.greeting.chat}`;
 }
 
-/** Start: the gate, then the opening line and a token with no conversation yet. */
-export async function startWebChat(clinic: WebChatClinic, now: Date = new Date()): Promise<{ mode: "chat"; opening: string; token: string } | { mode: "contact_form"; reason: string }> {
+/**
+ * Start: the gate, then the opening line and a token with no conversation
+ * yet. A start from the clinic's own website is first recorded as website
+ * chat's runtime seen there, which may take the channel live before the gate
+ * is asked (lib/channels/events.ts).
+ */
+export async function startWebChat(clinic: WebChatClinic, now: Date = new Date(), origin: string | null = null): Promise<{ mode: "chat"; opening: string; token: string } | { mode: "contact_form"; reason: string }> {
+  if (isClinicSiteOrigin(origin, clinic.website)) await noteWidgetLoaded(clinic.clinicId, { now, actor: ACTOR });
   const decision = await assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", now, actor: ACTOR });
   if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason };
   const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
@@ -171,7 +200,13 @@ export async function startWebChat(clinic: WebChatClinic, now: Date = new Date()
   return { mode: "chat", opening: openingLine(facts), token };
 }
 
-type Deps = { responder: AssistantResponder | null; transport?: EmailTransport; now?: Date };
+type Deps = {
+  responder: AssistantResponder | null;
+  transport?: EmailTransport;
+  now?: Date;
+  /** The page's origin, as the route saw it: a local page's chat is never website chat's first answer. */
+  origin?: string | null;
+};
 
 /** A complete request: a first name, a number that is a number, and a time. */
 function requestReady(capture: BookingCapture): { firstName: string; phone: string; window: string } | null {
@@ -262,6 +297,14 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
           disclosurePlayedAt: new Date(state.openedAt),
         });
         tx.audit.record({ action: "create", resourceType: "conversation", resourceId: conversationId, metadata: { channel: "web_chat" } });
+        // The gate answered and the visitor wrote: website chat's first
+        // answer, if it is one, with its plan start or step-up. Never undoes
+        // the conversation (lib/channels/events.ts).
+        await recordFirstAnswer(
+          tx,
+          { channel: "web", source: "runtime", gateAnswered: true, personAnswered: true, localTest: isLocalOrigin(deps.origin), conversationId },
+          now,
+        );
       }
       const next: ChatState = { ...state, capture: turn.capture };
       if (turn.urgent && !state.urgentAlerted) {

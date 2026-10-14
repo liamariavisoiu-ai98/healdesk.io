@@ -124,6 +124,10 @@ export const NOTICE_KIND_REGISTRY = {
   // hour later (lib/notices/channel-ready.ts, the seam the voice runtime
   // calls). It waits for daytime: it is a step to take, not an alert.
   channel_ready: kind("O10", "transactional", "normal", null, "daytime", "plan"),
+  // L1: AYA is answering on a channel, queued once per channel in the
+  // transaction that records it `live` (lib/channels/events.ts). It waits for
+  // daytime: it says what is now true, and nothing has to be done about it.
+  channel_live: kind("L1", "transactional", "normal", null, "daytime", "plan"),
 } as const;
 
 export type NoticeKind = keyof typeof NOTICE_KIND_REGISTRY;

@@ -9,6 +9,8 @@ import {
 
 import { unsafeDb } from "@/db";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
+import { evaluateChannels } from "@/lib/channels/events";
+import { describeError, log } from "@/lib/log";
 import { env } from "@/lib/env";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
 import { withTenant } from "@/lib/tenant";
@@ -119,6 +121,14 @@ export async function goLive(
       // run as a phone number, and the flip's time is on the clinic row.
       metadata: { clinicSlug: clinic.slug, baaSigned: true },
     });
+    // The operator's go-live is one of a channel's four inputs: each channel
+    // moves on as far as its others allow (lib/channels/events.ts). Never
+    // fatal: the flip has happened, and the hourly sweep tries again.
+    try {
+      await withTenant({ clinicId, actor: GO_LIVE_ACTOR }, (tx) => evaluateChannels(tx, { actor: "ops" }));
+    } catch (error) {
+      log.error("channels not moved on after go-live", { clinicId, error: describeError(error) });
+    }
     return { status: "live", baaSignedAt: new Date(signed) };
   } catch (error) {
     // The function's message names exactly what is missing and carries no

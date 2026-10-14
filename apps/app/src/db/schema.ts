@@ -4189,13 +4189,21 @@ export const CHANNEL_EVENT_KINDS = [
   "resumed",
   "turned_off",
   "turned_on",
+  // Two of `live`'s inputs (lib/channels/events.ts, drizzle/0076): the
+  // channel's audit passed, which only an operator records until the
+  // practice questions exist (lib/channels/audit-seam.ts), and the first
+  // sign that the channel's runtime answers there: website chat's widget
+  // loading on the clinic's own site.
+  "audit_passed",
+  "runtime_seen",
 ] as const;
 export type ChannelEventKind = (typeof CHANNEL_EVENT_KINDS)[number];
 
 /**
  * What happened to a clinic's channels, append-only: ready on our side,
  * waiting on the clinic (and for what), live, the first answer, the header's
- * pause and resume, and the Settings switch.
+ * pause and resume, the Settings switch, and two of `live`'s inputs: the
+ * channel's audit passed, and its runtime first seen answering there.
  *
  * It is billing evidence. The plan starts on the clinic's first
  * `first_answer` and each later channel's price joins on its own, so the

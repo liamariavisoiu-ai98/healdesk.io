@@ -49,6 +49,7 @@ import {
   ONBOARDING_STEPS,
   resolveBookingRequirements,
   serviceNameScreen,
+  type Channel,
   type ForwardingInstruction,
   type OnboardingState,
 } from "@healdesk/catalog";
@@ -89,6 +90,10 @@ import {
   type BookingProjection,
 } from "@/lib/ops/calendar-ops";
 import { readMetaPlatformSwitches, setMetaPlatformEnabled } from "@/lib/channels/meta-platforms";
+import { AuditSeamError, attestChannelAudit } from "@/lib/channels/audit-seam";
+import { channelInputs, decideChannel, evaluateChannels, readReadinessFacts, type LiveInput } from "@/lib/channels/events";
+import { readChannelStates } from "@/lib/channels/state";
+import { isChannel } from "@/lib/channels/switch";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import {
   ERASURE_STEP_OUTCOMES,
@@ -352,6 +357,11 @@ const OPERATIONS = [
   "startForwardingTest",
   "listClinicHealth",
   "recordClinicTouch",
+  // Channel events (lib/channels/events.ts): until the practice questions
+  // exist, an operator says a channel's audit passed, one of the four inputs
+  // it needs to go live (lib/channels/audit-seam.ts). Recorded, once per
+  // channel, and never a default.
+  "attestChannelAudit",
   // The Meta front door: a sealed token per platform, the per-clinic switch,
   // and the clinic's own Instagram, Messenger and WhatsApp switches beneath it.
   "attachMetaChannel",
@@ -456,6 +466,7 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "setAutoRenew",
   "startForwardingTest",
   "recordClinicTouch",
+  "attestChannelAudit",
   "attachMetaChannel",
   "setMetaFrontDoor",
   "setMetaPlatform",
@@ -970,6 +981,8 @@ export async function runOperation(
       return opListClinicHealth(operator);
     case "recordClinicTouch":
       return opRecordClinicTouch(args, operator);
+    case "attestChannelAudit":
+      return opAttestChannelAudit(args, operator);
     case "attachMetaChannel":
       return opAttachMetaChannel(args, operator);
     case "setMetaFrontDoor":
@@ -2204,6 +2217,24 @@ export type OnboardingView = {
    * nothing they described decides it any more.
    */
   booking: BookingProjection;
+  /**
+   * Each bought channel's go-live state (lib/channels/events.ts): ready on
+   * our side, what it waits on, live, its first answer, whether its audit
+   * has passed, and what still stands between it and live, as codes. Times
+   * and codes only.
+   */
+  channels: OnboardingChannelView[];
+};
+
+export type OnboardingChannelView = {
+  channel: Channel;
+  readyAt: string | null;
+  waitingOn: string | null;
+  liveAt: string | null;
+  firstAnswerAt: string | null;
+  auditPassed: boolean;
+  /** Empty once live. */
+  missing: LiveInput[];
 };
 
 export type CalendarWriteRow = {
@@ -2236,12 +2267,26 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView } = await withTenant(
+  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView, channels } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
       const connections = await listConnections(tx.db, tx.clinicId);
+      const states = await readChannelStates(tx.db, tx.clinicId);
+      const facts = await readReadinessFacts(
+        tx,
+        states.map((c) => c.channel),
+      );
       return {
+        channels: states.map((c): OnboardingChannelView => ({
+          channel: c.channel,
+          readyAt: c.readyAt?.toISOString() ?? null,
+          waitingOn: c.waitingOn,
+          liveAt: c.liveAt?.toISOString() ?? null,
+          firstAnswerAt: c.firstAnswerAt?.toISOString() ?? null,
+          auditPassed: facts?.auditPassed.has(c.channel) ?? false,
+          missing: c.liveAt || !facts ? [] : decideChannel(channelInputs(c.channel, facts)).missing,
+        })),
         agent: await getAgentConfig(tx),
         metaPlatforms: await readMetaPlatformSwitches(tx.db, tx.clinicId),
         bookingRequests: await bookingRequestCounts(tx),
@@ -2325,6 +2370,7 @@ async function opGetOnboarding(
         }
       : null,
     goLive: goLivePreconditions(clinic, await readVoiceLine(clinic.id)),
+    channels,
     requirements: {
       fields: resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements).map((f) => f.id),
       confirmedAt: clinic.bookingRequirementsConfirmedAt?.toISOString() ?? null,
@@ -2408,10 +2454,14 @@ async function opCompleteOnboardingStep(
   }
   const state = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-    (tx) =>
-      reopen
-        ? reopenStep(tx, step, note ?? "reopened by operator")
-        : completeStep(tx, step, { note }),
+    async (tx) => {
+      const after = reopen
+        ? await reopenStep(tx, step, note ?? "reopened by operator")
+        : await completeStep(tx, step, { note });
+      // The forwarding test's stamp is phone's last step (lib/channels/events.ts).
+      if (!reopen) await evaluateChannels(tx, { actor: "ops" });
+      return after;
+    },
   );
   const auditRecorded = await audit(operator, reopen ? "onboarding_step_reopened" : "onboarding_step_completed", {
     clinicSlug: clinic.slug,
@@ -2452,14 +2502,17 @@ async function opSetPhoneSettings(
   try {
     await withTenant(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      (tx) =>
-        setPhoneSettings(tx, {
+      async (tx) => {
+        await setPhoneSettings(tx, {
           phoneSystemType: phoneSystemType as "landline" | "voip" | "unknown" | undefined,
           callRouting: callRouting as "conditional" | "always" | undefined,
           carrier: carrier as never,
           assistantNumberE164,
           publishedPhoneE164,
-        }),
+        });
+        // AYA's number is our half of phone's runtime (lib/channels/events.ts).
+        await evaluateChannels(tx, { only: "voice", actor: "ops" });
+      },
     );
   } catch (error) {
     return ok({
@@ -3244,6 +3297,40 @@ async function opRecordClinicTouch(
     (tx) => recordTouch(tx, { kind, summary, outcome: outcome as string | null, byLabel: operator.email }),
   );
   await audit(operator, "clinic_touch_recorded", { clinicSlug: clinic.slug, kind });
+  return care.updated();
+}
+
+/**
+ * One bought channel's audit passed, as the operator attests it until the
+ * practice questions exist (lib/channels/audit-seam.ts): recorded once, with
+ * the operator's audit row, and the channel then moved on as far as its
+ * other inputs allow. Refused for a channel the clinic did not buy, and for
+ * a clinic that has left.
+ */
+async function opAttestChannelAudit(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return care.error("No such clinic.");
+  const channel = stringArg(args, "channel", 8);
+  if (!isChannel(channel)) return care.error("The channel is web, meta or voice.");
+  if (clinic.offboardingStartedAt || clinic.destroyedAt) return care.error("This clinic has left.");
+  let recorded: boolean;
+  try {
+    recorded = await withTenant(
+      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+      async (tx) => {
+        const result = await attestChannelAudit(tx, channel);
+        await evaluateChannels(tx, { only: channel, actor: "ops" });
+        return result.recorded;
+      },
+    );
+  } catch (error) {
+    if (error instanceof AuditSeamError) return care.error(error.message);
+    throw error;
+  }
+  if (recorded) await audit(operator, "channel_audit_attested", { clinicSlug: clinic.slug, channel });
   return care.updated();
 }
 

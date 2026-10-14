@@ -17,11 +17,12 @@ import { enqueuePlanNotice } from "./plan-notices";
  * became ready, keyed on the channel and its readiness, so each readiness is
  * one email however often this is asked.
  *
- * The seam. Nothing on main writes a channel's readiness yet
- * (`clinic_channels.ready_at` and `waiting_on` are read, never written), so
- * nothing calls this: the voice runtime does, an hour after it marks phone
- * ready and only while phone is still waiting on the clinic's forwarding, and
- * passes AYA's number, which is its to give. Website chat and the Meta
+ * Its caller is lib/channels/events.ts, in the transaction that records
+ * phone ready on our side and waiting on the clinic's forwarding. It queues
+ * the notice then, due an hour after readiness (`sendAfter`), with AYA's
+ * number, which readiness requires; the outbox asks again when it is due
+ * whether phone is still waiting on that step (lib/email/superseded.ts), so
+ * a step done within the hour sends nothing. Website chat and the Meta
  * channels join when their step exists (lib/email/templates/channel_ready.ts).
  *
  * It returns whether a notice was queued: false for a channel that is not
@@ -36,7 +37,12 @@ import { enqueuePlanNotice } from "./plan-notices";
  */
 export async function queueChannelReady(
   tx: TenantTx,
-  input: { channel: Channel; ayaNumberE164: string },
+  input: {
+    channel: Channel;
+    ayaNumberE164: string;
+    /** When it may go: an hour after readiness. Absent, as soon as quiet hours allow. */
+    sendAfter?: Date;
+  },
 ): Promise<boolean> {
   if (input.channel !== "voice") return false;
   try {
@@ -87,6 +93,7 @@ export async function queueChannelReady(
           callUrl: emailCallUrl(),
           helpPhoneE164: helpContacts().phoneE164,
         },
+        input.sendAfter ? { sendAfter: input.sendAfter } : {},
       );
     });
     return true;

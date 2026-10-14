@@ -7,6 +7,7 @@ import { unsafeDb, type Transaction } from "@/db";
 import { bookingRequests, clinics, clinicSettings, contacts, conversations } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext } from "@/lib/audit";
 import { recordUsage } from "@/lib/billing/usage";
+import { evaluateChannels, recordFirstAnswer, voiceFirstAnswerEvidence } from "@/lib/channels/events";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { queueTranscriptEmail, sendQueuedTranscriptNow } from "@/lib/conversations/transcript-outbox";
 import { identifierRef } from "@/lib/identifier-ref";
@@ -93,6 +94,13 @@ export type VoiceCallEvent = {
     | "spam"
     | "abandoned";
   treatmentInterest?: string;
+  /**
+   * The answer gate said answer when the call came in, so AYA answered it as
+   * herself, not with the safe script for a refused call: the one kind of
+   * call that can be phone's first answer (lib/channels/events.ts). Absent is
+   * false.
+   */
+  answeredByAssistant?: boolean;
   /** Proof the AI disclosure played before audio reached transcription. */
   disclosurePlayedAt?: Date;
   recordingOptOut?: boolean;
@@ -610,6 +618,13 @@ export async function ingestCall(
     // the same transaction, so a test call that stamps the step and the
     // conversation it stamped it from commit or roll back together.
     await observeForwardingCall(tx, clinic, event, row.id);
+
+    // Channel events (lib/channels/events.ts), in the same transaction: the
+    // forwarding test above may have confirmed phone's last step, and this
+    // call may be phone's first answer, which records the plan start or the
+    // step-up with it. Neither ever undoes the call's own record.
+    await evaluateChannels(tx, { only: "voice" });
+    await recordFirstAnswer(tx, voiceFirstAnswerEvidence(event, metering, row.id));
 
     // The transcript, sealed in the outbox with the conversation it belongs
     // to: both commit or neither does.

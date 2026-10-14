@@ -31,6 +31,8 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { upsertCallerContact } from "@/lib/voice/ingest";
 
+import { CLOSED_FORM, contactFormOffer, type ContactFormOffer } from "./contact-form";
+
 /**
  * The web chat on a clinic's own website: the server side of the widget
  * (CLAUDE.md: "every request that carries a visitor's words goes to
@@ -84,9 +86,16 @@ type ChatState = {
   openedAt: string;
 };
 
+/**
+ * What the widget shows instead of the chat: the contact form, which takes a
+ * message while the agreement still covers the clinic and its website chat
+ * has been live (lib/chat/contact-form.ts), and otherwise only says to call.
+ */
+export type ContactFormReply = { mode: "contact_form"; reason: string; form: ContactFormOffer };
+
 export type WebChatReply =
   | { mode: "chat"; reply: string; token: string; ended: boolean }
-  | { mode: "contact_form"; reason: string };
+  | ContactFormReply;
 
 const ACTOR: ActorContext = { type: "agent", serviceName: "web-chat" };
 /** A token older than this starts a new conversation. */
@@ -204,12 +213,12 @@ function openingLine(facts: Pick<AssistantFacts, "clinicName" | "greeting">): st
  * operator, once, to confirm the line is on the site; it records nothing,
  * because an Origin header is never proof (lib/channels/events.ts).
  */
-export async function startWebChat(clinic: WebChatClinic, now: Date = new Date(), origin: string | null = null): Promise<{ mode: "chat"; opening: string; token: string } | { mode: "contact_form"; reason: string }> {
+export async function startWebChat(clinic: WebChatClinic, now: Date = new Date(), origin: string | null = null): Promise<{ mode: "chat"; opening: string; token: string } | ContactFormReply> {
   if (isClinicSiteOrigin(origin, clinic.website)) await noteWidgetLoaded(clinic.clinicId, { actor: ACTOR });
   const decision = await assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", now, actor: ACTOR });
-  if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason };
+  if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason, form: await contactFormOffer(clinic, decision) };
   const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
-  if (!facts) return { mode: "contact_form", reason: "clinic_left" };
+  if (!facts) return { mode: "contact_form", reason: "clinic_left", form: CLOSED_FORM };
   const token = signToken({ clinicId: clinic.clinicId, conversationId: null, sessionId: randomBytes(16).toString("base64url"), issuedAt: now.getTime() });
   return { mode: "chat", opening: openingLine(facts), token };
 }
@@ -277,7 +286,7 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   // the hard cap asks about, so one already counted is never cut off.
   const usage = { source: "web_chat" as const, sourceRef: identifierRef("chat_conversation", clinic.clinicId, conversationId) };
   const decision = await assistantMayAnswer({ clinicId: clinic.clinicId, channel: "web", usage, continuing, now, actor: ACTOR });
-  if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason };
+  if (decision.decision === "pass_through") return { mode: "contact_form", reason: decision.reason, form: await contactFormOffer(clinic, decision) };
 
   try {
     await recordUsage({
@@ -295,7 +304,7 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
   }
 
   const facts = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
-  if (!facts) return { mode: "contact_form", reason: "clinic_left" };
+  if (!facts) return { mode: "contact_form", reason: "clinic_left", form: CLOSED_FORM };
 
   const state: ChatState = continuing
     ? existing!.payload.state

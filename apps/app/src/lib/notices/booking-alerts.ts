@@ -30,7 +30,7 @@ export type BookingAlertKind =
   | "handover"
   /** L12: the urgent matcher fired. Critical. */
   | "urgent"
-  /** L20: a message left on the website's contact form while chat was off or paused. */
+  /** L20: a message left on the website's contact form while AYA was not answering (lib/chat/contact-form.ts). */
   | "website_message"
   /**
    * L34: a booking the assistant made may not be in the calendar (the write

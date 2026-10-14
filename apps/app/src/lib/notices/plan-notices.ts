@@ -69,7 +69,7 @@ export type PlanNoticePayloads = {
   handover: BookingAlertPayload;
   /** Dedupe on the conversation, or the call while it is still going: once each. */
   urgent: BookingAlertPayload;
-  /** Owed: no source yet (the contact form needs the owner's decision). */
+  /** Dedupe `website_message:request:<id>`: once per message left (lib/chat/contact-form.ts). */
   website_message: BookingAlertPayload;
   /** Dedupe `calendar_check:request:<id>`: once per request. */
   calendar_check: BookingAlertPayload;

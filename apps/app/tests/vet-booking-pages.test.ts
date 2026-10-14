@@ -129,6 +129,7 @@ function request(overrides: Partial<BookingRequestView>): BookingRequestView {
     proposedSlots: [],
     rescheduleExpiresAt: null,
     bookedVia: "desk",
+    source: "assistant",
     lastInboundAt: null,
     lapsed: false,
     calendar: null,

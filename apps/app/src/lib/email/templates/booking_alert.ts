@@ -274,11 +274,11 @@ export const renderWebsiteMessage: EmailTemplate<BookingAlertPayload> = (payload
   compose(
     {
       subject: "A message was left on your website",
-      preheader: "Website chat was off or paused, so your website took a message.",
+      preheader: "AYA wasn't answering your website chat, so your website took a message.",
       blocks: [
         {
           type: "paragraph",
-          text: "While website chat was off or paused, someone left a message for your team on your website.",
+          text: "While AYA wasn't answering your website chat, someone left a message on your website's contact form asking you to call them back. They were told you would.",
         },
         ...openAction(payload.portalUrl),
         pointerLine(ctx),
@@ -388,7 +388,7 @@ export const URGENT_ENTRY: TemplateEntry<BookingAlertPayload> = {
 export const WEBSITE_MESSAGE_ENTRY: TemplateEntry<BookingAlertPayload> = {
   render: renderWebsiteMessage,
   get fixture() {
-    return alertFixture({ channel: "web" });
+    return alertFixture({ channel: "web", bookingRequestId: REQUEST_ID });
   },
 };
 

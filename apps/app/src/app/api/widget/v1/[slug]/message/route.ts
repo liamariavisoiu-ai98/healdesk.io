@@ -2,6 +2,7 @@ import { after } from "next/server";
 
 import { anthropicAssistantResponder } from "@/lib/assistant/responder";
 import type { AssistantResponder } from "@/lib/assistant/turn";
+import { contactFormOfferSafely } from "@/lib/chat/contact-form";
 import { json, preflight, widgetRequest } from "@/lib/chat/widget-http";
 import { sendWebChatMessage } from "@/lib/chat/web-chat";
 import { describeError, log } from "@/lib/log";
@@ -39,7 +40,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     return json(answer, 200, req.origin);
   } catch (error) {
     log.error("web chat message failed", { clinicId: req.clinic.clinicId, error: describeError(error) });
-    return json({ mode: "contact_form", reason: "unavailable" }, 200, req.origin);
+    // Our endpoint failed: the widget shows the contact form, which still
+    // takes a message while the agreement covers the clinic.
+    return json({ mode: "contact_form", reason: "unavailable", form: await contactFormOfferSafely(req.clinic) }, 200, req.origin);
   }
 }
 

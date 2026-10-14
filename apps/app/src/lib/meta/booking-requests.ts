@@ -15,6 +15,7 @@ import {
   slotHolds,
   type AgentService,
   type BookedVia,
+  type BookingRequestSource,
   type BookingOrigin,
   type CalendarWriteStatus,
   type ProposedSlot,
@@ -427,6 +428,12 @@ export type CreateBookingRequestInput =
       vendorCallId?: string;
       /** `agent_direct` when the assistant is attempting the booking itself. Frozen at insert. */
       bookedVia?: BookedVia;
+      /**
+       * `contact_form` for a message left on the website's contact form
+       * (lib/chat/contact-form.ts): web chat only, with no conversation.
+       * Frozen at insert. AYA's own requests leave it out.
+       */
+      source?: BookingRequestSource;
     };
 
 /**
@@ -498,6 +505,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       collectedFields,
       vendorCallId: input.channel !== "meta" ? (input.vendorCallId ?? null) : null,
       bookedVia: input.channel !== "meta" ? (input.bookedVia ?? "desk") : "desk",
+      source: input.channel === "web_chat" ? (input.source ?? "assistant") : "assistant",
       tokenHash: hashToken(token),
       expiresAt: sql`now() + make_interval(days => ${BOOKING_REQUEST_TTL_DAYS})`,
       lastInboundAt: input.channel === "meta" ? (input.lastInboundAt ?? now) : null,
@@ -519,6 +527,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       platform: input.channel === "meta" ? input.thread.platform : undefined,
       expiresInDays: BOOKING_REQUEST_TTL_DAYS,
       alternatives: alternativeWindows.length,
+      ...(input.channel === "web_chat" && input.source === "contact_form" ? { source: "contact_form" } : {}),
     },
   });
   return { id: row.id, token, expiresAt: row.expiresAt };
@@ -657,6 +666,8 @@ export type BookingRequestView = {
   proposedSlots: ProposedSlot[];
   rescheduleExpiresAt: Date | null;
   bookedVia: BookedVia;
+  /** AYA took it, or the website's contact form did while AYA was not answering (L20). */
+  source: BookingRequestSource;
   lastInboundAt: Date | null;
   /**
    * Open in name but past its link's expiry, or its alternatives' deadline:
@@ -733,6 +744,7 @@ export async function readBookingRequestViews(
       proposedSlots: bookingRequests.proposedSlots,
       rescheduleExpiresAt: bookingRequests.rescheduleExpiresAt,
       bookedVia: bookingRequests.bookedVia,
+      source: bookingRequests.source,
       lastInboundAt: bookingRequests.lastInboundAt,
       lapsed,
       specialty: clinics.specialty,
@@ -788,6 +800,7 @@ export async function readBookingRequestViews(
     proposedSlots: row.proposedSlots,
     rescheduleExpiresAt: row.rescheduleExpiresAt,
     bookedVia: row.bookedVia,
+    source: row.source,
     lastInboundAt: row.lastInboundAt,
     lapsed: row.lapsed,
     calendar: null,

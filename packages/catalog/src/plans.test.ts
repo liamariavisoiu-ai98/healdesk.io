@@ -451,6 +451,17 @@ describe("the demo setup credits", () => {
     expect(demoSetupCreditUsd(plan("voice-500"), SELF_SERVE_DEMO_SETUP_CREDIT)).toBe(209);
   });
 
+  test("the coupon names Stripe shows the buyer say nothing about being new", async () => {
+    const { SETUP_CREDITS } = await import("./plans");
+    // Stripe prints a coupon's name on Checkout and on the invoice. The cohort
+    // credit was "Founding-cohort setup credit" until it was renamed (plan
+    // Part A6); no credit may say "founding", "cohort", "pilot" or the like.
+    expect(COHORT_SETUP_CREDIT.name).toBe("Setup credit");
+    for (const credit of SETUP_CREDITS) {
+      expect(credit.name, credit.couponId).not.toMatch(/\b(?:pilot|beta|early access|first clinics|founding|cohort)\b/i);
+    }
+  });
+
   test("each credit has its own coupons and a name Stripe will take", async () => {
     const { SETUP_CREDITS } = await import("./plans");
     expect(new Set(SETUP_CREDITS.map((c) => c.couponId)).size).toBe(SETUP_CREDITS.length);

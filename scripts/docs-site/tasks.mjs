@@ -603,7 +603,7 @@ export const TASKS = [
     why:
       "Sending a marketing SMS on an unregistered 10DLC campaign gets the traffic filtered by carriers and the number blocked, so the messages simply do not arrive. Sending them without a working STOP path is a TCPA violation at $500-1,500 per message, uncapped, with a ready-made class — and the prospects are business owners, exactly the population that files.",
     steps: [
-      "Send from a Synthflow-issued number — there is no Bandwidth or Twilio account, by decision — and confirm in writing that SMS on that number sits inside Synthflow's BAA.",
+      "Send from a Retell-issued number — there is no Bandwidth or Twilio account, by decision — and confirm in writing that SMS on that number sits inside Retell's BAA.",
       "Register healdesk as its own 10DLC Brand under its own EIN and file a marketing campaign, using the /privacy and /terms URLs from `legal-pages`. Budget 1-4 weeks for approval. Use placeholder sample messages containing no real names.",
       "Build a prospect-side suppression store in the marketing lead database — a separate table, not the tenant-scoped `suppressions` one — keyed on E.164 phone with no clinic dimension.",
       "Add an inbound SMS webhook that runs `isStopRequest()` from `apps/app/src/lib/compliance/contact-policy.ts` (import the regex list, do not fork it — it deliberately matches far more than the carrier keywords) and writes suppression synchronously before acknowledging.",
@@ -643,7 +643,7 @@ export const TASKS = [
     why:
       "Unregistered traffic is filtered or blocked outright by the carriers, so appointment reminders, missed-call text-backs and post-call SMS all silently fail. Approval takes days to weeks and cannot be compressed, so starting it the week before launch means launching without texting.",
     steps: [
-      "Numbers are Synthflow-issued, so ask Synthflow which registry path applies to SMS on their numbers and register the Brand there under healdesk's EIN — Low-Volume Standard, not Sole Proprietor, if healdesk is an LLC. There is no Twilio account to do this in.",
+      "Numbers are Retell-issued, so ask Retell which registry path applies to SMS on their numbers and register the Brand there under healdesk's EIN — Low-Volume Standard, not Sole Proprietor, if healdesk is an LLC. There is no Twilio account to do this in.",
       "Publish the privacy policy and terms pages on healdesk.io first and use those URLs on the submission; the registry rejects submissions without them.",
       "Register one Campaign with use case Customer Care or Account Notification. Do not describe it as marketing.",
       "Write sample messages that contain no real patient information — humans at the registry read them — and make the opt-out language match what apps/app/src/lib/compliance/contact-policy.ts actually enforces.",
@@ -675,21 +675,21 @@ export const TASKS = [
     id: "agent-vendor-provisioning",
     group: "send-today",
     status: "vendor",
-    title: "Provision each clinic in Synthflow: agent, number, webhook",
+    title: "Provision each clinic in Retell: agent, number, custom-LLM URL",
     effort: "1 week",
     blockedBy: "agent-config-store",
     plain:
-      "Synthflow is the voice vendor, decided. Even once the configuration exists in our database, something has to create the assistant in Synthflow, buy or allocate a Synthflow number for the clinic, attach the two, and point the post-call webhook back at us with the clinic id. That whole layer is unwritten — there are zero lines of Synthflow anywhere in the tree, the clinics table has no phone columns, and the VAPI_* placeholders in .env.example belong to a vendor that was never chosen.",
+      "Retell is the voice vendor, decided. Even once the configuration exists in our database, something has to create the clinic's agent in Retell, buy or import a Retell number for the clinic, attach the two, and point the agent's custom LLM at our endpoint with the clinic id (wss://app.healdesk.io/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>). That layer is unwritten: nothing in apps/app calls Retell's API, and an operator types the clinic's number into the ops console, which stores it as assistant_number_e164.",
     why:
       "This is the step that makes a paid clinic a working front desk. Until it runs, there is no number for the clinic to forward to, and a forwarded call would reach a number attached to no agent. It also has to be automatic per clinic: doing it by hand caps growth at whatever a person can configure in a day and guarantees drift between what the console shows and what the agent says. Because the number lives with the vendor, the allocation must be recorded on our side or a vendor switch cannot even enumerate what to re-forward.",
     steps: [
-      "Put Synthflow behind an interface in apps/app/src/lib/voice/ (createAgent, updateAgent, allocateNumber, attachNumber, setWebhook) so the orchestration layer stays swappable, as the architecture doc requires — swapping is a re-forwarding exercise, but the code should not need a rewrite as well.",
-      "Allocate one Synthflow number per clinic (no two inbound agents share a number), in the clinic's area code where available, idempotent on clinic id so a retry never allocates two, and store it as synthflow_number_e164 on the clinic — the forwarding page reads it from there.",
-      "Render the agent prompt from the agent_configs row plus the non-defeatable disclosure from apps/app/src/lib/compliance/disclosure.ts.",
-      "Attach the clinic's number to that agent and set the post-call webhook to the per-clinic URL under apps/app/src/app/api/webhooks/[provider]/[clinicId].",
+      "Put Retell behind an interface in apps/app/src/lib/voice/ (createAgent, updateAgent, allocateNumber, attachNumber) so the orchestration layer stays swappable, as the architecture doc requires — swapping is a re-forwarding exercise, but the code should not need a rewrite as well.",
+      "Allocate one Retell number per clinic (no two inbound agents share a number), in the clinic's area code where available, idempotent on clinic id so a retry never allocates two, and store it as assistant_number_e164 on the clinic — the forwarding page reads it from there.",
+      "Keep the prompt out of Retell: with a custom LLM every word the agent says comes from apps/app (lib/assistant/prompt.ts, and the non-defeatable disclosure from lib/compliance/disclosure.ts).",
+      "Attach the clinic's number to that agent and set its custom-LLM URL to the clinic's own path. There is no post-call webhook: the endpoint ingests the call when Retell closes the socket.",
       "Store the vendor's agent id on the clinic and make re-running the provisioner idempotent, so a config edit updates rather than duplicates.",
       "Run it from the ops console as an explicit operator action first, not automatically from the Stripe webhook, so a failed vendor call never breaks provisioning, and record it with recordSecurityEvent().",
-      "Confirm, in writing, that Synthflow's post-call webhook carries the pre-answer carrier disposition — whether the clinic's line rang out or was engaged — because classifyRecovery() needs it. There is no Twilio call-status webhook to fall back on; if they cannot supply it, the ingest route infers and caveats.",
+      "Confirm, in writing, whether Retell's call details carry the pre-answer carrier disposition — whether the clinic's line rang out or was engaged — because classifyRecovery() needs it. There is no Twilio call-status webhook to fall back on; if Retell cannot supply it, the ingest infers and caveats.",
     ],
     source: { doc: "launch-plan", heading: "You grant, I take over" },
   },
@@ -1239,7 +1239,7 @@ export const TASKS = [
     why:
       "§164.504(e)(5) is discharged by holding the executed agreements, not by listing the vendors. And the notice clause is a contractual promise to every customer that currently has no sender.",
     steps: [
-      "Sign the four: AWS (console, self-serve), Anthropic (org settings → HIPAA/BAA, on the PHI org only), Synthflow (sales; see docs/blockers-runbook.md §1), Cal.com (sales). Store each executed PDF in one named folder in the company's document store and write its path into docs/handover.md.",
+      "Sign the four: AWS (console, self-serve), Anthropic (org settings → HIPAA/BAA, on the PHI org only), Retell (self-serve, in its click-agreements portal), Cal.com (sales). Store each executed PDF in one named folder in the company's document store and write its path into docs/handover.md.",
       "Flip each vendor's `baa` entry in apps/web/src/lib/subprocessors.ts from `{ state: \"pending\" }` to `{ state: \"signed\", signedOn: \"YYYY-MM-DD\" }` the day it is countersigned; /subprocessors, /trust and the BAA-gate decision all read that file.",
       "Build the notice: a script under apps/app/scripts that emails every clinic's owner (clinic_memberships → user) a plain-text notice naming the new vendor, what it will process, and the objection window from POLICY.subprocessorNoticeDays, and records a `subprocessor_notice_sent` security event per clinic. Run it at least that many days before the vendor goes live.",
       "Pin every vendor to one US region and record it in the register's `region` field; the BAA's United States warranty is only true while that stays true.",

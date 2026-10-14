@@ -2458,6 +2458,8 @@ these points in particular. Each open row has an owner.
    serves no clinic in v1; it must be removed, or stop keeping the
    transcript, before any real call reaches it, and the Retell endpoint must
    store none (the design record's "Raw vendor payloads"). (engineering)
+   **Done 14 October 2026:** the webhook was removed, and with it the only
+   code that stored a voice vendor's raw payload; the Retell endpoint stores none.
 10. **Backups.** The sealed copy is in the database's backups until they
     expire, within 35 days of its deletion, which clause 11's "apart from
     the backups described below" says.

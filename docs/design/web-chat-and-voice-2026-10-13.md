@@ -17,8 +17,8 @@ They share one brain; the Meta channels keep their own narrower front door
 | `responder.ts` | Anthropic's API under healdesk's key, no tools. `HEALDESK_CHAT_MODEL` (default `claude-opus-5-5`, 30 s) and `HEALDESK_VOICE_MODEL` (default `claude-sonnet-5-5`, 8 s, no retry) |
 
 The assistant books nothing. It collects what the practice's requirement set asks for and takes
-**one request for the desk**, as the Synthflow harness does for every clinic but the demo clinic
-(`lib/voice/tools.ts`). Direct booking waits for counsel and the owner
+**one request for the desk**; the booking engine (`lib/booking/engine.ts`) is there, and no
+channel calls it. Direct booking waits for counsel and the owner
 (`HEALDESK_DIRECT_BOOKING_ENABLED`, which Terraform refuses to set).
 
 ## The web chat: `lib/chat/web-chat.ts`, `app/api/widget/v1/[slug]/{start,message,end}`

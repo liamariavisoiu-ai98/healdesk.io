@@ -97,8 +97,7 @@ by scoping.
 | Analytics (marketing) | PostHog (US cloud) | Not needed — consent-gated, content-free, marketing site only |
 | Transactional email | Resend | **Signs none** — see below |
 | Patient-bearing email, if any | AWS SES | Covered by the AWS agreement; configuration set `healdesk-phi` with `TlsPolicy=REQUIRE` |
-| Voice agent (marketing demo) | Synthflow | Not signed; `apps/web` only, talks to clinic owners, no PHI path. Replaced by a Retell demo agent when one exists |
-| Voice agent (product) | ~~Synthflow~~ | **Replaced by Retell.** The `apps/app` Synthflow routes are pre-Retell and must not carry a real patient call |
+| Voice agent (marketing demo) | Retell (a demo agent, separate from the product's) | Not needed: `apps/web` only, talks to clinic owners, no PHI path |
 | Calendar write | ~~Cal.com~~ | **Not a v1 write target.** Google Calendar is the only one; Cal.com writes are phase two |
 | Telephony | ~~Twilio~~ | **Not used.** Retell supplies the numbers; no SMS in v1 |
 | Auth | ~~Clerk~~ | **Not used.** The operator console is a scrypt hash + TOTP; the clinic portal will use Better Auth, a library inside `apps/app`, not a vendor |

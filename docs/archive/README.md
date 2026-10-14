@@ -9,6 +9,7 @@ doc.
 | File | What it is |
 | --- | --- |
 | [medspa-ai-frontdesk-working-doc.md](./medspa-ai-frontdesk-working-doc.md) | The original working document, preserved verbatim: the first product requirements (SMS, reminders, outbound, intake, closed-loop revenue attribution as the wedge) and the first lead-generation playbook. Split into `prd.md` and `leadgen-playbook.md` early on. Do not edit it |
+| [synthflow-voice-agent-context.md](./synthflow-voice-agent-context.md) | The prompt brief for a Synthflow patient agent (8 September 2026). Synthflow was replaced by Retell on 5 October 2026 and its webhook removed from the code on 14 October; moved here then. Read it for its research on disclosure, the minimum-information rule and failure lines, not for the vendor |
 
 ## Superseded documents that stay where they are
 
@@ -29,6 +30,5 @@ unchanged.
 Dated records that are superseded only where they conflict with the spec, and still
 worth reading for their reasoning: [research-conclusions.md](../research-conclusions.md),
 [blockers-runbook.md](../blockers-runbook.md), [state-of-play.md](../state-of-play.md),
-[counsel-audit.md](../counsel-audit.md),
-[synthflow-voice-agent-context.md](../synthflow-voice-agent-context.md) and
+[counsel-audit.md](../counsel-audit.md) and
 [marketing-voice-demo-context.md](../marketing-voice-demo-context.md).

@@ -32,7 +32,6 @@ are kept current against the spec.
 | [baa-v1.2.0.txt](./baa-v1.2.0.txt) | The version offered for part of 1 October 2026 before 1.2.1 corrected five sentences; kept frozen for anything signed against it. |
 | [baa-v1.1.0-draft.txt](./baa-v1.1.0-draft.txt) | The superseded 1.1.0 revision, never offered; kept because the counsel notes cite it. |
 | [handover.md](./handover.md) | Engineering handover notes. Not the task list: that is the Launch plan tab. |
-| [synthflow-voice-agent-context.md](./synthflow-voice-agent-context.md) | A prompt brief written for a Synthflow patient agent. v1 voice runs on Retell, so read it for behaviour, not for the vendor. |
 
 ## Selling
 
@@ -60,7 +59,7 @@ into them; read them for their research and reasoning, not for what to build.
 | [blockers-runbook.md](./blockers-runbook.md) | Click-by-click vendor, legal and insurance steps from the same research. The AWS, Anthropic and trust-badge sections still hold. |
 | [onboarding-runbook.md](./onboarding-runbook.md) | An operator-run onboarding on Synthflow. v1 onboarding is a self-serve wizard. |
 | [design/booking-and-callbacks-2026-09-23.md](./design/booking-and-callbacks-2026-09-23.md) | A booking design around Cal.com writes, staff-approved requests and callbacks. v1 books into Google Calendar and makes no callbacks. |
-| [archive/](./archive/) | The original working doc, preserved verbatim; see its README. |
+| [archive/](./archive/) | The original working doc, preserved verbatim, and the prompt brief for the Synthflow patient agent (Synthflow was replaced by Retell on 5 October 2026); see its README. |
 
 ## How these relate
 

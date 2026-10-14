@@ -12,7 +12,14 @@ import { describe, expect, test } from "vitest";
  * the unit tests cannot see it; only the production build can, and CI is
  * the only place the build runs. This test fails first.
  */
-const SERVER_ONLY = ["@/lib/admin/ops-client", "@/lib/admin/operator"];
+const SERVER_ONLY = [
+  "@/lib/admin/ops-client",
+  "@/lib/admin/operator",
+  // The system map's live half: the environment, GitHub tokens, the Sheet.
+  "@/lib/admin/system-map-live",
+  "@/lib/admin/github-token",
+  "@/lib/admin/key-rotations",
+];
 const ROOT = join(__dirname, "..", "..");
 
 function walk(dir: string, out: string[] = []): string[] {

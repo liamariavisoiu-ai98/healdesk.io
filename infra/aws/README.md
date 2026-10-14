@@ -692,6 +692,7 @@ bash run-task.sh db-bootstrap   # init-secrets, then the two roles
 bash run-task.sh destroy-due    # after a restore only: "Restoring production" below
 bash run-task.sh reapply-erasures   # after a restore only, beside destroy-due
 bash run-task.sh patient-export CLINIC_ID   # offboarding
+bash run-task.sh patient-export CLINIC_ID CONTACT_ID WHO_ASKED   # one person's bundle
 bash run-task.sh erase-person CLINIC_ID CONTACT_ID WHO_ASKED you@healdesk.io   # [RECEIVED_AT]
 bash run-task.sh amend-contact CLINIC_ID CONTACT_ID FIELDS_TO_CLEAR WHO_ASKED you@healdesk.io
 bash run-task.sh demo-clinic "Fictional Practice" "Your Name" you@healdesk.io   # once, ever
@@ -713,9 +714,11 @@ else: not the app task role, so it cannot open a clinic's credentials, and the w
 worker cannot write to the bucket. It runs with three environment overrides, which CloudTrail
 records: the clinic's id, who asked (always `practice`: a whole clinic's bundle is the practice's,
 and nothing typed reaches the audit row) and the object key `clinic-<id>-<UTC time>.json`. None is
-secret or a patient's. A per-patient export (a patient-rights request) is **open** on this host: its phone number or
-email would travel in an override, so it is not offered; an override naming the contact's id
-instead would avoid that. The upload happens inside the export's transaction, so a failed upload leaves no
+secret or a patient's. One person's bundle (a patient-rights request) is the same task with the contact's id and who
+asked (`practice`, `person_via_practice` or `representative_via_practice`): it exports that contact
+and every contact sharing its number or address, under `clinic-<id>-patient-<UTC time>.json`, which
+carries the clinic and a time, never the contact. Its phone number or email never travels in an
+override; the contact's id does, and until the M5 portal nothing on AWS turns a number into one. The upload happens inside the export's transaction, so a failed upload leaves no
 audit row, and the care page refuses a handover until a bundle exists. On success `run-task.sh`
 prints the object's key and the next steps, in CloudShell:
 

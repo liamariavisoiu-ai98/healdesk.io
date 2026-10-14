@@ -323,6 +323,7 @@ export class RetellCallSession {
       endedAt,
       durationSeconds: Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)),
       isCallback: this.outbound,
+      urgent: this.urgent,
       disclosurePlayedAt: this.disclosurePlayedAt ?? undefined,
       transcriptTurns: this.turns.some((t) => t.speaker === "person") ? this.turns : undefined,
       ...this.requestFor(),

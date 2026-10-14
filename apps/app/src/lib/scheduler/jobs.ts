@@ -105,7 +105,7 @@ export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
  */
 export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
 /**
- * L8, "Request still open" (package F), seeded off by drizzle/0077. Hourly
+ * L8, "Request still open" (package F), seeded off by drizzle/0079. Hourly
  * from the tick: at a clinic's opening hour, only while its daily summary is
  * off, one email counting the booking requests still waiting for the desk
  * (lib/scheduler/requests-still-open.ts). The owner switches it on with the

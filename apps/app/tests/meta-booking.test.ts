@@ -9,11 +9,9 @@ import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta
 import {
   cleanAlternatives,
   cleanBookingFields,
-  decideBookingRequest,
   expireLapsedRequests,
   followUpLine,
   requestReceivedLine,
-  resolveBookingRequest,
   windowIsClean,
 } from "@/lib/meta/booking-requests";
 import { collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
@@ -26,6 +24,7 @@ import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { deskDecide, deskView } from "./setup/desk";
 import { bindAgreementInEffect, inTenant, mintDeskToken, queuedNotices, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
@@ -316,7 +315,7 @@ describeDb("the booking hand-off, end to end", () => {
     // calendar is connected, so the desk confirms in its own system. Its
     // times are said on the practice's clock, whatever the server's is.
     await getMigratorPool().query(`update clinics set timezone = 'America/Los_Angeles' where id = $1`, [c.clinicId]);
-    const opened = await resolveBookingRequest(token);
+    const opened = await deskView(token);
     expect(opened).toMatchObject({
       clinicId: c.clinicId,
       timeZone: "America/Los_Angeles",
@@ -331,11 +330,11 @@ describeDb("the booking hand-off, end to end", () => {
       bookedVia: "desk",
       collectedFields: {},
     });
-    expect(await resolveBookingRequest("A".repeat(43))).toBeNull();
-    expect(await resolveBookingRequest("not-a-token")).toBeNull();
+    expect(await deskView("A".repeat(43))).toBeNull();
+    expect(await deskView("not-a-token")).toBeNull();
 
     // Accept: one decision, relayed as the fixed line through the sealed token.
-    const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
+    const decided = await deskDecide(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
     expect(decided).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
     // The fourth message: three replies above, then this follow-up. (It was
     // the fifth while a callback-consent question sat between them; that
@@ -346,9 +345,9 @@ describeDb("the booking hand-off, end to end", () => {
     expect(sent[3]!.text).not.toMatch(/Thursday|10am/);
 
     // A second decision, either way, changes nothing and sends nothing.
-    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null, calendarWrite: null });
+    expect(await deskDecide(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null, calendarWrite: null });
     expect(sent).toHaveLength(4);
-    const after = await resolveBookingRequest(token);
+    const after = await deskView(token);
     expect(after).toMatchObject({ status: "accepted", decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" });
 
     // The row cannot be re-decided even by a direct write.
@@ -360,8 +359,8 @@ describeDb("the booking hand-off, end to end", () => {
     await getMigratorPool().query(`alter table booking_requests disable trigger booking_requests_no_rewrite`);
     await inTenant(c.clinicId, (client) => client.query(`update booking_requests set expires_at = now() - interval '1 minute'`));
     await getMigratorPool().query(`alter table booking_requests enable trigger booking_requests_no_rewrite`);
-    expect(await resolveBookingRequest(token)).toBeNull();
-    expect(await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskView(token)).toBeNull();
+    expect(await deskDecide(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
     // Both refusals are on the record: the second decision, and the decision on a dead link.
     const refused = await inTenant(c.clinicId, (client) =>
       client.query<{ reason: string; decision: string }>(
@@ -422,8 +421,8 @@ describeDb("the booking hand-off, end to end", () => {
       const token = await quickRequest(k.platform, k.externalId, k.sender, { phone: `+1415555061${i}` });
       const before = sent.length;
       await inTenant(c.clinicId, (client) => client.query(`update booking_requests set last_inbound_at = now() - interval '25 hours'`));
-      expect(await resolveBookingRequest(token)).toMatchObject({ metaWindowOpen: false });
-      const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender);
+      expect(await deskView(token)).toMatchObject({ metaWindowOpen: false });
+      const decided = await deskDecide(token, "accepted", { decidedByLabel: null, deskNote: null }, sender);
       expect(decided).toEqual({ outcome: "decided", followUp: "outside_window", appointmentId: null, calendarWrite: null });
       expect(sent).toHaveLength(before);
       const audit = await inTenant(c.clinicId, (client) => client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'meta_front_door_reply' and metadata->>'outcome' = 'outside_window'`));
@@ -433,8 +432,8 @@ describeDb("the booking hand-off, end to end", () => {
       await inTenant(c.clinicId, (client) => client.query(`update booking_requests set last_inbound_at = now() - interval '25 hours' where status = 'requested'`));
       __setMetaRuntimeForTests(async () => json("We're open 9 to 5 — the practice will call you."), sender, transport);
       await post(inboundOn(k.platform, "any news?", `${k.sender}-b`, k.externalId));
-      expect(await resolveBookingRequest(token2)).toMatchObject({ metaWindowOpen: true });
-      expect((await decideBookingRequest(token2, "declined", { decidedByLabel: null, deskNote: null }, sender)).followUp).toBe("sent");
+      expect(await deskView(token2)).toMatchObject({ metaWindowOpen: true });
+      expect((await deskDecide(token2, "declined", { decidedByLabel: null, deskNote: null }, sender)).followUp).toBe("sent");
     }
   });
 
@@ -445,10 +444,10 @@ describeDb("the booking hand-off, end to end", () => {
     const d2 = new Date(Date.now() + 3 * DAY);
 
     // One to three future slots; a past one or none is refused before anything is read.
-    expect(await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [] }, sender)).toMatchObject({ outcome: "invalid" });
-    expect(await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() - DAY) }] }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [] }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() - DAY) }] }, sender)).toMatchObject({ outcome: "invalid" });
 
-    const proposed = await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: "offered two", proposedSlots: [{ at: d2, source: "desk" }, { at: d1, source: "calendar" }] }, sender);
+    const proposed = await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: "offered two", proposedSlots: [{ at: d2, source: "desk" }, { at: d1, source: "calendar" }] }, sender);
     expect(proposed).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
     expect(sent.at(-1)!.text).toBe(followUpLine("booking-resched Clinic", "rescheduling"));
     expect(guardReply(sent.at(-1)!.text)).toEqual({ ok: true });
@@ -464,39 +463,39 @@ describeDb("the booking hand-off, end to end", () => {
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]!.metadata).toMatchObject({ outcome: "decided", decision: "rescheduling", slots: 2 });
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(await resolveBookingRequest(token)).toMatchObject({ status: "rescheduling", proposedSlots: [{ at: d1.toISOString(), source: "calendar" }, { at: d2.toISOString(), source: "desk" }] });
+    expect(await deskView(token)).toMatchObject({ status: "rescheduling", proposedSlots: [{ at: d1.toISOString(), source: "calendar" }, { at: d2.toISOString(), source: "desk" }] });
 
     // Propose different times while still rescheduling: a plain update.
     const d3 = new Date(Date.now() + 4 * DAY);
-    expect((await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d3 }] }, sender)).outcome).toBe("decided");
-    expect((await resolveBookingRequest(token))!.proposedSlots.map((s) => s.at)).toEqual([d3.toISOString()]);
+    expect((await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d3 }] }, sender)).outcome).toBe("decided");
+    expect((await deskView(token))!.proposedSlots.map((s) => s.at)).toEqual([d3.toISOString()]);
 
     // The person chooses on the desk's own call, and the desk confirms it on
     // the page: rescheduling → confirmed, an appointment row, recorded here
     // only (no writable calendar), and the fixed line on the thread.
-    const chosen = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
+    const chosen = await deskDecide(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
     expect(chosen).toMatchObject({ outcome: "decided", followUp: "sent", calendarWrite: "not-connected" });
     expect(chosen.appointmentId).not.toBeNull();
     // No calendar terms here: the booking occupies no calendar time (booking_origin
     // NULL, no calendar), is never written, and carries the request's own key.
-    const requestId = (await resolveBookingRequest(token))!.id;
+    const requestId = (await deskView(token))!.id;
     expect((await inTenant(c.clinicId, (client) => client.query(`select booking_origin, calendar_id, calendar_event_key, calendar_write_status from appointments`))).rows).toEqual([
       { booking_origin: null, calendar_id: null, calendar_event_key: requestId, calendar_write_status: "none" },
     ]);
-    expect(await resolveBookingRequest(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
+    expect(await deskView(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
     expect((await inTenant(c.clinicId, (client) => client.query<{ scheduled_for: Date }>(`select scheduled_for from appointments`))).rows.map((r) => new Date(r.scheduled_for).getTime())).toEqual([Math.floor(d3.getTime() / 1000) * 1000 + (d3.getTime() % 1000)]);
-    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });
+    expect(await deskDecide(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });
 
     // Lapse: a second request whose alternatives nobody chose.
     const token2 = await quickRequest("messenger", "723456789012345", "user-72", { name: "Kim", phone: "+14155550172" });
-    expect((await decideBookingRequest(token2, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d1 }] }, sender)).outcome).toBe("decided");
+    expect((await deskDecide(token2, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d1 }] }, sender)).outcome).toBe("decided");
     // The sweep is platform-wide: flush what earlier tests left lapsed, then nothing here has.
     await expireLapsedRequests(new Date());
     expect(await expireLapsedRequests(new Date())).toEqual({ expired: 0 });
     await inTenant(c.clinicId, (client) => client.query(`update booking_requests set reschedule_expires_at = now() - interval '1 minute' where status = 'rescheduling'`));
     expect(await expireLapsedRequests(new Date())).toEqual({ expired: 1 });
-    expect(await resolveBookingRequest(token2)).toMatchObject({ status: "expired", proposedSlots: [{ at: d1.toISOString() }] });
-    expect(await decideBookingRequest(token2, "confirmed", { decidedByLabel: null, deskNote: null, confirmedFor: d1 }, sender)).toMatchObject({ outcome: "already-decided" });
+    expect(await deskView(token2)).toMatchObject({ status: "expired", proposedSlots: [{ at: d1.toISOString() }] });
+    expect(await deskDecide(token2, "confirmed", { decidedByLabel: null, deskNote: null, confirmedFor: d1 }, sender)).toMatchObject({ outcome: "already-decided" });
   });
 
   test("the follow-up and the reschedule line obey the practice's switches: front door off, platform off, paused or suspended, neither is sent", async () => {
@@ -545,14 +544,14 @@ describeDb("the booking hand-off, end to end", () => {
       await switchOff(c.clinicId);
       const before = sent.length;
 
-      expect(await decideBookingRequest(accepted, "accepted", { decidedByLabel: "Jo", deskNote: null }, sender), label).toEqual({
+      expect(await deskDecide(accepted, "accepted", { decidedByLabel: "Jo", deskNote: null }, sender), label).toEqual({
         outcome: "decided",
         followUp: "withheld",
         appointmentId: null,
         calendarWrite: null,
       });
       expect(
-        await decideBookingRequest(rescheduled, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() + 3 * DAY) }] }, sender),
+        await deskDecide(rescheduled, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() + 3 * DAY) }] }, sender),
         label,
       ).toMatchObject({ outcome: "decided", followUp: "withheld" });
       // Nothing went out, and the drop is recorded as the adapter records one outside the window.

@@ -20,13 +20,33 @@ import type { EmailTemplate } from "./types";
  * Its job is to let the clinic notice a change it did not make. It is not
  * sent for a value set the first time, and Stripe's connect and disconnect
  * have their own email (O14), as do devices (O3) and the sign-in address
- * (O5). Exports join with Conversations (M5).
+ * (O5).
+ *
+ * It is also sent for each export from the portal (plan Part D4: "exports";
+ * Annex X5's O4 row: "or an export"), which needs the same passkey: the
+ * whole clinic's records (`clinic_export`), or one person's
+ * (`person_export`), from Conversations. An export has no before and after,
+ * so it says what was exported, when and from which device, never whose
+ * records, and links to the devices in Settings, where a device the clinic
+ * doesn't know can be removed.
  *
  * An outbox kind: no token, and the action opens Settings behind sign-in.
  */
 
 export type SettingChangedField =
-  "direct_line_e164" | "transfer_e164" | "transcript_retention_days";
+  | "direct_line_e164"
+  | "transfer_e164"
+  | "transcript_retention_days"
+  | "clinic_export"
+  | "person_export";
+
+/** The fields that are an export rather than a setting. */
+export const EXPORT_FIELDS = ["clinic_export", "person_export"] as const;
+export type ExportField = (typeof EXPORT_FIELDS)[number];
+
+function isExportField(field: SettingChangedField): field is ExportField {
+  return (EXPORT_FIELDS as readonly string[]).includes(field);
+}
 
 export type SettingChangedPayload = {
   field: SettingChangedField;
@@ -46,12 +66,12 @@ export type SettingChangedPayload = {
   changedAt: string;
   /** The device whose passkey made the change, as staff named it. */
   deviceName?: string;
-  /** publicUrl("/c/<slug>/settings#…"), the card the setting is on. */
+  /** publicUrl("/c/<slug>/settings#…"), the card the setting is on (Sign-in, for an export). */
   settingsUrl: string;
 };
 
 const WORDS: Record<
-  SettingChangedField,
+  Exclude<SettingChangedField, ExportField>,
   { name: string; subject: string; does: string; empty: string }
 > = {
   direct_line_e164: {
@@ -79,7 +99,46 @@ const WORDS: Record<
 const RETENTION_WAITING =
   "Transcripts older than this will be removed from your records once healdesk's nightly clean-up is on for your account. Until then, nothing is removed.";
 
+/** O4 for an export: what was exported, when and from which device; never whose. */
+const renderExported: EmailTemplate<SettingChangedPayload & { field: ExportField }> = (
+  payload,
+  ctx,
+) => {
+  const clinic = ctx.clinicName ?? "your practice";
+  const when = momentLong(payload.changedAt, ctx);
+  const by = payload.deviceName ? `, from “${payload.deviceName}”` : "";
+  const person = ctx.audience === "clients" ? "client" : "patient";
+  const whole = payload.field === "clinic_export";
+  return compose(
+    {
+      subject: whole ? "Your records were exported" : `A ${person}'s records were exported`,
+      preheader: `They were downloaded at ${when}${by}.`,
+      blocks: [
+        {
+          type: "paragraph",
+          text: whole
+            ? `An export of all of ${clinic}'s records was downloaded from Conversations at ${when}${by}.`
+            : `An export of one ${person}'s records at ${clinic} was downloaded from Conversations at ${when}${by}.`,
+        },
+        {
+          type: "paragraph",
+          text: "Exports need Face ID or a screen lock on a device your clinic added, so this one came from a device on your sign-in.",
+        },
+        { type: "action", label: "See your devices", url: payload.settingsUrl },
+        {
+          type: "paragraph",
+          text: "If that wasn't someone at your clinic, remove the device in Settings and reply to this email, and we'll check what happened.",
+        },
+      ],
+    },
+    ctx,
+  );
+};
+
 export const renderSettingChanged: EmailTemplate<SettingChangedPayload> = (payload, ctx) => {
+  if (isExportField(payload.field)) {
+    return renderExported(payload as SettingChangedPayload & { field: ExportField }, ctx);
+  }
   const words = WORDS[payload.field];
   if (!words) {
     throw new EmailCompositionError(`Unknown setting "${String(payload.field)}".`);

@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { resolveBookingRequest } from "@/lib/meta/booking-requests";
+import { readBookingRequestViews, resolveBookingPointer } from "@/lib/meta/booking-requests";
 import {
   amendContactFromShell,
   amendRecordFromShell,
@@ -550,7 +550,7 @@ describeDb("the amendment record", () => {
     ).toEqual([onCall]);
   });
 
-  test("the desk's view of a booking request says it was amended, and never what the amendment says", async () => {
+  test("Bookings carries a request's amendments beside it, and the emailed link resolves none of them", async () => {
     const c = await seedClinic("amend-desk");
     const contactId = await seedContact(c.clinicId, "+15550147001");
     const token = randomBytes(32).toString("base64url");
@@ -564,19 +564,28 @@ describeDb("the amendment record", () => {
       );
       return rows[0]!.id;
     });
-    expect((await resolveBookingRequest(token))!.amendmentCount).toBe(0);
+    const view = () =>
+      withTenant({ clinicId: c.clinicId, actor: { type: "service", serviceName: "test" } }, async (tx) =>
+        (await readBookingRequestViews(tx, { kind: "ids", ids: [requestId] }))[0]!,
+      );
+    expect((await view()).amendments).toEqual([]);
     await amendOp(
       c.clinicId,
       "booking_request",
       requestId,
       "The caller can only do weekday evenings.",
     );
-    // The link opens with the emailed token alone, no passkey: a count, and
-    // the words nowhere in what it resolves.
-    const opened = await resolveBookingRequest(token);
-    expect(opened!.preferredWindow).toBe("Saturday morning");
-    expect(opened!.amendmentCount).toBe(1);
-    expect(JSON.stringify(opened)).not.toContain("weekday evenings");
+    // Bookings opens behind the passkey: the request as it was made, and the
+    // amendment's words beside it (BAA clause 14(b)).
+    const opened = await view();
+    expect(opened.preferredWindow).toBe("Saturday morning");
+    expect(opened.amendments).toEqual([
+      { text: "The caller can only do weekday evenings.", requestedAt: expect.any(Date) },
+    ]);
+    // The emailed link opens with the token alone: where to go, and nothing else.
+    const pointer = await resolveBookingPointer(token);
+    expect(pointer).toEqual({ clinicId: c.clinicId, slug: c.slug, requestId });
+    expect(JSON.stringify(pointer)).not.toContain("weekday evenings");
   });
 
   test("an erasure takes the person's amendments with their records, and leaves everyone else's", async () => {

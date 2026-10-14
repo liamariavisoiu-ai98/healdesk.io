@@ -39,8 +39,20 @@ export type StepUpPurpose = "patient_pages" | "sensitive_change";
 /**
  * The passkey that stepped up, and its device's name, which the access log
  * records; `at` is when the passkey was used, not when it was last checked.
+ * `stepUpId` is the step_ups row. `expiresAt` is when it lapses if nothing
+ * touches it again (15 minutes idle or the 8-hour limit, whichever is
+ * sooner) and `checkedAt` when this check ran, both on the database's clock;
+ * `capped` says the 8-hour limit is the one that applies.
  */
-export type StepUp = { passkeyId: string; deviceLabel: string; at: Date };
+export type StepUp = {
+  passkeyId: string;
+  deviceLabel: string;
+  at: Date;
+  stepUpId: string;
+  expiresAt: Date;
+  checkedAt: Date;
+  capped: boolean;
+};
 
 /** The request header src/proxy.ts sets to the path being asked for, for `next`. */
 export const PATH_HEADER = "x-healdesk-path";
@@ -51,9 +63,13 @@ export const PATH_HEADER = "x-healdesk-path";
  * `/c/<slug>/step-up?next=<this page>` and comes back after one tap: redirect()
  * throws, so a caller never runs on without a step-up.
  *
- * Both purposes have the same rule today. The returned device label is what
- * the access log and a channel event's `actor` record, so a shared sign-in
- * still says which device did what.
+ * Both purposes have the same rule today, and only a passkey satisfies it:
+ * the authenticator backup enrols a new device's passkey and never opens a
+ * patient page or makes a sensitive change (lib/factors/step-ups.ts holds
+ * that for every caller). Patient pages come through requirePatientPage
+ * (patient-page.ts), which adds the access log. The returned device label is
+ * what the access log and a channel event's `actor` record, so a shared
+ * sign-in still says which device did what.
  *
  * `returnTo` is the page to come back to; without it the path the proxy saw
  * is used, and either must be a path on this clinic's portal, or the clinic's
@@ -79,6 +95,17 @@ export async function requireStepUp(
 export async function touchStepUp(ctx: PortalContext): Promise<StepUp | null> {
   const binding = await sessionBinding(ctx);
   const live = binding ? await findLiveStepUp(unsafeDb, binding, { touch: true }) : null;
+  return live ? asStepUp(live) : null;
+}
+
+/**
+ * The step-up live on this session now, without counting as activity: what a
+ * patient page asks when it is shown again (a tab coming back, Back and
+ * Forward) to find out whether it may still show what it holds.
+ */
+export async function stepUpStatus(ctx: PortalContext): Promise<StepUp | null> {
+  const binding = await sessionBinding(ctx);
+  const live = binding ? await findLiveStepUp(unsafeDb, binding, { touch: false }) : null;
   return live ? asStepUp(live) : null;
 }
 
@@ -132,5 +159,13 @@ export function portalNext(slug: string, next: unknown): string {
 }
 
 function asStepUp(live: LiveStepUp): StepUp {
-  return { passkeyId: live.factorId, deviceLabel: live.deviceLabel, at: live.createdAt };
+  return {
+    passkeyId: live.factorId,
+    deviceLabel: live.deviceLabel,
+    at: live.createdAt,
+    stepUpId: live.id,
+    expiresAt: live.expiresAt,
+    checkedAt: live.checkedAt,
+    capped: live.capped,
+  };
 }

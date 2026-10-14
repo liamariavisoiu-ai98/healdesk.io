@@ -1,4 +1,5 @@
 import {
+  bookingFieldsFor,
   currentDirectBookingAddendum,
   isBookingFieldId,
   NO_PLATFORM_ID,
@@ -144,19 +145,29 @@ export async function applyBookingRequirementDefaults(now: Date = new Date()): P
   return applied;
 }
 
+/** The ids this clinic's specialty may collect: the animal fields only at a practice that cares for animals. */
+async function offeredFieldIds(tx: TenantTx): Promise<Set<string>> {
+  const [clinic] = await tx.db.select({ specialty: clinics.specialty }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
+  return new Set(bookingFieldsFor(clinic?.specialty ?? null).map((f) => f.id));
+}
+
 /**
  * The operator's override (§H.5): a validated list of catalogue ids, locked
  * ones always kept, `source = 'operator'`, and the step stamped. Unknown ids
- * are refused rather than dropped — the operator typed them and should hear.
+ * are refused rather than dropped — the operator typed them and should hear —
+ * and so is a field the practice's specialty does not collect (an animal's
+ * name at a med spa).
  */
 export async function setBookingRequirementsWithin(
   tx: TenantTx,
   fields: readonly unknown[],
   now: Date = new Date(),
 ): Promise<BookingFieldId[]> {
+  const offered = await offeredFieldIds(tx);
   const chosen = new Set<BookingFieldId>();
   for (const field of fields) {
     if (!isBookingFieldId(field)) throw new Error(`Unknown booking field: ${String(field).slice(0, 40)}`);
+    if (!offered.has(field)) throw new Error(`Booking field not offered to this practice: ${field}`);
     chosen.add(field);
   }
   for (const field of BOOKING_FIELDS) if (field.locked) chosen.add(field.id);
@@ -242,11 +253,13 @@ export async function confirmBookingRequirementsWithin(
   const burned = await consumeConnectionLinkWithin(tx, input.token, input.ip, "setup");
   if (!burned) throw new SetupLinkSpentError();
 
+  const offered = await offeredFieldIds(tx);
   const chosen = new Set<BookingFieldId>();
   for (const field of input.fields) {
     // Unknown ids from a form are dropped, not thrown on: the catalogue is
     // the only source of the checkboxes, so an unknown id is a stale tab.
-    if (isBookingFieldId(field)) chosen.add(field);
+    // So is one the page did not offer this practice (an animal field).
+    if (isBookingFieldId(field) && offered.has(field)) chosen.add(field);
   }
   for (const field of BOOKING_FIELDS) if (field.locked) chosen.add(field.id);
   const ordered = BOOKING_FIELDS.filter((f) => chosen.has(f.id)).map((f) => f.id);

@@ -50,7 +50,8 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *     the amendments beside each record wherever the portal shows or exports
  *     that record, as `exportPatient` and `exportClinic` do here: the clause
  *     promises them in every later export and on every screen of healdesk's
- *     that shows the record.
+ *     that shows the record. Bookings does, for its requests and
+ *     appointments (lib/portal/bookings.ts).
  *
  * The amendment's text is Practice's words about a patient, so it is PHI: it
  * is stored here and nowhere else, never written to the audit trail or a
@@ -188,8 +189,10 @@ export type RecordAmendment = typeof recordAmendments.$inferSelect;
 
 /**
  * How many amendments a record carries, without reading what they say: for
- * a view that may show that a record was amended but not the words, such as
- * the desk's emailed link (/booking/<token>), which opens without a passkey.
+ * a view that may show that a record was amended but not the words. The
+ * portal's Bookings screen opens behind the passkey and shows the words
+ * (amendmentsFor); the desk's emailed link (/booking/<token>) shows no
+ * record at all since M5, only where it is.
  */
 export async function amendmentCount(tx: TenantTx, target: AmendmentTarget): Promise<number> {
   const [row] = await tx.db

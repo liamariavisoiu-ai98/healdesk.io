@@ -145,12 +145,12 @@ describeDb("the Retell voice endpoint", () => {
     await Promise.all([...server.sessions].map((s) => s.finish()));
 
     const { rows: convos } = await inTenant(clinic.clinicId, (client) =>
-      client.query<{ id: string; channel: string; external_call_id: string; disclosure_played_at: Date | null; outcome: string }>(
-        `select id, channel, external_call_id, disclosure_played_at, outcome from conversations`,
+      client.query<{ id: string; channel: string; external_call_id: string; disclosure_played_at: Date | null; outcome: string; urgent: boolean }>(
+        `select id, channel, external_call_id, disclosure_played_at, outcome, urgent from conversations`,
       ),
     );
     expect(convos).toHaveLength(1);
-    expect(convos[0]).toMatchObject({ channel: "voice", external_call_id: "call_abc123", outcome: "booked" });
+    expect(convos[0]).toMatchObject({ channel: "voice", external_call_id: "call_abc123", outcome: "booked", urgent: false });
     expect(convos[0]!.disclosure_played_at).toBeTruthy();
 
     const { rows: requests } = await inTenant(clinic.clinicId, (client) =>
@@ -195,6 +195,13 @@ describeDb("the Retell voice endpoint", () => {
     expect(String(responses(c.received)[1]!.content)).toMatch(/call 911/);
     expect(asked).toBe(false);
     await c.close();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await Promise.all([...server.sessions].map((s) => s.finish()));
+    // Recorded as urgent, not only as escalated, so Conversations can tell it from a handover.
+    const { rows } = await inTenant(clinic.clinicId, (client) =>
+      client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
+    );
+    expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
   });
 
   test("an outbound call is ended at once, and recorded as refused", async () => {

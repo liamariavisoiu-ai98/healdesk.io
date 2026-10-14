@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import type { Lead } from "@/lib/leads";
-import { TOUCHES, dueTouch, nameForSubject, stillOpenEmail } from "@/lib/email/nurture";
+import { TOUCHES, dueTouch, stillOpenEmail } from "@/lib/email/nurture";
+import { nameForSubject } from "@/lib/email/setup-emails";
 import { unsubscribeToken, verifyUnsubscribeToken } from "@/lib/email";
 import { canEmail } from "@/lib/leads";
 

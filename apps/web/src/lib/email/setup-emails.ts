@@ -36,6 +36,15 @@ export function longDate(date: Date): string {
   }).format(date);
 }
 
+/** The most a subject may be (Annex X4): longer ones are cut by the inbox, mid-word. */
+export const SUBJECT_MAX = 70;
+
+/** A clinic's name cut, with an ellipsis, to fit `room` characters of a subject. */
+export function nameForSubject(name: string, room: number): string {
+  const clean = name.replace(/\s+/g, " ").trim();
+  return clean.length <= room ? clean : `${clean.slice(0, Math.max(1, room - 1)).trimEnd()}…`;
+}
+
 /** The first word of the name as typed, or "there". */
 export function firstName(name: string): string {
   const first = name.trim().split(/\s+/)[0] ?? "";
@@ -107,7 +116,7 @@ export function setupRequestInternal(
   opts: { creditLive: boolean; replyBy: string },
 ): RenderedEmail {
   return {
-    subject: `Setup request: ${request.clinicName}`,
+    subject: `Setup request: ${nameForSubject(request.clinicName, SUBJECT_MAX - "Setup request: ".length)}`,
     text: [
       `Name:      ${request.name}`,
       `Clinic:    ${request.clinicName}`,
@@ -130,7 +139,7 @@ export function setupLinkEmail(
     ? `Your setup fee is waived if you complete your purchase by ${longDate(opts.creditUntil)}.\n\n`
     : "";
   return {
-    subject: `Your setup link for ${request.clinicName}`,
+    subject: `Your setup link for ${nameForSubject(request.clinicName, SUBJECT_MAX - "Your setup link for ".length)}`,
     text:
       `Hi ${firstName(request.name)},\n\n` +
       `Here is your setup link for ${request.clinicName}:\n\n${opts.link}\n\n` +

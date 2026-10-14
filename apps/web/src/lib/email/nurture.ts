@@ -6,7 +6,7 @@ import { setupFeeRangeLabel } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import { unsubscribeUrl } from "./index";
-import { commercialFooter, longDate } from "./setup-emails";
+import { commercialFooter, longDate, nameForSubject } from "./setup-emails";
 
 /**
  * The follow-up sequence for people who tried the demo and ticked the box.
@@ -149,12 +149,6 @@ export type StillOpenFacts = {
   /** The setup link, re-signed from the request's stored expiry, while it still works. */
   setupLink: { url: string; expiresAt: Date } | null;
 };
-
-/** "AYA Voice for Radiance Med Spa": a clinic name cut so a subject stays within 70 characters (X4). */
-export function nameForSubject(name: string, room: number): string {
-  const clean = name.replace(/\s+/g, " ").trim();
-  return clean.length <= room ? clean : `${clean.slice(0, Math.max(1, room - 1)).trimEnd()}…`;
-}
 
 const AGREEMENT_NOUN: Readonly<Record<AgreementKind, string>> = {
   baa: "business associate agreement",

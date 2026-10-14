@@ -303,6 +303,24 @@ describe("inbound only: the call-back and template operations are gone", () => {
   });
 });
 
+describe("the operator's sign-in is not an operation (14 October 2026)", () => {
+  test("none of the five ops that answered apps/web before a session exists any more", () => {
+    // The second factor moved onto Vercel (apps/web/src/lib/admin/totp.ts) so
+    // /admin can be signed into while this host is off; drizzle/0074 dropped
+    // its table. An op that answers without a session is one nobody should be
+    // able to add back by accident.
+    for (const op of [
+      "getAdminTotpState",
+      "enrolAdminTotp",
+      "verifyAdminTotpStep",
+      "burnRecoveryCode",
+      "sendSignInAlert",
+    ]) {
+      expect(isOpName(op), op).toBe(false);
+    }
+  });
+});
+
 describe("ops: the credential key (getCredentialKeyStatus)", () => {
   afterEach(() => {
     restoreKeyEnvironment();

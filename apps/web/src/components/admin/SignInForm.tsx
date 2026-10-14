@@ -4,10 +4,8 @@ import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import type { FormEvent } from "react";
 
-import { EnrollForm } from "@/components/admin/EnrollForm";
-
 /**
- * The sign-in form, and the three things that can happen after it.
+ * The sign-in form.
  *
  * This is the only interactive piece of the sign-in page, which is why it is the
  * only part that ships as client JavaScript. The page around it stays on the
@@ -24,11 +22,9 @@ import { EnrollForm } from "@/components/admin/EnrollForm";
  * session. One request needs none of that: either everything checked out or
  * nothing did, and there is nothing in between to leak.
  *
- * The cost is that the code field is on screen before anyone knows whether it is
- * needed, which is why it says so. On first run it is left empty and the server
- * answers `{ next: "enroll" }`; forever after it is required, and the server
- * says which of the two the browser is looking at rather than this file
- * guessing.
+ * There is no first-run screen and no recovery code. The authenticator is set
+ * up before the deployment is, by `scripts/set-admin-totp.ts` on the owner's
+ * machine, and a lost one is replaced the same way (owner, 14 October 2026).
  *
  * ## Why the errors are as blunt as they are
  *
@@ -96,26 +92,10 @@ export function SignInForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [useRecovery, setUseRecovery] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  /**
-   * "credentials" is the form. "enroll" is first run, reached only by the server
-   * saying so. "recovered" is the one-screen notice after a recovery code was
-   * spent, which exists so that burning one of eight is not a silent event.
-   */
-  const [stage, setStage] = useState<"credentials" | "enroll" | "recovered">(
-    "credentials",
-  );
-  const [codesLeft, setCodesLeft] = useState<number | null>(null);
-
   const codeRef = useRef<HTMLInputElement>(null);
-
-  function toAdmin() {
-    router.replace("/admin");
-    router.refresh();
-  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -125,14 +105,11 @@ export function SignInForm() {
     setSubmitting(true);
     setError(null);
 
-    const secondFactor = code.trim();
     const payload: Record<string, string> = {
       email: email.trim(),
       password,
     };
-    if (secondFactor.length > 0) {
-      payload[useRecovery ? "recoveryCode" : "code"] = secondFactor;
-    }
+    if (code.trim().length > 0) payload.code = code.trim();
 
     let response: Response;
     try {
@@ -159,69 +136,15 @@ export function SignInForm() {
       return;
     }
 
-    const data = (await response.json().catch(() => null)) as {
-      next?: unknown;
-      recoveryCodesRemaining?: unknown;
-    } | null;
-
     setPassword("");
     setCode("");
 
-    if (data?.next === "enroll") {
-      // Deliberately leave `submitting` false here: the next screen has its own
-      // buttons and this form is about to be unmounted.
-      setSubmitting(false);
-      setStage("enroll");
-      return;
-    }
-
-    if (typeof data?.recoveryCodesRemaining === "number") {
-      setSubmitting(false);
-      setCodesLeft(data.recoveryCodesRemaining);
-      setStage("recovered");
-      return;
-    }
-
     // Deliberately leave `submitting` true: the navigation is the next thing
     // that happens, and re-enabling the button first only invites a second
-    // submit against a session that already exists.
-    toAdmin();
-  }
-
-  if (stage === "enroll") {
-    return (
-      <EnrollForm
-        onDone={toAdmin}
-        onCancel={() => {
-          setStage("credentials");
-          setError(null);
-          setUseRecovery(false);
-        }}
-      />
-    );
-  }
-
-  if (stage === "recovered") {
-    return (
-      <div className="border-line mt-8 rounded-md border bg-white p-5">
-        <p className="text-[18px] font-semibold">
-          You signed in with a recovery code.
-        </p>
-        <p className="text-muted mt-2 text-sm">
-          {codesLeft === 1
-            ? "That code is now used up and one recovery code is left. When it is gone, only your authenticator app can sign you in."
-            : `That code is now used up. ${codesLeft ?? 0} recovery codes are left.`}
-        </p>
-        <button
-          type="button"
-          autoFocus
-          onClick={toAdmin}
-          className="bg-brand-gradient shadow-sm mt-4 w-full rounded-full px-8 py-3.5 text-[18px] font-bold text-white transition-all duration-fast hover:-translate-y-0.5"
-        >
-          Continue
-        </button>
-      </div>
-    );
+    // submit against a session that already exists, which would also be
+    // refused as a replayed code.
+    router.replace("/admin");
+    router.refresh();
   }
 
   return (
@@ -264,18 +187,18 @@ export function SignInForm() {
 
       <label className="mt-4 block">
         <span className="text-[15.6px] font-bold tracking-[0.04em] uppercase">
-          {useRecovery ? "Recovery code" : "Authenticator code"}
+          Authenticator code
         </span>
         <input
           ref={codeRef}
           type="text"
-          name={useRecovery ? "recoveryCode" : "code"}
+          name="code"
           value={code}
           onChange={(event) => setCode(event.target.value)}
-          autoComplete={useRecovery ? "off" : "one-time-code"}
-          inputMode={useRecovery ? "text" : "numeric"}
+          autoComplete="one-time-code"
+          inputMode="numeric"
           spellCheck={false}
-          maxLength={useRecovery ? 64 : 7}
+          maxLength={7}
           aria-describedby={
             error !== null
               ? "admin-code-hint admin-sign-in-error"
@@ -286,24 +209,8 @@ export function SignInForm() {
         />
       </label>
       <p id="admin-code-hint" className="text-muted mt-2 text-[15.6px]">
-        {useRecovery
-          ? "One of the codes you saved when you set up your authenticator. Each one works once."
-          : "Six digits from your authenticator app. Leave this empty the first time you sign in and you will be asked to set one up."}
+        Six digits from your authenticator app.
       </p>
-
-      <button
-        type="button"
-        onClick={() => {
-          setUseRecovery((current) => !current);
-          setCode("");
-          setError(null);
-        }}
-        className="text-muted hover:text-ink mt-2 rounded-sm text-[15.6px] font-semibold underline underline-offset-2 transition-colors"
-      >
-        {useRecovery
-          ? "Use my authenticator app instead"
-          : "Use a recovery code instead"}
-      </button>
 
       <button
         type="submit"

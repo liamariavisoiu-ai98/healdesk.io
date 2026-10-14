@@ -42,11 +42,12 @@ import { describeError, log } from "@/lib/log";
  *
  * Note what the signature therefore is and is not. It authenticates apps/web,
  * not the person at the keyboard. Whether the human passed a password and a
- * TOTP code is apps/web's question, answered with the ops in this API
- * (`verifyAdminTotpStep`, `burnRecoveryCode`) and carried in its own session
- * cookie. A leaked HEALDESK_PROVISION_SECRET is therefore full command of this
- * endpoint, which is why the second factor's own table refuses re-enrolment and
- * deletion to the application role: see drizzle/0026_admin_totp.sql.
+ * TOTP code is apps/web's question, answered entirely on apps/web since
+ * 14 October 2026 (both factors are Vercel variables there, so /admin can be
+ * signed into while this host is off) and carried in its own session cookie.
+ * Nothing in this API takes part in signing in. A leaked
+ * HEALDESK_PROVISION_SECRET is therefore full command of this endpoint without
+ * either factor: guard it as the console itself.
  *
  * ## Ordering
  *

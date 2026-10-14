@@ -101,7 +101,7 @@ by scoping.
 | Voice agent (product) | ~~Synthflow~~ | **Replaced by Retell.** The `apps/app` Synthflow routes are pre-Retell and must not carry a real patient call |
 | Calendar write | ~~Cal.com~~ | **Not a v1 write target.** Google Calendar is the only one; Cal.com writes are phase two |
 | Telephony | ~~Twilio~~ | **Not used.** Retell supplies the numbers; no SMS in v1 |
-| Auth | ~~Clerk~~ | **Not used.** The operator console is a scrypt hash + TOTP; the clinic portal will use Better Auth, a library inside `apps/app`, not a vendor |
+| Auth | ~~Clerk~~ | **Not used.** The operator console is a scrypt hash + TOTP, both checked on `apps/web` against Vercel environment variables (since 14 October 2026; signing in calls nothing in `apps/app`); the clinic portal will use Better Auth, a library inside `apps/app`, not a vendor |
 | Error tracking | ~~Sentry~~ | **Not used.** No error tracker is installed |
 
 Struck-through rows stay because a BAA table is a checklist of who is in the path, and

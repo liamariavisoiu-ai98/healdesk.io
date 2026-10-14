@@ -39,8 +39,11 @@
  * Not a defence in depth, not one of two checks. There is no parameter for the
  * operator and no way for a page, a component or a future server action to skip
  * it, and a server action reached by a bare POST with no cookie stops on that
- * line. That is also why the sign-in operations, which deliberately do not have
- * it, live behind their own function and their own five-name union below.
+ * line. The one operation sent without a session is the webhook relay below,
+ * under its own one-name union, and signing in is not an operation at all:
+ * since 14 October 2026 the password and the code are both checked in this app
+ * (`lib/admin/totp.ts`), and nothing crosses to apps/app until there is a
+ * session.
  *
  * What DOES travel is `context`: the browser's apparent address and user agent,
  * as claims, so an audit row can say where a request came from rather than
@@ -224,53 +227,21 @@ type OperatorOp =
   | "disconnectCalendar";
 
 /**
- * The operations that happen BEFORE there is a session, and there are exactly
- * five of them.
- *
- * These are the sign-in path itself. "Is an authenticator enrolled", "is this
- * six-digit code valid", "turn this secret on", "tell the owner somebody just
- * signed in", all four are asked while the browser holds no session, because
- * answering them is what decides whether it gets one. Requiring a session for
- * them would deadlock first sign-in: no session until the code is checked, and
- * no code check until there is a session.
- *
- * So `callPreSessionOps` skips `requireOperator()`, and this union is what
- * keeps that from spreading. It is a separate type with a separate function,
- * which means no clinic list, no connection link and no termination can be
- * asked for without a session however a future caller is written. Adding an op
- * to this list is a deliberate decision to expose it to anybody who can reach
- * `/api/admin/session`, and should be argued for in a comment beside it.
- *
- * The authority for these is the HMAC alone, and it is the right authority: it
- * proves the healdesk web app is asking, which is exactly the claim "check this
- * code for the one account" needs. What protects the account is that the ops
- * API refuses a bad code, refuses a replayed one, and refuses to stage a second
- * secret over an enrolled one, none of which this app can do for it, since
- * this app deliberately does not hold the secret.
- */
-type PreSessionOp =
-  | "getAdminTotpState"
-  | "enrolAdminTotp"
-  | "verifyAdminTotpStep"
-  | "burnRecoveryCode"
-  | "sendSignInAlert";
-
-/**
  * The operations a MACHINE asks for, with no browser behind them, and there is
  * exactly one: relaying a Resend webhook event for mail apps/app sent.
  *
  * The account has one webhook, on this app, and it sees both apps' mail
  * (Annex X3 of docs/design/funnel-onboarding-portal-2026-10-06.md). The route
  * verifies Resend's Svix signature before it relays anything, which is the
- * authority here, as the HMAC is for the sign-in operations; there is no
- * operator session to check. What crosses is an event type, a timestamp and
+ * authority here; there is no operator session to check. What crosses is an
+ * event type, a timestamp and
  * the tags apps/app put on its own email (ids and a kind), never an address,
  * so the worst a forged call could do is mark one of apps/app's ledger rows,
  * and a forged call needs HEALDESK_PROVISION_SECRET.
  */
 type RelayOp = "emailEvent";
 
-type OpName = OperatorOp | PreSessionOp | RelayOp;
+type OpName = OperatorOp | RelayOp;
 
 /** Why a call did not produce data. Never the upstream body, never the URL. */
 export type OpsErrorCode =
@@ -718,282 +689,6 @@ export function markAgreementTerminated(
 }
 
 // -----------------------------------------------------------------------------
-// Sign-in, which happens before there is a session
-//
-// The second factor lives in apps/app and never comes back here. This app holds
-// the password hash, because the password is what its own form collects; the
-// TOTP secret, the last-used step and the recovery-code digests are all
-// upstream, so what crosses is six digits and a verdict. That split is what
-// keeps a compromise of this app's environment from being a compromise of the
-// second factor: `HEALDESK_ADMIN_PASSWORD_HASH` leaking is one factor lost, and
-// a second factor stored beside it would have been none.
-//
-// The one exception is enrolment, where a proposed secret crosses once, in the
-// answer that offers it, because the owner has to see it to scan it. apps/web
-// never chooses it and never stores it.
-// -----------------------------------------------------------------------------
-
-/** What apps/app will say about the one account's second factor. */
-export type AdminTotpState = {
-  enrolled: boolean;
-  /** ISO instant, or null when nothing is enrolled. Passed through unformatted. */
-  enrolledAt: string | null;
-  recoveryCodesRemaining: number;
-};
-
-/** Whether an authenticator has been enrolled, and what is left of the codes. */
-export function getAdminTotpState(): Promise<OpsResult<AdminTotpState>> {
-  return callPreSessionOps("getAdminTotpState", "read", {}, (value) => {
-    const data = object(value, "totpState");
-    return {
-      enrolled: bool(data.enrolled, "totpState.enrolled"),
-      enrolledAt: optionalIsoInstant(data.enrolledAt, "totpState.enrolledAt"),
-      recoveryCodesRemaining: count(
-        data.recoveryCodesRemaining,
-        "totpState.recoveryCodesRemaining",
-      ),
-    };
-  });
-}
-
-export type EnrolTotpOutcome =
-  /** A candidate, not a second factor. Nothing is enrolled until a code proves it. */
-  | {
-      status: "proposed";
-      /** Base32, shown to the owner. The only time this value crosses. */
-      secret: string;
-      /** `otpauth://totp/...`, for the QR the enrolment route renders. */
-      otpauthUri: string;
-      /** Opaque handle naming this proposal on the way back. */
-      proposal: string;
-      expiresInMs: number;
-    }
-  | {
-      status: "enrolled";
-      /** Shown once and never obtainable again, from here or from upstream. */
-      recoveryCodes: string[];
-      enrolledAt: string;
-      auditRecorded: boolean;
-    }
-  /** Already enrolled, proposal expired, or the code was wrong. Upstream's words. */
-  | { status: "error"; message: string };
-
-/**
- * Both halves of enrolment, in one operation because they are one decision.
- *
- * `{}` asks for a candidate. `{ code, proposal }` proves the candidate reached
- * an authenticator and turns it on. Splitting them is what stops the owner
- * being locked out by a QR nobody scanned or a phone that was wiped: until a
- * code derived from the proposal comes back, the account still opens on the
- * password alone.
- *
- * Refusing a second enrolment is upstream's job and cannot be done here. Only
- * the far side can hold that line when two requests arrive at once, and if it
- * ever stops holding it, "enrol again" becomes "replace the second factor with
- * one I chose", which is a takeover for anybody holding the password.
- */
-export function enrolAdminTotp(args: {
-  code?: string;
-  proposal?: string;
-}): Promise<OpsResult<EnrolTotpOutcome>> {
-  const payload: Record<string, unknown> = {};
-  if (args.code !== undefined) payload.code = args.code;
-  if (args.proposal !== undefined) payload.proposal = args.proposal;
-
-  return callPreSessionOps(
-    "enrolAdminTotp",
-    // A write even when it only proposes: the far side stores the candidate, so
-    // a call that times out may have left one behind.
-    "write",
-    payload,
-    (value) => {
-      const data = object(value, "enrolTotp");
-      const status = literal(
-        data.status,
-        ["proposed", "enrolled", "error"] as const,
-        "enrolTotp.status",
-      );
-
-      if (status === "proposed") {
-        return {
-          status,
-          secret: credential(data.secret, "enrolTotp.secret"),
-          otpauthUri: otpauth(data.otpauthUri, "enrolTotp.otpauthUri"),
-          proposal: credential(data.proposal, "enrolTotp.proposal"),
-          expiresInMs: count(data.expiresInMs, "enrolTotp.expiresInMs"),
-        };
-      }
-
-      if (status === "enrolled") {
-        return {
-          status,
-          recoveryCodes: recoveryCodes(data.recoveryCodes),
-          enrolledAt: isoInstant(data.enrolledAt, "enrolTotp.enrolledAt"),
-          auditRecorded: bool(data.auditRecorded, "enrolTotp.auditRecorded"),
-        };
-      }
-
-      return { status, message: text(data.message, "enrolTotp.message") };
-    },
-  );
-}
-
-/**
- * Why a second-factor attempt was refused.
- *
- * `already_used` is told apart from `incorrect` on purpose, and the one bit it
- * leaks is worth what it buys: to an attacker it confirms a code they already
- * hold was once valid, about a step that is now spent; to the owner it explains
- * why the app on their phone is showing a code the console will not take.
- */
-export type SecondFactorRefusal =
-  | "not_enrolled"
-  | "incorrect"
-  | "already_used"
-  | "unreadable"
-  | "throttled";
-
-export type TotpVerdict =
-  | { ok: true }
-  | { ok: false; reason: SecondFactorRefusal; message: string };
-
-/**
- * Check six digits against the enrolled secret.
- *
- * A write, and not only for the wording of a timeout: accepting a code burns
- * that thirty-second step upstream, which is what makes a replay refusable. A
- * call that times out may have spent the code the owner just typed.
- */
-export function verifyAdminTotpStep(args: {
-  code: string;
-}): Promise<OpsResult<TotpVerdict>> {
-  return callPreSessionOps(
-    "verifyAdminTotpStep",
-    "write",
-    { code: args.code },
-    (value) => {
-      const data = object(value, "totpStep");
-      if (bool(data.ok, "totpStep.ok")) return { ok: true };
-
-      return {
-        ok: false,
-        reason: literal(
-          data.reason,
-          [
-            "not_enrolled",
-            "incorrect",
-            "already_used",
-            "unreadable",
-            "throttled",
-          ] as const,
-          "totpStep.reason",
-        ),
-        message: text(data.message, "totpStep.message"),
-      };
-    },
-  );
-}
-
-export type RecoveryVerdict =
-  | { ok: true; remaining: number; auditRecorded: boolean }
-  | {
-      ok: false;
-      reason: Extract<
-        SecondFactorRefusal,
-        "not_enrolled" | "incorrect" | "throttled"
-      >;
-      message: string;
-    };
-
-/**
- * Spend one recovery code.
- *
- * Separate from the TOTP check because the consequences differ: a step comes
- * back in thirty seconds, a recovery code never does. `remaining` exists so the
- * screen can say how few are left while it still matters, since nothing in this
- * console issues more.
- */
-export function burnRecoveryCode(args: {
-  code: string;
-}): Promise<OpsResult<RecoveryVerdict>> {
-  return callPreSessionOps(
-    "burnRecoveryCode",
-    "write",
-    { code: args.code },
-    (value) => {
-      const data = object(value, "recoveryCode");
-
-      if (bool(data.ok, "recoveryCode.ok")) {
-        return {
-          ok: true,
-          remaining: count(data.remaining, "recoveryCode.remaining"),
-          auditRecorded: bool(
-            data.auditRecorded,
-            "recoveryCode.auditRecorded",
-          ),
-        };
-      }
-
-      return {
-        ok: false,
-        reason: literal(
-          data.reason,
-          ["not_enrolled", "incorrect", "throttled"] as const,
-          "recoveryCode.reason",
-        ),
-        message: text(data.message, "recoveryCode.message"),
-      };
-    },
-  );
-}
-
-export type SignInAlertOutcome = {
-  delivery: "sent" | "skipped" | "failed";
-  /** The transport's own words, when it gave any. */
-  reason?: string;
-  auditRecorded: boolean;
-};
-
-/**
- * Tell the owner that somebody just signed in as them.
- *
- * Who it goes to is deliberately NOT an argument. apps/app addresses it to the
- * operator it resolves from its own `HEALDESK_ADMIN_EMAIL`, so an attacker with
- * full command of this app cannot redirect the one notification that would tell
- * the owner they are there. What crosses is when, and the browser's apparent
- * address and user agent, which are claims by whoever made the request and are
- * labelled as such on both sides.
- *
- * The result says what the mailer did rather than asserting it went. An alert
- * that fails quietly is worse than no alert.
- */
-export function sendSignInAlert(args: {
-  /** ISO instant, from the route that saw the sign-in. */
-  at: string;
-  ipAddress?: string;
-  userAgent?: string;
-}): Promise<OpsResult<SignInAlertOutcome>> {
-  const payload: Record<string, unknown> = { at: args.at };
-  if (args.ipAddress !== undefined) payload.ipAddress = args.ipAddress;
-  if (args.userAgent !== undefined) payload.userAgent = args.userAgent;
-
-  return callPreSessionOps("sendSignInAlert", "write", payload, (value) => {
-    const data = object(value, "signInAlert");
-    const reason = optionalText(data.reason, "signInAlert.reason");
-
-    return {
-      delivery: literal(
-        data.delivery,
-        ["sent", "skipped", "failed"] as const,
-        "signInAlert.delivery",
-      ),
-      ...(reason !== null ? { reason } : {}),
-      auditRecorded: bool(data.auditRecorded, "signInAlert.auditRecorded"),
-    };
-  });
-}
-
-// -----------------------------------------------------------------------------
 // The webhook relay
 // -----------------------------------------------------------------------------
 
@@ -1074,27 +769,6 @@ async function callOps<T>(
     };
   }
 
-  return send(op, kind, read, args);
-}
-
-/**
- * The five sign-in operations, sent on the HMAC alone.
- *
- * Deliberately no `requireOperator()`: these run while the browser is proving
- * who it is, so there is nothing to check. The union on `op` is what confines
- * that, and the reasoning is written out on `PreSessionOp`.
- *
- * The envelope carries no `operator` at all, which is the honest shape. During
- * sign-in the address is a claim by somebody who has not finished proving
- * anything, and putting an unproven address in the field the audit trail reads
- * as "who did this" is how an attempt becomes an actor.
- */
-async function callPreSessionOps<T>(
-  op: PreSessionOp,
-  kind: CallKind,
-  args: Record<string, unknown>,
-  read: (value: unknown) => T,
-): Promise<OpsResult<T>> {
   return send(op, kind, read, args);
 }
 
@@ -1590,50 +1264,6 @@ function optionalIsoInstant(value: unknown, at: string): string | null {
 }
 
 /**
- * A credential, or an opaque handle, checked for shape and then left alone.
- *
- * Deliberately not `text()`. Everything else that arrives from upstream is
- * prose and gets its whitespace collapsed; these are values somebody types back
- * or hands back verbatim, and one silently reshaped on its way to the single
- * screen that will ever show it is one that will then be refused. So the check
- * is printable ASCII, a sane length, and nothing else.
- *
- * The FORM is upstream's to choose, and it is not second-guessed here: a base32
- * secret grouped with spaces for readability is as valid as one without, and a
- * client that rejected it would break enrolment over a formatting opinion.
- */
-function credential(value: unknown, at: string): string {
-  if (
-    typeof value !== "string" ||
-    value.length < 4 ||
-    value.length > 1_024 ||
-    !/^[\x20-\x7E]+$/.test(value)
-  ) {
-    throw new ShapeError(at);
-  }
-  return value;
-}
-
-/**
- * An `otpauth://totp/` URI and nothing else.
- *
- * This string is rendered into a QR code that the owner points a phone at, so
- * the scheme is checked at the boundary rather than trusted. A URI of any other
- * scheme arriving here would be a picture of a link this console vouched for,
- * pointed at whatever the answer said.
- */
-function otpauth(value: unknown, at: string): string {
-  if (
-    typeof value !== "string" ||
-    value.length > 2_048 ||
-    !/^otpauth:\/\/totp\/[\x21-\x7E]+$/.test(value)
-  ) {
-    throw new ShapeError(at);
-  }
-  return value;
-}
-
-/**
  * An absolute http(s) URL and nothing else.
  *
  * The connection link reaches the browser and gets pasted into a chat window or
@@ -1798,33 +1428,6 @@ function hash(value: unknown, at: string): string {
     throw new ShapeError(at);
   }
   return value.toLowerCase();
-}
-
-/**
- * The recovery codes, checked and passed through untouched.
- *
- * Deliberately NOT run through `text()`. Everything else that arrives from
- * upstream is prose and gets its whitespace collapsed; these are credentials,
- * and a code silently reshaped on the way to the one screen that will ever show
- * it is a code the owner types back and gets refused. So the check is a shape
- * check, printable ASCII, a sane length, a bounded count, and what passes it
- * is rendered exactly as it arrived.
- *
- * An empty list is a shape error rather than an empty screen: "enrolled, with
- * no way back in if you lose the phone" is not a state to render quietly.
- */
-function recoveryCodes(value: unknown): string[] {
-  const codes = list(value, "activateTotp.recoveryCodes");
-  if (codes.length === 0 || codes.length > 32) {
-    throw new ShapeError("activateTotp.recoveryCodes");
-  }
-
-  return codes.map((code) => {
-    if (typeof code !== "string" || !/^[\x21-\x7E]{4,128}$/.test(code)) {
-      throw new ShapeError("activateTotp.recoveryCode");
-    }
-    return code;
-  });
 }
 
 function readDelivery(value: unknown): ConnectLinkDelivery {

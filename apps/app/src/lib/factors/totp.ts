@@ -53,7 +53,8 @@ export type TotpAlgorithm = "sha1" | "sha256" | "sha512";
  * SHA-1 is not a lapse here; HMAC-SHA-1 has no weakness that matters to a
  * thirty-second code, and Google Authenticator ignores an otpauth URI's
  * `algorithm` and derives with SHA-1 regardless, so anything else would scan
- * and then never match (lib/ops/admin-totp.ts makes the same choice).
+ * and then never match (apps/web's lib/admin/totp.ts, the operator's own
+ * second factor, makes the same choice).
  */
 export const TOTP_DIGITS = 6;
 export const TOTP_PERIOD_SECONDS = 30;

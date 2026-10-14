@@ -519,6 +519,13 @@
       "when": 1791962051963,
       "tag": "0073_baa_release_1_5_0",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1791962088878,
+      "tag": "0074_drop_admin_totp",
+      "breakpoints": true
     }
   ]
 }

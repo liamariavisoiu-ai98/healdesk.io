@@ -106,8 +106,10 @@ export const LOCK_LABEL_LOGIN_KEY = "healdesk:login";
  * credentials take `clinicLockLabel()` instead.
  */
 export const FIXED_LOCK_LABELS = {
-  /** The operator's TOTP secret (lib/ops/admin-totp.ts). */
-  adminCode: { clinic: "ops", login: "admin-code" },
+  // `adminCode` (ops / admin-code) sealed the operator's TOTP secret until
+  // 14 October 2026, when the secret moved to a Vercel variable on apps/web
+  // and its table was dropped (drizzle/0074_drop_admin_totp.sql). Nothing is
+  // sealed under it any more, so it is not a label a call may name.
   /** The throwaway value the key self-check seals and opens (envelope.ts). */
   selfCheck: { clinic: "ops", login: "self-check" },
   /**

@@ -1,22 +1,26 @@
 import { NextResponse, after } from "next/server";
 
 import {
-  ENROLMENT_COOKIE,
   OPERATOR_COOKIE,
-  enrolmentCookieOptions,
+  STEP_COOKIE,
   isAdminAccountConfigured,
-  issueEnrolmentToken,
   issueOperatorToken,
+  issueStepToken,
+  missingAdminConfig,
   normaliseEmail,
   operatorCookieOptions,
+  stepCookieOptions,
   verifyAdminPassword,
+  verifyStepToken,
 } from "@/lib/admin/operator";
+import { printable, sendSignInAlert } from "@/lib/admin/sign-in-alert";
 import {
-  burnRecoveryCode,
-  getAdminTotpState,
-  sendSignInAlert,
-  verifyAdminTotpStep,
-} from "@/lib/admin/ops-client";
+  TOTP_SECRET_VARIABLE,
+  adminTotpSecret,
+  claimStep,
+  matchTotpStep,
+  totpStep,
+} from "@/lib/admin/totp";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 /**
@@ -45,87 +49,66 @@ import { clientKey, rateLimit } from "@/lib/rate-limit";
  *   2. **Email and password**, both, with the derivation running either way so
  *      that "wrong address" and "right address, wrong password" take the same
  *      time. See `verifyAdminPassword`.
- *   3. **The second factor**, asked of apps/app because that is where the shared
- *      secret, the last-used step and the recovery codes live.
+ *   3. **The second factor**, checked here against `HEALDESK_ADMIN_TOTP_SECRET`
+ *      (`lib/admin/totp.ts`), then the replay checks: the browser's signed
+ *      step cookie and this process's ledger. Nothing on this path calls
+ *      apps/app.
  *   4. **Only then the cookie.** There is no branch in this file that issues an
  *      operator cookie without having passed 2 and 3.
  *   5. **The alert email, after the response.** Never before, never blocking.
  *
- * ## Why apps/app verifies the code and this app does not
+ * ## Why this app checks the code itself (owner, 14 October 2026)
  *
- * The tempting shape is to fetch the TOTP secret and the last-used step over the
- * signed API, do the arithmetic here, and write the step back. It is tempting
- * because the arithmetic is twenty lines. It is wrong twice over.
+ * Until 14 October the secret, the last-used step and the recovery codes lived
+ * in apps/app's database, and this route asked for a verdict over the signed
+ * ops API. That was the stronger replay design, because "refuse a step already
+ * used" is a compare-and-set and a database can make one atomic. It also meant
+ * /admin could not be signed into while the AWS host was off, so the owner
+ * moved the factor onto Vercel: the secret is an environment variable, sign-in
+ * makes no call to apps/app, and apps/web still has no database client.
  *
- * First, replay. "Reject a code whose step has already been used" is a
- * compare-and-set, and a compare-and-set split across a network is a race: two
- * requests carrying the same code both read the same `lastUsedStep`, both decide
- * it is fresh, and both are let in. That is precisely the attack the step
- * counter exists to stop, an attacker who watches one code go past a proxy, or
- * shoulder-surfs it, gets to use it too. The check has to be atomic where the
- * state is, so it happens in one call over there and the answer comes back as a
- * verdict.
+ * What that gives up is written where the replay check lives, in the notes on
+ * `claimStep` in `lib/admin/totp.ts`: two different serverless instances can each
+ * accept the same code once inside its ninety seconds. The password, the two
+ * attempt limits below and the alert on every success are what stand in front
+ * of that. Recovery codes went too: they needed a store to be spent from. A
+ * lost authenticator now means running `npm run admin:totp -w @healdesk/web`
+ * again and replacing the variable in Vercel, whose own account sits behind
+ * its own second factor.
  *
- * Second, the recovery codes. Accepting one means comparing against stored
- * hashes and burning the one that matched, atomically, for the same reason.
- * Shipping the hashes to the marketing app to do that would be moving a
- * credential across a boundary this codebase spends real effort keeping thin.
+ * ## Failing closed on a missing secret
  *
- * So the marketing app never holds the TOTP secret after enrolment and never
- * holds a recovery code hash at all. It holds the password hash, because the
- * password is what this app's own form collects.
- *
- * ## What this file needs from the ops-api slice
- *
- * Four functions from `lib/admin/ops-client.ts`, which owns the signed
- * transport. The names and result shapes are that file's, not this one's:
- *
- *   getAdminTotpState(): Promise<OpsResult<{ enrolled: boolean;
- *     enrolledAt: string | null; recoveryCodesRemaining: number }>>
- *   verifyAdminTotpStep(args: { code: string }): Promise<OpsResult<
- *     | { ok: true }
- *     | { ok: false; reason: "not_enrolled" | "incorrect" | "already_used"
- *         | "unreadable" | "throttled"; message: string }>>
- *   burnRecoveryCode(args: { code: string }): Promise<OpsResult<
- *     | { ok: true; remaining: number; auditRecorded: boolean }
- *     | { ok: false; reason: "not_enrolled" | "incorrect" | "throttled";
- *         message: string }>>
- *   sendSignInAlert(args: { at: string; ipAddress?: string; userAgent?: string }):
- *     Promise<OpsResult<{ delivery: "sent" | "skipped" | "failed";
- *       reason?: string; auditRecorded: boolean }>>
- *
- * All four are called with NO operator session, because there is not one yet.
- * The client reaches them through its `callPreSessionOps`, where the HMAC alone
- * is the authority and apps/app takes the operator from its own
- * `HEALDESK_ADMIN_EMAIL`. Routing them through the ordinary `callOps`, which
- * asks `requireOperator()` first, would deadlock first sign-in: no session until
- * the code is checked, and no code check until there is a session.
- *
- * ## The refusal sentences come from upstream
- *
- * "That code has already been used", "check the clock on your phone", "the
- * stored second factor could not be read" are written in `apps/app`, next to the
- * code that decides which one is true, and carried across verbatim through the
- * client's `text()`. Re-deriving them here would put a second opinion about what
- * a rejection means into the app that cannot see the row it is describing.
- *
- * ## Failing closed on an ops failure
- *
- * If `getAdminTotpState` or `verifyAdminSecondFactor` cannot be reached, this
- * answers 503 and issues nothing. The alternative, "apps/app is down, let them
- * in on the password alone", is a way to turn an outage into a single-factor
- * console, and an attacker who can cause an outage can then choose to.
+ * With `HEALDESK_ADMIN_TOTP_SECRET` unset or malformed this answers 503 and
+ * issues nothing, whatever the password was. "There is no second factor
+ * configured, so let them in on the password" would turn one forgotten
+ * variable into a single-factor console. The 503 names the variable because
+ * it is reached only after the password was right, so the only person who
+ * reads the sentence is the one who can fix it; a request without the
+ * password learns nothing about it.
  *
  * ## Statuses
  *
- * 200 with `{ next: "admin" }` or `{ next: "enroll" }` on success, 401 on bad
- * credentials or a bad code, 429 out of budget, 400 on a malformed body, 503
- * when the account is not configured or the ops API could not answer. The last
- * is deliberately not folded into 401: "your password is wrong" and "this server
- * has no admin account" are different facts, and answering the second with the
- * first would be lying to the only person who could fix it.
+ * 200 with `{ next: "admin" }` on success, 401 on bad credentials, a missing
+ * code (`next: "code"`), a wrong code or a code already used, 429 out of
+ * budget, 400 on a malformed body, 503 when the account or its second factor
+ * is not configured. The last is deliberately not folded into 401: "your
+ * password is wrong" and "this server has no admin account" are different
+ * facts, and answering the second with the first would be lying to the only
+ * person who could fix it.
  *
- * There is no CSRF token. Both cookies are `sameSite: "strict"`, so a cross-site
+ * ## A log line per outcome
+ *
+ * apps/web has no audit table, so every attempt that gets past the limiters
+ * writes one structured line (`[healdesk] admin sign-in {...}`): success,
+ * wrong password, code required, wrong code, replayed code, misconfigured.
+ * Each carries the outcome, the time and the request's apparent address.
+ * Never the code, the password, the secret, or the email address typed: a
+ * password typed into the email field is the commonest way a password reaches
+ * a log, so the address field is not logged even though it is usually right.
+ * Volume is bounded by the same limits as the attempts: wrong passwords and
+ * codes spend the global budget, and the other outcomes need the password.
+ *
+ * There is no CSRF token. The cookies are `sameSite: "strict"`, so a cross-site
  * POST arrives without them and can neither read nor extend a session; and login
  * CSRF, forcing a victim to sign in as the attacker, is empty here because there
  * is exactly one account and it is the owner's.
@@ -241,9 +224,8 @@ let derivationsInFlight = 0;
  * `request.json()` buffers whatever arrives before anyone looks at the size, so
  * on an unauthenticated endpoint it is an invitation to post a gigabyte. Reading
  * the stream and stopping at the cap is a few more lines and removes the
- * invitation. The same helper appears in `/api/admin/enroll`; the two routes are
- * the only unauthenticated JSON surfaces in the admin area and neither is worth
- * a shared module of its own.
+ * invitation. This is the only unauthenticated JSON surface in the admin area,
+ * so the helper lives here rather than in a module of its own.
  */
 async function readBoundedJson(
   request: Request,
@@ -282,67 +264,74 @@ async function readBoundedJson(
 const TOTP_CODE = /^[0-9]{6}$/;
 
 /**
- * Recovery codes are generated in apps/app and this app never learns their
- * alphabet, so this is a shape bound rather than a format check: long enough for
- * any sensible code, short enough that the field is not a channel.
+ * The six-digit code, if this request carries one.
+ *
+ * `null` means none was offered, which the caller answers with `next: "code"`.
+ * A refusal is a shape complaint about what the caller typed, and says nothing
+ * about the secret. A `recoveryCode` field, which an old tab might still send,
+ * is ignored: recovery codes were retired with the database that spent them,
+ * and treating one as "no code offered" gets the right answer back.
  */
-const MAX_RECOVERY_CODE_LENGTH = 64;
+function readCode(
+  body: Record<string, unknown>,
+): { ok: true; code: string | null } | { ok: false; message: string } {
+  const raw = body.code;
+  if (typeof raw !== "string" || raw.trim().length === 0) return { ok: true, code: null };
 
-type Attempt = { kind: "totp"; code: string } | { kind: "recovery"; code: string };
+  // Spaces because authenticator apps display "123 456" and people copy what
+  // they see. Nothing else is stripped.
+  const code = raw.replace(/\s+/g, "");
+  if (!TOTP_CODE.test(code)) {
+    return { ok: false, message: "The authenticator code is six digits." };
+  }
+  return { ok: true, code };
+}
 
 /**
- * Which second factor, if either, this request carries.
- *
- * `null` means none was offered, which is the first-run case and not an error.
- * A refusal names which field was wrong, because these are shape complaints
- * about what the caller typed and none of them says anything about the secret.
- * "You sent something malformed" is not a hint; "your password was right" would
- * be, and that answer lives further down.
- *
- * A request carrying both is refused rather than resolved. Picking one for the
- * caller would mean this endpoint deciding which credential was meant, and a
- * caller who sends two is either confused or probing.
+ * One cookie off the request's `Cookie` header, without `cookies()` from
+ * `next/headers`: this handler is also run directly by its tests, outside a
+ * Next request scope, and the one cookie it reads is ours and plain ASCII.
  */
-function readAttempt(
-  body: Record<string, unknown>,
-): { ok: true; attempt: Attempt | null } | { ok: false; message: string } {
-  const rawCode = body.code;
-  const rawRecovery = body.recoveryCode;
-
-  const hasCode = typeof rawCode === "string" && rawCode.trim().length > 0;
-  const hasRecovery =
-    typeof rawRecovery === "string" && rawRecovery.trim().length > 0;
-
-  if (hasCode && hasRecovery) {
-    return {
-      ok: false,
-      message:
-        "Send either an authenticator code or a recovery code, not both.",
-    };
+function readCookie(headers: Headers, name: string): string | undefined {
+  const header = headers.get("cookie");
+  if (header === null) return undefined;
+  for (const part of header.split(";")) {
+    const equals = part.indexOf("=");
+    if (equals < 0) continue;
+    if (part.slice(0, equals).trim() === name) return part.slice(equals + 1).trim();
   }
+  return undefined;
+}
 
-  if (hasCode) {
-    // Spaces because authenticator apps display "123 456" and people copy what
-    // they see. Nothing else is stripped.
-    const code = (rawCode as string).replace(/\s+/g, "");
-    if (!TOTP_CODE.test(code)) {
-      return {
-        ok: false,
-        message: "The authenticator code is six digits.",
-      };
-    }
-    return { ok: true, attempt: { kind: "totp", code } };
-  }
+type Outcome =
+  | "success"
+  | "wrong_password"
+  | "code_required"
+  | "wrong_code"
+  | "replayed_code"
+  | "misconfigured";
 
-  if (hasRecovery) {
-    const code = (rawRecovery as string).trim();
-    if (code.length > MAX_RECOVERY_CODE_LENGTH) {
-      return { ok: false, message: "That is not a recovery code." };
-    }
-    return { ok: true, attempt: { kind: "recovery", code } };
-  }
-
-  return { ok: true, attempt: null };
+/**
+ * The one log line per attempt outcome. See "A log line per outcome" above for
+ * what is in it and, more to the point, what never is.
+ *
+ * JSON, so the address (a header the caller wrote) cannot break the line in
+ * two and forge a second entry; `printable` caps and escapes it first anyway.
+ */
+function logAttempt(
+  outcome: Outcome,
+  request: Request,
+  detail: Record<string, string> = {},
+): void {
+  const line = `[healdesk] admin sign-in ${JSON.stringify({
+    outcome,
+    at: new Date().toISOString(),
+    ip: printable(clientKey(request.headers), 64),
+    ...detail,
+  })}`;
+  if (outcome === "misconfigured") console.error(line);
+  else if (outcome === "success" || outcome === "code_required") console.info(line);
+  else console.warn(line);
 }
 
 function tooMany(retryAfter: number): NextResponse {
@@ -351,6 +340,8 @@ function tooMany(retryAfter: number): NextResponse {
     { status: 429, headers: { "Retry-After": String(Math.max(retryAfter, 1)) } },
   );
 }
+
+const ALREADY_USED = "That code has already been used. Wait for the next one.";
 
 export async function POST(request: Request): Promise<NextResponse> {
   /**
@@ -383,9 +374,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!budget.ok) return tooMany(budget.retryAfter);
 
   if (!isAdminAccountConfigured()) {
-    console.error(
-      "[healdesk] admin sign-in attempted while HEALDESK_ADMIN_EMAIL, HEALDESK_ADMIN_PASSWORD_HASH or HEALDESK_ADMIN_SECRET is unset or malformed",
-    );
+    // The names of the variables, never their values; and only to the log.
+    logAttempt("misconfigured", request, {
+      missing: missingAdminConfig()
+        .filter((name) => name !== TOTP_SECRET_VARIABLE)
+        .join(","),
+    });
     return NextResponse.json(
       { error: "There is no admin account configured on this server." },
       { status: 503 },
@@ -412,11 +406,10 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const second = readAttempt(fields);
-  if (!second.ok) {
-    return NextResponse.json({ error: second.message }, { status: 400 });
+  const offered = readCode(fields);
+  if (!offered.ok) {
+    return NextResponse.json({ error: offered.message }, { status: 400 });
   }
-  const attempt = second.attempt;
 
   /**
    * Step 2. The derivation happens here and nowhere earlier, and no more than
@@ -441,10 +434,11 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   if (!passwordMatched) {
-    // Global budget is spent here and nowhere else on this path. A malformed
-    // body is not a guess, and a correct password is not one either: only this
-    // branch has learned something from the secret, so only this branch pays.
+    // Global budget is spent here and on a wrong code, nowhere else. A
+    // malformed body is not a guess, and a correct password is not one either:
+    // only a branch that has learned something from a secret pays.
     recordGlobalFailure(now);
+    logAttempt("wrong_password", request);
     // One sentence for both halves. Saying "no such account" would confirm the
     // address, which is the one field an attacker can otherwise only guess.
     return NextResponse.json(
@@ -453,51 +447,30 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  // Step 3. What the second factor is, before deciding whether one is owed.
-  const state = await getAdminTotpState();
-  if (!state.ok) {
-    console.error(
-      "[healdesk] admin sign-in: could not read the second-factor state:",
-      state.code,
-    );
+  // Step 3. Is there a second factor to check against at all? Fail closed.
+  const secret = adminTotpSecret();
+  if (!secret.ok) {
+    logAttempt("misconfigured", request, {
+      variable: TOTP_SECRET_VARIABLE,
+      problem: secret.problem,
+    });
     return NextResponse.json(
       {
         error:
-          "The password was right, but the second factor could not be checked just now. Nothing was signed in. Try again in a moment.",
+          secret.problem === "unset"
+            ? `${TOTP_SECRET_VARIABLE} is not set on this server, so no code can be checked and nothing was signed in. Run npm run admin:totp -w @healdesk/web and add it in Vercel.`
+            : `${TOTP_SECRET_VARIABLE} on this server is not a 32-character base32 secret, so no code can be checked and nothing was signed in. Run npm run admin:totp -w @healdesk/web and replace it in Vercel.`,
       },
       { status: 503 },
     );
   }
 
-  // The same normalisation the token uses, from the same module, so the address
-  // written into the cookie cannot drift from the one it is checked against.
-  const signedInEmail = normaliseEmail(email);
-
-  if (!state.data.enrolled) {
-    /**
-     * First run. This is one factor, so what goes back is an ENROLMENT token and
-     * not a session: a different cookie, under a different key, that
-     * `requireOperator()` will never accept and that no ops route can be reached
-     * with. The only thing it opens is `/api/admin/enroll`.
-     *
-     * An attempt that carried a code is not refused here. There is nothing to
-     * check it against, and telling somebody "that code is wrong" when no
-     * authenticator exists would be describing a state that does not exist.
-     */
-    const response = NextResponse.json({ next: "enroll" }, { status: 200 });
-    response.cookies.set(
-      ENROLMENT_COOKIE,
-      issueEnrolmentToken(signedInEmail),
-      enrolmentCookieOptions(),
-    );
-    return response;
-  }
-
-  if (attempt === null) {
+  if (offered.code === null) {
     // The password was right, so this branch does confirm it. That is not a new
     // fact for anyone who reaches it: a wrong password already stopped at 401
     // above, and a right one is the thing they would have had to guess. It costs
     // no global budget because nothing was guessed at the second factor.
+    logAttempt("code_required", request);
     return NextResponse.json(
       {
         error: "Enter the six-digit code from your authenticator app.",
@@ -508,62 +481,49 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   /**
-   * Two operations rather than one, because a TOTP code and a recovery code are
-   * different credentials with different consequences: a step comes back in
-   * thirty seconds, a recovery code never does.
-   *
-   * Both decide and record on the far side, in one call. That is the whole
-   * reason the replay check is worth having: a compare-and-set split across a
-   * network is a race, and two requests carrying the same code would both read
-   * the same last-used step and both be let in.
-   *
-   * The refusal sentence is upstream's, because upstream is the only side that
-   * knows whether the code was wrong, already spent, or refused by a throttle.
+   * The code, then the two replay checks, all in one synchronous turn: no
+   * `await` between matching the step and claiming it, so two requests in this
+   * process carrying the same code cannot both read the ledger before either
+   * writes it. The clock is read here rather than reusing `now`, which was taken
+   * before a derivation that can take a while under load.
    */
-  let accepted = false;
-  let refusal = "That code was not accepted.";
-  let codesLeft: number | null = null;
-
-  if (attempt.kind === "totp") {
-    const verdict = await verifyAdminTotpStep({ code: attempt.code });
-    if (!verdict.ok) return secondFactorUnavailable(verdict.code);
-    accepted = verdict.data.ok;
-    if (!verdict.data.ok) refusal = verdict.data.message;
-  } else {
-    const verdict = await burnRecoveryCode({ code: attempt.code });
-    if (!verdict.ok) return secondFactorUnavailable(verdict.code);
-    accepted = verdict.data.ok;
-    if (verdict.data.ok) codesLeft = verdict.data.remaining;
-    else refusal = verdict.data.message;
-  }
-
-  if (!accepted) {
+  const step = matchTotpStep(secret.key, offered.code, totpStep(Date.now()));
+  if (step === null) {
     recordGlobalFailure(now);
-    return NextResponse.json({ error: refusal }, { status: 401 });
+    logAttempt("wrong_code", request);
+    return NextResponse.json(
+      { error: "That code is not right. Check the clock on your phone and try the next one." },
+      { status: 401 },
+    );
   }
 
-  // Step 4. Both factors, then the cookie, and only here.
-  const response = NextResponse.json(
-    {
-      next: "admin",
-      // Present only when a recovery code was spent, so the browser can say so
-      // once on the way in. There is deliberately no operation that issues more,
-      // so the count matters before it runs out rather than after.
-      ...(codesLeft !== null ? { recoveryCodesRemaining: codesLeft } : {}),
-    },
-    { status: 200 },
-  );
+  // This browser's own record: the same code, or an older one, from here again.
+  const browserStep = verifyStepToken(readCookie(request.headers, STEP_COOKIE));
+  if (browserStep !== null && step <= browserStep) {
+    recordGlobalFailure(now);
+    logAttempt("replayed_code", request, { seen: "browser" });
+    return NextResponse.json({ error: ALREADY_USED }, { status: 401 });
+  }
+
+  // This process's record, which every browser shares. See `claimStep`.
+  if (!claimStep(secret.key, step)) {
+    recordGlobalFailure(now);
+    logAttempt("replayed_code", request, { seen: "instance" });
+    return NextResponse.json({ error: ALREADY_USED }, { status: 401 });
+  }
+
+  // Step 4. Both factors, then the cookies, and only here. The same
+  // normalisation the token uses, from the same module, so the address written
+  // into the cookie cannot drift from the one it is checked against.
+  const response = NextResponse.json({ next: "admin" }, { status: 200 });
   response.cookies.set(
     OPERATOR_COOKIE,
-    issueOperatorToken(signedInEmail),
+    issueOperatorToken(normaliseEmail(email)),
     operatorCookieOptions(),
   );
-  // A stale enrolment cookie from an abandoned first run has no business
-  // outliving a real sign-in. Same flags, so the browser actually replaces it.
-  response.cookies.set(ENROLMENT_COOKIE, "", {
-    ...enrolmentCookieOptions(),
-    maxAge: 0,
-  });
+  response.cookies.set(STEP_COOKIE, issueStepToken(step), stepCookieOptions());
+
+  logAttempt("success", request);
 
   // Step 5. After the response, so a slow mailer cannot hold the console shut,
   // and never on a path that could turn a mail failure into a failed sign-in.
@@ -573,12 +533,9 @@ export async function POST(request: Request): Promise<NextResponse> {
 }
 
 /**
- * The sign-in alert, fired after the response is sent.
- *
- * Who it goes to is deliberately not an argument. apps/app addresses it to the
- * operator it resolves from its own `HEALDESK_ADMIN_EMAIL`, so an attacker with
- * full command of this app cannot redirect the one notification that would tell
- * the owner they are there.
+ * The sign-in alert, fired after the response is sent, by this app through its
+ * own Resend sender (`lib/admin/sign-in-alert.ts` says why it moved here and
+ * what it carries).
  *
  * `after()` rather than a floating promise: a bare `void promise` in a
  * serverless function races the runtime freezing the instance, so the mail
@@ -587,11 +544,11 @@ export async function POST(request: Request): Promise<NextResponse> {
  *
  * Nothing it does can fail a sign-in. What it must not do is fail SILENTLY: an
  * alert nobody notices is missing is worse than no alert, because the whole
- * point of it is that the owner learns about a sign-in they did not perform. So
- * every unhappy path writes a log line naming the reason.
+ * point of it is that the owner learns about a sign-in they did not perform.
+ * So every unhappy path writes a log line naming the reason.
  */
 function scheduleAlert(request: Request): void {
-  const at = new Date().toISOString();
+  const at = new Date();
   const ip = clientKey(request.headers);
   const userAgent = request.headers.get("user-agent");
 
@@ -600,48 +557,24 @@ function scheduleAlert(request: Request): void {
       const sent = await sendSignInAlert({
         at,
         ...(ip !== "unknown" ? { ipAddress: ip } : {}),
-        ...(userAgent !== null ? { userAgent: userAgent.slice(0, 256) } : {}),
+        ...(userAgent !== null ? { userAgent } : {}),
       });
-      if (!sent.ok) {
-        console.error(
-          "[healdesk] admin sign-in alert failed:",
-          sent.code,
-          `signed in at ${at}`,
-        );
-        return;
-      }
-      if (sent.data.delivery !== "sent") {
+      if (sent.status !== "sent") {
         console.error(
           "[healdesk] admin sign-in alert was not delivered:",
-          sent.data.delivery,
-          sent.data.reason ?? "no reason given",
-          `signed in at ${at}`,
+          sent.status,
+          sent.reason,
+          `signed in at ${at.toISOString()}`,
         );
       }
     } catch (error) {
       console.error(
         "[healdesk] admin sign-in alert threw:",
-        error,
-        `signed in at ${at}`,
+        error instanceof Error ? error.message : "unknown error",
+        `signed in at ${at.toISOString()}`,
       );
     }
   });
-}
-
-/**
- * One sentence for "apps/app could not answer", used by both second-factor
- * paths. 503 and no cookie: an outage must not become a single-factor console,
- * because an attacker who can cause an outage would then be choosing to.
- */
-function secondFactorUnavailable(code: string): NextResponse {
-  console.error("[healdesk] admin sign-in: second factor unavailable:", code);
-  return NextResponse.json(
-    {
-      error:
-        "The code could not be checked just now. Nothing was signed in. Try again in a moment.",
-    },
-    { status: 503 },
-  );
 }
 
 /**
@@ -650,9 +583,8 @@ function secondFactorUnavailable(code: string): NextResponse {
  * owner out, which `sameSite: "strict"` already prevents from another origin,
  * and which costs one sign-in if it ever happened.
  *
- * Both cookies go. A half-finished enrolment left behind by a sign-out is a
- * one-factor credential sitting in a browser for ten minutes with nobody
- * expecting it to be there.
+ * The step cookie stays (see `stepCookieOptions`): signing out and then
+ * offering the same six digits again is the reuse it exists to refuse.
  *
  * The flags are repeated on the way out because a browser only replaces a cookie
  * when name, path and domain all match the original.
@@ -661,10 +593,6 @@ export async function DELETE(): Promise<NextResponse> {
   const response = new NextResponse(null, { status: 204 });
   response.cookies.set(OPERATOR_COOKIE, "", {
     ...operatorCookieOptions(),
-    maxAge: 0,
-  });
-  response.cookies.set(ENROLMENT_COOKIE, "", {
-    ...enrolmentCookieOptions(),
     maxAge: 0,
   });
   return response;

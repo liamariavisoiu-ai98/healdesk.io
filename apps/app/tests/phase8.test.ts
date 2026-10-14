@@ -20,14 +20,13 @@ import { readOnboarding } from "@/lib/onboarding/steps";
 import { listClinics } from "@/lib/ops/clinics";
 import { clinicHealth, recordTouch } from "@/lib/ops/health";
 import { runOperation, type Operator } from "@/lib/ops/api";
-import { sendLiveAlert } from "@/lib/reporting/alerts";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { addRecipient } from "@/lib/reporting/recipients";
 import { withTenant } from "@/lib/tenant";
 import { ingestCall, type VoiceCallEvent } from "@/lib/voice/ingest";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedClinic, seedConversation } from "./setup/factories";
+import { bindAgreementInEffect, inTenant, mintDeskToken, queuedNotices, seedClinic, seedConversation } from "./setup/factories";
 import { createStripeFake } from "./setup/stripe-fake";
 
 /**
@@ -204,8 +203,9 @@ describeDb("phase 8, against the database", () => {
       await addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" });
     });
     // The agent semi-confirms only (21 September 2026): no appointment row
-    // from the call, a request for the desk instead, and the desk is emailed
-    // a link that names nobody.
+    // from the call, a request for the desk instead, and the clinic's L7
+    // alert queued with it, a pointer that names nobody. Nothing is mailed to
+    // the report recipient any more (notifyDesk is retired).
     const deskMail = new FakeTransport();
     const booked = await ingestCall(
       call(c.clinicId, { outcome: "booked", booking: { scheduledFor: new Date(Date.now() + 3 * DAY), treatment: "Consultation" } }),
@@ -214,10 +214,12 @@ describeDb("phase 8, against the database", () => {
     );
     expect(booked.bookingRequestId).not.toBeNull();
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from appointments`))).rows).toHaveLength(0);
-    expect(deskMail.sent).toHaveLength(1);
-    expect(deskMail.sent[0]!.message.subject).toMatch(/via a phone call/);
-    expect(deskMail.sent[0]!.message.text).not.toMatch(/\+1555|Consultation/);
-    const token = deskMail.sent[0]!.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)![1]!;
+    expect(deskMail.sent.filter((m) => m.target.to === "desk@example-clinic.test")).toHaveLength(0);
+    const alerts = await queuedNotices(c.clinicId, ["booking_request"]);
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.payload).toMatchObject({ channel: "voice", bookingRequestId: booked.bookingRequestId });
+    expect(JSON.stringify(alerts[0]!.payload)).not.toMatch(/\+1555|Consultation/);
+    const token = await mintDeskToken(c.clinicId, booked.bookingRequestId!);
 
     // The desk confirms a slot: now, and only now, the appointment exists,
     // carrying the clinic's deposit rule.
@@ -232,22 +234,18 @@ describeDb("phase 8, against the database", () => {
       ),
     );
     expect(rows.rows).toEqual([{ deposit_status: "pending_front_desk", deposit_usd: "50.00", treatment: "Consultation", conversation_id: booked.conversationId }]);
-
-    const transport = new FakeTransport();
-    expect(await sendLiveAlert(c.clinicId, "booked", booked.conversationId, transport)).toBe("sent");
-    expect(transport.sent[0]!.message.text).toMatch(/deposit is due/);
-    expect(transport.sent[0]!.message.text).not.toMatch(/\+1555|Consultation/);
   });
 
-  test("a bad BETTER_AUTH_URL costs the desk its email, never the caller's request", async () => {
+  test("a bad BETTER_AUTH_URL costs the alert its link, never the caller's request", async () => {
     const c = await seedClinic("bad-origin");
     await makeProduction(c.clinicId, new Date(Date.now() - 10 * DAY));
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" }),
     );
-    // No scheme: publicUrl() refuses to build the desk's link in any
+    // No scheme: publicUrl() refuses to build the portal link in any
     // environment. The throw used to escape notifyDesk inside ingestCall's
-    // transaction and roll back the conversation and the request with it.
+    // transaction and roll back the conversation and the request with it;
+    // the alert now queues without its link.
     vi.stubEnv("BETTER_AUTH_URL", "app.healdesk.io");
     try {
       const deskMail = new FakeTransport();
@@ -259,9 +257,11 @@ describeDb("phase 8, against the database", () => {
       expect(booked.bookingRequestId).not.toBeNull();
       expect(deskMail.sent).toHaveLength(0);
       const kept = await inTenant(c.clinicId, (client) =>
-        client.query<{ desk_notified_at: Date | null }>(`select desk_notified_at from booking_requests`),
+        client.query<{ id: string }>(`select id from booking_requests`),
       );
-      expect(kept.rows).toEqual([{ desk_notified_at: null }]);
+      expect(kept.rows).toEqual([{ id: booked.bookingRequestId }]);
+      const alerts = await queuedNotices(c.clinicId, ["booking_request"]);
+      expect(alerts.map((a) => a.payload.portalUrl)).toEqual([null]);
       expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from conversations`))).rows).toHaveLength(1);
     } finally {
       vi.unstubAllEnvs();

@@ -1,3 +1,5 @@
+import { after } from "next/server";
+
 import { anthropicAssistantResponder } from "@/lib/assistant/responder";
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import { json, preflight, widgetRequest } from "@/lib/chat/widget-http";
@@ -9,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 let depsForTests: { responder?: AssistantResponder | null; transport?: EmailTransport; now?: Date } | undefined;
-/** Test seam: the model, the desk's mail and the clock. Undefined restores the real ones. */
+/** Test seam: the model, the clinic's mail and the clock. Undefined restores the real ones. */
 export function __setWebChatDepsForTests(deps: typeof depsForTests): void {
   depsForTests = deps;
 }
@@ -29,6 +31,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       responder,
       transport: depsForTests?.transport,
       now: depsForTests?.now,
+      // The urgent alert (L12) goes once the reply has been sent.
+      after,
     });
     if (answer.mode === "invalid") return json({ error: answer.reason }, 400, req.origin);
     return json(answer, 200, req.origin);

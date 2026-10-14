@@ -23,7 +23,6 @@ import {
   requestReceivedLine,
   type BookingFields,
   type BookingThread,
-  type CreatedBookingRequest,
 } from "./booking-requests";
 import { touchMetaThread } from "./channels";
 import { openMetaConversation, type MetaConversation } from "./greeting";
@@ -1148,7 +1147,7 @@ export type FrontDoorAnswer = {
   guard: string | null;
   /** Set when the screen answered the message, so the model never saw it. */
   screened: "clinical" | "urgent" | null;
-  /** "requested" when this message completed a booking request and the desk was told. */
+  /** "requested" when this message completed a booking request and the clinic's alert (L7) was queued. */
   booking: "none" | "collecting" | "requested";
   /** The reply opens with metaChannelGreeting(): it is the first of its conversation. */
   greeted: boolean;
@@ -1161,19 +1160,10 @@ export type FrontDoorAnswer = {
    * up, and the first reply the person did get would open without it.
    */
   greetingToRecord: MetaConversation | null;
-  /**
-   * The booking request this message created, for the caller to email the
-   * desk about with notifyDeskAfterCommit (lib/meta/booking-requests.ts)
-   * once the transaction that created it has committed. Null when no request
-   * came of it. Emailed any sooner, a send that failed afterwards rolled the
-   * request back with the email already gone, and the claimed message id
-   * kept a redelivery from making it again: the request was lost.
-   */
-  deskNotice: CreatedBookingRequest | null;
 };
 
-/** An answer while it is being written: the greeting's record and the desk's email are settled last. */
-type Draft = Omit<FrontDoorAnswer, "greetingToRecord" | "deskNotice">;
+/** An answer while it is being written: the greeting's record is settled last. */
+type Draft = Omit<FrontDoorAnswer, "greetingToRecord">;
 
 type ThreadInput = BookingThread & { connectionId: string | null };
 
@@ -1211,7 +1201,6 @@ export async function answerFrontDoor(
   // Everything up to the model's answer reads; nothing is written before it.
   let answer: Draft;
   let extracted: BookingFields | null = null;
-  let deskNotice: CreatedBookingRequest | null = null;
   let wants = false;
   const screened = screenInbound(input.text);
   if (screened === "urgent") {
@@ -1245,7 +1234,11 @@ export async function answerFrontDoor(
   if (thread) await touchMetaThread(tx, thread.platform, thread.senderId, now);
   // Which conversation this message belongs to, and whether its reply is the first.
   const conversation: MetaConversation | null = thread ? await openMetaConversation(tx, { platform: thread.platform, senderId: thread.senderId, sentAt: now }) : null;
-  if (screened === "urgent") await notifyBookingAlert(tx, "urgent", {});
+  // L12, queued with the writes: once per conversation, and sent in-process
+  // by the webhook once this transaction has committed.
+  if (screened === "urgent") {
+    await notifyBookingAlert(tx, "urgent", { conversationId: conversation?.conversationId, channel: "meta" });
+  }
 
   // Only the model extracts booking fields, so a screened message never
   // reaches the draft or a request.
@@ -1263,9 +1256,10 @@ export async function answerFrontDoor(
         fields: merged,
         lastInboundAt: now,
       });
-      // The desk is emailed by the caller, after this transaction commits
-      // (FrontDoorAnswer.deskNotice), never from inside it.
-      deskNotice = created;
+      // L7, queued in this transaction, so it goes after the request has
+      // committed and never for one that rolls back: a pointer into Bookings
+      // to the clinic's one address, with nothing about the person.
+      await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id, channel: "meta" });
       // The name goes back only through the reply guard; refused, the line
       // goes without it.
       const named = requestReceivedLine(facts.clinicName, merged.firstName);
@@ -1294,7 +1288,7 @@ export async function answerFrontDoor(
   }
 
   recordAnswer(tx, input.platform, answer);
-  return { ...answer, greetingToRecord, deskNotice };
+  return { ...answer, greetingToRecord };
 }
 
 function recordAnswer(tx: TenantTx, platform: MetaPlatform, answer: Draft): void {

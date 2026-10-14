@@ -722,23 +722,39 @@ export async function resendTranscript(
   conversationId: string,
   actor: ActorContext = { type: "service", serviceName: "transcript-outbox" },
 ): Promise<ResendOutcome> {
-  return withTenant({ clinicId, actor }, async (tx) => {
-    const ofConversation = and(eq(transcriptEmails.conversationId, conversationId), eq(transcriptEmails.clinicId, clinicId));
-    const rows = await tx.db
-      .update(transcriptEmails)
-      .set({ status: "pending", nextAttemptAt: new Date() })
-      .where(and(ofConversation, inArray(transcriptEmails.status, HOLDING)))
-      .returning({ id: transcriptEmails.id });
-    for (const row of rows) {
-      tx.audit.record({ action: "update", resourceType: "transcript_email", resourceId: row.id, metadata: { outcome: "resend" } });
-    }
-    if (rows.length > 0) return "queued";
-    const [open] = await tx.db
-      .select({ id: transcriptEmails.id })
-      .from(transcriptEmails)
-      .where(and(ofConversation, eq(transcriptEmails.status, "open")));
-    return open ? "open" : "gone";
-  });
+  return withTenant({ clinicId, actor }, async (tx) => (await resendTranscriptIn(tx, conversationId)).outcome);
+}
+
+/**
+ * resendTranscript inside a transaction the caller holds: the portal's "Send
+ * again", which writes its access-log row in the same one (lib/portal/
+ * conversations.ts). `id` is the transcript row queued again, or the open
+ * chat's, or null when nothing is left to send.
+ */
+export async function resendTranscriptIn(
+  tx: TenantTx,
+  conversationId: string,
+): Promise<{ outcome: ResendOutcome; id: string | null }> {
+  const ofConversation = and(eq(transcriptEmails.conversationId, conversationId), eq(transcriptEmails.clinicId, tx.clinicId));
+  const rows = await tx.db
+    .update(transcriptEmails)
+    .set({ status: "pending", nextAttemptAt: new Date() })
+    .where(and(ofConversation, inArray(transcriptEmails.status, HOLDING)))
+    .returning({ id: transcriptEmails.id });
+  for (const row of rows) {
+    tx.audit.record({ action: "update", resourceType: "transcript_email", resourceId: row.id, metadata: { outcome: "resend" } });
+  }
+  if (rows.length > 0) return { outcome: "queued", id: rows[0]!.id };
+  const [open] = await tx.db
+    .select({ id: transcriptEmails.id })
+    .from(transcriptEmails)
+    .where(and(ofConversation, eq(transcriptEmails.status, "open")));
+  return open ? { outcome: "open", id: open.id } : { outcome: "gone", id: null };
+}
+
+/** Whether a transcript in this status can be sent again: its copy is still held, and the chat is over. */
+export function canResend(status: TranscriptEmailStatus): boolean {
+  return HOLDING.includes(status);
 }
 
 // -----------------------------------------------------------------------------
@@ -814,5 +830,38 @@ export async function listTranscriptDeliveries(
       deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
       attempts: row.attempts,
     })),
+  };
+}
+
+/**
+ * One conversation's receipt, the same fields listTranscriptDeliveries gives
+ * and nothing more, with the row's id for the access log: the portal's open
+ * view of a conversation. Null when no transcript was queued for it (a call
+ * in which nobody spoke, a Meta thread, or one older than the outbox).
+ */
+export async function transcriptReceiptFor(
+  tx: TenantTx,
+  conversationId: string,
+): Promise<(TranscriptReceipt & { id: string }) | null> {
+  const [row] = await tx.db
+    .select({
+      id: transcriptEmails.id,
+      conversationId: transcriptEmails.conversationId,
+      status: transcriptEmails.status,
+      sentAt: transcriptEmails.sentAt,
+      deliveredAt: transcriptEmails.deliveredAt,
+      attempts: transcriptEmails.attempts,
+    })
+    .from(transcriptEmails)
+    .where(and(eq(transcriptEmails.clinicId, tx.clinicId), eq(transcriptEmails.conversationId, conversationId)))
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    status: row.status,
+    sentAt: row.sentAt ? row.sentAt.toISOString() : null,
+    deliveredAt: row.deliveredAt ? row.deliveredAt.toISOString() : null,
+    attempts: row.attempts,
   };
 }

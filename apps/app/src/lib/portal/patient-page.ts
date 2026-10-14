@@ -83,6 +83,8 @@ export const PATIENT_RECORD_TYPES = [
   "appointment",
   /** The clinic's whole export. */
   "clinic_bundle",
+  /** One person's export, from a conversation (Conversations), named by their contact ids. */
+  "patient_bundle",
 ] as const;
 export type PatientRecordType = (typeof PATIENT_RECORD_TYPES)[number];
 

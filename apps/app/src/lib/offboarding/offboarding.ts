@@ -47,9 +47,11 @@ import { withTenant } from "@/lib/tenant";
  * the moment of the call. In between, by a person: the agent is switched off
  * at the voice vendor and the clinic is told how to remove forwarding (terms
  * §7); the export is produced (`exportClinic`, `npm run patient-export --
- * --all`) and handed over, and only the operator's record of the handover
- * stamps `export_delivered_at` (`markExportDelivered`), so producing an
- * export never counts as delivering it; and the clinic's calls and agent are
+ * --all`) and handed over, and only a record of its reaching the practice
+ * stamps `export_delivered_at` (`markExportDelivered`): the operator's record
+ * of the handover, or the practice's own download of the complete export
+ * from the portal's Conversations screen (lib/portal/conversations.ts), so
+ * producing an export never counts as delivering it; and the clinic's calls and agent are
  * deleted at the voice vendor, Retell, and recorded on the care page
  * (`recordVoiceVendorDeletion`), which shows the step outstanding, with its
  * deadline, until it is.
@@ -467,7 +469,9 @@ export async function alertIfOffboardingStartedLate(
 
 /**
  * The export reached the practice. `how` is the operator's record of the
- * handover (the channel, and to whom by role). The stamp is the database's
+ * handover (the channel, and to whom by role), or the portal's own words for
+ * the practice's download of the complete export, which reaches it in that
+ * response (lib/portal/conversations.ts). The stamp is the database's
  * (app_mark_export_delivered): this moment, once, and only while the clinic
  * is offboarding and not yet destroyed. Never call it when an export is
  * merely produced: `exportClinic` and the patient-export script produce one

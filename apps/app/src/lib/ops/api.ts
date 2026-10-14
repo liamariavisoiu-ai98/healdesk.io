@@ -154,6 +154,14 @@ import {
   opSetUsageAlerts,
 } from "@/lib/ops/billing";
 import {
+  opChangeClinicEmail,
+  opGetClinicSignIn,
+  opListClinicCards,
+  opListSiteReadFailures,
+  opSetCoveredEntity,
+  opStopClinicEmailChange,
+} from "@/lib/ops/account-ops";
+import {
   blockersFor,
   listClinics as listClinicOverviews,
   type ClinicBlocker,
@@ -436,6 +444,21 @@ const OPERATIONS = [
   // keeps the day's highest and alerts once, and no audit row, so it is not
   // in MUTATING_OPERATIONS. Machine to machine, like emailEvent.
   "emailQuota",
+  // The account (plan Part K, D5 and L; lib/ops/account-ops.ts): the
+  // clinic's one address and each change of it, and changeClinicEmail, the
+  // human route when a clinic lost the address itself, entered with the
+  // operator's TOTP on apps/web and stopped on an objection; the
+  // covered-entity answer, which refuses vets and, on a DPA clinic, closes
+  // the PHI gate and starts the DPA→BAA supersede; and two reads for the
+  // console: each clinic card's channel states, build tracker and agreement
+  // label, and the purchases whose website read failed. Business contact
+  // data and configuration; never a patient.
+  "getClinicSignIn",
+  "changeClinicEmail",
+  "stopClinicEmailChange",
+  "setCoveredEntity",
+  "listClinicCards",
+  "listSiteReadFailures",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -498,6 +521,10 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "disconnectCalendar",
   // Mutating: it queues an email of patient information to the clinic.
   "resendTranscript",
+  // Mutating: an address change entered or stopped, a covered-entity answer recorded.
+  "changeClinicEmail",
+  "stopClinicEmailChange",
+  "setCoveredEntity",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1036,6 +1063,18 @@ export async function runOperation(
       return ok({ directBooking: env.directBookingEnabled() });
     case "emailQuota":
       return opEmailQuota(args);
+    case "getClinicSignIn":
+      return opGetClinicSignIn(args, operator);
+    case "changeClinicEmail":
+      return opChangeClinicEmail(args, operator);
+    case "stopClinicEmailChange":
+      return opStopClinicEmailChange(args, operator);
+    case "setCoveredEntity":
+      return opSetCoveredEntity(args, operator);
+    case "listClinicCards":
+      return opListClinicCards(operator);
+    case "listSiteReadFailures":
+      return opListSiteReadFailures(operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

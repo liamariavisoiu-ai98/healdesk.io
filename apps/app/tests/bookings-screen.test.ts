@@ -646,7 +646,7 @@ describeDb("Bookings", () => {
     );
     expect(await appointmentStatus(a.clinicId, startedId)).toBe("no_show");
 
-    // Ahead of its time: no showed or no-show yet; cancelled any time.
+    // Ahead of its time: no showed or no-show yet; cancelled, once confirmed.
     expect(
       await markOutcome(
         a.clinicSlug,
@@ -658,11 +658,52 @@ describeDb("Bookings", () => {
       message: expect.stringMatching(/once the appointment has started/),
     });
     expect(await appointmentStatus(a.clinicId, upcomingId)).toBe("scheduled");
+    // Cancelling one still ahead asks first, and says what it does.
     expect(
       await markOutcome(
         a.clinicSlug,
         { status: "idle" },
         form({ appointmentId: upcomingId, outcome: "cancelled" }),
+      ),
+    ).toEqual({
+      status: "confirm",
+      message:
+        "Cancelling frees this time in healdesk, so AYA may book it for someone else. It doesn't change your calendar, and it can't be undone here.",
+    });
+    expect(await appointmentStatus(a.clinicId, upcomingId)).toBe("scheduled");
+
+    // A calendar write still on its way: no cancelling until it settles, or
+    // it could land in the clinic's calendar afterwards.
+    await inTenant(a.clinicId, (client) =>
+      client.query(`update appointments set calendar_write_status = 'unknown' where id = $1`, [
+        upcomingId,
+      ]),
+    );
+    mark = await auditCount(a.clinicId);
+    expect(
+      await markOutcome(
+        a.clinicSlug,
+        { status: "idle" },
+        form({ appointmentId: upcomingId, outcome: "cancelled", confirm: "1" }),
+      ),
+    ).toEqual({
+      status: "failed",
+      message:
+        "We're still checking whether this booking reached your calendar. Try again in a minute.",
+    });
+    expect(await appointmentStatus(a.clinicId, upcomingId)).toBe("scheduled");
+    // It read the appointment (its access row) and changed nothing.
+    expect((await auditRows(a.clinicId)).slice(mark).map((r) => r.action)).toEqual(["read"]);
+    await inTenant(a.clinicId, (client) =>
+      client.query(`update appointments set calendar_write_status = 'failed' where id = $1`, [
+        upcomingId,
+      ]),
+    );
+    expect(
+      await markOutcome(
+        a.clinicSlug,
+        { status: "idle" },
+        form({ appointmentId: upcomingId, outcome: "cancelled", confirm: "1" }),
       ),
     ).toMatchObject({ status: "saved", outcome: "cancelled" });
     expect(await appointmentStatus(a.clinicId, upcomingId)).toBe("cancelled");

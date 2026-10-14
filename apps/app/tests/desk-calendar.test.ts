@@ -11,6 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { availableSlotsFor, deskSpanFree } from "@/lib/booking/availability";
 import { sweepDeskWrites, writeToCalendar } from "@/lib/booking/calendar";
 import { holderRefOf, holdSpan } from "@/lib/booking/holds";
+import { runOperation, type Operator } from "@/lib/ops/api";
 
 import { asApp } from "./setup/calendar-db";
 import {
@@ -591,6 +592,67 @@ describeDb("the desk path and the Google write (C12)", () => {
       ).toBe(true);
       expect(rows.find((x) => !ids.includes(x.id))!.calendar_write_status).toBe("failed");
       expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+    },
+    SLOW,
+  );
+
+  test(
+    "a booking marked cancelled, showed or no-show is never written: not by the sweep, the ops retry or a stuck claim",
+    async () => {
+      const f = await deskLocation(google, "desk-cancelled");
+      const r = await phoneRequest(f.clinicId);
+      // Staff confirm; Google's insert fails before it stores anything, so
+      // the write is unknown and the sweep would read back, find nothing and
+      // create the event.
+      google.failNext({ on: "insert", status: 503, reason: "backendError" });
+      const decided = await confirm(r.token, deskTime(4, 16));
+      expect(decided.calendarWrite).toBe("unknown");
+      const id = decided.appointmentId!;
+      const events = () => google.events(f.sub).filter((e) => e.status !== "cancelled");
+      expect(events()).toHaveLength(0);
+      const writes = inserts().length;
+
+      // Cancelled while it was unknown (Bookings refuses that; this is the
+      // second lock): the sweep passes it over, and the ops retry and a
+      // direct write claim nothing.
+      await inTenant(f.clinicId, (client) =>
+        client.query(`update appointments set status = 'cancelled' where id = $1`, [id]),
+      );
+      expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+      const operator: Operator = { email: "ops@healdesk.test", request: {} };
+      const retried = await runOperation(
+        "retryCalendarWrite",
+        { clinicId: f.clinicId, appointmentId: id },
+        operator,
+      );
+      expect((retried.body as { data: Record<string, unknown> }).data).toEqual({
+        status: "error",
+        message: "That appointment is marked cancelled, so nothing is written to the calendar for it.",
+      });
+      expect(await writeToCalendar(f.clinicId, id, { fromFailed: true })).toBe("unknown");
+      expect(inserts()).toHaveLength(writes);
+
+      // A claim stuck in writing, then marked no-show: taken over by nobody.
+      await inTenant(f.clinicId, (client) =>
+        client.query(
+          `update appointments set status = 'no_show', calendar_write_status = 'writing',
+                  calendar_write_lease = gen_random_uuid(),
+                  calendar_write_claimed_at = now() - interval '3 minutes', updated_at = now()
+            where id = $1`,
+          [id],
+        ),
+      );
+      expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+      expect(await writeToCalendar(f.clinicId, id)).toBe("unknown");
+      expect(inserts()).toHaveLength(writes);
+      expect(events()).toHaveLength(0);
+
+      // The same row, on again, is written: what held it back was the status.
+      await inTenant(f.clinicId, (client) =>
+        client.query(`update appointments set status = 'scheduled' where id = $1`, [id]),
+      );
+      expect(await sweepDeskWrites()).toMatchObject({ attempted: 1, written: 1 });
+      expect(events()).toHaveLength(1);
     },
     SLOW,
   );

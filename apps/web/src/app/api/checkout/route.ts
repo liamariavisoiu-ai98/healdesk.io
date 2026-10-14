@@ -28,6 +28,7 @@ import {
 import { isCampaignCode } from "@/lib/attribution";
 import { postToApp, welcomeCookieOptions } from "@/lib/checkout/app-client";
 import { intentFields, validateOrder, type Order } from "@/lib/checkout/order";
+import { audienceFor } from "@/lib/checkout/review";
 import {
   agreementSpent,
   appendIntentRecord,
@@ -390,6 +391,7 @@ export async function POST(request: Request): Promise<Response> {
         plan,
         interval: chosenInterval,
         contactEmail,
+        audience: audienceFor(order.specialty),
         intent: {
           ref,
           attempt,

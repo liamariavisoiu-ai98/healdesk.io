@@ -115,6 +115,8 @@ describe("POST /api/setup-request", () => {
     expect(toUs!.body.to).toEqual(["hello@healdesk.io"]);
     expect(toUs!.body.reply_to).toBe("info@radiancemedspa.com");
     expect(toUs!.body.text).toContain("Radiance Med Spa");
+    // The inbox sees the day the requester was promised, the same one.
+    expect(toUs!.body.text).toContain(`We promised them a reply by ${answer.replyBy}.`);
     expect(toUs!.idempotencyKey).toBe(`hd-setup-request-${rows[0]!.id}-1`);
 
     expect(ack!.body.to).toEqual(["info@radiancemedspa.com"]);

@@ -90,8 +90,15 @@ export function setupRequestAck(request: SetupRequest, replyBy: string): Rendere
   };
 }
 
-/** P3: the request itself, to us. Reply-to is the requester. */
-export function setupRequestInternal(request: SetupRequest, opts: { creditLive: boolean }): RenderedEmail {
+/**
+ * P3: the request itself, to us. Reply-to is the requester. `replyBy` is the
+ * day P2 promised them, the same string, so the inbox shows the date that is
+ * owed rather than "the next business day" (X1.3: an exact time).
+ */
+export function setupRequestInternal(
+  request: SetupRequest,
+  opts: { creditLive: boolean; replyBy: string },
+): RenderedEmail {
   return {
     subject: `Setup request: ${request.clinicName}`,
     text: [
@@ -102,7 +109,7 @@ export function setupRequestInternal(request: SetupRequest, opts: { creditLive: 
       `Channels:  ${channelList(request.channels)}`,
       `From the Day 7 email: ${request.leadId ? (opts.creditLive ? "yes, setup credit still valid" : "yes, credit expired") : "no"}`,
       "",
-      `Send their setup link from ${site.url}/admin/setup. We promised a reply by the next business day.`,
+      `Send their setup link from ${site.url}/admin/setup. We promised them a reply by ${opts.replyBy}.`,
     ].join("\n"),
   };
 }

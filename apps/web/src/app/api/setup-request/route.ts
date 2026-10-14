@@ -123,7 +123,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const { request: saved, repeat } = created;
 
-  const internal = setupRequestInternal(saved, { creditLive: lead ? cohortCreditLive(lead) : false });
+  const internal = setupRequestInternal(saved, { creditLive: lead ? cohortCreditLive(lead) : false, replyBy });
   const toUs = await sendSafely({
     to: site.email,
     replyTo: saved.email,

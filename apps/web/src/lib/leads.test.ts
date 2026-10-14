@@ -54,6 +54,7 @@ describe("marketing sheet schema", () => {
       "demo_sessions",
       "agreements",
       "checkout_intents",
+      "key_rotations",
     ]);
     for (const tab of TABS) {
       for (const column of tab.columns) {
@@ -82,7 +83,7 @@ describe("the lead store over the Sheet", () => {
     __resetSheetSchemaForTests();
   });
 
-  it("provisions the eight tabs with their header rows on first use, and leaves the owner's tabs alone", async () => {
+  it("provisions the nine tabs with their header rows on first use, and leaves the owner's tabs alone", async () => {
     await recordDemoUnlock({ email: "a@b.co", isBusinessEmail: true });
     expect([...sheets.tabs.keys()]).toEqual([
       "Sheet1",
@@ -94,6 +95,7 @@ describe("the lead store over the Sheet", () => {
       "demo_sessions",
       "agreements",
       "checkout_intents",
+      "key_rotations",
     ]);
     expect(sheets.tabs.get("leads")![0]).toEqual(LEADS.columns.map((c) => c.header));
     expect(sheets.tabs.get("lead_events")![0]).toEqual(LEAD_EVENTS.columns.map((c) => c.header));
@@ -297,24 +299,42 @@ describe("the lead store over the Sheet", () => {
     expect(customer.convertedPlan).toBe("growth");
     expect(customer.convertedMrrUsd).toBe(500);
 
-    // Abandonment: a checkout that started over an hour ago, unfinished, not yet nudged.
+    // Abandonment (P7): the latest Checkout Session expired unpaid, not yet nudged.
     const started = await markCheckoutStarted({ email: "buyer@c.com", clinicName: "Radiance", plan: "growth", interval: "monthly" });
     expect(started).toMatch(/^[0-9a-f-]{36}$/);
     await markCheckoutStarted({ email: "customer@c.com", plan: "growth", interval: "monthly" });
-    // Started just now: not yet older than a minute ago, so not yet due.
+    // Started, but no Session has expired: nothing is due however long ago.
+    expect(await leadsForAbandonment(new Date(Date.now() + 60_000))).toEqual([]);
+    const REF = "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a";
+    await markCheckoutAbandoned("buyer@c.com", { ref: REF });
+    // The expiry is not yet older than the cut-off, so not yet due.
     expect(await leadsForAbandonment(new Date(Date.now() - 60_000))).toEqual([]);
-    await markCheckoutAbandoned("buyer@c.com");
     const abandoned = await leadsForAbandonment(new Date(Date.now() + 60_000));
     expect(abandoned.map((l) => l.emailNormalized)).toEqual(["buyer@c.com"]);
     expect(abandoned[0]!.clinicName).toBe("Radiance");
     expect(abandoned[0]!.checkoutAbandonedAt).toBeInstanceOf(Date);
+    expect(abandoned[0]!.abandonedRef).toBe(REF);
+    // Older than the week the cron allows: no longer due.
+    expect(await leadsForAbandonment(new Date(Date.now() + 60_000), 200, new Date(Date.now() + 30_000))).toEqual([]);
+    // A second expiry for the same attempt keeps the first's clock and ref.
+    const first = (await findLeadByEmail("buyer@c.com"))!.checkoutAbandonedAt!;
+    await markCheckoutAbandoned("buyer@c.com", { ref: "7f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a" });
+    expect((await findLeadByEmail("buyer@c.com"))!.checkoutAbandonedAt).toEqual(first);
+    expect((await findLeadByEmail("buyer@c.com"))!.abandonedRef).toBe(REF);
+    // A ref that is not one is not kept.
+    await markCheckoutStarted({ email: "other@c.com", plan: "growth", interval: "monthly" });
+    await markCheckoutAbandoned("other@c.com", { ref: "laura@glowmedspa.com" });
+    expect((await findLeadByEmail("other@c.com"))!.abandonedRef).toBeNull();
 
     await recordTouch(started!, { kind: "abandonment" });
-    expect(await leadsForAbandonment(new Date(Date.now() + 60_000))).toEqual([]);
+    // Sent once: only the other expired purchase is still due.
+    expect((await leadsForAbandonment(new Date(Date.now() + 60_000))).map((l) => l.emailNormalized)).toEqual([
+      "other@c.com",
+    ]);
     // A new attempt reopens the question.
     await markCheckoutStarted({ email: "buyer@c.com", plan: "growth", interval: "annual" });
     expect((await findLeadByEmail("buyer@c.com"))!.checkoutAbandonedAt).toBeNull();
-    expect(sheets.records("leads")).toHaveLength(7);
+    expect(sheets.records("leads")).toHaveLength(8);
   });
 
   it("writes the call consent before the call and stamps it when placed", async () => {

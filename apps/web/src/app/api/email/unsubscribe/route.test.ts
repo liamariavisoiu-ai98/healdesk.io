@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { setupUnsubscribeUrl, unsubscribeUrl, verifyUnsubscribeTarget } from "@/lib/email";
+import { findLeadById, recordDemoUnlock } from "@/lib/leads";
 import { createSetupRequest, findSetupRequest } from "@/lib/setup-requests";
 import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
@@ -55,16 +56,49 @@ describe("the unsubscribe route, for a setup request", () => {
     return created.request;
   }
 
-  test("one click stops that request's emails, by GET or by the mail client's POST", async () => {
-    const first = await request();
-    const page = await GET(new Request(setupUnsubscribeUrl(first.id)));
+  test("a GET, a link scanner's or a person's, changes nothing and shows the one button", async () => {
+    const saved = await request();
+    const url = setupUnsubscribeUrl(saved.id);
+    const page = await GET(new Request(url));
     expect(page.status).toBe(200);
-    expect((await findSetupRequest(first.id))!.unsubscribedAt).toBeInstanceOf(Date);
+    expect(page.headers.get("cache-control")).toBe("no-store");
+    const html = await page.text();
+    expect(html).toContain("Stop these emails?");
+    // The button posts the same signed link back.
+    const action = html.match(/<form method="post" action="([^"]+)">/)?.[1];
+    expect(action).toBe(`/api/email/unsubscribe?t=${encodeURIComponent(tokenOf(url)!)}`);
+    expect((await findSetupRequest(saved.id))!.unsubscribedAt).toBeNull();
+    // However many times the scanner opens it.
+    await GET(new Request(url));
+    expect((await findSetupRequest(saved.id))!.unsubscribedAt).toBeNull();
+  });
 
-    const second = await request();
-    const oneClick = await POST(new Request(setupUnsubscribeUrl(second.id), { method: "POST" }));
-    expect(oneClick.status).toBe(200);
-    expect((await findSetupRequest(second.id))!.unsubscribedAt).toBeInstanceOf(Date);
+  test("the page's button stops that request's emails, and says so", async () => {
+    const saved = await request();
+    const response = await POST(
+      new Request(setupUnsubscribeUrl(saved.id), {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("Done. You will not get another marketing email from us.");
+    expect((await findSetupRequest(saved.id))!.unsubscribedAt).toBeInstanceOf(Date);
+  });
+
+  test("the mail client's RFC 8058 one-click POST stops them with no page", async () => {
+    const saved = await request();
+    const response = await POST(
+      new Request(setupUnsubscribeUrl(saved.id), {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "List-Unsubscribe=One-Click",
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect((await findSetupRequest(saved.id))!.unsubscribedAt).toBeInstanceOf(Date);
   });
 
   test("a token that doesn't verify changes nothing", async () => {
@@ -72,6 +106,21 @@ describe("the unsubscribe route, for a setup request", () => {
     const forged = setupUnsubscribeUrl(saved.id).replace(/.{4}$/, "AAAA");
     const response = await GET(new Request(forged));
     expect(response.status).toBe(400);
+    expect(await response.text()).not.toContain("<form");
+    const posted = await POST(new Request(forged, { method: "POST", body: "List-Unsubscribe=One-Click" }));
+    expect(posted.status).toBe(400);
     expect((await findSetupRequest(saved.id))!.unsubscribedAt).toBeNull();
+  });
+});
+
+describe("the unsubscribe route, for a lead", () => {
+  test("a GET changes nothing; the button, or the mail client, stops the nurture", async () => {
+    const unlocked = await recordDemoUnlock({ email: "laura@glowmedspa.com", isBusinessEmail: true, marketingConsent: true });
+    if (!unlocked.ok) throw new Error("no lead");
+    const url = unsubscribeUrl(unlocked.leadId);
+    await GET(new Request(url));
+    expect((await findLeadById(unlocked.leadId))!.unsubscribedAt).toBeNull();
+    await POST(new Request(url, { method: "POST", body: "" }));
+    expect((await findLeadById(unlocked.leadId))!.unsubscribedAt).toBeInstanceOf(Date);
   });
 });

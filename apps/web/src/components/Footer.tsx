@@ -1,6 +1,7 @@
 import { WordmarkGlyphs } from "@/components/Wordmark";
 import { TRADEMARKS } from "@/lib/integrations";
 import { ENTITY } from "@/lib/legal";
+import { portalSignInUrl, SIGN_IN_LABEL } from "@/lib/portal-link";
 import { site } from "@/lib/site";
 
 /**
@@ -74,6 +75,15 @@ export function Footer() {
               {item.label}
             </a>
           ))}
+          {/* The clinic portal's sign-in, once NEXT_PUBLIC_PORTAL_URL is set; nothing until then. */}
+          {portalSignInUrl() ? (
+            <a
+              href={portalSignInUrl()!}
+              className="text-muted hover:text-ink text-[14px] leading-6 font-semibold transition-colors"
+            >
+              {SIGN_IN_LABEL}
+            </a>
+          ) : null}
           <a
             href={`mailto:${site.email}`}
             className="text-muted hover:text-ink text-[14px] leading-6 font-semibold transition-colors"

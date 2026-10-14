@@ -221,6 +221,7 @@ function newLead(now: Date, over: Partial<Lead> & Pick<Lead, "email" | "emailNor
     lastSeenAt: now,
     createdAt: now,
     updatedAt: now,
+    abandonedRef: null,
     ...over,
   };
 }
@@ -510,16 +511,30 @@ export async function markCheckoutStarted(input: {
   }
 }
 
-/** Stripe said the session expired, or the cron decided an hour was enough. */
-export async function markCheckoutAbandoned(email: string): Promise<void> {
+/**
+ * Stripe said a Checkout Session expired unpaid (checkout.session.expired),
+ * with the purchase ref its metadata carries. Once per attempt: an expiry
+ * already recorded since the latest press of Pay is kept, so the P7 clock
+ * runs from the first. A press of Pay after it clears it (markCheckoutStarted),
+ * and the next expiry records again, so P7 always waits on the latest Session.
+ */
+export async function markCheckoutAbandoned(email: string, facts: { ref?: string | null } = {}): Promise<void> {
   if (!isMarketingStoreConfigured()) return;
   const client = await store();
   const located = await locateByEmail(client, normalizeEmail(email));
-  if (!located || located.value.convertedAt || located.value.checkoutAbandonedAt) return;
+  if (!located || located.value.convertedAt) return;
+  const lead = located.value;
+  const recorded =
+    lead.checkoutAbandonedAt !== null &&
+    (lead.checkoutStartedAt === null || lead.checkoutAbandonedAt.getTime() >= lead.checkoutStartedAt.getTime());
+  if (recorded) return;
   const now = new Date();
-  await writeLead(client, located.row, { ...located.value, checkoutAbandonedAt: now, updatedAt: now });
-  await recordLeadEvent(located.value.id, "checkout_abandoned");
+  const ref = typeof facts.ref === "string" && UUID_SHAPED.test(facts.ref) ? facts.ref.toLowerCase() : lead.abandonedRef;
+  await writeLead(client, located.row, { ...lead, checkoutAbandonedAt: now, abandonedRef: ref, updatedAt: now });
+  await recordLeadEvent(lead.id, "checkout_abandoned");
 }
+
+const UUID_SHAPED = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The webhook saw a completed session: the lead is a customer. Ends the nurture. */
 export async function markConverted(input: {
@@ -567,21 +582,31 @@ export async function leadsForNurture(maxStep: number, limit = 200): Promise<Lea
     .slice(0, limit);
 }
 
-/** Started checkout, did not finish, not yet nudged. */
-export async function leadsForAbandonment(olderThan: Date, limit = 200): Promise<Lead[]> {
+/**
+ * Due P7 ("still open", lib/email/nurture.ts): the latest Checkout Session
+ * expired unpaid between `notBefore` and `olderThan` (24 hours to 7 days ago,
+ * as the cron asks), with no press of Pay since, not yet sent, not a
+ * customer, not stopped. The purchase itself is re-read at send time.
+ */
+export async function leadsForAbandonment(olderThan: Date, limit = 200, notBefore?: Date): Promise<Lead[]> {
   if (!isMarketingStoreConfigured()) return [];
   const rows = dedupe(await readLeadRows(await store()));
   return rows
     .map((r) => r.value)
-    .filter(
-      (l) =>
+    .filter((l) => {
+      const at = l.checkoutAbandonedAt?.getTime();
+      return (
+        at !== undefined &&
         !l.convertedAt &&
         !l.abandonmentSentAt &&
         !l.unsubscribedAt &&
         !l.bouncedAt &&
-        l.checkoutStartedAt !== null &&
-        l.checkoutStartedAt.getTime() < olderThan.getTime(),
-    )
+        at <= olderThan.getTime() &&
+        (notBefore === undefined || at >= notBefore.getTime()) &&
+        // A press of Pay after the expiry: a newer Session, its own clock.
+        (l.checkoutStartedAt === null || at >= l.checkoutStartedAt.getTime())
+      );
+    })
     .slice(0, limit);
 }
 

@@ -24,18 +24,19 @@ import type { SetupState } from "./state";
  * getCalendarConnection) and never blocks: without a connected calendar,
  * bookings arrive as requests.
  *
- * Talk to your AYA is package C's: until its preview exists
- * (TALK_TO_AYA_BUILT), Home's button stays locked even when every stage is
- * done, and O8, which says she is ready to talk to, is not sent.
+ * Talk to your AYA is the preview at /c/[slug]/preview (lib/preview/talk.ts),
+ * which reads this tracker on every message: Home links to it once
+ * `previewUnlocked`, and it closes again while anything blocks it.
  */
 
 /**
- * Whether Talk to your AYA exists (/c/[slug]/preview, package C). False until
- * it does: O8 tells a clinic it can talk to AYA, so it is held until there is
- * somewhere to talk to her, and the hourly sweep sends it to every clinic
- * whose tracker is complete once this is true (lib/engine/practice/job.ts).
+ * Whether Talk to your AYA exists (/c/[slug]/preview, lib/preview/talk.ts).
+ * O8 tells a clinic it can talk to AYA, so it was held until there was
+ * somewhere to talk to her; now there is, the hourly sweep sends it to every
+ * clinic whose tracker is complete and has not had it
+ * (lib/engine/practice/job.ts), and a pass sends it as it completes one.
  */
-export const TALK_TO_AYA_BUILT = false;
+export const TALK_TO_AYA_BUILT = true;
 
 export type StageId =
   "agreement" | "payment" | "website" | "answers" | "calendar" | "built" | "practice_questions";

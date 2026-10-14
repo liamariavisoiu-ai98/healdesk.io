@@ -61,11 +61,8 @@
         "HEALDESK_SES_CONFIGURATION_SET",
         "AWS_REGION",
         // The transcript outbox (13 October 2026): the SNS topic whose signed
-        // SES events /api/webhooks/ses trusts, and the archive copy, sent only
-        // to a mailbox stated to be under a BAA (both, or no copy).
+        // SES events /api/webhooks/ses trusts.
         "HEALDESK_SES_EVENTS_TOPIC_ARN",
-        "HEALDESK_TRANSCRIPT_ARCHIVE_TO",
-        "HEALDESK_TRANSCRIPT_ARCHIVE_BAA",
         // The web chat and the Retell voice endpoint (13 October 2026): the
         // models each uses, and the secret in each clinic's custom-LLM URL.
         "HEALDESK_CHAT_MODEL",

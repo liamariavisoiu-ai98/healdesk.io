@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import {
-  archiveCopyAddress,
   MAX_TRANSCRIPT_CHARACTERS,
   renderTranscriptEmail,
   sendTranscriptEmail,
@@ -41,13 +40,7 @@ class FakeTransport implements EmailTransport {
   }
 }
 
-const KEYS = [
-  "HEALDESK_EMAIL_TRANSPORT",
-  "HEALDESK_SES_CONFIGURATION_SET",
-  "RESEND_API_KEY",
-  "HEALDESK_TRANSCRIPT_ARCHIVE_TO",
-  "HEALDESK_TRANSCRIPT_ARCHIVE_BAA",
-] as const;
+const KEYS = ["HEALDESK_EMAIL_TRANSPORT", "HEALDESK_SES_CONFIGURATION_SET", "RESEND_API_KEY"] as const;
 let saved: Record<string, string | undefined> = {};
 beforeEach(() => {
   saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -73,7 +66,11 @@ describe("renderTranscriptEmail", () => {
     expect(email.text).toContain("Caller: Hi, it's Dana Okonkwo");
     expect(email.text).toContain("Tuesday, October 13, 2026 at 4:05 PM EDT");
     expect(email.text).toContain(`Reference: ${INPUT.conversationId}`);
-    expect(email.text).toMatch(/deletes its own encrypted copy seven days after/);
+    // The owner's decision of 14 October 2026: the copy goes once delivery is confirmed.
+    expect(email.text).toMatch(
+      /deletes its own encrypted copy as soon as your mail server confirms it has received this email/,
+    );
+    expect(email.text).not.toMatch(/seven days/);
     expect(email.text).toMatch(/Please don't reply/);
   });
 
@@ -136,14 +133,9 @@ describe("sendTranscriptEmail", () => {
     expect(result.status).toBe("sent");
     expect(transport.sent).toHaveLength(1);
     expect(transport.sent[0]!.message.phiClass).toBe("may-carry-phi");
+    // The clinic's address and nothing else: no copy rides along (the owner's
+    // decision of 14 October 2026 removed the archive copy).
     expect(transport.sent[0]!.target).toEqual(TARGET);
-  });
-
-  test("the archive copy rides as a blind copy, never as a second recipient", async () => {
-    const transport = new FakeTransport();
-    await sendTranscriptEmail(renderTranscriptEmail(INPUT), TARGET, { transport, bcc: "archive@healdesk.test" });
-    expect(transport.sent[0]!.target.to).toBe("owner@radiance.test");
-    expect(transport.sent[0]!.target.bcc).toEqual(["archive@healdesk.test"]);
   });
 
   test("a transport that throws is a failed result, not an exception", async () => {
@@ -162,26 +154,5 @@ describe("sendTranscriptEmail", () => {
     process.env.RESEND_API_KEY = "re_test";
     const result = await sendTranscriptEmail(renderTranscriptEmail(INPUT), TARGET);
     expect(result).toMatchObject({ status: "failed", reason: expect.stringMatching(/no SES configuration set/) });
-  });
-});
-
-describe("archiveCopyAddress", () => {
-  test("off with no address", () => {
-    expect(archiveCopyAddress()).toBeNull();
-  });
-
-  // A transcript is patient information: no copy goes to a mailbox nobody has
-  // said is held under a business associate agreement.
-  test("an address without the BAA statement sends no copy", () => {
-    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_TO = "hello@healdesk.io";
-    expect(archiveCopyAddress()).toBeNull();
-    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_BAA = "yes";
-    expect(archiveCopyAddress()).toBeNull();
-  });
-
-  test("an address with the statement gets the copy", () => {
-    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_TO = " transcripts@healdesk.io ";
-    process.env.HEALDESK_TRANSCRIPT_ARCHIVE_BAA = "signed";
-    expect(archiveCopyAddress()).toBe("transcripts@healdesk.io");
   });
 });

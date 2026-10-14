@@ -80,8 +80,10 @@ import type { TenantTx } from "@/lib/tenant";
  *     it took place (the media clock clears the reference sooner). 1.4.0
  *     calls it "the record of each conversation, without what was said or
  *     written in it": since 13 October 2026 no row carries a reference, and
- *     the transcript itself waits only in the outbox, for seven days
- *     (lib/conversations/transcript-outbox.ts), going with its conversation;
+ *     the transcript itself waits only in the outbox, until the clinic's mail
+ *     server confirms delivery and never past 30 days (since 14 October 2026;
+ *     lib/conversations/transcript-outbox.ts), its receipt going with its
+ *     conversation;
  *   - an appointment: the record clock after its time;
  *   - a booking request: the record clock after the latest of when it was
  *     made, the time it was confirmed for and its appointment's time;

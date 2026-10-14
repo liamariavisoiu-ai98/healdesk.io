@@ -381,8 +381,11 @@ npm test -w @healdesk/app          # database suites skip without TEST_APP_URL
 the runtime role deliberately does not have. The worker is a plain Node entry point, not
 a Next route. Jobs are enabled from the ops console, and most ship switched off, with
 these exceptions. `heartbeat`, `incident-deadlines` and `transcript-emails` ship on (0066
-seeds the second on; 0069 the third). `transcript-emails` deletes every sealed transcript
-copy on its seventh day whatever its switch, which decides only whether transcripts are sent. `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
+seeds the second on; 0069 the third). A sealed transcript copy is deleted the moment SES
+reports it delivered, by the SES webhook; `transcript-emails` deletes every copy never
+delivered, 30 days after it was queued or 72 hours after a send nothing answered (0072),
+whatever its switch, which decides only whether transcripts are sent, and leaves each row
+as a receipt (the ops operation `transcriptDeliveries` reads them). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
 1.3.0 and 1.4.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no

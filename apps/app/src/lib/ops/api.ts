@@ -117,7 +117,13 @@ import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
-import { resendTranscript } from "@/lib/conversations/transcript-outbox";
+import {
+  listTranscriptDeliveries,
+  resendTranscript,
+  TRANSCRIPT_DELIVERIES_DEFAULT_DAYS,
+  TRANSCRIPT_DELIVERIES_MAX_DAYS,
+  type TranscriptDeliveries,
+} from "@/lib/conversations/transcript-outbox";
 import { isDemoClinic } from "@/lib/booking/terms";
 import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
 import {
@@ -390,11 +396,17 @@ const OPERATIONS = [
   // a live seal-and-open of a throwaway value. Never the key's full ARN, never
   // a credential, never an AWS error message.
   "getCredentialKeyStatus",
-  // The transcript outbox (drizzle/0069): send a conversation's transcript to
-  // the clinic again, while its sealed copy lasts (seven days after it first
-  // went). Takes the conversation's id and returns whether a copy was there;
-  // never the transcript, never an address.
+  // The transcript outbox (drizzle/0069, 0072): send a conversation's
+  // transcript to the clinic again, while its sealed copy lasts (until SES
+  // reports it delivered, and never past 30 days). Takes the conversation's id
+  // and returns whether a copy was there; never the transcript, never an
+  // address.
   "resendTranscript",
+  // The receipts the outbox keeps once a copy is gone (drizzle/0072): counts
+  // by status and the newest receipts, so the owner can tell a clinic whether
+  // each transcript reached it. Conversation ids, statuses, times and
+  // attempts; never words, never an address, never SES's reason.
+  "transcriptDeliveries",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -1008,6 +1020,8 @@ export async function runOperation(
       return opGetCredentialKeyStatus();
     case "resendTranscript":
       return opResendTranscript(args, operator);
+    case "transcriptDeliveries":
+      return opTranscriptDeliveries(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -4067,9 +4081,11 @@ export type ResendTranscriptState =
 
 /**
  * Send a conversation's transcript to the clinic's own address again, from
- * its sealed copy, at the outbox's next minute. "gone" once the copy's seven
- * days are up: healdesk keeps no transcript after that, and has nothing to
- * send. The address is always the clinic's; the console cannot name one.
+ * its sealed copy, at the outbox's next minute. "gone" once the copy is: SES
+ * reported it delivered, or it expired or went unconfirmed (drizzle/0072),
+ * and healdesk has nothing left to send. A web chat still going answers an
+ * error, since its transcript goes when it ends. The address is always the
+ * clinic's; the console cannot name one.
  */
 async function opResendTranscript(
   args: Record<string, unknown>,
@@ -4081,10 +4097,63 @@ async function opResendTranscript(
   if (!conversationId || !UUID_SHAPED.test(conversationId)) {
     return ok({ status: "error", message: "That is not a conversation id." } satisfies ResendTranscriptState);
   }
-  const queued = await resendTranscript(clinic.id, conversationId, actorFor(operator));
-  if (!queued) return ok({ status: "gone" } satisfies ResendTranscriptState);
+  const outcome = await resendTranscript(clinic.id, conversationId, actorFor(operator));
+  if (outcome === "gone") return ok({ status: "gone" } satisfies ResendTranscriptState);
+  if (outcome === "open") {
+    return ok({
+      status: "error",
+      message: "That web chat is still going; its transcript is emailed when it ends.",
+    } satisfies ResendTranscriptState);
+  }
   const auditRecorded = await audit(operator, "transcript_resent", { clinicSlug: clinic.slug, conversationId });
   return ok({ status: "queued", auditRecorded } satisfies ResendTranscriptState);
+}
+
+export type TranscriptDeliveriesState =
+  | ({ status: "ok" } & TranscriptDeliveries)
+  | { status: "error"; message: string };
+
+/**
+ * Whether each of a clinic's transcripts reached it (drizzle/0072's
+ * receipts): counts by status over the rows queued in the last `sinceDays`
+ * days (30 by default, a whole number from 1 to 366), and the newest receipts
+ * as { conversationId, status, sentAt, deliveredAt, attempts }. Read-only. A
+ * receipt holds no words and no address, and SES's reason is left out too:
+ * a mail server's diagnostic can quote the address.
+ */
+async function opTranscriptDeliveries(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies TranscriptDeliveriesState);
+  const raw = args.sinceDays;
+  const sinceDays = raw === undefined || raw === null ? TRANSCRIPT_DELIVERIES_DEFAULT_DAYS : numberArg(args, "sinceDays");
+  if (
+    sinceDays === undefined ||
+    !Number.isInteger(sinceDays) ||
+    sinceDays < 1 ||
+    sinceDays > TRANSCRIPT_DELIVERIES_MAX_DAYS
+  ) {
+    return ok({
+      status: "error",
+      message: `sinceDays is a whole number of days from 1 to ${TRANSCRIPT_DELIVERIES_MAX_DAYS}.`,
+    } satisfies TranscriptDeliveriesState);
+  }
+  const deliveries = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      const listed = await listTranscriptDeliveries(tx, sinceDays);
+      tx.audit.record({
+        action: "read",
+        resourceType: "transcript_email",
+        resultCount: listed.receipts.length,
+        metadata: { purpose: "transcript_deliveries", sinceDays },
+      });
+      return listed;
+    },
+  );
+  return ok({ status: "ok", ...deliveries } satisfies TranscriptDeliveriesState);
 }
 
 /** §B.4: the calendar-write ledger on its own, for a refresh after a retry. */

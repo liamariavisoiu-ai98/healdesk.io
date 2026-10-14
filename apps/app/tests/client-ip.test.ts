@@ -123,11 +123,7 @@ describe("one door", () => {
    * The only other readers: routes apps/web calls with a signed request.
    * They keep the first entry on purpose (lib/client-ip.ts says why).
    */
-  const SIGNED_SERVER_TO_SERVER = new Set([
-    "app/api/provision/route.ts",
-    "app/api/agreements/route.ts",
-    "app/api/agreements/[id]/pdf/route.ts",
-  ]);
+  const SIGNED_SERVER_TO_SERVER = new Set(["app/api/provision/route.ts"]);
 
   function* walk(dir: string): Generator<string> {
     for (const entry of readdirSync(dir)) {

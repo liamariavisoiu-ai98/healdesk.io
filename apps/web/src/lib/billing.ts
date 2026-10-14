@@ -86,10 +86,13 @@ import { normalizeSiteUrl } from "@/lib/site";
  * ## What Stripe carries
  *
  * An opaque ref and nothing about the buyer (design D1). Before this Session
- * exists, apps/app stores the validated purchase as a checkout intent
- * (POST /api/checkout/intents) and answers with its ref, which press of Pay
- * this is, and the success URL, which is apps/app's /welcome on its public
- * origin. The Session and its subscription carry `{ app, ref, plan,
+ * exists, the validated purchase is recorded as a sealed purchase record in
+ * the marketing Sheet (since 14 October 2026; lib/checkout/records.ts and
+ * docs/design/checkout-records-on-vercel-2026-10-14.md), under its ref and
+ * which press of Pay this is, and the success URL is this site's own
+ * /welcome, which answers while the AWS host is in standby and hands the
+ * browser on to apps/app's once the account exists. The Session and its
+ * subscription carry `{ app, ref, plan,
  * billingInterval, attempt }`, which bind the payment to the terms of that
  * press, and the Session also carries the attribution ids the lead store
  * reads back: campaign, lead, demo, setup request and the setup offer. Ids,
@@ -104,9 +107,10 @@ import { normalizeSiteUrl } from "@/lib/site";
  * On the first paid invoice, never on the Session and never on the browser
  * returning (plan C1, design D2): the webhook relays `invoice.paid` with
  * `billing_reason: "subscription_create"` to apps/app as `{ ref,
- * idempotencyKey: <subscription id>, attempt, plan, billingInterval }`, and
- * apps/app provisions from the stored intent, if it still describes what was
- * paid, before the event itself is applied. A paid first invoice is money
+ * idempotencyKey: <subscription id>, attempt, plan, billingInterval,
+ * records }`, the records being the purchase and the agreement read from the
+ * Sheet, and apps/app imports them and provisions from the intent, if it
+ * describes what was paid, before the event itself is applied. A paid first invoice is money
  * cleared, so the account and its activation are one moment.
  */
 
@@ -114,11 +118,11 @@ export type CheckoutIntent = {
   plan: Plan;
   interval: BillingInterval;
   contactEmail: string;
-  /** The intent apps/app stored for this purchase, and which press of Pay this is. */
+  /** The purchase record this Session is for, and which press of Pay this is. */
   intent: {
     ref: string;
     attempt: number;
-    /** apps/app's /welcome, with Stripe's `{CHECKOUT_SESSION_ID}` placeholder. */
+    /** This site's /welcome, with Stripe's `{CHECKOUT_SESSION_ID}` placeholder (welcomeUrl). */
     successUrl: string;
     /** The previous attempt's Session, expired before this one is created. */
     previousOpenSessionId: string | null;
@@ -361,6 +365,58 @@ export async function createCheckout(
     throw new Error("Stripe returned a session with no checkout URL.");
   }
   return { kind: "redirect", url: session.url, sessionId: session.id };
+}
+
+/**
+ * Where Stripe sends the browser that has just paid: this site's /welcome,
+ * since 14 October 2026, which can answer while the AWS host is in standby
+ * (app/welcome/route.ts). `{CHECKOUT_SESSION_ID}` is Stripe's own
+ * placeholder. Built from NEXT_PUBLIC_SITE_URL, so production refuses rather
+ * than send a paying customer to localhost (siteUrl).
+ */
+export function welcomeUrl(ref: string): string {
+  return `${siteUrl()}/welcome?h=${encodeURIComponent(ref)}&cs={CHECKOUT_SESSION_ID}`;
+}
+
+/**
+ * Whether Stripe says this Checkout Session completed: the previous press of
+ * Pay was paid, and the purchase must not move past it (a second Session would
+ * take the setup fee twice, and its nonce cookie would replace the one the paid
+ * press's /welcome knows the browser by). Throws when Stripe errs or
+ * does not answer within five seconds: the caller refuses the press with
+ * nothing recorded, because a Session that may have been paid must never be
+ * moved past.
+ */
+export async function checkoutSessionPaid(sessionId: string): Promise<boolean> {
+  const { status } = await stripeClient().checkout.sessions.retrieve(sessionId, undefined, { timeout: 5_000 });
+  return status === "complete";
+}
+
+/**
+ * Whether this Checkout Session is paid, and is the one this purchase opened:
+ * our marker, this ref, complete, and its payment through (or none needed, a
+ * setup credit's $0). What /welcome asks before it says anything. Null when
+ * Stripe cannot be asked.
+ */
+export async function paidSessionFor(
+  sessionId: string,
+  ref: string,
+): Promise<{ paid: boolean; attempt: number | null } | null> {
+  try {
+    const session = await stripeClient().checkout.sessions.retrieve(sessionId, undefined, { timeout: 5_000 });
+    const ours = session.metadata?.app === APP_MARKER && session.metadata?.ref === ref;
+    const paid =
+      ours &&
+      session.status === "complete" &&
+      (session.payment_status === "paid" || session.payment_status === "no_payment_required");
+    const attempt = /^[1-9][0-9]{0,8}$/.test(session.metadata?.attempt ?? "") ? Number(session.metadata?.attempt) : null;
+    return { paid, attempt };
+  } catch (error) {
+    console.warn("[healdesk] welcome: the checkout session could not be checked", {
+      error: error instanceof Error ? error.name : "unknown error",
+    });
+    return null;
+  }
 }
 
 /**

@@ -67,6 +67,7 @@ import {
   resolveIncident,
   type IncidentClass,
 } from "@/lib/incidents/incidents";
+import { findIntent } from "@/lib/checkout/intents";
 import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import {
@@ -188,10 +189,10 @@ import { log } from "@/lib/log";
  * Putting the console on that surface therefore cannot mean putting the queries
  * there with it. It means the console asks, and this answers.
  *
- * The transport is the HMAC already used by `/api/provision` and
- * `/api/agreements/[id]/pdf`: a signature over the body and a timestamp, keyed
- * on HEALDESK_PROVISION_SECRET, verified before anything is parsed. One scheme,
- * three callers, one place to get it right. See packages/catalog/request-signing.
+ * The transport is the HMAC already used by `/api/provision`: a signature
+ * over the body and a timestamp, keyed on HEALDESK_PROVISION_SECRET, verified
+ * before anything is parsed. One scheme, one place to get it right. See
+ * packages/catalog/request-signing.
  *
  * ## Who the operator is now, and where the user id went
  *
@@ -395,6 +396,14 @@ const OPERATIONS = [
   // went). Takes the conversation's id and returns whether a copy was there;
   // never the transcript, never an address.
   "resendTranscript",
+  // The paying browser's way back (docs/design/checkout-records-on-vercel-2026-10-14.md):
+  // apps/web's /welcome, which Stripe returns the buyer to since the purchase
+  // is recorded on Vercel, asks whether this host has the purchase yet and has
+  // something to tell that browser. Machine to machine, like emailEvent: it
+  // takes a ref and a Checkout Session id and answers `{ ready }`, with a URL
+  // composed here from BETTER_AUTH_URL when ready, never a name or an address.
+  // It writes nothing, so it is not in MUTATING_OPERATIONS.
+  "welcomeHandoff",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -545,8 +554,9 @@ export function ok<T>(data: T): OpsOutcome {
 /**
  * The request body, or null when it is bigger than one of ours could be.
  *
- * Lifted from `api/agreements/[id]/pdf/route.ts`, whose header explains the
- * reasoning at length and whose copy cannot be imported: Next validates the
+ * Lifted from the agreement PDF route apps/app had until 14 October 2026
+ * (`api/agreements/[id]/pdf/route.ts`; the PDF is rendered on apps/web from
+ * its record now), whose copy could not be imported: Next validates the
  * export surface of a `route.ts` and rejects anything that is not a handler or
  * a segment option, so a shared helper cannot live in one. It lives here, where
  * both could eventually share it; the duplication is noted rather than hidden.
@@ -1008,6 +1018,8 @@ export async function runOperation(
       return opGetCredentialKeyStatus();
     case "resendTranscript":
       return opResendTranscript(args, operator);
+    case "welcomeHandoff":
+      return opWelcomeHandoff(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -4143,6 +4155,46 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
     ...(kind ? { kind } : {}),
   });
   return ok(result);
+}
+
+// -----------------------------------------------------------------------------
+// The paying browser's hand-off
+// -----------------------------------------------------------------------------
+
+const CHECKOUT_SESSION_SHAPED = /^cs_(test|live)_[A-Za-z0-9]{1,200}$/;
+
+/**
+ * Whether this host's /welcome has something to tell the browser that paid
+ * for `ref` through Checkout Session `sessionId`, and where that page is.
+ *
+ * Since 14 October 2026 Stripe returns the buyer to apps/web's /welcome,
+ * which can answer while this host is in standby (it has checked with Stripe
+ * that the Session is paid). Once the first paid invoice has brought the
+ * purchase here and provisioning has either made the account or refused it,
+ * this answers ready, and apps/web sends the browser on, 303, to this app's
+ * own /welcome, which checks the nonce cookie and hands that browser, and
+ * only that browser, its one-time sign-in link, exactly as before.
+ *
+ * The URL is composed here, from BETTER_AUTH_URL (publicUrl), because every
+ * clinic-facing link is composed upstream (root CLAUDE.md); apps/web holds
+ * only the internal origin, which must never reach a browser. The answer
+ * names nothing about the purchase: a Session that is not this purchase's
+ * latest is simply not ready, so a stranger holding a ref learns nothing.
+ */
+async function opWelcomeHandoff(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const ref = stringArg(args, "ref", 64);
+  const sessionId = stringArg(args, "sessionId", 256);
+  if (!ref || !UUID_SHAPED.test(ref) || !sessionId || !CHECKOUT_SESSION_SHAPED.test(sessionId)) {
+    return opsProblem("A purchase ref and a Checkout Session id are required.", 400, "invalid_args");
+  }
+  const intent = await findIntent(ref);
+  const settled = intent !== null && (intent.consumedAt !== null || intent.provisionFailedAt !== null);
+  const theirs = intent !== null && (intent.openSessionId === null || intent.openSessionId === sessionId);
+  if (!settled || !theirs || publicOriginProblem()) return ok({ ready: false });
+  return ok({
+    ready: true,
+    url: publicUrl(`/welcome?h=${encodeURIComponent(ref)}&cs=${encodeURIComponent(sessionId)}`),
+  });
 }
 
 // -----------------------------------------------------------------------------

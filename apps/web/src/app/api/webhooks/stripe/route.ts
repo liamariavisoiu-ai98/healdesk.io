@@ -1,7 +1,16 @@
 import { getPlan, SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
 import type Stripe from "stripe";
 
+import type { SealedRecord } from "@healdesk/catalog/checkout-record";
+
 import { APP_MARKER, isBillingConfigured, stripeClient } from "@/lib/billing";
+import {
+  findAgreementRecord,
+  intentRecordsFor,
+  markAgreementProvisioned,
+  markIntentProvisioned,
+  recordsConfigured,
+} from "@/lib/checkout/records";
 import { postInternalAlert } from "@/lib/demo/alert";
 import { displayName, markDemoClaimed } from "@/lib/demo/sessions";
 import { markCheckoutAbandoned, markConverted } from "@/lib/leads";
@@ -20,11 +29,15 @@ import { updateSetupRequest } from "@/lib/setup-requests";
  *   - The FIRST invoice's `invoice.paid` (`billing_reason:
  *     "subscription_create"`) creates the account: it is relayed to
  *     /api/provision as `{ ref, idempotencyKey: <subscription id>, attempt,
- *     plan, billingInterval, hostedInvoiceUrl }`, and apps/app provisions
- *     from the checkout intent it stored when Pay was pressed, if that intent
- *     still names the press and the terms that were paid (plan C1, design
- *     D2); the invoice's hosted page is the setup-fee receipt the welcome
- *     email links. Only then is
+ *     plan, billingInterval, hostedInvoiceUrl, records }`, `records` being
+ *     the sealed purchase record of the press that was paid and the sealed
+ *     agreement record it names, read from the marketing Sheet, where they
+ *     have been kept since 14 October 2026 so a buyer can sign and pay while
+ *     the AWS host is in standby (lib/checkout/records.ts,
+ *     docs/design/checkout-records-on-vercel-2026-10-14.md). apps/app checks
+ *     both seals, imports them and provisions, if the purchase names the
+ *     press and the terms that were paid (plan C1, design D2); the invoice's
+ *     hosted page is the setup-fee receipt the welcome email links. Only then is
  *     the event itself forwarded, so the clinic it activates exists. The
  *     account is made on the first
  *     paid invoice, as docs/v1-product-spec.md ("Stage 1, payment") says, and
@@ -320,6 +333,17 @@ function firstInvoiceOf(event: Stripe.Event): FirstInvoice | null {
  * null to forward it.
  */
 async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, relay: Relay): Promise<Response | null> {
+  // The two records, from the Sheet. Unreadable is retryable: Stripe
+  // redelivers, and the records are still there when it does.
+  let records: { intent?: SealedRecord; agreement?: SealedRecord; agreementId?: string };
+  try {
+    records = await checkoutRecordsFor(first);
+  } catch (error) {
+    console.error("[healdesk] checkout records unreadable from stripe webhook", event.id, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Response("Checkout records unreadable.", { status: 500 });
+  }
   const body = JSON.stringify({
     ref: first.ref,
     // The SUBSCRIPTION id, stamped here from the verified event and never
@@ -336,11 +360,24 @@ async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, rel
     // The setup-fee receipt: apps/app keeps it with the purchase and the
     // welcome email links it, so no separate receipt goes for this invoice.
     hostedInvoiceUrl: first.hostedInvoiceUrl,
+    // Exactly as the Sheet holds them, sealed: apps/app is the judge of both,
+    // and refuses, to ops and to the buyer, what does not open or match.
+    ...(records.intent || records.agreement
+      ? {
+          records: {
+            ...(records.intent ? { intent: records.intent } : {}),
+            ...(records.agreement ? { agreement: records.agreement } : {}),
+          },
+        }
+      : {}),
   });
   const result = await relayTo("/api/provision", body, relay);
   switch (result.kind) {
     case "ok":
-      // 200 (replayed) and 201 (created) are both success.
+      // 200 (replayed) and 201 (created) are both success. The purchase and
+      // its agreement are spent: no later press of Pay may use them.
+      await markIntentProvisioned(first.ref);
+      if (records.agreementId) await markAgreementProvisioned(records.agreementId);
       return null;
     case "unreachable":
       console.error("[healdesk] provisioning unreachable from stripe webhook", event.id, result.error);
@@ -362,6 +399,40 @@ async function provisionFromIntent(event: Stripe.Event, first: FirstInvoice, rel
       });
       return null;
   }
+}
+
+/**
+ * The sealed records a paid first invoice provisions from: the record of the
+ * press of Pay that was paid (its attempt, from the subscription's metadata;
+ * the latest press when the metadata names none), and the agreement it names.
+ * Each is relayed as the Sheet holds it, opened or not: apps/app checks the
+ * seals, and a record that does not open is refused there, with ops told and,
+ * for the agreement, the buyer written to. A purchase with no record at all
+ * is relayed bare, and apps/app provisions from an intent it already holds
+ * (an import that ran before) or refuses it as unknown.
+ */
+async function checkoutRecordsFor(
+  first: FirstInvoice,
+): Promise<{ intent?: SealedRecord; agreement?: SealedRecord; agreementId?: string }> {
+  if (!recordsConfigured()) throw new Error("The checkout records are not configured.");
+  const { records, refused } = await intentRecordsFor(first.ref);
+  const ofAttempt = (attempt: number | null) =>
+    records.filter((r) => attempt === null || r.record.attempt === attempt);
+  const matching = ofAttempt(first.attempt);
+  // A press that opened a Session is the one paid; one withdrawn opened none.
+  const paid = matching.filter((r) => r.withdrawnAt === null).at(-1) ?? matching.at(-1) ?? null;
+  if (!paid) {
+    const raw = refused.filter((r) => first.attempt === null || r.attempt === first.attempt).at(-1);
+    return raw?.sealed ? { intent: raw.sealed } : {};
+  }
+  const agreementId = paid.intent.agreementId;
+  const agreement = await findAgreementRecord(agreementId);
+  return {
+    intent: paid.sealed,
+    agreementId,
+    ...(agreement.status === "found" ? { agreement: agreement.sealed } : {}),
+    ...(agreement.status === "refused" && agreement.sealed ? { agreement: agreement.sealed } : {}),
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -565,10 +636,11 @@ function refId(
  * The setup link that opened this purchase is spent: the checkout refuses it
  * from now on (lib/setup-gate.ts). Never throws, like the conversion: a Sheet
  * outage must not fail the event. A link left unstamped still cannot buy
- * twice: it is bound to one checkout intent by a unique `invite_ref`, a press
- * of Pay on it finds this paid Session and creates nothing (apps/app's
- * intents route and createCheckout both ask Stripe), and once the account is
- * made apps/app refuses the intent outright.
+ * twice: its purchase records share the link's own id as their ref, a press
+ * of Pay on it finds this paid Session and creates nothing (/api/checkout and
+ * createCheckout both ask Stripe), the records are marked provisioned once
+ * the account is made, and apps/app refuses a second subscription for the
+ * purchase outright.
  */
 async function markSetupLinkUsed(session: Stripe.Checkout.Session): Promise<void> {
   const id = session.metadata?.setupRequest;
@@ -615,9 +687,10 @@ async function recordConversion(session: Stripe.Checkout.Session): Promise<void>
  * A purchase that came from a personalised demo: mark the demo claimed and
  * tell the team. Best effort and never throws, like the conversion above.
  * The prospect's own receipt, agreement copy and setup link are not sent
- * from here: Stripe sends the receipt, and apps/app sends the agreement copy
- * and the setup link once /api/provision has recorded the account, because
- * every clinic-facing link is composed there (root CLAUDE.md).
+ * from here: Stripe sends the receipt, the agreement copy went at signature
+ * (app/api/agreement/route.ts), and apps/app sends the welcome email and its
+ * links once /api/provision has made the account, because every
+ * clinic-facing link is composed there (root CLAUDE.md).
  */
 async function recordDemoClaim(session: Stripe.Checkout.Session): Promise<void> {
   const slug = session.metadata?.demo;

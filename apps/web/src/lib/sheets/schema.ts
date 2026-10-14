@@ -1,7 +1,7 @@
 import { columnLetter, sheetsClient, type Cell, type SheetsClient } from "./client";
 
 /**
- * The marketing Sheet's four tabs, and the rule that governs all of them:
+ * The marketing Sheet's tabs, and the rule that governs all of them:
  * NOTHING here may ever describe a patient. A lead is a clinic owner who
  * unlocked the demo or started a checkout — their work email, their clinic's
  * public website, which specialty they run. That is business contact data.
@@ -402,6 +402,93 @@ export const SETUP_REQUESTS: Tab = {
   ],
 };
 
+/**
+ * The checkout records (owner, 14 October 2026): the signed agreement and the
+ * purchase, kept here from the moment they are made until apps/app imports
+ * them when the first invoice is paid, so a buyer can sign and pay while the
+ * AWS host is in standby (docs/design/checkout-records-on-vercel-2026-10-14.md).
+ *
+ * Business contact data, like every tab here: a clinic owner's name, work
+ * email, title, IP address and user agent, the clinic's answers and the
+ * read of its public website. Nothing about a patient.
+ *
+ * Each row is one SEALED record (@healdesk/catalog/checkout-record): its JSON
+ * across `record_1`…`record_8` (one cell holds 50,000 characters; a large
+ * record is gzipped and split) and an HMAC over that JSON in `seal`, keyed
+ * from HEALDESK_PROVISION_SECRET, which apps/app holds too and checks, so an
+ * edit made here between signing and provisioning is found rather than
+ * imported. The columns before `seal` are an index for finding a row, copied
+ * out of the record and checked against it whenever it is read, except
+ * `provisioned_at` and `withdrawn_at`, which the record does not hold: they
+ * are state apps/web keeps for itself, and apps/app never reads them. Do not
+ * edit a record cell by hand: the record stops opening, and the purchase it
+ * carries stops provisioning.
+ */
+export const RECORD_COLUMNS = 8;
+
+function recordColumns(): Column[] {
+  const out: Column[] = [col("seal", "seal", "text")];
+  for (let i = 1; i <= RECORD_COLUMNS; i += 1) out.push(col(`record_${i}`, `record${i}`, "text"));
+  return out;
+}
+
+/** One signature: the agreement a clinic owner signed before paying. */
+export type AgreementRow = {
+  id: string;
+  documentVersion: string;
+  acceptedAt: Date;
+  /** Set once the purchase that names it is provisioned: it belongs to an account now. */
+  provisionedAt: Date | null;
+};
+
+/** How many leading columns of `agreements` are the index. */
+export const AGREEMENT_INDEX_COLUMNS = 4;
+
+export const AGREEMENTS: Tab = {
+  title: "agreements",
+  columns: [
+    col("id", "id", "text"),
+    col("document_version", "documentVersion", "text"),
+    col("accepted_at", "acceptedAt", "timestamp"),
+    col("provisioned_at", "provisionedAt", "timestamp"),
+    ...recordColumns(),
+  ],
+};
+
+/** One press of Pay: a purchase and the Checkout Session it opened. */
+export type CheckoutIntentRow = {
+  /** This record's own id. */
+  id: string;
+  /** The purchase; the setup link's request id while purchases are by invitation. */
+  ref: string;
+  attempt: number;
+  inviteRef: string | null;
+  agreementId: string;
+  createdAt: Date;
+  /** This press opened no Session (Stripe refused, or the previous one was paid): never provisioned from. */
+  withdrawnAt: Date | null;
+  /** The purchase is provisioned: its setup link and agreement are spent. */
+  provisionedAt: Date | null;
+};
+
+/** How many leading columns of `checkout_intents` are the index. */
+export const INTENT_INDEX_COLUMNS = 8;
+
+export const CHECKOUT_INTENTS: Tab = {
+  title: "checkout_intents",
+  columns: [
+    col("id", "id", "text"),
+    col("ref", "ref", "text"),
+    col("attempt", "attempt", "int"),
+    col("invite_ref", "inviteRef", "text"),
+    col("agreement_id", "agreementId", "text"),
+    col("created_at", "createdAt", "timestamp"),
+    col("withdrawn_at", "withdrawnAt", "timestamp"),
+    col("provisioned_at", "provisionedAt", "timestamp"),
+    ...recordColumns(),
+  ],
+};
+
 export const TABS: readonly Tab[] = [
   LEADS,
   LEAD_EVENTS,
@@ -409,6 +496,8 @@ export const TABS: readonly Tab[] = [
   COUNTERS,
   SETUP_REQUESTS,
   DEMO_SESSIONS,
+  AGREEMENTS,
+  CHECKOUT_INTENTS,
 ];
 
 // -----------------------------------------------------------------------------

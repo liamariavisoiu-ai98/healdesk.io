@@ -44,6 +44,8 @@ import {
   type CalendarTermsKind,
   type Channel,
   CHANNELS,
+  CHECKOUT_PROFILE_STATUSES,
+  type CheckoutProfileStatus,
   type ClinicProfile,
   COVERAGE_MODES,
   type CoverageModeId,
@@ -3383,9 +3385,12 @@ export type CheckoutIntentPayload = {
   timezone?: string;
 };
 
-/** Whether the website was read at checkout: read, tried and failed, or there was none. */
-export const CHECKOUT_PROFILE_STATUSES = ["read", "failed", "none"] as const;
-export type CheckoutProfileStatus = (typeof CHECKOUT_PROFILE_STATUSES)[number];
+/**
+ * Whether the website was read at checkout: read, tried and failed, or there
+ * was none. The catalog's list since 14 October 2026, because apps/web holds a
+ * purchase to it before payment (packages/catalog/src/checkout-intent.ts).
+ */
+export { CHECKOUT_PROFILE_STATUSES, type CheckoutProfileStatus };
 
 /**
  * A purchase waiting on its first paid invoice.

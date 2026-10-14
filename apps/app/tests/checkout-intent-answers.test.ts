@@ -1,21 +1,12 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import {
-  BAA_ASSENT_LABEL,
-  type BookingSystemId,
-  type CalendarAccount,
-  type ClinicProfile,
-  CURRENT_BAA_VERSION,
-  SIGNATURE_HEADER,
-  sign,
-  TIMESTAMP_HEADER,
-} from "@healdesk/catalog";
+import { type ClinicProfile } from "@healdesk/catalog";
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
-import { POST as postIntent } from "@/app/api/checkout/intents/route";
-import { signAgreement } from "@/lib/agreements";
+import { importCheckoutRecords } from "@/lib/checkout/import";
 import { IntentError, validateIntentRequest } from "@/lib/checkout/intents";
 
+import { agreementRecord, intentRecord, records } from "./setup/checkout-records";
 import {
   closePools,
   getMigratorPool,
@@ -27,13 +18,13 @@ import {
 /**
  * The four-step funnel's answers on a checkout intent (plan Part A3 and A4):
  * where bookings live and which Google account, the website or none, and the
- * read of that website. apps/web checks them before it asks; this checks them
- * again, because a browser carried them, and stores them for provisioning and
- * setup: the answers in the payload, the read in its own column.
+ * read of that website. apps/web checks them before anyone pays (the same
+ * validateIntentRequest, from the catalog); the import checks them again,
+ * because the record crossed a spreadsheet, and stores them for provisioning
+ * and setup: the answers in the payload, the read in its own column.
  */
 
-const SECRET = "checkout-intent-answers-test-secret";
-process.env.HEALDESK_PROVISION_SECRET = SECRET;
+process.env.HEALDESK_PROVISION_SECRET = "checkout-intent-answers-test-secret";
 process.env.BETTER_AUTH_URL ??= "http://localhost:3001";
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -245,38 +236,22 @@ describeDb("the funnel's answers, stored", () => {
     await closePools();
   });
 
-  function signed(body: unknown): Request {
-    const raw = JSON.stringify(body);
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    return new Request("http://app.test/api/checkout/intents", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        [TIMESTAMP_HEADER]: timestamp,
-        [SIGNATURE_HEADER]: sign(raw, timestamp, SECRET),
-      },
-      body: raw,
-    });
-  }
-
-  async function signedOrder(overrides: Record<string, unknown> = {}) {
+  /**
+   * The purchase, imported as the first paid invoice brings it: a signature
+   * for the order's own answers, and the order as its purchase record.
+   */
+  async function imported(overrides: Record<string, unknown> = {}) {
     const email = `info-${randomUUID().slice(0, 8)}@glowspa.test`;
-    const agreement = await signAgreement({
-      clinicLegalName: "Glow Med Spa LLC",
-      specialty: "med-spa",
-      signatoryName: "Laura Owner",
-      signatoryTitle: "Owner",
+    const agreement = agreementRecord({
       signatoryEmail: email,
-      isCoveredEntity: false,
-      attributionMode: "estimated",
       platform: (overrides.platform as string | undefined) ?? "none",
-      // BAA 1.3.0, the current version, reads both answers the order carries.
-      bookingSystem: (overrides.bookingSystem as BookingSystemId | undefined) ?? "calendly",
-      calendarAccount: (overrides.calendarAccount as CalendarAccount | undefined) ?? "workspace_baa",
-      assentLabel: BAA_ASSENT_LABEL,
-      templateVersion: CURRENT_BAA_VERSION,
+      bookingSystem: (overrides.bookingSystem as string | undefined) ?? "calendly",
+      calendarAccount: (overrides.calendarAccount as string | undefined) ?? "workspace_baa",
     });
-    return order({ contactEmail: email, agreementId: agreement.agreementId, ...overrides });
+    const intent = intentRecord(agreement, {
+      purchase: order({ contactEmail: email, agreementId: agreement.id, ...overrides }),
+    });
+    return importCheckoutRecords(intent.ref, records(agreement, intent));
   }
 
   test("the answers go into the payload and the screened read into its own column", async () => {
@@ -294,8 +269,7 @@ describeDb("the funnel's answers, stored", () => {
         },
       ],
     });
-    const response = await postIntent(signed(await signedOrder({ profile: asVet })));
-    expect(response.status).toBe(201);
+    expect(await imported({ profile: asVet })).toMatchObject({ ok: true, intent: "imported", agreement: "imported" });
 
     const { rows } = await getMigratorPool().query(
       `select payload, profile, profile_status from checkout_intents`,
@@ -315,17 +289,14 @@ describeDb("the funnel's answers, stored", () => {
   });
 
   test("no website is stored as null, with no read", async () => {
-    const response = await postIntent(
-      signed(
-        await signedOrder({
-          plan: "voice-metachat-500-300",
-          website: null,
-          profile: null,
-          profileStatus: "none",
-        }),
-      ),
-    );
-    expect(response.status).toBe(201);
+    expect(
+      await imported({
+        plan: "voice-metachat-500-300",
+        website: null,
+        profile: null,
+        profileStatus: "none",
+      }),
+    ).toMatchObject({ ok: true });
     const { rows } = await getMigratorPool().query(
       `select payload, profile, profile_status from checkout_intents`,
     );
@@ -335,18 +306,13 @@ describeDb("the funnel's answers, stored", () => {
   });
 
   test("a refused answer never becomes a row", async () => {
-    const refused = await postIntent(
-      signed(
-        await signedOrder({
-          plan: "webchat-300",
-          website: null,
-          profile: null,
-          profileStatus: "none",
-        }),
-      ),
-    );
-    expect(refused.status).toBe(422);
-    expect(((await refused.json()) as { field: string }).field).toBe("plan");
+    const refused = await imported({
+      plan: "webchat-300",
+      website: null,
+      profile: null,
+      profileStatus: "none",
+    });
+    expect(refused).toMatchObject({ ok: false, field: "plan", reach: "ops" });
     const { rows } = await getMigratorPool().query(`select 1 from checkout_intents`);
     expect(rows).toHaveLength(0);
   });

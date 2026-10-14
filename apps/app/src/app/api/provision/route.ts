@@ -5,6 +5,7 @@ import {
 } from "@healdesk/catalog";
 import { after } from "next/server";
 
+import { checkoutRecordsOf, importCheckoutRecords } from "@/lib/checkout/import";
 import {
   findIntent,
   markIntentFailed,
@@ -33,7 +34,13 @@ import { sendWelcomeEmail } from "@/lib/setup/welcome-email";
  * payload can't be altered and a captured request can't be replayed.
  *
  * Creates an organization and a clinic, and binds the agreement the buyer
- * signed before paying. It creates no user, no invitation and no credential of
+ * signed before paying. Since 14 October 2026 the agreement and the purchase
+ * arrive in the body as the sealed records apps/web kept in the marketing
+ * Sheet (`records: { intent, agreement }`), so a buyer could sign and pay
+ * while this host was in standby; they are imported first, idempotently, and
+ * provisioning then reads the two rows as it always has (lib/checkout/import.ts,
+ * docs/design/checkout-records-on-vercel-2026-10-14.md). A seal or a document
+ * hash that does not match refuses the purchase, as any other refusal does. It creates no user, no invitation and no credential of
  * any kind: a clinic never signs in to healdesk, so there is no login to
  * invite anyone into. See lib/provisioning.ts for why, and
  * lib/email/connect-link.ts for the single-use link that replaced the account.
@@ -115,6 +122,30 @@ export async function POST(request: Request): Promise<Response> {
         billingInterval?: unknown;
         hostedInvoiceUrl?: unknown;
       };
+      // The records apps/web kept, taken in before the intent is read: a
+      // retried event finds both rows and continues. Absent on a relay from
+      // before 14 October 2026, whose intent this host stored itself.
+      const records = checkoutRecordsOf(body);
+      if (records) {
+        let imported: Awaited<ReturnType<typeof importCheckoutRecords>>;
+        try {
+          imported = await importCheckoutRecords(intentRef, records);
+        } catch (error) {
+          // A database fault, not a refusal: 500, so Stripe redelivers.
+          log.error("checkout records could not be imported", { error: describeError(error) });
+          return problem("Could not complete setup.", 500);
+        }
+        if (!imported.ok) {
+          if (imported.reach === "intent") {
+            await refuseIntent(intentRef, new ProvisioningError(imported.message, imported.field));
+          } else {
+            await afterResponse(() =>
+              notifyOps("provisioning_rejected", { field: imported.field, source: "records" }),
+            );
+          }
+          return problem(imported.message, 422, imported.field);
+        }
+      }
       const intent = await findIntent(intentRef);
       if (!intent) {
         await afterResponse(() => notifyOps("provisioning_rejected", { field: "ref", source: "intent" }));

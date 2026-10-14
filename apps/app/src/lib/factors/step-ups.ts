@@ -5,6 +5,8 @@ import { and, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { unsafeDb, type Queryable } from "@/db";
 import { stepUps, userFactors } from "@/db/schema";
 
+import { STEP_UP_IDLE_MS, STEP_UP_MAX_MS } from "./step-up-windows";
+
 /**
  * Passkey step-ups, as rows (plan Part D2). What a page asks of them lives in
  * lib/portal/step-up.ts; this file is the store, and imports nothing from
@@ -15,12 +17,15 @@ import { stepUps, userFactors } from "@/db/schema";
  * at most 8 hours old, its passkey is not revoked, and neither is the row.
  * Both windows are measured on the database's clock, like every other expiry
  * it enforces, so two app servers with drifting clocks agree.
+ *
+ * Only a passkey steps a session up (plan Part D3). The authenticator app and
+ * the backup codes can let a new device add its own passkey and nothing
+ * more, so a row whose factor is anything but a passkey is never recorded
+ * here and never counts as live, should one ever reach the table some other
+ * way: step_ups.factor_id references user_factors, which holds both kinds.
  */
 
-/** Idle limit: patient pages clear and ask again after this long untouched. */
-export const STEP_UP_IDLE_MS = 15 * 60 * 1000;
-/** Absolute limit, however busy the page: one passkey tap holds for a working day. */
-export const STEP_UP_MAX_MS = 8 * 60 * 60 * 1000;
+export { STEP_UP_IDLE_MS, STEP_UP_MAX_MS };
 
 /**
  * SHA-256 of a Better Auth session token, the only form in which a step-up or
@@ -38,6 +43,13 @@ export type LiveStepUp = {
   deviceLabel: string;
   createdAt: Date;
   lastActivityAt: Date;
+  /**
+   * How long it stays live from the statement that read it if nothing touches
+   * it again: until 15 minutes after the last activity or the 8-hour limit,
+   * whichever comes first, on the database's clock. Right after a touch it is
+   * what a patient page's "Keep open" counts down from.
+   */
+  expiresInMs: number;
 };
 
 const returning = {
@@ -46,13 +58,37 @@ const returning = {
   deviceLabel: stepUps.deviceLabel,
   createdAt: stepUps.createdAt,
   lastActivityAt: stepUps.lastActivityAt,
+  // In an UPDATE's RETURNING the columns are the new row, so after a touch
+  // this is measured from the activity just recorded.
+  expiresInMs: sql<number>`greatest(0, floor(extract(epoch from (least(
+      ${stepUps.lastActivityAt} + ${STEP_UP_IDLE_MS} * interval '1 millisecond',
+      ${stepUps.createdAt} + ${STEP_UP_MAX_MS} * interval '1 millisecond'
+    ) - now())) * 1000))`.mapWith(Number),
 };
 
-/** Record that this session just proved a passkey. Starts both clocks. */
+/**
+ * Record that this session just proved a passkey. Starts both clocks.
+ *
+ * Refuses a factor that is not one of this sign-in's unrevoked passkeys: an
+ * authenticator code is not a step-up, whoever asks.
+ */
 export async function recordStepUp(
   db: Queryable,
   input: { sessionTokenHash: Buffer; userId: string; factorId: string; deviceLabel: string },
 ): Promise<LiveStepUp> {
+  const [passkey] = await db
+    .select({ id: userFactors.id })
+    .from(userFactors)
+    .where(
+      and(
+        eq(userFactors.id, input.factorId),
+        eq(userFactors.userId, input.userId),
+        eq(userFactors.kind, "passkey"),
+        isNull(userFactors.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (!passkey) throw new Error("Only one of this sign-in's passkeys can step a session up.");
   const [row] = await db
     .insert(stepUps)
     .values({
@@ -66,13 +102,13 @@ export async function recordStepUp(
   return row;
 }
 
-/** The SQL condition for "still live", on the database's clock. */
+/** The SQL condition for "still live", on the database's clock, and made with a passkey. */
 function liveCondition() {
   return and(
     isNull(stepUps.revokedAt),
     gt(stepUps.lastActivityAt, sql`now() - ${STEP_UP_IDLE_MS} * interval '1 millisecond'`),
     gt(stepUps.createdAt, sql`now() - ${STEP_UP_MAX_MS} * interval '1 millisecond'`),
-    sql`exists (select 1 from ${userFactors} f where f.id = ${stepUps.factorId} and f.revoked_at is null)`,
+    sql`exists (select 1 from ${userFactors} f where f.id = ${stepUps.factorId} and f.kind = 'passkey' and f.revoked_at is null)`,
   );
 }
 

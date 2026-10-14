@@ -39,8 +39,17 @@ export type StepUpPurpose = "patient_pages" | "sensitive_change";
 /**
  * The passkey that stepped up, and its device's name, which the access log
  * records; `at` is when the passkey was used, not when it was last checked.
+ * `stepUpId` is the step_ups row, and `expiresInMs` how long it stays live if
+ * nothing touches it again (15 minutes idle or the 8-hour limit, whichever is
+ * sooner), counted from this check on the database's clock.
  */
-export type StepUp = { passkeyId: string; deviceLabel: string; at: Date };
+export type StepUp = {
+  passkeyId: string;
+  deviceLabel: string;
+  at: Date;
+  stepUpId: string;
+  expiresInMs: number;
+};
 
 /** The request header src/proxy.ts sets to the path being asked for, for `next`. */
 export const PATH_HEADER = "x-healdesk-path";
@@ -51,9 +60,13 @@ export const PATH_HEADER = "x-healdesk-path";
  * `/c/<slug>/step-up?next=<this page>` and comes back after one tap: redirect()
  * throws, so a caller never runs on without a step-up.
  *
- * Both purposes have the same rule today. The returned device label is what
- * the access log and a channel event's `actor` record, so a shared sign-in
- * still says which device did what.
+ * Both purposes have the same rule today, and only a passkey satisfies it:
+ * the authenticator backup enrols a new device's passkey and never opens a
+ * patient page or makes a sensitive change (lib/factors/step-ups.ts holds
+ * that for every caller). Patient pages come through requirePatientPage
+ * (patient-page.ts), which adds the access log. The returned device label is
+ * what the access log and a channel event's `actor` record, so a shared
+ * sign-in still says which device did what.
  *
  * `returnTo` is the page to come back to; without it the path the proxy saw
  * is used, and either must be a path on this clinic's portal, or the clinic's
@@ -132,5 +145,11 @@ export function portalNext(slug: string, next: unknown): string {
 }
 
 function asStepUp(live: LiveStepUp): StepUp {
-  return { passkeyId: live.factorId, deviceLabel: live.deviceLabel, at: live.createdAt };
+  return {
+    passkeyId: live.factorId,
+    deviceLabel: live.deviceLabel,
+    at: live.createdAt,
+    stepUpId: live.id,
+    expiresInMs: live.expiresInMs,
+  };
 }

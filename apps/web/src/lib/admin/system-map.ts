@@ -4,9 +4,13 @@
  *
  * ## What this file is, and what it is not
  *
- * It is the registry and the arithmetic. TOOLS are the boxes, BRIDGES the
- * curved lines (data travels `from` → `to`), KEYS the secrets and ids those
- * lines need, each written once with where it lives and how it is rotated.
+ * It is the registry and the arithmetic. TOOLS are the things healdesk runs
+ * on, sorted into GROUPS (the map's category cards); BRIDGES are every
+ * connection between two tools (data travels `from` → `to`), each with a
+ * THEME the map's lenses narrow by; KEYS are the secrets and ids those
+ * bridges need, each written once with where it lives and how it is
+ * rotated; STORIES are journeys the map can play one bridge at a time.
+ * Where all of that is drawn is lib/admin/map-layout.ts.
  * `assess()` takes what was found live (lib/admin/system-map-live.ts) and
  * colours each key and each bridge. Nothing here reads the environment, the
  * network or a secret: the page hands in yes-or-no answers, so the result is
@@ -41,92 +45,145 @@
  */
 
 // -----------------------------------------------------------------------------
-// Tools: the boxes
+// Tools and the categories they sit in
 // -----------------------------------------------------------------------------
 
-export type ToolGroup =
+export type ToolKind =
   /** People: patients, the clinic, buyers, the operator. */
   | "people"
-  /** Our two apps. */
+  /** Our two apps, the hubs everything else connects to. */
   | "ours"
   /** Inside our AWS account, under the AWS business associate agreement. */
   | "aws"
   /** Somebody else's service. */
   | "vendor";
 
+/** The small picture beside a name. Drawn by app/admin/map/icons.tsx. */
+export type IconName =
+  | "user"
+  | "users"
+  | "building"
+  | "megaphone"
+  | "server"
+  | "store"
+  | "database"
+  | "lock"
+  | "mail"
+  | "phone"
+  | "sparkles"
+  | "chat"
+  | "calendar"
+  | "card"
+  | "link"
+  | "code"
+  | "cloud"
+  | "table"
+  | "clock"
+  | "bell"
+  | "search"
+  | "chart"
+  | "shield"
+  | "inbox";
+
+/**
+ * The bands the map is drawn in, top to bottom: the patient side (our AWS
+ * account, where patient data lives), what both sides share, and the shop
+ * side (Vercel, where no patient data ever goes).
+ */
+export type Band = "patient" | "shared" | "shop";
+
+export type GroupId =
+  | "patient-people"
+  | "front-doors"
+  | "vault"
+  | "brain"
+  | "bookings"
+  | "phase-two"
+  | "payments"
+  | "email"
+  | "deploys"
+  | "shop-people"
+  | "selling"
+  | "records";
+
+export type GroupDef = {
+  id: GroupId;
+  name: string;
+  /** One sentence, in the owner's words: what this category is for. */
+  blurb: string;
+  icon: IconName;
+  band: Band;
+};
+
+/**
+ * The categories, in reading order. Every tool but the two hubs sits in
+ * exactly one, and the map draws one line per pair of categories rather
+ * than one per bridge, so the picture stays readable; each bridge is one
+ * click away.
+ */
+export const GROUPS: readonly GroupDef[] = [
+  { id: "patient-people", name: "Patients & clinics", blurb: "The people the clinic engine serves: patients who get in touch, and the clinic team who use its portal.", icon: "users", band: "patient" },
+  { id: "front-doors", name: "Front doors", blurb: "Where patients' calls and messages come in before they reach the engine.", icon: "inbox", band: "patient" },
+  { id: "vault", name: "Inside our AWS", blurb: "Our own locked rooms: the engine's memory, the safe for clinics' logins, and the email that carries transcripts.", icon: "shield", band: "patient" },
+  { id: "brain", name: "AYA's brain", blurb: "Writes every answer AYA gives a patient, under a business associate agreement.", icon: "sparkles", band: "patient" },
+  { id: "bookings", name: "Bookings & deposits", blurb: "Where AYA's bookings land and where patients' deposits are paid: always the clinic's own accounts.", icon: "calendar", band: "patient" },
+  { id: "phase-two", name: "Phase two", blurb: "Built or half built, and parked on purpose: v1 does not claim revenue.", icon: "link", band: "patient" },
+  { id: "payments", name: "Payments", blurb: "Our own Stripe: the shop window sells, the engine keeps each subscription right.", icon: "card", band: "shared" },
+  { id: "email", name: "Email", blurb: "Everyday email from hello@healdesk.io, for both apps. Never a patient's details.", icon: "mail", band: "shared" },
+  { id: "deploys", name: "Code & addresses", blurb: "Where the code lives, what publishes it, and the web addresses that point at it.", icon: "code", band: "shared" },
+  { id: "shop-people", name: "Buyers & you", blurb: "Clinic owners shopping on healdesk.io, and you running the business.", icon: "users", band: "shop" },
+  { id: "selling", name: "Selling & demos", blurb: "Everything that finds clinic owners and shows them AYA before they buy.", icon: "megaphone", band: "shop" },
+  { id: "records", name: "Records & alerts", blurb: "Where leads and signed agreements are kept, how you are told, and the daily timer.", icon: "table", band: "shop" },
+];
+
 export type ToolDef = {
   id: string;
   name: string;
   /** What it does for healdesk, in a few words. */
   role: string;
-  group: ToolGroup;
-  /** Centre, in the diagram's own units (CANVAS). */
-  x: number;
-  y: number;
+  kind: ToolKind;
+  /** Its category; null for the two hubs, which are drawn on their own. */
+  category: GroupId | null;
+  icon: IconName;
   /** Which side of the patient-data line it sits on. */
   side: "patient" | "shop" | "both";
 };
 
-/** The diagram's coordinate space. The SVG scales it to the screen. */
-export const CANVAS = { width: 1400, height: 1060 } as const;
-
-/** A box's size by group: ours are larger, people are pills. */
-export const BOX: Record<ToolGroup, { w: number; h: number }> = {
-  ours: { w: 250, h: 92 },
-  people: { w: 168, h: 58 },
-  aws: { w: 172, h: 58 },
-  vendor: { w: 184, h: 62 },
-};
-
-/**
- * The two zones drawn behind the boxes: the patient-data side (our AWS
- * account) and the shop side (Vercel). Everything a patient says stays in the
- * first; the second never sees it.
- */
-export const ZONES = {
-  patient: { x: 250, y: 170, w: 850, h: 360 },
-  shop: { x: 450, y: 690, w: 500, h: 150 },
-} as const;
-
 export const TOOLS: readonly ToolDef[] = [
-  // People, down the left edge.
-  { id: "patients", name: "Patients", role: "Call, chat or message a clinic", group: "people", x: 110, y: 170, side: "patient" },
-  { id: "clinic", name: "Clinic team", role: "Portal, inbox, own calendar", group: "people", x: 110, y: 390, side: "patient" },
-  { id: "prospects", name: "Clinic owners", role: "Shopping on healdesk.io", group: "people", x: 110, y: 650, side: "shop" },
-  { id: "outreach", name: "Cold-email tools", role: "Instantly, InboxKit, GlockApps…", group: "vendor", x: 110, y: 820, side: "shop" },
-  { id: "you", name: "You", role: "Running healdesk from /admin", group: "people", x: 110, y: 990, side: "shop" },
+  // The two hubs.
+  { id: "app", name: "Clinic engine", role: "app.healdesk.io · AWS", kind: "ours", category: null, icon: "server", side: "patient" },
+  { id: "web", name: "Shop window", role: "healdesk.io · Vercel", kind: "ours", category: null, icon: "store", side: "shop" },
 
-  // Our two apps.
-  { id: "app", name: "Clinic engine", role: "app.healdesk.io · AWS · patient data", group: "ours", x: 680, y: 270, side: "patient" },
-  { id: "web", name: "Shop window", role: "healdesk.io · Vercel · no patient data", group: "ours", x: 700, y: 765, side: "shop" },
+  // The patient side.
+  { id: "patients", name: "Patients", role: "Call, chat or message a clinic", kind: "people", category: "patient-people", icon: "user", side: "patient" },
+  { id: "clinic", name: "Clinic team", role: "Portal, inbox, own calendar", kind: "people", category: "patient-people", icon: "building", side: "patient" },
+  { id: "retell", name: "Retell", role: "Phone lines AYA answers", kind: "vendor", category: "front-doors", icon: "phone", side: "patient" },
+  { id: "meta", name: "Meta", role: "Instagram, Messenger, WhatsApp", kind: "vendor", category: "front-doors", icon: "chat", side: "patient" },
+  { id: "db", name: "Database", role: "Amazon RDS: the engine's memory", kind: "aws", category: "vault", icon: "database", side: "patient" },
+  { id: "kms", name: "Key safe", role: "Amazon KMS: locks clinics' logins", kind: "aws", category: "vault", icon: "lock", side: "patient" },
+  { id: "ses", name: "Amazon email", role: "SES: sends transcripts", kind: "aws", category: "vault", icon: "mail", side: "patient" },
+  { id: "claude-baa", name: "Claude", role: "Anthropic, patient account, under a BAA", kind: "vendor", category: "brain", icon: "sparkles", side: "patient" },
+  { id: "gcal", name: "Google Calendar", role: "Each clinic's own diary", kind: "vendor", category: "bookings", icon: "calendar", side: "patient" },
+  { id: "clinic-stripe", name: "Clinic's Stripe", role: "Deposits paid to the clinic", kind: "vendor", category: "bookings", icon: "card", side: "patient" },
+  { id: "connectors", name: "Booking systems", role: "Mindbody, Boulevard", kind: "vendor", category: "phase-two", icon: "link", side: "patient" },
 
-  // Inside our AWS account.
-  { id: "db", name: "Database", role: "Amazon RDS: the memory", group: "aws", x: 360, y: 460, side: "patient" },
-  { id: "kms", name: "Key safe", role: "Amazon KMS: locks logins", group: "aws", x: 545, y: 460, side: "patient" },
-  { id: "ses", name: "Amazon email", role: "SES: sends transcripts", group: "aws", x: 920, y: 460, side: "patient" },
+  // Shared by both sides.
+  { id: "stripe", name: "Stripe", role: "Our checkout and subscriptions", kind: "vendor", category: "payments", icon: "card", side: "both" },
+  { id: "resend", name: "Resend", role: "Everyday email, hello@", kind: "vendor", category: "email", icon: "mail", side: "both" },
+  { id: "github", name: "GitHub", role: "Code, deploys, AWS on/off switch", kind: "vendor", category: "deploys", icon: "code", side: "both" },
+  { id: "cloudflare", name: "Cloudflare", role: "healdesk.io's web addresses", kind: "vendor", category: "deploys", icon: "cloud", side: "both" },
 
-  // The patient side's vendors, across the top and down the right.
-  { id: "retell", name: "Retell", role: "Phone lines AYA answers", group: "vendor", x: 390, y: 70, side: "patient" },
-  { id: "claude-baa", name: "Claude (patients)", role: "Anthropic, under a BAA", group: "vendor", x: 680, y: 70, side: "patient" },
-  { id: "meta", name: "Meta", role: "Instagram, Messenger, WhatsApp", group: "vendor", x: 970, y: 70, side: "patient" },
-  { id: "gcal", name: "Google Calendar", role: "Each clinic's own diary", group: "vendor", x: 1260, y: 150, side: "patient" },
-  { id: "clinic-stripe", name: "Clinic's Stripe", role: "Deposits paid to the clinic", group: "vendor", x: 1260, y: 330, side: "patient" },
-  { id: "connectors", name: "Booking systems", role: "Mindbody, Boulevard (phase two)", group: "vendor", x: 1260, y: 470, side: "patient" },
-
-  // Both sides use these.
-  { id: "stripe", name: "Stripe", role: "Our checkout and subscriptions", group: "vendor", x: 1260, y: 610, side: "both" },
-  { id: "resend", name: "Resend", role: "Everyday email, hello@", group: "vendor", x: 110, y: 520, side: "both" },
-
-  // The shop side's vendors, along the bottom and the right.
-  { id: "github", name: "GitHub", role: "Code, deploys, AWS on/off switch", group: "vendor", x: 1260, y: 870, side: "shop" },
-  { id: "cloudflare", name: "Cloudflare", role: "healdesk.io's web addresses", group: "vendor", x: 1300, y: 1000, side: "shop" },
-  { id: "sheets", name: "Google Sheets", role: "Leads, setup requests", group: "vendor", x: 300, y: 1000, side: "shop" },
-  { id: "claude-mkt", name: "Claude (marketing)", role: "Anthropic, demos only", group: "vendor", x: 500, y: 1000, side: "shop" },
-  { id: "retell-demo", name: "Retell (demo line)", role: "AYA rings owners for demos", group: "vendor", x: 700, y: 1000, side: "shop" },
-  { id: "vercel-cron", name: "Vercel timer", role: "Daily jobs", group: "vendor", x: 1260, y: 740, side: "shop" },
-  { id: "slack", name: "Slack", role: "Alerts for you", group: "vendor", x: 900, y: 1000, side: "shop" },
-  { id: "apify", name: "Apify", role: "Reads clinic websites", group: "vendor", x: 1100, y: 1000, side: "shop" },
-  { id: "posthog", name: "PostHog", role: "Visitor analytics", group: "vendor", x: 330, y: 760, side: "shop" },
+  // The shop side.
+  { id: "prospects", name: "Clinic owners", role: "Shopping on healdesk.io", kind: "people", category: "shop-people", icon: "users", side: "shop" },
+  { id: "you", name: "You", role: "Running healdesk from /admin", kind: "people", category: "shop-people", icon: "user", side: "shop" },
+  { id: "claude-mkt", name: "Claude (demos)", role: "Anthropic, marketing account", kind: "vendor", category: "selling", icon: "sparkles", side: "shop" },
+  { id: "retell-demo", name: "Retell demos", role: "The demo line: AYA rings owners", kind: "vendor", category: "selling", icon: "phone", side: "shop" },
+  { id: "apify", name: "Apify", role: "Reads clinic websites", kind: "vendor", category: "selling", icon: "search", side: "shop" },
+  { id: "outreach", name: "Cold email", role: "Instantly, InboxKit, GlockApps…", kind: "vendor", category: "selling", icon: "megaphone", side: "shop" },
+  { id: "posthog", name: "PostHog", role: "Visitor analytics", kind: "vendor", category: "selling", icon: "chart", side: "shop" },
+  { id: "sheets", name: "Google Sheets", role: "Leads, requests, agreements", kind: "vendor", category: "records", icon: "table", side: "shop" },
+  { id: "slack", name: "Slack", role: "Alerts for you", kind: "vendor", category: "records", icon: "bell", side: "shop" },
+  { id: "vercel-cron", name: "Vercel timer", role: "Daily jobs", kind: "vendor", category: "records", icon: "clock", side: "shop" },
 ];
 
 // -----------------------------------------------------------------------------
@@ -551,8 +608,22 @@ export type BuildState = "built" | "partial" | "not-built" | "parked";
 /** A check this page can run that proves a bridge works, beyond its key being there. */
 export type LiveProof = "ops" | "kms" | "sheet" | "github-actions" | "github-feed";
 
+/**
+ * What a bridge is for, which is how the map's lenses group them: serving
+ * clinics and their patients (the product), selling healdesk, or running
+ * the business behind both.
+ */
+export type Theme = "serving" | "selling" | "running";
+
+export const THEMES: readonly { id: Theme; name: string; blurb: string }[] = [
+  { id: "serving", name: "Serving patients", blurb: "What happens when a patient gets in touch, and everything the clinic engine needs to answer." },
+  { id: "selling", name: "Selling healdesk", blurb: "How clinic owners find healdesk, try AYA, pay, and get set up." },
+  { id: "running", name: "Running the business", blurb: "Your console, deploys, the on/off switch, alerts and timers." },
+];
+
 export type BridgeDef = {
   id: string;
+  theme: Theme;
   /** Data travels from → to; `both` adds the arrow back. */
   from: string;
   to: string;
@@ -577,14 +648,13 @@ export type BridgeDef = {
    * not connected, this one shows as waiting on it rather than as connected.
    */
   dependsOn?: string;
-  /** How far the curve bows, as a share of its length; negative bows the other way. */
-  bend?: number;
 };
 
 export const BRIDGES: readonly BridgeDef[] = [
   // --- The two apps and you ----------------------------------------------------
   {
     id: "you-console",
+    theme: "running",
     from: "you",
     to: "web",
     title: "You sign in to this console",
@@ -593,10 +663,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.HEALDESK_ADMIN_EMAIL", "vercel.HEALDESK_ADMIN_PASSWORD_HASH", "vercel.HEALDESK_ADMIN_TOTP_SECRET", "vercel.HEALDESK_ADMIN_SECRET"],
     phi: false,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "web-app",
+    theme: "selling",
     from: "web",
     to: "app",
     title: "The shop window hands work to the engine",
@@ -606,12 +676,12 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     proof: "ops",
-    bend: 0,
   },
 
   // --- The shop side -------------------------------------------------------------
   {
     id: "prospects-web",
+    theme: "selling",
     from: "prospects",
     to: "web",
     title: "Clinic owners look around, try AYA, sign and pay",
@@ -620,10 +690,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.HEALDESK_GATE_SECRET"],
     phi: false,
     build: "built",
-    bend: 0.08,
   },
   {
     id: "prospects-posthog",
+    theme: "selling",
     from: "prospects",
     to: "posthog",
     title: "Visitor counts, after cookie consent",
@@ -632,10 +702,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.NEXT_PUBLIC_POSTHOG_KEY"],
     phi: false,
     build: "built",
-    bend: 0.1,
   },
   {
     id: "web-stripe",
+    theme: "selling",
     from: "web",
     to: "stripe",
     title: "We open a checkout for a buyer",
@@ -644,10 +714,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.STRIPE_SECRET_KEY"],
     phi: false,
     build: "built",
-    bend: 0.14,
   },
   {
     id: "stripe-web",
+    theme: "selling",
     from: "stripe",
     to: "web",
     title: "Stripe tells us an invoice was paid",
@@ -656,10 +726,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.STRIPE_WEBHOOK_SECRET"],
     phi: false,
     build: "built",
-    bend: 0.14,
   },
   {
     id: "web-sheets",
+    theme: "selling",
     from: "web",
     to: "sheets",
     both: true,
@@ -670,10 +740,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     proof: "sheet",
-    bend: 0.1,
   },
   {
     id: "web-claude",
+    theme: "selling",
     from: "web",
     to: "claude-mkt",
     title: "Claude runs the demo chat and reads clinic websites",
@@ -682,10 +752,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.ANTHROPIC_API_KEY"],
     phi: false,
     build: "built",
-    bend: 0.06,
   },
   {
     id: "web-retell-demo",
+    theme: "selling",
     from: "web",
     to: "retell-demo",
     title: "We ask Retell to ring a clinic owner",
@@ -694,10 +764,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_AGENT_ID", "vercel.RETELL_DEMO_FROM_NUMBER", "vercel.RETELL_CLINIC_DEMO_AGENT_ID"],
     phi: false,
     build: "built",
-    bend: 0.14,
   },
   {
     id: "retell-demo-web",
+    theme: "selling",
     from: "retell-demo",
     to: "web",
     title: "Retell passes on demo follow-ups",
@@ -706,10 +776,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.RETELL_WEBHOOK_KEY"],
     phi: false,
     build: "built",
-    bend: 0.14,
   },
   {
     id: "web-resend",
+    theme: "selling",
     from: "web",
     to: "resend",
     title: "Shop-window email goes out",
@@ -718,10 +788,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.RESEND_API_KEY", "vercel.HEALDESK_EMAIL_FROM"],
     phi: false,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "resend-web",
+    theme: "selling",
     from: "resend",
     to: "web",
     title: "Resend reports bounces and spam complaints",
@@ -730,10 +800,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.RESEND_WEBHOOK_SECRET"],
     phi: false,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "cron-web",
+    theme: "running",
     from: "vercel-cron",
     to: "web",
     title: "A daily timer wakes the site",
@@ -742,10 +812,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.CRON_SECRET"],
     phi: false,
     build: "built",
-    bend: -0.12,
   },
   {
     id: "web-github",
+    theme: "running",
     from: "web",
     to: "github",
     title: "The AWS on/off switch",
@@ -755,10 +825,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     proof: "github-actions",
-    bend: -0.06,
   },
   {
     id: "github-web-feed",
+    theme: "running",
     from: "github",
     to: "web",
     title: "The Changes tab reads the code's history",
@@ -768,10 +838,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     proof: "github-feed",
-    bend: 0.14,
   },
   {
     id: "github-web-deploy",
+    theme: "running",
     from: "github",
     to: "web",
     title: "Every change to main is published",
@@ -781,10 +851,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keyless: "Vercel's own GitHub app does this; no key of ours is involved.",
     phi: false,
     build: "built",
-    bend: 0.24,
   },
   {
     id: "web-slack",
+    theme: "running",
     from: "web",
     to: "slack",
     title: "Alerts to your Slack",
@@ -793,10 +863,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.SLACK_WEBHOOK_URL"],
     phi: false,
     build: "built",
-    bend: -0.08,
   },
   {
     id: "web-apify",
+    theme: "selling",
     from: "web",
     to: "apify",
     title: "Apify reads websites built in the browser",
@@ -805,10 +875,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.APIFY_TOKEN"],
     phi: false,
     build: "built",
-    bend: -0.06,
   },
   {
     id: "outreach-web",
+    theme: "selling",
     from: "outreach",
     to: "web",
     title: "A cold-email reply asks for a demo",
@@ -817,10 +887,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.DEMO_WEBHOOK_SECRET"],
     phi: false,
     build: "built",
-    bend: -0.08,
   },
   {
     id: "you-outreach",
+    theme: "selling",
     from: "you",
     to: "outreach",
     title: "Your cold-email toolkit",
@@ -829,12 +899,12 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["computer.INSTANTLY_API_KEY", "computer.INBOXKIT_API_KEY", "computer.GLOCKAPPS_API_KEY", "computer.MAILREACH_API_KEY", "computer.CLOUDFLARE_API_TOKEN"],
     phi: false,
     build: "built",
-    bend: 0.2,
   },
 
   // --- The patient side ------------------------------------------------------------
   {
     id: "patients-retell",
+    theme: "serving",
     from: "patients",
     to: "retell",
     title: "A patient rings the clinic",
@@ -846,10 +916,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote: "Each clinic's Retell agent and number are set up by hand in Retell's dashboard.",
-    bend: 0.12,
   },
   {
     id: "retell-app",
+    theme: "serving",
     from: "retell",
     to: "app",
     title: "Retell lets the engine run the call",
@@ -859,10 +929,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote: "Switched off in AWS (enable_voice) until a test call on a made-up clinic checks Retell's fields.",
-    bend: 0.08,
   },
   {
     id: "patients-widget",
+    theme: "serving",
     from: "patients",
     to: "app",
     title: "A patient chats on the clinic's website",
@@ -873,10 +943,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "partial",
     buildNote: "The engine's chat is built; the bubble clinics paste on their website is not.",
-    bend: 0.06,
   },
   {
     id: "app-claude",
+    theme: "serving",
     from: "app",
     to: "claude-baa",
     title: "Claude writes AYA's replies to patients",
@@ -885,10 +955,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.ANTHROPIC_API_KEY"],
     phi: true,
     build: "built",
-    bend: 0,
   },
   {
     id: "meta-app",
+    theme: "serving",
     from: "meta",
     to: "app",
     title: "Meta passes on patients' messages",
@@ -897,10 +967,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.META_APP_SECRET", "aws.META_VERIFY_TOKEN"],
     phi: true,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "app-meta",
+    theme: "serving",
     from: "app",
     to: "meta",
     title: "AYA answers in Instagram and Messenger",
@@ -910,10 +980,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     dependsOn: "meta-app",
     phi: true,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "app-whatsapp",
+    theme: "serving",
     from: "app",
     to: "meta",
     title: "AYA answers on WhatsApp",
@@ -923,10 +993,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     dependsOn: "meta-app",
     phi: true,
     build: "built",
-    bend: 0.32,
   },
   {
     id: "app-gcal",
+    theme: "serving",
     from: "app",
     to: "gcal",
     both: true,
@@ -936,10 +1006,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.GOOGLE_OAUTH_CLIENT_ID", "aws.GOOGLE_OAUTH_CLIENT_SECRET", "clinic.google"],
     phi: true,
     build: "built",
-    bend: 0.08,
   },
   {
     id: "app-stripe",
+    theme: "serving",
     from: "app",
     to: "stripe",
     title: "The engine runs each clinic's subscription",
@@ -948,10 +1018,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.STRIPE_SECRET_KEY"],
     phi: false,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "app-clinic-stripe",
+    theme: "serving",
     from: "app",
     to: "clinic-stripe",
     title: "AYA sends a deposit link that pays the clinic",
@@ -960,10 +1030,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.STRIPE_CONNECT_CLIENT_ID", "clinic.stripe"],
     phi: false,
     build: "built",
-    bend: 0.1,
   },
   {
     id: "clinic-stripe-app",
+    theme: "serving",
     from: "clinic-stripe",
     to: "app",
     title: "Stripe tells us a deposit was paid",
@@ -972,10 +1042,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.STRIPE_CONNECT_WEBHOOK_SECRET"],
     phi: false,
     build: "built",
-    bend: 0.1,
   },
   {
     id: "app-resend",
+    theme: "serving",
     from: "app",
     to: "resend",
     title: "Everyday clinic email goes out",
@@ -984,10 +1054,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.RESEND_API_KEY", "aws.HEALDESK_EMAIL_FROM"],
     phi: false,
     build: "built",
-    bend: 0.02,
   },
   {
     id: "app-ses",
+    theme: "serving",
     from: "app",
     to: "ses",
     title: "Transcripts are emailed to the clinic",
@@ -997,10 +1067,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keyless: "No password: AWS lets the engine send because of the role it runs as.",
     phi: true,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "ses-app",
+    theme: "serving",
     from: "ses",
     to: "app",
     title: "Amazon confirms delivery",
@@ -1010,10 +1080,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keyless: "Amazon signs each report and the engine checks it against Amazon's certificate.",
     phi: false,
     build: "built",
-    bend: 0.12,
   },
   {
     id: "app-db",
+    theme: "serving",
     from: "app",
     to: "db",
     both: true,
@@ -1023,10 +1093,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY"],
     phi: true,
     build: "built",
-    bend: 0.08,
   },
   {
     id: "app-kms",
+    theme: "serving",
     from: "app",
     to: "kms",
     title: "Clinic logins are locked in the key safe",
@@ -1037,10 +1107,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     proof: "kms",
-    bend: -0.08,
   },
   {
     id: "clinic-app",
+    theme: "serving",
     from: "clinic",
     to: "app",
     title: "The clinic signs in to its portal",
@@ -1050,10 +1120,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "partial",
     buildNote: "Home, Settings, Knowledge, Billing and the set-up wizard are built; the Conversations and Bookings screens are not yet.",
-    bend: -0.06,
   },
   {
     id: "connectors-app",
+    theme: "serving",
     from: "connectors",
     to: "app",
     title: "Booking systems report who came in",
@@ -1064,12 +1134,12 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "parked",
     buildNote: "Phase two: kept in the code, fenced out of v1.",
-    bend: 0.08,
   },
 
   // --- Deploys -------------------------------------------------------------------
   {
     id: "github-app",
+    theme: "running",
     from: "github",
     to: "app",
     title: "GitHub deploys the engine and switches it on and off",
@@ -1079,10 +1149,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     keyless: "No password stored: GitHub shows AWS a signed badge (OIDC) for your runs of main, good for two hours.",
     phi: false,
     build: "built",
-    bend: 0.26,
   },
   {
     id: "github-cloudflare",
+    theme: "running",
     from: "github",
     to: "cloudflare",
     title: "GitHub points app.healdesk.io at the host",
@@ -1091,7 +1161,61 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["aws-ci.CLOUDFLARE_API_TOKEN"],
     phi: false,
     build: "built",
-    bend: 0.1,
+  },
+];
+
+// -----------------------------------------------------------------------------
+// Stories: journeys the map can play, one bridge at a time
+// -----------------------------------------------------------------------------
+
+export type StoryDef = {
+  id: string;
+  title: string;
+  /** Each step lights one bridge, in the order the journey uses them. */
+  steps: readonly { bridge: string; text: string }[];
+};
+
+/**
+ * Played on the map with a moving light along each bridge in turn. A step
+ * whose bridge is not connected yet says so, which is the point: the story
+ * shows where a real journey would stop today.
+ */
+export const STORIES: readonly StoryDef[] = [
+  {
+    id: "patient-call",
+    title: "A patient calls at 8pm",
+    steps: [
+      { bridge: "patients-retell", text: "Maria calls the clinic at 8pm. The clinic's own number forwards the call to its Retell line." },
+      { bridge: "retell-app", text: "Retell streams what Maria says to the clinic engine, over a private line with a password in its address." },
+      { bridge: "app-claude", text: "The engine asks Claude, under a business associate agreement, how AYA should answer." },
+      { bridge: "app-gcal", text: "AYA finds Thursday 3pm free in the clinic's Google Calendar, holds it, and books it." },
+      { bridge: "app-db", text: "The booking and the conversation are kept in the engine's database." },
+      { bridge: "app-ses", text: "When Maria hangs up, the transcript is emailed to the clinic through Amazon, encrypted on the way." },
+      { bridge: "ses-app", text: "Amazon confirms it arrived, and the engine deletes its copy." },
+    ],
+  },
+  {
+    id: "clinic-buys",
+    title: "A clinic buys healdesk",
+    steps: [
+      { bridge: "prospects-web", text: "A clinic owner finds healdesk.io and unlocks the demo." },
+      { bridge: "web-claude", text: "Claude plays AYA in the demo chat, using the owner's own website." },
+      { bridge: "web-sheets", text: "The owner asks to be set up; the request is kept in the company's Google Sheet." },
+      { bridge: "web-stripe", text: "The owner signs and presses Pay; Stripe shows its card page." },
+      { bridge: "stripe-web", text: "Stripe tells the shop window, signed, that the first invoice is paid." },
+      { bridge: "web-app", text: "The shop window hands the signed agreement to the clinic engine in a sealed envelope." },
+      { bridge: "app-resend", text: "The engine emails the clinic its welcome and its sign-in link." },
+    ],
+  },
+  {
+    id: "host-on",
+    title: "You switch the AWS host on",
+    steps: [
+      { bridge: "you-console", text: "You sign in to this console with your password and the code on your phone." },
+      { bridge: "web-github", text: "You press Turn on in Host, and the shop window asks GitHub to run the switch." },
+      { bridge: "github-app", text: "GitHub rebuilds the engine on AWS; AWS lets it in because of GitHub's signed badge." },
+      { bridge: "github-cloudflare", text: "GitHub points app.healdesk.io at the engine's new address." },
+    ],
   },
 ];
 

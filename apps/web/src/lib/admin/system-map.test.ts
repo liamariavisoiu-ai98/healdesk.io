@@ -3,14 +3,14 @@ import { join } from "node:path";
 
 import { describe, expect, test } from "vitest";
 
-import { boxOf, curveBetween, overlaps } from "./map-geometry";
 import {
   assess,
   BRIDGES,
-  CANVAS,
+  GROUPS,
   KEYS,
+  STORIES,
+  THEMES,
   TOOLS,
-  ZONES,
   type BridgeView,
   type HostReach,
   type KeyView,
@@ -152,49 +152,34 @@ describe("the registry", () => {
   });
 });
 
-describe("the picture", () => {
-  test("every box is on the canvas and no two boxes touch", () => {
-    const boxes = TOOLS.map((t) => ({ id: t.id, box: boxOf(t) }));
-    for (const { id, box } of boxes) {
-      expect(box.x, id).toBeGreaterThanOrEqual(0);
-      expect(box.y, id).toBeGreaterThanOrEqual(0);
-      expect(box.x + box.w, id).toBeLessThanOrEqual(CANVAS.width);
-      expect(box.y + box.h, id).toBeLessThanOrEqual(CANVAS.height);
+describe("categories, themes and stories", () => {
+  test("every tool but the two hubs sits in one category, and every category has a tool", () => {
+    const groups = new Set(GROUPS.map((g) => g.id));
+    expect(groups.size).toBe(GROUPS.length);
+    for (const t of TOOLS) {
+      if (t.id === "app" || t.id === "web") expect(t.category, t.id).toBeNull();
+      else expect(groups.has(t.category!), `${t.id} is in ${t.category}`).toBe(true);
     }
-    for (let i = 0; i < boxes.length; i += 1) {
-      for (let j = i + 1; j < boxes.length; j += 1) {
-        expect(overlaps(boxes[i]!.box, boxes[j]!.box, 12), `${boxes[i]!.id} and ${boxes[j]!.id}`).toBe(false);
-      }
+    for (const g of GROUPS) expect(TOOLS.some((t) => t.category === g.id), `${g.id} is empty`).toBe(true);
+  });
+
+  test("a category's band agrees with the side its tools are on", () => {
+    for (const t of TOOLS.filter((t) => t.category)) {
+      const band = GROUPS.find((g) => g.id === t.category)!.band;
+      expect(band === "shared" ? "both" : band, t.id).toBe(t.side);
     }
   });
 
-  test("each side's boxes sit in their zone, and the other side's do not", () => {
-    const inside = (id: string, zone: { x: number; y: number; w: number; h: number }) => {
-      const box = boxOf(TOOLS.find((t) => t.id === id)!);
-      return box.x >= zone.x && box.y >= zone.y && box.x + box.w <= zone.x + zone.w && box.y + box.h <= zone.y + zone.h;
-    };
-    for (const id of ["app", "db", "kms", "ses"]) expect(inside(id, ZONES.patient), id).toBe(true);
-    expect(inside("web", ZONES.shop)).toBe(true);
-    for (const t of TOOLS.filter((t) => t.side === "shop")) expect(inside(t.id, ZONES.patient), t.id).toBe(false);
+  test("every bridge has a theme the lenses know", () => {
+    const themes = new Set(THEMES.map((t) => t.id));
+    for (const b of BRIDGES) expect(themes.has(b.theme), b.id).toBe(true);
   });
 
-  test("every line starts and ends outside the boxes it joins, and no two numbers sit on each other", () => {
-    const middles: { id: string; x: number; y: number }[] = [];
-    for (const b of BRIDGES) {
-      const from = boxOf(TOOLS.find((t) => t.id === b.from)!);
-      const to = boxOf(TOOLS.find((t) => t.id === b.to)!);
-      const curve = curveBetween(from, to, b.bend ?? 0);
-      const point = (p: { x: number; y: number }) => ({ x: p.x - 0.5, y: p.y - 0.5, w: 1, h: 1 });
-      expect(overlaps(point(curve.start), from), `${b.id} starts inside ${b.from}`).toBe(false);
-      expect(overlaps(point(curve.end), to), `${b.id} ends inside ${b.to}`).toBe(false);
-      middles.push({ id: b.id, ...curve.middle });
-    }
-    for (let i = 0; i < middles.length; i += 1) {
-      for (let j = i + 1; j < middles.length; j += 1) {
-        const a = middles[i]!;
-        const c = middles[j]!;
-        expect(Math.hypot(a.x - c.x, a.y - c.y), `${a.id} and ${c.id} share a spot`).toBeGreaterThan(24);
-      }
+  test("every story step is a real bridge, and a story never repeats one", () => {
+    for (const story of STORIES) {
+      const ids = story.steps.map((step) => step.bridge);
+      expect(new Set(ids).size, story.id).toBe(ids.length);
+      for (const id of ids) expect(BRIDGES.some((b) => b.id === id), `${story.id}: ${id}`).toBe(true);
     }
   });
 });

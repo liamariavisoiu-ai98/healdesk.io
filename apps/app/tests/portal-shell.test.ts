@@ -10,6 +10,8 @@ import { portalDay, portalMoment, portalMoney } from "@/lib/portal/format";
 import { answeringStatus } from "@/lib/portal/header";
 import {
   isBuiltSection,
+  BOOKINGS_BY_EMAIL,
+  conversationsUntilBuilt,
   OPENS_AFTER_GO_LIVE,
   portalNav,
   sectionPath,
@@ -104,6 +106,39 @@ describe("the menu", () => {
     expect(
       portalNav("glow", "bookings", ["bookings"]).find((i) => i.section === "bookings"),
     ).toMatchObject({ href: "/c/glow/bookings", current: true });
+  });
+
+  test("once a channel is live, a patient screen not built yet stops saying it opens after go-live, and says where its contents go", () => {
+    const before = portalNav("glow", "home");
+    // A channel live: Conversations, built, links once opened (openPatientScreens);
+    // Bookings, not built yet, says where its requests go meanwhile.
+    const after = portalNav("glow", "home", ["conversations"], ["voice"]);
+    expect(before.find((i) => i.section === "bookings")).toMatchObject({ href: null, note: OPENS_AFTER_GO_LIVE });
+    for (const section of ["conversations", "bookings"] as const) {
+      const item = after.find((i) => i.section === section)!;
+      if (isBuiltSection(section)) {
+        if (section === "conversations") expect(item.href).toBe(sectionPath("glow", section));
+      } else {
+        expect(item.href).toBeNull();
+        expect(item.href === null && item.note).not.toBe(OPENS_AFTER_GO_LIVE);
+      }
+    }
+    if (!isBuiltSection("bookings")) {
+      expect(after.find((i) => i.section === "bookings")).toMatchObject({ note: BOOKINGS_BY_EMAIL });
+      // Before any channel is live it still promises the opening.
+      expect(portalNav("glow", "home", ["conversations"], []).find((i) => i.section === "bookings")).toMatchObject({
+        note: OPENS_AFTER_GO_LIVE,
+      });
+    }
+  });
+
+  test("what a not-yet-built Conversations would say, per channel: Meta's are never emailed", () => {
+    expect(conversationsUntilBuilt(["voice"])).toBe("Each call transcript is emailed to you");
+    expect(conversationsUntilBuilt(["voice", "web"])).toBe("Each call and website chat transcript is emailed to you");
+    expect(conversationsUntilBuilt(["meta"])).toBe("Instagram, Messenger and WhatsApp messages stay in those apps");
+    expect(conversationsUntilBuilt(["web", "meta"])).toBe(
+      "Each website chat transcript is emailed to you; Instagram, Messenger and WhatsApp messages stay in those apps",
+    );
   });
 
   test("a screen is in the menu only when its page exists, and every screen page is in the menu", () => {

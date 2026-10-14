@@ -78,7 +78,8 @@ describe("forwarding test — the rule", () => {
   test("a call inside the window with a stranger's number passes, and names the condition", () => {
     const v = evaluateForwardingCall(clinic, call("c", { startedAt: inWindow, clinicLineBusy: true }), "conv");
     expect(v.isTest).toBe(true);
-    expect(v.observation).toEqual({ arrivedAt: inWindow.toISOString(), conversationId: "conv", callerIdPreserved: true, condition: "busy" });
+    // The window's end is kept with it: every later call inside it is Healdesk's own too (0079).
+    expect(v.observation).toEqual({ arrivedAt: inWindow.toISOString(), windowUntil: until.toISOString(), conversationId: "conv", callerIdPreserved: true, condition: "busy" });
   });
 
   test("a call carrying the clinic's own number fails the test", () => {

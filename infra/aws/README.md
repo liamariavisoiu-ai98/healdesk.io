@@ -689,6 +689,8 @@ bash run-task.sh reapply-erasures   # after a restore only, beside destroy-due
 bash run-task.sh patient-export CLINIC_ID   # offboarding
 bash run-task.sh erase-person CLINIC_ID CONTACT_ID WHO_ASKED you@healdesk.io   # [RECEIVED_AT]
 bash run-task.sh amend-contact CLINIC_ID CONTACT_ID FIELDS_TO_CLEAR WHO_ASKED you@healdesk.io
+bash run-task.sh demo-clinic "Fictional Practice" "Your Name" you@healdesk.io   # once, ever
+bash run-task.sh channels-link CLINIC_ID   # [meta|whatsapp] [days, 1 to 30]
 ```
 
 `destroy-due` is the worker's container (its environment, secrets and task role) running
@@ -739,6 +741,18 @@ result (the request id, counts, any deadline) is in the task's log stream, ids a
 `reapply-erasures` takes no arguments: after a restore it deletes again every person whose
 deletion the restored database still remembers (`docs/handover.md`, "Restoring", step 5), with the
 runtime URL and `HEALDESK_IDENTIFIER_REF_KEY`, and exits 1 if any clinic could not be done.
+
+`demo-clinic` makes healdesk's one demo clinic (`apps/app/scripts/demo-clinic.ts`): a fictional
+practice the owner allowed in production, signed and provisioned as a purchase would be but with
+billing status `demo` and no Stripe ids, so it costs nothing while Stripe holds live keys. The
+address must be `HEALDESK_ADMIN_EMAIL` or `HEALDESK_OPS_EMAIL`; it becomes the clinic's one
+sign-in and receives the signed agreement's PDF. A second run is refused. It has the mail
+settings, the runtime URL and `RESEND_API_KEY`, and no task role. `channels-link` issues a
+clinic's single-use connect links (`/channels/meta/...`, `/channels/whatsapp/...`), with the
+public origin and the runtime URL only. Both print to their task's log stream, and for these two
+`run-task.sh` prints the `aws logs get-log-events` command that reads it. The link is a working
+credential that connects the clinic's Meta accounts once, so it stays in CloudWatch: copy it from
+there, and nowhere else.
 
 It borrows the web service's private subnets and security group (refusing if the service is
 missing or would give a public address), runs the family's newest ACTIVE revision that names a

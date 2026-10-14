@@ -71,14 +71,13 @@ describeDb("the one-off tasks run from their environment alone", () => {
     expect(run.stdout).toMatch(/^meta\s+https:\/\/app\.healdesk\.test\/channels\/meta\/[A-Za-z0-9_-]{43}$/m);
     expect(run.stdout).not.toMatch(/whatsapp/);
     const links = await inTenant(c.clinicId, (client) =>
-      client.query(
-        `select purpose, expires_at - created_at as lasts from connection_links where clinic_id = $1`,
+      client.query<{ purpose: string; days: number }>(
+        `select purpose, extract(day from expires_at - created_at)::int as days
+           from connection_links where clinic_id = $1`,
         [c.clinicId],
       ),
     );
-    expect(links.rows).toHaveLength(1);
-    expect(links.rows[0].purpose).toBe("meta");
-    expect(links.rows[0].lasts.days).toBe(3);
+    expect(links.rows).toEqual([{ purpose: "meta", days: 3 }]);
   }, 120_000);
 
   test("an argument still wins over the environment", async () => {

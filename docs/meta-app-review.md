@@ -21,7 +21,7 @@ in `apps/app` as of 5 October 2026:
 | Facebook Login for Business round trip | `/api/meta/login` → Meta's v25.0 dialog → `/api/meta/callback` |
 | WhatsApp connect page and Embedded Signup v4 | `/channels/whatsapp/[token]`, finishing at `/api/meta/whatsapp` |
 | Confirmation and dead-link pages | `/channels/done`, `/channels/invalid` |
-| Issuing the links | `npm run channels-link -w @healdesk/app -- <clinic id>` |
+| Issuing the links | On the AWS host: `bash run-task.sh channels-link <clinic id>` in CloudShell (the link lands in CloudWatch). Locally: `npm run channels-link -w @healdesk/app -- <clinic id>` |
 | Graph calls, the decisions, the state cookie | `src/lib/meta/graph.ts`, `connect.ts`, `login-state.ts` |
 
 Each link is single use and is spent in the same transaction that stores the
@@ -247,9 +247,16 @@ Meta will not let a permission go to review until the app has made at least
 one successful API call with it, and the count can take up to a day to update.
 Make the calls **at least two days before submitting**:
 
-1. Issue the connect links for the internal demo clinic. This prints one
-   single-use link for Facebook and Instagram and one for WhatsApp:
-   `npm run channels-link -w @healdesk/app -- <clinic id>`
+1. Issue the connect links for the internal demo clinic. On the AWS host,
+   from AWS CloudShell with `infra/aws/scripts/run-task.sh` uploaded, first
+   make the demo clinic, once ever (Stripe holds live keys, so a test
+   purchase would be a real one):
+   `bash run-task.sh demo-clinic "<fictional practice>" "<your name>" hello@healdesk.io`
+   then issue its links with the clinic id that task logs:
+   `bash run-task.sh channels-link <clinic id> meta`
+   Each prints the `aws logs get-log-events` command that reads its log
+   stream; the link is there and nowhere else. Locally the same link comes
+   from `npm run channels-link -w @healdesk/app -- <clinic id>`.
 2. In healdesk.io/admin → Ops → the demo clinic → Onboarding, switch the Meta
    front door **on**. It is off for every clinic by default, and while it is
    off the webhook receives messages and answers none of them.
@@ -446,7 +453,8 @@ Paste into the submission's reviewer instructions:
 > permission show the full flow.
 
 The connect link expires (14 days by default, 30 at most), so issue a fresh one
-on the day of submission and again if Meta asks for more information.
+on the day of submission (`bash run-task.sh channels-link <clinic id> meta 30`)
+and again if Meta asks for more information.
 
 ## After approval
 

@@ -59,12 +59,14 @@ locals {
   #   /api/provision                 apps/web webhooks/stripe (first invoice.paid),
   #                                  checkout (development path); apps/app api/provision
   #   /api/billing/events            apps/web webhooks/stripe relay; apps/app api/billing/events
-  #   /api/ops                       apps/web lib/admin/ops-client.ts; apps/app api/ops
-  #   /api/agreements                apps/web api/agreement; apps/app api/agreements
-  #   /api/agreements/<id>/pdf       apps/web api/agreement/pdf; apps/app api/agreements/[id]/pdf
+  #   /api/ops                       apps/web lib/admin/ops-client.ts (and /welcome's
+  #                                  welcomeHandoff); apps/app api/ops
   #   /api/reviews/verify            apps/web api/reviews; apps/app api/reviews/verify
-  #   /api/checkout/intents          apps/web api/checkout (lib/checkout/app-client.ts);
-  #   /api/checkout/intents/session  apps/app lib/checkout/signed.ts
+  #
+  # Since 14 October 2026 signing, the agreement's PDF and Pay run on apps/web
+  # alone (docs/design/checkout-records-on-vercel-2026-10-14.md), so
+  # /api/agreements, /api/agreements/<id>/pdf, /api/checkout/intents and
+  # /api/checkout/intents/session are gone from both ends.
   #
   # alb.tf serves them only on the internal host and answers 404 for them on
   # the public one. A new signed route has to be added here, or apps/web's
@@ -73,11 +75,7 @@ locals {
     "/api/provision",
     "/api/billing/events",
     "/api/ops",
-    "/api/agreements",
-    "/api/agreements/*/pdf",
     "/api/reviews/verify",
-    "/api/checkout/intents",
-    "/api/checkout/intents/session",
   ]
 
   # --- Plain environment (contract section 3). Never a secret here: task

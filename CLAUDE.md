@@ -50,9 +50,9 @@ number *plus the treatment they asked about* **is** PHI.
 | Marketing, pricing, specialty/SEO content | Every patient conversation: the Retell custom-LLM WebSocket endpoint, the web chat widget's API, the Meta webhooks and send adapters |
 | Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends; the only copy is the sealed outbox row, deleted the moment SES reports it delivered and never kept past 30 days, the row staying as a receipt without the words (owner, 14 October 2026; BAA 1.5.0; no call audio is kept) |
 | The demo's scraped clinic profile (business data) | Bookings: Google Calendar availability and writes, slot holds, the manual-booking queue |
-| Checkout, Stripe, BAA signing UI, download | Deposit links through the clinic's own payment gateway |
+| Checkout, Stripe, agreement signing, its emailed copy and PDF; until the first paid invoice, the sealed agreement and purchase records in the marketing Sheet (owner, 14 October 2026; `lib/checkout/records.ts`) | Deposit links through the clinic's own payment gateway |
 | Contact form, reviews (business contacts) | The clinic portal, the onboarding wizard and the portal support chat |
-| The `/admin` operator console | The BAA register itself + retention clock |
+| The `/admin` operator console | The BAA register itself + retention clock: a signed agreement enters it at provisioning, its seal and re-rendered hash checked (`lib/checkout/import.ts`) |
 | Anything public, cached, indexed | Clinic credentials: Google Calendar tokens, Meta Page and WhatsApp tokens, the gateway connection |
 | | The background worker; anything writing an audit row |
 | | Phase two, fenced out of v1: **the attribution engine**, POS/EMR read-back, sync and reconciliation, the connectors |
@@ -117,7 +117,13 @@ Add a new operation to the ops envelope rather than widening what crosses. The
 same holds in the other direction: when the demo's scraped clinic profile has to
 reach the wizard (the spec's "never ask twice"), send it to `apps/app` as
 business data inside a signed request, such as the provision request, rather
-than giving `apps/web` anywhere new to keep it.
+than giving `apps/web` anywhere new to keep it. The one exception is the
+buyer's own records (business contact data, no PHI): since 14 October 2026
+the signed agreement and the purchase are sealed rows in the marketing Sheet
+until the first paid invoice carries them to `/api/provision`, so a buyer can
+sign and pay while the host is in standby
+(`docs/design/checkout-records-on-vercel-2026-10-14.md`). Those Sheet tabs are
+legal records: no hand edits, sorting or deleted rows.
 
 ## Rules that keep `apps/app` portable
 

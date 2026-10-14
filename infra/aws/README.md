@@ -70,9 +70,9 @@ from it.
 
 The signed routes are every `apps/app` path `apps/web` calls on `HEALDESK_APP_URL`, each
 authenticated by an HMAC over the body with `HEALDESK_PROVISION_SECRET` (all POST):
-`/api/provision`, `/api/billing/events`, `/api/ops`, `/api/agreements`,
-`/api/agreements/<id>/pdf`, `/api/reviews/verify`, `/api/checkout/intents` and
-`/api/checkout/intents/session`. They are listed once, in `locals.tf` (`signed_paths`, with each
+`/api/provision`, `/api/billing/events`, `/api/ops` and `/api/reviews/verify` (signing, the
+agreement's PDF and Pay moved to apps/web on 14 October 2026 and no longer call the host). They
+are listed once, in `locals.tf` (`signed_paths`, with each
 call site), and `alb.tf` builds both sets of rules from that list. **A new signed route must be
 added there**, or `apps/web`'s calls to it get the internal host's 404.
 

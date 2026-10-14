@@ -567,18 +567,14 @@ run "production_defaults" {
       "/api/provision",
       "/api/billing/events",
       "/api/ops",
-      "/api/agreements",
-      "/api/agreements/*/pdf",
       "/api/reviews/verify",
-      "/api/checkout/intents",
-      "/api/checkout/intents/session",
     ]
     error_message = "The signed routes differ from the ones enumerated from apps/web and apps/app; change both the code survey in locals.tf and this list."
   }
 
   assert {
     condition = (
-      length(aws_lb_listener_rule.internal_signed) == 3 &&
+      length(aws_lb_listener_rule.internal_signed) == 2 &&
       toset(flatten([for r in aws_lb_listener_rule.internal_signed : [for c in r.condition : tolist(c.path_pattern[0].values) if length(c.path_pattern) > 0]])) == toset(local.signed_paths) &&
       alltrue([for r in aws_lb_listener_rule.internal_signed : r.action[0].type == "forward" && r.action[0].target_group_arn == aws_lb_target_group.web[0].arn]) &&
       alltrue([for r in aws_lb_listener_rule.internal_signed : toset(flatten([for c in r.condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app-internal.healdesk.io"])])
@@ -598,7 +594,7 @@ run "production_defaults" {
 
   assert {
     condition = (
-      length(aws_lb_listener_rule.public_refuses_signed) == 3 &&
+      length(aws_lb_listener_rule.public_refuses_signed) == 2 &&
       toset(flatten([for r in aws_lb_listener_rule.public_refuses_signed : [for c in r.condition : tolist(c.path_pattern[0].values) if length(c.path_pattern) > 0]])) == toset(local.signed_paths) &&
       alltrue([for r in aws_lb_listener_rule.public_refuses_signed : r.action[0].type == "fixed-response" && r.action[0].fixed_response[0].status_code == "404"]) &&
       alltrue([for r in aws_lb_listener_rule.public_refuses_signed : toset(flatten([for c in r.condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app.healdesk.io"])])
@@ -1968,7 +1964,7 @@ run "back_from_standby" {
   assert {
     condition = (
       length(aws_lb.main) == 1 && aws_lb.main[0].enable_deletion_protection &&
-      length(aws_lb_listener_rule.internal_signed) == 3 && length(aws_lb_listener_rule.public_refuses_signed) == 3 &&
+      length(aws_lb_listener_rule.internal_signed) == 2 && length(aws_lb_listener_rule.public_refuses_signed) == 2 &&
       length(aws_ecs_service.web) == 1 && aws_ecs_service.web[0].desired_count == 0 &&
       length(aws_instance.nat) == 1 && length(cloudflare_dns_record.app) == 1 && length(cloudflare_dns_record.internal) == 1 &&
       length(aws_ecs_task_definition.db_bootstrap) == 1 &&

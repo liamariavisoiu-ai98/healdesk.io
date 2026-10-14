@@ -4,7 +4,7 @@ import { agreementPdfRecordOf, type AgreementRecord } from "@healdesk/catalog/ch
 
 import { recordAgreementCopy } from "@/lib/checkout/records";
 
-import { sendSafely } from "./index";
+import { emailKey, sendSafely } from "./index";
 
 /**
  * The signer's copy of the agreement, mailed at signature (owner, 14 October
@@ -86,7 +86,7 @@ export async function deliverAgreementCopy(record: AgreementRecord, text: string
       tag: "agreement-copy",
       // Keyed by the acceptance, never the address: one copy per signature,
       // however often this is retried within the provider's day.
-      idempotencyKey: `agreement-copy:${record.id}`,
+      idempotencyKey: emailKey("agreement-copy", record.id),
     });
     if (result.status !== "sent") {
       // The id finds the record; never the address, never the provider's words.

@@ -27,7 +27,10 @@ import { COUNTERS, dataRange, ensureSheetSchema, recordToRow, rowRange, rowToRec
  * each a crawl and a model call) cap model turns, voice calls, website reads
  * and demo builds per UTC day across the whole site, and a cap that resets on
  * every cold start is not a cap. Those, and only those (`GLOBAL_CAP_KEYS`),
- * are backed by the `counters` tab of the marketing Sheet.
+ * are backed by the `counters` tab of the marketing Sheet, with one more
+ * kind beside them: the per-address acknowledgement limit of the contact
+ * form (`SHARED_KEY_PREFIXES`), which bounds mail to a stranger rather than
+ * spend, and is no limit at all if each instance keeps its own.
  *
  * ## How the shared path works, and what it gets wrong on purpose
  *
@@ -84,8 +87,19 @@ export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "own-demo:global:day",
 ]);
 
+/**
+ * Per-address limits that also go through the Sheet: the contact form's
+ * acknowledgement (P8), at most one per address per day (Annex X3, "Abuse
+ * limits"). A limit that resets on every cold start and differs per instance
+ * would let the form mail a stranger once per warm instance a day. The key
+ * after the prefix is a digest of the address, never the address. The
+ * acknowledgement of a setup request (P2) needs none of this: its own rows in
+ * the Sheet say whether the address asked today (createSetupRequest).
+ */
+export const SHARED_KEY_PREFIXES: readonly string[] = ["contact-ack:"];
+
 export function isGlobalCapKey(key: string): boolean {
-  return GLOBAL_CAP_KEYS.has(key);
+  return GLOBAL_CAP_KEYS.has(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 /** How stale a cached global-cap row may be before it is re-read. */

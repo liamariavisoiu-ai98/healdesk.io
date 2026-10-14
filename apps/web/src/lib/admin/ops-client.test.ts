@@ -1142,6 +1142,63 @@ describe("the first-weeks list", () => {
   });
 });
 
+/**
+ * The owner's direct-booking switch, for the purchase funnel's step 2. It is
+ * apps/app's one reader's answer, carried across without a session; anything
+ * but a clear "on" is off, and the answer is remembered for five minutes so a
+ * public page cannot make every visitor a request to apps/app.
+ */
+describe("directBookingOpen", () => {
+  const MINUTE = 60_000;
+
+  beforeEach(() => {
+    opsClient.__resetBookingSwitchForTests();
+  });
+
+  test("asks apps/app as a relay, with no browser context, and carries its answer", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await opsClient.directBookingOpen(0)).toBe(true);
+    expect(sent).toEqual([{ op: "bookingSwitch", args: {} }]);
+    const init = vi.mocked(fetch).mock.calls[0]![1] as { body: string };
+    expect(JSON.parse(init.body)).not.toHaveProperty("context");
+  });
+
+  test("off when apps/app says off", async () => {
+    reply({ data: { directBooking: false } });
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+  });
+
+  test("off, and nothing asked, on a deployment that cannot ask", async () => {
+    vi.stubEnv("HEALDESK_APP_URL", "");
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  test("off when apps/app fails, is unreachable or answers something else", async () => {
+    reply({ error: "The operations API is unavailable.", code: "unavailable" }, 503);
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    opsClient.__resetBookingSwitchForTests();
+    reply({ data: { directBooking: "true" } });
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    opsClient.__resetBookingSwitchForTests();
+    // No reply stubbed: the fetch throws, as an unreachable host does.
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+  });
+
+  test("remembers the answer, success or failure, for five minutes", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await opsClient.directBookingOpen(0)).toBe(true);
+    expect(await opsClient.directBookingOpen(4 * MINUTE)).toBe(true);
+    expect(sent).toHaveLength(1);
+    reply({ data: { directBooking: false } });
+    expect(await opsClient.directBookingOpen(5 * MINUTE)).toBe(false);
+    expect(sent).toHaveLength(2);
+  });
+
+  test("one question in flight, however many ask at once", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await Promise.all([opsClient.directBookingOpen(0), opsClient.directBookingOpen(0)])).toEqual([true, true]);
+    expect(sent).toHaveLength(1);
 describe("the practice questions' review queue (/admin/reviews)", () => {
   const REVIEW = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
   const RUN = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f";

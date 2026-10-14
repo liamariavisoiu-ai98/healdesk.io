@@ -30,6 +30,7 @@ vi.mock("stripe", () => ({
 }));
 
 const { createCheckout } = await import("./billing");
+const { planStartSentence } = await import("@healdesk/catalog");
 
 const REF = "11111111-2222-4333-8444-555555555555";
 
@@ -159,6 +160,58 @@ describe("the Session a press of Pay creates", () => {
       // line stays, so the invoice shows the fee and the credit.
       expect((params.metadata as Record<string, string>).offer).toBe(offer);
       expect((params.line_items as unknown[]).length).toBe(2);
+    }
+  });
+
+  test("shows healdesk as the business at the top of Checkout, on an account scalabid shares", async () => {
+    await createCheckout(input());
+    const [params] = fake.create.mock.calls[0]! as [Record<string, unknown>, unknown];
+    expect(params.branding_settings).toEqual({ display_name: "healdesk" });
+  });
+
+  test("says when the plan starts and that the setup fee is non-refundable, beside Pay", async () => {
+    await createCheckout(input());
+    const [monthly] = fake.create.mock.calls[0]! as [Record<string, unknown>, unknown];
+    const plan = getPlan("voice-webchat-500-300")!;
+    expect(monthly.custom_text).toEqual({
+      submit: { message: `${planStartSentence(plan, "month")} The setup fee is non-refundable.` },
+    });
+    expect((monthly.custom_text as { submit: { message: string } }).submit.message).toMatch(
+      /starts the day AYA first answers a patient/,
+    );
+    // Stripe caps the submit message at 1,200 characters.
+    expect((monthly.custom_text as { submit: { message: string } }).submit.message.length).toBeLessThanOrEqual(1200);
+
+    fake.create.mockClear();
+    await createCheckout({ ...input(), interval: "year" as const });
+    const [annual] = fake.create.mock.calls[0]! as [Record<string, unknown>, unknown];
+    expect((annual.custom_text as { submit: { message: string } }).submit.message).toBe(
+      `${planStartSentence(plan, "year")} The setup fee is non-refundable.`,
+    );
+ 
+    // A veterinary practice's customers are clients, as Review and pay says.
+    fake.create.mockClear();
+    await createCheckout({ ...input(), audience: "client" as const });
+    const [vet] = fake.create.mock.calls[0]! as [Record<string, unknown>, unknown];
+    expect((vet.custom_text as { submit: { message: string } }).submit.message).toMatch(
+      /starts the day AYA first answers a client\./,
+    );
+  });
+
+  test("turns on Stripe Tax only when the owner set STRIPE_AUTOMATIC_TAX to true", async () => {
+    for (const [value, expected] of [
+      [undefined, undefined],
+      ["", undefined],
+      ["1", undefined],
+      ["TRUE", undefined],
+      ["true", { enabled: true }],
+    ] as const) {
+      if (value === undefined) vi.stubEnv("STRIPE_AUTOMATIC_TAX", undefined as unknown as string);
+      else vi.stubEnv("STRIPE_AUTOMATIC_TAX", value);
+      fake.create.mockClear();
+      await createCheckout(input());
+      const [params] = fake.create.mock.calls[0]! as [Record<string, unknown>, unknown];
+      expect(params.automatic_tax, String(value)).toEqual(expected);
     }
   });
 

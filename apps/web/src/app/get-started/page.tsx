@@ -2,18 +2,21 @@ import { isBillingInterval } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
-import { CheckoutFlow } from "@/components/checkout/CheckoutFlow";
+import { CheckoutFlow, type CheckoutSeed } from "@/components/checkout/CheckoutFlow";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { Brand } from "@/components/Nav";
+import { directBookingOpen } from "@/lib/admin/ops-client";
 import { DEMO_COOKIE } from "@/lib/demo/attribution";
-import { demoCheckout, demoPrefill } from "@/lib/demo/checkout";
+import { demoCheckout, demoPrefill, gatePrefill } from "@/lib/demo/checkout";
 import { demoOfferEndsAt, demoSetupCredit, getDemoSession, isDemoSlug, type DemoSession } from "@/lib/demo/sessions";
-import { planLink } from "@/lib/checkout/funnel";
+import { packageForChannels, planLink } from "@/lib/checkout/funnel";
+import { GATE_COOKIE } from "@/lib/gate";
 import { type SetupOffer, strongestOffer } from "@/lib/checkout/review";
 import { cohortCreditEndsAt, findLeadById } from "@/lib/leads";
 import { replyByDate } from "@/lib/reply-by";
 import { gateState, invitesToBuy } from "@/lib/setup-gate";
 import { SETUP_COOKIE } from "@/lib/setup-link";
+import { requestChannels } from "@/lib/setup-requests";
 import { site } from "@/lib/site";
 import { readSiteOfferToken, SITE_OFFER_COOKIE, siteOfferState } from "@/lib/site-offer";
 
@@ -41,9 +44,12 @@ export const metadata: Metadata = {
  * A buyer arriving from a personalised demo's "Book Onboarding" carries the
  * demo in a cookie (lib/demo/attribution.ts): the form opens with that
  * clinic's name, website, specialty and email already in it. Every step is
- * still shown, and every field can still be changed. A setup link's own
- * request goes over it: its clinic name and website, and its address, which
- * the purchase is bound to.
+ * still shown, and every field can still be changed. Without one, the
+ * homepage chat demo's gate pre-fills the address it was unlocked with and the
+ * specialty demoed (`gatePrefill`). A setup link's own request goes over
+ * either: its clinic name, website and the name it was sent under, the
+ * package its channels add up to, and its address, which the purchase is
+ * bound to.
  */
 async function demoFromCookie(): Promise<DemoSession | null> {
   const slug = (await cookies()).get(DEMO_COOKIE)?.value;
@@ -54,7 +60,7 @@ async function demoFromCookie(): Promise<DemoSession | null> {
   return session && session.status === "ready" && !session.claimed ? session : null;
 }
 
-function prefillFrom(session: DemoSession | null) {
+function prefillFrom(session: DemoSession | null): CheckoutSeed | undefined {
   return session ? demoPrefill(session) : undefined;
 }
 
@@ -108,7 +114,10 @@ export default async function GetStartedPage({
   const initialPlan = planLink(plan) ? plan : undefined;
   const initialInterval = isBillingInterval(interval) ? interval : "month";
   const demo = await demoFromCookie();
-  const initialState = prefillFrom(demo);
+  // The personalised demo's answers, or else what the homepage chat demo's
+  // gate knows: the address it was unlocked with and the specialty demoed.
+  const initialState: CheckoutSeed | undefined =
+    prefillFrom(demo) ?? (await gatePrefill((await cookies()).get(GATE_COOKIE)?.value));
 
   /**
    * While the purchase is by invitation, the setup cookie decides what this
@@ -135,6 +144,10 @@ export default async function GetStartedPage({
     siteCookie: (await cookies()).get(SITE_OFFER_COOKIE)?.value,
   });
 
+  const showsForm = gate.mode === "pilot" && !invited && !(demo && invitesToBuy(demo));
+  // Asked only of a page that shows the purchase: step 2 says it.
+  const directBooking = showsForm ? false : await directBookingOpen();
+
   return (
     <div className="min-h-screen">
       <header className="border-line/60 border-b">
@@ -152,7 +165,7 @@ export default async function GetStartedPage({
       </header>
 
       <main className="px-5 py-12 sm:px-8 sm:py-16">
-        {gate.mode === "pilot" && !invited && !(demo && invitesToBuy(demo)) ? (
+        {showsForm ? (
           // The form, and beside it from 1024px what sending it leads to
           // (owner, 12 October 2026): on its own the page read as a bare
           // column of fields. Below 1024px the card follows the form. The
@@ -164,7 +177,7 @@ export default async function GetStartedPage({
               // From a homepage demo: what it already knows, so it is not asked for twice.
               initialEmail={initialState?.contactEmail}
               initialClinicName={initialState?.clinicName}
-              initialWebsite={initialState?.website}
+              initialWebsite={initialState?.website ?? undefined}
             />
             <WhatHappensNext replyBy={replyBy} />
           </div>
@@ -174,7 +187,15 @@ export default async function GetStartedPage({
             initialInterval={initialInterval}
             initialState={
               invited
-                ? { ...initialState, clinicName: invited.clinicName, website: invited.website }
+                ? {
+                    ...initialState,
+                    clinicName: invited.clinicName,
+                    website: invited.website,
+                    // The request's own: the name it was sent under, and
+                    // the card its channels add up to (plan Part A2).
+                    contactName: invited.name,
+                    packageId: packageForChannels(requestChannels(invited), invited.website !== null),
+                  }
                 : initialState
             }
             lockedEmail={invited?.email}
@@ -185,6 +206,8 @@ export default async function GetStartedPage({
             setupOffer={setupOffer}
             // Stripe Tax is the server's setting; the page only says so.
             salesTax={process.env.STRIPE_AUTOMATIC_TAX === "true"}
+            // The owner's switch, as apps/app reports it; off when it cannot.
+            directBooking={directBooking}
           />
         )}
       </main>

@@ -42,7 +42,7 @@ const REGISTERED_AHEAD: Record<
     "any_hour" | "daytime",
   ]
 > = {
-  channel_live: ["L1", "normal", null, "any_hour"],
+  channel_live: ["L1", "normal", null, "daytime"],
   booking_request: ["L7", "normal", null, "any_hour"],
   request_still_open: ["L8", "normal", null, "any_hour"],
   request_missed: ["L9", "normal", null, "any_hour"],

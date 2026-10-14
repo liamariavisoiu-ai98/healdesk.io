@@ -132,10 +132,10 @@ export const NOTICE_KIND_REGISTRY = {
   // in lib/notices/plan-notices.ts nothing can queue one, and until its
   // template lands the sender holds any that are queued.
   //
-  // L1: AYA is answering on a channel (`live`). At any hour: it confirms a
-  // step the clinic just took, and says when the plan or the channel's price
-  // starts.
-  channel_live: kind("L1", "transactional", "normal", null, "any_hour", "plan"),
+  // L1: AYA is answering on a channel (`live`). It waits for daytime, with the
+  // attributes WP1 (pkg/channel-events) gives it beside its template, so the
+  // two registrations are one when both land.
+  channel_live: kind("L1", "transactional", "normal", null, "daytime", "plan"),
   // The live alerts: pointers only, sent at once, at any hour, and one per
   // event, the most specific (X5). The names are BookingAlertKind's
   // (lib/notices/booking-alerts.ts), which the booking engine, deposits and

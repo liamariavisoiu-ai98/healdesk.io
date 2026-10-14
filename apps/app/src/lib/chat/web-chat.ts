@@ -276,7 +276,7 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
         .set({
           endedAt: now,
           outcome: next.urgentAlerted || turn.handoff ? "escalated_to_human" : next.requestId ? "booked" : "qualified_no_booking",
-          // What tells an urgent hit from a handover (drizzle/0076).
+          // What tells an urgent hit from a handover (drizzle/0077).
           urgent: next.urgentAlerted,
         })
         .where(and(eq(conversations.id, conversationId), eq(conversations.clinicId, tx.clinicId)));

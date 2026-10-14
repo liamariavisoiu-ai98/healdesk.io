@@ -18,8 +18,8 @@ import type { StopTarget } from "./unsubscribe";
  *     also writes;
  *   - `daily_summary`: the morning summary, `clinic_settings.daily_summary`,
  *     which Settings → Alerts also writes;
- *   - `product_updates`: L33, M7's. No email carries it yet and it has no
- *     column, so it is always on and a stop link for it changes nothing.
+ *   - `product_updates`: L33, `clinic_settings.product_updates`, on by
+ *     default. Only its stop link writes it so far.
  *
  * Every other email is part of the service and has no switch. O11's link
  * (`steps`) is not a clinic's switch: it stops the clinic's sent-on steps
@@ -47,8 +47,14 @@ export async function optionalEmailAllowed(tx: TenantTx, which: NoticeSwitch): P
         .limit(1);
       return row?.on ?? true;
     }
-    case "product_updates":
-      return true;
+    case "product_updates": {
+      const [row] = await tx.db
+        .select({ on: clinicSettings.productUpdates })
+        .from(clinicSettings)
+        .where(eq(clinicSettings.clinicId, tx.clinicId))
+        .limit(1);
+      return row?.on ?? true;
+    }
   }
 }
 
@@ -73,7 +79,7 @@ export async function stopOptionalEmail(target: StopTarget): Promise<StopOutcome
     const done = await stopStepsTo(clinicId, target.deliveryId, STOP_ACTOR);
     return done ? { status: "stopped", clinicName: done.clinicName } : { status: "nothing" };
   }
-  if (scope !== "usage_alerts" && scope !== "daily_summary") return { status: "nothing" };
+  if (scope === "commercial") return { status: "nothing" };
   return withTenant({ clinicId, actor: STOP_ACTOR }, async (tx) => {
     const [clinic] = await tx.db
       .select({ name: clinics.name })
@@ -86,12 +92,13 @@ export async function stopOptionalEmail(target: StopTarget): Promise<StopOutcome
       if (!row) return { status: "nothing" as const };
       if (row.usageAlertsEnabled) await setUsageAlertsEnabled(tx.db, tx.clinicId, false);
     } else {
+      const off = scope === "daily_summary" ? { dailySummary: false } : { productUpdates: false };
       await tx.db
         .insert(clinicSettings)
-        .values({ clinicId: tx.clinicId, dailySummary: false, updatedAt: new Date() })
+        .values({ clinicId: tx.clinicId, ...off, updatedAt: new Date() })
         .onConflictDoUpdate({
           target: clinicSettings.clinicId,
-          set: { dailySummary: false, updatedAt: new Date() },
+          set: { ...off, updatedAt: new Date() },
         });
     }
     tx.audit.record({

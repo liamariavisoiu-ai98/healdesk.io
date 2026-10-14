@@ -27,26 +27,29 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *
  * The BAA's patient-rights clause commits healdesk to give the clinic what
  * it needs to answer an access, amendment or accounting request within ten
- * business days. This is that: found by phone or email inside the clinic's
- * tenant, every row that names the contact, and the audit trail filtered to
- * those rows — which is the only possible accounting of disclosures, and
- * which report.ts already proves records even a count.
+ * business days. This is that: found by phone, email or a contact's id
+ * inside the clinic's tenant, every row that names the contact, and the
+ * audit trail filtered to those rows — which is the only possible
+ * accounting of disclosures, and which report.ts already proves records
+ * even a count.
  *
  * Its own audit row is written for the export itself: producing a bundle is
  * an access, and the next accounting request must show this one.
  *
- * Each booking request, appointment and conversation carries its amendments beside it
- * (`amendments`, oldest first; lib/patient-rights/amendments.ts), as BAA
- * 1.3.0's clause 14(b) promises: "Every later export of that record, and
- * every screen of healdesk's that shows it, then carries the amendment." So
- * does the whole clinic's bundle. The portal's export (M5) must do the same,
- * and so must any screen that shows a request or a conversation.
+ * Each booking request, appointment and conversation carries its amendments
+ * beside it (`amendments`, oldest first; lib/patient-rights/amendments.ts),
+ * as clause 14(b) of the agreement in force promises (BAA 1.5.0, unchanged
+ * since 1.3.0): "Every later export of that record, and every screen of
+ * healdesk's that shows it, then carries the amendment." So does the whole
+ * clinic's bundle. The portal's export (M5) must do the same, and so must
+ * any screen that shows a request or a conversation.
  *
  * Each bundle also carries the deposits the clinic took through its own
  * Stripe account for the person's appointments (the whole clinic's, in its
  * bundle): the amount, when and how it was paid, and the Stripe session the
- * clinic can find it by. Destruction deletes them (BAA 1.3.0 clause 17 lets
- * only two records survive), so the return bundle is the clinic's copy.
+ * clinic can find it by. Destruction deletes them (clause 17 of BAA 1.5.0,
+ * as of 1.3.0, lets only two records survive), so the return bundle is the
+ * clinic's copy.
  *
  * The whole clinic's bundle also carries the raw payloads other services
  * sent (`rawPayloads`: provider, when it arrived, whether it was processed,
@@ -196,12 +199,52 @@ function assertRequester(requestedBy: unknown): asserts requestedBy is PatientRe
   }
 }
 
-export async function exportPatient(
-  tx: TenantTx,
-  query: { phone?: string; email?: string; requestedBy: PatientRequester },
-): Promise<PatientBundle> {
+/** The contact id given matches no contact of this clinic. */
+export class ExportContactNotFound extends Error {
+  constructor() {
+    super("No such contact at this clinic.");
+    this.name = "ExportContactNotFound";
+  }
+}
+
+const CONTACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Who the bundle is about: a telephone number, an email address, or both;
+ * or a contact's id in their place. By id, the person is that contact and
+ * every contact carrying its number or its address, read here inside the
+ * transaction: the same bundle as asking by the contact's own details,
+ * with the contact itself always in it, even one with neither. It is how a
+ * per-patient export runs on the AWS host, where no patient's details may be
+ * typed or passed in (run-task's overrides are recorded by CloudTrail), as a
+ * deletion does (erasure.ts, `contactId`).
+ */
+export type PatientQuery = {
+  phone?: string;
+  email?: string;
+  contactId?: string;
+  requestedBy: PatientRequester;
+};
+
+export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<PatientBundle> {
   assertRequester(query.requestedBy);
-  if (!query.phone && !query.email) throw new Error("A phone number or an email address is required.");
+  let phone = query.phone;
+  let email = query.email?.toLowerCase();
+  const contactId = query.contactId;
+  if (contactId !== undefined) {
+    if (phone || email) throw new Error("Name the person by a contact's id, or by their details, not both.");
+    if (!CONTACT_ID.test(contactId)) throw new Error("A contact's id is its uuid.");
+    const [contact] = await tx.db
+      .select({ phone: contacts.phone, email: contacts.email })
+      .from(contacts)
+      .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)))
+      .limit(1);
+    if (!contact) throw new ExportContactNotFound();
+    phone = contact.phone ?? undefined;
+    email = contact.email?.toLowerCase() ?? undefined;
+  } else if (!phone && !email) {
+    throw new Error("A phone number, an email address or a contact's id is required.");
+  }
 
   const found = await tx.db
     .select()
@@ -210,14 +253,15 @@ export async function exportPatient(
       and(
         eq(contacts.clinicId, tx.clinicId),
         or(
-          query.phone ? eq(contacts.phone, query.phone) : sql`false`,
-          query.email ? eq(contacts.email, query.email.toLowerCase()) : sql`false`,
+          contactId ? eq(contacts.id, contactId) : sql`false`,
+          phone ? eq(contacts.phone, phone) : sql`false`,
+          email ? eq(contacts.email, email) : sql`false`,
         ),
       ),
     );
   const ids = found.map((c) => c.id);
   const phones = found.map((c) => c.phone).filter((p): p is string => Boolean(p));
-  if (query.phone) phones.push(query.phone);
+  if (phone) phones.push(phone);
 
   const convos = ids.length
     ? await tx.db.select().from(conversations).where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.contactId, ids)))
@@ -293,7 +337,11 @@ export async function exportPatient(
     resourceType: "patient_bundle",
     resourceIds: ids,
     resultCount: everyId.length,
-    metadata: { requestedBy: query.requestedBy, rows: everyId.length },
+    metadata: {
+      requestedBy: query.requestedBy,
+      rows: everyId.length,
+      by: contactId ? "contact_id" : "details",
+    },
   });
 
   return {
@@ -315,12 +363,12 @@ export async function exportPatient(
 /**
  * Amendment where the record can be changed: a real correction.
  *
- * BAA 1.3.0's clause 14(b): "healdesk corrects a person's contact details in
- * its own copy." A contact's name, number and address are those details, so
- * the row changes, and the audit row says which fields changed and who
- * asked, never what they said: a "prior" that carried the old name would
- * keep the wrong data the amendment exists to remove. The records healdesk
- * does not rewrite (a booking request, an appointment, a conversation) take
+ * BAA 1.5.0's clause 14(b), as of 1.3.0: "healdesk corrects a person's
+ * contact details in its own copy." A contact's name, number and address are
+ * those details, so the row changes, and the audit row says which fields
+ * changed and who asked, never what they said: a "prior" that carried the
+ * old name would keep the wrong data the amendment exists to remove. The
+ * records healdesk does not rewrite (a booking request, an appointment, a conversation) take
  * an appended amendment instead (lib/patient-rights/amendments.ts). The operator's path is
  * `npm run ops:amend-contact` in apps/app's own shell (lib/ops/patient-entry.ts),
  * never apps/web; the portal's comes with M5.

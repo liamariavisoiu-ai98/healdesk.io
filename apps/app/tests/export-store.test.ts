@@ -33,6 +33,29 @@ describe("the export bucket target", () => {
     }
   });
 
+  it("takes one person's bundle as clinic-<the clinic's id>-patient-<UTC time>.json, and keeps the two apart", () => {
+    const patient = `clinic-${CLINIC}-patient-20261014T101500Z.json`;
+    expect(exportTarget(CLINIC, BUCKET, patient, "patient")).toEqual({
+      bucket: BUCKET,
+      key: patient,
+    });
+    // Inside the task role's clinic-*.json grant, and never a whole clinic's key or the reverse.
+    expect(patient).toMatch(/^clinic-.*\.json$/);
+    expect(() => exportTarget(CLINIC, BUCKET, KEY, "patient")).toThrow(/patient-/);
+    expect(() => exportTarget(CLINIC, BUCKET, patient)).toThrow(/HEALDESK_EXPORT_KEY/);
+    for (const key of [
+      `clinic-${CLINIC}-patient-0b5f3c1e-7a2d-4c8e-9f10-123456789abd-20261014T101500Z.json`,
+      `clinic-${CLINIC}-patient-+15551234567.json`,
+      `patient-${CLINIC}-20261014T101500Z.json`,
+    ]) {
+      expect(() => exportTarget(CLINIC, BUCKET, key, "patient"), key).toThrow(
+        /HEALDESK_EXPORT_KEY/,
+      );
+    }
+    const other = "1c5f3c1e-7a2d-4c8e-9f10-123456789abc";
+    expect(() => exportTarget(other, BUCKET, patient, "patient")).toThrow(/another clinic/);
+  });
+
   it("refuses something that is not a bucket name", () => {
     expect(() => exportTarget(CLINIC, "s3://bucket", KEY)).toThrow(/bucket name/);
     expect(() => exportTarget(CLINIC, "", KEY)).toThrow(/bucket name/);

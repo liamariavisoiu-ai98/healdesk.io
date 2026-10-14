@@ -1,7 +1,7 @@
 import { postInternalAlert } from "@/lib/demo/alert";
 import { runDemoBuild } from "@/lib/demo/build";
 import { demoUrl, getDemoSession, type DemoSession } from "@/lib/demo/sessions";
-import { sendSafely } from "@/lib/email";
+import { emailKey, sendSafely } from "@/lib/email";
 import { site } from "@/lib/site";
 
 /**
@@ -135,7 +135,7 @@ async function tellTheTeam(session: DemoSession, message: { subject: string; tex
     ...(session.leadEmail ? { replyTo: session.leadEmail } : {}),
     tag: `own-demo-${kind}`,
     // Row ids, never an address: Resend keeps the key in its logs.
-    idempotencyKey: `own-demo-${kind}:${session.id}`,
+    idempotencyKey: emailKey(`own-demo-${kind}`, session.id),
   });
   if (result.status !== "sent") {
     console.error("[healdesk] own-demo notice to the team not sent", { slug: session.slug, kind, ...result });

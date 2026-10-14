@@ -1,5 +1,7 @@
 import {
-  BOOKING_FIELDS,
+  audienceFor,
+  bookingFieldLabel,
+  bookingFieldsFor,
   currentDirectBookingAddendum,
   EXCLUDED_FIELDS,
   renderDirectBookingAddendum,
@@ -62,9 +64,12 @@ export default async function SetupPage({ params }: { params: Promise<{ token: s
   if (!link) redirect("/setup/invalid");
 
   const defaults = new Set(resolveBookingRequirements(link.specialty, null).map((f) => f.id));
-  const fields: SetupFieldView[] = BOOKING_FIELDS.map((f) => ({
+  // The catalogue as this practice may choose from it: the animal's name and
+  // species only at a practice that cares for animals, in its own words.
+  const audience = audienceFor(link.specialty);
+  const fields: SetupFieldView[] = bookingFieldsFor(link.specialty).map((f) => ({
     id: f.id,
-    label: f.label,
+    label: bookingFieldLabel(f, audience),
     ask: f.ask,
     locked: f.locked,
     preselected: defaults.has(f.id),

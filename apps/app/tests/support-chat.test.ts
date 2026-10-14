@@ -1,0 +1,661 @@
+import type Anthropic from "@anthropic-ai/sdk";
+import { SETTING_KEYS } from "@/lib/portal/settings";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+import { SUPPORT_ESCALATION_FIXTURE } from "@/lib/email/templates/support_escalation";
+import type { DeliveryResult, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import type { SetupState } from "@/lib/setup/state";
+import type { AccountState } from "@/lib/support/account-state";
+import {
+  handleSupportChat,
+  messagesFor,
+  readChatRequest,
+  screenAllowFor,
+  type SupportChatContext,
+} from "@/lib/support/chat";
+import { forwardingStepsFrom, type ForwardingFacts } from "@/lib/support/forwarding";
+import { HELP_TEXT } from "@/lib/support/help-text";
+import { SUPPORT_LIMITS, SupportLimiter } from "@/lib/support/limits";
+import { SUPPORT_MODEL, supportRequest, type SupportModelClient } from "@/lib/support/model";
+import { buildSupportPrompt, SUPPORT_PROMPT_STABLE } from "@/lib/support/prompt";
+import { linkTo, LINK_TARGETS, SETTING_PLACES } from "@/lib/support/targets";
+import { SUPPORT_TOOLS } from "@/lib/support/tools";
+import type { SupportEvent } from "@/lib/support/turn";
+
+/**
+ * The portal's support chat (plan Part H), end to end without a database and
+ * without the real API: the model is a fake that streams what each test
+ * scripts and records every request it is sent. What is held:
+ *
+ *   - the request: claude-opus-5-5, the stable prefix cached and nothing
+ *     about the clinic in it, four strict read-only tools;
+ *   - the identifier screen and the treatment names, before the model and
+ *     before the person;
+ *   - a refusal as its own outcome, with the fixed line;
+ *   - the limits, per device and per clinic;
+ *   - get_forwarding_steps giving nothing before voice is ready;
+ *   - link_to built from the public origin;
+ *   - an escalation that carries no chat text to hello@, and no log line
+ *     anywhere that carries any.
+ */
+
+const ORIGIN = "https://app.healdesk.test";
+const INTERNAL = "https://app-internal.healdesk.test";
+const SUPPORT_PHONE = "+18886889404";
+const CLINIC_ID = "0c1d2e3f-0000-4000-8000-000000000000";
+
+const SAVED: Record<string, string | undefined> = {};
+const ENV = ["BETTER_AUTH_URL", "HEALDESK_APP_URL", "HEALDESK_SUPPORT_PHONE"] as const;
+
+beforeEach(() => {
+  for (const key of ENV) SAVED[key] = process.env[key];
+  process.env.BETTER_AUTH_URL = ORIGIN;
+  process.env.HEALDESK_APP_URL = INTERNAL;
+  process.env.HEALDESK_SUPPORT_PHONE = SUPPORT_PHONE;
+});
+
+afterEach(() => {
+  for (const key of ENV) {
+    const value = SAVED[key];
+    if (value === undefined) delete (process.env as Record<string, string | undefined>)[key];
+    else (process.env as Record<string, string>)[key] = value;
+  }
+  vi.restoreAllMocks();
+});
+
+// -----------------------------------------------------------------------------
+// The fake model
+// -----------------------------------------------------------------------------
+
+type Round = {
+  text?: readonly string[];
+  tools?: readonly { name: string; input: unknown }[];
+  stop?: Anthropic.Message["stop_reason"];
+};
+
+function message(round: Round, index: number): Anthropic.Message {
+  const content: unknown[] = [];
+  const text = (round.text ?? []).join("");
+  if (text) content.push({ type: "text", text, citations: null });
+  (round.tools ?? []).forEach((tool, i) =>
+    content.push({
+      type: "tool_use",
+      id: `toolu_${index}_${i}`,
+      name: tool.name,
+      input: tool.input,
+    }),
+  );
+  const stop = round.stop ?? (round.tools?.length ? "tool_use" : "end_turn");
+  return {
+    id: `msg_${index}`,
+    type: "message",
+    role: "assistant",
+    model: SUPPORT_MODEL,
+    content,
+    stop_reason: stop,
+    stop_sequence: null,
+    stop_details:
+      stop === "refusal" ? { type: "refusal", category: "cyber", explanation: null } : null,
+    usage: { input_tokens: 1, output_tokens: 1 },
+  } as unknown as Anthropic.Message;
+}
+
+function fakeModel(rounds: readonly Round[]): SupportModelClient & {
+  requests: Anthropic.MessageStreamParams[];
+} {
+  const requests: Anthropic.MessageStreamParams[] = [];
+  return {
+    requests,
+    stream(params) {
+      const index = requests.length;
+      // A deep copy: the turn appends to its messages after each round.
+      requests.push(JSON.parse(JSON.stringify(params)) as Anthropic.MessageStreamParams);
+      const round = rounds[index] ?? { text: ["(no more rounds)"] };
+      return {
+        async *[Symbol.asyncIterator]() {
+          for (const piece of round.text ?? []) {
+            yield {
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "text_delta", text: piece },
+            } as Anthropic.MessageStreamEvent;
+          }
+        },
+        finalMessage: async () => message(round, index),
+      };
+    },
+  };
+}
+
+// -----------------------------------------------------------------------------
+// The clinic
+// -----------------------------------------------------------------------------
+
+const ACCOUNT: AccountState = SUPPORT_ESCALATION_FIXTURE.accountRows[0];
+
+const STATE = {
+  clinic: {
+    id: CLINIC_ID,
+    slug: "glow",
+    name: "Radiance Med Spa",
+    specialty: "med-spa",
+    timezone: "America/New_York",
+    publishedPhoneE164: "+15125550100",
+  },
+  settings: {
+    directLineE164: "+15125550101",
+    transferE164: null,
+    urgentHelpE164: "+15125550102",
+    vetReferralE164: null,
+  },
+  knowledge: { services: [{ name: "Signature Glow Facial" }] },
+  address: null as string | null,
+} as unknown as SetupState;
+
+type Sent = { to: string; message: OutgoingEmail };
+
+function capture(): EmailTransport & { sent: Sent[] } {
+  const sent: Sent[] = [];
+  return {
+    name: "capture",
+    sent,
+    async send(recipient, msg): Promise<DeliveryResult> {
+      sent.push({ to: recipient.to, message: msg });
+      return { status: "sent", messageId: `msg-${sent.length}` };
+    },
+  } as EmailTransport & { sent: Sent[] };
+}
+
+function context(
+  client: SupportModelClient | null,
+  over: Partial<SupportChatContext> = {},
+): SupportChatContext {
+  return {
+    clinicId: CLINIC_ID,
+    slug: "glow",
+    deviceKey: "device-a",
+    actor: { type: "user", userId: "user-1", label: "Front desk Mac" },
+    limiter: new SupportLimiter(),
+    client,
+    readAccount: async () => ({ account: ACCOUNT, state: STATE }),
+    readForwarding: async () => null,
+    now: new Date("2026-10-14T15:00:00Z"),
+    newId: () => "6f1e2d3c-4b5a-4968-8776-655443322110",
+    ...over,
+  };
+}
+
+async function chat(
+  ctx: SupportChatContext,
+  text: string,
+  history: { role: "user" | "assistant"; text: string }[] = [],
+): Promise<{ events: SupportEvent[]; outcome: string }> {
+  const events: SupportEvent[] = [];
+  const outcome = await handleSupportChat(ctx, { history, text }, (e) => events.push(e));
+  return { events, outcome };
+}
+
+function replyOf(events: readonly SupportEvent[]): string {
+  let reply = "";
+  for (const e of events) {
+    if (e.type === "delta") reply += e.text;
+    if (e.type === "replace") reply = e.text;
+  }
+  return reply;
+}
+
+// -----------------------------------------------------------------------------
+
+describe("the request", () => {
+  test("claude-opus-5-5, the help text cached as a static prefix, the clinic after it, four strict tools", () => {
+    const system = buildSupportPrompt({
+      clinicName: "Radiance Med Spa",
+      audience: "patients",
+      timeZone: "America/New_York",
+      now: new Date("2026-10-14T15:00:00Z"),
+    });
+    const request = supportRequest({ system, messages: [{ role: "user", content: "Hi" }] });
+    expect(request.model).toBe("claude-opus-5-5");
+    expect(request.output_config).toEqual({ effort: "low" });
+    expect(request.tool_choice).toEqual({ type: "auto" });
+    const blocks = request.system as Anthropic.TextBlockParam[];
+    expect(blocks[0]).toEqual({
+      type: "text",
+      text: SUPPORT_PROMPT_STABLE,
+      cache_control: { type: "ephemeral" },
+    });
+    expect(blocks[1]).toMatchObject({ type: "text" });
+    expect(blocks[1]!.cache_control).toBeUndefined();
+    expect(blocks[1]!.text).toContain("Radiance Med Spa");
+    expect(blocks[1]!.text).toContain("Wednesday, October 14, 2026");
+
+    // The prefix is the same bytes for every clinic and every day.
+    const other = buildSupportPrompt({
+      clinicName: "Paws Vet",
+      audience: "clients",
+      timeZone: "America/Chicago",
+      now: new Date("2027-01-02T09:00:00Z"),
+    });
+    expect(other.stable).toBe(system.stable);
+    expect(system.stable).not.toMatch(/Radiance|2026-10-14|October 14/);
+
+    expect(SUPPORT_TOOLS.map((t) => t.name)).toEqual([
+      "get_account_state",
+      "get_forwarding_steps",
+      "link_to",
+      "escalate_to_support",
+    ]);
+    for (const tool of SUPPORT_TOOLS) {
+      expect(tool.strict, tool.name).toBe(true);
+      expect(tool.input_schema.additionalProperties, tool.name).toBe(false);
+    }
+  });
+
+  test("the help text is partly generated from the Settings registry: every switch is in it", () => {
+    for (const key of SETTING_KEYS) {
+      expect(HELP_TEXT, key).toContain(`link_to "${key}"`);
+      expect(HELP_TEXT, key).toContain(SETTING_PLACES[key].label);
+    }
+    expect(HELP_TEXT).not.toMatch(/HIPAA compliant\b(?!")/);
+  });
+});
+
+describe("the screen, before the model and before the person", () => {
+  test("a caller's number, a stranger's address and a treatment never reach the model; the person sees what it saw", async () => {
+    const model = fakeModel([{ text: ["Thanks, I can help with that."] }]);
+    const { events } = await chat(
+      context(model),
+      "Why didn't AYA book (512) 555-0199 for Botox? Her email is jane.doe@gmail.com",
+    );
+    const sent = JSON.stringify(model.requests);
+    expect(sent).not.toMatch(/555-0199|5550199|jane\.doe|botox/i);
+    expect(events[0]).toEqual({
+      type: "screened",
+      text: "Why didn't AYA book [number hidden] for [treatment]? Her email is [email hidden]",
+      notices: [
+        "We hid a phone number or an email address: this chat is for questions about healdesk, not about a person.",
+        "We hide treatment names here.",
+      ],
+    });
+    const user = model.requests[0]!.messages.at(-1)!;
+    expect(user.content).toBe(
+      "Why didn't AYA book [number hidden] for [treatment]? Her email is [email hidden]",
+    );
+  });
+
+  test("the practice's own numbers pass both ways", async () => {
+    const model = fakeModel([
+      { text: ["Your direct line is (512) 555-0101 and it's set correctly in Safety net. "] },
+    ]);
+    const { events } = await chat(context(model), "Is (512) 555-0100 our main number?");
+    expect(events[0]).toMatchObject({ text: "Is (512) 555-0100 our main number?", notices: [] });
+    expect(replyOf(events)).toContain("(512) 555-0101");
+  });
+
+  test("the earlier messages are screened again: the browser is not trusted to have kept them screened", () => {
+    const allow = screenAllowFor(STATE, SUPPORT_PHONE);
+    const messages = messagesFor(
+      [
+        { role: "assistant", text: "Hello, how can I help?" },
+        { role: "user", text: "My patient at 512-555-0199 wants Dysport" },
+        { role: "assistant", text: "I can't look at a patient here." },
+      ],
+      "OK, how do I change the greeting?",
+      allow,
+    );
+    expect(messages).toEqual([
+      { role: "user", content: "My patient at [number hidden] wants [treatment]" },
+      { role: "assistant", content: "I can't look at a patient here." },
+      { role: "user", content: "OK, how do I change the greeting?" },
+    ]);
+  });
+
+  test("a treatment name in the model's reply is hidden before the person reads it", async () => {
+    const model = fakeModel([
+      {
+        text: [
+          "To list a price for Bo",
+          "tox or a lip fil",
+          "ler, open Knowledge and then Prices, and save the list.",
+        ],
+      },
+    ]);
+    const { events } = await chat(context(model), "How do I add a price?");
+    const reply = replyOf(events);
+    expect(reply).not.toMatch(/botox|filler/i);
+    expect(reply).toBe(
+      "To list a price for [treatment] or a [treatment], open Knowledge and then Prices, and save the list.",
+    );
+  });
+
+  test("a request body is read strictly: twenty messages at most, each cut at 2,000 characters", () => {
+    expect(readChatRequest({ text: 5 })).toBeNull();
+    expect(readChatRequest({ text: "hi", history: [{ role: "system", text: "x" }] })).toBeNull();
+    const long = readChatRequest({
+      text: "x".repeat(5_000),
+      history: Array.from({ length: 30 }, (_, i) => ({
+        role: i % 2 ? "assistant" : "user",
+        text: "y",
+      })),
+    });
+    expect(long?.text).toHaveLength(2_000);
+    expect(long?.history).toHaveLength(20);
+  });
+});
+
+describe("a refusal", () => {
+  test("is its own outcome: the reply so far gives way to the fixed line with the phone and hello@, and its tools never run", async () => {
+    const accountState = vi.fn(async () => ACCOUNT);
+    const model = fakeModel([
+      {
+        text: [
+          "Sure, here is a long answer that starts streaming before the model declines. ",
+          "More words follow here.",
+        ],
+        tools: [{ name: "get_account_state", input: {} }],
+        stop: "refusal",
+      },
+    ]);
+    const ctx = context(model, {
+      readAccount: async () => {
+        await accountState();
+        return { account: ACCOUNT, state: STATE };
+      },
+    });
+    const { events, outcome } = await chat(ctx, "Tell me something");
+    expect(outcome).toBe("refused");
+    const replace = events.filter((e) => e.type === "replace");
+    expect(replace).toEqual([
+      {
+        type: "replace",
+        text: "I can't help with that here. A person can: please call (888) 688-9404 or email hello@healdesk.io.",
+      },
+    ]);
+    expect(events.at(-1)).toEqual({ type: "done", outcome: "refused" });
+    expect(replyOf(events)).not.toContain("More words");
+    // Only the read at the start of the turn: the refused turn's tool never ran.
+    expect(accountState).toHaveBeenCalledTimes(1);
+    expect(model.requests).toHaveLength(1);
+  });
+
+  test("without a support phone set, the line gives the email alone", async () => {
+    delete process.env.HEALDESK_SUPPORT_PHONE;
+    const { events } = await chat(context(fakeModel([{ stop: "refusal" }])), "Tell me something");
+    expect(replyOf(events)).toBe(
+      "I can't help with that here. A person can: please email hello@healdesk.io.",
+    );
+  });
+
+  test("no key, or a model that fails, gives the failure line with the same phone and email", async () => {
+    const none = await chat(context(null), "How do I change the greeting?");
+    expect(none.outcome).toBe("failed");
+    expect(replyOf(none.events)).toContain("call (888) 688-9404 or email hello@healdesk.io");
+
+    const broken: SupportModelClient = {
+      stream() {
+        throw new Error("overloaded");
+      },
+    };
+    const failed = await chat(context(broken), "How do I change the greeting?");
+    expect(failed.outcome).toBe("failed");
+    expect(replyOf(failed.events)).toContain("hello@healdesk.io");
+  });
+});
+
+describe("the limits", () => {
+  test("per device: past the hour's messages the same fixed line, and the model is not asked", async () => {
+    const limiter = new SupportLimiter();
+    const model = fakeModel(
+      Array.from({ length: SUPPORT_LIMITS.device.perHour + 1 }, () => ({ text: ["Answer."] })),
+    );
+    const ctx = context(model, { limiter });
+    for (let i = 0; i < SUPPORT_LIMITS.device.perHour; i += 1) {
+      expect((await chat(ctx, `Question ${i}`)).outcome).toBe("answered");
+    }
+    const past = await chat(ctx, "One more");
+    expect(past.outcome).toBe("limited");
+    expect(replyOf(past.events)).toBe(
+      "I can't help with that here. A person can: please call (888) 688-9404 or email hello@healdesk.io.",
+    );
+    expect(model.requests).toHaveLength(SUPPORT_LIMITS.device.perHour);
+
+    // Another device at the same clinic still gets answers.
+    expect((await chat({ ...ctx, deviceKey: "device-b" }, "Hello")).outcome).toBe("answered");
+  });
+
+  test("per clinic: a clinic past its day's messages is limited on every device", async () => {
+    const limiter = new SupportLimiter();
+    const now = new Date("2026-10-14T15:00:00Z").getTime();
+    for (let i = 0; i < SUPPORT_LIMITS.clinic.perDay; i += 1) {
+      expect(limiter.take("message", CLINIC_ID, `device-${i}`, now)).toBe(true);
+    }
+    const model = fakeModel([{ text: ["Answer."] }]);
+    const { outcome } = await chat(context(model, { limiter, deviceKey: "device-new" }), "Hello");
+    expect(outcome).toBe("limited");
+    expect(model.requests).toHaveLength(0);
+  });
+
+  test("the windows: an hour per device, a day per device and per clinic; a refused use counts nothing", () => {
+    const limiter = new SupportLimiter();
+    const t0 = 1_000_000;
+    for (let i = 0; i < SUPPORT_LIMITS.device.perHour; i += 1) {
+      expect(limiter.take("message", "c1", "d1", t0)).toBe(true);
+    }
+    expect(limiter.take("message", "c1", "d1", t0)).toBe(false);
+    expect(limiter.take("message", "c1", "d1", t0 + 60 * 60 * 1000)).toBe(true);
+
+    for (let i = 0; i < SUPPORT_LIMITS.device.escalationsPerDay; i += 1) {
+      expect(limiter.take("escalation", "c2", "d2", t0)).toBe(true);
+    }
+    expect(limiter.take("escalation", "c2", "d2", t0)).toBe(false);
+    // The clinic's own escalations: other devices until the clinic's day is full.
+    let taken = SUPPORT_LIMITS.device.escalationsPerDay;
+    for (let d = 3; taken < SUPPORT_LIMITS.clinic.escalationsPerDay; d += 1, taken += 1) {
+      expect(limiter.take("escalation", "c2", `d${d}`, t0)).toBe(true);
+    }
+    expect(limiter.take("escalation", "c2", "d-other", t0)).toBe(false);
+    expect(limiter.take("escalation", "c2", "d-other", t0 + 24 * 60 * 60 * 1000)).toBe(true);
+  });
+});
+
+describe("get_forwarding_steps", () => {
+  const ready: ForwardingFacts = {
+    voice: { readyAt: new Date("2026-10-10T12:00:00Z") },
+    assistantNumberE164: "+15125550142",
+    carrier: "verizon",
+    phoneSystem: "landline",
+    mode: "overflow_after_hours",
+    isClosed: false,
+  };
+
+  test("returns nothing until voice is ready: phone bought, ready on our side, AYA's number given", () => {
+    expect(forwardingStepsFrom({ ...ready, voice: null })).toBeNull();
+    expect(forwardingStepsFrom({ ...ready, voice: { readyAt: null } })).toBeNull();
+    expect(forwardingStepsFrom({ ...ready, assistantNumberE164: null })).toBeNull();
+    expect(forwardingStepsFrom({ ...ready, assistantNumberE164: "5125550142" })).toBeNull();
+    expect(forwardingStepsFrom({ ...ready, isClosed: true })).toBeNull();
+  });
+
+  test("once voice is ready, the carrier's codes for the coverage mode, dialling AYA's number", () => {
+    const steps = forwardingStepsFrom(ready)!;
+    expect(steps.carrier).toBe("Verizon");
+    expect(steps.mode).toBe("Overflow and after hours");
+    expect(steps.steps.map((s) => s.dial)).toEqual(["*905125550142", "*925125550142"]);
+    expect(steps.undo.map((s) => s.dial)).toEqual(["*91", "*93"]);
+  });
+
+  test("through the chat: before voice is ready the model is told there is nothing, and makes up no code", async () => {
+    const model = fakeModel([
+      { tools: [{ name: "get_forwarding_steps", input: {} }] },
+      { text: ["Phone isn't ready for forwarding yet, so don't change your call forwarding yet."] },
+    ]);
+    await chat(context(model), "What do I dial to forward calls?");
+    const result = model.requests[1]!.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[];
+    expect(result[0]!.content).toMatch(/^Nothing yet: phone isn't ready for call forwarding/);
+  });
+
+  test("once ready, AYA's number in the codes passes the screen", async () => {
+    const steps = forwardingStepsFrom(ready);
+    const model = fakeModel([
+      { tools: [{ name: "get_forwarding_steps", input: {} }] },
+      {
+        text: [
+          "Dial *90 512-555-0142 from the main line, then *92 512-555-0142. Undo with *91 and *93.",
+        ],
+      },
+    ]);
+    const { events } = await chat(context(model, { readForwarding: async () => steps }), "Codes?");
+    expect(replyOf(events)).toContain("*90 512-555-0142");
+  });
+});
+
+describe("link_to", () => {
+  test("built from the public origin, never HEALDESK_APP_URL, to the card that holds the switch", () => {
+    for (const target of LINK_TARGETS) {
+      const link = linkTo("glow", target);
+      if (target === "bookings") {
+        // Not a screen in this build: no link that 404s.
+        expect(link).toBeNull();
+        continue;
+      }
+      expect(link!.url.startsWith(`${ORIGIN}/c/glow`), target).toBe(true);
+      expect(link!.url).not.toContain(INTERNAL);
+    }
+    expect(linkTo("glow", "direct_line")).toEqual({
+      label: "Settings → Safety net → Direct line",
+      url: `${ORIGIN}/c/glow/settings#safety-net`,
+    });
+  });
+
+  test("through the chat: a button under the reply, once; an unknown target gives none", async () => {
+    const model = fakeModel([
+      {
+        tools: [
+          { name: "link_to", input: { setting: "phone_greeting" } },
+          { name: "link_to", input: { setting: "chat_greeting" } },
+          { name: "link_to", input: { setting: "https://evil.test" } },
+        ],
+      },
+      { text: ["Both greetings are in Settings, under How AYA talks."] },
+    ]);
+    const { events } = await chat(context(model), "Where's the greeting?");
+    expect(events.filter((e) => e.type === "link")).toEqual([
+      {
+        type: "link",
+        label: "Settings → How AYA talks → When AYA answers a call",
+        url: `${ORIGIN}/c/glow/settings#how-aya-talks`,
+      },
+    ]);
+  });
+});
+
+describe("an escalation", () => {
+  const CHAT_WORDS = "Marisol says the zebra-striped handsets keep dropping our quokka line";
+  const MODEL_WORDS = "I'll pass this to the healdesk team about the pangolin trouble.";
+
+  test("emails hello@ the topic, the fields and the account state, never the chat's words, and no log line carries them", async () => {
+    const lines: string[] = [];
+    for (const level of ["log", "info", "warn", "error", "debug"] as const) {
+      vi.spyOn(console, level).mockImplementation((...args: unknown[]) => {
+        lines.push(args.map(String).join(" "));
+      });
+    }
+    const transport = capture();
+    const model = fakeModel([
+      {
+        text: [MODEL_WORDS],
+        tools: [
+          {
+            name: "escalate_to_support",
+            input: {
+              category: "forwarding",
+              symptom: "calls_not_reaching_aya",
+              fields: {
+                carrier: "verizon",
+                phone_system: "landline",
+                mode: "overflow_after_hours",
+                channel: "voice",
+              },
+            },
+          },
+        ],
+      },
+      { text: ["Done: a person will reply by Thursday."] },
+    ]);
+    const { events, outcome } = await chat(context(model, { email: { transport } }), CHAT_WORDS, [
+      { role: "user", text: "Earlier the wombat greeting was wrong" },
+      { role: "assistant", text: "You can change the narwhal greeting in Settings." },
+    ]);
+    expect(outcome).toBe("answered");
+    // The capture works: the turn and the escalation each wrote their line.
+    expect(lines.some((l) => l.includes("support escalation sent"))).toBe(true);
+    expect(lines.some((l) => l.includes("support chat turn"))).toBe(true);
+
+    expect(transport.sent).toHaveLength(1);
+    const [email] = transport.sent;
+    expect(email!.to).toBe("hello@healdesk.io");
+    const everything = JSON.stringify(email!.message);
+    for (const word of ["zebra", "quokka", "Marisol", "wombat", "narwhal", "pangolin"]) {
+      expect(everything, word).not.toContain(word);
+      expect(lines.join("\n"), word).not.toContain(word);
+    }
+    expect(email!.message.subject).toBe("Support request: Call forwarding");
+    expect(email!.message.text).toContain("What's wrong: Calls aren't reaching AYA");
+    expect(email!.message.text).toContain("Carrier: Verizon");
+    expect(email!.message.text).toContain("Practice id: 0c1d2e3f-0000-4000-8000-000000000000");
+    expect(email!.message.text).toContain("Channel: Phone: ready on healdesk's side");
+    // The channel field is dropped: forwarding doesn't carry one.
+    expect(email!.message.text).not.toMatch(/^Channel: Phone$/m);
+    expect(email!.message.idempotencyKey).toBe(
+      "hd-support_escalation-6f1e2d3c-4b5a-4968-8776-655443322110-1",
+    );
+    // No clinic tag: a bounce from our own inbox says nothing about the clinic's address.
+    expect(email!.message.tags?.map((t) => t.name)).toEqual(["app", "kind", "delivery"]);
+
+    expect(events.filter((e) => e.type === "escalated")).toEqual([
+      { type: "escalated", topic: "forwarding", replyByOn: "2026-10-15", to: null },
+    ]);
+  });
+
+  test("a topic or a symptom off its list sends nothing", async () => {
+    const transport = capture();
+    const model = fakeModel([
+      {
+        tools: [
+          {
+            name: "escalate_to_support",
+            input: { category: "forwarding", symptom: "wont_connect", fields: {} },
+          },
+        ],
+      },
+      { text: ["Let me try that again."] },
+    ]);
+    await chat(context(model, { email: { transport } }), "Please get me a person");
+    expect(transport.sent).toHaveLength(0);
+  });
+
+  test("past the escalation limit nothing is sent, and the model is told to give the phone and email", async () => {
+    const transport = capture();
+    const limiter = new SupportLimiter();
+    const now = new Date("2026-10-14T15:00:00Z").getTime();
+    for (let i = 0; i < SUPPORT_LIMITS.device.escalationsPerDay; i += 1) {
+      limiter.take("escalation", CLINIC_ID, "device-a", now);
+    }
+    const model = fakeModel([
+      {
+        tools: [
+          {
+            name: "escalate_to_support",
+            input: { category: "other", symptom: "other", fields: {} },
+          },
+        ],
+      },
+      { text: ["Please call or email us."] },
+    ]);
+    await chat(context(model, { email: { transport }, limiter }), "Please get me a person");
+    expect(transport.sent).toHaveLength(0);
+    const result = model.requests[1]!.messages.at(-1)!.content as Anthropic.ToolResultBlockParam[];
+    expect(result[0]).toMatchObject({ is_error: true });
+    expect(String(result[0]!.content)).toContain("hello@healdesk.io");
+  });
+});

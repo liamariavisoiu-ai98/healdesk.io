@@ -5,6 +5,7 @@ import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
 import { demoOfferEndsAt, demoSetupCredit, getDemoSession } from "@/lib/demo/sessions";
 import { replyByDate } from "@/lib/reply-by";
 import { creditUntil, gateState } from "@/lib/setup-gate";
+import { requestChannels } from "@/lib/setup-requests";
 import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 import { siteOfferEndsAt } from "@/lib/site-offer";
 
@@ -32,7 +33,8 @@ export type ModeOffer = { kind: SetupOffer; percentOfSetupFee: number; endsAt: s
  *   was expired, replaced or already used, and the date we reply by.
  *
  * What comes back about the request is what the person who holds the link
- * already gave us: their name, clinic, website and address. Nothing else.
+ * already gave us: their name, clinic, website, address and the channels they
+ * asked for. Nothing else.
  * Beside the purchase goes one setting of this server's, whether Stripe Tax
  * is on, so Review and pay can say "Plus sales tax where it applies", and the
  * setup offer that would apply (`offer`, since 13 October 2026): the
@@ -70,6 +72,8 @@ export async function GET(request: Request): Promise<Response> {
         clinicName: state.request.clinicName,
         email: state.request.email,
         website: state.request.website,
+        // What they asked AYA on, so the purchase opens on that package.
+        channels: requestChannels(state.request),
       },
       creditUntil: until?.toISOString() ?? null,
       salesTax,

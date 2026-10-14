@@ -112,8 +112,15 @@ export type CheckoutProgress = {
   done: boolean;
 };
 
-/** What the flow may start from, besides the package: the setup link's request, or the demo. */
-export type CheckoutSeed = Pick<FunnelSeed, "clinicName" | "website" | "specialty" | "contactEmail">;
+/**
+ * What the flow may start from, besides `?plan`: the setup link's request
+ * (its clinic, website, address, the name it was sent under and the package
+ * its channels add up to), the demo, or the demo gate's address and specialty.
+ */
+export type CheckoutSeed = Pick<
+  FunnelSeed,
+  "clinicName" | "website" | "specialty" | "contactEmail" | "contactName" | "packageId"
+>;
 
 const RETURNED_NOTICE =
   "You left the payment page, so nothing was charged. Everything you entered is still here.";

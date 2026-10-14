@@ -102,16 +102,24 @@ export type FunnelState = {
 export type FunnelSeed = {
   /** A plan, package or retired package id, from `?plan` (`planLink`). Anything else preselects nothing. */
   plan?: string | null;
+  /**
+   * The package the setup request's channels add up to (`packageForChannels`),
+   * preselected when `plan` names none: the card the buyer asked for, at the
+   * default steps. Anything that is not a package id preselects nothing.
+   */
+  packageId?: string | null;
   interval?: BillingInterval;
   clinicName?: string;
   /** As typed, or null: the setup request said the clinic has no website. */
   website?: string | null;
   specialty?: string | null;
+  /** The name the setup request was sent under: the signatory, until the buyer changes it. */
+  contactName?: string;
   contactEmail?: string;
 };
 
 export function initialFunnel(seed: FunnelSeed = {}): FunnelState {
-  const start = seed.plan ? planLink(seed.plan) : null;
+  const start = (seed.plan ? planLink(seed.plan) : null) ?? (isPackageId(seed.packageId) ? planLink(seed.packageId) : null);
   const specialty =
     isSpecialtyId(seed.specialty) && specialtyOffered(seed.specialty) ? seed.specialty : null;
   return {
@@ -128,10 +136,38 @@ export function initialFunnel(seed: FunnelSeed = {}): FunnelState {
     bookingSystem: null,
     calendarAccount: null,
     covered: null,
-    contactName: "",
+    contactName: (seed.contactName ?? "").trim().slice(0, PERSON_FIELD_MAX),
     contactTitle: "",
     contactEmail: seed.contactEmail ?? "",
   };
+}
+
+/**
+ * The package a setup request's channels add up to (plan Part A2: the setup
+ * link opens the funnel on the card the clinic asked for). Phone is Voice;
+ * Instagram, Messenger or WhatsApp is Meta Chat, which includes website chat;
+ * website chat alone is Web Chat. A clinic with no website is never offered
+ * Web Chat (`withoutWebsite`). Null when no channel names a package. The
+ * channel ids are the form's (lib/setup-channels.ts), read as plain strings
+ * so this module stays free of the form's.
+ */
+export function packageForChannels(
+  channels: readonly string[],
+  hasWebsite: boolean,
+): PackageId | null {
+  const voice = channels.includes("phone");
+  const meta = channels.some((c) => c === "instagram" || c === "messenger" || c === "whatsapp");
+  const web = channels.includes("web");
+  const chat = meta ? "metachat" : web ? "webchat" : null;
+  const packageId: PackageId | null = voice
+    ? chat === "metachat"
+      ? "voice-metachat"
+      : chat === "webchat"
+        ? "voice-webchat"
+        : "voice"
+    : chat;
+  if (!packageId) return null;
+  return hasWebsite ? packageId : withoutWebsite(packageId);
 }
 
 // -----------------------------------------------------------------------------

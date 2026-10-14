@@ -132,6 +132,7 @@ describe("the mode answer in pilot mode", () => {
         clinicName: "Radiance Med Spa",
         email: "info@radiancemedspa.com",
         website: "radiancemedspa.com",
+        channels: ["phone", "web"],
       },
       creditUntil: null,
       salesTax: false,

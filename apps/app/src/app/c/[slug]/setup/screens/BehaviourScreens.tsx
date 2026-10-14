@@ -300,10 +300,17 @@ export function UrgentScreen(
       screen="urgent"
       title="Urgent help"
       intro={
-        <p>
-          When someone reports a complication or something urgent, AYA tells them to call 911 if
-          it&rsquo;s an emergency, gives them the number below, and tells your team at once.
-        </p>
+        props.vet ? (
+          <p>
+            When a client reports an emergency with their animal, AYA gives them your emergency
+            referral clinic, and your own number while you&rsquo;re open.
+          </p>
+        ) : (
+          <p>
+            When someone reports a complication or something urgent, AYA tells them to call 911 if
+            it&rsquo;s an emergency, gives them the number below, and tells your team at once.
+          </p>
+        )
       }
       skipCost={props.skipCost}
       backHref={props.backHref}

@@ -111,6 +111,37 @@ describe("the screen, before any model", () => {
     expect(screenInbound(FRONT_DOOR_PROBES.find((p) => p.id === "request")!.text)).toBeNull();
   });
 
+  test("a veterinary practice is screened with the animal set; a med spa never is", () => {
+    expect(screenInbound("my cat can't pee", "veterinary")).toBe("urgent");
+    expect(screenInbound("my dog ate a whole bar of chocolate", "veterinary")).toBe("urgent");
+    expect(screenInbound("my dog ate a whole bar of chocolate", "med-spa")).toBeNull();
+    // Without a specialty, the set for people, as the front door always had.
+    expect(screenInbound("my dog ate a whole bar of chocolate")).toBeNull();
+    expect(screenInbound("Can I book a nail trim for Saturday?", "veterinary")).toBeNull();
+  });
+
+  test("a veterinary practice's urgent line gives the emergency vet, never 911, and passes the reply guard", () => {
+    const facts = {
+      clinicName: "Paws",
+      phone: PUBLISHED,
+      urgentPhone: DIRECT,
+      vetReferralPhone: "+14155550911",
+      openingHours: { sun: [], mon: [["09:00", "17:00"]], tue: [["09:00", "17:00"]], wed: [], thu: [], fri: [], sat: [] } as const,
+      timeZone: "America/Los_Angeles",
+    };
+    // Tuesday 10:00 in Los Angeles, then the Sunday before.
+    const open = urgentLine(facts, { emergency: "veterinary" }, new Date("2026-10-13T17:00:00Z"));
+    expect(open).toBe(
+      `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call the emergency vet now on +14155550911. Otherwise, please call Paws on ${DIRECT}.`,
+    );
+    const closed = urgentLine(facts, { emergency: "veterinary" }, new Date("2026-10-11T17:00:00Z"));
+    expect(closed).not.toContain(DIRECT);
+    for (const line of [open, closed]) {
+      expect(line).not.toMatch(/\b911\b/);
+      expect(guardReply(line, { clinicName: "Paws", serviceNames: ["Senior diagnostics"] })).toEqual({ ok: true });
+    }
+  });
+
   test("an everyday skin or hair condition is clinical here, never urgent; a front desk's question still passes", () => {
     // Owner, 7 October 2026: the check recognises everyday skin conditions,
     // and on a Meta channel, which signs no BAA, a condition named is clinical.
@@ -1126,5 +1157,46 @@ describeDb("the screen and the greeting, end to end", () => {
       { platform: "messenger", source: "model" },
       { platform: "messenger", source: "model", greeted: true },
     ]);
+  }, 60_000);
+
+  test("a model that declines to answer gets the hand-off line, recorded as a refusal and never as a guard refusal", async () => {
+    const c = await doorOpen("screen-refusal", [{ platform: "messenger", externalId: "910000000000071" }]);
+    const responder = vi.fn<FrontDoorResponder>(async () => ({ refused: true, category: "bio" }));
+    const answer = (await answerSent(c.clinicId, { platform: "messenger", text: "What are your opening hours?", responder }))!;
+    expect(responder).toHaveBeenCalledTimes(1);
+    expect(answer).toMatchObject({ source: "handoff", guard: "model refusal", screened: null, booking: "none" });
+    expect(answer.text).toBe(`${greetingFor(c.clinicName, "messenger")} ${handoffLine({ clinicName: c.clinicName, phone: PUBLISHED })}`);
+    expect(await frontDoorAudit(c.clinicId)).toEqual([
+      { platform: "messenger", source: "handoff", guarded: "model refusal", greeted: true },
+    ]);
+  }, 60_000);
+
+  test("a veterinary practice's urgent message never reaches the model and gets its emergency vet, its own number only while open", async () => {
+    const c = await doorOpen("screen-vet", [{ platform: "messenger", externalId: "910000000000072" }], { directLine: DIRECT });
+    await getMigratorPool().query(`update clinics set specialty = 'veterinary', timezone = 'America/Los_Angeles' where id = $1`, [c.clinicId]);
+    await inTenant(c.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, vet_referral_e164) values ($1, $2)
+         on conflict (clinic_id) do update set vet_referral_e164 = excluded.vet_referral_e164`,
+        [c.clinicId, "+14155550911"],
+      ),
+    );
+    const facts = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => frontDoorFacts(tx));
+    expect(facts).toMatchObject({ specialty: "veterinary", vetReferralPhone: "+14155550911", timeZone: "America/Los_Angeles" });
+
+    const responder = vi.fn<FrontDoorResponder>(async () => modelJson("Please call the practice."));
+    const greeting = greetingFor(c.clinicName, "messenger");
+    // Tuesday 10:00 in Los Angeles: open.
+    const open = (await answerSent(c.clinicId, { platform: "messenger", text: "my cat can't pee", responder, now: new Date("2026-10-13T17:00:00Z") }))!;
+    expect(open).toMatchObject({ source: "urgent", screened: "urgent" });
+    expect(open.text).toBe(`${greeting} ${urgentLine(facts!, { emergency: "veterinary" }, new Date("2026-10-13T17:00:00Z"))}`);
+    expect(open.text).toContain("call the emergency vet now on +14155550911");
+    expect(open.text).not.toMatch(/\b911\b/);
+    // Sunday: closed, so only the emergency vet.
+    const closed = (await answerSent(c.clinicId, { platform: "messenger", text: "my dog ate a whole bar of chocolate", responder, now: new Date("2026-10-11T17:00:00Z") }))!;
+    expect(closed.source).toBe("urgent");
+    expect(closed.text).toContain("+14155550911");
+    expect(closed.text).not.toContain("Otherwise, please call");
+    expect(responder).not.toHaveBeenCalled();
   }, 60_000);
 });

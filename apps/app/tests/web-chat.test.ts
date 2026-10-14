@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 
 import { POST as messagePost, __setWebChatDepsForTests } from "@/app/api/widget/v1/[slug]/message/route";
 import { OPTIONS as startOptions, POST as startPost } from "@/app/api/widget/v1/[slug]/start/route";
-import type { AssistantMessage, AssistantResponder } from "@/lib/assistant/turn";
+import type { AssistantMessage, AssistantPrompt, AssistantResponder } from "@/lib/assistant/turn";
 import { endWebChat, originAllowed, readToken, sendWebChatMessage, signToken, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -37,7 +37,7 @@ class FakeTransport implements EmailTransport {
   }
 }
 
-type Seen = { system: string; messages: AssistantMessage[] };
+type Seen = { system: AssistantPrompt; messages: AssistantMessage[] };
 
 function scripted(answer: (last: string, seen: Seen) => Record<string, unknown> | string) {
   const seen: Seen[] = [];
@@ -144,9 +144,12 @@ describeDb("the web chat", () => {
 
     // The model saw the whole conversation, the opening line in the system prompt.
     expect(seen[1]!.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
-    expect(seen[1]!.system).toContain("You opened the conversation with");
-    expect(seen[1]!.system).toContain("Consultation: $150");
-    expect(seen[1]!.system).toContain("guaranteed results");
+    // The opening line is the turn's own context; the menu and the never-say
+    // list are the stable prefix the prompt cache holds.
+    expect(seen[1]!.system.turn).toContain("You opened the conversation with");
+    expect(seen[1]!.system.stable).toContain("Consultation: $150");
+    expect(seen[1]!.system.stable).toContain("guaranteed results");
+    expect(seen[1]!.system.stable).toBe(seen[0]!.system.stable);
 
     const { rows: convos } = await inTenant(clinic.clinicId, (client) =>
       client.query<{ channel: string; disclosure_played_at: Date | null }>(`select channel, disclosure_played_at from conversations where id = $1`, [conversationId]),

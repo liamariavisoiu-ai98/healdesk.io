@@ -1,10 +1,16 @@
-import { resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
+import {
+  resolveBookingRequirements,
+  type AssistantLanguage,
+  type AssistantTone,
+  type BookingField,
+} from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
-import { agentConfigs, clinicChannels, clinicSettings, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
+import { agentConfigs, clinicChannels, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
 import { DAY_KEYS, DAY_LABELS, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { neverSayWithDefaults, readKnowledge } from "@/lib/setup/knowledge";
+import { readSetupSettings } from "@/lib/setup/settings";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -17,6 +23,12 @@ import type { TenantTx } from "@/lib/tenant";
  * the front door. The never-say list is the clinic's own plus the built-in
  * defaults, and goes into every conversation on every channel (CLAUDE.md,
  * "Guardrails"). The clinic cannot edit the prompt, only these facts.
+ *
+ * The clinic's Behaviour switches come with them (the v1 spec, "Every switch
+ * in the portal"): its tone, its languages, "Suggest add-on treatments" and
+ * "Mention promotions". The promotions box is a fact only while Mention
+ * promotions is on. Add-ons and promotions are phone and website chat only:
+ * the Meta front door never mentions either, and reads none of this.
  */
 
 export type AssistantChannel = "voice" | "web_chat";
@@ -26,19 +38,26 @@ export type AssistantService = Pick<AgentService, "name" | "priceFromUsd" | "pri
 export type AssistantFacts = {
   clinicId: string;
   clinicName: string;
+  /** The practice's specialty id: which urgent set it is screened with (@healdesk/catalog, urgentSetFor). */
+  specialty: string | null;
   timeZone: string;
   /** The clinic's published number. */
   phone: string | null;
   /** What the urgent line gives after 911 (lib/setup/urgent.ts). */
   urgentPhone: string | null;
+  /** A veterinary practice's emergency referral clinic: what its urgent line gives instead of 911. */
+  vetReferralPhone: string | null;
   /** The direct line: a number that reaches a person and never forwards back to us. */
   directLine: string | null;
   address: string | null;
   /** Weekly hours, one line a day, in the clinic's own zone. */
   hours: string[];
+  /** The same hours as stored: whether a veterinary practice is open, for its urgent line. */
+  openingHours: OpeningHours | null;
   services: AssistantService[];
   policies: string[];
   quickAnswers: KnowledgeAnswer[];
+  /** The promotions box, only while "Mention promotions" is on; null otherwise. */
   promotions: string | null;
   notes: string | null;
   escalationHours: string | null;
@@ -46,6 +65,12 @@ export type AssistantFacts = {
   /** The practice's requirement set: what a request needs before the desk can confirm it. */
   requirements: BookingField[];
   greeting: { phone: string; chat: string };
+  /** How AYA speaks: "warm" (the default) or "clinical". */
+  tone: AssistantTone;
+  /** The languages AYA answers in; English is always one of them. */
+  languages: AssistantLanguage[];
+  /** "Suggest add-on treatments": on lets AYA suggest a complementary service during a booking. */
+  suggestAddOns: boolean;
 };
 
 function hoursLines(hours: OpeningHours | null): string[] {
@@ -80,31 +105,25 @@ export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | nul
   const approved = Boolean(agent?.approvedAt);
   const knowledge = await readKnowledge(tx.db, tx.clinicId);
 
-  const [settings] = await tx.db
-    .select({
-      directLine: clinicSettings.directLineE164,
-      urgentHelp: clinicSettings.urgentHelpE164,
-      phoneGreeting: clinicSettings.phoneGreeting,
-      chatGreeting: clinicSettings.chatGreeting,
-    })
-    .from(clinicSettings)
-    .where(eq(clinicSettings.clinicId, tx.clinicId))
-    .limit(1);
+  const settings = await readSetupSettings(tx.db, tx.clinicId);
   const bought = await tx.db.select({ channel: clinicChannels.channel }).from(clinicChannels).where(eq(clinicChannels.clinicId, tx.clinicId));
 
   return {
     clinicId: tx.clinicId,
     clinicName: clinic.name,
+    specialty: clinic.specialty,
     timeZone: clinic.timeZone,
     phone: clinic.phone,
     urgentPhone: urgentHelpNumber({
       channels: bought,
-      settings: { urgentHelpE164: settings?.urgentHelp ?? null, directLineE164: settings?.directLine ?? null },
+      settings: { urgentHelpE164: settings.urgentHelpE164, directLineE164: settings.directLineE164 },
       clinic: { publishedPhoneE164: clinic.phone },
     }),
-    directLine: settings?.directLine ?? null,
+    vetReferralPhone: settings.vetReferralE164,
+    directLine: settings.directLineE164,
     address: clinic.address,
     hours: hoursLines(clinic.openingHours),
+    openingHours: clinic.openingHours ?? null,
     services: approved
       ? knowledge.services.map((s) => ({
           name: s.name,
@@ -118,14 +137,17 @@ export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | nul
       : [],
     policies: approved ? knowledge.policies : [],
     quickAnswers: approved ? [...knowledge.quickAnswers, ...(knowledge.mostAsked ? [knowledge.mostAsked] : [])] : [],
-    promotions: approved ? knowledge.promotions : null,
+    promotions: approved && settings.mentionPromotions ? knowledge.promotions : null,
     notes: approved ? (agent?.notes ?? null) : null,
     escalationHours: approved ? (agent?.escalationHours ?? null) : null,
     neverSay: neverSayWithDefaults(knowledge.neverSay),
     requirements: resolveBookingRequirements(clinic.specialty, clinic.bookingRequirements ?? null),
     greeting: {
-      phone: settings?.phoneGreeting?.trim() || defaultPhoneGreeting(clinic.name),
-      chat: settings?.chatGreeting?.trim() || defaultChatGreeting(),
+      phone: settings.phoneGreeting?.trim() || defaultPhoneGreeting(clinic.name),
+      chat: settings.chatGreeting?.trim() || defaultChatGreeting(),
     },
+    tone: settings.tone,
+    languages: settings.languages.length > 0 ? settings.languages : ["en"],
+    suggestAddOns: settings.suggestAddOns,
   };
 }

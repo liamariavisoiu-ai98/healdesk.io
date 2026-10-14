@@ -134,7 +134,7 @@ describeDb("the setup wizard's pages", () => {
     voiceOnly = await provisionPortalClinic("wizardvoice", { plan: "voice-300" });
     // The page and its actions, imported once outside any test's clock.
     await import("@/app/c/[slug]/setup/page");
-    await import("@/app/c/[slug]/setup/channel-actions");
+    await import("@/app/c/[slug]/steps-actions");
     await import("@/app/api/meta/login/route");
   }, 300_000);
 
@@ -347,22 +347,36 @@ describeDb("the setup wizard's pages", () => {
       }
     });
 
-    test("Email these to my office manager: refused before voice is ready, sent with the stored number after", async () => {
-      const { emailForwardingSteps } = await import("@/app/c/[slug]/setup/channel-actions");
+    test("Email these to my office manager: the screen's form sends through Settings' own action, with the stored number", async () => {
+      // The wizard's form calls the action Settings → Channels uses
+      // (app/c/[slug]/steps-actions.ts), which reads AYA's number itself:
+      // before phone is ready there is none to give, and sendStepsOn refuses.
+      const source = await import("node:fs").then((fs) =>
+        fs.readFileSync("src/app/c/[slug]/setup/screens/ChannelsScreen.tsx", "utf8"),
+      );
+      expect(source).toContain('from "../../steps-actions"');
+      const { sendPhoneStepsAction } = await import("@/app/c/[slug]/steps-actions");
       as(voiceWeb);
-      const before = await emailForwardingSteps(voiceWeb.clinicSlug, "maria@example.com");
-      expect(before).toEqual({
+      steps.sendStepsOn.mockResolvedValueOnce({
+        status: "refused",
+        message: "Phone isn't ready for call forwarding yet, so there are no steps to send.",
+      });
+      expect(await sendPhoneStepsAction(voiceWeb.clinicSlug, "maria@example.com")).toEqual({
         ok: false,
         message: "Phone isn't ready for call forwarding yet, so there are no steps to send.",
       });
-      expect(steps.sendStepsOn).not.toHaveBeenCalled();
+      expect(steps.sendStepsOn).toHaveBeenLastCalledWith(
+        expect.objectContaining({ channel: "voice", ayaNumberE164: null }),
+      );
 
       await voiceReady(voiceWeb, { directLine: true });
       try {
         steps.sendStepsOn.mockResolvedValueOnce({ status: "sent", to: "maria@example.com" });
-        const after = await emailForwardingSteps(voiceWeb.clinicSlug, "maria@example.com");
-        expect(after).toEqual({ ok: true, message: "Sent to maria@example.com." });
-        expect(steps.sendStepsOn).toHaveBeenCalledWith(
+        expect(await sendPhoneStepsAction(voiceWeb.clinicSlug, "maria@example.com")).toEqual({
+          ok: true,
+          message: "Sent to maria@example.com.",
+        });
+        expect(steps.sendStepsOn).toHaveBeenLastCalledWith(
           expect.objectContaining({
             clinicId: voiceWeb.clinicId,
             channel: "voice",
@@ -370,14 +384,6 @@ describeDb("the setup wizard's pages", () => {
             ayaNumberE164: "+15125550142",
           }),
         );
-        steps.sendStepsOn.mockResolvedValueOnce({
-          status: "refused",
-          message: "Steps can be sent on 3 times a day.",
-        });
-        expect(await emailForwardingSteps(voiceWeb.clinicSlug, "maria@example.com")).toEqual({
-          ok: false,
-          message: "Steps can be sent on 3 times a day.",
-        });
       } finally {
         await setChannel(voiceWeb, "voice", `ready_at = null, waiting_on = null`);
       }

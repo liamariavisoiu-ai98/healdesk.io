@@ -155,7 +155,6 @@ export default async function SetupPage({
   const { previous } = neighbours(state.screens, screen);
   const backHref = previous ? `${home}/setup?s=${previous}` : null;
   const audience = audienceFor(state.clinic.specialty);
-
   return (
     <main className="mx-auto min-h-screen max-w-xl px-4 py-10">
       <p className="text-muted text-sm">

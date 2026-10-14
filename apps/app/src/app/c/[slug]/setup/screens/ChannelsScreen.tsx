@@ -4,7 +4,7 @@ import { useId, useState } from "react";
 
 import type { ForwardingView } from "@/lib/setup/forwarding";
 
-import { emailForwardingSteps } from "../channel-actions";
+import { sendPhoneStepsAction } from "../../steps-actions";
 import { ScreenShell } from "../ScreenShell";
 
 /**
@@ -19,8 +19,9 @@ import { ScreenShell } from "../ScreenShell";
  *   - Phone: nothing about forwarding until voice is ready for the clinic
  *     (lib/setup/forwarding.ts); then AYA's number, the codes for the
  *     clinic's carrier and coverage mode with a carrier picker, the undo
- *     codes, "Email these to my office manager" (O11) and "Book a five-minute
- *     call and we'll do it with you", with equal weight.
+ *     codes, "Email these to my office manager" (O11, the action Settings
+ *     uses) and "Book a five-minute call and we'll do it with you", with
+ *     equal weight.
  *
  * Every step sits in the screen's `lead`, outside its form, because the
  * Facebook button and the email are forms of their own.
@@ -317,7 +318,11 @@ function Forwarding({
   );
 }
 
-/** "Email these to my office manager": O11, through the server action. */
+/**
+ * "Email these to my office manager": O11, through the same server action as
+ * Settings → Channels (app/c/[slug]/steps-actions.ts), which reads AYA's
+ * number itself and sends only once phone is ready on our side.
+ */
 function EmailSteps({ slug }: { slug: string }) {
   const fieldId = useId();
   const statusId = useId();
@@ -333,7 +338,7 @@ function EmailSteps({ slug }: { slug: string }) {
         setWorking(true);
         setResult(null);
         try {
-          setResult(await emailForwardingSteps(slug, to));
+          setResult(await sendPhoneStepsAction(slug, to));
         } catch {
           setResult({ ok: false, message: "The email didn't go. Try again in a minute." });
         }

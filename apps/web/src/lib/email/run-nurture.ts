@@ -1,5 +1,5 @@
 import { ABANDONMENT_AFTER_MS, TOUCHES, abandonmentEmail, dueTouch } from "@/lib/email/nurture";
-import { send, unsubscribeUrl } from "@/lib/email";
+import { emailKey, send, unsubscribeUrl } from "@/lib/email";
 import { canEmail, leadsForAbandonment, leadsForNurture, normalizeEmail, recordTouch } from "@/lib/leads";
 import { sendSetupLinkReminders } from "@/lib/setup-links";
 import { setupRequestedEmails } from "@/lib/setup-requests";
@@ -47,6 +47,8 @@ export async function runNurture(now: Date = new Date()): Promise<NurtureRun> {
       text: touch.text(lead),
       unsubscribeUrl: unsubscribeUrl(lead.id),
       tag: `nurture-${touch.step}`,
+      // One touch per lead, so a retried run inside Resend's day sends once.
+      idempotencyKey: emailKey(`nurture-${touch.step}`, lead.id),
     });
     if (result.status === "failed") {
       run.failed += 1;
@@ -71,6 +73,7 @@ export async function runNurture(now: Date = new Date()): Promise<NurtureRun> {
       text: message.text,
       unsubscribeUrl: unsubscribeUrl(lead.id),
       tag: "abandonment",
+      idempotencyKey: emailKey("abandonment", lead.id),
     });
     if (result.status === "failed") {
       run.failed += 1;

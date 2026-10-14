@@ -115,7 +115,7 @@ describe("POST /api/setup-request", () => {
     expect(toUs!.body.to).toEqual(["hello@healdesk.io"]);
     expect(toUs!.body.reply_to).toBe("info@radiancemedspa.com");
     expect(toUs!.body.text).toContain("Radiance Med Spa");
-    expect(toUs!.idempotencyKey).toBe(`setup-request:${rows[0]!.id}`);
+    expect(toUs!.idempotencyKey).toBe(`hd-setup-request-${rows[0]!.id}-1`);
 
     expect(ack!.body.to).toEqual(["info@radiancemedspa.com"]);
     expect(ack!.body.subject).toBe("We've got your request");
@@ -123,7 +123,7 @@ describe("POST /api/setup-request", () => {
     // Sent to an address nobody has verified: no field but the address.
     expect(ack!.body.text).not.toContain("Radiance");
     expect(ack!.body.text).not.toContain("Alex");
-    expect(ack!.idempotencyKey).toBe(`setup-ack:${rows[0]!.id}`);
+    expect(ack!.idempotencyKey).toBe(`hd-setup-ack-${rows[0]!.id}-1`);
   });
 
   test("acknowledges an address at most once a day, while still telling us every time", async () => {

@@ -44,8 +44,8 @@ export type OutboundEmail = {
   tag?: string;
   /**
    * Resend's `Idempotency-Key`: the same key within 24 hours sends once.
-   * Built from row ids and the kind (`setup-ack:<request id>`), never from
-   * an address, because Resend keeps the key in its logs.
+   * Always `emailKey()`'s shape, from the kind and a row id, never from an
+   * address, because Resend keeps the key in its logs.
    */
   idempotencyKey?: string;
   /** An HTML alternative to `text`, for a message whose words the catalog renders both ways. */
@@ -68,6 +68,32 @@ export type EmailAttachment = {
 function attachmentName(name: string): string {
   const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").slice(0, 120);
   return cleaned || "attachment";
+}
+
+/**
+ * Resend's `Idempotency-Key` for one email (Annex X1.4):
+ * `hd-<kind>-<row id>-<recipient n>`, with `-<attempt>` added on a link email
+ * (a setup link carries its expiry, so a new link is a new key). The row is
+ * whatever state the email was sent after: a lead, a setup request, a demo,
+ * or, for a form that keeps no row (the contact form, a review), a digest of
+ * the submission, so a double submit sends once. The kind and the recipient
+ * number keep two emails from one row apart (P2 and P3 share a setup request).
+ * Never an address: the parts may be letters, digits, dots and hyphens only,
+ * and anything else throws, here, in development, rather than in Resend's log.
+ */
+export function emailKey(kind: string, rowId: string, recipient = 1, attempt?: number | string): string {
+  const parts: [string, string][] = [
+    ["kind", kind],
+    ["row id", rowId],
+  ];
+  if (attempt !== undefined) parts.push(["attempt", String(attempt)]);
+  for (const [name, value] of parts) {
+    if (!/^[A-Za-z0-9.-]{1,80}$/.test(value)) {
+      throw new Error(`An email key's ${name} must be letters, digits, dots and hyphens.`);
+    }
+  }
+  if (!Number.isInteger(recipient) || recipient < 1) throw new Error("An email key's recipient is a number from 1.");
+  return `hd-${kind}-${rowId}-${recipient}${attempt === undefined ? "" : `-${attempt}`}`;
 }
 
 export type SendResult =
@@ -140,6 +166,11 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
     });
     if (!response.ok) {
       const detail = (await response.text().catch(() => "")).slice(0, 200);
+      // The key was used within Resend's 24 hours for a different request:
+      // the first one went, and this email is already sent (Annex X1.4).
+      if (response.status === 409 && message.idempotencyKey && detail.includes("invalid_idempotent_request")) {
+        return { status: "sent", providerId: null };
+      }
       return { status: "failed", reason: `resend ${response.status}: ${detail}` };
     }
     const data = (await response.json().catch(() => null)) as { id?: string } | null;

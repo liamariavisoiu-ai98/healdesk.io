@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { checkoutMode } from "@/lib/checkout-mode";
-import { sendSafely } from "@/lib/email";
+import { emailKey, sendSafely } from "@/lib/email";
 import { setupRequestAck, setupRequestInternal } from "@/lib/email/setup-emails";
 import { isValidEmail } from "@/lib/gate";
 import { cohortCreditLive, findLeadById } from "@/lib/leads";
@@ -130,7 +130,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     subject: internal.subject,
     text: internal.text,
     tag: "setup-request",
-    idempotencyKey: `setup-request:${saved.id}`,
+    idempotencyKey: emailKey("setup-request", saved.id),
   });
   if (toUs.status === "failed") {
     // The row is saved, so nothing is lost; the daily review of /admin/setup catches it.
@@ -144,7 +144,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       subject: ack.subject,
       text: ack.text,
       tag: "setup-ack",
-      idempotencyKey: `setup-ack:${saved.id}`,
+      idempotencyKey: emailKey("setup-ack", saved.id),
     });
   }
 

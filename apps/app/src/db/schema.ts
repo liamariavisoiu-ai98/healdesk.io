@@ -5247,9 +5247,26 @@ export const TENANT_SCOPED_TABLES = [
 // The transcript outbox (the owner's decisions of 13 October 2026)
 // -----------------------------------------------------------------------------
 
-/** Where an emailed transcript stands. */
-export const TRANSCRIPT_EMAIL_STATUSES = ["open", "pending", "sent", "delivered", "bounced"] as const;
+/**
+ * Where an emailed transcript stands. The first four hold the sealed copy;
+ * the last three are a receipt without it (drizzle/0072): `delivered` (the
+ * clinic's mail server took it), `expired` (not delivered 30 days after it
+ * was queued) and `unconfirmed` (SES accepted it and nothing answered for
+ * 72 hours).
+ */
+export const TRANSCRIPT_EMAIL_STATUSES = [
+  "open",
+  "pending",
+  "sent",
+  "bounced",
+  "delivered",
+  "expired",
+  "unconfirmed",
+] as const;
 export type TranscriptEmailStatus = (typeof TRANSCRIPT_EMAIL_STATUSES)[number];
+
+/** The statuses that are a receipt: the copy is gone, and the row never changes again (drizzle/0072). */
+export const TRANSCRIPT_EMAIL_FINAL_STATUSES = ["delivered", "expired", "unconfirmed"] as const satisfies readonly TranscriptEmailStatus[];
 
 /**
  * A conversation's transcript on its way to the clinic, and the only copy
@@ -5260,19 +5277,23 @@ export type TranscriptEmailStatus = (typeof TRANSCRIPT_EMAIL_STATUSES)[number];
  * ⚠️ PHI, and sealed: `sealed` is the transcript's turns, envelope-encrypted
  * under the KMS key with the clinic's lock label (login `transcript`) and
  * this row's id in the AAD, so a copied row opens nowhere else. Tenant RLS,
- * forced, and the BAA gate (drizzle/0069). The row, and the copy with it, is
- * deleted at `destroy_after`: seven days after the transcript was first
- * accepted by SES, or seven days after it was queued if it never was. A
- * delivered transcript is kept that long only so a clinic that lost the
- * email can be sent it again. It also goes with its conversation (erasure,
- * the record clock, destruction), through the foreign key's cascade.
+ * forced, and the BAA gate (drizzle/0069). The copy is set to NULL the
+ * moment SES reports the clinic's mail server took the email (`delivered`),
+ * and otherwise at the latest 30 days after the row was queued (`expired`,
+ * `destroy_after`), or 72 hours after a send SES accepted and nothing
+ * answered for (`unconfirmed`), the owner's decision of 14 October 2026
+ * (drizzle/0072, whose trigger holds both clocks to the database's). What
+ * stays is a receipt without the words: whether, and when, the transcript
+ * reached the clinic. The row goes with its conversation (erasure, the
+ * record clock, destruction), through the foreign key's cascade.
  *
  * `open` is a web chat still going (lib/chat/web-chat.ts): the only state of
  * its conversation healdesk holds, sealed the same way and rewritten at each
  * message, and due to be sent once the visitor has been quiet until
  * `next_attempt_at`, or at once when they end it. Only an open row's copy may
- * change, and only while it stays open (drizzle/0071). A call is queued
- * `pending` when it ends.
+ * change, and only while it stays open (drizzle/0071); any other copy changes
+ * only to NULL, as its row becomes a receipt, and never back (drizzle/0072).
+ * A call is queued `pending` when it ends.
  *
  * Never stored here: the clinic's address (read at each send, from the
  * sign-in), and anything SES says beyond a status and its own reason.
@@ -5285,8 +5306,11 @@ export const transcriptEmails = pgTable(
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
     conversationId: uuid("conversation_id").notNull(),
-    /** The sealed transcript (lib/crypto/envelope.ts). */
-    sealed: jsonb("sealed").$type<SealedPayload>().notNull(),
+    /**
+     * The sealed transcript (lib/crypto/envelope.ts), or NULL once the row is
+     * a receipt: exactly when the status is delivered, expired or unconfirmed.
+     */
+    sealed: jsonb("sealed").$type<SealedPayload>(),
     status: text("status").$type<TranscriptEmailStatus>().notNull().default("pending"),
     /** Sends tried, accepted or not. */
     attempts: integer("attempts").notNull().default(0),
@@ -5298,14 +5322,18 @@ export const transcriptEmails = pgTable(
     sesMessageId: text("ses_message_id"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
-    /** When the row, and the sealed copy with it, is deleted. */
+    /**
+     * The 30-day cap: created_at plus 30 days, set by the trigger and never
+     * moved. A copy not delivered by then is deleted and the row expired.
+     */
     destroyAfter: timestamp("destroy_after", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
   },
   (t) => [
     uniqueIndex("transcript_emails_conversation_idx").on(t.conversationId),
     index("transcript_emails_due_idx").on(t.clinicId, t.nextAttemptAt).where(sql`${t.status} in ('open', 'pending', 'bounced')`),
-    index("transcript_emails_destroy_idx").on(t.clinicId, t.destroyAfter),
+    index("transcript_emails_destroy_idx").on(t.clinicId, t.destroyAfter).where(sql`${t.sealed} is not null`),
+    index("transcript_emails_unconfirmed_idx").on(t.clinicId, t.sentAt).where(sql`${t.status} = 'sent'`),
     uniqueIndex("transcript_emails_ses_message_idx").on(t.sesMessageId).where(sql`${t.sesMessageId} is not null`),
     // Composite, so a transcript can only belong to a conversation of its own
     // clinic; it goes when the conversation goes.
@@ -5314,13 +5342,21 @@ export const transcriptEmails = pgTable(
       columns: [t.clinicId, t.conversationId],
       foreignColumns: [conversations.clinicId, conversations.id],
     }).onDelete("cascade"),
-    check("transcript_emails_status_check", sql`${t.status} in ('open', 'pending', 'sent', 'delivered', 'bounced')`),
+    check(
+      "transcript_emails_status_check",
+      sql`${t.status} in ('open', 'pending', 'sent', 'bounced', 'delivered', 'expired', 'unconfirmed')`,
+    ),
+    // A receipt holds no copy, and only a receipt (drizzle/0072).
+    check(
+      "transcript_emails_sealed_check",
+      sql`(${t.status} in ('delivered', 'expired', 'unconfirmed')) = (${t.sealed} is null)`,
+    ),
     check("transcript_emails_attempts_check", sql`${t.attempts} >= 0`),
     check("transcript_emails_last_error_check", sql`${t.lastError} is null or char_length(${t.lastError}) <= 500`),
     check("transcript_emails_destroy_check", sql`${t.destroyAfter} > ${t.createdAt}`),
     check(
       "transcript_emails_sent_check",
-      sql`(${t.status} in ('open', 'pending')) or (${t.sentAt} is not null and ${t.sesMessageId} is not null)`,
+      sql`(${t.status} in ('open', 'pending', 'expired')) or (${t.sentAt} is not null and ${t.sesMessageId} is not null)`,
     ),
   ],
 );

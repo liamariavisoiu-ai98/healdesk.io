@@ -53,8 +53,9 @@ import { upsertCallerContact } from "@/lib/voice/ingest";
  *            one booking request is written for the desk (channel web_chat)
  *            and the desk is emailed a link, never the details.
  *   end      when the visitor ends the chat, or after thirty quiet minutes,
- *            the transcript goes to the clinic by email and healdesk keeps
- *            its sealed copy only seven days after that.
+ *            the transcript goes to the clinic by email, and healdesk deletes
+ *            its sealed copy the moment the clinic's mail server confirms
+ *            delivery (never later than 30 days after the chat began).
  *
  * The token is the visitor's only handle on the chat: an HMAC-signed note of
  * the clinic, the conversation and the session, with nothing the visitor

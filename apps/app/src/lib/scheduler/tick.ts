@@ -113,11 +113,13 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5;
   // the agreements' own limit is 60 calendar days).
   await record("incident-deadlines", () => runIncidentDeadlinesJob({ now }));
-  // The transcript outbox (drizzle/0069): sent every minute from the
+  // The transcript outbox (drizzle/0069, 0072): sent every minute from the
   // `billing-minute` queue; this is its backstop for a worker whose queue
-  // was never installed. It carries the seven-day deletion of every sealed
-  // copy, so it ships switched on, and each row's lease makes the overlap
-  // harmless (lib/conversations/transcript-outbox.ts).
+  // was never installed. It carries the deletion of every sealed copy that
+  // was never delivered, at 30 days or 72 hours after a send nothing
+  // answered, so it ships switched on and deletes even when it is off, and
+  // each row's lease makes the overlap harmless
+  // (lib/conversations/transcript-outbox.ts).
   await record("transcript-emails", () => runTranscriptEmailsJob({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.

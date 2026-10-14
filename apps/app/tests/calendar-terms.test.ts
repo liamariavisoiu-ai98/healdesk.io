@@ -532,7 +532,7 @@ describeDb("calendar terms at runtime", () => {
         });
 
       // Google Calendar alone, in a Workspace without Google's BAA: uncovered
-      // terms. Signed as whatever is current: 1.4.0 since 13 October 2026,
+      // terms. Signed as whatever is current: 1.5.0 since 14 October 2026,
       // which carries 1.3.0's calendar clauses under the same ids.
       const email = `owner-${randomUUID().slice(0, 8)}@provisioned.test`;
       const signed = await sign(email, {
@@ -577,19 +577,22 @@ describeDb("calendar terms at runtime", () => {
         field: "agreementId",
         message: expect.stringContaining("Version 1.2.2 of the business associate agreement can't be used"),
       });
-      // Nor under 1.3.0 since 1.4.0 replaced it outright (13 October 2026),
-      // though it carries the same calendar terms: the floor is 1.4.0.
-      const replacedEmail = `owner-${randomUUID().slice(0, 8)}@replaced.test`;
-      const replaced = await sign(
-        replacedEmail,
-        { bookingSystem: "google_calendar", calendarAccount: "workspace_no_baa" },
-        "1.3.0",
-      );
-      await expect(provision(replacedEmail, replaced.agreementId)).rejects.toMatchObject({
-        name: "ProvisioningError",
-        field: "agreementId",
-        message: expect.stringContaining("Version 1.3.0 of the business associate agreement can't be used"),
-      });
+      // Nor under 1.3.0 or 1.4.0 since each was replaced outright (13 and 14
+      // October 2026), though both carry the same calendar terms: the floor
+      // is 1.5.0.
+      for (const version of ["1.3.0", "1.4.0"]) {
+        const replacedEmail = `owner-${randomUUID().slice(0, 8)}@replaced.test`;
+        const replaced = await sign(
+          replacedEmail,
+          { bookingSystem: "google_calendar", calendarAccount: "workspace_no_baa" },
+          version,
+        );
+        await expect(provision(replacedEmail, replaced.agreementId)).rejects.toMatchObject({
+          name: "ProvisioningError",
+          field: "agreementId",
+          message: expect.stringContaining(`Version ${version} of the business associate agreement can't be used`),
+        });
+      }
     },
     SLOW,
   );

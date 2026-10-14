@@ -480,9 +480,10 @@ describeDb("database audit (0031)", () => {
     // Until 0048 any bound version went live, 1.0.0 and unapproved drafts
     // included. Everything else is ready here, so the version is the refusal:
     // superseded releases below the floor (1.2.2 since the 1.3.0 release,
-    // which replaced it outright, and 1.3.0 since the 1.4.0 release, which
-    // replaced it outright in turn, 0070), and older drafts and releases.
-    for (const [i, version] of ["1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"].entries()) {
+    // which replaced it outright, 1.3.0 since the 1.4.0 release, which
+    // replaced it outright in turn, 0070, and 1.4.0 since the 1.5.0 release,
+    // 0073), and older drafts and releases.
+    for (const [i, version] of ["1.4.0", "1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"].entries()) {
       const { clinicId, organizationId } = await seedClinic(`superseded${i}`);
       await readyForGoLive(clinicId);
       await seedAcceptance(organizationId, version);
@@ -502,15 +503,16 @@ describeDb("database audit (0031)", () => {
     }
   });
 
-  test("app_mark_clinic_production takes 1.4.0, the floor its release raised", async () => {
-    // 1.4.0's release (0070) raised MIN_ACCEPTABLE_BAA_VERSION to 1.4.0: no
-    // clinic had signed 1.3.0, which describes a stored transcript, so 1.4.0
-    // replaced it outright (owner, 13 October 2026), as 1.3.0 had replaced
-    // 1.2.2 (12 October), and the test above refuses a 1.3.0 clinic.
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.4.0");
+  test("app_mark_clinic_production takes 1.5.0, the floor its release raised", async () => {
+    // 1.5.0's release (0073) raised MIN_ACCEPTABLE_BAA_VERSION to 1.5.0: no
+    // clinic had signed 1.4.0, which promises a transcript copy kept seven
+    // days after the email first goes, so 1.5.0 replaced it outright (owner,
+    // 14 October 2026), as 1.4.0 had replaced 1.3.0 (13 October), and the
+    // test above refuses a 1.4.0 clinic.
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.5.0");
     const { clinicId, organizationId } = await seedClinic("acceptable");
     await readyForGoLive(clinicId);
-    await seedAcceptance(organizationId, "1.4.0");
+    await seedAcceptance(organizationId, "1.5.0");
     await getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]);
     const { rows } = await getMigratorPool().query(
       `select data_classification from clinics where id = $1`,

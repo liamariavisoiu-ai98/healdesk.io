@@ -381,10 +381,13 @@ npm test -w @healdesk/app          # database suites skip without TEST_APP_URL
 the runtime role deliberately does not have. The worker is a plain Node entry point, not
 a Next route. Jobs are enabled from the ops console, and most ship switched off, with
 these exceptions. `heartbeat`, `incident-deadlines` and `transcript-emails` ship on (0066
-seeds the second on; 0069 the third). `transcript-emails` deletes every sealed transcript
-copy on its seventh day whatever its switch, which decides only whether transcripts are sent. `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
+seeds the second on; 0069 the third). A sealed transcript copy is deleted the moment SES
+reports it delivered, by the SES webhook; `transcript-emails` deletes every copy never
+delivered, 30 days after it was queued or 72 hours after a send nothing answered (0072),
+whatever its switch, which decides only whether transcripts are sent, and leaves each row
+as a receipt (the ops operation `transcriptDeliveries` reads them). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
-1.3.0 and 1.4.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
+1.3.0, 1.4.0 and 1.5.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no
 switch at all: `erasure-expiry`, `booking-request-expiry`, `welcome-email` and
 `booking-requirements-defaults`. The `heartbeat` row is the liveness signal and
@@ -422,7 +425,7 @@ does, or once older than the record clock when its appointment is already gone
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
-retention clause: BAA 1.3.0 and 1.4.0 and the DPA today, and any later version only if
+retention clause: BAA 1.3.0, 1.4.0 and 1.5.0 and the DPA today, and any later version only if
 its text says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
 agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
 ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
@@ -453,9 +456,9 @@ the same rule as the database's floor):
   though these agreements give it only "on request"), so deliver it and record the
   handover before then; ops is alerted at day 21 when none is recorded
   (`export_undelivered_before_destruction`).
-- BAA 1.3.0, 1.4.0 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
+- BAA 1.3.0, 1.4.0 and 1.5.0 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
   recorded as delivered, its delivery when that is later, and day 89 whatever happens, each
-  a day inside the thirty days and the ninety that BAA 1.3.0 and 1.4.0 state. Record the delivery by day 29: one recorded later is
+  a day inside the thirty days and the ninety that BAA 1.3.0, 1.4.0 and 1.5.0 state. Record the delivery by day 29: one recorded later is
   destroyed at the next hourly run, which in the thirtieth day's last hour can fall after
   the thirty days.
 

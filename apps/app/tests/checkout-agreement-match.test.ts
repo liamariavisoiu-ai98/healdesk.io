@@ -58,7 +58,7 @@ const BAA_122 = {
 };
 
 /**
- * A current one (1.4.0 since 13 October 2026, and 1.3.0 before it): it names the
+ * A current one (1.5.0 since 14 October 2026, 1.4.0 and 1.3.0 before it): it names the
  * booking system, and carries both calendar answers beside the variant.
  */
 const BAA = {
@@ -81,7 +81,7 @@ const PURCHASE = {
 
 describe("a Business Associate Agreement", () => {
   test("the document as signed, under the version being signed, passes", () => {
-    expect(CURRENT_BAA_VERSION).toBe("1.4.0");
+    expect(CURRENT_BAA_VERSION).toBe("1.5.0");
     expect(agreementMismatch(CURRENT_BAA_VERSION, BAA, PURCHASE)).toBeNull();
     // 1.2.2 too, while the floor admits it (below, it no longer does).
     floor.restored = ["1.2.2"];
@@ -162,8 +162,9 @@ describe("a Business Associate Agreement", () => {
 
   test("is of a template that may not be put in force: a draft, a superseded release, or none we know", () => {
     // 1.2.2 among them since 1.3.0 replaced it outright (12 October 2026),
-    // and 1.3.0 since 1.4.0 replaced it outright (13 October 2026).
-    for (const version of ["1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "9.9.9"]) {
+    // 1.3.0 since 1.4.0 replaced it outright (13 October 2026), and 1.4.0
+    // since 1.5.0 replaced it outright (14 October 2026).
+    for (const version of ["1.4.0", "1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "9.9.9"]) {
       expect(agreementMismatch(version, BAA_122, PURCHASE), version).toMatch(
         /can no longer be used/,
       );

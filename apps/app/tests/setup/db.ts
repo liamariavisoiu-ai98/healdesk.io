@@ -108,7 +108,7 @@ export async function truncateAll(): Promise<void> {
       ('calendar-watch', 'Every 5 minutes on its own queue: forces a refresh and one free/busy probe per Google Calendar connection, disconnects what the terms no longer cover, flips a broken one to manual booking and alerts the clinic and ops once, resolves unconfirmed writes and owed desk notices, purges spent holds and OAuth states', false),
       ('setup-reminders', 'Hourly; while none of a clinic''s channels is live, queues the setup reminder due on day 5, 10, 15, 20, 25 or 30 of its setup window, counted back from the window''s last day, in the clinic''s daytime', false),
       ('incident-deadlines', 'Hourly; raises one ops alert, ever, for each open incident past the internal 24-hour notice target with no notice recorded', false),
-      ('transcript-emails', 'Every minute, from the billing-minute queue: sends each queued transcript to its clinic through SES, retries a failed or bounced one with back-off, and deletes each sealed copy seven days after SES accepted it, or seven days after it was queued if it never was', false)
+      ('transcript-emails', 'Every minute, from the billing-minute queue: sends each queued transcript to its clinic through SES and retries a failed or bounced one with back-off; deletes each sealed copy SES has not reported delivered 30 days after it was queued, or 72 hours after a send nothing answered (a delivered one is deleted by SES''s event)', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

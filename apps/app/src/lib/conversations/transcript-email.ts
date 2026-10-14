@@ -1,7 +1,6 @@
 import { SENDER_IDENTITY } from "@healdesk/catalog";
 
 import { escapeHtml } from "@/lib/email/templates/compose";
-import { log } from "@/lib/log";
 import {
   getTransport,
   type DeliveryResult,
@@ -21,9 +20,10 @@ import { PhiRoutingError } from "@/lib/reporting/resend-transport";
  * words go to the clinic's own address, and the conversation row keeps only
  * what is not words: the channel, the times, the outcome, when the "I'm an
  * AI, this call is transcribed" line played. healdesk's only copy is sealed
- * in the outbox (transcript-outbox.ts) until the email has gone and for
- * seven days after, and is then deleted. This module writes nothing: it
- * renders the email and sends it once.
+ * in the outbox (transcript-outbox.ts) until the clinic's mail server has
+ * confirmed delivery, and is deleted the moment it does (the owner's decision
+ * of 14 October 2026). This module writes nothing: it renders the email and
+ * sends it once.
  *
  * The voice endpoint and the web chat's API queue the transcript when a
  * conversation ends (queueTranscriptEmail in transcript-outbox.ts); nothing
@@ -48,11 +48,13 @@ import { PhiRoutingError } from "@/lib/reporting/resend-transport";
  *
  * ## When it cannot be delivered
  *
- * The transcript waits, sealed, in the outbox (transcript-outbox.ts) until it
- * has gone, and for seven days after: a failed send is tried again with
- * back-off, a bounce that SES reports is sent again, and ops hears of each
- * one that will not go (`transcript_undelivered`, ids only). This module
- * renders and sends once; the outbox decides when.
+ * The transcript waits, sealed, in the outbox (transcript-outbox.ts) until
+ * SES reports that the clinic's mail server took it: a failed send is tried
+ * again with back-off, a bounce that SES reports is sent again, for at most
+ * 30 days after it was queued, and a send SES accepted but never answered
+ * for is deleted 72 hours later. Ops hears of each one that will not go
+ * (`transcript_undelivered`, ids only). This module renders and sends once;
+ * the outbox decides when.
  */
 
 /** The class every transcript email declares. One constant, used to route and to label. */
@@ -91,7 +93,7 @@ const DO_NOT_REPLY =
   "Please don't reply to this email: a reply would send this transcript to healdesk's general inbox, which isn't meant to hold patient information.";
 
 const KEEP_IT =
-  "This email holds patient information. healdesk deletes its own encrypted copy seven days after sending it, so this email is the record of what was said: file it where your practice keeps patient records, and then delete it from this inbox.";
+  "This email holds patient information. healdesk deletes its own encrypted copy as soon as your mail server confirms it has received this email, so this email is the record of what was said: file it where your practice keeps patient records, and then delete it from this inbox.";
 
 /** A conversation longer than this is cut, with a note, rather than refused. */
 export const MAX_TRANSCRIPT_CHARACTERS = 200_000;
@@ -211,11 +213,6 @@ export function renderTranscriptEmail(input: TranscriptEmailInput): RenderedTran
 export type SendTranscriptOptions = {
   /** A fake in tests. Otherwise getTransport()'s choice for the PHI class: SES, or a refusal. */
   transport?: EmailTransport;
-  /**
-   * The archive copy's address, blind-copied on the same message
-   * (archiveCopyAddress()). Never shown to the clinic.
-   */
-  bcc?: string | null;
 };
 
 /**
@@ -245,10 +242,7 @@ export async function sendTranscriptEmail(
     return { status: "failed", reason, transport: "none" };
   }
   try {
-    const result = await transport.send(
-      { ...target, ...(options.bcc ? { bcc: [options.bcc] } : {}) },
-      { ...rendered, phiClass: TRANSCRIPT_PHI_CLASS },
-    );
+    const result = await transport.send(target, { ...rendered, phiClass: TRANSCRIPT_PHI_CLASS });
     return { ...result, transport: transport.name };
   } catch (error) {
     return {
@@ -258,35 +252,3 @@ export async function sendTranscriptEmail(
     };
   }
 }
-
-/**
- * The archive copy (the owner's request of 13 October 2026: a copy of every
- * transcript to healdesk's own mailbox).
- *
- * Off unless both are set: HEALDESK_TRANSCRIPT_ARCHIVE_TO, the address, and
- * HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed, the operator's statement that the
- * mailbox behind that address is held under a business associate agreement
- * with its email provider (for example Google Workspace with Google's BAA
- * accepted). A transcript is patient information, and a mailbox outside an
- * agreement is a disclosure the clinic's BAA does not allow: hello@healdesk.io
- * has none behind it today (packages/catalog/src/sender-identity.ts), so
- * naming it without the statement sends nothing and says why, once per
- * process.
- */
-export function archiveCopyAddress(): string | null {
-  const to = process.env.HEALDESK_TRANSCRIPT_ARCHIVE_TO?.trim();
-  if (!to) return null;
-  if (process.env.HEALDESK_TRANSCRIPT_ARCHIVE_BAA !== "signed") {
-    if (!warnedArchive) {
-      warnedArchive = true;
-      log.warn("transcript archive copy off", {
-        reason:
-          "HEALDESK_TRANSCRIPT_ARCHIVE_TO is set but HEALDESK_TRANSCRIPT_ARCHIVE_BAA is not 'signed': no copy goes to a mailbox without a business associate agreement",
-      });
-    }
-    return null;
-  }
-  return to;
-}
-
-let warnedArchive = false;

@@ -36,7 +36,8 @@ The assistant books nothing. It collects what the practice's requirement set ask
 - **Request**: once a first name, a number and a time are collected, one booking request (channel
   `web_chat`, drizzle/0071) and the desk's usual link email, which carries nothing about the person.
 - **End**: the visitor ends it (`/end`, which a widget can send with `navigator.sendBeacon`), or thirty
-  quiet minutes pass; the outbox sends the transcript and its seven days start. A tab closed mid-chat
+  quiet minutes pass; the outbox sends the transcript, and its sealed copy is deleted once SES
+  reports it delivered (at the latest 30 days after the chat began; 14 October 2026). A tab closed mid-chat
   loses nothing: the row is already there. A message after the end starts a new conversation.
 - **CORS**: answered only for the clinic's own website (`clinics.website`: its host, `www.`, its
   subdomains, https; `localhost` over http), or any origin for a clinic with no website on file. No

@@ -200,11 +200,14 @@ for.
 - **Minimum necessary.** Don't collect a DOB because the form looked incomplete.
 - **Audit logging.** Every PHI access — who, what, when — including every transcript
   opened in the portal, which also requires a second factor.
-- **Retention policy.** Transcripts are not stored (owner, 13 October 2026; BAA 1.4.0
+- **Retention policy.** Transcripts are not stored (owner, 13 October 2026; BAA 1.5.0
   clause 11): each call's and web chat's is emailed to the clinic when it ends, and the
-  one sealed copy kept to send it again is deleted seven days after SES first accepts it
-  (drizzle/0069). The conversation's record, without the words, and every other record
-  follow the agreement's 90-day periods. Vendor-side recording and transcript retention
+  one sealed copy kept to send it again is deleted the moment SES reports the clinic's
+  mail server took it; a failed or returned email is sent again until it is delivered,
+  but the copy never outlives 30 days from its queueing, nor 72 hours after a send
+  nothing answered (owner, 14 October 2026; drizzle/0072). What stays is a receipt
+  without the words. The conversation's record, without the words, and every other
+  record follow the agreement's 90-day periods. Vendor-side recording and transcript retention
   off or at the minimum wherever they can be set. Demo sandbox transcripts purge on a 7
   to 14 day cycle whether or not the lead buys.
 - **Never log PHI.** Not to stdout, not to an error tracker, not to analytics. Scrub

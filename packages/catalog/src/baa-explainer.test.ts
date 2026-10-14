@@ -188,6 +188,35 @@ describe("1.4.0's notes", () => {
   });
 });
 
+describe("1.5.0's notes", () => {
+  test("say the copy goes once delivery is confirmed, beside the clause that says so; the rest are 1.3.0's", () => {
+    // The owner's decision of 14 October 2026, as 1.5.0's clause 11 states it.
+    const note = clauseExplainer("1.5.0", "minimum-necessary")!.plain;
+    expect(note).toContain(
+      "healdesk doesn't keep transcripts: when a call or website chat ends, its transcript is " +
+        "emailed to your account's address, and healdesk deletes its encrypted copy as soon as " +
+        "your mail server confirms delivery. If the email can't be delivered, healdesk keeps " +
+        "trying for up to 30 days, then deletes the copy.",
+    );
+    expect(note).not.toMatch(/seven days/);
+    expect(note.startsWith(clauseExplainer("1.3.0", "minimum-necessary")!.plain)).toBe(true);
+    const clause = getBaaTemplate("1.5.0")!
+      .clauses.find((c) => c.id === "minimum-necessary")!
+      .body({} as never)
+      .replace(/\s+/g, " ");
+    expect(clause).toContain("only until Practice's mail server confirms that it has received the email");
+    expect(clause).toContain("more than 30 days after the transcript was queued for sending");
+    expect(clause).not.toMatch(/seven days/);
+    // 1.4.0's note stays what 1.4.0 says.
+    expect(clauseExplainer("1.4.0", "minimum-necessary")!.plain).toMatch(/seven days/);
+    for (const id of ["data-sources-none", "subcontractors"]) {
+      expect(clauseExplainer("1.5.0", id), id).toBe(clauseExplainer("1.3.0", id));
+    }
+    expect(baaExplainerTerms("1.5.0")).toBe(baaExplainerTerms("1.3.0"));
+    expect(baaExplainerFor("1.5.0").terms).toBe(baaExplainerFor("1.3.0").terms);
+  });
+});
+
 describe("looking a note up", () => {
   test("takes the version's own note first, then the shared one, and none for a clause without one", () => {
     expect(clauseExplainer("1.3.0", "subcontractors")).toBe(
@@ -275,8 +304,8 @@ describe("the explainer for one version (gate 11)", () => {
     expect(baaExplainerFor("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
-    // The current template is 1.4.0, which shows 1.3.0's own bullets (the next test).
-    expect(currentBaaTemplate().version).toBe("1.4.0");
+    // The current template is 1.5.0, which shows 1.3.0's own bullets (the next test).
+    expect(currentBaaTemplate().version).toBe("1.5.0");
     expect(baaExplainerFor(currentBaaTemplate().version).terms).toBe(
       baaExplainerFor("1.3.0").terms,
     );

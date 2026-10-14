@@ -118,6 +118,12 @@ export type CheckoutIntent = {
   plan: Plan;
   interval: BillingInterval;
   contactEmail: string;
+  /**
+   * Who the practice's customers are, for the plan-start sentence beside Pay:
+   * "client" at a veterinary practice, "patient" otherwise (the same sentence
+   * Review and pay shows, lib/checkout/review.ts `planStartLine`).
+   */
+  audience?: "patient" | "client";
   /** The purchase record this Session is for, and which press of Pay this is. */
   intent: {
     ref: string;
@@ -335,13 +341,18 @@ export async function createCheckout(
       // Collect the card even on a $0 total (the cohort credit): the plan's
       // first period is charged to it the day AYA first answers.
       payment_method_collection: "always",
+      // The account also serves scalabid, so the business name its dashboard
+      // shows at the top of Checkout is not necessarily ours: the buyer must
+      // see who they are paying (plan Part A4). Receipts and terms still show
+      // the account's own name; that is X7's dashboard step.
+      branding_settings: { display_name: "healdesk" },
       ...(process.env.STRIPE_AUTOMATIC_TAX === "true" ? { automatic_tax: { enabled: true } } : {}),
       // At most one setup credit, already chosen by the route; never more
       // than one coupon, so the credits cannot stack.
       ...(input.attribution?.offer ? { discounts: [{ coupon: setupCouponFor(input.attribution.offer, input.plan) }] } : {}),
       custom_text: {
         submit: {
-          message: `${planStartSentence(input.plan, input.interval)} The setup fee is non-refundable.`,
+          message: `${planStartSentence(input.plan, input.interval, input.audience ?? "patient")} The setup fee is non-refundable.`,
         },
       },
       metadata: {

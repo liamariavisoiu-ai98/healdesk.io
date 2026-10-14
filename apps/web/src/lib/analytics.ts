@@ -124,9 +124,62 @@ export function track(event: EventName, props?: Record<string, unknown>): void {
 
 /** Paths where no third-party script may run, consent or not. */
 export function isAnalyticsExcludedPath(pathname: string): boolean {
-  // /get-started/done is the one page where a completed purchase, a clinic
-  // name and a specialty coexist; /admin is the operator's console. /demo/
-  // carries a personalised demo's slug in its URL, and the slug is the only
-  // key to that demo: a recorded pageview would hand a vendor a working link.
-  return pathname.startsWith("/get-started/done") || pathname.startsWith("/admin") || pathname.startsWith("/demo/");
+  // /admin is the operator's console. /demo/ carries a personalised demo's
+  // slug in its URL, and the slug is the only key to that demo: a recorded
+  // pageview would hand a vendor a working link. The purchase-complete page
+  // is /welcome, a route handler that renders outside the layout, so no
+  // vendor script ever loads there.
+  return pathname.startsWith("/admin") || pathname.startsWith("/demo/");
+}
+
+/**
+ * Pages whose query string never reaches the vendor (plan Part A2: "PostHog
+ * strips query strings on /get-started"). Their links carry `?lead=` (a lead
+ * id, the join key to a person's row), `?link=`, `?plan=`, `?cancelled=` and
+ * `?c=` (a campaign), and /start and /welcome carry a setup token and a
+ * purchase ref, should either ever appear as a referrer.
+ */
+const QUERY_FREE_PATHS = ["/get-started", "/start", "/welcome"] as const;
+
+function queryFreePath(pathname: string): boolean {
+  return QUERY_FREE_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+/** An absolute URL on one of those pages, without its query string and fragment; anything else as it was. */
+export function scrubUrl(value: string): string {
+  if (!/^https?:\/\//i.test(value)) return value;
+  try {
+    const url = new URL(value);
+    if (!queryFreePath(url.pathname) || (!url.search && !url.hash)) return value;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
+type Props = Record<string, unknown>;
+
+function scrubProps(props: Props | undefined): Props | undefined {
+  if (!props) return props;
+  const out: Props = {};
+  for (const [key, value] of Object.entries(props)) out[key] = typeof value === "string" ? scrubUrl(value) : value;
+  return out;
+}
+
+/**
+ * PostHog's `before_send`: every URL-valued property of the event and of the
+ * person properties it sets (`$current_url`, `$referrer`,
+ * `$initial_current_url`, `$session_entry_url` and the rest) loses the query
+ * string on the pages above. Pure, so it is tested without the vendor.
+ */
+export function scrubEvent<T extends { properties: Props; $set?: Props; $set_once?: Props }>(event: T | null): T | null {
+  if (!event) return event;
+  return {
+    ...event,
+    properties: scrubProps(event.properties) ?? {},
+    ...(event.$set ? { $set: scrubProps(event.$set) } : {}),
+    ...(event.$set_once ? { $set_once: scrubProps(event.$set_once) } : {}),
+  };
 }

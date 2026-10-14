@@ -451,6 +451,14 @@ describe("the demo setup credits", () => {
     expect(demoSetupCreditUsd(plan("voice-500"), SELF_SERVE_DEMO_SETUP_CREDIT)).toBe(209);
   });
 
+  test("no helper adds the first period to the setup fee: the first invoice is the setup fee alone", async () => {
+    // firstInvoiceUsd (the first period plus the setup fee) contradicted the
+    // deferred start: the first invoice carries the setup fee and the $0
+    // monthly line, and the plan's price starts the day AYA first answers.
+    expect(await import("./plans")).not.toHaveProperty("firstInvoiceUsd");
+    expect(await import("./index")).not.toHaveProperty("firstInvoiceUsd");
+  });
+
   test("the coupon names Stripe shows the buyer say nothing about being new", async () => {
     const { SETUP_CREDITS } = await import("./plans");
     // Stripe prints a coupon's name on Checkout and on the invoice. The cohort

@@ -18,6 +18,16 @@ import { env } from "../src/lib/env";
  *
  * The URLs are printed and nowhere else: the token is unrecoverable once this
  * process exits, which is the point of storing only its digest.
+ *
+ * On the AWS host, which has no shell, through run-task.sh only:
+ *
+ *   bash infra/aws/scripts/run-task.sh channels-link <clinic id> [meta|whatsapp] [days]
+ *
+ * which runs this in a one-off task with the arguments as environment
+ * variables instead (HEALDESK_LINK_CLINIC_ID, HEALDESK_LINK_ONLY,
+ * HEALDESK_LINK_DAYS; arguments, where given, win). There "printed" means the
+ * task's own log group in CloudWatch, under the product key, and nowhere
+ * else: run-task.sh names the stream and never shows its contents.
  */
 
 const ACTOR = { type: "service" as const, serviceName: "channels-link-cli" };
@@ -27,8 +37,21 @@ function usage(): never {
   process.exit(2);
 }
 
+/**
+ * The command line, or, when it is empty, the same thing from the one-off
+ * task's environment.
+ */
+function argsFrom(argv: string[], environment: NodeJS.ProcessEnv): string[] {
+  if (argv.length > 0) return argv;
+  const clinicId = environment.HEALDESK_LINK_CLINIC_ID?.trim();
+  if (!clinicId) return [];
+  const only = environment.HEALDESK_LINK_ONLY?.trim();
+  const days = environment.HEALDESK_LINK_DAYS?.trim();
+  return [clinicId, ...(only ? ["--only", only] : []), ...(days ? ["--days", days] : [])];
+}
+
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  const args = argsFrom(process.argv.slice(2), process.env);
   const clinicId = args[0];
   if (!clinicId || !/^[0-9a-f-]{36}$/i.test(clinicId)) usage();
 

@@ -371,6 +371,8 @@ locals {
     erase_person     = "${local.name}-erase-person"
     amend_contact    = "${local.name}-amend-contact"
     reapply_erasures = "${local.name}-reapply-erasures"
+    demo_clinic      = "${local.name}-demo-clinic"
+    channels_link    = "${local.name}-channels-link"
   }
 
   task_definition_arn_prefix = "arn:aws:ecs:${var.region}:${local.account_id}:task-definition"

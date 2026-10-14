@@ -323,10 +323,11 @@ locals {
     }
   }
 
-  # The patient-rights operator scripts the handover's "Deletion requests"
-  # and "Amendments" run (apps/app/scripts/ops-erase-person.ts and
-  # ops-amend-contact.ts), one family each, run only from a terminal with
-  # infra/aws/scripts/run-task.sh. On this host the person is named by a
+  # The operator scripts, one family each, run only from a terminal with
+  # infra/aws/scripts/run-task.sh, none with a task role. First the
+  # patient-rights ones the handover's "Deletion requests" and "Amendments"
+  # run (apps/app/scripts/ops-erase-person.ts and ops-amend-contact.ts).
+  # On this host the person is named by a
   # contact's id, never a phone number, an address or a name: the scripts
   # refuse typed patient data under NODE_ENV=production, and run-task.sh
   # passes only ids, a closed "who asked", the fields to clear and the
@@ -336,20 +337,48 @@ locals {
   ops_script_containers = {
     for name, spec in {
       "erase-person" = {
-        script  = "scripts/ops-erase-person.ts"
-        secrets = ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"]
+        script      = "scripts/ops-erase-person.ts"
+        secrets     = ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"]
+        environment = {}
       }
       "amend-contact" = {
-        script  = "scripts/ops-amend-contact.ts"
-        secrets = ["DATABASE_URL"]
+        script      = "scripts/ops-amend-contact.ts"
+        secrets     = ["DATABASE_URL"]
+        environment = {}
       }
       # After a restore, beside destroy-due (docs/handover.md, "Restoring",
       # step 5): every deletion the restored database still remembers, done
       # again. No arguments; it finds people by the keyed references its
       # records keep, so it needs the key that made them.
       "reapply-erasures" = {
-        script  = "scripts/reapply-erasures.ts"
-        secrets = ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"]
+        script      = "scripts/reapply-erasures.ts"
+        secrets     = ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"]
+        environment = {}
+      }
+      # healdesk's one demo clinic, a fictional practice the owner allowed in
+      # production (scripts/demo-clinic.ts), so the Meta App Review recordings
+      # and the Google verification video have a clinic to show without a
+      # purchase, which live Stripe keys would make real. It signs the
+      # agreement and provisions as a purchase does, and mails the signed
+      # copy to the operator, so it gets the mail settings and Resend's key.
+      # Provisioning seals nothing and keys no identifier, so no KMS role
+      # and no identifier key. run-task.sh passes the practice's name, the
+      # operator's name and the operator's own address as overrides.
+      "demo-clinic" = {
+        script      = "scripts/demo-clinic.ts"
+        secrets     = ["DATABASE_URL", "RESEND_API_KEY"]
+        environment = local.app_environment_common
+      }
+      # A clinic's single-use Meta and WhatsApp connect links
+      # (scripts/channels-link.ts), for the App Review recordings and the
+      # reviewer's notes until the onboarding wizard has the connect buttons.
+      # The link is built on BETTER_AUTH_URL and printed to this family's log
+      # group alone, under the product key; run-task.sh passes only the
+      # clinic's id, the channel and the days the link lasts.
+      "channels-link" = {
+        script      = "scripts/channels-link.ts"
+        secrets     = ["DATABASE_URL"]
+        environment = { BETTER_AUTH_URL = local.app_url }
       }
       } : name => {
       name             = "app"
@@ -358,9 +387,12 @@ locals {
       command          = ["node", "--import", "tsx", spec.script]
       workingDirectory = "/repo/apps/app"
 
+      # In name order, so a revision always renders the same way.
       environment = [
-        { name = "NODE_ENV", value = "production" },
-        { name = "NODE_EXTRA_CA_CERTS", value = local.rds_ca_bundle },
+        for k, v in merge(spec.environment, {
+          NODE_ENV            = "production"
+          NODE_EXTRA_CA_CERTS = local.rds_ca_bundle
+        }) : { name = k, value = v }
       ]
       secrets = [for k in spec.secrets : { name = k, valueFrom = local.app_secret_arns[k] }]
 

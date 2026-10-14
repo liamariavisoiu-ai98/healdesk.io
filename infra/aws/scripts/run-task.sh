@@ -12,6 +12,10 @@
 #   bash infra/aws/scripts/run-task.sh erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at]
 #   bash infra/aws/scripts/run-task.sh amend-contact <clinic id> <contact id> <fields to clear> <who asked> <you@healdesk.io>
 #                                                     a person's deletion or correction request
+#   bash infra/aws/scripts/run-task.sh demo-clinic "<fictional practice>" "<your name>" <you@healdesk.io>
+#                                                     healdesk's one demo clinic (scripts/demo-clinic.ts)
+#   bash infra/aws/scripts/run-task.sh channels-link <clinic id> [meta|whatsapp] [days]
+#                                                     a clinic's single-use Meta connect links
 #
 # It runs the family's newest revision that names a deployed image, never
 # Terraform's own revisions: those name the image tag terraform-placeholder,
@@ -37,7 +41,10 @@
 # the operator's work address, and for erasure the day the request came, for an
 # amendment the fields to clear (fullName, phone, email). Never a phone number,
 # an address or a name: the person is named by the contact's id, found in the
-# ops console first. The bundle lands in the export bucket (infra/aws/exports.tf);
+# ops console first. demo-clinic takes the fictional practice's name, the
+# operator's name and the operator's own address (the script refuses any
+# other), and channels-link the clinic's id, which channel and how many days
+# the link lasts: nothing of a patient's, and no secret. The bundle lands in the export bucket (infra/aws/exports.tf);
 # on success this prints its key and the commands to download it and, after
 # the handover, delete it.
 #
@@ -45,7 +52,11 @@
 # code, the stopped reason, the container's exit code and reason) and exits 0
 # only if the container exited 0. It never prints the task's own output:
 # migrations can quote SQL and row values, so the log stays in CloudWatch,
-# under the product key, and only its group and stream are named here.
+# under the product key, and only its group and stream are named here. That
+# holds for channels-link too, whose output is the link itself: a working,
+# single-use credential to connect a clinic's Meta accounts. For it and
+# demo-clinic this prints the command that reads the stream, to run when
+# you want it.
 #
 # RUN_TASK_TIMEOUT_MINUTES (default 30) bounds the wait. The task keeps
 # running after a timeout; the message says how to stop it.
@@ -72,6 +83,8 @@ usage() {
   echo "       $0 erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at, e.g. 2026-10-12]" >&2
   echo "       $0 amend-contact <clinic id> <contact id> <fields to clear, e.g. phone,email> <who asked> <you@healdesk.io>" >&2
   echo "       who asked: practice | person_via_practice | representative_via_practice" >&2
+  echo "       $0 demo-clinic \"<fictional practice>\" \"<your name>\" <you@healdesk.io>" >&2
+  echo "       $0 channels-link <clinic id> [meta|whatsapp] [days the link lasts, 1 to 30]" >&2
   exit 64
 }
 
@@ -81,6 +94,8 @@ case "$1" in
   patient-export) [ "$#" -eq 2 ] || usage ;;
   erase-person) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
   amend-contact) [ "$#" -eq 6 ] || usage ;;
+  demo-clinic) [ "$#" -eq 4 ] || usage ;;
+  channels-link) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage ;;
   *) [ "$#" -eq 1 ] || usage ;;
 esac
 case "$1" in
@@ -110,6 +125,14 @@ case "$1" in
     ;;
   amend-contact)
     family=healdesk-production-amend-contact
+    container=app
+    ;;
+  demo-clinic)
+    family=healdesk-production-demo-clinic
+    container=app
+    ;;
+  channels-link)
+    family=healdesk-production-channels-link
     container=app
     ;;
   *) usage ;;
@@ -172,6 +195,33 @@ if [ "$1" = amend-contact ]; then
   check_operator "$6"
   overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_AMEND_CLINIC_ID","value":"%s"},{"name":"HEALDESK_AMEND_CONTACT_ID","value":"%s"},{"name":"HEALDESK_AMEND_CLEAR","value":"%s"},{"name":"HEALDESK_AMEND_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}]}]}' \
     "$clinic_id" "$contact_id" "$4" "$5" "$(lower "$6")")
+fi
+# A name for the demo clinic or its signatory: letters, digits, spaces and
+# the punctuation a practice's name has, nothing JSON would need escaped.
+check_name() {
+  if [ "${#1}" -lt 2 ] || [ "${#1}" -gt 100 ] || ! printf '%s' "$1" | grep -Eq "^[A-Za-z0-9 .,&'-]+$"; then
+    fail "$2 is 2 to 100 letters, digits, spaces and . , & ' -"
+  fi
+}
+if [ "$1" = demo-clinic ]; then
+  check_name "$2" "the practice's name"
+  check_name "$3" "your name"
+  check_operator "$4"
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_DEMO_NAME","value":"%s"},{"name":"HEALDESK_DEMO_OPERATOR_NAME","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}]}]}' \
+    "$2" "$3" "$(lower "$4")")
+fi
+if [ "$1" = channels-link ]; then
+  is_uuid "$2" || fail "the clinic id must be the clinic's uuid (demo-clinic's log, or the ops console, shows it)"
+  link_env=$(printf '{"name":"HEALDESK_LINK_CLINIC_ID","value":"%s"}' "$(lower "$2")")
+  shift_args=("${@:3}")
+  for extra in ${shift_args[@]+"${shift_args[@]}"}; do
+    case "$extra" in
+      meta | whatsapp) link_env="$link_env$(printf ',{"name":"HEALDESK_LINK_ONLY","value":"%s"}' "$extra")" ;;
+      [1-9] | [12][0-9] | 30) link_env="$link_env$(printf ',{"name":"HEALDESK_LINK_DAYS","value":"%s"}' "$extra")" ;;
+      *) fail "after the clinic id: meta or whatsapp, and the days the link lasts, 1 to 30 (got '$extra')" ;;
+    esac
+  done
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[%s]}]}' "$link_env")
 fi
 case "$TIMEOUT_MINUTES" in
   '' | *[!0-9]* | 0) fail "RUN_TASK_TIMEOUT_MINUTES must be a whole number of minutes" ;;
@@ -321,4 +371,13 @@ if [ "$1" = patient-export ]; then
 fi
 if [ "$1" = erase-person ] || [ "$1" = amend-contact ]; then
   say "its result (the request id, counts and any deadline: ids and numbers only) is in that log stream"
+fi
+if [ "$1" = demo-clinic ] || [ "$1" = channels-link ]; then
+  if [ "$1" = demo-clinic ]; then
+    say "the clinic's id and slug are in that log stream. Read it with:"
+  else
+    say "the link is in that log stream, and only there: it connects the clinic's Meta accounts once, so share it with no one but who will use it. Read it with:"
+  fi
+  printf "  aws logs get-log-events --region %s --log-group-name %s --log-stream-name %s --query 'events[].message' --output text\n" \
+    "$REGION" "$log_group" "$log_prefix/$container/$task_id"
 fi

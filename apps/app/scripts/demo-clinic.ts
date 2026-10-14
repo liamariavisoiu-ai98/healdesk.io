@@ -31,11 +31,36 @@ import { createDemoClinic, existingDemoClinics } from "../src/lib/onboarding/dem
  * healdesk's own test Google accounts are ever connected to it. On it, and
  * nowhere else, the draft calendar election counts, so its calendar terms
  * can be elected before calendar-election/1.0.0 is released.
+ *
+ * On the AWS host, which has no shell, through run-task.sh only:
+ *
+ *   bash infra/aws/scripts/run-task.sh demo-clinic "<fictional practice>" "<your name>" <you@healdesk.io>
+ *
+ * which runs this in a one-off task with each option as an environment
+ * variable instead (an argument, where one is given, wins):
+ *
+ *   HEALDESK_DEMO_NAME            --name
+ *   HEALDESK_DEMO_OPERATOR_NAME   --operator
+ *   HEALDESK_OPS_OPERATOR         --email
+ *   HEALDESK_DEMO_TIMEZONE        --timezone
+ *   HEALDESK_DEMO_PLAN            --plan
+ *
+ * What it prints, the clinic's id and slug, goes to the task's CloudWatch log.
  */
+
+const ENV: Record<string, string> = {
+  name: "HEALDESK_DEMO_NAME",
+  operator: "HEALDESK_DEMO_OPERATOR_NAME",
+  email: "HEALDESK_OPS_OPERATOR",
+  timezone: "HEALDESK_DEMO_TIMEZONE",
+  plan: "HEALDESK_DEMO_PLAN",
+};
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
-  return i >= 0 ? process.argv[i + 1] : undefined;
+  if (i >= 0) return process.argv[i + 1];
+  const fromEnv = ENV[name] ? process.env[ENV[name]] : undefined;
+  return fromEnv || undefined;
 }
 
 function usage(message: string): never {
@@ -103,6 +128,7 @@ async function main(): Promise<void> {
         ? `  Its PDF has been sent to you.`
         : `  Its PDF was not sent (${demo.copy}); resend it from the console's agreements view.`,
       `  Next: record its calendar election and connect one of healdesk's own test Google accounts. Never a real practice's.`,
+      `  Its Meta connect links: channels-link with this clinic id (run-task.sh channels-link ${demo.clinicId}).`,
     ].join("\n"),
   );
 }

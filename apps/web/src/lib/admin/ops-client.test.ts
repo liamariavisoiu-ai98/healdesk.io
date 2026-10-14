@@ -1141,3 +1141,86 @@ describe("the first-weeks list", () => {
     expect(result.data.map((row) => row.plan)).toEqual(["AYA Voice, 500 minutes", "complete", null]);
   });
 });
+
+describe("the practice questions' review queue (/admin/reviews)", () => {
+  const REVIEW = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const RUN = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f";
+  function review(over: Record<string, unknown> = {}) {
+    return {
+      id: REVIEW,
+      clinicId: CLINIC,
+      clinicSlug: "radiance",
+      clinicName: "Radiance Med Spa",
+      runId: RUN,
+      status: "open",
+      createdAt: "2026-10-14T13:05:00.000Z",
+      dueOn: "2026-10-15",
+      pastDue: false,
+      decidedAt: null,
+      decidedByLabel: null,
+      section: null,
+      cases: [
+        {
+          channel: "voice",
+          id: "clinical",
+          status: "review",
+          asked: ["Is Botox safe for me while I'm breastfeeding?"],
+          answered: ["It's generally fine,\nbut ask the clinicians."],
+          sources: ["model"],
+          checks: [{ name: "not_answered_as_urgent", ok: true }],
+          judge: { verdict: "fail", reason: "It reassured." },
+        },
+      ],
+      ...over,
+    };
+  }
+
+  test("a review is read field by field: the answers whole, the judge's reason, the day promised", async () => {
+    reply({ data: { reviews: [review()] } });
+    const result = await opsClient.fetchPracticeReviews();
+    if (!result.ok) throw new Error(result.message);
+    expect(sent[0]).toEqual({ op: "listPracticeReviews", args: {} });
+    expect(result.data[0]).toMatchObject({
+      id: REVIEW,
+      status: "open",
+      dueOn: "2026-10-15",
+      createdAt: { on: "2026-10-14", at: "2026-10-14 13:05 UTC" },
+      cases: [
+        {
+          channel: "voice",
+          id: "clinical",
+          answered: ["It's generally fine,\nbut ask the clinicians."],
+          checks: [{ name: "not_answered_as_urgent", ok: true, detail: null }],
+          judge: { verdict: "fail", reason: "It reassured." },
+        },
+      ],
+    });
+  });
+
+  test("a status, a channel or a section it does not know is a shape error, never a guessed row", async () => {
+    reply({ data: { reviews: [review({ status: "maybe" })] } });
+    expect((await opsClient.fetchPracticeReviews()).ok).toBe(false);
+    reply({ data: { reviews: [review({ section: "the whole thing" })] } });
+    expect((await opsClient.fetchPracticeReviews()).ok).toBe(false);
+  });
+
+  test("a decision sends the clinic, the review and the decision, and a section only with a failure", async () => {
+    reply({ data: { status: "updated", decision: "pass", auditRecorded: true } });
+    expect(await opsClient.decidePracticeReview(CLINIC, REVIEW, "pass", "prices")).toEqual({
+      ok: true,
+      data: { status: "updated", decision: "pass", auditRecorded: true },
+    });
+    expect(sent[0]).toEqual({ op: "decidePracticeReview", args: { clinicId: CLINIC, reviewId: REVIEW, decision: "pass" } });
+
+    reply({ data: { status: "refused", message: "This review has been decided already." } });
+    expect(await opsClient.decidePracticeReview(CLINIC, REVIEW, "fail", "prices")).toEqual({
+      ok: true,
+      data: { status: "refused", message: "This review has been decided already." },
+    });
+    expect(sent[1]).toEqual({ op: "decidePracticeReview", args: { clinicId: CLINIC, reviewId: REVIEW, decision: "fail", section: "prices" } });
+
+    reply({ data: { status: "updated", auditRecorded: true } });
+    expect(await opsClient.rerunPracticeQuestions(CLINIC)).toEqual({ ok: true, data: { status: "updated", auditRecorded: true } });
+    expect(sent[2]).toEqual({ op: "rerunPracticeQuestions", args: { clinicId: CLINIC } });
+  });
+});

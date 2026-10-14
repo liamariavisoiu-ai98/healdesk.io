@@ -88,6 +88,8 @@ async function wizard(search: Record<string, string>): Promise<string> {
 /** Text as a person reads it: tags out, entities back. */
 function text(html: string): string {
   return html
+    .replace(/<script[\s\S]*?<\/script>/g, " ")
+    .replace(/<!--[\s\S]*?-->/g, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/&#x27;|&#39;/g, "'")
     .replace(/&quot;/g, '"')

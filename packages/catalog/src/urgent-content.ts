@@ -1,3 +1,5 @@
+import { isSpecialtyId, regimeFor } from "./specialties";
+
 /**
  * The pre-model urgent screen: a complication or an urgent symptom, caught
  * before any model sees the message.
@@ -31,18 +33,35 @@
  * front desk: hours, prices, parking, a booking, numbing cream, back pain as
  * a reason to book. tests (./urgent-content.test.ts) hold both sides.
  *
- * This is the set for people. A veterinary practice's urgent set and its
- * emergency referral number are a launch item of their own (the v1 spec,
- * "Veterinary practices are sold only once..."): until they exist, nothing
- * here knows that an animal's emergency is not 911's.
+ * There are two sets, chosen by the practice's specialty (urgentSetFor):
+ * the set for people, below, for every practice HIPAA can reach, and the
+ * veterinary set (VETERINARY_PATTERNS) for a practice whose patients are
+ * animals. The spec sells a veterinary practice only once that set and its
+ * emergency referral number exist ("Veterinary practices are sold only once
+ * the veterinary urgent set and an emergency referral number are in
+ * place"), because an animal's emergency is not 911's: its fixed reply
+ * (./urgent-replies.ts) gives the emergency vet the practice refers to.
  *
- * It returns the family that matched, never the words: the text it reads is
- * a patient's, and what it matched must not reach a log, a row or a reply.
+ * It returns the family that matched and which emergency service the reply
+ * points to, never the words: the text it reads is a patient's or a
+ * client's, and what it matched must not reach a log, a row or a reply.
  */
 
-export type UrgentFinding = { label: string };
+/**
+ * Which emergency service the fixed reply points to: 911 for a person, the
+ * emergency vet for an animal. A veterinary practice's client in crisis
+ * themselves is a person, so that family keeps 911 in the veterinary set.
+ */
+export type UrgentEmergency = "911" | "veterinary";
 
-const URGENT_PATTERNS: { pattern: RegExp; label: string }[] = [
+export type UrgentFinding = { label: string; emergency: UrgentEmergency };
+
+/** Which set a practice is screened with. */
+export type UrgentSet = "human" | "veterinary";
+
+type UrgentPattern = { pattern: RegExp; label: string };
+
+const URGENT_PATTERNS: UrgentPattern[] = [
   {
     // "Urgent", but not after "not" or "non": "nothing urgent, just a price"
     // is not. 911 on its own, never inside a run of digits or a dashed number.
@@ -103,17 +122,168 @@ const URGENT_PATTERNS: { pattern: RegExp; label: string }[] = [
   },
 ];
 
+// -----------------------------------------------------------------------------
+// The veterinary set
+// -----------------------------------------------------------------------------
+
 /**
- * Whether a message reports a complication or an urgent symptom. Null means
- * it does not, and the message may go on to the clinical screen and the
- * model. Curly apostrophes are read as straight ones first, because that is
- * how a phone keyboard writes "can't".
+ * Something an animal ate or swallowed. A verb of eating, then within a few
+ * words one of the things a vet treats as a poisoning ("ate a whole bar of
+ * chocolate", "got into my ibuprofen", "licked antifreeze") or, after
+ * swallowing alone, as an obstruction ("swallowed a sock", "ate a corn
+ * cob"). Only the forms that report it happening: "can dogs eat grapes?" is
+ * a question for the desk, and "loves eating bones" is not one bone
+ * swallowed.
  */
-export function findUrgentContent(text: string | null | undefined): UrgentFinding | null {
+const ATE_TOXIN =
+  "(ate|eaten|eats|eating|swallowed|swallowing|ingested|chewed|licked|drank|drunk|got into|gotten into)";
+const TOXIN =
+  "(chocolate|cocoa|grapes?|raisins?|sultanas?|currants?|xylitol|(chewing )?gum|onions?|garlic|lil(y|ies)|pills?|tablets?|medications?|medicines?|meds|ibuprofen|advil|motrin|aleve|naproxen|tylenol|paracetamol|acetaminophen|aspirin|anti-?freeze|(rat|mouse) (poison|bait)|poison|bleach|detergent|(laundry |dishwasher )?pods?|weed|marijuana|cannabis|edibles?|mushrooms?|macadamias?|avocados?|coffee|caffeine|cigarettes?|nicotine|vapes?|alcohol|insecticide|pesticide|fertili[sz]er|slug (pellets|bait)|snail bait|something (toxic|poisonous))";
+const ATE_OBJECT = "(ate|eaten|swallowed|swallowing|ingested)";
+const OBJECT =
+  "(batter(y|ies)|socks?|string|thread|ribbon|tinsel|hair ties?|toy|ball|bone|(chicken|cooked) bones|corn ?cobs?|fish(ing)? ?hooks?|needles?|coins?|magnets?|part of (a|the|his|her|its|their|my))";
+
+/**
+ * The veterinary set (the v1 spec, "HIPAA and BAA position": a veterinary
+ * practice is sold only once it exists). What a client writes or says when
+ * their animal needs emergency care now: a poisoning or something swallowed,
+ * bloat (gastric dilatation and volvulus), trouble breathing, a collapse or
+ * a seizure, heavy bleeding, being hit by a car or attacked, a cat that
+ * cannot pass urine, heatstroke, an eye injury, a difficult birth, a severe
+ * allergic reaction, vomiting that will not stop, and severe pain.
+ *
+ * A closed list, and as blunt as the set for people: a false positive gives
+ * a client the emergency vet's number and the practice's own, which is where
+ * a question about a poisoning belongs anyway. What it will not do is fire
+ * on the business of a veterinary front desk: vaccinations, a spay or a
+ * neuter, a dental cleaning, nail trims, grooming, boarding, a microchip, a
+ * puppy's first shots or a litter due in the spring. The tests
+ * (./urgent-content.test.ts) hold both sides.
+ *
+ * The client's own crisis comes first and keeps 911: someone who writes that
+ * they want to end their life is a person, whatever the practice treats.
+ */
+const VETERINARY_PATTERNS: (UrgentPattern & { emergency?: UrgentEmergency })[] = [
+  {
+    pattern:
+      /\b(suicid\w*|kill (my|him|her|them)sel(f|ves)|end (my|his|her) life|(i|I) (just )?want to die|self[- ]harm\w*|hurt(ing)? (my|them)sel(f|ves))\b/i,
+    label: "a crisis",
+    emergency: "911",
+  },
+  {
+    // The emergency words of the set for people, and an animal hospital.
+    pattern:
+      /\b(emergenc(y|ies)|(animal|pet|vet|veterinary) (hospital|ER)|ambulance|urgent care)\b|\b(go(ing)? to|in|at|take (him|her|them|it) to) (the )?(hospital|ER|emergency room)\b|(?<!\b(not|non|isn't|nothing)[\s-]?)\burgent(ly)?\b|(?<![\d-])\b911\b(?![\d-])/i,
+    label: "an emergency",
+  },
+  {
+    pattern: new RegExp(
+      `\\b(poison(ed|ing|ous)?|(?<!\\bnon[\\s-]?)toxic|toxins?|toxicity|anti-?freeze|rat bait|rodenticide)\\b` +
+        `|\\b${ATE_TOXIN}\\b(?:[\\s,]+[\\w'-]+){0,5}?[\\s,]+${TOXIN}\\b` +
+        `|\\b${ATE_OBJECT}\\b(?:\\s+[\\w'-]+){0,4}?\\s+${OBJECT}\\b`,
+      "i",
+    ),
+    label: "a poisoning or something swallowed",
+  },
+  {
+    pattern:
+      /\b(bloat(ed|ing)?|gdv|twisted (stomach|gut)|stomach (has )?twist\w*|(belly|stomach|abdomen|tummy) (is |looks |feels |seems |has gone |got )?(swollen|distended|hard|tight|bloated|huge|enlarged)|(swollen|distended|hard|bloated) (belly|stomach|abdomen|tummy)|retching|dry[- ]?heav\w*|trying to (vomit|throw up|be sick)|unproductive (vomiting|retching))\b/i,
+    label: "bloat",
+  },
+  {
+    pattern:
+      /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to|not|isn'?t|stopped) breath(e|ing)\b|\bbreathing (hard|heavily|fast|funny|strange(ly)?|weird(ly)?|badly|noisily)\b|\bshort(ness)? of breath\b|\b(gasping|wheezing|choking|choked)\b|\bpanting (heavily|hard|a lot|non-?stop|constantly)\b|\b(blue|white|grey|gray|pale|purple) (gums|tongue)\b|\b(gums|tongue) (is |are |looks? |have gone |has gone |turned )?(blue|white|grey|gray|pale|purple)\b/i,
+    label: "breathing",
+  },
+  {
+    pattern:
+      /\b(collaps(e|ed|es|ing)|unconscious|unresponsive|passed out|fainted|fainting|seizures?|seizing|convuls\w*|(having|had|has|having another) (a )?fits?|(is|was|keeps|started) fitting|paraly[sz]\w*|dying|can'?t (stand|stand up|get up|walk|move (his|her|its|their) (back |hind )?legs)|(won'?t|will not|unable to) (stand|get up|walk)|dragging (his|her|its|their) (back |hind )?legs|(back|hind) legs (have )?(gone|given out|stopped working|collapsed))\b/i,
+    label: "a collapse or a seizure",
+  },
+  {
+    pattern:
+      /\b(bleed(ing|s)?|bled|ha?emorrhag\w*)\b|\bblood (in|from) (his|her|its|their|the) (urine|pee|wee|stool|poo|poop|vomit|mouth|nose|ears?|eyes?|bottom)\b|\b(bloody|blood in) (urine|pee|wee|stool|poo|poop|vomit|diarrh\w*|nose)\b|\b(vomiting|throwing up|coughing( up)?|peeing|pooping) blood\b/i,
+    label: "bleeding",
+  },
+  {
+    pattern:
+      /\b(hit by a (car|truck|vehicle|bike|bus|van)|(was |got |been )?run over|struck by a (car|vehicle)|(car|road) accident|fell (off|from|out of) (a |the )?(balcony|window|roof|deck|stairs|bed|table|car)|(attacked|mauled|bitten) by (a |an |another |the |two )?(dog|dogs|coyote|cat|snake|animal)|dog ?fight|snake ?bite|broken (leg|bone|tail|jaw|paw|hip|pelvis)|(leg|bone|tail|jaw|paw|hip) (is |looks )?broken|(deep|open|big|bad|gaping) (wound|cut|gash)|impaled|electrocuted|(chewed|bit) (through )?(an |the |a )?(electric(al)? |power )?(cord|wire|cable)|scalded|burned|burnt)\b/i,
+    label: "an accident or an injury",
+  },
+  {
+    // A male cat that cannot pass urine dies of it within days.
+    pattern:
+      /\b(can'?t|cannot|unable to|isn'?t able to|not able to|trying to|straining to|struggling to|keeps trying to) (pee|urinate|wee|pass urine)\b|\b(not|hasn'?t|has not|hasn'?t been|isn'?t) (peeing|urinating|weeing|peed|urinated)\b|\bno (urine|pee)\b|\b(urinary|urethral|bladder) (blockage|obstruction)\b|\b(blocked|obstructed) (bladder|urethra|cat|tom)\b|\bstraining (in|to use) the (litter ?box|litter ?tray|tray)\b/i,
+    label: "not passing urine",
+  },
+  {
+    pattern: /\b(heat ?stroke|heat exhaustion|over-?heat(ed|ing)|(left|locked|stuck) in (a|the) (hot )?car)\b/i,
+    label: "heatstroke",
+  },
+  {
+    pattern:
+      /\b(eye injur\w*|injur(ed|y to) (his|her|its|their|the) eye|eye (is |has )?(popped|popping|bulging|out of (its|the) socket|hanging out|bleeding|punctured|swollen shut)|proptos\w*|scratch(ed)? (on )?(his|her|its|their|the) eye|something (stuck )?in (his|her|its|their) eye)\b/i,
+    label: "an eye injury",
+  },
+  {
+    pattern:
+      /\b(dystocia|(puppy|puppies|kitten|kittens|foal) (is |are |seems |looks )?stuck|(trouble|difficulty|problems?|struggling|straining|pushing) (with |to |for )?(give birth|giving birth|whelp\w*|deliver\w*|birthing|queening|labou?r)|(been )?in labou?r for|labou?r (is |has )?(not progressing|stalled|stopped)|retained (placenta|puppy|kitten))\b/i,
+    label: "a difficult birth",
+  },
+  {
+    pattern:
+      /\b(allergic reaction|anaphyla\w*|hives|(face|muzzle|snout|lips?|throat|tongue|neck|head) (is |are |has |looks |started )?(swell\w*|swollen|puffy|puffed up)|swollen (face|muzzle|snout|lips?|throat|tongue|neck|head)|stung by|(bee|wasp|hornet|scorpion) sting|(spider|insect) bite)\b/i,
+    label: "an allergic reaction",
+  },
+  {
+    pattern:
+      /\b((can'?t|won'?t) stop|keeps|keep|constantly|non-?stop) (vomiting|throwing up|being sick|having diarrh\w*)\b|\b(vomiting|throwing up|being sick) (all|for) (day|night|hours|\d+ hours)\b|\b(vomited|threw up|been sick) (\d+|several|many|multiple|five|six|lots of) times\b/i,
+    label: "vomiting that will not stop",
+  },
+  {
+    pattern:
+      /\b(screaming|crying|yelping|howling|whimpering|shaking) (in|with|from) pain\b|\bin (a lot of|so much|severe|terrible|extreme|agonising|agonizing) pain\b|\b(severe|extreme|excruciating|terrible) pain\b/i,
+    label: "severe pain",
+  },
+];
+
+/**
+ * The set a practice is screened with: the veterinary set where its patients
+ * are animals (the specialty's regime is `non-hipaa`), the set for people
+ * everywhere else, an unknown or missing specialty included.
+ */
+export function urgentSetFor(specialty: string | null | undefined): UrgentSet {
+  return isSpecialtyId(specialty) && regimeFor(specialty) === "non-hipaa" ? "veterinary" : "human";
+}
+
+/** How many families each set has: the readiness check (agreement-kind.ts) reads it. */
+export const URGENT_FAMILY_COUNT: Readonly<Record<UrgentSet, number>> = {
+  human: URGENT_PATTERNS.length,
+  veterinary: VETERINARY_PATTERNS.length,
+};
+
+/**
+ * Whether a message reports a complication or an urgent symptom, screened
+ * with the practice's own set (urgentSetFor). Null means it does not, and the
+ * message may go on to the clinical screen and the model. Curly apostrophes
+ * are read as straight ones first, because that is how a phone keyboard
+ * writes "can't". Called without a specialty it screens with the set for
+ * people, as it always has.
+ */
+export function findUrgentContent(
+  text: string | null | undefined,
+  specialty?: string | null,
+): UrgentFinding | null {
   if (!text) return null;
   const plain = text.replace(/[‘’ʼ]/g, "'");
+  if (urgentSetFor(specialty) === "veterinary") {
+    for (const { pattern, label, emergency } of VETERINARY_PATTERNS) {
+      if (pattern.test(plain)) return { label, emergency: emergency ?? "veterinary" };
+    }
+    return null;
+  }
   for (const { pattern, label } of URGENT_PATTERNS) {
-    if (pattern.test(plain)) return { label };
+    if (pattern.test(plain)) return { label, emergency: "911" };
   }
   return null;
 }

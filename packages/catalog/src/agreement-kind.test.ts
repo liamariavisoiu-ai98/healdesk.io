@@ -10,11 +10,16 @@ import {
   isCoveredAnswer,
   isDpaReleased,
   specialtyOffered,
+  VETERINARY_READINESS,
+  VETERINARY_READY,
   type CoveredAnswer,
 } from "./agreement-kind";
+import { audienceFor } from "./audience";
 import { BAA_TEMPLATES } from "./baa";
 import { currentDpaTemplate, DPA_TEMPLATES } from "./dpa";
 import { specialties } from "./specialties";
+import { findUrgentContent, URGENT_FAMILY_COUNT, urgentSetFor } from "./urgent-content";
+import { fixedUrgentReply } from "./urgent-replies";
 
 /**
  * Which agreement each practice signs, for every specialty and every answer,
@@ -91,6 +96,16 @@ describe("agreementKindFor", () => {
     expect(specialtyOffered("veterinary", true)).toBe(true);
   });
 
+  test("a veterinary practice is offered only with the DPA released AND the product ready for it", () => {
+    expect(specialtyOffered("veterinary", true, true)).toBe(true);
+    expect(specialtyOffered("veterinary", true, false)).toBe(false);
+    expect(specialtyOffered("veterinary", false, true)).toBe(false);
+    // Readiness never gates a practice HIPAA can reach.
+    for (const s of specialties.filter((s) => s.id !== "veterinary")) {
+      expect(specialtyOffered(s.id, false, false), s.id).toBe(true);
+    }
+  });
+
   test("every other specialty is asked the question and offered", () => {
     for (const s of specialties.filter((s) => s.id !== "veterinary")) {
       expect(asksCoveredQuestion(s.id), s.id).toBe(true);
@@ -117,5 +132,42 @@ describe("agreementKindFor", () => {
     });
     expect(isCoveredAnswer("maybe")).toBe(false);
     expect(isCoveredAnswer("not_sure")).toBe(true);
+  });
+});
+
+describe("veterinary readiness", () => {
+  // Each item names the thing that must exist before a vet can buy, and is
+  // true only because it does: these hold each one to its substance.
+  test("the gate is exactly these items, all in place; the vet practice cases are package B's and the DPA flag the owner's", () => {
+    expect(VETERINARY_READINESS).toEqual({ urgentSet: true, referralNumber: true, clientWording: true });
+    expect(VETERINARY_READY).toBe(true);
+    // Readiness never releases the DPA: the vet chip stays off until the owner does.
+    expect(isDpaReleased()).toBe(false);
+    expect(specialtyOffered("veterinary")).toBe(false);
+  });
+
+  test("urgentSet: a veterinary practice is screened with its own set, which an animal's emergency trips", () => {
+    expect(urgentSetFor("veterinary")).toBe("veterinary");
+    expect(URGENT_FAMILY_COUNT.veterinary).toBeGreaterThan(0);
+    expect(findUrgentContent("my dog ate a whole bar of chocolate", "veterinary")).toMatchObject({ emergency: "veterinary" });
+    expect(findUrgentContent("my dog ate a whole bar of chocolate")).toBeNull();
+  });
+
+  test("referralNumber: the veterinary reply gives the emergency referral number, never 911", () => {
+    const reply = fixedUrgentReply({
+      channel: "web_chat",
+      emergency: "veterinary",
+      clinicName: "Paws",
+      clinicNumber: "(415) 555-0123",
+      referralNumber: "(415) 555-0911",
+      clinicOpen: false,
+      teamAlerted: false,
+    });
+    expect(reply).toContain("(415) 555-0911");
+    expect(reply).not.toMatch(/\b911\b/);
+  });
+
+  test("clientWording: a veterinary practice's people are clients", () => {
+    expect(audienceFor("veterinary")).toBe("clients");
   });
 });

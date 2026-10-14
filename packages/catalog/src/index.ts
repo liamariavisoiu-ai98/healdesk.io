@@ -53,4 +53,5 @@ export * from "./time-zones";
 export * from "./treatment-names";
 export * from "./treatment-vocabulary";
 export * from "./urgent-content";
+export * from "./urgent-replies";
 export * from "./welcome";

@@ -74,6 +74,27 @@ function post(body: Record<string, unknown>): Promise<Response> {
 }
 
 describe("POST /api/contact", () => {
+  test("acknowledges an address once a day across instances: the count is in the Sheet", async () => {
+    await post(MESSAGE);
+    // A cold start, or another warm instance: its memory is empty.
+    __resetRateLimiterForTests();
+    await post({ ...MESSAGE, message: "One more question." });
+    const acks = sent.filter((m) => m.body.to[0] === "laura@glowmedspa.com");
+    expect(acks).toHaveLength(1);
+    // Both enquiries still reached us.
+    expect(sent.filter((m) => m.body.to[0] === "hello@healdesk.io")).toHaveLength(2);
+    // Counted under a digest of the address, never the address.
+    const rows = sheets.records("counters");
+    expect(rows.map((r) => String(r.key))).toEqual([expect.stringMatching(/^contact-ack:[0-9a-f]{32}$/)]);
+    expect(JSON.stringify(rows)).not.toMatch(/laura|glow/i);
+  });
+
+  test("another address is acknowledged in its own right", async () => {
+    await post(MESSAGE);
+    await post({ ...MESSAGE, email: "front@glowmedspa.com" });
+    expect(sent.filter((m) => m.body.subject === "We've got your message")).toHaveLength(2);
+  });
+
   test("sends the enquiry to us and one acknowledgement to them, each with its kind and key", async () => {
     const response = await post(MESSAGE);
     expect(response.status).toBe(200);

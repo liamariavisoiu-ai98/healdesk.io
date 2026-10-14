@@ -38,9 +38,10 @@ export const dynamic = "force-dynamic";
  * The sender gets one email naming the day we reply by, because a form that
  * answers "thanks" and then goes quiet reads as a form nobody reads. Their
  * address is unverified, so the acknowledgement echoes nothing they typed but
- * that address, and goes at most once a day per address (per instance, on
- * top of the per-IP limit above): the form must not be a way to mail a
- * stranger.
+ * that address, and goes at most once a day per address, counted in the
+ * marketing Sheet's counters so every instance shares the count
+ * (lib/rate-limit.ts, SHARED_KEY_PREFIXES), on top of the per-IP limit above:
+ * the form must not be a way to mail a stranger.
  */
 
 const RATE_LIMIT = 5;

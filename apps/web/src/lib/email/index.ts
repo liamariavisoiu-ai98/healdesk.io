@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { site } from "@/lib/site";
 
+import { noteDailyQuota, quotaFromHeader } from "./quota";
+
 /**
  * Email from the MARKETING side. No patient information ever passes through
  * here — this module lives in apps/web, which holds none — and that is what
@@ -174,6 +176,10 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
       return { status: "failed", reason: `resend ${response.status}: ${detail}` };
     }
     const data = (await response.json().catch(() => null)) as { id?: string } | null;
+    // Resend's count of the account's emails today, both apps: apps/app's
+    // 70-a-day alarm needs this site's share too (lib/email/quota.ts).
+    const used = quotaFromHeader(response.headers.get("x-resend-daily-quota"));
+    if (used !== null) noteDailyQuota(used);
     return { status: "sent", providerId: data?.id ?? null };
   } catch (error) {
     return {

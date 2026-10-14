@@ -242,7 +242,7 @@ type OperatorOp =
  * so the worst a forged call could do is mark one of apps/app's ledger rows,
  * and a forged call needs HEALDESK_PROVISION_SECRET.
  */
-type RelayOp = "emailEvent" | "welcomeHandoff" | "bookingSwitch";
+type RelayOp = "emailEvent" | "welcomeHandoff" | "bookingSwitch" | "emailQuota";
 
 type OpName = OperatorOp | RelayOp;
 
@@ -727,6 +727,26 @@ export function relayEmailEvent(
     { context: false },
   );
 }
+
+/**
+ * Hand apps/app the day's email count as one of this site's sends saw it
+ * (Resend's `x-resend-daily-quota`, which counts the whole account), so its
+ * 70-a-day alarm and the ops digest see apps/web's mail too (Annex X2). A
+ * relay op, with no session and no browser context: the request on this side
+ * is whoever caused the email, and the answer names nothing. A short timeout,
+ * because the host may be in standby and no email waits on this.
+ */
+export function relayEmailQuota(used: number, at: Date): Promise<OpsResult<{ recorded: boolean }>> {
+  return send(
+    "emailQuota",
+    "write",
+    (value) => ({ recorded: bool(object(value, "emailQuota").recorded, "emailQuota.recorded") }),
+    { used, at: at.toISOString() },
+    { context: false, timeoutMs: EMAIL_QUOTA_TIMEOUT_MS },
+  );
+}
+
+const EMAIL_QUOTA_TIMEOUT_MS = 3_000;
 
 // -----------------------------------------------------------------------------
 // The paying browser's way back

@@ -117,6 +117,7 @@ import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
+import { recordDailyQuota } from "@/lib/email/quota";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import {
@@ -418,6 +419,13 @@ const OPERATIONS = [
   // and the answer is one boolean that is the same for everyone. A read, so
   // not in MUTATING_OPERATIONS.
   "bookingSwitch",
+  // Resend's daily count as apps/web saw it (Annex X2): the free plan's 100 a
+  // day is the whole account's, both apps, and apps/web's own sends would
+  // otherwise never reach the 70-a-day alarm or the ops digest. One integer
+  // and a time; it writes email_daily_quota through recordDailyQuota, which
+  // keeps the day's highest and alerts once, and no audit row, so it is not
+  // in MUTATING_OPERATIONS. Machine to machine, like emailEvent.
+  "emailQuota",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -1014,6 +1022,8 @@ export async function runOperation(
       return opWelcomeHandoff(args);
     case "bookingSwitch":
       return ok({ directBooking: env.directBookingEnabled() });
+    case "emailQuota":
+      return opEmailQuota(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -3705,6 +3715,28 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
     ...(kind ? { kind } : {}),
   });
   return ok(result);
+}
+
+/** The most a day's count can honestly be: far above any plan's daily sending. */
+const MAX_DAILY_QUOTA = 1_000_000;
+
+/**
+ * Resend's `x-resend-daily-quota`, as one of apps/web's sends observed it,
+ * recorded like this app's own observations (lib/email/quota.ts). The time
+ * must be within a day of ours, so a replay cannot write a stale day's count.
+ */
+async function opEmailQuota(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const used = numberArg(args, "used");
+  const atRaw = stringArg(args, "at", 40);
+  const at = atRaw ? new Date(atRaw) : null;
+  if (used === undefined || !Number.isInteger(used) || used < 0 || used > MAX_DAILY_QUOTA) {
+    return opsProblem("A daily count is required.", 400, "invalid_args");
+  }
+  if (!at || Number.isNaN(at.getTime()) || Math.abs(Date.now() - at.getTime()) > 24 * 60 * 60 * 1000) {
+    return opsProblem("The observation's time is required, and must be today's.", 400, "invalid_args");
+  }
+  await recordDailyQuota(used, at);
+  return ok({ recorded: true });
 }
 
 // -----------------------------------------------------------------------------

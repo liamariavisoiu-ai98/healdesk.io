@@ -214,6 +214,8 @@ type OperatorOp =
   // Channel events: the operator says a channel's audit passed, until the
   // practice questions exist (apps/app lib/channels/audit-seam.ts).
   | "attestChannelAudit"
+  // Website chat's line, confirmed on the clinic's site by the operator who looked.
+  | "confirmWebWidget"
   | "attachMetaChannel"
   | "setMetaFrontDoor"
   | "setMetaPlatform"
@@ -1634,20 +1636,28 @@ export type OnboardingView = {
 /** What a channel still needs before it goes live, as apps/app names it (lib/channels/events.ts). */
 export type ChannelLiveInput =
   | "leaving"
-  | "go_live"
   | "audit"
   | "runtime"
   | "setup"
+  | "hours"
   | "direct_line"
-  | "clinic_step";
+  | "vet_referral"
+  | "prices_checked"
+  | "covered_status"
+  | "clinic_step"
+  | "go_live";
 const CHANNEL_LIVE_INPUTS: readonly ChannelLiveInput[] = [
   "leaving",
-  "go_live",
   "audit",
   "runtime",
   "setup",
+  "hours",
   "direct_line",
+  "vet_referral",
+  "prices_checked",
+  "covered_status",
   "clinic_step",
+  "go_live",
 ];
 
 export type ChannelId = "web" | "meta" | "voice";
@@ -2402,9 +2412,10 @@ export type BillingChannel = "web" | "meta" | "voice";
 const BILLING_CHANNELS: readonly BillingChannel[] = ["web", "meta", "voice"];
 export type ChannelStatusWord = "off" | "paused" | "live" | "waiting" | "setting_up";
 export type ChannelWaitingOn =
-  "setup" | "forwarding" | "snippet" | "meta_connect" | "whatsapp_payment_method";
+  "setup" | "direct_line" | "forwarding" | "snippet" | "meta_connect" | "whatsapp_payment_method";
 const CHANNEL_WAITING_ON: readonly ChannelWaitingOn[] = [
   "setup",
+  "direct_line",
   "forwarding",
   "snippet",
   "meta_connect",
@@ -3454,6 +3465,15 @@ export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
  */
 export function attestChannelAudit(clinicId: string, channel: ChannelId) {
   return careWrite("attestChannelAudit", { clinicId, channel });
+}
+
+/**
+ * Website chat's line is on the clinic's website: the operator opened the
+ * site and saw the chat. apps/app records it once and moves the channel on;
+ * a widget load's Origin header is never taken as proof.
+ */
+export function confirmWebWidget(clinicId: string) {
+  return careWrite("confirmWebWidget", { clinicId });
 }
 
 /** One of the clinic's own platform switches, beneath the front door. */

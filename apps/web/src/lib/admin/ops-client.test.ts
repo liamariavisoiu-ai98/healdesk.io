@@ -24,6 +24,7 @@ import {
   closeUnfinishedSetup,
   attestChannelAudit,
   commitRefund,
+  confirmWebWidget,
   disconnectCalendar,
   extendSetupDeadline,
   fetchClinicBilling,
@@ -839,6 +840,17 @@ describe("the channels card: each channel's go-live state, and the audit seam", 
     const older = await fetchOnboarding(CLINIC);
     if (!older.ok) throw new Error(older.message);
     expect(older.data.channels).toBeNull();
+  });
+
+  test("confirming website chat's line sends only the clinic, and reads a refusal as one", async () => {
+    reply({ data: { status: "updated" } });
+    expect(await confirmWebWidget(CLINIC)).toEqual({ ok: true, data: { status: "updated" } });
+    expect(sent.at(-1)).toEqual({ op: "confirmWebWidget", args: { clinicId: CLINIC } });
+    reply({ data: { status: "error", message: "The clinic didn't buy website chat." } });
+    expect(await confirmWebWidget(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "The clinic didn't buy website chat." },
+    });
   });
 
   test("attesting a channel's audit sends the clinic and the channel, and reads a refusal as one", async () => {

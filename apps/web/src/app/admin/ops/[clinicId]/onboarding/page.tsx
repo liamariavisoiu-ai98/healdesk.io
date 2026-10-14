@@ -8,6 +8,7 @@ import {
   approveAgentConfig as approveUpstream,
   attachMetaChannel as metaChannelUpstream,
   attestChannelAudit as attestAuditUpstream,
+  confirmWebWidget as confirmWidgetUpstream,
   setMetaFrontDoor as metaSwitchUpstream,
   setMetaPlatform as metaPlatformUpstream,
   completeOnboardingStep as completeUpstream,
@@ -188,13 +189,20 @@ export default async function OnboardingPage({
     return result;
   }
 
+  async function confirmWidget() {
+    "use server";
+    const result = await confirmWidgetUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
+
   return (
     <OnboardingPanel
       view={view}
       actions={{
         completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
         saveRequirements, resendSetupLink, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
-        disconnectCalendar, attestAudit,
+        disconnectCalendar, attestAudit, confirmWidget,
       }}
     />
   );

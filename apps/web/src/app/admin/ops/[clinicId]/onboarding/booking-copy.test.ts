@@ -61,6 +61,7 @@ const ACTIONS: Actions = {
   sendCalendarLink: NOT_IN_A_RENDER,
   disconnectCalendar: NOT_IN_A_RENDER,
   attestAudit: NOT_IN_A_RENDER,
+  confirmWidget: NOT_IN_A_RENDER,
 };
 
 const COVERED: BookingView = {
@@ -365,13 +366,21 @@ describe("the channels card", () => {
     ]);
     const card = said.slice(said.indexOf("Channels"));
     expect(card).toContain("Phone · ready since 2026-10-14, waiting on forwarding · audit passed");
-    expect(card).toContain("Forwarding isn't confirmed: run the forwarding test above. clinic_step");
+    expect(card).toContain(
+      "No forwarding-test call observed with the caller's number intact: run the forwarding test above. A stamped step is not enough. clinic_step",
+    );
     expect(card).toContain("Website chat · not ready on our side");
-    expect(card).toContain("The widget hasn't loaded on the clinic's own website yet. clinic_step");
+    expect(card).toContain(
+      "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat is there and answers, then confirm below. clinic_step",
+    );
+    // The audit's words send the operator to the preview or a test number, never an ordinary call.
+    expect(card).toContain("calling from one of healdesk's test numbers (HEALDESK_TEST_NUMBERS)");
     expect(card).toContain("Instagram, Messenger & WhatsApp · live since 2026-10-11, no patient answered yet");
     // Offered once: for website chat, whose audit hasn't passed and which isn't live.
     expect(card.match(/audit passed/g)).toHaveLength(3);
     expect(card.match(/I checked AYA’s answers/g)).toHaveLength(1);
+    // Website chat's line is confirmed by the operator who looked, never by a widget's Origin.
+    expect(card.match(/The line is on their website/g)).toHaveLength(1);
   });
 
   test("an apps/app with no channel states says so rather than showing nothing", () => {

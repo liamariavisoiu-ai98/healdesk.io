@@ -76,7 +76,7 @@ vi.mock("@/lib/portal/page", () => ({
     status: { kind: "answering" },
     timeZone: "America/Los_Angeles",
     locations: [],
-    bookingsOpen: true,
+    opened: ["bookings"],
   }),
 }));
 vi.mock("@/lib/portal/bookings", async (importOriginal) => ({

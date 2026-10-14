@@ -79,9 +79,9 @@ describe("the menu", () => {
     expect(sectionPath("glow", "billing")).toBe("/c/glow/billing");
   });
 
-  test("Bookings is a link once a channel has gone live or a request exists, and Conversations still waits", () => {
+  test("Bookings is a link once the clinic has opened it, whatever Conversations' state", () => {
     expect(isBuiltSection("bookings")).toBe(true);
-    const waiting = portalNav("glow", "home", { bookingsOpen: false });
+    const waiting = portalNav("glow", "home", ["conversations"]);
     expect(waiting.find((i) => i.section === "bookings")).toEqual({
       section: "bookings",
       label: "Bookings",
@@ -89,7 +89,7 @@ describe("the menu", () => {
       current: false,
       note: OPENS_AFTER_GO_LIVE,
     });
-    const opened = portalNav("glow", "home", { bookingsOpen: true });
+    const opened = portalNav("glow", "home", ["bookings"]);
     expect(opened.find((i) => i.section === "bookings")).toEqual({
       section: "bookings",
       label: "Bookings",
@@ -100,9 +100,9 @@ describe("the menu", () => {
       href: null,
       note: OPENS_AFTER_GO_LIVE,
     });
-    // On Bookings itself, it is the current page.
+    // On Bookings itself, once opened, it is the current page.
     expect(
-      portalNav("glow", "bookings").find((i) => i.section === "bookings"),
+      portalNav("glow", "bookings", ["bookings"]).find((i) => i.section === "bookings"),
     ).toMatchObject({ href: "/c/glow/bookings", current: true });
   });
 

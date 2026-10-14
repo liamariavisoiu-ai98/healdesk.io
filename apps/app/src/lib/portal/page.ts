@@ -1,11 +1,12 @@
 import { audienceFor } from "@healdesk/catalog";
+import { sql } from "drizzle-orm";
 
 import type { ActorContext } from "@/lib/audit";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
+import { withTenant } from "@/lib/tenant";
 
 import { portalGrants, type PortalContext, type PortalGrant } from "./access";
 import { portalActor, type PortalActor } from "./actor";
-import { bookingsOpen } from "./bookings-open";
 import { answeringStatus, type AnsweringStatus } from "./header";
 import type { PortalSection } from "./nav";
 
@@ -17,16 +18,16 @@ import type { PortalSection } from "./nav";
  * visible in every page file.
  *
  * Business data only: the practice, its settings and its channels, and
- * whether any booking request exists (for the menu; never a row). Nothing
- * here reads a patient.
+ * whether a patient screen has anything to show. Nothing here reads a
+ * patient.
  */
 export type PortalPage = {
   actor: PortalActor;
   actorContext: ActorContext;
   state: SetupState;
   locations: PortalGrant[];
-  /** Whether the menu links Bookings: a channel has gone live, or a request exists. */
-  bookingsOpen: boolean;
+  /** The patient screens the menu links to (openPatientScreens). */
+  opened: PortalSection[];
 };
 
 export async function loadPortalPage(
@@ -43,12 +44,35 @@ export async function loadPortalPage(
   });
   if (!state) return null;
   const locations = await portalGrants(portal.userId);
-  const opened = await bookingsOpen({
-    clinicId: portal.clinicId,
-    actor: actorContext,
-    anyChannelLive: state.channels.some((c) => c.liveAt !== null),
+  const opened = await openPatientScreens(portal.clinicId, actorContext, state);
+  return { actor, actorContext, state, locations, opened };
+}
+
+/**
+ * Which patient screens the menu links to: each once a channel has gone
+ * live (clinic_channels.live_at), or once there is something for it to show.
+ * Conversations: a call, a web chat or a Meta thread. Bookings: a booking
+ * request. Whether one exists, never what it says.
+ */
+export async function openPatientScreens(
+  clinicId: string,
+  actor: ActorContext,
+  state: Pick<SetupState, "channels">,
+): Promise<PortalSection[]> {
+  if (state.channels.some((c) => c.liveAt !== null)) return ["conversations", "bookings"];
+  const found = await withTenant({ clinicId, actor }, async (tx) => {
+    const result = await tx.db.execute<{ conversations: boolean; bookings: boolean }>(
+      sql`select (exists (select 1 from conversations where clinic_id = ${clinicId}::uuid)
+                  or exists (select 1 from chat_threads where clinic_id = ${clinicId}::uuid
+                               and channel in ('messenger', 'instagram', 'whatsapp'))) as conversations,
+                 exists (select 1 from booking_requests where clinic_id = ${clinicId}::uuid) as bookings`,
+    );
+    return result.rows[0];
   });
-  return { actor, actorContext, state, locations, bookingsOpen: opened };
+  const opened: PortalSection[] = [];
+  if (found?.conversations === true) opened.push("conversations");
+  if (found?.bookings === true) opened.push("bookings");
+  return opened;
 }
 
 /** The shell's props for a screen, from what loadPortalPage read. */
@@ -64,7 +88,7 @@ export function shellProps(
   status: AnsweringStatus;
   timeZone: string;
   locations: PortalGrant[];
-  bookingsOpen: boolean;
+  opened: PortalSection[];
 } {
   return {
     slug: portal.clinicSlug,
@@ -74,6 +98,6 @@ export function shellProps(
     status: answeringStatus(page.state.channels),
     timeZone: page.state.clinic.timezone,
     locations: page.locations,
-    bookingsOpen: page.bookingsOpen,
+    opened: page.opened,
   };
 }

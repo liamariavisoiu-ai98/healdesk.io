@@ -6,6 +6,7 @@ import { setupFeeRangeLabel } from "@/lib/pricing";
 import { site } from "@/lib/site";
 
 import { unsubscribeUrl } from "./index";
+import { commercialFooter } from "./setup-emails";
 
 /**
  * The follow-up sequence for people who tried the demo and ticked the box.
@@ -39,16 +40,20 @@ function firstName(lead: Lead): string {
 }
 
 /**
- * The CAN-SPAM line: the sender's name and a valid physical postal address.
- * The name is the trade name and the address is the Delaware correspondence
- * mailbox; the legal entity is never printed in mail (decision of
- * 23 September 2026, docs/handover.md "Decisions log", item 14).
+ * The footer every commercial email carries (Annex X1.9 and X1.10, the same
+ * one the setup-link emails use): why it came and the one-click way to stop
+ * it, that replies reach the healdesk team and should leave out patient
+ * details, the operating entity as the site names it, and the mailing address
+ * CAN-SPAM requires. It replaced, on 14 October 2026, a footer that named the
+ * trade name alone and asked no one to keep patient details out of replies.
  */
 function footer(lead: Lead): string {
-  const address = `\n${site.name}, ${ENTITY.postalAddress}`;
   return (
-    `\n\n—\nYou're getting this because you ticked "email me about ${site.agent}" on ${site.domain}. ` +
-    `One click stops it: ${unsubscribeUrl(lead.id)}${address}`
+    "\n" +
+    commercialFooter(
+      `You're getting this because you ticked "email me about ${site.agent}" on ${site.domain}.`,
+      unsubscribeUrl(lead.id),
+    )
   );
 }
 

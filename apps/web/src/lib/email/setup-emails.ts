@@ -42,11 +42,17 @@ export function firstName(name: string): string {
   return /^[\p{L}'-]{1,40}$/u.test(first) ? first : "there";
 }
 
+/**
+ * The sender identity, as on the site (Annex X1.9): the operating entity and
+ * the US mailing address for correspondence, which is also the postal
+ * address CAN-SPAM asks of commercial mail.
+ */
 function identity(): string[] {
   return [entityLine(), `${ENTITY.postalAddressLabel}: ${ENTITY.postalAddress}`];
 }
 
-function transactionalFooter(why: string): string {
+/** The footer of every apps/web email that offers no opt-out: why it came, who replies, who sent it. */
+export function transactionalFooter(why: string): string {
   return [
     "",
     "--",
@@ -56,7 +62,8 @@ function transactionalFooter(why: string): string {
   ].join("\n");
 }
 
-function commercialFooter(why: string, unsubscribeUrl: string): string {
+/** The footer of every commercial email (P1, P4, P5, P7): the same, plus the one-click way to stop them. */
+export function commercialFooter(why: string, unsubscribeUrl: string): string {
   return [
     "",
     "--",

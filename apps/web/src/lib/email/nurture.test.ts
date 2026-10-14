@@ -74,6 +74,18 @@ describe("nurture sequence", () => {
     expect(abandoned.text).toContain("/api/email/unsubscribe?t=");
   });
 
+  test("every touch's footer: why, the opt-out, who replies, and the sender as the site names it (X1.9)", () => {
+    for (const touch of TOUCHES) {
+      const text = touch.text(lead());
+      const footer = text.slice(text.lastIndexOf("\n--\n"));
+      expect(footer, `touch ${touch.step}`).toContain(`You're getting this because you ticked "email me about AYA" on healdesk.io.`);
+      expect(footer).toMatch(/Stop these emails: https?:\/\/\S+\/api\/email\/unsubscribe\?t=/);
+      expect(footer).toContain("Replies reach the healdesk team. Please leave out patient details.");
+      expect(footer).toContain("healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.");
+      expect(footer).toContain("US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States");
+    }
+  });
+
   test("the cohort credit quotes the setup fees of the step pricing, and prices point at /pricing", () => {
     // The owner's sheet of 13 October 2026: setup is $259 (Web Chat) to
     // $1,394 (Voice + Meta Chat) at list price, and the credit waives it in

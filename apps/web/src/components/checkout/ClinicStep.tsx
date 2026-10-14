@@ -73,7 +73,10 @@ export function ClinicStep({
   error,
   fromDemo = false,
   offer = null,
+  directBooking = false,
 }: {
+  /** The owner's direct-booking switch, read on the server from apps/app; off when not known. */
+  directBooking?: boolean;
   /** The setup offer that applies, so a replacement package is priced as it will be charged. */
   offer?: SetupOffer | null;
   /**
@@ -96,7 +99,7 @@ export function ClinicStep({
   const plan = chosenPlan(state);
   const issues = clinicIssues(state);
   const conflict = websiteConflict(state);
-  const consequence = state.bookingSystem ? bookingConsequence(state.bookingSystem) : null;
+  const consequence = state.bookingSystem ? bookingConsequence(state.bookingSystem, directBooking) : null;
   const invalid = (field: string) => error?.field === field;
   const [editing, setEditing] = useState(false);
   const confirmed =

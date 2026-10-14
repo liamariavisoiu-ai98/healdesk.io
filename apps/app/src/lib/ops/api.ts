@@ -49,6 +49,7 @@ import {
   ONBOARDING_STEPS,
   resolveBookingRequirements,
   serviceNameScreen,
+  type CoverageModeId,
   type ForwardingInstruction,
   type OnboardingState,
 } from "@healdesk/catalog";
@@ -117,6 +118,7 @@ import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
+import { recordDailyQuota } from "@/lib/email/quota";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import {
@@ -168,6 +170,7 @@ import { getJob, listJobs as listJobRecords, PHASE_TWO_JOBS } from "@/lib/schedu
 import { SETUP_CLOSURE_REASON } from "@/lib/setup/closure-email";
 import { moveSetupDeadlineToZone } from "@/lib/setup/practice";
 import { toCents } from "@/lib/setup/prices";
+import { readSetupSettings, routingForCoverageMode } from "@/lib/setup/settings";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { log } from "@/lib/log";
 
@@ -410,6 +413,21 @@ const OPERATIONS = [
   // composed here from BETTER_AUTH_URL when ready, never a name or an address.
   // It writes nothing, so it is not in MUTATING_OPERATIONS.
   "welcomeHandoff",
+  // The owner's direct-booking switch (HEALDESK_DIRECT_BOOKING_ENABLED, read
+  // by env.directBookingEnabled() and nowhere else), for the purchase funnel
+  // on apps/web, whose step 2 says whether AYA books straight into the
+  // calendar or the team confirms each booking. Machine to machine, like
+  // welcomeHandoff: a visitor's browser is behind the request on that side,
+  // and the answer is one boolean that is the same for everyone. A read, so
+  // not in MUTATING_OPERATIONS.
+  "bookingSwitch",
+  // Resend's daily count as apps/web saw it (Annex X2): the free plan's 100 a
+  // day is the whole account's, both apps, and apps/web's own sends would
+  // otherwise never reach the 70-a-day alarm or the ops digest. One integer
+  // and a time; it writes email_daily_quota through recordDailyQuota, which
+  // keeps the day's highest and alerts once, and no audit row, so it is not
+  // in MUTATING_OPERATIONS. Machine to machine, like emailEvent.
+  "emailQuota",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -1004,6 +1022,10 @@ export async function runOperation(
       return ok(await hostStandbyCheck(actorFor(operator), operator.request));
     case "welcomeHandoff":
       return opWelcomeHandoff(args);
+    case "bookingSwitch":
+      return ok({ directBooking: env.directBookingEnabled() });
+    case "emailQuota":
+      return opEmailQuota(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2138,6 +2160,16 @@ export type OnboardingView = {
     attributionMode: "estimated" | "verified";
     isCoveredEntity: boolean | null;
     phoneSystemType: "landline" | "voip" | "unknown";
+    /**
+     * Which calls reach AYA: clinic_settings.coverage_mode, the single source,
+     * which the forwarding codes below follow.
+     */
+    coverageMode: CoverageModeId;
+    /**
+     * The routing the console's phone form shows and sets, read from the
+     * coverage mode: 'always' for All calls, 'conditional' for the two that
+     * ring the clinic first. Never clinics.call_routing itself.
+     */
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
@@ -2236,13 +2268,14 @@ async function opGetOnboarding(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
 
-  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView } = await withTenant(
+  const { agent, metaChannels, metaPlatforms, bookingRequests, booking, bookingView, coverageMode } = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
     async (tx) => {
       tx.audit.record({ action: "read", resourceType: "agent_config", resourceId: tx.clinicId });
       const connections = await listConnections(tx.db, tx.clinicId);
       return {
         agent: await getAgentConfig(tx),
+        coverageMode: (await readSetupSettings(tx.db, tx.clinicId)).coverageMode,
         metaPlatforms: await readMetaPlatformSwitches(tx.db, tx.clinicId),
         bookingRequests: await bookingRequestCounts(tx),
         booking: await readBookingState(tx),
@@ -2274,7 +2307,8 @@ async function opGetOnboarding(
       attributionMode: clinic.attributionMode,
       isCoveredEntity: clinic.isCoveredEntity,
       phoneSystemType: clinic.phoneSystemType,
-      callRouting: clinic.callRouting,
+      coverageMode,
+      callRouting: routingForCoverageMode(coverageMode),
       callRoutingConfirmedAt: clinic.callRoutingConfirmedAt?.toISOString() ?? null,
       carrier: clinic.carrier,
       assistantNumberE164: clinic.assistantNumberE164,
@@ -2307,7 +2341,9 @@ async function opGetOnboarding(
       ? forwardingInstructions({
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
           phoneSystemType: clinic.phoneSystemType,
-          routing: clinic.callRouting,
+          // The coverage mode, so After hours only gets its own codes (all-call
+          // forwarding at closing, off at opening) instead of the busy pair.
+          routing: coverageMode,
           destinationE164: clinic.assistantNumberE164,
         })
       : null,
@@ -3695,6 +3731,28 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
     ...(kind ? { kind } : {}),
   });
   return ok(result);
+}
+
+/** The most a day's count can honestly be: far above any plan's daily sending. */
+const MAX_DAILY_QUOTA = 1_000_000;
+
+/**
+ * Resend's `x-resend-daily-quota`, as one of apps/web's sends observed it,
+ * recorded like this app's own observations (lib/email/quota.ts). The time
+ * must be within a day of ours, so a replay cannot write a stale day's count.
+ */
+async function opEmailQuota(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const used = numberArg(args, "used");
+  const atRaw = stringArg(args, "at", 40);
+  const at = atRaw ? new Date(atRaw) : null;
+  if (used === undefined || !Number.isInteger(used) || used < 0 || used > MAX_DAILY_QUOTA) {
+    return opsProblem("A daily count is required.", 400, "invalid_args");
+  }
+  if (!at || Number.isNaN(at.getTime()) || Math.abs(Date.now() - at.getTime()) > 24 * 60 * 60 * 1000) {
+    return opsProblem("The observation's time is required, and must be today's.", 400, "invalid_args");
+  }
+  await recordDailyQuota(used, at);
+  return ok({ recorded: true });
 }
 
 // -----------------------------------------------------------------------------

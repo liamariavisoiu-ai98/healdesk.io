@@ -27,6 +27,8 @@ const WHAT: Partial<Record<StopScope, { name: string; where: string | null }>> =
     where: "Billing",
   },
   daily_summary: { name: "the daily summary email", where: "Settings → Alerts" },
+  // L33. No screen shows its switch yet, so the page names no place to undo it.
+  product_updates: { name: "emails about what changed in healdesk", where: null },
   // O11: steps a practice sent on to this address. Not a switch anyone here
   // can turn back on: the practice can only send them to another address.
   steps: { name: "the setup steps a practice sends on to this address", where: null },

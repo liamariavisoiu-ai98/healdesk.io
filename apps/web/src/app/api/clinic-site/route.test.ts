@@ -7,6 +7,12 @@ import {
 } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import {
+  __resetDemoCacheForTests,
+  createDemoSession,
+  SELF_SERVE_DEMO,
+  updateDemoSession,
+} from "@/lib/demo/sessions";
 import { __resetRateLimiterForTests, rateLimit } from "@/lib/rate-limit";
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
 import { cleanWebsite, createSetupRequest, updateSetupRequest } from "@/lib/setup-requests";
@@ -185,6 +191,36 @@ describe("POST /api/clinic-site from a browser", () => {
     expect(cookie).toMatch(/HttpOnly/);
     expect(cookie).toMatch(/Path=\/api\/clinic-site/);
     expect(cookie).toMatch(/Max-Age=1800/);
+  });
+
+  test("in pilot mode, an operator's personalised demo is an invitation, as at signing and Pay", async () => {
+    __resetDemoCacheForTests();
+    const demo = await createDemoSession({ clinicName: "Glow", websiteUrl: "https://glowmedspa.com/" });
+    await updateDemoSession(demo.slug, { status: "ready", readyAt: new Date() });
+    __resetDemoCacheForTests();
+    const response = await browser({ website: "glowmedspa.com" }, { cookie: `hd_demo_ref=${demo.slug}` });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "read" });
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  test("in pilot mode, a homepage demo, an unbuilt one or a bought one is not", async () => {
+    __resetDemoCacheForTests();
+    const selfServe = await createDemoSession({
+      clinicName: "Glow",
+      websiteUrl: "https://glowmedspa.com/",
+      createdBy: SELF_SERVE_DEMO,
+    });
+    await updateDemoSession(selfServe.slug, { status: "ready", readyAt: new Date() });
+    const building = await createDemoSession({ clinicName: "Glow", websiteUrl: "https://glowmedspa.com/" });
+    const bought = await createDemoSession({ clinicName: "Glow", websiteUrl: "https://glowmedspa.com/" });
+    await updateDemoSession(bought.slug, { status: "ready", readyAt: new Date(), claimed: true });
+    __resetDemoCacheForTests();
+    for (const slug of [selfServe.slug, building.slug, bought.slug, "no-such-demo"]) {
+      const response = await browser({ website: "glowmedspa.com" }, { cookie: `hd_demo_ref=${slug}` });
+      expect(response.status, slug).toBe(403);
+    }
+    expect(read).not.toHaveBeenCalled();
   });
 
   test("in public mode, anyone may ask", async () => {

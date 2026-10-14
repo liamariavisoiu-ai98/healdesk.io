@@ -17,6 +17,7 @@ import {
   type CheckoutSeed,
 } from "@/components/checkout/CheckoutFlow";
 import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
+import { packageForChannels } from "@/lib/checkout/funnel";
 import type { ModeOffer } from "@/app/api/checkout/mode/route";
 import type { SetupOffer } from "@/lib/checkout/review";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
@@ -85,13 +86,21 @@ import { site } from "@/lib/site";
  * modal are static, so they can't read the setup cookie themselves.
  */
 type ModeAnswer =
-  | { mode: "public"; salesTax?: boolean; offer?: ModeOffer }
+  | { mode: "public"; salesTax?: boolean; directBooking?: boolean; offer?: ModeOffer }
   | {
       mode: "pilot";
       link: "valid";
-      setup: { name: string; clinicName: string; email: string; website: string | null };
+      setup: {
+        name: string;
+        clinicName: string;
+        email: string;
+        website: string | null;
+        /** The channels the request asked for (lib/setup-channels.ts). */
+        channels?: string[];
+      };
       creditUntil: string | null;
       salesTax?: boolean;
+      directBooking?: boolean;
       offer?: ModeOffer;
     }
   | { mode: "pilot"; link: "none" | LinkNotice; replyBy: string };
@@ -293,11 +302,19 @@ export function BuyModalProvider({
                       ...prefillToState(prefill),
                       clinicName: answer.setup.clinicName,
                       website: answer.setup.website,
+                      // The name the request was sent under is the requester's
+                      // own, typed for this purpose, unlike a demo's first name.
+                      contactName: answer.setup.name,
+                      packageId: packageForChannels(
+                        answer.setup.channels ?? [],
+                        answer.setup.website !== null,
+                      ),
                     }
                   : { ...demo?.prefill, ...prefillToState(prefill) }
               }
               lockedEmail={answer.mode === "pilot" ? answer.setup.email : undefined}
               salesTax={answer.salesTax === true}
+              directBooking={answer.directBooking === true}
               demo={demo?.checkout}
               setupOffer={setupOfferFrom(answer.offer)}
               onClose={close}

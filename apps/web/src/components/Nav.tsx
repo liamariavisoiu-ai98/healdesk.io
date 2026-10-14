@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 import { BuyButton } from "@/components/BuyModal";
+import { portalSignInUrl, SIGN_IN_LABEL } from "@/lib/portal-link";
 import { GetInTouch } from "@/components/GetInTouch";
 import { NAV_WORDMARK_HEIGHT, WordmarkGlyphs } from "@/components/Wordmark";
 import { site } from "@/lib/site";
@@ -203,6 +204,16 @@ export function Nav() {
           {site.cta.secondary.label}
         </a>
 
+        {/* The clinic portal's sign-in, once NEXT_PUBLIC_PORTAL_URL is set
+            (lib/portal-link.ts); nothing until then. */}
+        {portalSignInUrl() ? (
+          <a
+            href={portalSignInUrl()!}
+            className="text-muted hover:text-ink hidden text-[16.8px] font-semibold whitespace-nowrap transition-colors min-[700px]:inline-flex"
+          >
+            {SIGN_IN_LABEL}
+          </a>
+        ) : null}
         <GetInTouch className="ml-auto min-[700px]:ml-0" />
         <BuyButton className="shrink-0 whitespace-nowrap" />
       </div>

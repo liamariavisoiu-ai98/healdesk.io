@@ -226,7 +226,74 @@ describeDb("incidents, exports and offboarding", () => {
 
     await expect(
       withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { requestedBy: "practice" })),
-    ).rejects.toThrow(/phone number or an email/);
+    ).rejects.toThrow(/phone number, an email address or a contact's id/);
+  });
+
+  test("by a contact's id, the export is the bundle its own number finds, and nothing about the person is passed in", async () => {
+    const c = await seedClinic("export-by-id");
+    const other = await seedClinic("export-by-id-other");
+    const contactId = await seedContact(c.clinicId, "+15550100877");
+    // The same number on a second contact of the person's: found by the number, as by phone.
+    const second = await seedContact(c.clinicId, "+15550100877");
+    const { conversationId } = await seedConversation(c.clinicId, {
+      startedAt: new Date("2026-09-01T15:00:00Z"),
+      booked: false,
+      contactId,
+    });
+    await seedContact(c.clinicId, "+15550100878"); // someone else at the same clinic
+    const elsewhere = await seedContact(other.clinicId, "+15550100877");
+
+    const byId = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportPatient(tx, { contactId, requestedBy: "person_via_practice" }),
+    );
+    expect(byId.contacts.map((r) => r.id).sort()).toEqual([contactId, second].sort());
+    expect(byId.conversations.map((r) => r.id)).toEqual([conversationId]);
+    const byPhone = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportPatient(tx, { phone: "+15550100877", requestedBy: "practice" }),
+    );
+    expect(byId.contacts.map((r) => r.id).sort()).toEqual(byPhone.contacts.map((r) => r.id).sort());
+
+    // A contact with no number or address is still exported by its id, alone.
+    const bare = await inTenant(c.clinicId, async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into contacts (clinic_id, full_name) values ($1, 'Synthetic Patient') returning id`,
+        [c.clinicId],
+      );
+      return rows[0]!.id;
+    });
+    const alone = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportPatient(tx, { contactId: bare, requestedBy: "practice" }),
+    );
+    expect(alone.contacts.map((r) => r.id)).toEqual([bare]);
+
+    // The audit row says how the person was named, and never by what.
+    const audit = await inTenant(c.clinicId, (client) =>
+      client.query<{ metadata: Record<string, unknown> }>(
+        `select metadata from audit_log
+          where clinic_id = $1 and action = 'export' and resource_type = 'patient_bundle'
+          order by occurred_at`,
+        [c.clinicId],
+      ),
+    );
+    expect(audit.rows.map((r) => r.metadata.by)).toEqual(["contact_id", "details", "contact_id"]);
+    expect(JSON.stringify(audit.rows)).not.toContain("+15550100877");
+
+    // Another clinic's contact is no contact here; an id with details is refused; so is a non-id.
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        exportPatient(tx, { contactId: elsewhere, requestedBy: "practice" }),
+      ),
+    ).rejects.toThrow(/No such contact at this clinic/);
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        exportPatient(tx, { contactId, phone: "+15550100877", requestedBy: "practice" }),
+      ),
+    ).rejects.toThrow(/not both/);
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+        exportPatient(tx, { contactId: "+15550100877", requestedBy: "practice" }),
+      ),
+    ).rejects.toThrow(/its uuid/);
   });
 
   test("an amendment corrects the copy and records which fields changed, not what they were", async () => {

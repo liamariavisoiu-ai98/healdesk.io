@@ -113,8 +113,31 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
 };
 
+/**
+ * The package that owes a pending template: one of the packages that finish
+ * the funnel and portal plan (14 October 2026). `runtime` is the voice and
+ * chat runtime's own work: L17, L18 and L21 wait for its routed/answered
+ * counter, which no package here builds.
+ */
+export type OwingPackage =
+  | "B"
+  | "F"
+  | "WP1"
+  | "WP3"
+  | "WP4"
+  | "WP5"
+  | "WP6"
+  | "WP7"
+  | "WP8"
+  | "WP9"
+  | "WP10"
+  | "WP11"
+  | "runtime";
+
 export type PendingTemplate = {
   owner: NoticeOwner;
+  /** The package that builds its payload, its template and whatever queues it. */
+  package: OwingPackage;
   /** Where Annex X5 ships it. */
   ships: string;
 };
@@ -167,7 +190,56 @@ export const PENDING_TEMPLATES: Record<
   >,
   PendingTemplate
 > = {
-  sign_in_help_link: { owner: "plan", ships: "M2, sign-in (O6)" },
+  // WP8: /sign-in/help (D5), and the sign-in address change.
+  sign_in_help_link: { owner: "plan", package: "WP8", ships: "M2, sign-in (O6)" },
+  address_change_confirm: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
+  address_changing: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
+  // WP1: the channel events.
+  channel_live: { owner: "plan", package: "WP1", ships: "M6 (L1)" },
+  // F: the live alerts, through notifyBookingAlert.
+  booking_request: { owner: "plan", package: "F", ships: "M5 (L7)" },
+  request_still_open: { owner: "plan", package: "F", ships: "M5 (L8)" },
+  request_missed: { owner: "plan", package: "F", ships: "M5 (L9)" },
+  deposit_to_collect: { owner: "plan", package: "F", ships: "M5 (L10)" },
+  handover: { owner: "plan", package: "F", ships: "M5 (L11)" },
+  urgent: { owner: "plan", package: "F", ships: "M5 (L12)" },
+  website_message: { owner: "plan", package: "F", ships: "M5 (L20)" },
+  calendar_check: { owner: "plan", package: "F", ships: "M5 (L34)" },
+  // WP4: the claims function's emails.
+  daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
+  weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },
+  // WP3: the pause control.
+  ai_paused: { owner: "plan", package: "WP3", ships: "M6 (L15)" },
+  // The runtime's routed/answered counter: blocked, owned by no package yet.
+  outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
+  outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
+  guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
+  // WP9: DPA completion.
+  agreement_to_sign: { owner: "plan", package: "WP9", ships: "M2 (L22)" },
+  // WP11: the drift list.
+  website_changes: { owner: "plan", package: "WP11", ships: "M7 (L23)" },
+  // WP10: the support chat.
+  support_request: { owner: "plan", package: "WP10", ships: "M7 (L25)" },
+  // WP7: the operator's notices and incidents, from /admin.
+  terms_notice: { owner: "plan", package: "WP7", ships: "Gate A (L28)" },
+  subprocessor_notice: { owner: "plan", package: "WP7", ships: "Gate A (L29)" },
+  incident_report: { owner: "plan", package: "WP7", ships: "Gate A (L29)" },
+  guarantee_claim_received: { owner: "plan", package: "WP7", ships: "Gate A (L30)" },
+  guarantee_finding: { owner: "plan", package: "WP7", ships: "Gate A (L30)" },
+  suspended_for_cause: { owner: "plan", package: "WP7", ships: "Gate A (L31)" },
+  patient_request: { owner: "plan", package: "WP7", ships: "M5 (L32)" },
+  product_update: { owner: "plan", package: "WP7", ships: "M7 (L33)" },
+  // WP6: after cancellation.
+  pass_through_ending: { owner: "plan", package: "WP6", ships: "M6 (E3)" },
+  export_ready: { owner: "plan", package: "WP6", ships: "M6 (E4)" },
+  export_reminder: { owner: "plan", package: "WP6", ships: "M6 (E5)" },
+  data_destroyed: { owner: "plan", package: "WP6", ships: "M6 (E6)" },
+  // B: the practice questions.
+  assistant_ready: { owner: "plan", package: "B", ships: "M4 (O8)" },
+  practice_questions_failed: { owner: "plan", package: "B", ships: "M4 (O9)" },
+  // WP5: the ops digest and the internal alerts.
+  ops_digest: { owner: "plan", package: "WP5", ships: "Gate A (I2)" },
+  flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },
 };
 
 /** The template for a kind, or undefined while it is pending. */

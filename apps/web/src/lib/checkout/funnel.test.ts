@@ -18,12 +18,12 @@ import {
   chosenPlan,
   clinicComplete,
   clinicIssues,
-  DIRECT_BOOKING_OPEN,
   firstIncompleteStep,
   type FunnelState,
   initialFunnel,
   noWebsiteOptions,
   packageComplete,
+  packageForChannels,
   packageNeedsWebsite,
   planLink,
   RETIRED_PLAN_PACKAGES,
@@ -172,6 +172,34 @@ describe("step 1: the package", () => {
     expect(initialFunnel({ plan: "voice", interval: "year" }).interval).toBe("year");
     expect(initialFunnel({ plan: "voice" }).interval).toBe("month");
   });
+  test("a setup request's channels add up to the package it asked for", () => {
+    expect(packageForChannels(["phone"], true)).toBe("voice");
+    expect(packageForChannels(["web"], true)).toBe("webchat");
+    expect(packageForChannels(["instagram"], true)).toBe("metachat");
+    expect(packageForChannels(["web", "whatsapp"], true)).toBe("metachat");
+    expect(packageForChannels(["phone", "web"], true)).toBe("voice-webchat");
+    expect(packageForChannels(["phone", "messenger"], true)).toBe("voice-metachat");
+    expect(packageForChannels(["phone", "web", "instagram", "messenger", "whatsapp"], true)).toBe("voice-metachat");
+    // Never Web Chat for a clinic with no website: Meta Chat includes it.
+    expect(packageForChannels(["web"], false)).toBe("metachat");
+    expect(packageForChannels(["phone", "web"], false)).toBe("voice-metachat");
+    expect(packageForChannels(["phone"], false)).toBe("voice");
+    expect(packageForChannels([], true)).toBeNull();
+    expect(packageForChannels(["fax"], true)).toBeNull();
+  });
+
+  test("the request's package opens at the default steps, and ?plan wins over it", () => {
+    expect(chosenPlan(initialFunnel({ packageId: "voice-webchat" }))?.id).toBe("voice-webchat-500-300");
+    expect(chosenPlan(initialFunnel({ packageId: "voice-webchat", plan: "metachat-700" }))?.id).toBe("metachat-700");
+    expect(initialFunnel({ packageId: "gold" }).packageId).toBeNull();
+    expect(initialFunnel({ packageId: null }).packageId).toBeNull();
+  });
+
+  test("the request's name is the signatory's, until the buyer changes it", () => {
+    expect(initialFunnel({ contactName: "  Alex Chen " }).contactName).toBe("Alex Chen");
+    expect(initialFunnel({ contactName: "x".repeat(300) }).contactName).toHaveLength(120);
+    expect(initialFunnel().contactName).toBe("");
+  });
 });
 
 describe("step 2: the clinic", () => {
@@ -281,10 +309,10 @@ describe("no website", () => {
 });
 
 describe("the consequence of where bookings live", () => {
-  test("while the owner's switch is off, a live system books as requests for now", () => {
-    expect(DIRECT_BOOKING_OPEN).toBe(false);
+  test("while the owner's switch is off, or not known, a live system books as requests for now", () => {
     for (const id of ["google_calendar", "calendly", "calcom", "gohighlevel", "none"] as const) {
       expect(bookingConsequence(id).text, id).toBe(BOOKING_REQUESTS_FOR_NOW);
+      expect(bookingConsequence(id, false).text, id).toBe(BOOKING_REQUESTS_FOR_NOW);
     }
     expect(BOOKING_REQUESTS_FOR_NOW).toBe(
       "For now your team confirms each booking AYA takes; live booking switches on once your calendar is connected and checked.",

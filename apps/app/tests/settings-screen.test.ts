@@ -588,6 +588,36 @@ describeDb("Settings", () => {
     await save("daily_summary", true);
   });
 
+  test("product updates (L33): on by default, and its stop link turns the switch off, which the sender reads", async () => {
+    const allowed = () =>
+      withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) =>
+        optionalEmailAllowed(tx, "product_updates"),
+      );
+    expect(await allowed()).toBe(true);
+    const { POST } = await import("@/app/email/stop/[token]/route");
+    const token = unsubscribeToken(portal.clinicId, "product_updates");
+    const response = await POST(
+      new Request(`https://app.healdesk.test/email/stop/${token}`, {
+        method: "POST",
+        body: "List-Unsubscribe=One-Click",
+      }),
+      { params: Promise.resolve({ token }) },
+    );
+    expect(response.status).toBe(200);
+    expect(await allowed()).toBe(false);
+    // Only that switch: the daily summary still goes.
+    expect(
+      await withTenant({ clinicId: portal.clinicId, actor: ACTOR }, (tx) =>
+        optionalEmailAllowed(tx, "daily_summary"),
+      ),
+    ).toBe(true);
+    await inTenant(portal.clinicId, async (c) => {
+      await c.query(`update clinic_settings set product_updates = true where clinic_id = $1`, [
+        portal.clinicId,
+      ]);
+    });
+  });
+
   test("usage alerts' stop link turns the billing clinic's switch off, which the sender reads", async () => {
     const { POST } = await import("@/app/email/stop/[token]/route");
     const token = unsubscribeToken(portal.clinicId, "usage_alerts");

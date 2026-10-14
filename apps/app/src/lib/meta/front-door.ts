@@ -452,6 +452,8 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const hit = REFUSED.find((r) => r.pattern.test(flat));
   if (hit) return { ok: false, reason: hit.label };
   if (personaIntroduction(flat, context.clinicName)) return { ok: false, reason: "a human claim" };
+  const staff = namedStaff(withoutClinicName(withoutAddress(flat, context.address), context.clinicName), context.clinicName);
+  if (staff) return { ok: false, reason: staff };
   // A condition named in a reply is refused even where no acknowledgement
   // above catches it ("Yes, we treat rosacea"), as the screen refuses it inbound.
   const clinical = findClinicalContent({ reply }, { conditions: true });
@@ -498,6 +500,98 @@ function personaIntroduction(reply: string, clinicName: string | undefined): boo
     }
   }
   return false;
+}
+
+/**
+ * Words that can stand where a staff member's name would ("Our nurse Jane",
+ * "Jane will call") without being anyone's name: what starts a sentence, and
+ * the roles themselves.
+ */
+const NOT_A_STAFF_NAME = new Set([
+  ...NOT_A_NAME,
+  "we", "they", "she", "he", "it", "you", "i", "my", "his", "her", "their", "us", "who", "which",
+  "this", "that", "these", "those", "someone", "somebody", "anyone", "anybody", "everyone",
+  "everybody", "nobody", "no", "one", "each", "all", "both", "any", "people", "person",
+  "hello", "hi", "hey", "thanks", "thank", "yes", "sure", "great", "please", "also", "then",
+  "there", "what", "how", "when", "where", "why", "if", "so", "and", "but", "or", "is", "will",
+  "staff", "team", "practice", "clinic", "office", "front", "desk", "reception", "member",
+  "members", "nurse", "nurses", "doctor", "doctors", "provider", "providers", "practitioner",
+  "practitioners", "injector", "injectors", "assistant", "assistants", "manager", "coordinator",
+  "receptionist", "specialist", "specialists", "instagram", "messenger", "whatsapp", "facebook",
+]);
+
+/** A word, capitalised as a name is ("Jane", "Chen", "Mary-Jane", "O'Neil"). */
+const STAFF_NAME = String.raw`(\p{Lu}[\p{Ll}'’-]+)`;
+
+/** "nurse" as "[Nn]urse", so a role reads the same at the start of a sentence. */
+const anyCase = (phrase: string) => phrase.replace(/\b([a-z])/g, (_, c: string) => `[${c.toUpperCase()}${c}]`);
+
+/** Who works at a practice, by role. Longest first, so "nurse practitioner" is read whole. */
+const STAFF_ROLE = `(?:${[
+  "nurse practitioner", "nurse injector", "medical director", "office manager", "practice manager",
+  "front desk", "team member", "staff member", "member of staff", "aesthetician", "esthetician",
+  "dermatologist", "veterinarian", "receptionist", "practitioner", "coordinator", "hygienist",
+  "physician", "therapist", "specialist", "clinician", "technician", "consultant", "injector",
+  "provider", "surgeon", "dentist", "director", "assistant", "manager", "founder", "doctor",
+  "nurse", "owner", "vet",
+].map(anyCase).join("|")})s?`;
+
+/** A clinical title before a name: "Dr. Chen", "Doctor Patel", "Nurse Jane", "NP Lee". */
+const STAFF_TITLE = String.raw`(?:[Dd]r|[Dd]octor|[Nn]urse|NP|PA(?:-C)?|RN|APRN|[Pp]rof(?:essor)?)\.?`;
+
+/** Whose role it is: "our nurse", "the receptionist", "one of our injectors". */
+const STAFF_OF = String.raw`(?:[Oo]ne of (?:our|the)|[Oo]ur|[Tt]he|[Yy]our|[Mm]y|[Aa])`;
+
+/** Up to two words between "our" and the role: "our lead nurse", "the senior aesthetician". */
+const STAFF_ADJ = String.raw`(?:[a-z]+\s+){0,2}?`;
+
+/** A named person presented as staff or a provider, and why it is refused. */
+const NAMED_STAFF: { pattern: RegExp; reason: string }[] = [
+  // "Dr. Chen can help.", "You'll see Doctor Patel."
+  { pattern: new RegExp(String.raw`(?<!\p{L})${STAFF_TITLE}\s+${STAFF_NAME}`, "gu"), reason: "a provider" },
+  // "Jane, our nurse, will call.", "Maria (one of our injectors) can help."
+  { pattern: new RegExp(String.raw`${STAFF_NAME}\s*(?:,|\(|[—–-])\s*${STAFF_OF}\s+${STAFF_ADJ}${STAFF_ROLE}\b`, "gu"), reason: "a named member of staff" },
+  // "Our injector Maria will call you back.", "the receptionist, Amy, can help", "our nurse is Jane".
+  { pattern: new RegExp(String.raw`(?<!\p{L})${STAFF_OF}\s+${STAFF_ADJ}${STAFF_ROLE}\s*(?:,|\(|[—–-])?\s*(?:is\s+|named\s+|called\s+)?${STAFF_NAME}`, "gu"), reason: "a named member of staff" },
+  // "Jane at the front desk", "Maria from our team", "Sarah from Glow Clinic" (the clinic's name is read as "the practice").
+  { pattern: new RegExp(String.raw`${STAFF_NAME}\s+(?:from|at|on|of|with|in)\s+(?:our|the)\s+(?:team|front desk|reception|staff|office|practice|clinic)\b`, "gu"), reason: "a named member of staff" },
+  // "Maria will call you back.", "Jane can help with that."
+  { pattern: new RegExp(String.raw`${STAFF_NAME}\s+(?:will|can|could|would|is going to|is happy to|is glad to)\s+(?:be\s+)?(?:call|ring|phone|reach|contact|help|see|get back|follow up|be in touch|look after|treat|assist|speak|talk|confirm|take care)`, "gu"), reason: "a named member of staff" },
+  // "Ask for Maria when you call.", "You can speak to Jane."
+  { pattern: new RegExp(String.raw`(?<!\p{L})(?:[Aa]sk for|[Ss]peak (?:to|with)|[Tt]alk (?:to|with))\s+${STAFF_NAME}`, "gu"), reason: "a named member of staff" },
+];
+
+/**
+ * Whether the reply presents a named person as someone who works at the
+ * practice: a provider by title ("Dr. Chen can help."), a name beside a role
+ * ("Jane, our nurse, will call.", "Our injector Maria will call you back."),
+ * a name at the practice ("Jane at the front desk"), or a name who will call
+ * or help. The Meta channels name no provider (the prompt's rule, and the
+ * spec's: nothing about who the person would see), and the front door books
+ * nothing, so no reply has reason to name anyone who works there. Run on the
+ * reply without the clinic's own name, which is read as "the practice" ("Dr.
+ * Chen Aesthetics" is a business, not a person), and without its address. A
+ * capitalised word on its own is never enough: the booking request asks for
+ * the person's first name, and "Thanks, Jane!" must pass.
+ */
+function namedStaff(reply: string, clinicName: string | undefined): string | null {
+  const clinicFirst = (clinicName ?? "").trim().split(/\s+/)[0]?.toLowerCase() ?? "";
+  for (const { pattern, reason } of NAMED_STAFF) {
+    for (const m of reply.matchAll(pattern)) {
+      const word = m[1]!.toLowerCase();
+      if (NOT_A_STAFF_NAME.has(word) || word === clinicFirst) continue;
+      return reason;
+    }
+  }
+  return null;
+}
+
+/** The reply with the clinic's own name read as "the practice", its case otherwise kept. */
+function withoutClinicName(reply: string, clinicName: string | undefined): string {
+  const name = (clinicName ?? "").trim();
+  if (!name) return reply;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  return reply.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?:['’]s)?(?![\\p{L}\\p{N}])`, "giu"), "the practice");
 }
 
 /**

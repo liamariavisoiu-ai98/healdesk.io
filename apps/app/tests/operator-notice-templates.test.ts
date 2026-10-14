@@ -29,11 +29,7 @@ import {
   GUARANTEE_FINDING_ENTRY,
   renderGuaranteeFinding,
 } from "@/lib/email/templates/guarantee_claim";
-import {
-  INCIDENT_REPORT_ENTRY,
-  renderIncidentReport,
-  type IncidentReportPayload,
-} from "@/lib/email/templates/incident_report";
+import { INCIDENT_REPORT_ENTRY, renderIncidentReport } from "@/lib/email/templates/incident_report";
 import { PRODUCT_UPDATE_ENTRY } from "@/lib/email/templates/product_update";
 import {
   renderSubprocessorNotice,

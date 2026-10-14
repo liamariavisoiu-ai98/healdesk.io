@@ -243,11 +243,11 @@ async function main(): Promise<void> {
  * waiting on it. Logged and never fatal: a worker that refused to start over
  * its key would also stop every job that never touches one.
  *
- * This line is the check an operator can read today. The read-only ops
- * operation getCredentialKeyStatus asks the web tier the same question on
- * demand, which is a separate answer, since the two processes can run under
- * different task roles; but nothing in apps/web calls it yet, so it answers
- * only a signed /api/ops request and no console card shows it.
+ * This line is the worker's own answer. The read-only ops operation
+ * getCredentialKeyStatus asks the web tier the same question on demand,
+ * which is a separate answer, since the two processes can run under
+ * different task roles: /admin/map asks it on every load and shows it on the
+ * key-safe bridge.
  */
 async function checkCredentialKey(): Promise<void> {
   const started = Date.now();

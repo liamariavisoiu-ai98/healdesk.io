@@ -142,7 +142,9 @@ export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantCh
       lines.push(`- phone: the number they are calling from is already known; ask only if they want another one`);
       continue;
     }
-    lines.push(`- ${field.id}: ${field.ask}`);
+    // A closed-form field says how its value is written (the catalogue's
+    // `answer`); one written any other way is refused when it is stored.
+    lines.push(`- ${field.id}: ${field.ask}${field.answer ? ` (write it as ${field.answer})` : ""}`);
   }
 
   lines.push(`\nNever-say list (never write or say any of these, in any form):\n${facts.neverSay.map((p) => `- ${p}`).join("\n")}`);

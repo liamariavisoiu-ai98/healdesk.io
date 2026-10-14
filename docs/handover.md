@@ -217,8 +217,9 @@ RDS instance, not after, because the first item cannot be added later.
 roll, a CloudFormation bootstrap stack, and [`infra/aws/README.md`](../infra/aws/README.md) as
 the runbook. *Done in `infra/aws`* below means defined there and checked locally (`terraform
 validate`, `terraform test` against mocked providers, tflint, checkov, cfn-lint, actionlint;
-the images built and run against a local Postgres shaped like RDS). **Nothing is applied**, so
-every item stays unproven until the owner's first `infra.yml` apply and first deploy.
+the images built and run against a local Postgres shaped like RDS). **Applied on 14 October 2026,
+not yet deployed** (no image pushed, no db-bootstrap run), so every item that needs a running
+task stays unproven until the first `host.yml` turn-on.
 
 - *Decide the database first:* **done.** RDS under this agreement, the owner's choice of
   7 October 2026 (`infra/aws/rds.tf`).
@@ -319,8 +320,23 @@ every item stays unproven until the owner's first `infra.yml` apply and first de
   clinic contact they belong to, never to patient suppression tables.
 - **Not on the addendum's list, but needed before the first apply:** the owner's part of the
   first run in the runbook (the bootstrap stack, the Cloudflare token in Parameter Store, the
-  GitHub variables, `infra.yml`, the vendor keys, the first deploy with `bootstrap_db`, Vercel's
-  `HEALDESK_APP_URL` and `HEALDESK_PROVISION_SECRET`).
+  GitHub variables, `infra.yml`, applied on 14 October 2026, the vendor keys, then
+  `.github/workflows/host.yml` with mode `active`, which applies, runs the first deploy with
+  `bootstrap_db` and `migrate`, and subscribes SES's events once the app answers; Vercel's
+  `HEALDESK_APP_URL`, `HEALDESK_PROVISION_SECRET` and `HEALDESK_GITHUB_ACTIONS_TOKEN`). The first
+  turn-on is from GitHub's page, because `/admin` cannot be signed in to before the host answers;
+  after that `/admin/host` turns the host on or puts it in standby, and the `AWS_DEPLOY_ROLE_ARN`
+  variable is no longer needed.
+- **Standby** (14 October 2026; the runbook's "Standby"): `/admin/host` or `host.yml` with mode
+  `standby` snapshots the database and removes it, the load balancer, the NAT, every service,
+  their alarms and the two CNAMEs, keeping the key, every parameter, the images and the network;
+  about $4 a month against about $69. It is refused while a clinic is in production, an agreement
+  is in effect or a transcript has not reached SES (apps/app's `hostStandbyCheck`), and, when
+  `host.yml` is started from GitHub, while `/healdesk/production/host/production-clinic` reads
+  `yes`, which **the owner sets by hand when the first clinic goes live** (apps/app does not write
+  it). The standby snapshot is a manual one, outside the 35-day backup promise, which is why
+  standby is allowed only while the host holds synthetic data. A first paid invoice in standby
+  turns the host back on (`apps/web/src/lib/host/wake.ts`) and Stripe's retries make the account.
 - **A2P 10DLC — dropped.** No SMS in v1. SMS is a phase-two paid add-on with per-clinic
   carrier registration of one to four weeks.
 - **The monthly report job stays off.** It is the phase-two revenue report.

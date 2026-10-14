@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
+import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
 import {
   closeUnfinishedSetup as closeSetupUpstream,
@@ -25,6 +26,7 @@ import {
   type DepositSettingsInput,
   type RefundKind,
 } from "@/lib/admin/ops-client";
+import { isHostUnreachable } from "@/lib/host/state";
 
 import { BillingPanel } from "./BillingPanel";
 
@@ -57,6 +59,7 @@ export default async function BillingPage({ params }: { params: Promise<{ clinic
   if (!UUID.test(clinicId)) notFound();
 
   const view = await fetchClinicBilling(clinicId);
+  if (isHostUnreachable(view)) return <HostStandbyPage title="Billing" back={{ href: "/admin/ops", label: "Back to ops" }} />;
   const path = `/admin/ops/${clinicId}/billing`;
 
   async function setOverageMode(mode: "allow" | "hard_cap") {

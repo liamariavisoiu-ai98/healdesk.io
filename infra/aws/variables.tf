@@ -347,6 +347,79 @@ variable "db_maintenance_window" {
 }
 
 # ---------------------------------------------------------------------------
+# Standby: the host with nothing running (README, "Standby")
+# ---------------------------------------------------------------------------
+#
+# .github/workflows/host.yml is the only thing meant to set these, with -var on
+# its command line, so production.tfvars stays the record of the active
+# shape. Entering standby takes two applies, because a single apply cannot
+# both change an instance and destroy it; leaving it takes one, then the
+# deploy, then one more for the SES subscription once the app answers:
+#
+#   standby, apply 1  deletion_protection = false and final_snapshot_identifier
+#                     set, standby still false: RDS and the load balancer lose
+#                     their deletion protection, and the database's state
+#                     records the snapshot its deletion takes. Nothing is
+#                     removed. The provider reads skip_final_snapshot and
+#                     final_snapshot_identifier from the state when it
+#                     destroys, never from the configuration, which is why
+#                     they have to be applied before the destroy.
+#   standby, apply 2  standby = true: everything that costs by the hour goes
+#                     (rds.tf, alb.tf, nat.tf, network.tf, ecs.tf, alarms.tf,
+#                     dns.tf, waf.tf, ses.tf); the key, the parameters, the
+#                     images, the network, the trail, Config, GuardDuty, the
+#                     buckets, SES's identity, the alarm topic and the
+#                     certificate stay.
+#   active            standby = false, deletion_protection back on, and
+#                     restore_snapshot_identifier naming the newest standby
+#                     snapshot when the database does not exist, so the
+#                     database comes back as it was.
+
+variable "standby" {
+  description = "Put the host in standby: remove the RDS instance (after the final snapshot apply 1 recorded), the load balancer with its listeners, rules and target groups, the NAT instance or gateways, every ECS service, the alarms that watch them, the WAF, the SES events subscription and the two Cloudflare CNAMEs that point at the load balancer. Everything that keeps data or identity stays (README, \"Standby\"). Needs deletion_protection = false, applied first on its own. Set only by host.yml (and by infra.yml while host.yml has recorded standby)."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.standby || !var.deletion_protection
+    error_message = "standby = true needs deletion_protection = false, applied first on its own: RDS and the load balancer refuse to be deleted while protected, and one apply cannot both lift the protection and delete them. host.yml does it in two applies."
+  }
+
+  validation {
+    condition     = !var.standby || var.restore_snapshot_identifier == ""
+    error_message = "restore_snapshot_identifier brings the database back from a standby snapshot, so it cannot be set with standby = true."
+  }
+}
+
+variable "deletion_protection" {
+  description = "Deletion protection on the RDS instance and the load balancer. On in every apply but standby's: host.yml's first standby apply turns it off, with nothing else changed, so that its second can remove them. An apply with it off and standby false (a standby that failed half-way, for instance) leaves both unprotected until the next apply that turns it back on."
+  type        = bool
+  default     = true
+}
+
+variable "final_snapshot_identifier" {
+  description = "The snapshot RDS takes when the instance is deleted: healdesk-<environment>-standby-<UTC yyyymmddhhmmss>, written into the state by host.yml's first standby apply. Empty (the default) keeps skip_final_snapshot, as the clinic agreement's 35-day backup promise wants for any other deletion. A standby snapshot is a manual snapshot and never expires: host.yml refuses standby while any clinic is in production or any agreement is in effect, so it holds synthetic data only, and it deletes the older standby snapshots once a new one is available."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.final_snapshot_identifier == "" || can(regex("^healdesk-${var.environment}-standby-[0-9]{14}$", var.final_snapshot_identifier))
+    error_message = "final_snapshot_identifier must be empty or healdesk-<environment>-standby-<14 digits of UTC time>, the name host.yml gives it and searches for when it turns the host on."
+  }
+}
+
+variable "restore_snapshot_identifier" {
+  description = "Create the RDS instance from this standby snapshot rather than empty. host.yml sets it to the newest available healdesk-<environment>-standby-* snapshot when it turns the host on and the instance does not exist; every later apply leaves it empty. Once the instance exists any value is ignored (rds.tf, ignore_changes), because snapshot_identifier forces a new database when it changes. The roles in a restored database already have the passwords Parameter Store kept, and db-bootstrap re-asserts them; with no snapshot the database is new and empty, and db-bootstrap creates the roles with those same passwords."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.restore_snapshot_identifier == "" || can(regex("^healdesk-${var.environment}-standby-[0-9]{14}$", var.restore_snapshot_identifier))
+    error_message = "restore_snapshot_identifier must be empty or a standby snapshot's name, healdesk-<environment>-standby-<14 digits>: the host comes back only from a snapshot its own standby took."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Application configuration (plain environment, never secrets)
 # ---------------------------------------------------------------------------
 
@@ -439,6 +512,16 @@ variable "app_environment" {
     error_message = "HEALDESK_DIRECT_BOOKING_ENABLED and HEALDESK_PHASE_TWO_ATTRIBUTION are never set from infrastructure: they wait for counsel and the owner."
   }
 
+  # The transcript archive copy went on 14 October 2026 (the owner's decision):
+  # healdesk keeps no copy of a transcript, not even in a mailbox of its own.
+  validation {
+    condition = length(setintersection(keys(var.app_environment), [
+      "HEALDESK_TRANSCRIPT_ARCHIVE_TO",
+      "HEALDESK_TRANSCRIPT_ARCHIVE_BAA",
+    ])) == 0
+    error_message = "HEALDESK_TRANSCRIPT_ARCHIVE_TO and HEALDESK_TRANSCRIPT_ARCHIVE_BAA are gone: a transcript is emailed to the clinic and healdesk keeps no copy of it."
+  }
+
   validation {
     # optional() in lib/env.ts treats any non-empty value as set, so a blank or
     # a placeholder here would switch a feature on with nothing behind it.
@@ -529,29 +612,7 @@ variable "enable_ses" {
 }
 
 variable "subscribe_ses_events" {
-  description = "Subscribe the app's /api/webhooks/ses to the SES events topic. SNS refuses an HTTPS subscription to an endpoint that does not answer (\"Unreachable Endpoint\"), so it stays off until the web service has been deployed and answers on the public host, and the apply after that first deploy turns it on. Off, a transcript that bounces at the clinic's mail server is not sent again and a delivered one is not known to be delivered; every other retry still runs."
-  type        = bool
-  default     = false
-}
-
-variable "transcript_archive_to" {
-  description = "One mailbox that gets a blind copy of every emailed transcript (HEALDESK_TRANSCRIPT_ARCHIVE_TO), or empty for none. A transcript is patient information, so the copy goes only to a mailbox held under a business associate agreement, and only once transcript_archive_baa_signed says so. Never hello@healdesk.io while its provider has signed none."
-  type        = string
-  default     = ""
-
-  validation {
-    condition     = var.transcript_archive_to == "" || can(regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", var.transcript_archive_to))
-    error_message = "transcript_archive_to must be one email address, or empty."
-  }
-
-  validation {
-    condition     = var.transcript_archive_to == "" || var.transcript_archive_baa_signed
-    error_message = "transcript_archive_to needs transcript_archive_baa_signed = true: no transcript is copied to a mailbox not held under a business associate agreement."
-  }
-}
-
-variable "transcript_archive_baa_signed" {
-  description = "The owner's statement that the mailbox in transcript_archive_to is held under a signed business associate agreement with its mail provider (for example Google Workspace with Google's BAA accepted). Sets HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed; without it the app sends no copy."
+  description = "Subscribe the app's /api/webhooks/ses to the SES events topic. SNS refuses an HTTPS subscription to an endpoint that does not answer (\"Unreachable Endpoint\"), so the apply fails if this is on while the web service does not answer on the public host. production.tfvars sets it on, the active shape; infra.yml and host.yml pass -var subscribe_ses_events=false while https://<app_domain>/api/health?probe=liveness does not answer ok, and host.yml's last apply turns it on once the deploy does. Off, a transcript that bounces at the clinic's mail server is not sent again and a delivered one is not known to be delivered; every other retry still runs. Standby removes the subscription with the host it posts to."
   type        = bool
   default     = false
 }

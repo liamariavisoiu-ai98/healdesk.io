@@ -20,16 +20,25 @@ locals {
   alarm_actions = [aws_sns_topic.alarms.arn]
 }
 
+# Standby (variables.tf) removes every alarm below, because each watches
+# something standby removes: the load balancer, a service or the database.
+# The topic and its confirmed subscription stay, so the alarms that come back
+# with the host email the same inbox without a new confirmation. The
+# below-desired ones are in ALARM from that apply until host.yml's deploy
+# brings the services up, as on the first apply.
+
 # ---------------------------------------------------------------------------
 # Load balancer
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-alb-5xx"
   alarm_description   = "The load balancer itself answered 5xx (502/503/504): web tasks unreachable, failing health checks or closing connections."
   namespace           = "AWS/ApplicationELB"
   metric_name         = "HTTPCode_ELB_5XX_Count"
-  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix }
+  dimensions          = { LoadBalancer = aws_lb.main[0].arn_suffix }
   statistic           = "Sum"
   period              = 300
   evaluation_periods  = 1
@@ -41,11 +50,13 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "target_5xx" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-target-5xx"
   alarm_description   = "The web tier answered 5xx to five or more requests in five minutes."
   namespace           = "AWS/ApplicationELB"
   metric_name         = "HTTPCode_Target_5XX_Count"
-  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix, TargetGroup = aws_lb_target_group.web.arn_suffix }
+  dimensions          = { LoadBalancer = aws_lb.main[0].arn_suffix, TargetGroup = aws_lb_target_group.web[0].arn_suffix }
   statistic           = "Sum"
   period              = 300
   evaluation_periods  = 1
@@ -57,11 +68,13 @@ resource "aws_cloudwatch_metric_alarm" "target_5xx" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-web-unhealthy-hosts"
   alarm_description   = "A registered web task has failed the load balancer's liveness check for three of the last five minutes."
   namespace           = "AWS/ApplicationELB"
   metric_name         = "UnHealthyHostCount"
-  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix, TargetGroup = aws_lb_target_group.web.arn_suffix }
+  dimensions          = { LoadBalancer = aws_lb.main[0].arn_suffix, TargetGroup = aws_lb_target_group.web[0].arn_suffix }
   statistic           = "Maximum"
   period              = 60
   evaluation_periods  = 5
@@ -91,11 +104,13 @@ resource "aws_cloudwatch_metric_alarm" "unhealthy_hosts" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "web_running" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-web-below-desired"
   alarm_description   = "Fewer healthy web tasks than web_desired (${var.web_desired}) for five minutes."
   namespace           = "AWS/ApplicationELB"
   metric_name         = "HealthyHostCount"
-  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix, TargetGroup = aws_lb_target_group.web.arn_suffix }
+  dimensions          = { LoadBalancer = aws_lb.main[0].arn_suffix, TargetGroup = aws_lb_target_group.web[0].arn_suffix }
   statistic           = "Minimum"
   period              = 60
   evaluation_periods  = 5
@@ -107,7 +122,7 @@ resource "aws_cloudwatch_metric_alarm" "web_running" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "worker_running" {
-  count = local.worker_shared ? 0 : 1
+  count = local.worker_shared || var.standby ? 0 : 1
 
   alarm_name          = "${local.name}-worker-below-desired"
   alarm_description   = "No worker task has been running for five minutes: no clock, no outbox, no billing jobs."
@@ -128,13 +143,13 @@ resource "aws_cloudwatch_metric_alarm" "worker_running" {
 # healthy before the old ones start draining, and a draining target no longer
 # counts.
 resource "aws_cloudwatch_metric_alarm" "voice_running" {
-  count = var.enable_voice ? 1 : 0
+  count = var.enable_voice && !var.standby ? 1 : 0
 
   alarm_name          = "${local.name}-voice-below-desired"
   alarm_description   = "Fewer healthy voice tasks than voice_desired (${var.voice_desired}) for five minutes: Retell cannot reach the assistant for some or all calls."
   namespace           = "AWS/ApplicationELB"
   metric_name         = "HealthyHostCount"
-  dimensions          = { LoadBalancer = aws_lb.main.arn_suffix, TargetGroup = aws_lb_target_group.voice[0].arn_suffix }
+  dimensions          = { LoadBalancer = aws_lb.main[0].arn_suffix, TargetGroup = aws_lb_target_group.voice[0].arn_suffix }
   statistic           = "Minimum"
   period              = 60
   evaluation_periods  = 5
@@ -150,11 +165,13 @@ resource "aws_cloudwatch_metric_alarm" "voice_running" {
 # ---------------------------------------------------------------------------
 
 resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-rds-cpu"
   alarm_description   = "Database CPU above 80% for fifteen minutes (a t4g also starts paying for burst)."
   namespace           = "AWS/RDS"
   metric_name         = "CPUUtilization"
-  dimensions          = { DBInstanceIdentifier = aws_db_instance.main.identifier }
+  dimensions          = { DBInstanceIdentifier = aws_db_instance.main[0].identifier }
   statistic           = "Average"
   period              = 300
   evaluation_periods  = 3
@@ -166,11 +183,13 @@ resource "aws_cloudwatch_metric_alarm" "rds_cpu" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_free_storage" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-rds-free-storage"
   alarm_description   = "Database free storage below 10% of the allocated ${var.db_allocated_storage} GiB."
   namespace           = "AWS/RDS"
   metric_name         = "FreeStorageSpace"
-  dimensions          = { DBInstanceIdentifier = aws_db_instance.main.identifier }
+  dimensions          = { DBInstanceIdentifier = aws_db_instance.main[0].identifier }
   statistic           = "Minimum"
   period              = 300
   evaluation_periods  = 1
@@ -195,11 +214,13 @@ locals {
 }
 
 resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-rds-freeable-memory"
   alarm_description   = "Database freeable memory below ${local.db_freeable_memory_alarm_mib} MiB (an eighth of a ${var.db_instance_class}) for fifteen minutes."
   namespace           = "AWS/RDS"
   metric_name         = "FreeableMemory"
-  dimensions          = { DBInstanceIdentifier = aws_db_instance.main.identifier }
+  dimensions          = { DBInstanceIdentifier = aws_db_instance.main[0].identifier }
   statistic           = "Minimum"
   period              = 300
   evaluation_periods  = 3
@@ -229,6 +250,8 @@ resource "aws_cloudwatch_metric_alarm" "rds_freeable_memory" {
 # database. No timeout setting is used instead: one would kill the runtime
 # role's transactions.
 resource "aws_cloudwatch_metric_alarm" "rds_idle_in_transaction" {
+  count = var.standby ? 0 : 1
+
   alarm_name          = "${local.name}-rds-idle-in-transaction"
   alarm_description   = "A database session has held a transaction open, idle, for more than five minutes. See docs/handover.md, Retention and offboarding."
   comparison_operator = "GreaterThanThreshold"
@@ -242,7 +265,7 @@ resource "aws_cloudwatch_metric_alarm" "rds_idle_in_transaction" {
   metric_query {
     id          = "idle"
     label       = "Longest idle-in-transaction time (seconds)"
-    expression  = "DB_PERF_INSIGHTS('RDS', '${aws_db_instance.main.resource_id}', 'db.state.idle_in_transaction_max_time.max')"
+    expression  = "DB_PERF_INSIGHTS('RDS', '${aws_db_instance.main[0].resource_id}', 'db.state.idle_in_transaction_max_time.max')"
     period      = 60
     return_data = true
   }

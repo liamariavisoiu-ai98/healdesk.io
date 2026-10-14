@@ -50,6 +50,11 @@
         // local checkout with git log, which a deployed instance does not have.
         "GITHUB_TOKEN",
         "HEALDESK_REPO",
+        // The AWS host's switch (/admin/host, lib/host): the owner's token
+        // that dispatches host.yml, and its repository. Runtime only, like the
+        // two above, and declared for the same reason.
+        "HEALDESK_GITHUB_ACTIONS_TOKEN",
+        "HEALDESK_GITHUB_REPO",
 
         // The marketing Sheet: leads, funnel events, call consents and the two
         // daily spend counters. Required together; either missing fails open.

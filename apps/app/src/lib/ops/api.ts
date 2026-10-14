@@ -110,6 +110,7 @@ import {
 } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
+import { hostStandbyCheck } from "@/lib/ops/host-standby";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -396,6 +397,10 @@ const OPERATIONS = [
   // each transcript reached it. Conversation ids, statuses, times and
   // attempts; never words, never an address, never SES's reason.
   "transcriptDeliveries",
+  // The host's standby switch (/admin/host, infra/aws README "Standby"):
+  // whether anything real is on this host, as three counts across every
+  // clinic (lib/ops/host-standby.ts). A read: no name, no id, no audit row.
+  "hostStandbyCheck",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -985,6 +990,8 @@ export async function runOperation(
       return opResendTranscript(args, operator);
     case "transcriptDeliveries":
       return opTranscriptDeliveries(args, operator);
+    case "hostStandbyCheck":
+      return ok(await hostStandbyCheck(actorFor(operator), operator.request));
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

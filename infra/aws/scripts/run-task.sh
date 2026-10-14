@@ -193,7 +193,7 @@ service=$(aws_ ecs describe-services --cluster "$CLUSTER" --services "$WEB_SERVI
   --query 'services[0].[status, networkConfiguration.awsvpcConfiguration.assignPublicIp, join(`,`, networkConfiguration.awsvpcConfiguration.subnets), join(`,`, networkConfiguration.awsvpcConfiguration.securityGroups)]')
 IFS=$'\t' read -r service_status public_ip subnets groups <<<"$service"
 if [ "$service_status" != ACTIVE ]; then
-  fail "$WEB_SERVICE is not an active service of $CLUSTER (got: $service_status). Run infra.yml with apply first."
+  fail "$WEB_SERVICE is not an active service of $CLUSTER (got: $service_status). The host is in standby or was never applied: turn it on with host.yml (mode active)."
 fi
 if [ "$public_ip" != DISABLED ] || [ -z "$subnets" ] || [ "$subnets" = None ] || [ -z "$groups" ] || [ "$groups" = None ]; then
   fail "$WEB_SERVICE has no private network to lend (assignPublicIp $public_ip, subnets '$subnets', security groups '$groups')"

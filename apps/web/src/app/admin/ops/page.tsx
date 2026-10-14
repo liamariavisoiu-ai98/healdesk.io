@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
 import {
   fetchClinicHealth,
@@ -15,6 +16,7 @@ import {
   type OpsResult,
   type ToggleJobOutcome,
 } from "@/lib/admin/ops-client";
+import { isHostUnreachable } from "@/lib/host/state";
 
 import { OpsConsole } from "./OpsConsole";
 
@@ -69,6 +71,11 @@ export default async function OpsPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
 
   const [clinics, jobs, health] = await Promise.all([fetchClinics(), fetchJobs(), fetchClinicHealth()]);
+
+  // The AWS host in standby: one notice, not three failed sections.
+  if ([clinics, jobs, health].every(isHostUnreachable)) {
+    return <HostStandbyPage title="Ops" />;
+  }
 
   return (
     <OpsConsole

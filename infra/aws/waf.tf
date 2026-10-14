@@ -11,9 +11,12 @@
 #
 # Sampled requests are off: a sample keeps full request headers, which here
 # include session cookies and webhook bearer secrets.
+#
+# Standby (variables.tf) removes the web ACL with the load balancer it guards:
+# it bills by the month whether or not anything is attached.
 
 resource "aws_wafv2_web_acl" "main" {
-  count = var.enable_waf ? 1 : 0
+  count = var.enable_waf && !var.standby ? 1 : 0
 
   name        = local.name
   description = "Per-IP rate limit for ${var.app_domain}, answers 429"
@@ -73,8 +76,8 @@ resource "aws_wafv2_web_acl" "main" {
 }
 
 resource "aws_wafv2_web_acl_association" "alb" {
-  count = var.enable_waf ? 1 : 0
+  count = var.enable_waf && !var.standby ? 1 : 0
 
-  resource_arn = aws_lb.main.arn
+  resource_arn = aws_lb.main[0].arn
   web_acl_arn  = aws_wafv2_web_acl.main[0].arn
 }

@@ -428,15 +428,17 @@ locals {
       { name = "HEALDESK_KMS_KEY_ID", value = aws_kms_key.main.arn },
       { name = "HEALDESK_PARAMETER_PREFIX", value = local.param_prefix },
       { name = "PGDATABASE", value = local.db_name },
-      { name = "PGHOST", value = aws_db_instance.main.address },
+      { name = "PGHOST", value = local.db_address },
       { name = "PGPORT", value = tostring(local.db_port) },
       { name = "PGSSLMODE", value = "verify-full" },
       { name = "PGSSLROOTCERT", value = local.rds_ca_bundle },
     ]
 
-    secrets = [
-      { name = "PGPASSWORD", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:password::" },
-      { name = "PGUSER", valueFrom = "${aws_db_instance.main.master_user_secret[0].secret_arn}:username::" },
+    # Empty only in standby, when there is no instance and no task definition
+    # uses this (below).
+    secrets = var.standby ? [] : [
+      { name = "PGPASSWORD", valueFrom = "${local.db_master_secret_arn}:password::" },
+      { name = "PGUSER", valueFrom = "${local.db_master_secret_arn}:username::" },
     ]
 
     logConfiguration = {
@@ -657,7 +659,16 @@ resource "aws_ecs_task_definition" "destroy_due" {
   #checkov:skip=CKV_AWS_336:tsx compiles the script at start and writes its cache under /tmp, as the worker does; a read-only root needs a writable /tmp mount the image does not provide yet. It runs once, by hand, as a non-root user.
 }
 
+# The one task definition standby removes (Terraform's own revision; the
+# deploys' revisions stay registered), because it names the instance's
+# endpoint and its master secret, and the secret goes with the instance. The
+# apply that brings the host back registers a new revision naming the new
+# secret, and deploy-app.yml builds its db-bootstrap revision from that one,
+# the family's newest. An older revision still names the old secret, so
+# run-task.sh db-bootstrap works again only after the deploy that follows.
 resource "aws_ecs_task_definition" "db_bootstrap" {
+  count = var.standby ? 0 : 1
+
   family                   = local.task_families.db_bootstrap
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
@@ -680,7 +691,13 @@ resource "aws_ecs_task_definition" "db_bootstrap" {
 # Services
 # ---------------------------------------------------------------------------
 
+# Standby removes every service (variables.tf); the cluster and the task
+# definitions stay, and cost nothing. A service created again comes back at 0
+# tasks, as on the first apply, and host.yml's deploy brings it up to its
+# DesiredCount tag.
 resource "aws_ecs_service" "web" {
+  count = var.standby ? 0 : 1
+
   name             = "${local.name}-web"
   cluster          = aws_ecs_cluster.main.id
   task_definition  = aws_ecs_task_definition.web.arn
@@ -715,7 +732,7 @@ resource "aws_ecs_service" "web" {
   }
 
   load_balancer {
-    target_group_arn = aws_lb_target_group.web.arn
+    target_group_arn = aws_lb_target_group.web[0].arn
     container_name   = local.web_target_container
     container_port   = local.web_target_port
   }
@@ -741,7 +758,7 @@ resource "aws_ecs_service" "web" {
 
 # Only when the worker has its own service (worker_placement = "separate").
 resource "aws_ecs_service" "worker" {
-  count = local.worker_shared ? 0 : 1
+  count = local.worker_shared || var.standby ? 0 : 1
 
   name             = "${local.name}-worker"
   cluster          = aws_ecs_cluster.main.id
@@ -797,7 +814,7 @@ resource "aws_ecs_service" "worker" {
 # ---------------------------------------------------------------------------
 
 resource "aws_ecs_service" "voice" {
-  count = var.enable_voice ? 1 : 0
+  count = var.enable_voice && !var.standby ? 1 : 0
 
   name             = "${local.name}-voice"
   cluster          = aws_ecs_cluster.main.id

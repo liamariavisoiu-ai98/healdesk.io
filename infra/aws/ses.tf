@@ -97,10 +97,10 @@ resource "cloudflare_dns_record" "ses_dkim" {
 # through a key-policy grant the contract keeps out of the main key.
 #
 # The subscription is HTTPS to the public host and is confirmed by the app
-# when SNS posts the confirmation, so it stays "pending confirmation" until
-# the web service is up. If it was created before the first deploy, re-run
-# infra.yml after it (the runbook's first run says when), or confirm it from
-# the SNS console.
+# when SNS posts the confirmation, and SNS refuses to make it at all while the
+# endpoint does not answer. So host.yml makes it in its last apply, once its
+# deploy answers on the public host; infra.yml and host.yml's first apply pass
+# subscribe_ses_events = false while the liveness probe does not answer.
 
 resource "aws_sns_topic" "ses_events" {
   count = var.enable_ses ? 1 : 0
@@ -172,7 +172,11 @@ resource "aws_sesv2_configuration_set_event_destination" "phi_events" {
 
 resource "aws_sns_topic_subscription" "ses_events_app" {
   # Only once the app answers: SNS checks the endpoint when it subscribes.
-  count = var.enable_ses && var.subscribe_ses_events ? 1 : 0
+  # Standby (variables.tf) removes the public host it posts to, and this with
+  # it; the topic, the event destination and SES's identity stay, so the
+  # subscription host.yml makes again once the app answers is all that comes
+  # back.
+  count = var.enable_ses && var.subscribe_ses_events && !var.standby ? 1 : 0
 
   topic_arn              = aws_sns_topic.ses_events[0].arn
   protocol               = "https"

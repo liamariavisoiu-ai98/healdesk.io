@@ -1,4 +1,7 @@
 import { formatPhone, helpContacts } from "@/lib/setup/help";
+import { supportLines } from "@/lib/support/lines";
+
+import { SupportChat } from "./SupportChat";
 
 /**
  * Help, on every screen of the portal and the setup wizard (plan Part F7;
@@ -8,7 +11,10 @@ import { formatPhone, helpContacts } from "@/lib/setup/help";
  *
  * The call goes through /help/call, this app's own page, which sends the
  * browser on to the scheduling page set now; an email links the same page.
- * The support chat (Part H) joins this panel in M7.
+ *
+ * The support chat (Part H, SupportChat.tsx) opens from a button here and
+ * from the Help bubble it keeps in the corner of every screen. Its fixed line
+ * for when it can't be reached carries the same phone and email as the list.
  */
 export function HelpPanel({ audience }: { audience: "patients" | "clients" }) {
   const help = helpContacts();
@@ -53,6 +59,7 @@ export function HelpPanel({ audience }: { audience: "patients" | "clients" }) {
           </li>
         ) : null}
       </ul>
+      <SupportChat audience={audience} failureLine={supportLines(help.phoneE164).failure} />
     </aside>
   );
 }

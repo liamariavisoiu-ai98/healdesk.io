@@ -54,7 +54,6 @@ const ACTIONS: Actions = {
   setMeta: NOT_IN_A_RENDER,
   setMetaPlatform: NOT_IN_A_RENDER,
   saveRequirements: NOT_IN_A_RENDER,
-  resendSetupLink: NOT_IN_A_RENDER,
   confirmTimezone: NOT_IN_A_RENDER,
   retryCalendarWrite: NOT_IN_A_RENDER,
   setAutoConfirm: NOT_IN_A_RENDER,

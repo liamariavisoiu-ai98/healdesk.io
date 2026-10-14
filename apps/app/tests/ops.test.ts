@@ -621,18 +621,17 @@ describeDb("ops: booking hand-off and direct booking", () => {
     expect(overview.onboarding.booking_requirements_confirmed).not.toBeNull();
   });
 
-  test("issueSetupLink mints a /setup link and setConnectionPhiBasis is audited", async () => {
+  test("issueSetupLink is retired with the setup wizard, and setConnectionPhiBasis refuses an unknown connection", async () => {
     const { clinicId } = await seedClinic("ops-setup-link");
-    const issued = await run("issueSetupLink", { clinicId });
-    expect(issued.status).toBe("issued");
-    expect(String(issued.url)).toMatch(/\/setup\/[A-Za-z0-9_-]{43}$/);
+    // The wizard asks what the setup page asked (plan C2): the op is gone,
+    // so the console cannot mint a link to a page that no longer exists.
+    const retired = await runOperation("issueSetupLink" as Parameters<typeof runOperation>[0], { clinicId }, OPERATOR);
+    expect(retired.status).toBe(400);
     const purposes = await inTenant(clinicId, async (client) => (await client.query<{ purpose: string }>(`select purpose from connection_links where clinic_id = $1`, [clinicId])).rows.map((r) => r.purpose));
-    expect(purposes).toEqual(["setup"]);
+    expect(purposes).toEqual([]);
 
     const missing = await run("setConnectionPhiBasis", { clinicId, connectionId: "00000000-0000-4000-8000-000000000000", basis: "vendor_baa" });
     expect(missing.status).toBe("error");
-    const events = await getMigratorPool().query(`select count(*)::int as n from security_events where event = 'setup_link_issued'`);
-    expect(events.rows[0].n).toBeGreaterThanOrEqual(1);
   });
 });
 

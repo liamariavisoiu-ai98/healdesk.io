@@ -142,7 +142,7 @@ describeDb("phase 8, against the database", () => {
   test("a test call inside the window stamps the step; the clinic's own number as caller ID reopens it later", async () => {
     const c = await seedClinic("fwd");
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      setPhoneSettings(tx, { synthflowNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER, callRouting: "conditional" }),
+      setPhoneSettings(tx, { assistantNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER, callRouting: "conditional" }),
     );
     // Before the window: an ordinary call changes nothing.
     await ingestCall(call(c.clinicId), ACTOR);
@@ -168,7 +168,7 @@ describeDb("phase 8, against the database", () => {
   test("a test call that lost its caller ID leaves the step open with the reason", async () => {
     const c = await seedClinic("fwd-lost");
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
-      await setPhoneSettings(tx, { synthflowNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER });
+      await setPhoneSettings(tx, { assistantNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER });
       await startForwardingTest(tx);
     });
     await ingestCall(call(c.clinicId, { callerPhone: CLINIC_NUMBER }), ACTOR);
@@ -183,7 +183,7 @@ describeDb("phase 8, against the database", () => {
     const refused = await runOperation("startForwardingTest", { clinicId: c.clinicId }, OPERATOR);
     expect((refused.body as { data: { status: string; message: string } }).data.status).toBe("error");
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-      setPhoneSettings(tx, { synthflowNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER }),
+      setPhoneSettings(tx, { assistantNumberE164: "+14155550100", publishedPhoneE164: CLINIC_NUMBER }),
     );
     const started = await runOperation("startForwardingTest", { clinicId: c.clinicId }, OPERATOR);
     expect((started.body as { data: { status: string } }).data.status).toBe("started");

@@ -267,10 +267,10 @@ describeDb("clinic settings", () => {
     }
   });
 
-  test("the direct line must be E.164 and must differ from the published and Synthflow numbers", async () => {
+  test("the direct line must be E.164 and must differ from the published and assistant's numbers", async () => {
     const { clinicId } = await seedClinic("settings-direct");
     await getMigratorPool().query(
-      `update clinics set published_phone_e164 = '+14155550100', synthflow_number_e164 = '+14155550111' where id = $1`,
+      `update clinics set published_phone_e164 = '+14155550100', assistant_number_e164 = '+14155550111' where id = $1`,
       [clinicId],
     );
     const attempt = (directLineE164: string) =>

@@ -164,6 +164,35 @@ describeDb("database audit (0031)", () => {
     ]);
   });
 
+  test("the assistant's number kept its grant through the rename, and the console's projection reads it by its new name (0075)", async () => {
+    // A rename keeps a column's privileges, but app_clinics_overview() is a
+    // LANGUAGE sql function whose body is stored as text: it had to be
+    // recreated to read the column at all, with its OUT column renamed.
+    const { rows: granted } = await getMigratorPool().query<{ column_name: string; privilege_type: string }>(`
+      select column_name, privilege_type
+        from information_schema.column_privileges
+       where table_schema = 'public' and table_name = 'clinics' and grantee = 'healdesk_app'
+         and column_name in ('assistant_number_e164', 'synthflow_number_e164')
+         and privilege_type = 'UPDATE'
+    `);
+    expect(granted).toEqual([{ column_name: "assistant_number_e164", privilege_type: "UPDATE" }]);
+    const { rows: columns } = await getMigratorPool().query<{ attname: string }>(`
+      select attname from pg_attribute
+       where attrelid = 'clinics'::regclass and attname like '%synthflow%' and not attisdropped
+    `);
+    expect(columns).toEqual([]);
+    const { rows: out } = await getMigratorPool().query<{ outputs: string[] }>(`
+      select p.proargnames::text[] as outputs from pg_proc p where p.oid = 'app_clinics_overview()'::regprocedure
+    `);
+    expect(out[0]!.outputs).toContain("assistant_number_e164");
+    expect(out[0]!.outputs).not.toContain("synthflow_number_e164");
+    const { rows: execute } = await getMigratorPool().query<{ app: boolean; anyone: boolean }>(`
+      select has_function_privilege('healdesk_app', 'app_clinics_overview()', 'EXECUTE') as app,
+             has_function_privilege('public', 'app_clinics_overview()', 'EXECUTE') as anyone
+    `);
+    expect(execute).toEqual([{ app: true, anyone: false }]);
+  });
+
   test("the runtime role cannot delete a clinic (0066)", async () => {
     // A clinic ends by offboarding and destruction, which keep its row.
     // Deleting one and inserting its id again as synthetic reopened the

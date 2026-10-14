@@ -37,7 +37,7 @@ export type ClinicOverview = {
   callRouting: "conditional" | "always";
   callRoutingConfirmedAt: Date | null;
   carrier: string | null;
-  synthflowNumberE164: string | null;
+  assistantNumberE164: string | null;
   openingHoursPresent: boolean;
   onboarding: OnboardingState;
   agentApprovedAt: Date | null;
@@ -93,7 +93,7 @@ export async function listClinics(): Promise<ClinicOverview[]> {
                attribution_mode, data_classification,
                is_covered_entity, baa_signed_at, created_at,
                phone_system_type, call_routing, call_routing_confirmed_at,
-               carrier, synthflow_number_e164, opening_hours_present,
+               carrier, assistant_number_e164, opening_hours_present,
                onboarding, agent_approved_at, went_live_at,
                offboarding_started_at, export_delivered_at, destroy_after, destroyed_at,
                published_phone_e164, forwarding_test_until, forwarding_test_observed,
@@ -130,7 +130,7 @@ export async function listClinics(): Promise<ClinicOverview[]> {
       ? new Date(row.call_routing_confirmed_at as string)
       : null,
     carrier: (row.carrier as string | null) ?? null,
-    synthflowNumberE164: (row.synthflow_number_e164 as string | null) ?? null,
+    assistantNumberE164: (row.assistant_number_e164 as string | null) ?? null,
     openingHoursPresent: Boolean(row.opening_hours_present),
     onboarding: { ...emptyOnboarding(), ...((row.onboarding as OnboardingState | null) ?? {}) },
     agentApprovedAt: row.agent_approved_at ? new Date(row.agent_approved_at as string) : null,

@@ -590,7 +590,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // The number is released with the data. destroyed_at is the database's
   // to stamp, and it refuses a clinic that is not due or still holds any
   // row deleted above (see the header).
-  await tx.db.update(clinics).set({ synthflowNumberE164: null }).where(eq(clinics.id, c));
+  await tx.db.update(clinics).set({ assistantNumberE164: null }).where(eq(clinics.id, c));
   await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);
   tx.audit.record({

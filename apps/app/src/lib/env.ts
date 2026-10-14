@@ -187,25 +187,6 @@ export const env = {
     process.env.HEALDESK_KMS_PROVIDER === "aws-kms" ? "aws-kms" : "local",
 
   /**
-   * Bearer secret the voice platform sends on its post-call webhook
-   * (Authorization: Bearer …). Synthflow lets you set a fixed header on a
-   * webhook; until it signs payloads this is the authentication. Unset means
-   * the route answers 503 and records nothing.
-   */
-  voiceWebhookSecret: () => optional("HEALDESK_VOICE_WEBHOOK_SECRET"),
-
-  /**
-   * Bearer secret the voice agent's mid-call tools send to
-   * /api/voice/tools/[clinicId]/* (design of 23 September 2026, §E.2).
-   * Deliberately a DIFFERENT secret from the post-call webhook's: the tools
-   * can book, the webhook can only report, and a leaked reporting header must
-   * not become a booking header. Unset means every tool route answers 503.
-   * Pre-Retell: these routes serve the Synthflow agent until the Retell
-   * endpoint exists.
-   */
-  voiceToolsSecret: () => optional("HEALDESK_VOICE_TOOLS_SECRET"),
-
-  /**
    * The Meta app (docs/meta-app-review.md). The id is public; the secret signs
    * every webhook and exchanges every login code. The two configuration ids
    * come from Facebook Login for Business → Configurations: one for Messenger

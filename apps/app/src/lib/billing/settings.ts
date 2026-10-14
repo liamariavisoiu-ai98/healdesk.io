@@ -214,7 +214,7 @@ export async function lockAutoConfirm(tx: TenantTx): Promise<void> {
  * Validation happens here, inside the tenant, so the portal and the console
  * cannot disagree about what is allowed:
  *   - the direct line must be E.164 and must differ from the clinic's
- *     published number and its Synthflow number. Under conditional forwarding
+ *     published number and the assistant's number. Under conditional forwarding
  *     the published line forwards to us, so falling back to it would send the
  *     caller straight back into the system that just failed — the loop
  *     CLAUDE.md "Failure" forbids;
@@ -363,7 +363,7 @@ export async function updateClinicSettings(
         );
       }
       const [clinic] = await tx.db
-        .select({ published: clinics.publishedPhoneE164, synthflow: clinics.synthflowNumberE164 })
+        .select({ published: clinics.publishedPhoneE164, assistant: clinics.assistantNumberE164 })
         .from(clinics)
         .where(eq(clinics.id, tx.clinicId))
         .limit(1);
@@ -373,7 +373,7 @@ export async function updateClinicSettings(
           "The direct line must be a different number from your published number: calls to that number forward to the assistant, so a fallback to it would loop.",
         );
       }
-      if (clinic?.synthflow && clinic.synthflow === line) {
+      if (clinic?.assistant && clinic.assistant === line) {
         throw new ClinicSettingsError(
           "directLineE164",
           "The direct line must be a line at the practice, not the assistant's own number.",

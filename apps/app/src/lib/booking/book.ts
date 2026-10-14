@@ -28,9 +28,9 @@ import { bookedDepositLine, writeHeldBooking, type HeldWrite } from "./writer";
 
 /**
  * Booking a conversation (plan §7.7): hold, re-check, claim, write, record.
- * Called through lib/booking/engine.ts by the Retell process (launch plan
- * 2.1) and the Synthflow harness; nothing else writes the assistant's
- * bookings.
+ * Called through lib/booking/engine.ts, the only way anything may write the
+ * assistant's bookings; no channel calls it yet (lib/booking/engine.ts says
+ * why).
  *
  *   0. Validate: a first name (letters, at most 40), a future start, a
  *      phone number; the service resolved against the clinic's own list.
@@ -102,7 +102,7 @@ export type RequestReason =
 
 export type BookConversationInput = {
   channel: "voice";
-  /** "retell:" + call id (the harness: "voice:" + call id). */
+  /** "retell:" + call id. */
   holderKey: string;
   /** "retell:" + call id + ":" + n, n growing only when the caller asks for another booking. */
   bookingKey: string;
@@ -687,21 +687,6 @@ function keyReused(prior: Prior): {
         ...(prior.confirmedFor ? { firstStartsAt: prior.confirmedFor } : {}),
       }
     : { kind: "key_reused", first: "request_logged" };
-}
-
-/**
- * What `key_reused` would say for a booking key that already carries a
- * booking or a request, or null for a fresh key: for a channel whose key
- * allows one booking a conversation (the Synthflow harness keys by the call
- * id) to answer before it offers or holds another time, rather than after
- * the caller has chosen one.
- */
-export async function keyReusedFor(
-  tx: TenantTx,
-  bookingKey: string,
-): Promise<ReturnType<typeof keyReused> | null> {
-  const prior = await priorOf(tx, bookingKey);
-  return prior ? keyReused(prior) : null;
 }
 
 /** Whether this holder has a write unsettled under a key other than this one. */

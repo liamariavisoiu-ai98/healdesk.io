@@ -10,7 +10,7 @@ import { completeStep } from "./steps";
 
 /**
  * The phone facts an onboarding call establishes: line type, carrier, the
- * routing mode, and the Synthflow number the clinic forwards to. Each one
+ * routing mode, and the assistant's number the clinic forwards to. Each one
  * stamps its onboarding step. Routing is the one that changes the meaning of
  * the revenue report, so it is confirmed explicitly rather than inherited
  * from the column default.
@@ -19,7 +19,7 @@ export type PhoneSettings = {
   phoneSystemType?: PhoneSystemType;
   carrier?: Carrier | null;
   callRouting?: CallRouting;
-  synthflowNumberE164?: string | null;
+  assistantNumberE164?: string | null;
   /** The clinic's own published number; the forwarding test needs it. */
   publishedPhoneE164?: string | null;
 };
@@ -42,11 +42,11 @@ export async function setPhoneSettings(tx: TenantTx, input: PhoneSettings): Prom
     // would disagree for good.
     await keepCoverageModeInStep(tx, input.callRouting, now);
   }
-  if (input.synthflowNumberE164 !== undefined) {
-    if (input.synthflowNumberE164 !== null && !/^\+[1-9]\d{6,14}$/.test(input.synthflowNumberE164)) {
-      throw new Error("The Synthflow number must be E.164.");
+  if (input.assistantNumberE164 !== undefined) {
+    if (input.assistantNumberE164 !== null && !/^\+[1-9]\d{6,14}$/.test(input.assistantNumberE164)) {
+      throw new Error("The assistant's number must be E.164.");
     }
-    set.synthflowNumberE164 = input.synthflowNumberE164;
+    set.assistantNumberE164 = input.assistantNumberE164;
   }
   if (input.publishedPhoneE164 !== undefined) {
     if (input.publishedPhoneE164 !== null && !/^\+[1-9]\d{6,14}$/.test(input.publishedPhoneE164)) {
@@ -63,7 +63,7 @@ export async function setPhoneSettings(tx: TenantTx, input: PhoneSettings): Prom
       phoneSystemType: input.phoneSystemType,
       carrier: input.carrier ?? undefined,
       callRouting: input.callRouting,
-      synthflowNumberSet: input.synthflowNumberE164 !== undefined,
+      assistantNumberSet: input.assistantNumberE164 !== undefined,
       publishedNumberSet: input.publishedPhoneE164 !== undefined,
     },
   });

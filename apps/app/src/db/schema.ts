@@ -459,8 +459,8 @@ export const clinics = pgTable(
     onboarding: jsonb("onboarding").$type<OnboardingState>().notNull().default({}),
     /** Who bills the clinic for its main line; decides the forwarding codes. */
     carrier: text("carrier"),
-    /** The Synthflow-issued number the clinic forwards to, E.164. */
-    synthflowNumberE164: text("synthflow_number_e164"),
+    /** The assistant's own number (on Retell) that the clinic forwards to, E.164. */
+    assistantNumberE164: text("assistant_number_e164"),
     /**
      * The clinic's own published number, E.164. A forwarded call that arrives
      * carrying THIS as its caller ID has lost the caller: the carrier
@@ -3047,7 +3047,7 @@ export const entitlements = pgTable(
       .notNull()
       .default("allow"),
 
-    /** When the forwarded-to Synthflow number may be released after a cancel. */
+    /** When the assistant's forwarded-to number may be released after a cancel. */
     numberReleaseAt: timestamp("number_release_at", { withTimezone: true }),
 
     /**

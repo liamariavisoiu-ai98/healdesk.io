@@ -24,7 +24,7 @@ where code goes is the root [`CLAUDE.md`](../CLAUDE.md), which also lists what s
 | [`CLAUDE.md`](../CLAUDE.md) | Where code goes (the PHI boundary), the product rules the code enforces, deploy blockers |
 | [architecture.md](./architecture.md) | How the apps fit together, and what is built |
 | [hipaa-compliance.md](./hipaa-compliance.md), [hipaa-risk-analysis.md](./hipaa-risk-analysis.md), [policies/](./policies/), [incident-response.md](./incident-response.md), [on-call.md](./on-call.md) | The compliance set, redrafted for v1 |
-| [blockers-runbook.md](./blockers-runbook.md), [research-conclusions.md](./research-conclusions.md), [state-of-play.md](./state-of-play.md), [counsel-audit.md](./counsel-audit.md), [synthflow-voice-agent-context.md](./synthflow-voice-agent-context.md), [marketing-voice-demo-context.md](./marketing-voice-demo-context.md) | Dated research, audits and agent briefs. Each opens with a banner naming where the spec overrides it |
+| [blockers-runbook.md](./blockers-runbook.md), [research-conclusions.md](./research-conclusions.md), [state-of-play.md](./state-of-play.md), [counsel-audit.md](./counsel-audit.md), [marketing-voice-demo-context.md](./marketing-voice-demo-context.md), [archive/synthflow-voice-agent-context.md](./archive/synthflow-voice-agent-context.md) | Dated research, audits and agent briefs. Each opens with a banner naming where the spec overrides it |
 | [launch-plan.md](./launch-plan.md), [next-steps.md](./next-steps.md), [prd.md](./prd.md), [onboarding-runbook.md](./onboarding-runbook.md), [design/](./design/) | Superseded. Kept in place for history, under banners; [docs/README.md](./README.md) indexes them |
 
 `npm run docs` serves these documents locally with a task view that predates the spec.
@@ -59,11 +59,12 @@ daily summary email.
 **Pre-spec code still in the tree, not v1.** Keep it switched off; the spec decides
 whether each piece is reworked, fenced or removed.
 
-- **Synthflow** voice routes: the post-call webhook (`api/webhooks/voice/[clinicId]`,
-  `lib/voice/synthflow-payload.ts`, `ingestCall()`) and the mid-call tools
-  (`api/voice/tools/[clinicId]`, `HEALDESK_VOICE_TOOLS_SECRET`). Pre-Retell; they must
-  not carry a real patient call. The marketing demo call (`apps/web`, owner-requested)
-  stays on Synthflow until a Retell demo agent exists.
+- **Synthflow** voice routes: removed on 14 October 2026. The post-call webhook
+  (`api/webhooks/voice/[clinicId]`, `lib/voice/synthflow-payload.ts`) and the mid-call
+  tools (`api/voice/tools/[clinicId]`, `lib/voice/tools.ts`) and their two secrets are
+  gone; voice is the Retell endpoint (`src/voice/server.ts`, `lib/voice/retell.ts`),
+  which hands each finished call to the vendor-neutral `ingestCall()`. The marketing demo
+  call (`apps/web`, owner-requested) moved to a Retell demo agent on 5 October 2026.
 - **Call-backs, direct booking into Cal.com, WhatsApp templates and the `/setup` link**
   (migration 0040, `lib/callbacks/`, `lib/booking/calendar.ts`, the direct-booking
   addendum). v1 is inbound only and writes only to Google Calendar.
@@ -538,7 +539,7 @@ record of the request, no longer than we need it.
    copies, with the Connect event that last touched each; the charge stays the
    practice's record in its own Stripe account), every booking request that names
    them, their half-collected Meta drafts, their own messaging threads, the raw
-   payloads the voice vendor or another service sent about them, the conversation of a
+   payloads another service sent about them, the conversation of a
    call with no caller ID whose payload named them, and their suppressions, consent
    records and contact attempts. A booking request that names someone else stays, even
    one the person sent: a messaging thread is theirs only when everything it sent
@@ -555,9 +556,9 @@ record of the request, no longer than we need it.
    deadline, until it is recorded. Retell: in Retell's console, find and delete the
    person's calls and transcripts by their number, then record how it went on the care
    page, one of two choices ("Deleted in the vendor's console", "The vendor held
-   nothing for the person"), never typed. Retell is the only voice vendor with a step:
-   **no real patient call may go through Synthflow**, which still carries the owners'
-   demo calls and has no deletion step here, so a deletion could not reach its copy. Anthropic is not
+   nothing for the person"), never typed. Retell is the only voice vendor, and the only
+   one with a step: Synthflow, which carried the owners' demo calls until 5 October 2026,
+   never carried a patient call, and its webhook was removed on 14 October 2026. Anthropic is not
    a step: what it keeps it keeps under the exception clause 4(c) names, for the period
    the Subcontractors clause states. AWS is our database and its backups, which the
    deletion and the 35-day backup window reach. Meta and Google Calendar are the

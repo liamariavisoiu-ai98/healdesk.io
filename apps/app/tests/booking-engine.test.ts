@@ -87,6 +87,7 @@ import { slotLabel } from "@/lib/booking/calendar";
 import { bookConversation, logRequest, offerTimes, placeHold } from "@/lib/booking/engine";
 import type { BookConversationInput } from "@/lib/booking/engine";
 import { holderRefOf, releaseLiveHolds } from "@/lib/booking/holds";
+import { depositLine } from "@/lib/booking/lines";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { sweepHolds, writeHeldBooking } from "@/lib/booking/writer";
 import { saveProviders } from "@/lib/connections/google-calendar";
@@ -98,7 +99,6 @@ import {
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { withTenant } from "@/lib/tenant";
 import { upsertCallerContact } from "@/lib/voice/ingest";
-import { depositLine } from "@/lib/voice/tools";
 
 import {
   closePools,

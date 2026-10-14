@@ -50,7 +50,7 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   callRouting: "conditional",
   callRoutingConfirmedAt: new Date(),
   carrier: "verizon",
-  synthflowNumberE164: "+14155550100",
+  assistantNumberE164: "+14155550100",
   openingHoursPresent: true,
   onboarding: Object.fromEntries(ONBOARDING_STEPS.map((step) => [step, "2026-09-13T00:00:00.000Z"])),
   agentApprovedAt: new Date(),
@@ -189,6 +189,7 @@ describeDb("ops clinic listing", () => {
     expect(Object.keys(first!).sort()).toEqual(
       [
         "agentApprovedAt",
+        "assistantNumberE164",
         "attributionMode",
         "baaSignedAt",
         "baaVersion",
@@ -226,7 +227,6 @@ describeDb("ops clinic listing", () => {
         "stripeConnectAccountId",
         "stripeConnectConnectedAt",
         "stripeConnectDisconnectedAt",
-        "synthflowNumberE164",
         "timezone",
         "wentLiveAt",
       ].sort(),

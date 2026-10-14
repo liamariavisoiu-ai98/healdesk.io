@@ -1,11 +1,19 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { hashBaaText, SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
+import {
+  agreementPlatformFor,
+  BAA_ASSENT_LABEL,
+  CURRENT_BAA_VERSION,
+  hashBaaText,
+  SIGNATURE_HEADER,
+  TIMESTAMP_HEADER,
+  sign,
+} from "@healdesk/catalog";
 import { sealRecord, type AgreementRecord, type IntentRecord } from "@healdesk/catalog/checkout-record";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { POST as postProvision } from "@/app/api/provision/route";
-import { getAgreement, listCopyDeliveries } from "@/lib/agreements";
+import { getAgreement, listCopyDeliveries, signAgreement } from "@/lib/agreements";
 import { importCheckoutRecords } from "@/lib/checkout/import";
 import { findIntent, markIntentFailed } from "@/lib/checkout/intents";
 import { sendOrderConfirmedDelayed } from "@/lib/checkout/order-delayed";
@@ -436,6 +444,63 @@ describeDb("provisioning from the imported records, and /welcome", () => {
       expect(
         errors.some((line) => line.includes("ops alert") && line.includes("provisioning_rejected") && line.includes('"field":"ref"')),
       ).toBe(true);
+    } finally {
+      vi.mocked(console.error).mockRestore();
+    }
+  });
+
+  test("a body with no purchase reference is refused, however complete: 422, ops told, nothing made", async () => {
+    // The whole purchase as the request, the shape the development path and
+    // the callers from before intents sent: with a real signed agreement it
+    // used to make an account no paid purchase stood behind (plan C1: no
+    // legacy branch).
+    const errors: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((line: unknown) => {
+      errors.push(String(line));
+    });
+    try {
+      const email = `legacy-${randomUUID().slice(0, 8)}@glowspa.test`;
+      const signedAgreement = await signAgreement({
+        clinicLegalName: "Legacy Med Spa LLC",
+        specialty: "med-spa",
+        signatoryName: "Laura Owner",
+        signatoryEmail: email,
+        isCoveredEntity: false,
+        attributionMode: "estimated",
+        platform: agreementPlatformFor("none"),
+        bookingSystem: "none",
+        calendarAccount: "workspace_no_baa",
+        assentLabel: BAA_ASSENT_LABEL,
+        templateVersion: CURRENT_BAA_VERSION,
+      });
+      const key = subscription();
+      const response = await postProvision(
+        signed("http://app.test/api/provision", {
+          clinicName: "Legacy Med Spa LLC",
+          specialty: "med-spa",
+          platform: agreementPlatformFor("none"),
+          plan: "voice-webchat-1000-1000",
+          contactName: "Laura Owner",
+          contactEmail: email,
+          agreementId: signedAgreement.agreementId,
+          idempotencyKey: key,
+          stripeCustomerId: `cus_legacy_${randomUUID().slice(0, 8)}`,
+          stripeSubscriptionId: key,
+        }),
+      );
+      expect(response.status).toBe(422);
+      expect(((await response.json()) as { field?: string }).field).toBe("ref");
+      expect(
+        errors.some(
+          (line) => line.includes("provisioning_rejected") && line.includes('"field":"ref"') && line.includes('"source":"request"'),
+        ),
+      ).toBe(true);
+      const pool = getMigratorPool();
+      expect((await pool.query(`select 1 from clinics`)).rows).toHaveLength(0);
+      expect(
+        (await pool.query(`select 1 from provisioning_attempts where idempotency_key = $1`, [key])).rows,
+      ).toHaveLength(0);
+      expect((await getAgreement(signedAgreement.agreementId))!.organizationId).toBeNull();
     } finally {
       vi.mocked(console.error).mockRestore();
     }

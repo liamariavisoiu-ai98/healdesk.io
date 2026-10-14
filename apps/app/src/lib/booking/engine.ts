@@ -1,3 +1,5 @@
+// No channel calls this yet: the assistant takes requests for the desk, and direct booking waits on HEALDESK_DIRECT_BOOKING_ENABLED.
+
 import type { SlotHoldChannel } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import type { DepositChannel } from "@/lib/billing/deposits";
@@ -11,10 +13,9 @@ import { bookingModeFor } from "./mode";
 
 /**
  * The booking engine (plan §7.4; the design record's §6): what the Retell
- * process (launch plan 2.1), the Synthflow harness for the demo clinic, and
- * later the web-chat and Meta adapters call. Nothing else writes the
- * assistant's bookings, and Google is never called inside a database
- * transaction.
+ * process (launch plan 2.1) and the web-chat and Meta adapters will call
+ * once direct booking is switched on. Nothing else writes the assistant's
+ * bookings, and Google is never called inside a database transaction.
  *
  *   offerTimes          free start times for a service, each with the named
  *                       provider whose calendar it is on, while the location
@@ -24,9 +25,7 @@ import { bookingModeFor } from "./mode";
  *   placeHold           60 seconds on one start, before the details are
  *                       taken, while the location books live;
  *   bookConversation    hold, re-check, claim, write, record (book.ts);
- *   logRequest          a request in the caller's words (book.ts);
- *   keyReusedFor        what `key_reused` would say for a booking key that
- *                       already has a booking or a request (book.ts).
+ *   logRequest          a request in the caller's words (book.ts).
  *
  * The clinic is told through booking alerts (lib/notices/booking-alerts.ts),
  * each raised inside the transaction that commits what it reports, so a
@@ -36,17 +35,16 @@ import { bookingModeFor } from "./mode";
  *
  * The keys (plan §7.13): Retell's holder is "retell:" + call id and its
  * booking key "retell:" + call id + ":" + n, n growing only when the caller
- * asks for another booking; the harness's are "voice:" + call id and the
- * call id. A booking key is unique per clinic (booking_requests
- * .vendor_call_id): a retried tool call, a duplicate webhook or a repeated
- * tool call under it returns the original booking, and a different booking
- * asked for under it is refused (`key_reused`).
+ * asks for another booking. A booking key is unique per clinic
+ * (booking_requests.vendor_call_id): a retried tool call, a duplicate
+ * webhook or a repeated tool call under it returns the original booking,
+ * and a different booking asked for under it is refused (`key_reused`).
  *
- * The funnel's "Talk to your AYA" preview, whose tools hold and write
- * nothing, calls offerTimes only.
+ * The funnel's "Talk to your AYA" preview (not built yet), whose tools
+ * will hold and write nothing, is to call offerTimes only.
  */
 
-export { bookConversation, keyReusedFor, logRequest } from "./book";
+export { bookConversation, logRequest } from "./book";
 export type {
   BookConversationInput,
   BookConversationResult,

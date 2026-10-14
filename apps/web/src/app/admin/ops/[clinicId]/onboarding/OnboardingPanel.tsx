@@ -28,7 +28,7 @@ type Actions = {
     phoneSystemType?: "landline" | "voip" | "unknown";
     callRouting?: "conditional" | "always";
     carrier?: string | null;
-    synthflowNumberE164?: string | null;
+    assistantNumberE164?: string | null;
     publishedPhoneE164?: string | null;
   }) => Promise<OpsResult<SimpleOutcome>>;
   saveAgent: (input: {
@@ -136,7 +136,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
             </ul>
           </div>
         ) : (
-          <p className="text-muted mt-3 text-sm">Enter the Synthflow number to see the forwarding codes.</p>
+          <p className="text-muted mt-3 text-sm">Enter the assistant&rsquo;s number to see the forwarding codes.</p>
         )}
         <ForwardingTest view={v} onStart={actions.startForwardingTest} />
       </Section>
@@ -255,14 +255,14 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
       onSubmit={(event) => {
         event.preventDefault();
         const f = new FormData(event.currentTarget);
-        const number = String(f.get("synthflowNumberE164") ?? "").trim();
+        const number = String(f.get("assistantNumberE164") ?? "").trim();
         start(async () => {
           setProblem(null);
           const result = await onSave({
             phoneSystemType: String(f.get("phoneSystemType")) as "landline" | "voip" | "unknown",
             callRouting: String(f.get("callRouting")) as "conditional" | "always",
             carrier: String(f.get("carrier") || "") || null,
-            synthflowNumberE164: number || null,
+            assistantNumberE164: number || null,
             publishedPhoneE164: String(f.get("publishedPhoneE164") ?? "").trim() || null,
           });
           setProblem(describe(result) ?? "Saved.");
@@ -298,8 +298,8 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
         ) : null}
       </label>
       <label className="text-sm">
-        <span className="text-muted block text-xs font-bold uppercase">Synthflow number (E.164)</span>
-        <input name="synthflowNumberE164" defaultValue={view.clinic.synthflowNumberE164 ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
+        <span className="text-muted block text-xs font-bold uppercase">Assistant number (E.164)</span>
+        <input name="assistantNumberE164" defaultValue={view.clinic.assistantNumberE164 ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
       </label>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">The clinic&rsquo;s own published number (E.164)</span>

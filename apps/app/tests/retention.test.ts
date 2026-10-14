@@ -183,7 +183,7 @@ describeDb("retention purge", () => {
         client.query(
           `insert into webhook_events
              (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
-           values ($1, 'synthflow', $2, true, '{"transcript":"user: I want botox"}', $3, $4)`,
+           values ($1, 'retell', $2, true, '{"transcript":"user: I want botox"}', $3, $4)`,
           [
             clinicId,
             deliveryId,
@@ -384,7 +384,7 @@ describeDb("retention purge", () => {
         client.query(
           `insert into webhook_events
              (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
-           values ($1, 'synthflow', $2, $3, '{"lead":{"phone_number":"+15550150001"}}', $4, $5)`,
+           values ($1, 'retell', $2, $3, '{"call":{"from_number":"+15550150001"}}', $4, $5)`,
           [
             clinicId,
             deliveryId,
@@ -449,8 +449,8 @@ describeDb("retention purge", () => {
       );
       await client.query(
         `insert into webhook_events (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
-         values ($1, 'synthflow', 'margin-done', true, '{}', $2, $2),
-                ($1, 'synthflow', 'margin-never', true, '{}', null, $3)`,
+         values ($1, 'retell', 'margin-done', true, '{}', $2, $2),
+                ($1, 'retell', 'margin-never', true, '{}', null, $3)`,
         [c.clinicId, endsIn3h(30), endsIn3h(90)],
       );
       await client.query(

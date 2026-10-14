@@ -1,15 +1,23 @@
-import { describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { resolveBookingRequirements } from "@healdesk/catalog";
+import { isImplemented } from "@healdesk/connectors";
 
+import { POST as providerWebhook } from "@/app/api/webhooks/[provider]/[clinicId]/route";
 import { COMMON_WEEKDAY_HOURS } from "@/lib/clinic/opening-hours";
+import { createBookingRequest } from "@/lib/meta/booking-requests";
+import type { EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { withTenant } from "@/lib/tenant";
 import {
   bookingRequestFrom,
   classifyBooking,
   classifyRecovery,
+  ingestCall,
   type VoiceCallEvent,
 } from "@/lib/voice/ingest";
-import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
+
+import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { inTenant, seedClinic, seedContact } from "./setup/factories";
 
 /**
  * The two classifications the monthly report is built on.
@@ -240,7 +248,6 @@ describe("the call-to-booking-request link", () => {
     const req = bookingRequestFrom(
       call({
         outcome: "booked",
-        transcriptUri: "https://transcripts.example.test/call_1.txt",
         booking: { scheduledFor: WHEN, preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning", "Thursday afternoon", "Monday, for my rosacea", "Tuesday"], treatment: "Consultation" },
         collectedFields: { last_name: "Okonkwo", consult_or_treatment: "consultation", new_or_existing: "new", dob: "1990-01-01", phone: "+15550000000" },
       }),
@@ -260,53 +267,165 @@ describe("the call-to-booking-request link", () => {
 });
 
 /**
- * The documented post-call shape (§D.1): `collected_variables` and
- * `lead.phone_number` first, the older aliases behind them.
+ * The Synthflow post-call webhook was removed on 14 October 2026. Its URL,
+ * /api/webhooks/voice/[clinicId], now falls through to the booking-platform
+ * route, which knows no "voice" adapter: a late or forged post stores
+ * nothing and is told the endpoint does not exist.
  */
-describe("the documented Synthflow shape", () => {
-  const CLINIC = "11111111-1111-4111-8111-111111111111";
-
-  test("collected_variables and lead.phone_number are read first, and the new variables land where the design says", () => {
-    const event = readSynthflowPayload(
-      {
-        call_id: "call_doc_1",
-        model_id: "agent_1",
-        start_time: "2026-09-02T18:00:00Z",
-        duration: 150,
-        status: "completed",
-        lead: { name: "Dana Okonkwo", phone_number: "+1 (415) 555-0192" },
-        transcript: "…",
-        executed_actions: [],
-        // An older alias present too: the documented object wins.
-        custom_variables: { outcome: "spam", caller_name: "Wrong" },
-        collected_variables: {
-          outcome: "booked",
-          caller_name: "Dana",
-          booked_for: "2026-09-10T15:00:00Z",
-          preferred_window: "Thursday afternoon",
-          preferred_alt_1: "Friday morning",
-          preferred_alt_2: "",
-          booked_treatment: "Consultation",
-          field_last_name: "Okonkwo",
-          field_consult_or_treatment: "consultation",
-        },
-      },
-      CLINIC,
+describe("the removed Synthflow webhook's URL", () => {
+  test("is a 404 from the booking-platform route, before anything is read or stored", async () => {
+    expect(isImplemented("voice")).toBe(false);
+    const clinicId = "11111111-1111-4111-8111-111111111111";
+    const res = await providerWebhook(
+      new Request(`http://app.test/api/webhooks/voice/${clinicId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer anything" },
+        body: JSON.stringify({ call_id: "call_late", start_time: "2026-10-14T12:00:00Z" }),
+      }),
+      { params: Promise.resolve({ provider: "voice", clinicId }) },
     );
-    expect(event.callerPhone).toBe("+14155550192");
-    expect(event.callerName).toBe("Dana");
-    expect(event.outcome).toBe("booked");
-    expect(event.booking).toMatchObject({ preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning"], treatment: "Consultation" });
-    expect(event.collectedFields).toEqual({ last_name: "Okonkwo", consult_or_treatment: "consultation" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Unknown endpoint." });
+  });
+});
+
+const describeDb = hasTestDatabase ? describe : describe.skip;
+
+/**
+ * The post-call ingest in the database, from hand-built events of the shape
+ * the Retell endpoint hands over (lib/voice/retell.ts): what it links, what
+ * it creates and whom it mails.
+ */
+describeDb("the post-call ingest", () => {
+  beforeAll(async () => {
+    await runMigrations();
+    await truncateAll();
+    // A public origin for the desk's link, so "nothing mailed" below is the
+    // ingest's choice and not a clinic with nowhere to send.
+    process.env.BETTER_AUTH_URL = "https://app.healdesk.test";
+  }, 60_000);
+
+  afterAll(async () => {
+    await closePools();
   });
 
-  test("a withheld caller number is dropped, and call-back variables are not read (v1 is inbound only)", () => {
-    const base = { call_id: "c", start_time: "2026-09-02T18:00:00Z" };
-    const event = readSynthflowPayload({ ...base, collected_variables: { callback_consent: "yes", stop_requested: "true" } }, CLINIC);
-    expect(event).not.toHaveProperty("callbackConsent");
-    expect(event).not.toHaveProperty("stopRequested");
-    // A withheld lead number is dropped, not replaced by a stale alias; with no lead, the alias is read.
-    expect(readSynthflowPayload({ ...base, lead: { phone_number: "anonymous" }, phone_number: "(555) 010-0123" }, CLINIC).callerPhone).toBeUndefined();
-    expect(readSynthflowPayload({ ...base, phone_number: "(555) 010-0123" }, CLINIC).callerPhone).toBe("+15550100123");
+  function capture(): { mailed: OutgoingEmail[]; transport: EmailTransport } {
+    const mailed: OutgoingEmail[] = [];
+    return {
+      mailed,
+      transport: {
+        name: "capture",
+        async send(_target, message) {
+          mailed.push(message);
+          return { status: "sent", messageId: `m-${mailed.length}` };
+        },
+      },
+    };
+  }
+
+  const booked = (clinicId: string, externalCallId: string): VoiceCallEvent => ({
+    externalCallId,
+    clinicId,
+    callerPhone: "+15550100123",
+    callerName: "Test Caller",
+    startedAt: new Date("2026-09-02T18:00:00Z"),
+    endedAt: new Date("2026-09-02T18:04:30Z"),
+    durationSeconds: 270,
+    outcome: "booked",
+    treatmentInterest: "Botox",
+    rangAtClinicFirst: true,
+    booking: { preferredWindow: "next Thursday afternoon", alternativeWindows: ["Friday morning"], treatment: "Botox" },
+  });
+
+  test("the post-call record links what the booking engine logged on the call, by its booking keys, and asks the desk nothing more", async () => {
+    const c = await seedClinic("voice-engine-link");
+    const contactId = await seedContact(c.clinicId, "+15550100123");
+    await inTenant(c.clinicId, (client) => client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [c.clinicId, "desk@example-clinic.test"]));
+    // What the engine leaves: the Retell process keys each booking "retell:" + call id + ":" + n.
+    const keyed = async (key: string, bookedVia: "desk" | "agent_direct") =>
+      (await withTenant({ clinicId: c.clinicId, actor: { type: "service", serviceName: "test" } }, (tx) =>
+        createBookingRequest(tx, { channel: "voice", contactId, conversationId: null, preferredWindow: "Thursday afternoon", treatment: "Botox", vendorCallId: key, bookedVia }),
+      )).id;
+    const first = await keyed("retell:call_rt_1:1", "agent_direct");
+    const second = await keyed("retell:call_rt_1:2", "desk");
+    // Another call's keys: one sharing this call id's first characters, and
+    // one that LIKE 'retell:call_rt_1:%' would match, its underscores being
+    // LIKE's any-character; and a key that is the bare call id, which no
+    // channel writes, so nothing links it.
+    const other = await keyed("retell:call_rt_10:1", "desk");
+    const wildcard = await keyed("retell:callXrtX1:1", "desk");
+    const bare = await keyed("call_rt_1", "agent_direct");
+
+    const { mailed, transport } = capture();
+    const retell = await ingestCall(booked(c.clinicId, "call_rt_1"), undefined, { transport });
+    expect(retell.bookingRequestId).toBe(first);
+    // A retried hand-over answers with the same request.
+    const again = await ingestCall(booked(c.clinicId, "call_rt_1"), undefined, { transport });
+    expect(again).toMatchObject({ duplicate: true, conversationId: retell.conversationId, bookingRequestId: first });
+    // Every engine alert was raised when the request was committed: nothing is mailed for that call.
+    expect(mailed).toEqual([]);
+    // The control: a call the engine logged nothing on is the ingest's to
+    // deliver, and it does mail this clinic's desk.
+    const unkeyed = await ingestCall(booked(c.clinicId, "call_desk_1"), undefined, { transport });
+    expect(unkeyed.bookingRequestId).not.toBeNull();
+    expect(mailed).toHaveLength(1);
+    expect(mailed[0]!.subject).toMatch(/^New booking request via /);
+
+    const rows = await inTenant(c.clinicId, async (client) => ({
+      requests: (await client.query<{ id: string; conversation_id: string | null }>(`select id, conversation_id from booking_requests`)).rows,
+      linked: (await client.query<{ resource_id: string; metadata: Record<string, unknown> }>(
+        `select resource_id, metadata from audit_log where resource_type = 'booking_request' and metadata->>'outcome' = 'conversation_linked' order by resource_id`,
+      )).rows,
+    }));
+    // No second request for an "outcome: booked" call, and the other keys untouched.
+    expect(rows.requests).toHaveLength(6);
+    const linkedTo = Object.fromEntries(rows.requests.map((r) => [r.id, r.conversation_id]));
+    expect(linkedTo).toEqual({
+      [first]: retell.conversationId,
+      [second]: retell.conversationId,
+      [other]: null,
+      [wildcard]: null,
+      [bare]: null,
+      [unkeyed.bookingRequestId!]: unkeyed.conversationId,
+    });
+    expect(rows.linked.map((r) => [r.resource_id, r.metadata.via]).sort()).toEqual(
+      [[first, "agent_direct"], [second, "desk"]].sort(),
+    );
+  });
+
+  test("a synthetic clinic in setup: a booked call becomes one request for the desk, unkeyed, and the desk is mailed", async () => {
+    // Every paying clinic is synthetic until ops put it live; its calls still
+    // reach its desk as requests.
+    const synthetic = await seedClinic("voice-synthetic");
+    await getMigratorPool().query(`update clinics set data_classification = 'synthetic', went_live_at = null where id = $1`, [synthetic.clinicId]);
+    await inTenant(synthetic.clinicId, (client) =>
+      client.query(`insert into report_recipients (clinic_id, email, added_by) values ($1, $2, 'test')`, [synthetic.clinicId, "desk@example-clinic.test"]),
+    );
+    const { mailed, transport } = capture();
+    const ingested = await ingestCall(
+      {
+        externalCallId: "call_synth",
+        clinicId: synthetic.clinicId,
+        callerPhone: "+14155550177",
+        callerName: "Dana Test",
+        startedAt: new Date(Date.now() - 300_000),
+        endedAt: new Date(),
+        durationSeconds: 300,
+        outcome: "booked",
+        booking: { preferredWindow: "Thursday afternoon", treatment: "Consultation" },
+      },
+      undefined,
+      { transport },
+    );
+    expect(ingested.bookingRequestId).not.toBeNull();
+    const stored = await inTenant(synthetic.clinicId, (client) =>
+      client.query<{ status: string; vendor_call_id: string | null; preferred_window: string; desk_notified_at: Date | null }>(
+        `select status, vendor_call_id, preferred_window, desk_notified_at from booking_requests`,
+      ),
+    );
+    expect(stored.rows).toEqual([expect.objectContaining({ status: "requested", vendor_call_id: null, preferred_window: "Thursday afternoon" })]);
+    expect(stored.rows[0]!.desk_notified_at).not.toBeNull();
+    expect(mailed).toHaveLength(1);
+    expect(mailed[0]!.subject).toMatch(/^New booking request via /);
   });
 });

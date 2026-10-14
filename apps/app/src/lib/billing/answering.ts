@@ -85,7 +85,7 @@ export type PassThroughReason =
  * call with no direct line otherwise falls back to the assistant's safe
  * script (R25), because the agreement still covers it; after one of these
  * nothing may process the caller at all, so the runtime closes the call with
- * a fixed line instead (voice/tools.ts, answer_mode "closed").
+ * a fixed line instead (lib/voice/retell.ts CLOSED_LINE).
  */
 export const SERVICES_ENDED_REASONS: readonly PassThroughReason[] = [
   "no_agreement",
@@ -577,21 +577,18 @@ const VOICE_GATE_ACTOR: ActorContext = { type: "service", serviceName: "voice-ga
 
 /**
  * The gate for a voice call (BD25), outside any transaction like
- * `assistantMayAnswer`: today the Synthflow tools' `context` and `slots`
- * (and `book`, after its replay), and tomorrow the Retell custom-LLM process,
- * which asks it when a call comes in and either answers or transfers to the
+ * `assistantMayAnswer`: the Retell custom-LLM process (lib/voice/retell.ts)
+ * asks it when a call comes in and either answers or transfers to the
  * returned direct line.
  *
  * A pass-through with no direct line has nowhere to send the caller. The
- * runtime then answers anyway, with the fixed safe script (the tools'
- * `answer_mode: "assistant"` with `booking_mode: "desk_confirms"`: take the
- * caller's request for the front desk, book nothing), because a patient
- * calling a clinic must always reach someone (CLAUDE.md, "Failure"); except
- * when the Services have ended (servicesEnded: no agreement, or the
- * subscription over), when nothing may process the caller and the call is
- * closed with a fixed line (`answer_mode: "closed"`). Either is a
- * configuration gap only a person can close, so ops hears of it here, once
- * an hour per clinic and reason (R25).
+ * runtime then answers anyway, with the safe script (take the caller's
+ * request for the front desk, book nothing), because a patient calling a
+ * clinic must always reach someone (CLAUDE.md, "Failure"); except when the
+ * Services have ended (servicesEnded: no agreement, or the subscription
+ * over), when nothing may process the caller and the call is closed with a
+ * fixed line (CLOSED_LINE). Either is a configuration gap only a person can
+ * close, so ops hears of it here, once an hour per clinic and reason (R25).
  */
 export async function voiceAnswerDecision(clinicId: string, now?: Date): Promise<AnswerDecision> {
   const { decision, isKnownClinic } = await runGate({

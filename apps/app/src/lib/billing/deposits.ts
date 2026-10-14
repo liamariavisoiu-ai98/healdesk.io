@@ -240,7 +240,7 @@ export type DepositRef = {
 /**
  * What a decision leaves behind, written inside the booking's own
  * transaction by the runtime's booking tool layer once it has booked, held
- * or declined (voice applies the same rules inline, lib/voice/tools.ts):
+ * or declined (a call is told with depositLine, lib/booking/lines.ts):
  *
  *   book               nothing;
  *   collect            nothing yet: createDepositLink marks the appointment

@@ -2122,7 +2122,7 @@ export type OnboardingView = {
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
-    synthflowNumberE164: string | null;
+    assistantNumberE164: string | null;
     publishedPhoneE164: string | null;
     openingHoursPresent: boolean;
     wentLiveAt: string | null;
@@ -2258,7 +2258,7 @@ async function opGetOnboarding(
       callRouting: clinic.callRouting,
       callRoutingConfirmedAt: clinic.callRoutingConfirmedAt?.toISOString() ?? null,
       carrier: clinic.carrier,
-      synthflowNumberE164: clinic.synthflowNumberE164,
+      assistantNumberE164: clinic.assistantNumberE164,
       publishedPhoneE164: clinic.publishedPhoneE164,
       openingHoursPresent: clinic.openingHoursPresent,
       wentLiveAt: clinic.wentLiveAt?.toISOString() ?? null,
@@ -2284,12 +2284,12 @@ async function opGetOnboarding(
     },
     // Counts only. The requests themselves live behind the desk's link.
     meta: { enabled: clinic.metaFrontDoorEnabled, platforms: metaPlatforms, channels: metaChannels, bookingRequests },
-    forwarding: clinic.synthflowNumberE164
+    forwarding: clinic.assistantNumberE164
       ? forwardingInstructions({
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
           phoneSystemType: clinic.phoneSystemType,
           routing: clinic.callRouting,
-          destinationE164: clinic.synthflowNumberE164,
+          destinationE164: clinic.assistantNumberE164,
         })
       : null,
     agent: agent
@@ -2415,8 +2415,8 @@ async function opSetPhoneSettings(
   const phoneSystemType = stringArg(args, "phoneSystemType", 16);
   const callRouting = stringArg(args, "callRouting", 16);
   const carrier = args.carrier === null ? null : stringArg(args, "carrier", 32);
-  const synthflowNumberE164 =
-    args.synthflowNumberE164 === null ? null : stringArg(args, "synthflowNumberE164", 20);
+  const assistantNumberE164 =
+    args.assistantNumberE164 === null ? null : stringArg(args, "assistantNumberE164", 20);
   const publishedPhoneE164 =
     args.publishedPhoneE164 === null ? null : stringArg(args, "publishedPhoneE164", 20);
 
@@ -2438,7 +2438,7 @@ async function opSetPhoneSettings(
           phoneSystemType: phoneSystemType as "landline" | "voip" | "unknown" | undefined,
           callRouting: callRouting as "conditional" | "always" | undefined,
           carrier: carrier as never,
-          synthflowNumberE164,
+          assistantNumberE164,
           publishedPhoneE164,
         }),
     );
@@ -3185,8 +3185,8 @@ async function opStartForwardingTest(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies ForwardingTestOutcome);
-  if (!clinic.synthflowNumberE164) {
-    return ok({ status: "error", message: "Enter the Synthflow number first; there is nothing to forward to." } satisfies ForwardingTestOutcome);
+  if (!clinic.assistantNumberE164) {
+    return ok({ status: "error", message: "Enter the assistant's number first; there is nothing to forward to." } satisfies ForwardingTestOutcome);
   }
   if (!clinic.publishedPhoneE164) {
     return ok({

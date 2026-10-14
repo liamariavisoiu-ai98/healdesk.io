@@ -128,8 +128,8 @@ Read out of the code on 30 September 2026. The spec's "Launch plan" tab is the t
 this is only a summary.
 
 - ✅ Marketing site — hero, six-specialty strip, live chat + voice demo, ROI calculator,
-  attribution section. The demo call still runs through Synthflow until the Retell agent
-  exists. Any copy claiming collected or recovered revenue is phase two and has to come out
+  attribution section. The demo call runs on a Retell demo agent (since 5 October 2026).
+  Any copy claiming collected or recovered revenue is phase two and has to come out
   of v1 copy.
 - ✅ Server-side gated chat route
 - ✅ Lead-gen pipeline
@@ -147,8 +147,10 @@ this is only a summary.
 - ⬜ Provisioning on the first paid invoice — today the Stripe webhook in `apps/web`
   creates the account on `checkout.session.completed`, and `invoice.paid` only activates it
 - ⬜ Voice on Retell — the custom-LLM WebSocket endpoint in `apps/app`, a number in the
-  clinic's area code allocated at payment, the three coverage modes. Not built;
-  `apps/app/src/lib/voice` still ingests Synthflow payloads
+  clinic's area code allocated at payment, the three coverage modes. The endpoint was
+  built on 13 October 2026 (`apps/app/src/voice/server.ts`), behind `enable_voice`, and
+  has not been tested against Retell itself; the Synthflow webhook it replaced was removed
+  on 14 October
 - ⬜ Web chat widget — not built
 - ⬜ Meta bot booking and payment links inside the 24-hour window — not built.
   `apps/app/src/lib/meta` holds an earlier front-door handler that books nothing. Meta

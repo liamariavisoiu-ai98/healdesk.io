@@ -728,7 +728,7 @@ const CLAUSES: readonly BaaClause[] = [
    *      a customer contract, and it is the honest thing to do: the clinic is
    *      entitled to know that the money behind our promises is our own, not our
    *      vendors'. It is also the sentence that will start the conversation
-   *      about raising Synthflow's six-month cap, which is the real fix.
+   *      about raising the upstream vendors' caps, which is the real fix.
    */
   {
     id: "liability",

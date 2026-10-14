@@ -19,12 +19,9 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 /**
  * Turning a finished call into the one row the whole product depends on.
  *
- * Pre-Retell. `VoiceCallEvent` is vendor-neutral, but the only producer today
- * is the Synthflow post-call webhook (synthflow-payload.ts, routed by
- * /api/webhooks/voice/[clinicId]). The v1 voice agent runs on Retell through a
- * Healdesk-hosted custom-LLM WebSocket endpoint that is not built yet (launch
- * plan step 2.1); when it is, its end-of-call record should land here through
- * the same event shape, and the Synthflow reader can go.
+ * `VoiceCallEvent` is vendor-neutral. Its one producer is the Retell
+ * custom-LLM endpoint (lib/voice/retell.ts, run by src/voice/server.ts),
+ * which hands the call over here when Retell closes the socket.
  *
  * Until this existed, nothing anywhere wrote a `conversations` row. Every
  * downstream system — the attribution engine, the reconciliation matcher, the
@@ -100,14 +97,6 @@ export type VoiceCallEvent = {
   disclosurePlayedAt?: Date;
   recordingOptOut?: boolean;
   responseLatencySeconds?: number;
-  /**
-   * The vendor's transcript reference, read from its payload and never
-   * stored: since the owner's decision of 13 October 2026 a transcript is
-   * emailed to the clinic (lib/conversations/transcript-email.ts) and healdesk
-   * keeps no transcript and no link to one. No audio is kept either (21
-   * September 2026).
-   */
-  transcriptUri?: string;
   /**
    * What the agent actually booked, when `outcome` is "booked".
    *
@@ -447,7 +436,7 @@ export async function ingestCall(
         callRouting: clinics.callRouting,
         forwardingTestUntil: clinics.forwardingTestUntil,
         publishedPhoneE164: clinics.publishedPhoneE164,
-        synthflowNumberE164: clinics.synthflowNumberE164,
+        assistantNumberE164: clinics.assistantNumberE164,
         specialty: clinics.specialty,
         bookingRequirements: clinics.bookingRequirements,
       })
@@ -614,7 +603,7 @@ export async function ingestCall(
       .limit(1);
     const metering = voiceMeteringFor(event, {
       isTestCall: evaluateForwardingCall(clinic, event, row.id).isTest,
-      ownNumbers: [clinic.publishedPhoneE164, settings?.directLine, clinic.synthflowNumberE164],
+      ownNumbers: [clinic.publishedPhoneE164, settings?.directLine, clinic.assistantNumberE164],
     });
 
     // The forwarding test, and the caller-ID watch: after the row exists, in
@@ -664,13 +653,12 @@ export async function ingestCall(
 
 /**
  * The requests the booking engine logged on this call, by their booking key
- * (the design record's §6): the Synthflow harness keys a call's one booking
- * or request by the call id itself, and the Retell process by
- * "retell:" + call id + ":" + n, one for each booking the caller asked for.
- * starts_with, not LIKE: a call id's underscores are LIKE wildcards.
+ * (the design record's §6): the Retell process keys each booking the caller
+ * asked for "retell:" + call id + ":" + n. starts_with, not LIKE: a call
+ * id's underscores are LIKE wildcards.
  */
 function keyedToCall(externalCallId: string) {
-  return or(eq(bookingRequests.vendorCallId, externalCallId), sql`starts_with(${bookingRequests.vendorCallId}, ${`retell:${externalCallId}:`})`);
+  return sql`starts_with(${bookingRequests.vendorCallId}, ${`retell:${externalCallId}:`})`;
 }
 
 /**

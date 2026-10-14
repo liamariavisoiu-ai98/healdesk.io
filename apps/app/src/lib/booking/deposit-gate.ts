@@ -33,7 +33,7 @@ import type { TenantTx } from "@/lib/tenant";
  * its L10 alert already sent when the time was reserved; other staff
  * confirmations still apply the clinic-level rule there.
  *
- * Voice never collects: a call hears depositLine (lib/voice/tools.ts) and is
+ * Voice never collects: a call hears depositLine (lib/booking/lines.ts) and is
  * never sent a link. The chat channels send one only through
  * depositLinkMessage below: createDepositLink's URL inside depositLinkText,
  * nothing more.
@@ -92,7 +92,7 @@ export function bookedDepositOutcome(outcome: DepositOutcome): DepositOutcome {
     : { ...outcome, action: "book_and_flag" };
 }
 
-/** What a voice line about a deposit needs (lib/voice/tools.ts depositLine): never a link. */
+/** What a voice line about a deposit needs (lib/booking/lines.ts depositLine): never a link. */
 export type DepositLineFacts = { action: DepositAction; amountUsd: number | null };
 
 /**

@@ -1,6 +1,6 @@
 # The healdesk voice agent — contextual prompt for Synthflow
-
-> **Superseded 2026-09-30 by [v1-product-spec.md](./v1-product-spec.md).** The
+> **Archived.** Synthflow was replaced by Retell on 5 October 2026, and its webhook was removed from the code on 14 October 2026.
+> **Superseded 2026-09-30 by [v1-product-spec.md](../v1-product-spec.md).** The
 > product voice agent runs on Retell, not Synthflow: Retell opens a WebSocket per
 > call to a Healdesk-hosted Claude endpoint in `apps/app`, and every tool call
 > (availability, slot hold, booking) runs there. That endpoint is not built yet.

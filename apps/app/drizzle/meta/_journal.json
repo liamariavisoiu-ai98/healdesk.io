@@ -526,6 +526,13 @@
       "when": 1791962088878,
       "tag": "0074_drop_admin_totp",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1791962089878,
+      "tag": "0075_assistant_number",
+      "breakpoints": true
     }
   ]
 }

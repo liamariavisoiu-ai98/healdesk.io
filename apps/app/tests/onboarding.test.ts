@@ -215,7 +215,7 @@ describeDb("onboarding", () => {
       [organizationId, CURRENT_BAA_VERSION],
     );
     await withTenant({ clinicId, actor: ACTOR }, async (tx) => {
-      await setPhoneSettings(tx, { phoneSystemType: "landline", carrier: "verizon", callRouting: "conditional", synthflowNumberE164: "+14155550199" });
+      await setPhoneSettings(tx, { phoneSystemType: "landline", carrier: "verizon", callRouting: "conditional", assistantNumberE164: "+14155550199" });
       await seedAgentConfig(tx, "med-spa", "Golive Clinic");
       await approveAgentConfig(tx, "Owner");
       await completeStep(tx, "hours_confirmed");

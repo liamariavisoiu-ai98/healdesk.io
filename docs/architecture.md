@@ -38,8 +38,8 @@ surface belongs in.
 > serves today, all of it pre-spec:
 >
 > - Synthflow post-call and mid-call tool routes (`api/webhooks/voice/[clinicId]`,
->   `api/voice/tools/[clinicId]`, `lib/voice/`). Pre-Retell; the Retell endpoint
->   replaces them.
+>   `api/voice/tools/[clinicId]`). Removed on 14 October 2026: the Retell endpoint
+>   (`src/voice/server.ts`, built 13 October) replaced them.
 > - The Meta webhook (`api/webhooks/meta`, `lib/meta/front-door.ts`), which answers
 >   public facts and takes booking requests; it books nothing.
 > - Single-use links: `/booking/[token]` (staff decide a booking request), `/setup/[token]`
@@ -107,8 +107,8 @@ patient data" a fact you can check rather than a policy. The same Sheet is the C
 CSP from talking to anything else.
 
 **The demo talks to owners, not patients.** That is the only reason it sits here. It
-answers from a generic knowledge tree; the owner-requested demo call still runs through
-Synthflow until a Retell demo agent exists. When the demo starts building a clinic's
+answers from a generic knowledge tree; the owner-requested demo call runs on a Retell
+demo agent, separate from the product's, since 5 October 2026. When the demo starts building a clinic's
 profile from its own website (the spec's "Stage 0"), that profile is business data and
 reaches the wizard inside a signed request to `apps/app`, never a store in `apps/web`.
 
@@ -205,9 +205,11 @@ and tool layer.
 - **Concurrency:** 20 concurrent calls are included on pay-as-you-go; more cost extra
   per slot. Whether 20 is enough is an open item in the spec.
 
-**Not built yet.** Nothing in `apps/app` implements the Retell endpoint; `src/lib/voice/`
-still ingests Synthflow webhook payloads. Before building it, pull Retell's custom-LLM
-WebSocket message schema from its documentation: the proxy's whole shape depends on it.
+**Built 13 October 2026, never tested against Retell itself.** The endpoint is
+`src/voice/server.ts` and `lib/voice/retell.ts` in `apps/app`; each finished call goes to
+the vendor-neutral post-call ingest (`lib/voice/ingest.ts`). Check its protocol fields
+against Retell on a synthetic clinic before a real call
+([design/web-chat-and-voice-2026-10-13.md](./design/web-chat-and-voice-2026-10-13.md)).
 
 ### The voice agent is PHI-light by design
 

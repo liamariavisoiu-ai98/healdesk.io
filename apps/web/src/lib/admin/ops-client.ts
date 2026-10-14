@@ -1520,7 +1520,7 @@ export type OnboardingView = {
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
-    synthflowNumberE164: string | null;
+    assistantNumberE164: string | null;
     publishedPhoneE164: string | null;
     openingHoursPresent: boolean;
     wentLiveAt: string | null;
@@ -1687,7 +1687,7 @@ function readOnboardingView(value: unknown): OnboardingView {
       callRouting: literal(clinic.callRouting, ["conditional", "always"], "clinic.callRouting"),
       callRoutingConfirmedAt: optionalString(clinic.callRoutingConfirmedAt),
       carrier: optionalString(clinic.carrier),
-      synthflowNumberE164: optionalString(clinic.synthflowNumberE164),
+      assistantNumberE164: optionalString(clinic.assistantNumberE164),
       publishedPhoneE164: optionalString(clinic.publishedPhoneE164),
       openingHoursPresent: bool(clinic.openingHoursPresent, "clinic.openingHoursPresent"),
       wentLiveAt: optionalString(clinic.wentLiveAt),
@@ -1927,7 +1927,7 @@ export function setPhoneSettings(
     phoneSystemType?: "landline" | "voip" | "unknown";
     callRouting?: "conditional" | "always";
     carrier?: string | null;
-    synthflowNumberE164?: string | null;
+    assistantNumberE164?: string | null;
     publishedPhoneE164?: string | null;
   },
 ) {

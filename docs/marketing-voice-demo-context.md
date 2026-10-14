@@ -20,7 +20,7 @@
 
 **This file:** `docs/marketing-voice-demo-context.md`.
 
-**Companion to:** `docs/synthflow-voice-agent-context.md`, the brief for the *clinic-facing inbound patient* agent. That document stays as it is. This one stands alone — where something is common to both, it is restated here in full and marked **[SHARED]** so you know the two agents are meant to agree. Where this agent is the mirror image of that one, it is marked **[INVERTED]**. Anything unmarked is specific to this agent and has no counterpart in the clinic brief.
+**Companion to:** `docs/archive/synthflow-voice-agent-context.md`, the brief for the *clinic-facing inbound patient* agent. That document stays as it is. This one stands alone — where something is common to both, it is restated here in full and marked **[SHARED]** so you know the two agents are meant to agree. Where this agent is the mirror image of that one, it is marked **[INVERTED]**. Anything unmarked is specific to this agent and has no counterpart in the clinic brief.
 
 The two agents invert on five axes, and every one of them is a compliance boundary rather than a stylistic preference:
 
@@ -35,14 +35,14 @@ The two agents invert on five axes, and every one of them is a compliance bounda
 **Do not read the companion as an endorsement.** The brief this one calls its companion recommends, in its own voice, against building the thing this one describes:
 
 > **My recommendation: do not build any outbound leg in v1.** Inbound only. […] Outbound is where a $500-per-call class action lives.
-> — `docs/synthflow-voice-agent-context.md:561`
+> — `docs/archive/synthflow-voice-agent-context.md:561`
 
 That is one of two on-point objections already recorded in the repo against this agent; the second is the rule in `tasks.mjs`. Both are quoted in §1.4 and both are attached to open question 1, so that whoever overrides them is overriding both knowingly and on the record. This document does not make that call. It describes what would have to be true for the call to be placeable, and marks the places where the answer is not the author's to give.
 
 **Two agents, one directory — the paste hazard.** The first-message field of the two agents is one paste apart and the two are compliance failures in each other's mouths. The clinic agent's field opens "Hi, I'm an AI assistant for {{CLINIC_NAME}} — not a human"; this agent's opens "this is an AI assistant calling from healdesk, not a person." Pasting the clinic line into this agent announces an identity that is not the caller's, which is the identification failure §6.4 is built to avoid; pasting this agent's line into the clinic agent names the vendor to a patient, which the clinic brief forbids. Two mitigations, both **recommendations of this document, not decisions already taken**:
 
 1. Give each first-message block a one-line header naming which agent it belongs to and what the *other* agent's field says, so the difference is visible at the moment of the paste rather than three sections away. §11 carries that header; the clinic brief does not yet.
-2. Rename the two files so they do not tab-complete into each other and do not read as variants of one thing — `docs/voice-agent-clinic-inbound.md` and `docs/voice-agent-sales-outbound.md`. Today they are `docs/synthflow-voice-agent-context.md` and `docs/marketing-voice-demo-context.md`: distinct enough to type, close enough to confuse in a section heading or a review comment. If you take this, take it before either agent is created, and fix every cross-reference in both files.
+2. Rename the two files so they do not tab-complete into each other and do not read as variants of one thing — `docs/voice-agent-clinic-inbound.md` and `docs/voice-agent-sales-outbound.md`. Today they are `docs/archive/synthflow-voice-agent-context.md` and `docs/marketing-voice-demo-context.md`: distinct enough to type, close enough to confuse in a section heading or a review comment. If you take this, take it before either agent is created, and fix every cross-reference in both files.
 
 **Variable naming — a standing rule for this document.** Every custom variable named here is prefixed `PROSPECT_`: `{{PROSPECT_CLINIC_NAME}}`, `{{PROSPECT_PRACTICE_TYPE}}`, `{{PROSPECT_CONTACT_NAME}}`. This is not tidiness. In the clinic prompt `{{CLINIC_NAME}}` is the agent's *own employer* and the identity it may never leave; here the same token would be the *prospect's* business, which §4 says this agent must never adopt as its own identity. Open question 13 recommends building both agents in one Synthflow workspace, where a variable of the same name with inverted meaning is exactly how an outbound sales call opens as the prospect's own front desk. If you name a new variable in either agent, prefix it.
 
@@ -78,7 +78,7 @@ State of the trigger, before you read any further: the form field does not exist
 
 ### 1.3 The comparison table
 
-| | Clinic agent (inbound, `docs/synthflow-voice-agent-context.md`) | Marketing agent (this document) |
+| | Clinic agent (inbound, `docs/archive/synthflow-voice-agent-context.md`) | Marketing agent (this document) |
 |---|---|---|
 | **Direction** | Inbound. A patient rang the clinic; nobody picked up; the call forwarded. | **Outbound.** healdesk dials a number a visitor typed into a form. The repo's own written preference is the opposite shape — prospect-initiated click-to-dial or in-browser WebRTC (§1.4). |
 | **Who it says it is** | "An AI assistant for {CLINIC_NAME}." Never names healdesk. Never names the vendor. | **healdesk, by name, in the first breath.** Names the vendor honestly when asked. Naming yourself may not be enough: 47 CFR §64.1200(b) requires an artificial-voice message to give the caller's identity *and* a telephone number the recipient can call, answered in business hours, that can take a do-not-call request. healdesk has no such number (§10.1). ⚖️ Applicability is for counsel; design as if it applies. |
@@ -121,7 +121,7 @@ And its step 1:
 
 Its stated reason, verbatim from the same task: "FCC Declaratory Ruling 24-17 (February 2024) confirmed an AI-generated voice is an 'artificial voice' under TCPA §227(b)(1), and that prong is independent of autodialer status — so *Facebook v. Duguid* buys nothing and every AI-voiced call to a prospect needs prior consent however the number was dialled."
 
-**A second objection, from this document's own companion.** `docs/synthflow-voice-agent-context.md:561`, in the sibling brief's own voice:
+**A second objection, from this document's own companion.** `docs/archive/synthflow-voice-agent-context.md:561`, in the sibling brief's own voice:
 
 > "**My recommendation: do not build any outbound leg in v1.** Inbound only. The consent theory for the missed-call callback is flagged ⚖️ unresolved in `docs/launch-plan.md`, and there is no consent ledger being written, no STOP ingestion path, and no per-clinic outbound flag. Outbound is where a $500-per-call class action lives."
 
@@ -372,7 +372,7 @@ serving. Section 5.5's "volunteer the limits" says the agent offers this at the 
   spoken:* "Five hundred minutes is roughly two hundred calls at a couple of minutes each"
   — offered explicitly as a rough guide, not a measurement. That two-hundred figure is
   **derived by me** from the clinic brief's own under-two-and-a-half-minute call target
-  (`docs/synthflow-voice-agent-context.md`), not from anything in this repo. Until the user
+  (`docs/archive/synthflow-voice-agent-context.md`), not from anything in this repo. Until the user
   signs it off, the agent says: "That depends entirely on your call volume — it's the first
   thing the person who'd set you up would work out with you."
 - *"Am I locked in? What's the contract?"* **No answer exists in the repo or in either
@@ -906,7 +906,7 @@ The persona above was written for a text widget. Its judgement carries; its mech
 
 Do not lift the persona's worked example with the rule. `persona.ts:46-47` illustrates the short-answer move with *"Short answer: yes, about $200 a month"*, and $200 is wrong: the catalog price is `monthlyUsd: 249` (`packages/catalog/src/plans.ts:39`), and section 3.1 rules that the catalog is the single authoritative source. Take the shape, drop the number.
 
-**The greeting is one turn, not two — this governs the whole opening and it is easy to miss.** Synthflow plays the first-message field and then listens; **the model does not get a second turn before the human speaks.** The clinic brief establishes this directly (`docs/synthflow-voice-agent-context.md:404-408`) and it is the reason that document folded the open into the greeting field. It applies harder here. Inbound, dead air after the disclosure costs you a third of callers saying "hello?". Outbound, three seconds of silence immediately after an AI disclosure on a call the recipient did not place is exactly where people hang up — and the hang-up happens before the agent has said the thing that would stop it.
+**The greeting is one turn, not two — this governs the whole opening and it is easy to miss.** Synthflow plays the first-message field and then listens; **the model does not get a second turn before the human speaks.** The clinic brief establishes this directly (`docs/archive/synthflow-voice-agent-context.md:404-408`) and it is the reason that document folded the open into the greeting field. It applies harder here. Inbound, dead air after the disclosure costs you a third of callers saying "hello?". Outbound, three seconds of silence immediately after an AI disclosure on a call the recipient did not place is exactly where people hang up — and the hang-up happens before the agent has said the thing that would stop it.
 
 So the disclosure, the reason for the call, and a question have to be **one field, ending on the question**. That merges what section 8.1 draws as two turns. The wording is section 6.4's to settle with counsel — and see the finding there that "You asked us to ring you about a demo" asserts something the agent cannot know at that moment. Shape, not final wording:
 
@@ -1646,7 +1646,7 @@ Every line below marked **[script]** is meant to be said close to verbatim. Ever
 
 The callee speaks first. That is the structural difference from every flow in the sibling brief, and it means the disclosure lands as your *second* utterance in the conversation but your *first* words.
 
-**And you only get one agent turn at the open — not two.** This is the finding that governs everything below, and the earlier draft of this section got it wrong. `docs/synthflow-voice-agent-context.md:406`: *"Synthflow plays the first-message field and then listens... the model does not get a second turn before the caller speaks."* On an inbound call that costs you a third of callers saying "hello?" into the gap. On an unsolicited outbound call, three seconds of dead air immediately after an AI disclosure is precisely where people hang up — and the hang-up happens before the agent has said anything that would make them not hang up. So the disclosure and the reason for the call and the first question are **one field**, and that field ends on a question.
+**And you only get one agent turn at the open — not two.** This is the finding that governs everything below, and the earlier draft of this section got it wrong. `docs/archive/synthflow-voice-agent-context.md:406`: *"Synthflow plays the first-message field and then listens... the model does not get a second turn before the caller speaks."* On an inbound call that costs you a third of callers saying "hello?" into the gap. On an unsolicited outbound call, three seconds of dead air immediately after an AI disclosure is precisely where people hang up — and the hang-up happens before the agent has said anything that would make them not hang up. So the disclosure and the reason for the call and the first question are **one field**, and that field ends on a question.
 
 #### Before the open: what actually answered
 
@@ -2446,7 +2446,7 @@ Items 1-9 are unchanged from the earlier draft and keep their numbers. Items 10-
 3. Which of the five overclaimed capabilities may be stated in the present tense (§6.6).
 4. Whether to leave voicemail at all, and what it says.
 5. Whether recordings and transcripts are on or off for this agent.
-6. Whether this agent is built in the existing Synthflow workspace or a clean one — **with the cluster check first.** `docs/synthflow-voice-agent-context.md:1241` records that the existing workspace may sit on the Global cluster, which stores in the EU, and that cluster selection is permanent. No PHI does not mean no data-protection question: recorded sales calls with US business contacts stored in the EU is a residency and DPA question. Check Admin → Workspace Settings → Preferences → Customer Region before deciding.
+6. Whether this agent is built in the existing Synthflow workspace or a clean one — **with the cluster check first.** `docs/archive/synthflow-voice-agent-context.md:1241` records that the existing workspace may sit on the Global cluster, which stores in the EU, and that cluster selection is permanent. No PHI does not mean no data-protection question: recorded sales calls with US business contacts stored in the EU is a residency and DPA question. Check Admin → Workspace Settings → Preferences → Customer Region before deciding.
 7. Model, voice, and the agent's name — with no rule, the model will invent a different name every call.
 8. Max call duration, silence timeouts, and a per-call cost budget. There is no budget line anywhere for healdesk's own outbound minutes.
 9. Whether the `no-outbound-ai-voice` rule (`scripts/docs-site/tasks.mjs:849`) is being overridden, by whom, and on what basis.
@@ -2558,7 +2558,7 @@ And one hard dependency that is not a question at all: `{{OPT_IN_DATE}}` and `{{
 
 > **This block belongs to the OUTBOUND SALES agent. It identifies as healdesk and it sells.** The inbound clinic agent's first message begins "Hi, I'm an AI assistant for `{{CLINIC_NAME}}` — not a human" and identifies as the *clinic*. The two are one paste apart and pasting the wrong one is a compliance failure in both directions. Check which agent you are editing before you paste.
 
-The earlier draft designed the opening as two agent turns. **Synthflow will not give you the second one.** The companion brief established this at `docs/synthflow-voice-agent-context.md:406` — the first-message field plays, and then the platform listens; the model does not get another turn before the human speaks. So the callee hears "...You asked us to ring you about a demo," and then silence. On an unsolicited outbound call, three seconds of dead air immediately after an AI disclosure is where people hang up, and it happens before the agent has said anything that would make them not hang up. Turn 1 and turn 2 of section 8.1 have to be one field, ending on a question.
+The earlier draft designed the opening as two agent turns. **Synthflow will not give you the second one.** The companion brief established this at `docs/archive/synthflow-voice-agent-context.md:406` — the first-message field plays, and then the platform listens; the model does not get another turn before the human speaks. So the callee hears "...You asked us to ring you about a demo," and then silence. On an unsolicited outbound call, three seconds of dead air immediately after an AI disclosure is where people hang up, and it happens before the agent has said anything that would make them not hang up. Turn 1 and turn 2 of section 8.1 have to be one field, ending on a question.
 
 **Field text, word for word:**
 
@@ -3084,7 +3084,7 @@ Of the additions, **16, 17, 18, 20 and 23 block the first dial** and none of the
 
 `scripts/docs-site/tasks.mjs`, task id `no-outbound-ai-voice`, group `sales`, status `ready`, effort 2 days, `blockedBy: null`. Step 2, verbatim: *"never a form that takes a number and rings it."* State of that rule: **doc-only** — step 1 was never executed, `docs/launch-plan.md` does not contain the written prohibition, and no test enforces it.
 
-**There is a second objection, from the companion document, and it should be in front of you at the same moment.** `docs/synthflow-voice-agent-context.md:561`, in its own voice:
+**There is a second objection, from the companion document, and it should be in front of you at the same moment.** `docs/archive/synthflow-voice-agent-context.md:561`, in its own voice:
 
 > "**My recommendation: do not build any outbound leg in v1.** Inbound only… Outbound is where a $500-per-call class action lives."
 
@@ -3258,7 +3258,7 @@ There is no maximum duration, no silence timeout and no per-call cost budget any
 
 **My recommendation stands: build this one in the existing workspace, precisely because it holds no PHI**, keeping a clean US workspace uncontaminated for patient traffic. **Cluster selection is permanent.**
 
-**But the recommendation carries a precondition the earlier draft omitted.** `docs/synthflow-voice-agent-context.md:1241` records that the pre-existing workspace may sit on the **Global** cluster, which is documented as the default for existing workspaces and **stores in the EU**. **Check Admin → Workspace Settings → Preferences → Customer Region before anything else.**
+**But the recommendation carries a precondition the earlier draft omitted.** `docs/archive/synthflow-voice-agent-context.md:1241` records that the pre-existing workspace may sit on the **Global** cluster, which is documented as the default for existing workspaces and **stores in the EU**. **Check Admin → Workspace Settings → Preferences → Customer Region before anything else.**
 
 If it is Global: no PHI does not mean no data-protection question. Recorded sales calls and transcripts of **US business contacts stored in the EU** is a residency and processing-agreement question — see question 23 — and it should be decided knowingly rather than inherited from a default. The US API base is `https://api.us.synthflow.ai/`.
 
@@ -3401,7 +3401,7 @@ The earlier draft of this section said three open questions block the prompt eng
 
 **Blocking — the prompt cannot be written or deployed without an answer:**
 
-- **Q1** (is `no-outbound-ai-voice` being overridden). Nothing downstream is legitimate without this recorded. Note there are now two on-point objections on file, not one: the repo task at `scripts/docs-site/tasks.mjs:849` (status `ready`, "never a form that takes a number and rings it"), and the sibling clinic brief's own recommendation at `docs/synthflow-voice-agent-context.md:561` — *"do not build any outbound leg in v1. Inbound only… Outbound is where a $500-per-call class action lives."* The override should be recorded against both.
+- **Q1** (is `no-outbound-ai-voice` being overridden). Nothing downstream is legitimate without this recorded. Note there are now two on-point objections on file, not one: the repo task at `scripts/docs-site/tasks.mjs:849` (status `ready`, "never a form that takes a number and rings it"), and the sibling clinic brief's own recommendation at `docs/archive/synthflow-voice-agent-context.md:561` — *"do not build any outbound leg in v1. Inbound only… Outbound is where a $500-per-call class action lives."* The override should be recorded against both.
 - **Q2** (what the call closes on) — it is the agent's last sentence on every good call, and today every candidate close is false. Held in `{{CLOSE_OPTIONS}}` so the prompt survives either resolution.
 - **Q3** (which of the five overclaimed capabilities may be stated in the present tense).
 - **Q6** (recordings and transcripts on or off). This is not a decision, it is a **fifteen-minute test call — run it first.** It blocks the greeting itself: the first-message field asserts "recorded and transcribed", and §6.8's standing rule forbids asserting anything about storage that has not been verified by a test call. It also decides whether the §13.2 gate item "the disclosure is captured inside the recording" is scoreable at all.
@@ -3503,7 +3503,7 @@ Parallel to the vendor tests, and entirely missing from the earlier draft, which
 - **Do the vendor's terms permit outbound telemarketing at all?**
 - **What indemnity exists**, in either direction?
 - **Is there a data-processing agreement covering prospect recordings and transcripts?** This document establishes that no BAA is needed because there is no PHI, and then never asks what agreement *is* needed for the personal data that is undeniably there.
-- **Workspace and data residency.** Q13 recommends building this agent in the existing Synthflow workspace precisely because it holds no PHI. Keep the recommendation, and attach the precondition recorded at `docs/synthflow-voice-agent-context.md:1241`: **check Admin → Workspace Settings → Preferences → Customer Region first.** Global is documented as the default for existing workspaces and stores in the EU, and cluster selection is permanent. No PHI does not mean no data-protection question — recorded sales calls with US business contacts stored in the EU is a residency and DPA question in its own right, and it has to be decided knowingly rather than inherited.
+- **Workspace and data residency.** Q13 recommends building this agent in the existing Synthflow workspace precisely because it holds no PHI. Keep the recommendation, and attach the precondition recorded at `docs/archive/synthflow-voice-agent-context.md:1241`: **check Admin → Workspace Settings → Preferences → Customer Region first.** Global is documented as the default for existing workspaces and stores in the EU, and cluster selection is permanent. No PHI does not mean no data-protection question — recorded sales calls with US business contacts stored in the EU is a residency and DPA question in its own right, and it has to be decided knowingly rather than inherited.
 
 ### 13.2 The go-live gate
 

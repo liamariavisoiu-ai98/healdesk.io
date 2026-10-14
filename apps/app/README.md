@@ -40,7 +40,7 @@ column is what exists. Nothing on the left is done unless the right says so.
 
 | v1 surface (spec) | In the code today |
 | --- | --- |
-| **Voice:** the Retell custom-LLM WebSocket endpoint, a long-lived process of its own, and the tool layer behind it (availability, 60-second slot holds, bookings) | Not built. `src/lib/voice/` ingests Synthflow post-call payloads |
+| **Voice:** the Retell custom-LLM WebSocket endpoint, a long-lived process of its own, and the tool layer behind it (availability, 60-second slot holds, bookings) | `src/voice/server.ts` and `src/lib/voice/retell.ts` (13 October 2026), never tested against Retell itself: the call takes a request for the desk, and `src/lib/voice/ingest.ts` records it when the call ends. The tool layer (`src/lib/booking/engine.ts`) exists; no channel calls it yet |
 | **Web chat:** the widget's API; every visitor message lands here | Not built |
 | **Meta:** webhooks and send adapters for Instagram, Messenger and WhatsApp; booking and payment links inside the 24-hour window, enforced by the adapter; clinical content dropped at the boundary | `src/app/api/webhooks/meta` and `src/lib/meta/`: an earlier front door that books nothing and passes booking requests to the desk |
 | **Bookings:** Google Calendar availability and idempotent writes, manual booking mode, the Bookings queue | Not built. `/booking/[token]` is the desk's accept/decline page for booking requests |
@@ -143,7 +143,7 @@ src/
     audit.ts         AuditRecorder + assertNoPhi
     crypto/          envelope encryption, AAD bound to {clinic, credential}
     meta/            the Meta webhook's front door (predates the v1 spec)
-    voice/           Synthflow payload ingest (predates the v1 spec)
+    voice/           the Retell call session and the post-call ingest
     scheduler/       the worker's jobs
     attribution/, sync/   phase two
   proxy.ts           Next 16's middleware. Redirects nobody; NOT a security boundary

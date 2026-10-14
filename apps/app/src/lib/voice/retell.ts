@@ -45,8 +45,8 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
  *                   the call id.
  *
  * Booking stays with the desk: the assistant takes a request and books
- * nothing itself, as the Synthflow harness parks every clinic but the demo
- * clinic (lib/voice/tools.ts); direct booking waits for counsel and the owner.
+ * nothing itself; direct booking through the booking engine
+ * (lib/booking/engine.ts) waits for counsel and the owner.
  *
  * Every degradation ends at a person (CLAUDE.md, "Failure"): a gate that
  * refuses the call, or a model that fails twice running, transfers the

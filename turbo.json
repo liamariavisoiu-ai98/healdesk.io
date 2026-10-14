@@ -81,17 +81,14 @@
         "RETELL_DEMO_FROM_NUMBER",
         "RETELL_WEBHOOK_KEY",
 
-        // apps/app, Phases 6 and 8. The watchdog's digest address, the voice
-        // webhook's bearer, the Meta webhook's secret and verify token, Stripe
-        // Connect's platform id, and where the console lives for redirects.
+        // apps/app, Phases 6 and 8. The watchdog's digest address, the Meta
+        // webhook's secret and verify token, Stripe Connect's platform id, and
+        // where the console lives for redirects.
         "HEALDESK_OPS_EMAIL",
-        "HEALDESK_VOICE_WEBHOOK_SECRET",
         // The booking design of 23 September 2026: the direct-booking switch
-        // (off unless "true") and the mid-call tool routes' own bearer. The
-        // call-back and WhatsApp-template switches went with v1's
-        // inbound-only rule.
+        // (off unless "true"). The call-back and WhatsApp-template switches
+        // went with v1's inbound-only rule.
         "HEALDESK_DIRECT_BOOKING_ENABLED",
-        "HEALDESK_VOICE_TOOLS_SECRET",
         // The Google Calendar connection (plan §12): apps/app only; set on the
         // AWS BAA host, never on a Vercel project.
         "GOOGLE_OAUTH_CLIENT_ID",

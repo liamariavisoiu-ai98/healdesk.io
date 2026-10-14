@@ -239,7 +239,7 @@ describeDb("the support chat, on a real clinic", () => {
   });
 
   test("get_forwarding_steps reads nothing until voice is ready: ready on our side and AYA's number given", async () => {
-    const read = () => readForwardingSteps({ clinicId: clinic.clinicId, actor: ACTOR, now: NOW });
+    const read = () => readForwardingSteps({ clinicId: clinic.clinicId, actor: ACTOR });
     expect(await read()).toBeNull();
 
     // AYA's number alone is not readiness.

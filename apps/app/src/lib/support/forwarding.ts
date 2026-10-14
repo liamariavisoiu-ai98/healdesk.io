@@ -10,7 +10,7 @@ import { eq } from "drizzle-orm";
 
 import { clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
-import { readChannelStates, type ChannelState } from "@/lib/channels/state";
+import { readPhoneStepsNumber } from "@/lib/channels/state";
 import { readSetupSettings } from "@/lib/setup/settings";
 import { withTenant } from "@/lib/tenant";
 
@@ -38,8 +38,12 @@ export type ForwardingSteps = {
 };
 
 export type ForwardingFacts = {
-  voice: Pick<ChannelState, "readyAt"> | null;
-  assistantNumberE164: string | null;
+  /**
+   * AYA's number once phone is ready on our side, and null until then: the
+   * channels' own reader decides (readPhoneStepsNumber, lib/channels/state.ts),
+   * the same as the wizard's and Settings' forwarding steps and O11.
+   */
+  phoneStepsNumberE164: string | null;
   carrier: string | null;
   phoneSystem: string | null;
   mode: CoverageModeId;
@@ -50,10 +54,8 @@ export type ForwardingFacts = {
 export function voiceReadyForForwarding(facts: ForwardingFacts): boolean {
   return (
     !facts.isClosed &&
-    facts.voice !== null &&
-    facts.voice.readyAt !== null &&
-    typeof facts.assistantNumberE164 === "string" &&
-    /^\+[1-9]\d{6,14}$/.test(facts.assistantNumberE164)
+    typeof facts.phoneStepsNumberE164 === "string" &&
+    /^\+[1-9]\d{6,14}$/.test(facts.phoneStepsNumberE164)
   );
 }
 
@@ -69,10 +71,10 @@ export function forwardingStepsFrom(facts: ForwardingFacts): ForwardingSteps | n
     carrier,
     phoneSystemType: phoneSystem,
     routing: facts.mode,
-    destinationE164: facts.assistantNumberE164!,
+    destinationE164: facts.phoneStepsNumberE164!,
   });
   return {
-    ayaNumberE164: facts.assistantNumberE164!,
+    ayaNumberE164: facts.phoneStepsNumberE164!,
     carrier: CARRIERS.find((c) => c.id === carrier)?.name ?? "not given",
     mode: COVERAGE_MODE_OPTIONS.find((m) => m.id === facts.mode)?.label ?? facts.mode,
     steps: instructions.steps,
@@ -86,12 +88,10 @@ export function forwardingStepsFrom(facts: ForwardingFacts): ForwardingSteps | n
 export async function readForwardingSteps(input: {
   clinicId: string;
   actor: ActorContext;
-  now?: Date;
 }): Promise<ForwardingSteps | null> {
   const facts = await withTenant({ clinicId: input.clinicId, actor: input.actor }, async (tx) => {
     const [clinic] = await tx.db
       .select({
-        assistantNumberE164: clinics.assistantNumberE164,
         carrier: clinics.carrier,
         phoneSystem: clinics.phoneSystemType,
         offboardingStartedAt: clinics.offboardingStartedAt,
@@ -100,11 +100,9 @@ export async function readForwardingSteps(input: {
       .where(eq(clinics.id, tx.clinicId))
       .limit(1);
     if (!clinic) return null;
-    const channels = await readChannelStates(tx.db, tx.clinicId, input.now ?? new Date());
     const settings = await readSetupSettings(tx.db, tx.clinicId);
     return {
-      voice: channels.find((c) => c.channel === "voice") ?? null,
-      assistantNumberE164: clinic.assistantNumberE164,
+      phoneStepsNumberE164: await readPhoneStepsNumber(tx.db, tx.clinicId),
       carrier: clinic.carrier,
       phoneSystem: clinic.phoneSystem,
       mode: settings.coverageMode,

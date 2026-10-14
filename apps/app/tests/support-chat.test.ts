@@ -460,19 +460,16 @@ describe("the limits", () => {
 
 describe("get_forwarding_steps", () => {
   const ready: ForwardingFacts = {
-    voice: { readyAt: new Date("2026-10-10T12:00:00Z") },
-    assistantNumberE164: "+15125550142",
+    phoneStepsNumberE164: "+15125550142",
     carrier: "verizon",
     phoneSystem: "landline",
     mode: "overflow_after_hours",
     isClosed: false,
   };
 
-  test("returns nothing until voice is ready: phone bought, ready on our side, AYA's number given", () => {
-    expect(forwardingStepsFrom({ ...ready, voice: null })).toBeNull();
-    expect(forwardingStepsFrom({ ...ready, voice: { readyAt: null } })).toBeNull();
-    expect(forwardingStepsFrom({ ...ready, assistantNumberE164: null })).toBeNull();
-    expect(forwardingStepsFrom({ ...ready, assistantNumberE164: "5125550142" })).toBeNull();
+  test("returns nothing until voice is ready: no number until phone is ready on our side, or a closed account", () => {
+    expect(forwardingStepsFrom({ ...ready, phoneStepsNumberE164: null })).toBeNull();
+    expect(forwardingStepsFrom({ ...ready, phoneStepsNumberE164: "5125550142" })).toBeNull();
     expect(forwardingStepsFrom({ ...ready, isClosed: true })).toBeNull();
   });
 

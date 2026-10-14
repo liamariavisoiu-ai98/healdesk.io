@@ -27,7 +27,11 @@ afterEach(() => {
 
 describe("the demo gate's pre-fill", () => {
   test("the address the demo was unlocked with, and the specialty demoed", async () => {
-    await recordDemoUnlock({ email: "laura@glowmedspa.com", isBusinessEmail: true, specialty: "dental" });
+    await recordDemoUnlock({
+      email: "laura@glowmedspa.com",
+      isBusinessEmail: true,
+      specialty: "dental",
+    });
     expect(await gatePrefill(createGateToken("laura@glowmedspa.com"))).toEqual({
       contactEmail: "laura@glowmedspa.com",
       specialty: "dental",

@@ -18,7 +18,9 @@ describe("sharedParentDomain", () => {
   test("the parent the site and the app share", () => {
     expect(sharedParentDomain("healdesk.io", "app-internal.healdesk.io")).toBe("healdesk.io");
     expect(sharedParentDomain("www.healdesk.io", "app.healdesk.io")).toBe("healdesk.io");
-    expect(sharedParentDomain("a.staging.healdesk.io", "b.staging.healdesk.io")).toBe("staging.healdesk.io");
+    expect(sharedParentDomain("a.staging.healdesk.io", "b.staging.healdesk.io")).toBe(
+      "staging.healdesk.io",
+    );
   });
 
   test("none for one host, unrelated hosts, or only a top-level domain in common", () => {
@@ -45,7 +47,9 @@ describe("welcomeCookieOptions", () => {
 
   test("host-only without the app's address, with a bad one, or on one host", () => {
     for (const appUrl of [undefined, "not a url", "http://localhost:3001"]) {
-      expect(welcomeCookieOptions("localhost", appUrl), String(appUrl)).not.toHaveProperty("domain");
+      expect(welcomeCookieOptions("localhost", appUrl), String(appUrl)).not.toHaveProperty(
+        "domain",
+      );
     }
     expect(welcomeCookieOptions("healdesk.io", undefined)).not.toHaveProperty("domain");
   });

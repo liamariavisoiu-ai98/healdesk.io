@@ -27,11 +27,17 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 const { default: SetupRequestsPage } = await import("./page");
 
 async function render(result?: string): Promise<string> {
-  const element = await SetupRequestsPage({ searchParams: Promise.resolve(result ? { result } : {}) });
+  const element = await SetupRequestsPage({
+    searchParams: Promise.resolve(result ? { result } : {}),
+  });
   return renderToStaticMarkup(element).replace(/<!-- -->/g, "");
 }
 
-async function request(clinicName: string, email: string, channels: ("phone" | "web" | "instagram")[]) {
+async function request(
+  clinicName: string,
+  email: string,
+  channels: ("phone" | "web" | "instagram")[],
+) {
   const created = await createSetupRequest({
     name: "Alex Chen",
     clinicName,
@@ -78,7 +84,12 @@ describe("/admin/setup", () => {
       contactName: "Alex Chen",
       contactEmail: "alex@example.com",
     });
-    await recordTestPurchase(agreement, { ref: buying.id, attempt: 1, sessionId: "cs_test_1", plan: "voice-500" });
+    await recordTestPurchase(agreement, {
+      ref: buying.id,
+      attempt: 1,
+      sessionId: "cs_test_1",
+      plan: "voice-500",
+    });
     await recordTestPurchase(agreement, {
       ref: buying.id,
       attempt: 2,
@@ -92,7 +103,9 @@ describe("/admin/setup", () => {
     expect(html).toContain("Radiance Med Spa");
     expect(html).toContain("phone and website chat");
     // The latest press of Pay's package, between opened and signed.
-    expect(html).toMatch(/Opened [^·]+ · Package: AYA Voice \+ Web Chat, 500 minutes and 300 conversations, annual · Signed/);
+    expect(html).toMatch(
+      /Opened [^·]+ · Package: AYA Voice \+ Web Chat, 500 minutes and 300 conversations, annual · Signed/,
+    );
     expect(html).not.toContain("AYA Voice, 500 minutes");
     // A request with no purchase shows no package: one line, for one purchase.
     expect(html.match(/Package:/g)).toHaveLength(1);

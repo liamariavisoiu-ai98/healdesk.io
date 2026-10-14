@@ -1,12 +1,15 @@
 import { describe, expect, test } from "vitest";
 
 import { BILLING_NOTICE_KINDS } from "@/db/schema";
+import { CRITICAL_NOTICE_KINDS } from "@/lib/email/kind-rules";
 import {
   NOTICE_KIND_REGISTRY,
   NOTICE_KINDS,
   PACKAGE_NOTICE_KINDS,
   PLAN_NOTICE_KINDS,
+  type NoticeKind,
 } from "@/lib/email/kinds";
+import type { BookingAlertKind } from "@/lib/notices/booking-alerts";
 
 /**
  * The outbox's kind registry (lib/email/kinds.ts) against the lists built
@@ -15,6 +18,61 @@ import {
  * notices.ts's the plan's. Each payload map is held to its kinds by a
  * compile-time check, so none of them can drift apart.
  */
+
+/** The plan's kinds that shipped with their templates in M3. */
+const M3_PLAN_KINDS = [
+  "calendar_reconnected",
+  "calendar_stopped",
+  "channel_ready",
+  "setting_changed",
+  "setup_closed",
+  "setup_reminder",
+] as const;
+
+/**
+ * The rest of Annex X5's outbox kinds, registered on 14 October 2026 before
+ * the packages that build them: annex id, priority, switch, quiet hours.
+ */
+const REGISTERED_AHEAD: Record<
+  string,
+  readonly [
+    string,
+    "critical" | "normal",
+    "daily_summary" | "product_updates" | null,
+    "any_hour" | "daytime",
+  ]
+> = {
+  channel_live: ["L1", "normal", null, "any_hour"],
+  booking_request: ["L7", "normal", null, "any_hour"],
+  request_still_open: ["L8", "normal", null, "any_hour"],
+  request_missed: ["L9", "normal", null, "any_hour"],
+  deposit_to_collect: ["L10", "normal", null, "any_hour"],
+  handover: ["L11", "normal", null, "any_hour"],
+  urgent: ["L12", "critical", null, "any_hour"],
+  website_message: ["L20", "normal", null, "any_hour"],
+  calendar_check: ["L34", "normal", null, "any_hour"],
+  daily_summary: ["L13", "normal", "daily_summary", "any_hour"],
+  weekly_recap: ["L14", "normal", null, "daytime"],
+  ai_paused: ["L15", "normal", null, "any_hour"],
+  outage_started: ["L17", "critical", null, "any_hour"],
+  outage_ended: ["L18", "critical", null, "any_hour"],
+  guarantee_miss: ["L21", "normal", null, "daytime"],
+  website_changes: ["L23", "normal", null, "daytime"],
+  support_request: ["L25", "normal", null, "any_hour"],
+  terms_notice: ["L28", "normal", null, "daytime"],
+  subprocessor_notice: ["L29", "normal", null, "any_hour"],
+  incident_report: ["L29", "critical", null, "any_hour"],
+  guarantee_claim_received: ["L30", "normal", null, "any_hour"],
+  guarantee_finding: ["L30", "normal", null, "any_hour"],
+  suspended_for_cause: ["L31", "critical", null, "any_hour"],
+  patient_request: ["L32", "normal", null, "any_hour"],
+  product_update: ["L33", "normal", "product_updates", "daytime"],
+  pass_through_ending: ["E3", "normal", null, "daytime"],
+  export_ready: ["E4", "normal", null, "daytime"],
+  export_reminder: ["E5", "normal", null, "daytime"],
+  assistant_ready: ["O8", "normal", null, "daytime"],
+  practice_questions_failed: ["O9", "normal", null, "daytime"],
+};
 
 const F0_KINDS = [
   "payment_failed",
@@ -46,14 +104,9 @@ describe("the notice kind registry", () => {
     for (const kind of BILLING_NOTICE_KINDS) {
       expect(NOTICE_KIND_REGISTRY[kind].owner, kind).not.toBe("plan");
     }
-    expect([...PLAN_NOTICE_KINDS].sort()).toEqual([
-      "calendar_reconnected",
-      "calendar_stopped",
-      "channel_ready",
-      "setting_changed",
-      "setup_closed",
-      "setup_reminder",
-    ]);
+    expect([...PLAN_NOTICE_KINDS].sort()).toEqual(
+      [...M3_PLAN_KINDS, ...Object.keys(REGISTERED_AHEAD)].sort(),
+    );
     for (const kind of PLAN_NOTICE_KINDS) expect(NOTICE_KIND_REGISTRY[kind].owner, kind).toBe("plan");
   });
 
@@ -64,13 +117,73 @@ describe("the notice kind registry", () => {
     expect(NOTICE_KIND_REGISTRY.setting_changed).toMatchObject({ annex: "O4", quietHours: "any_hour" });
     // O10 is a step to take, not an alert: it waits for the clinic's daytime.
     expect(NOTICE_KIND_REGISTRY.channel_ready).toMatchObject({ annex: "O10", quietHours: "daytime" });
-    for (const kind of PLAN_NOTICE_KINDS) {
+    for (const kind of M3_PLAN_KINDS) {
       expect(NOTICE_KIND_REGISTRY[kind]).toMatchObject({
         class: "transactional",
         priority: "normal",
         optionalSwitch: null,
       });
     }
+  });
+
+  test("the rest of Annex X5 is registered ahead of its packages, each with its id, priority, switch and quiet hours", () => {
+    for (const [kind, expected] of Object.entries(REGISTERED_AHEAD)) {
+      const [annex, priority, optionalSwitch, quietHours] = expected;
+      expect(NOTICE_KIND_REGISTRY[kind as NoticeKind], kind).toEqual({
+        annex,
+        class: "transactional",
+        priority,
+        optionalSwitch,
+        quietHours,
+        owner: "plan",
+      });
+    }
+  });
+
+  test("the live alerts are booking-alerts.ts's kinds, each a pointer sent at any hour, and only L12 critical", () => {
+    // A compile-time check as well: every BookingAlertKind the booking engine,
+    // deposits and the runtimes call notifyBookingAlert with is an outbox kind.
+    const alerts = [
+      "booking_request",
+      "request_still_open",
+      "request_missed",
+      "deposit_to_collect",
+      "handover",
+      "urgent",
+      "website_message",
+      "calendar_check",
+    ] as const satisfies readonly BookingAlertKind[];
+    const registered: readonly NoticeKind[] = alerts;
+    for (const kind of registered) {
+      expect(NOTICE_KIND_REGISTRY[kind].quietHours, kind).toBe("any_hour");
+      expect(NOTICE_KIND_REGISTRY[kind].priority, kind).toBe(
+        kind === "urgent" ? "critical" : "normal",
+      );
+    }
+    expect(
+      CRITICAL_NOTICE_KINDS.filter((k) => NOTICE_KIND_REGISTRY[k].owner === "plan").sort(),
+    ).toEqual([
+      "incident_report",
+      "outage_ended",
+      "outage_started",
+      "suspended_for_cause",
+      "urgent",
+    ]);
+  });
+
+  test("only the daily summary and product updates have a switch among the plan's kinds, and L14 has none", () => {
+    expect(
+      PLAN_NOTICE_KINDS.filter((k) => NOTICE_KIND_REGISTRY[k].optionalSwitch !== null).map((k) => [
+        k,
+        NOTICE_KIND_REGISTRY[k].optionalSwitch,
+      ]),
+    ).toEqual([
+      ["daily_summary", "daily_summary"],
+      ["product_update", "product_updates"],
+    ]);
+    // L14 goes only while the daily summary is off, so that switch must not stop it.
+    expect(NOTICE_KIND_REGISTRY.weekly_recap.optionalSwitch).toBeNull();
+    expect(NOTICE_KIND_REGISTRY.request_still_open.optionalSwitch).toBeNull();
   });
 
   test("F0's kinds stay, apart from the welcome resend, which is a link email", () => {

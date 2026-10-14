@@ -3570,6 +3570,11 @@ export const clinicSettings = pgTable(
     /** The daily summary email, at the start of each working day. */
     dailySummary: boolean("daily_summary").notNull().default(true),
     /**
+     * L33, "What changed in healdesk": on by default, and turned off by its
+     * one-click stop link (lib/email/stop.ts), which the sender reads.
+     */
+    productUpdates: boolean("product_updates").notNull().default(true),
+    /**
      * Which calls reach AYA: the single source (plan Part F2). Seeded from
      * clinics.call_routing for clinics made before it; while the readers on
      * call_routing remain, the wizard writes both (lib/setup/settings.ts).

@@ -270,7 +270,9 @@ export type OpsErrorCode =
    */
   | "failed"
   /** Upstream answered with something this file could not read. */
-  | "malformed";
+  | "malformed"
+  /** Upstream does not know the operation: its build is older than this console's. Nothing ran. */
+  | "outdated";
 
 export type OpsFailure = {
   ok: false;
@@ -981,7 +983,32 @@ async function refused(
     code ?? "no code",
   );
 
-  if (upstream.status === 403 || code === "forbidden") {
+  return describeRefusal(upstream.status, code, op, kind);
+}
+
+function describeRefusal(
+  status: number,
+  code: string | null,
+  op: OpName,
+  kind: CallKind,
+): OpsFailure {
+  /**
+   * The far side does not know this operation: it runs a build older than
+   * this console, which happens for the length of a deploy, and for as long
+   * as the AWS host is not redeployed after a console change. Nothing ran.
+   * Worth its own code, because "refused" would send the operator looking
+   * for a bad secret.
+   */
+  if (code === "unknown_operation") {
+    return {
+      ok: false,
+      code: "outdated",
+      message:
+        "The application is running an older version that does not know this yet. Nothing was changed; deploy it, then try again.",
+    };
+  }
+
+  if (status === 403 || code === "forbidden") {
     return {
       ok: false,
       code: "forbidden",
@@ -1006,7 +1033,7 @@ async function refused(
     };
   }
 
-  if (upstream.status >= 500) {
+  if (status >= 500) {
     return {
       ok: false,
       code: "failed",

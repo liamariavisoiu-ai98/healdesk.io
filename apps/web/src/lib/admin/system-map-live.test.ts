@@ -3,9 +3,12 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
 import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 
+import { credentialKeyStatus, keyPresence } from "./ops-client";
 import { checkGithubToken, parseTokenExpiry } from "./github-token";
 import { readRotations, recordRotation } from "./key-rotations";
-import { stripeMode, vercelPresence } from "./system-map-live";
+import { gatherLive, stripeMode, vercelPresence } from "./system-map-live";
+
+vi.mock("./ops-client", () => ({ keyPresence: vi.fn(), credentialKeyStatus: vi.fn() }));
 
 /**
  * The system map's live half: presence is yes or no, the GitHub check reads
@@ -112,5 +115,43 @@ describe("the rotation log", () => {
     expect(await recordRotation("vercel.MARKETING_SHEET_ID", "owner@healdesk.test")).toMatchObject({ ok: false });
     // Refused before the Sheet is touched at all.
     expect(sheets.tabs.has("key_rotations")).toBe(false);
+  });
+});
+
+describe("asking the engine", () => {
+  beforeEach(() => {
+    vi.stubEnv("GITHUB_TOKEN", "");
+    vi.stubEnv("HEALDESK_GITHUB_ACTIONS_TOKEN", "");
+    vi.stubEnv("MARKETING_SHEET_ID", "");
+    vi.mocked(credentialKeyStatus).mockResolvedValue({ ok: false, code: "unreachable", message: "x" });
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.mocked(keyPresence).mockReset();
+  });
+
+  test("an engine too old to know the question is can't-check, not a broken seal", async () => {
+    vi.mocked(keyPresence).mockResolvedValue({ ok: false, code: "outdated", message: "x" });
+    const live = await gatherLive();
+    expect(live.host.state).toBe("silent");
+    expect(live.host.state === "silent" && live.host.message).toContain("deploy the engine");
+  });
+
+  test("a refusal points at the seal first", async () => {
+    vi.mocked(keyPresence).mockResolvedValue({ ok: false, code: "refused", message: "x" });
+    const live = await gatherLive();
+    expect(live.host).toMatchObject({ state: "refused" });
+    expect(live.host.state === "refused" && live.host.message).toContain("HEALDESK_PROVISION_SECRET");
+  });
+
+  test("an answer carries presence through, and the key safe counts only when the host answered", async () => {
+    vi.mocked(keyPresence).mockResolvedValue({ ok: true, data: { present: { STRIPE_SECRET_KEY: true }, stripeMode: "test" } });
+    vi.mocked(credentialKeyStatus).mockResolvedValue({ ok: true, data: { provider: "aws-kms", keyConfigured: true, ok: true, error: null } });
+    const live = await gatherLive();
+    expect(live.host).toEqual({ state: "answered", present: { STRIPE_SECRET_KEY: true }, stripeMode: "test" });
+    expect(live.proofs.kms?.ok).toBe(true);
+
+    vi.mocked(keyPresence).mockResolvedValue({ ok: false, code: "unreachable", message: "x" });
+    expect((await gatherLive()).proofs.kms).toBeUndefined();
   });
 });

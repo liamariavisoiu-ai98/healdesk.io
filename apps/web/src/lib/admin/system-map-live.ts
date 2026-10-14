@@ -66,10 +66,16 @@ async function host(): Promise<HostReach> {
         state: "refused",
         message: "it does not accept this console's HEALDESK_ADMIN_EMAIL. The Vercel and AWS copies must be the same address.",
       };
+    case "outdated":
+      // An engine deployed before this check existed does not know the
+      // question. That is not a broken seal, and saying so would send the
+      // owner to rotate a secret that is fine.
+      return { state: "silent", message: "it runs an older version without this check: deploy the engine (deploy-app.yml) to see its keys" };
     case "refused":
       return {
         state: "refused",
-        message: "usually the two copies of HEALDESK_PROVISION_SECRET (Vercel and AWS) differ, or a clock is badly off.",
+        message:
+          "most often the two copies of HEALDESK_PROVISION_SECRET (Vercel and AWS) differ, or a clock is badly off; the exact reason is in the logs.",
       };
     case "timeout":
       return { state: "silent", message: "no answer in time" };

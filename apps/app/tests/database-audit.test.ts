@@ -842,4 +842,15 @@ describeDb("database audit (0031)", () => {
       expect(rows[0]!.ok, `booking_requests.${column}`).toBe(false);
     }
   });
+
+  test("the operator's second factor is not in this database (0074)", async () => {
+    // It moved onto Vercel on 14 October 2026 (apps/web/src/lib/admin/totp.ts).
+    // The table's trigger went with it; its function is dropped by hand,
+    // because CASCADE does not reach a function a trigger merely called.
+    const { rows } = await getMigratorPool().query<{ table: string | null; functions: number }>(`
+      select to_regclass('public.admin_totp')::text as table,
+             (select count(*)::int from pg_proc where proname = 'app_admin_totp_no_rewrite') as functions
+    `);
+    expect(rows[0]).toEqual({ table: null, functions: 0 });
+  });
 });

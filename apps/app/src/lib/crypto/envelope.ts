@@ -97,9 +97,9 @@ export function buildAad(identity: CredentialIdentity, version: number): Buffer 
  * Anything but a version this code has written is refused, a missing one
  * included. Every seal has written the field since the first, so an envelope
  * without it was made or altered by something else, and the stored shapes do
- * not stop one: admin_totp's CHECK does not require the field and
- * user_factors.secret_sealed has no shape check at all. The message names the
- * field and never its value, which could be anything and reaches logs.
+ * not stop one: user_factors.secret_sealed has no shape check at all. The
+ * message names the field and never its value, which could be anything and
+ * reaches logs.
  */
 function envelopeVersion(sealed: SealedPayload): number {
   const version: unknown = sealed.aadVersion;

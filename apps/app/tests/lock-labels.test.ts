@@ -51,8 +51,8 @@ import { fakeKms, sealAsVersionOne, TEST_KEY_ARN } from "./setup/kms";
  *      be decided from two different answers.
  *
  * That each real sealer passes its own label, read from data that cannot
- * change, is proved beside each one: tests/connections.test.ts,
- * admin-totp.test.ts, totp.test.ts and kms.test.ts (the self-check).
+ * change, is proved beside each one: tests/connections.test.ts, totp.test.ts
+ * and kms.test.ts (the self-check).
  */
 
 afterEach(() => {
@@ -135,9 +135,11 @@ describe("what a lock label may be", () => {
     expect(clinicLockLabel(7, "meta-whatsapp")).toEqual({ clinic: "7", login: "meta-whatsapp" });
   });
 
-  test("the labels that belong to no clinic are these three, and each is whole", () => {
+  test("the labels that belong to no clinic are these two, and each is whole", () => {
+    // ops / admin-code went with the operator's TOTP table on 14 October 2026
+    // (drizzle/0074): the secret is a Vercel variable on apps/web now, and
+    // nothing here seals it.
     expect(FIXED_LOCK_LABELS).toEqual({
-      adminCode: { clinic: "ops", login: "admin-code" },
       selfCheck: { clinic: "ops", login: "self-check" },
       userTotp: { clinic: "users", login: "user-totp" },
     });
@@ -163,7 +165,7 @@ describe("what a lock label may be", () => {
     ["a client number with a leading zero", { clinic: "012", login: "google_calendar" }],
     ["an empty clinic", { clinic: "", login: "google_calendar" }],
     ["the word a missing value prints as", { clinic: "undefined", login: "google_calendar" }],
-    ["a plane that does not exist", { clinic: "admin", login: "admin-code" }],
+    ["a plane that does not exist", { clinic: "admin", login: "self-check" }],
     ["no login", { clinic: "12" }],
     ["an empty login", { clinic: "12", login: "" }],
     ["a login in capitals", { clinic: "12", login: "Google_Calendar" }],
@@ -211,7 +213,7 @@ describe("the envelope under LocalKeyWrapper, as development and every other tes
 
     await expect(open(sealed, who, OTHER_CLINIC)).rejects.toThrow(NOT_UNDER_THIS_LABEL);
     await expect(open(sealed, who, OTHER_LOGIN)).rejects.toThrow(NOT_UNDER_THIS_LABEL);
-    await expect(open(sealed, who, FIXED_LOCK_LABELS.adminCode)).rejects.toThrow(
+    await expect(open(sealed, who, FIXED_LOCK_LABELS.selfCheck)).rejects.toThrow(
       NOT_UNDER_THIS_LABEL,
     );
   });
@@ -439,7 +441,7 @@ describe("an envelope sealed before lock labels still opens", () => {
     const { sealed, identity: who, plaintext } = BEFORE_LABELS;
 
     expect(await open(sealed, who, LABEL)).toBe(plaintext);
-    expect(await open(sealed, who, FIXED_LOCK_LABELS.adminCode)).toBe(plaintext);
+    expect(await open(sealed, who, FIXED_LOCK_LABELS.selfCheck)).toBe(plaintext);
     // But the label is still checked for shape: a sealer that passes a malformed
     // one fails here too. A whole label of the wrong clinic is not caught on a
     // version-1 envelope, as the line above shows; its AAD is what binds it.
@@ -519,10 +521,9 @@ describe("the envelope's version is read once, and only a version this code writ
 
   test("an envelope without its version is refused before the key is asked anything, whichever version it was", async () => {
     const who = identity();
-    // Neither shape check stops one: admin_totp's CHECK does not require the
-    // field, and user_factors.secret_sealed has none. Guessing would answer the
-    // version twice, once for the key and once for the payload's AAD, with
-    // nothing to keep the two answers the same.
+    // No shape check stops one: user_factors.secret_sealed has none. Guessing
+    // would answer the version twice, once for the key and once for the
+    // payload's AAD, with nothing to keep the two answers the same.
     const labelled = await seal("a-synthetic-refresh-token", who, LABEL);
     const before = await sealAsVersionOne("a-synthetic-refresh-token", who, {
       kekBase64: process.env.HEALDESK_LOCAL_KEK!,

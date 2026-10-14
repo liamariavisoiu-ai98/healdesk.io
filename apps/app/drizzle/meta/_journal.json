@@ -505,6 +505,13 @@
       "when": 1791913973330,
       "tag": "0071_web_chat_and_voice",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1791962088878,
+      "tag": "0074_drop_admin_totp",
+      "breakpoints": true
     }
   ]
 }

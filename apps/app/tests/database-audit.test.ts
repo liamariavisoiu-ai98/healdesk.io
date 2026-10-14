@@ -193,6 +193,60 @@ describeDb("database audit (0031)", () => {
     expect(execute).toEqual([{ app: true, anyone: false }]);
   });
 
+  test("a channel's lifecycle and live's recorded inputs are the channel definers' alone (0079)", async () => {
+    // The answer gate answers only a live channel and billing is charged from
+    // a channel's first answer, so neither may be written by the runtime role
+    // directly: only the four definers, which re-check what they record.
+    const { rows: columns } = await getMigratorPool().query<{ column: string; update: boolean }>(`
+      select a.attname as column, has_column_privilege('healdesk_app', a.attrelid, a.attnum, 'UPDATE') as update
+        from pg_attribute a
+       where a.attrelid = 'clinic_channels'::regclass
+         and a.attname in ('ready_at', 'live_at', 'first_answer_at', 'enabled', 'waiting_on')
+       order by a.attname
+    `);
+    expect(columns).toEqual([
+      { column: "enabled", update: true },
+      { column: "first_answer_at", update: false },
+      { column: "live_at", update: false },
+      { column: "ready_at", update: false },
+      { column: "waiting_on", update: true },
+    ]);
+    const { clinicId } = await seedClinic("lifecycle-guard");
+    await inTenant(clinicId, (c) =>
+      c.query(`insert into clinic_channels (clinic_id, channel) values ($1, 'voice')`, [clinicId]),
+    );
+    await asTenant(clinicId, async (c) => {
+      for (const kind of ["ready", "live", "first_answer", "audit_passed", "runtime_seen"]) {
+        await c.query("savepoint s");
+        await expect(
+          c.query(`insert into channel_events (clinic_id, channel, kind) values ($1, 'voice', $2)`, [clinicId, kind]),
+          kind,
+        ).rejects.toMatchObject({ code: "42501" });
+        await c.query("rollback to savepoint s");
+      }
+      await expect(
+        c.query(`insert into clinic_channels (clinic_id, channel, live_at) values ($1, 'web', now())`, [clinicId]),
+      ).rejects.toMatchObject({ code: "42501" });
+    });
+    const { rows: definers } = await getMigratorPool().query<{ name: string; definer: boolean; app: boolean; anyone: boolean }>(`
+      select p.proname as name, p.prosecdef as definer,
+             has_function_privilege('healdesk_app', p.oid, 'EXECUTE') as app,
+             has_function_privilege('public', p.oid, 'EXECUTE') as anyone
+        from pg_proc p
+       where p.proname in ('app_channel_record_input', 'app_channel_mark_ready', 'app_channel_mark_live',
+                           'app_channel_record_first_answer', 'app_channel_ours_ok', 'app_channel_live_ok')
+       order by p.proname
+    `);
+    expect(definers).toEqual([
+      { name: "app_channel_live_ok", definer: false, app: false, anyone: false },
+      { name: "app_channel_mark_live", definer: true, app: true, anyone: false },
+      { name: "app_channel_mark_ready", definer: true, app: true, anyone: false },
+      { name: "app_channel_ours_ok", definer: false, app: false, anyone: false },
+      { name: "app_channel_record_first_answer", definer: true, app: true, anyone: false },
+      { name: "app_channel_record_input", definer: true, app: true, anyone: false },
+    ]);
+  });
+
   test("the runtime role cannot delete a clinic (0066)", async () => {
     // A clinic ends by offboarding and destruction, which keep its row.
     // Deleting one and inserting its id again as synthetic reopened the

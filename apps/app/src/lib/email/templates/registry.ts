@@ -19,6 +19,7 @@ import { CANCEL_REVERSED_ENTRY } from "./cancel_reversed";
 import { CANCEL_SCHEDULED_ENTRY } from "./cancel_scheduled";
 import { CANCELED_ENTRY } from "./canceled";
 import { CARD_EXPIRING_ENTRY } from "./card_expiring";
+import { CHANNEL_LIVE_ENTRY } from "./channel_live";
 import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
@@ -118,6 +119,8 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   setting_changed: SETTING_CHANGED_ENTRY,
   channel_ready: CHANNEL_READY_ENTRY,
   steps_sent: STEPS_SENT_ENTRY,
+  // Go-live (M6): L1, queued when a channel is recorded live.
+  channel_live: CHANNEL_LIVE_ENTRY,
   // The calendar backend's two (plan §2.6, §4.1).
   calendar_link: CALENDAR_LINK_ENTRY,
   calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
@@ -213,6 +216,7 @@ export const PENDING_TEMPLATES: Record<
     | "calendar_reconnected"
     | "setting_changed"
     | "channel_ready"
+    | "channel_live"
     | "steps_sent"
     | "calendar_link"
     | "calendar_election_recorded"
@@ -225,8 +229,6 @@ export const PENDING_TEMPLATES: Record<
   sign_in_help_link: { owner: "plan", package: "WP8", ships: "M2, sign-in (O6)" },
   address_change_confirm: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
   address_changing: { owner: "plan", package: "WP8", ships: "M3 (O5)" },
-  // WP1: the channel events.
-  channel_live: { owner: "plan", package: "WP1", ships: "M6 (L1)" },
   // WP4: the claims function's emails.
   daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
   weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },

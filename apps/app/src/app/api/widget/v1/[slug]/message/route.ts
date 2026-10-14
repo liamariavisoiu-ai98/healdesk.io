@@ -33,6 +33,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       now: depsForTests?.now,
       // The urgent alert (L12) goes once the reply has been sent.
       after,
+      origin: req.origin,
     });
     if (answer.mode === "invalid") return json({ error: answer.reason }, 400, req.origin);
     return json(answer, 200, req.origin);

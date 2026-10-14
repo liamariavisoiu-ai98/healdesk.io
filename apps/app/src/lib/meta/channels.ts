@@ -4,6 +4,7 @@ import { unsafeDb } from "@/db";
 import { bookingRequests, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantMayAnswer } from "@/lib/billing/answering";
+import { evaluateChannels } from "@/lib/channels/events";
 import { metaPlatformOn, syncMetaChannelSwitch } from "@/lib/channels/meta-platforms";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { saveConnection, withCredentials } from "@/lib/connections/store";
@@ -134,6 +135,9 @@ export async function attachMetaChannel(
     metadata: { provider: META_PROVIDERS[input.platform], via: input.via ?? "operator" },
   });
   await syncMetaChannelSwitch(tx, CONNECTED_BY[input.via ?? "operator"]);
+  // A connected platform is the Meta channel's own step: it may now be live
+  // (lib/channels/events.ts).
+  await evaluateChannels(tx, { only: "meta", actor: CONNECTED_BY[input.via ?? "operator"] });
   return id;
 }
 
@@ -147,6 +151,8 @@ const CONNECTED_BY: Record<"operator" | "facebook_login" | "embedded_signup", st
 export async function setMetaFrontDoor(tx: TenantTx, enabled: boolean): Promise<void> {
   await tx.db.update(clinics).set({ metaFrontDoorEnabled: enabled, updatedAt: new Date() }).where(eq(clinics.id, tx.clinicId));
   tx.audit.record({ action: "update", resourceType: "clinic_meta_front_door", resourceId: tx.clinicId, metadata: { enabled } });
+  // The front door is our half of the Meta channel's runtime.
+  if (enabled) await evaluateChannels(tx, { only: "meta", actor: "ops" });
 }
 
 /**

@@ -2,6 +2,7 @@ import { after } from "next/server";
 
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
+import { recordFirstAnswer } from "@/lib/channels/events";
 import { touchChatThread } from "@/lib/chat/threads";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
@@ -225,6 +226,16 @@ export async function POST(request: Request): Promise<Response> {
         // late) leaves it owed, so the first reply the person does get
         // opens with it (lib/meta/greeting.ts).
         if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
+        // A reply that reached the person, past the gate: the Meta
+        // channel's first answer, if it is one, with its plan start or
+        // step-up (lib/channels/events.ts). It never undoes the send's record.
+        if (outcome.status === "sent") {
+          await recordFirstAnswer(
+            tx,
+            { channel: "meta", source: "runtime", gateAnswered: true, personAnswered: true, conversationId: thread.conversationId },
+            now,
+          );
+        }
       });
       answered += 1;
     } catch (error) {

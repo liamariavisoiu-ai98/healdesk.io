@@ -558,8 +558,15 @@
     {
       "idx": 79,
       "version": "7",
-      "when": 1791999956946,
-      "tag": "0079_requests_still_open",
+      "when": 1791997752373,
+      "tag": "0079_channel_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792000191658,
+      "tag": "0080_requests_still_open",
       "breakpoints": true
     }
   ]

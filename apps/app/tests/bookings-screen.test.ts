@@ -313,6 +313,13 @@ describeDb("Bookings", () => {
     });
     expect(decided.outcome).toBe("decided");
     const appointmentId = decided.appointmentId!;
+    // A deposit the clinic's rule left for the front desk to take.
+    await inTenant(a.clinicId, (client) =>
+      client.query(
+        `update appointments set deposit_status = 'pending_front_desk', deposit_usd = 50 where id = $1`,
+        [appointmentId],
+      ),
+    );
     // Clinic B's request never shows on A's screen.
     await voiceRequest(b.clinicId, { name: "Zed Other", phone: "+14155550111" });
 
@@ -331,6 +338,10 @@ describeDb("Bookings", () => {
     expect(needs).toContain("Propose other times");
     expect(needs).toContain(">Decline<");
     expect(needs).not.toContain("Ben");
+    expect(needs).toContain("Deposits to collect");
+    expect(needs).toContain("A $50 deposit from Cleo Park, before");
+    expect(needs).toContain("Your team confirmed it, and the deposit is still to take.");
+    expect(needs).toContain('href="tel:+14155550199"');
     const missedPart = html.slice(html.indexOf('id="missed"'), html.indexOf('id="booked"'));
     expect(missedPart).toContain("They were told you’d call.");
     expect(missedPart).toContain("Ben Ortiz");
@@ -339,6 +350,7 @@ describeDb("Bookings", () => {
     const bookedPart = html.slice(html.indexOf('id="booked"'));
     expect(bookedPart).toContain("Cleo Park");
     expect(bookedPart).toContain("Confirmed by Jo");
+    expect(bookedPart).toContain("Deposit of $50 to collect: call them");
     expect(bookedPart).toMatch(/aria-pressed="false"[^>]*>Showed</);
     expect(bookedPart).toContain(">No-show<");
     expect(bookedPart).toContain(">Cancelled<");

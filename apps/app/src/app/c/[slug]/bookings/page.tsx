@@ -138,7 +138,9 @@ export default async function BookingsPage({
                       {portalMoment(a.scheduledFor, zone, now)}
                     </p>
                     <p className="text-muted mt-1 text-sm">
-                      AYA booked it and said you&rsquo;ll call to take the deposit.
+                      {a.bookedBy === "assistant"
+                        ? "AYA booked it and said you’ll call to take the deposit."
+                        : "Your team confirmed it, and the deposit is still to take."}
                     </p>
                     <CallLink name={a.firstName} phone={a.phone} />
                   </li>

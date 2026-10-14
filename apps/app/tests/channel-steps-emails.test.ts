@@ -182,7 +182,8 @@ describeDb("the channel step emails", () => {
       ayaNumberE164: AYA,
       carrier: "verizon",
       phoneSystem: "landline",
-      routing: "conditional",
+      // The coverage mode itself (the default here), never call_routing's collapse of it.
+      routing: "overflow_after_hours",
       setupUrl: expect.stringMatching(new RegExp(`/c/${clinic.clinicSlug}/setup\\?s=channels$`)),
     });
     expect(() => assertPayloadAllowed(notices[0]!.payload, "channel_ready")).not.toThrow();
@@ -278,5 +279,43 @@ describeDb("the channel step emails", () => {
       recipients_count: 0,
       last_error: "not sent: the channel's last step was done before it could go",
     });
+  });
+  test("O11's steps follow the coverage mode: After hours only gets all-call forwarding at closing and *73, never the busy pair", async () => {
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `insert into clinic_settings (clinic_id, coverage_mode) values ($1, 'after_hours_only')
+         on conflict (clinic_id) do update set coverage_mode = 'after_hours_only'`,
+        [clinic.clinicId],
+      ),
+    );
+    try {
+      const transport = capture();
+      // A later day on the clinic's calendar, so the three-a-day limit has room.
+      const now = new Date(Date.now() + 5 * 86_400_000);
+      expect(
+        await sendStepsOn(
+          {
+            clinicId: clinic.clinicId,
+            channel: "voice",
+            to: "closing@glowspa.test",
+            actor: ACTOR,
+            ayaNumberE164: AYA,
+          },
+          { transport, now },
+        ),
+      ).toMatchObject({ status: "sent" });
+      const text = transport.sent[0]!.message.text;
+      expect(text).toContain("*725125550142");
+      expect(text).toMatch(/when you close/);
+      expect(text).toContain("Cancel all-call forwarding: *73");
+      expect(text).not.toMatch(/\*9[0-3]/);
+    } finally {
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `update clinic_settings set coverage_mode = 'overflow_after_hours' where clinic_id = $1`,
+          [clinic.clinicId],
+        ),
+      );
+    }
   });
 });

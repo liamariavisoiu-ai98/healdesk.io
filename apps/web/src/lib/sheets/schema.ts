@@ -92,9 +92,9 @@ export type Lead = {
    */
   cohortCreditOfferedAt: Date | null;
   checkoutStartedAt: Date | null;
-  /** Stripe told us the session expired, or an hour passed with no completion. */
+  /** Stripe told us the latest Checkout Session expired unpaid (checkout.session.expired). */
   checkoutAbandonedAt: Date | null;
-  /** The single abandonment touch; sent at most once per lead. */
+  /** The single abandonment touch (P7, "still open"); sent at most once per lead. */
   abandonmentSentAt: Date | null;
   convertedAt: Date | null;
   convertedPlan: string | null;
@@ -107,6 +107,13 @@ export type Lead = {
   lastSeenAt: Date;
   createdAt: Date;
   updatedAt: Date;
+  /**
+   * The purchase ref of the Checkout Session that expired (its metadata's
+   * `ref`), so P7 can read the purchase's own records when it is due: the
+   * clinic, the agreement's kind and the setup link. An opaque id, nothing
+   * about the buyer. The last column, so existing Sheets gain it in place.
+   */
+  abandonedRef: string | null;
 };
 
 export const LEADS: Tab = {
@@ -145,6 +152,7 @@ export const LEADS: Tab = {
     col("last_seen_at", "lastSeenAt", "timestamp"),
     col("created_at", "createdAt", "timestamp"),
     col("updated_at", "updatedAt", "timestamp"),
+    col("abandoned_ref", "abandonedRef", "text"),
   ],
 };
 
@@ -489,6 +497,30 @@ export const CHECKOUT_INTENTS: Tab = {
   ],
 };
 
+/**
+ * When the owner last rotated each key, as recorded from /admin/map's "I
+ * rotated it today" (lib/admin/key-rotations.ts). Append-only: one row per
+ * press, and the newest row for a key is its last rotation. The key's id
+ * (`vercel.STRIPE_SECRET_KEY`), a date and who pressed it; never a value, a
+ * fingerprint or anything derived from one.
+ */
+export type KeyRotationRow = {
+  id: string;
+  keyId: string;
+  rotatedAt: Date;
+  recordedBy: string;
+};
+
+export const KEY_ROTATIONS: Tab = {
+  title: "key_rotations",
+  columns: [
+    col("id", "id", "text"),
+    col("key_id", "keyId", "text"),
+    col("rotated_at", "rotatedAt", "timestamp"),
+    col("recorded_by", "recordedBy", "text"),
+  ],
+};
+
 export const TABS: readonly Tab[] = [
   LEADS,
   LEAD_EVENTS,
@@ -498,6 +530,7 @@ export const TABS: readonly Tab[] = [
   DEMO_SESSIONS,
   AGREEMENTS,
   CHECKOUT_INTENTS,
+  KEY_ROTATIONS,
 ];
 
 // -----------------------------------------------------------------------------

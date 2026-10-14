@@ -1,9 +1,11 @@
+import { getPlan } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireOperator } from "@/lib/admin/operator";
 import { checkoutMode, setupLinksOpen } from "@/lib/checkout-mode";
+import { packagesByRef, recordsConfigured, type ChosenPackage } from "@/lib/checkout/records";
 import { channelList } from "@/lib/email/setup-emails";
 import { declineSetupRequest, sendSetupLink } from "@/lib/setup-links";
 import { listSetupRequests } from "@/lib/setup-requests";
@@ -17,7 +19,9 @@ import { isMarketingStoreConfigured } from "@/lib/sheets/client";
  *
  * Every request was promised a reply by the next business day (P2), so this
  * is a queue to empty daily. Each row shows what the clinic asked for and how
- * far its link has got: sent, opened, signed, paid. The actions are the three
+ * far its link has got: sent, opened, the package chosen, signed, paid. The
+ * package is read from the purchase record its latest press of Pay left in
+ * the Sheet (lib/checkout/records.ts), whose ref is the request's id. The actions are the three
  * an operator needs: send the link, send a new one (which stops the old one
  * working), or decline.
  *
@@ -85,7 +89,14 @@ function when(date: Date | null): string {
   }).format(date);
 }
 
-function progress(request: SetupRequest, now: Date): string[] {
+/** "AYA Voice + Web Chat, 500 minutes and 300 conversations, monthly", or the plan id when the catalog no longer has it. */
+function packageLine(chosen: ChosenPackage): string {
+  const name = getPlan(chosen.plan)?.name ?? chosen.plan;
+  const period = chosen.billingInterval === "year" ? "annual" : chosen.billingInterval === "month" ? "monthly" : null;
+  return `Package: ${name}${period ? `, ${period}` : ""}`;
+}
+
+function progress(request: SetupRequest, now: Date, chosen?: ChosenPackage): string[] {
   const steps: string[] = [];
   if (request.invitedAt) {
     const expired = request.linkExpiresAt && request.linkExpiresAt.getTime() <= now.getTime();
@@ -97,6 +108,7 @@ function progress(request: SetupRequest, now: Date): string[] {
   }
   if (request.remindedAt) steps.push(`Reminded ${when(request.remindedAt)}`);
   if (request.openedAt) steps.push(`Opened ${when(request.openedAt)}`);
+  if (chosen) steps.push(packageLine(chosen));
   if (request.signedAt) steps.push(`Signed ${when(request.signedAt)}`);
   if (request.paidAt) steps.push(`Paid ${when(request.paidAt)}`);
   if (request.unsubscribedAt) steps.push(`Unsubscribed ${when(request.unsubscribedAt)}`);
@@ -136,6 +148,18 @@ export default async function SetupRequestsPage({
     requests = await listSetupRequests(200);
   } catch (error) {
     loadError = error instanceof Error ? error.message : String(error);
+  }
+
+  // The packages chosen: progress, never a reason the queue cannot be read.
+  let packages = new Map<string, ChosenPackage>();
+  if (!loadError && requests.length > 0 && recordsConfigured()) {
+    try {
+      packages = await packagesByRef(requests.map((r) => r.id));
+    } catch (error) {
+      console.error("[healdesk] /admin/setup could not read the purchase records", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   const open = setupLinksOpen();
@@ -179,8 +203,10 @@ export default async function SetupRequestsPage({
                   {request.website ?? "no website"} · {channelList(request.channels)}
                   {request.leadId ? " · from the Day 7 email" : ""}
                 </p>
-                {progress(request, now).length ? (
-                  <p className="mt-2 text-sm font-semibold">{progress(request, now).join(" · ")}</p>
+                {progress(request, now, packages.get(request.id)).length ? (
+                  <p className="mt-2 text-sm font-semibold">
+                    {progress(request, now, packages.get(request.id)).join(" · ")}
+                  </p>
                 ) : null}
 
                 {!paid ? (

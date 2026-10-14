@@ -1,9 +1,13 @@
 /**
- * The closed time grammar a Meta booking window must fit. BAA 1.3.0 clause
- * 11 has healdesk keep nothing from Instagram, Messenger or WhatsApp but the
- * details in its item (a), with "preferred times only in a fixed
- * day-and-time form", and the identifier Meta attaches to the conversation;
- * this grammar is that form.
+ * The closed time grammar a Meta booking window must fit. Clause 11 of the
+ * agreement in force (BAA 1.5.0, in the words it has carried since 1.3.0) has
+ * healdesk keep from Instagram, Messenger or WhatsApp only the details in its
+ * item (a), "each checked by automated filters designed to keep clinical
+ * content out, and preferred times only in a fixed day-and-time form", and
+ * the identifier Meta attaches to the conversation; this grammar is that form,
+ * and one of those filters. The agreement promises filters designed to keep
+ * clinical content out, not that none ever passes: clause 16 says no filter
+ * catches every wording.
  *
  * A Meta request keeps one free-text field, the preferred day or time, and
  * its alternatives, for the request's 90 days. A list of refused words could

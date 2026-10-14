@@ -123,6 +123,16 @@ describe("what the console says when apps/app fails (F12)", () => {
     reply({ error: "Unauthorized.", code: "unauthorized" }, 401);
     expect(await setOverageMode(CLINIC, "allow")).toMatchObject({ code: "refused" });
   });
+
+  test("an operation the application does not know yet is 'outdated', not a refusal to go hunting a secret for", async () => {
+    reply({ error: "Unknown operation.", code: "unknown_operation" }, 400);
+    expect(await setOverageMode(CLINIC, "allow")).toEqual({
+      ok: false,
+      code: "outdated",
+      message:
+        "The application is running an older version that does not know this yet. Nothing was changed; deploy it, then try again.",
+    });
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -1139,5 +1149,65 @@ describe("the first-weeks list", () => {
     const result = await fetchClinicHealth();
     if (!result.ok) throw new Error(result.message);
     expect(result.data.map((row) => row.plan)).toEqual(["AYA Voice, 500 minutes", "complete", null]);
+  });
+});
+
+/**
+ * The owner's direct-booking switch, for the purchase funnel's step 2. It is
+ * apps/app's one reader's answer, carried across without a session; anything
+ * but a clear "on" is off, and the answer is remembered for five minutes so a
+ * public page cannot make every visitor a request to apps/app.
+ */
+describe("directBookingOpen", () => {
+  const MINUTE = 60_000;
+
+  beforeEach(() => {
+    opsClient.__resetBookingSwitchForTests();
+  });
+
+  test("asks apps/app as a relay, with no browser context, and carries its answer", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await opsClient.directBookingOpen(0)).toBe(true);
+    expect(sent).toEqual([{ op: "bookingSwitch", args: {} }]);
+    const init = vi.mocked(fetch).mock.calls[0]![1] as { body: string };
+    expect(JSON.parse(init.body)).not.toHaveProperty("context");
+  });
+
+  test("off when apps/app says off", async () => {
+    reply({ data: { directBooking: false } });
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+  });
+
+  test("off, and nothing asked, on a deployment that cannot ask", async () => {
+    vi.stubEnv("HEALDESK_APP_URL", "");
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    expect(sent).toEqual([]);
+  });
+
+  test("off when apps/app fails, is unreachable or answers something else", async () => {
+    reply({ error: "The operations API is unavailable.", code: "unavailable" }, 503);
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    opsClient.__resetBookingSwitchForTests();
+    reply({ data: { directBooking: "true" } });
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+    opsClient.__resetBookingSwitchForTests();
+    // No reply stubbed: the fetch throws, as an unreachable host does.
+    expect(await opsClient.directBookingOpen(0)).toBe(false);
+  });
+
+  test("remembers the answer, success or failure, for five minutes", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await opsClient.directBookingOpen(0)).toBe(true);
+    expect(await opsClient.directBookingOpen(4 * MINUTE)).toBe(true);
+    expect(sent).toHaveLength(1);
+    reply({ data: { directBooking: false } });
+    expect(await opsClient.directBookingOpen(5 * MINUTE)).toBe(false);
+    expect(sent).toHaveLength(2);
+  });
+
+  test("one question in flight, however many ask at once", async () => {
+    reply({ data: { directBooking: true } });
+    expect(await Promise.all([opsClient.directBookingOpen(0), opsClient.directBookingOpen(0)])).toEqual([true, true]);
+    expect(sent).toHaveLength(1);
   });
 });

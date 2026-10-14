@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { BILLING_NOTICE_KINDS, REPORT_DELIVERY_KINDS } from "@/db/schema";
+import { NOTICE_KINDS } from "@/lib/email/kinds";
 
 import {
   closePools,
@@ -90,6 +91,47 @@ describeDb("drizzle/0046: the email platform's schema", () => {
       await expect(insert("nurture", null)).rejects.toMatchObject({ code: "23514" });
       await c.query("rollback to savepoint s");
       await expect(insert("payment_failed", "opened")).rejects.toMatchObject({ code: "23514" });
+    });
+  });
+
+  test("0076: the outbox takes every registered kind, the ledger every ledger kind, and product updates start on", async () => {
+    const { clinicId } = await seedClinic("every-kind");
+    await asApp(clinicId, async (c) => {
+      for (const kind of NOTICE_KINDS) {
+        await c.query(
+          `insert into billing_notices (clinic_id, kind, dedupe_key) values ($1, $2, 'k')`,
+          [clinicId, kind],
+        );
+      }
+      for (const kind of REPORT_DELIVERY_KINDS) {
+        await c.query(
+          `insert into report_deliveries (clinic_id, kind, period_key, recipient, status)
+           values ($1, $2, 'p', 'desk@radiance.test', 'sent')`,
+          [clinicId, kind],
+        );
+      }
+      // Registered ahead of their packages: L12 on the outbox, L22 and E6 on the ledger.
+      expect(NOTICE_KINDS).toContain("urgent");
+      expect(REPORT_DELIVERY_KINDS).toEqual(
+        expect.arrayContaining(["agreement_to_sign", "data_destroyed", "address_changing"]),
+      );
+      // A direct kind is never an outbox row.
+      await c.query("savepoint s");
+      await expect(
+        c.query(
+          `insert into billing_notices (clinic_id, kind, dedupe_key) values ($1, 'agreement_to_sign', 'x')`,
+          [clinicId],
+        ),
+      ).rejects.toMatchObject({ code: "23514" });
+      await c.query("rollback to savepoint s");
+      await c.query(`insert into clinic_settings (clinic_id) values ($1) on conflict do nothing`, [
+        clinicId,
+      ]);
+      const { rows } = await c.query<{ product_updates: boolean }>(
+        `select product_updates from clinic_settings where clinic_id = $1`,
+        [clinicId],
+      );
+      expect(rows[0]!.product_updates).toBe(true);
     });
   });
 

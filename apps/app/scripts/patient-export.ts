@@ -21,7 +21,11 @@ import { withTenant } from "../src/lib/tenant";
  *
  *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --phone +15551234567 --requested-by person_via_practice
  *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --email someone@example.com --requested-by practice
+ *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --contact <uuid> --requested-by practice
  *   npm run patient-export -w @healdesk/app -- --clinic <uuid> --all --requested-by practice
+ *
+ * --contact names the person by a contact's id: that contact, and every
+ * contact carrying its number or its address (exportPatient).
  *
  * --requested-by is one of PATIENT_REQUESTERS (practice, person_via_practice,
  * representative_via_practice), chosen, never typed: the audit row outlives
@@ -34,12 +38,21 @@ import { withTenant } from "../src/lib/tenant";
  * (infra/aws/scripts/run-task.sh patient-export <clinic id>),
  * whose disk goes with it, so the bundle goes to the export bucket instead
  * (lib/patient-rights/export-store.ts). The task takes its inputs from the
- * environment, never the command line: HEALDESK_EXPORT_CLINIC_ID and
- * HEALDESK_EXPORT_REQUESTED_BY, for the whole clinic only, and
- * HEALDESK_EXPORT_BUCKET and HEALDESK_EXPORT_KEY for where it lands. A
- * patient's phone number or email never travels that way: a run's
- * overrides are recorded by CloudTrail, so a per-patient export is not
- * offered there.
+ * environment, never the command line:
+ *
+ *   HEALDESK_EXPORT_CLINIC_ID     the clinic's id
+ *   HEALDESK_EXPORT_CONTACT_ID    optional: one person's bundle, named by a
+ *                                 contact's id; without it, the whole clinic
+ *   HEALDESK_EXPORT_REQUESTED_BY  one of PATIENT_REQUESTERS; the whole
+ *                                 clinic's is always `practice`
+ *   HEALDESK_EXPORT_BUCKET        where it lands, and
+ *   HEALDESK_EXPORT_KEY           clinic-<clinic id>-<UTC time>.json for the
+ *                                 whole clinic, clinic-<clinic id>-patient-
+ *                                 <UTC time>.json for one person
+ *
+ * A patient's phone number or email never travels that way: a run's
+ * overrides are recorded by CloudTrail, so on the AWS host a person is named
+ * by a contact's id only, as a deletion is (ops-erase-person.ts).
  */
 
 function arg(name: string): string | undefined {
@@ -53,12 +66,15 @@ function flag(name: string): boolean {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function main(): Promise<void> {
-  // The AWS task: the whole clinic, inputs from the environment.
+  // The AWS task: inputs from the environment, the whole clinic unless a
+  // contact's id names one person. A contact id that is set but empty is a
+  // mistake, not a whole-clinic run.
   const fromEnv = process.env.HEALDESK_EXPORT_CLINIC_ID !== undefined;
   const clinicId = fromEnv ? process.env.HEALDESK_EXPORT_CLINIC_ID : arg("clinic");
+  const contactId = fromEnv ? process.env.HEALDESK_EXPORT_CONTACT_ID : arg("contact");
   const phone = fromEnv ? undefined : arg("phone");
   const email = fromEnv ? undefined : arg("email");
-  const all = fromEnv || flag("all");
+  const all = fromEnv ? contactId === undefined : flag("all");
   const requestedBy = fromEnv ? process.env.HEALDESK_EXPORT_REQUESTED_BY : arg("requested-by");
   const out = resolve(arg("out") ?? "exports");
   const bucket = process.env.HEALDESK_EXPORT_BUCKET;
@@ -68,8 +84,14 @@ async function main(): Promise<void> {
     throw new Error(
       `--requested-by <${PATIENT_REQUESTERS.join("|")}> is required; it goes in the audit row.`,
     );
-  if (!all && !phone && !email) throw new Error("Give --phone, --email, or --all.");
-  if (all && (phone || email)) throw new Error("--all is the whole clinic; drop --phone/--email.");
+  if (contactId !== undefined && !UUID.test(contactId))
+    throw new Error("--contact (HEALDESK_EXPORT_CONTACT_ID) must be the contact's uuid.");
+  if (!all && !phone && !email && !contactId)
+    throw new Error("Give --phone, --email, --contact, or --all.");
+  if (all && (phone || email || contactId))
+    throw new Error("--all is the whole clinic; drop --phone/--email/--contact.");
+  if (contactId && (phone || email))
+    throw new Error("Name the person by --contact, or by --phone/--email, not both.");
   if (phone && !/^\+\d{7,15}$/.test(phone))
     throw new Error("--phone must be E.164, e.g. +15551234567.");
   if (!isPatientRequester(requestedBy)) {
@@ -79,10 +101,18 @@ async function main(): Promise<void> {
   }
   if (all && requestedBy !== "practice")
     throw new Error("A whole clinic's bundle is the practice's: --requested-by practice.");
+  // The bucket takes the whole clinic, or one person named by a contact's id:
+  // never a bundle found by a typed number or address.
+  if (bucket && !all && !contactId)
+    throw new Error("The export bucket takes a whole clinic, or one person by --contact.");
   const target = bucket
-    ? exportTarget(clinicId, bucket, process.env.HEALDESK_EXPORT_KEY ?? "")
+    ? exportTarget(
+        clinicId,
+        bucket,
+        process.env.HEALDESK_EXPORT_KEY ?? "",
+        all ? "clinic" : "patient",
+      )
     : null;
-  if (bucket && !all) throw new Error("The export bucket takes whole-clinic bundles only.");
 
   const actor = {
     type: "service",
@@ -95,7 +125,10 @@ async function main(): Promise<void> {
   const bundle: PatientBundle = await withTenant({ clinicId, actor }, async (tx) => {
     const produced = all
       ? await exportClinic(tx, requestedBy)
-      : await exportPatient(tx, { phone, email, requestedBy });
+      : await exportPatient(
+          tx,
+          contactId ? { contactId, requestedBy } : { phone, email, requestedBy },
+        );
     if (target) await storeBundle(target, JSON.stringify(produced, null, 2));
     return produced;
   });

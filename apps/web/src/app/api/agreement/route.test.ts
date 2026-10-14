@@ -217,7 +217,7 @@ describe("POST /api/agreement records the signature here, sealed, and never call
     expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
     // Keyed by the signature, never by the address.
     const headers = resend.mock.calls[0]![1]!.headers as Record<string, string>;
-    expect(headers["Idempotency-Key"]).toBe(`agreement-copy:${body.agreementId}`);
+    expect(headers["Idempotency-Key"]).toBe(`hd-agreement-copy-${body.agreementId}-1`);
 
     const found = await findAgreementRecord(body.agreementId);
     expect(found.status === "found" && found.record.copy).toEqual({

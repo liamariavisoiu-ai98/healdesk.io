@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { deleteRows, normalizeEmail, recordLeadEvent } from "@/lib/leads";
-import type { ChannelId } from "@/lib/setup-channels";
+import { CHANNEL_IDS, type ChannelId } from "@/lib/setup-channels";
 import { isMarketingStoreConfigured, sheetsClient, type Cell, type SheetsClient } from "@/lib/sheets/client";
 import {
   dataRange,
@@ -122,6 +122,14 @@ export async function createSetupRequest(input: NewSetupRequest, now: Date = new
     });
     return { ok: false, reason: "unavailable" };
   }
+}
+
+/** The channels a request asked for, as the form's ids; the Sheet keeps them comma-separated. */
+export function requestChannels(request: Pick<SetupRequest, "channels">): ChannelId[] {
+  return (request.channels ?? "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id): id is ChannelId => (CHANNEL_IDS as readonly string[]).includes(id));
 }
 
 export async function findSetupRequest(id: string): Promise<SetupRequest | null> {

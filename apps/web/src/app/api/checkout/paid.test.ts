@@ -166,6 +166,40 @@ describe("the paid path, with no apps/app", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test("the nonce cookie is set on the parent domain the two apps share, for /welcome only", async () => {
+    vi.stubEnv("HEALDESK_APP_URL", "https://app-internal.healdesk.io");
+    counter += 1;
+    const agreementId = (await signTestAgreement(SIGNATURE)).id;
+    const response = await POST(
+      new Request("https://healdesk.io/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": `10.9.1.${counter}` },
+        body: JSON.stringify({ ...ORDER, agreementId }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const cookie = response.headers.get("set-cookie") ?? "";
+    expect(cookie).toMatch(new RegExp(`^${WELCOME_NONCE_COOKIE}=[A-Za-z0-9_-]{32};`));
+    // healdesk.io's /welcome reads it, then app.healdesk.io's: the parent
+    // both share, never the internal host itself.
+    expect(cookie).toMatch(/; Domain=healdesk\.io(;|$)/);
+    expect(cookie).not.toContain("app-internal");
+    expect(cookie).toMatch(/; Path=\/welcome(;|$)/);
+    expect(cookie).toMatch(/; Max-Age=1800(;|$)/);
+    expect(cookie).toMatch(/; HttpOnly(;|$)/);
+    expect(cookie.toLowerCase()).toMatch(/; samesite=lax(;|$)/);
+    // Only its hash is in the record.
+    const nonce = cookie.split(";")[0]!.split("=")[1]!;
+    expect(JSON.stringify(sheets.records("checkout_intents"))).not.toContain(nonce);
+  });
+
+  test("on one host (localhost, where cookies ignore ports) the nonce cookie is host-only", async () => {
+    vi.stubEnv("HEALDESK_APP_URL", "http://localhost:3001");
+    const cookie = (await pay()).headers.get("set-cookie") ?? "";
+    expect(cookie).toContain(`${WELCOME_NONCE_COOKIE}=`);
+    expect(cookie).not.toMatch(/Domain=/i);
+  });
+
   test("the buyer's details never ride in Stripe metadata (design D1)", async () => {
     await pay();
     const params = fake.params[0]!;
@@ -286,6 +320,65 @@ describe("pressing Pay again on one setup link", () => {
     const again = await pay({ cookie: link.cookie });
     expect(again.status).toBe(409);
     expect(await again.json()).toMatchObject({ field: "setupLink" });
+  });
+});
+
+describe("pressing Pay again without a setup link", () => {
+  /** One signature, kept: a buyer who cancels at Stripe comes back to the same agreement. */
+  async function signed(email = ORDER.contactEmail): Promise<string> {
+    return (await signTestAgreement({ ...SIGNATURE, contactEmail: email })).id;
+  }
+
+  test("in public mode, the same buyer and agreement are one purchase: the open Session is expired first", async () => {
+    const agreementId = await signed();
+    expect((await pay({ body: { agreementId } })).status).toBe(200);
+    expect((await pay({ body: { agreementId } })).status).toBe(200);
+    expect(fake.created).toEqual(["cs_test_new1", "cs_test_new2"]);
+    expect(fake.expired).toEqual(["cs_test_new1"]);
+    const refs = fake.params.map((p) => (p.metadata as Record<string, string>).ref!);
+    expect(refs[0]).toBe(refs[1]);
+    expect(refs[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const { records } = await intentRecordsFor(refs[0]!);
+    expect(records.map((r) => [r.record.attempt, r.record.sessionId])).toEqual([
+      [1, "cs_test_new1"],
+      [2, "cs_test_new2"],
+    ]);
+    // Neither the address nor the agreement can be read off the ref.
+    expect(refs[0]).not.toContain(agreementId.slice(0, 8));
+  });
+
+  test("a press after the previous Session was paid creates nothing", async () => {
+    const agreementId = await signed();
+    expect((await pay({ body: { agreementId } })).status).toBe(200);
+    fake.previousStatus = "complete";
+    const again = await pay({ body: { agreementId } });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toEqual({ error: "This purchase is already paid. Check your email." });
+    expect(fake.created).toEqual(["cs_test_new1"]);
+  });
+
+  test("two buyers, or two agreements, are two purchases, and neither expires the other's Session", async () => {
+    expect((await pay({ body: { agreementId: await signed() } })).status).toBe(200);
+    expect((await pay({ body: { agreementId: await signed() } })).status).toBe(200);
+    const other = await signed("info@another.test");
+    expect((await pay({ body: { agreementId: other, contactEmail: "info@another.test" } })).status).toBe(200);
+    expect(fake.expired).toEqual([]);
+    expect(new Set(fake.params.map((p) => (p.metadata as Record<string, string>).ref)).size).toBe(3);
+  });
+
+  test("in pilot mode, a buyer invited through a personalised demo is held to the same rule", async () => {
+    vi.stubEnv("HEALDESK_CHECKOUT_MODE", "");
+    __resetDemoCacheForTests();
+    const demo = await createDemoSession({ clinicName: "Radiance", websiteUrl: "https://radiancemedspa.com/" });
+    await updateDemoSession(demo.slug, { status: "ready", readyAt: new Date() });
+    __resetDemoCacheForTests();
+    const cookie = `hd_demo_ref=${demo.slug}`;
+    const agreementId = await signed();
+    expect((await pay({ cookie, body: { agreementId } })).status).toBe(200);
+    expect((await pay({ cookie, body: { agreementId } })).status).toBe(200);
+    expect(fake.expired).toEqual(["cs_test_new1"]);
+    const refs = fake.params.map((p) => (p.metadata as Record<string, string>).ref);
+    expect(refs[0]).toBe(refs[1]);
   });
 });
 

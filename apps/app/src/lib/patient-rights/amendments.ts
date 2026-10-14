@@ -14,8 +14,9 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
 /**
  * Amendments to the records that must stay as they were made.
  *
- * BAA 1.3.0's clause 14(b), and the DPA's Clients' requests clause in its own
- * words: healdesk incorporates any amendment Practice directs. healdesk
+ * Clause 14(b) of the agreement in force (BAA 1.5.0, in the words it has had
+ * since 1.3.0), and the DPA's Clients' requests clause in its own words:
+ * healdesk incorporates any amendment Practice directs. healdesk
  * corrects a person's contact details in its own copy (`amendContact` in
  * ./export.ts, for a contact's name, number or address, each of which can
  * also be cleared). It does not rewrite a booking request, an appointment

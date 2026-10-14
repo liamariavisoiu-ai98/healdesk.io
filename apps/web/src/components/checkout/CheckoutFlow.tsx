@@ -88,7 +88,9 @@ export { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
  *
  * A healthcare provider may not hand patient information to a supplier
  * without a written contract first, so the agreement is its own step, and it
- * is recorded in the database before the buyer ever sees a payment form.
+ * is recorded, as a sealed record in the marketing Sheet (lib/checkout/
+ * records.ts; apps/app imports it with the first paid invoice), before the
+ * buyer ever sees a payment form.
  * Abandoning at step 4 leaves a signed agreement with no account behind it,
  * which is correct: far better than taking money for an account with no
  * agreement.
@@ -112,8 +114,15 @@ export type CheckoutProgress = {
   done: boolean;
 };
 
-/** What the flow may start from, besides the package: the setup link's request, or the demo. */
-export type CheckoutSeed = Pick<FunnelSeed, "clinicName" | "website" | "specialty" | "contactEmail">;
+/**
+ * What the flow may start from, besides `?plan`: the setup link's request
+ * (its clinic, website, address, the name it was sent under and the package
+ * its channels add up to), the demo, or the demo gate's address and specialty.
+ */
+export type CheckoutSeed = Pick<
+  FunnelSeed,
+  "clinicName" | "website" | "specialty" | "contactEmail" | "contactName" | "packageId"
+>;
 
 const RETURNED_NOTICE =
   "You left the payment page, so nothing was charged. Everything you entered is still here.";
@@ -153,6 +162,7 @@ export function CheckoutFlow({
   lockedEmail,
   returnedFromPayment = false,
   salesTax = false,
+  directBooking = false,
   demo,
   setupOffer,
   onClose,
@@ -179,6 +189,12 @@ export function CheckoutFlow({
   returnedFromPayment?: boolean;
   /** STRIPE_AUTOMATIC_TAX, read on the server: "Plus sales tax where it applies". */
   salesTax?: boolean;
+  /**
+   * The owner's direct-booking switch, asked of apps/app on the server
+   * (lib/admin/ops-client.ts `directBookingOpen`): step 2's line on whether
+   * AYA books straight into the calendar. Off when not known.
+   */
+  directBooking?: boolean;
   /**
    * The buyer came from their personalised demo (components/checkout/
    * DemoPackageExtras.tsx): packages with estimates from their own numbers,
@@ -583,6 +599,7 @@ export function CheckoutFlow({
         onContinue={continueFromClinic}
         fromDemo={Boolean(demo)}
         offer={offer}
+        directBooking={directBooking}
         onClose={onClose}
         headingRef={headingRef}
         error={error?.step === 2 && error.field ? { field: error.field, message: error.message } : null}
@@ -674,7 +691,9 @@ function Complete({ email, onClose }: { email: string; onClose?: () => void }) {
       </h1>
       {/* Reached only on the unpaid development path (no Stripe keys), where
           apps/app has already created the account. On the paid path the buyer
-          leaves for Stripe and comes back to apps/app's /welcome. */}
+          leaves for Stripe and comes back to this site's /welcome
+          (app/welcome/route.ts), which hands them on to apps/app's once the
+          account exists. */}
       <p className="text-muted mt-4 text-[19.2px] font-medium">
         Your agreement is signed and on file, and we&apos;ve emailed a copy to{" "}
         <strong className="text-ink">{email}</strong>.

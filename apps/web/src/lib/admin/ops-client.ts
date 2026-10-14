@@ -227,7 +227,11 @@ type OperatorOp =
   | "disconnectCalendar"
   // The AWS host's standby switch (/admin/host): three counts, asked before
   // standby is dispatched.
-  | "hostStandbyCheck";
+  | "hostStandbyCheck"
+  // The system map (/admin/map): which of the host's keys are in place, yes
+  // or no per name, and a live seal-and-open with the credential key.
+  | "keyPresence"
+  | "getCredentialKeyStatus";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -242,7 +246,7 @@ type OperatorOp =
  * so the worst a forged call could do is mark one of apps/app's ledger rows,
  * and a forged call needs HEALDESK_PROVISION_SECRET.
  */
-type RelayOp = "emailEvent" | "welcomeHandoff";
+type RelayOp = "emailEvent" | "welcomeHandoff" | "bookingSwitch" | "emailQuota";
 
 type OpName = OperatorOp | RelayOp;
 
@@ -266,7 +270,9 @@ export type OpsErrorCode =
    */
   | "failed"
   /** Upstream answered with something this file could not read. */
-  | "malformed";
+  | "malformed"
+  /** Upstream does not know the operation: its build is older than this console's. Nothing ran. */
+  | "outdated";
 
 export type OpsFailure = {
   ok: false;
@@ -728,6 +734,26 @@ export function relayEmailEvent(
   );
 }
 
+/**
+ * Hand apps/app the day's email count as one of this site's sends saw it
+ * (Resend's `x-resend-daily-quota`, which counts the whole account), so its
+ * 70-a-day alarm and the ops digest see apps/web's mail too (Annex X2). A
+ * relay op, with no session and no browser context: the request on this side
+ * is whoever caused the email, and the answer names nothing. A short timeout,
+ * because the host may be in standby and no email waits on this.
+ */
+export function relayEmailQuota(used: number, at: Date): Promise<OpsResult<{ recorded: boolean }>> {
+  return send(
+    "emailQuota",
+    "write",
+    (value) => ({ recorded: bool(object(value, "emailQuota").recorded, "emailQuota.recorded") }),
+    { used, at: at.toISOString() },
+    { context: false, timeoutMs: EMAIL_QUOTA_TIMEOUT_MS },
+  );
+}
+
+const EMAIL_QUOTA_TIMEOUT_MS = 3_000;
+
 // -----------------------------------------------------------------------------
 // The paying browser's way back
 // -----------------------------------------------------------------------------
@@ -761,6 +787,59 @@ export function welcomeHandoff(ref: string, sessionId: string): Promise<OpsResul
 }
 
 const WELCOME_HANDOFF_TIMEOUT_MS = 4_000;
+
+// -----------------------------------------------------------------------------
+// The owner's direct-booking switch, for the purchase funnel
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether the owner's direct-booking switch is on: HEALDESK_DIRECT_BOOKING_ENABLED,
+ * which only the owner sets, on apps/app, and which only apps/app's
+ * `env.directBookingEnabled()` reads. The funnel's step 2 says whether AYA
+ * books straight into the calendar or the team confirms each booking
+ * (lib/checkout/funnel.ts `bookingConsequence`), and asks here rather than
+ * reading a variable of its own, so there is one switch and the funnel can
+ * never say "books straight in" while apps/app takes requests.
+ *
+ * A relay op like welcomeHandoff: a visitor's browser is behind the request,
+ * and the answer is one boolean, the same for everyone. Fails closed: an
+ * unconfigured deployment, a host in standby, a timeout or anything unreadable
+ * is "off", which is the true sentence whenever apps/app cannot book anyway.
+ * Remembered for five minutes per instance, answers and failures alike, so the
+ * purchase pages cost apps/app at most one request an instance every five
+ * minutes, and a host in standby costs the page one short wait at most.
+ */
+export async function directBookingOpen(now: number = Date.now()): Promise<boolean> {
+  if (bookingSwitchMemo && now - bookingSwitchMemo.at < BOOKING_SWITCH_MEMO_MS) return bookingSwitchMemo.value;
+  if (!process.env.HEALDESK_PROVISION_SECRET || !process.env.HEALDESK_APP_URL) return false;
+  // One question in flight per instance, however many pages ask at once.
+  bookingSwitchAsking ??= send(
+    "bookingSwitch",
+    "read",
+    (value) => bool(object(value, "bookingSwitch").directBooking, "bookingSwitch.directBooking"),
+    {},
+    { context: false, timeoutMs: BOOKING_SWITCH_TIMEOUT_MS },
+  )
+    .then((result) => (result.ok ? result.data : false))
+    .catch(() => false)
+    .finally(() => {
+      bookingSwitchAsking = null;
+    });
+  const value = await bookingSwitchAsking;
+  bookingSwitchMemo = { value, at: now };
+  return value;
+}
+
+const BOOKING_SWITCH_TIMEOUT_MS = 2_500;
+const BOOKING_SWITCH_MEMO_MS = 5 * 60 * 1000;
+let bookingSwitchMemo: { value: boolean; at: number } | null = null;
+let bookingSwitchAsking: Promise<boolean> | null = null;
+
+/** Tests only: forget the remembered answer. */
+export function __resetBookingSwitchForTests(): void {
+  bookingSwitchMemo = null;
+  bookingSwitchAsking = null;
+}
 
 // -----------------------------------------------------------------------------
 // Transport
@@ -797,6 +876,7 @@ async function callOps<T>(
   kind: CallKind,
   args: Record<string, unknown>,
   read: (value: unknown) => T,
+  timeoutMs?: number,
 ): Promise<OpsResult<T>> {
   if (!(await requireOperator())) {
     return {
@@ -806,7 +886,7 @@ async function callOps<T>(
     };
   }
 
-  return send(op, kind, read, args);
+  return send(op, kind, read, args, { timeoutMs });
 }
 
 async function send<T>(
@@ -976,7 +1056,32 @@ async function refused(
     code ?? "no code",
   );
 
-  if (upstream.status === 403 || code === "forbidden") {
+  return describeRefusal(upstream.status, code, op, kind);
+}
+
+function describeRefusal(
+  status: number,
+  code: string | null,
+  op: OpName,
+  kind: CallKind,
+): OpsFailure {
+  /**
+   * The far side does not know this operation: it runs a build older than
+   * this console, which happens for the length of a deploy, and for as long
+   * as the AWS host is not redeployed after a console change. Nothing ran.
+   * Worth its own code, because "refused" would send the operator looking
+   * for a bad secret.
+   */
+  if (code === "unknown_operation") {
+    return {
+      ok: false,
+      code: "outdated",
+      message:
+        "The application is running an older version that does not know this yet. Nothing was changed; deploy it, then try again.",
+    };
+  }
+
+  if (status === 403 || code === "forbidden") {
     return {
       ok: false,
       code: "forbidden",
@@ -1001,7 +1106,7 @@ async function refused(
     };
   }
 
-  if (upstream.status >= 500) {
+  if (status >= 500) {
     return {
       ok: false,
       code: "failed",
@@ -3567,4 +3672,91 @@ export function hostStandbyCheck(): Promise<OpsResult<HostStandbyCheck>> {
       openTranscripts: count(data.openTranscripts, "hostStandbyCheck.openTranscripts"),
     };
   });
+}
+
+// -----------------------------------------------------------------------------
+// The system map
+// -----------------------------------------------------------------------------
+
+/**
+ * How long the map waits for the host. Shorter than the console's twelve
+ * seconds: the map draws every other bridge without this answer, and a host
+ * in standby should read as "can't check" while the page is still worth
+ * looking at, not after it.
+ */
+const MAP_TIMEOUT_MS = 9_000;
+
+/** An environment variable's name, as apps/app lists them. Anything else is not one of ours. */
+const ENV_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
+
+/**
+ * Which of the AWS host's keys and public ids are in place
+ * (apps/app lib/ops/key-presence.ts): yes or no per name from a list fixed
+ * on that side, and whether its Stripe key is a test or a live one. Never a
+ * value. A read.
+ */
+export type HostKeyPresence = {
+  present: Record<string, boolean>;
+  stripeMode: "test" | "live" | null;
+};
+
+export function keyPresence(): Promise<OpsResult<HostKeyPresence>> {
+  return callOps(
+    "keyPresence",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "keyPresence");
+      const raw = object(data.present, "keyPresence.present");
+      const names = Object.keys(raw);
+      if (names.length > 64) throw new ShapeError("keyPresence.present");
+      const present: Record<string, boolean> = {};
+      for (const name of names) {
+        if (!ENV_NAME.test(name)) throw new ShapeError("keyPresence.present");
+        present[name] = bool(raw[name], `keyPresence.present.${name}`);
+      }
+      const stripeMode =
+        data.stripeMode === null ? null : literal(data.stripeMode, ["test", "live"] as const, "keyPresence.stripeMode");
+      return { present, stripeMode };
+    },
+    MAP_TIMEOUT_MS,
+  );
+}
+
+/**
+ * Whether the host can seal and open a clinic's credentials right now
+ * (apps/app getCredentialKeyStatus): a live round trip through the KMS key,
+ * answered as ok or a one-word reason. Never the key's full ARN.
+ */
+export type CredentialKeyCheck = {
+  provider: "aws-kms" | "local";
+  keyConfigured: boolean;
+  ok: boolean;
+  /** Present when `ok` is false: a category from apps/app, never an AWS message. */
+  error: string | null;
+};
+
+export function credentialKeyStatus(): Promise<OpsResult<CredentialKeyCheck>> {
+  return callOps(
+    "getCredentialKeyStatus",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "getCredentialKeyStatus");
+      const selfCheck = object(data.selfCheck, "getCredentialKeyStatus.selfCheck");
+      const error = selfCheck.error;
+      return {
+        provider: literal(data.provider, ["aws-kms", "local"] as const, "getCredentialKeyStatus.provider"),
+        keyConfigured: bool(data.keyConfigured, "getCredentialKeyStatus.keyConfigured"),
+        ok: bool(selfCheck.ok, "getCredentialKeyStatus.selfCheck.ok"),
+        error:
+          error === undefined || error === null
+            ? null
+            : typeof error === "string" && /^[a-z_]{1,40}$/.test(error)
+              ? error
+              : "failed",
+      };
+    },
+    MAP_TIMEOUT_MS,
+  );
 }

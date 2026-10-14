@@ -5,6 +5,7 @@ import {
   wizardFinished,
   wizardScreens,
 } from "@/lib/setup/screens";
+import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
 import type { SetupState } from "@/lib/setup/state";
 import { joinWords } from "@/lib/setup/tracker";
 
@@ -21,9 +22,11 @@ import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
  * more come from facts already on hand and cost the clinic dearly if missed:
  * an address that bounces (Annex X3: "We can't email {address}", the one
  * address every email goes to), a payment that failed, and a sign-in with no
- * device that can open patient details. The rest of the plan's list (a
- * calendar that stopped working, a quiet channel) needs the calendar backend
- * and go-live (M6), and joins here then.
+ * device that can open patient details. After go-live, a calendar that
+ * stopped working: bookings quietly become requests the desk must confirm,
+ * which is worth a line once patients are booking, and not before, when the
+ * calendar step of setup says it already. A quiet channel waits for the
+ * claims function (WP4).
  *
  * Pure: the page reads the facts, this decides what to say.
  */
@@ -37,6 +40,7 @@ export type AttentionId =
   | "passkey"
   | "backup"
   | "payment_account"
+  | "calendar_disconnected"
   | "website_changes";
 
 export type AttentionItem = {
@@ -55,6 +59,10 @@ export type AttentionFacts = {
   addressUndeliverable: boolean;
   /** The clinic's Stripe account was disconnected and nothing is connected now. */
   paymentAccountDisconnected?: boolean;
+  /** A channel has gone live (the header is past "AYA isn't answering yet"). */
+  isLive?: boolean;
+  /** The clinic's Google Calendar connection as the calendar session reads it. */
+  calendar?: CalendarConnectionView;
   /** Website changes the drift check found and nobody has confirmed or ignored (M7). */
   websiteChanges?: number;
 };
@@ -153,6 +161,14 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
     });
   }
 
+  if (facts.isLive && facts.calendar && calendarStoppedWorking(facts.calendar)) {
+    items.push({
+      id: "calendar_disconnected",
+      text: "Your calendar stopped working, so bookings arrive as requests your team confirms.",
+      action: screenLink(slug, "settings", "#calendar", "Reconnect it in Settings"),
+    });
+  }
+
   const changes = facts.websiteChanges ?? 0;
   if (changes > 0) {
     items.push({
@@ -166,6 +182,19 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
   }
 
   return items;
+}
+
+/**
+ * Whether the calendar a clinic connected has stopped working: the
+ * connection is broken (`error`, or a break on record), or Google told us its
+ * access was removed. Never for a calendar that was never connected or that
+ * the clinic disconnected itself: those are choices, and Settings shows them.
+ * A connection Google merely could not reach this time (`degraded`) is not a
+ * stop: the calendar watch probes again, and marks it broken if it stays so.
+ */
+export function calendarStoppedWorking(view: CalendarConnectionView): boolean {
+  if (view.status === "not_connected") return view.accessRemovedAt !== null;
+  return view.status === "error" || view.brokenAt !== null;
 }
 
 /**

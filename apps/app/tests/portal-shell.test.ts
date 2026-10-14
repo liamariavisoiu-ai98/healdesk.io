@@ -192,6 +192,43 @@ describe("Needs attention", () => {
     ]);
   });
 
+  test("after go-live, a calendar that stopped working; never before, and never one disconnected by choice", () => {
+    const connected = {
+      status: "active" as const,
+      account: { email: "desk@glow.test", kind: "workspace" as const, domain: "glow.test" },
+      calendar: { id: "primary", primary: true },
+      connectedAt: at.toISOString(),
+      lastVerifiedAt: at,
+      brokenAt: null,
+      lastError: null,
+      disclosureCurrent: true,
+    };
+    const broken = { ...connected, status: "error" as const, brokenAt: at, lastError: "invalid_grant" };
+    const accessRemoved = { status: "not_connected" as const, accessRemovedAt: at };
+    const disconnectedByChoice = { status: "not_connected" as const, accessRemovedAt: null };
+
+    for (const calendar of [broken, accessRemoved]) {
+      expect(needsAttention(facts({ isLive: true, calendar }))).toEqual([
+        {
+          id: "calendar_disconnected",
+          text: "Your calendar stopped working, so bookings arrive as requests your team confirms.",
+          action: { label: "Reconnect it in Settings", href: "/c/glow/settings#calendar" },
+        },
+      ]);
+      // Before go-live the calendar step of setup says it already.
+      expect(needsAttention(facts({ isLive: false, calendar }))).toEqual([]);
+    }
+    // Healthy, merely unreachable this once, never connected or disconnected
+    // by the clinic: nothing to do.
+    for (const calendar of [
+      connected,
+      { ...connected, status: "degraded" as const },
+      disconnectedByChoice,
+    ]) {
+      expect(needsAttention(facts({ isLive: true, calendar }))).toEqual([]);
+    }
+  });
+
   test("an address that bounces and a payment that failed come first; the website list is M7's", () => {
     const items = needsAttention(
       facts({

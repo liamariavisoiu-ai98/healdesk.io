@@ -463,7 +463,20 @@ export async function recordPracticeRun(
   const now2 = await readPracticeInputs(tx, now);
   if (!now2 || now2.inputVersion !== read.inputVersion) {
     await finish({ status: "superseded" });
-    if (now2)
+    // The change that moved the inputs asked for a run, which already waits
+    // its two minutes and is left alone; one made by a writer that does not
+    // ask (the sweep's case) gets one now.
+    const [waiting] = await tx.db
+      .select({ id: practiceQuestionRuns.id })
+      .from(practiceQuestionRuns)
+      .where(
+        and(
+          eq(practiceQuestionRuns.clinicId, tx.clinicId),
+          eq(practiceQuestionRuns.status, "queued"),
+        ),
+      )
+      .limit(1);
+    if (now2 && !waiting)
       await requestPracticeQuestions(tx, {
         reason: run.reason === "override" ? "sweep" : run.reason,
         section: run.triggerSection,

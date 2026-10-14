@@ -238,13 +238,13 @@ describeDb("the practice questions, against the database", () => {
       async (c) =>
         (await c.query(`select version, approved_at, approved_by_label from agent_configs`)).rows,
     );
-    expect(agent.approved_at).toBeInstanceOf(Date);
-    expect(agent.approved_by_label).toBe(`the practice questions (run ${runId})`);
+    expect(agent!.approved_at).toBeInstanceOf(Date);
+    expect(agent!.approved_by_label).toBe(`the practice questions (run ${runId})`);
     const [run] = await runs();
     expect(run).toMatchObject({
       status: "passed",
-      approved_version: agent.version,
-      agent_version: agent.version,
+      approved_version: agent!.version,
+      agent_version: agent!.version,
     });
     const results = await inTenant(
       clinic.clinicId,
@@ -343,7 +343,7 @@ describeDb("the practice questions, against the database", () => {
       clinic.clinicId,
       async (c) => (await c.query(`select approved_at from agent_configs`)).rows,
     );
-    expect(agent.approved_at).toBeNull();
+    expect(agent!.approved_at).toBeNull();
     const notices = await inTenant(
       clinic.clinicId,
       async (c) =>
@@ -476,7 +476,7 @@ describeDb("the practice questions, against the database", () => {
       clinic.clinicId,
       async (c) => (await c.query(`select approved_at from agent_configs`)).rows,
     );
-    expect(agent.approved_at).toBeInstanceOf(Date);
+    expect(agent!.approved_at).toBeInstanceOf(Date);
     const again = await runOperation(
       "decidePracticeReview",
       { clinicId: clinic.clinicId, reviewId: review!.id, decision: "fail" },
@@ -566,13 +566,10 @@ describeDb("the practice questions, against the database", () => {
       clinic.clinicId,
       async (c) => (await c.query(`select approved_at from agent_configs`)).rows,
     );
-    expect(agent.approved_at).toBeNull();
+    expect(agent!.approved_at).toBeNull();
     expect((await runs()).map((r) => r.status)).toEqual(["superseded", "queued"]);
-    // The superseded run asked again, which moved the queued one two minutes on.
-    const queued = (await runs())[1]!;
-    expect(queued.id).toBe(second);
-    expect((queued.run_after as Date).getTime()).toBeGreaterThan(Date.now() + 60_000);
-    expect(await dueQueued()).toBe(second);
+    // The change that superseded it already asked for a run, which is left as it was: still due.
+    expect((await runs())[1]).toMatchObject({ id: second, status: "queued" });
     expect(
       await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
         claimPracticeRun(tx, second, new Date()),

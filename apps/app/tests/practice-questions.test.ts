@@ -30,6 +30,7 @@ import {
   type PracticeRunDeps,
 } from "@/lib/engine/practice/runner";
 import { runVerdict } from "@/lib/engine/practice/store";
+import type { PracticeAttribution, PracticeCaseResult } from "@/lib/engine/practice/types";
 import type { FrontDoorFacts, FrontDoorResponder } from "@/lib/meta/front-door";
 import { urgentLine } from "@/lib/meta/front-door";
 
@@ -187,7 +188,8 @@ function deps(over: Partial<PracticeRunDeps> = {}): PracticeRunDeps {
   return { responder: faithful(), metaResponder: null, judge: judge(), now: NOW, ...over };
 }
 
-const byId = (cases: { id: string }[], id: string) => cases.find((c) => c.id === id)!;
+const byId = <T extends { id: string }>(cases: readonly T[], id: string): T =>
+  cases.find((c) => c.id === id)!;
 
 describe("the cases, templated from the clinic's own profile", () => {
   test("the spec's nine and the disclosure line, in order, with the booking cases not applicable until the runtime has tools", () => {
@@ -625,7 +627,10 @@ describe("Instagram, Messenger and WhatsApp, through the front door's read half"
 });
 
 describe("the run's verdict", () => {
-  const kase = (status: "passed" | "failed" | "review", attribution?: object) => ({
+  const kase = (
+    status: "passed" | "failed" | "review",
+    attribution?: PracticeAttribution,
+  ): PracticeCaseResult => ({
     id: "listed_price" as const,
     status,
     asked: [],

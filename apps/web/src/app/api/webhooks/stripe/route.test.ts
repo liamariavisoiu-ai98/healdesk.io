@@ -31,7 +31,7 @@ import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 
 const mocks = vi.hoisted(() => ({
   markConverted: vi.fn(async (_input: unknown) => {}),
-  markCheckoutAbandoned: vi.fn(async (_email: string) => {}),
+  markCheckoutAbandoned: vi.fn(async (_email: string, _facts?: unknown) => {}),
   updateSetupRequest: vi.fn(async (_id: string, _patch: unknown) => {}),
 }));
 
@@ -324,6 +324,43 @@ describe("the first paid invoice carries the checkout records", () => {
     answers["/api/provision"] = () => new Response("bad records", { status: 422 });
     await POST(signed(firstInvoice({ ...PAID, ref: REF })));
     expect(sheets.records("checkout_intents").every((row) => row.provisioned_at === "")).toBe(true);
+  });
+});
+
+describe("an expired checkout", () => {
+  test("records the expiry with the purchase's ref, so P7 can read the purchase 24 hours later", async () => {
+    const response = await POST(
+      signed(
+        event("checkout.session.expired", {
+          id: "cs_1",
+          object: "checkout.session",
+          status: "expired",
+          customer_email: "owner@glowspa.test",
+          metadata: { app: "healdesk", ref: "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a", plan: "voice-500" },
+        }),
+      ),
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([]);
+    expect(mocks.markCheckoutAbandoned).toHaveBeenCalledWith("owner@glowspa.test", {
+      ref: "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a",
+    });
+  });
+
+  test("another app's expired Session is not ours to record", async () => {
+    mocks.markCheckoutAbandoned.mockClear();
+    await POST(
+      signed(
+        event("checkout.session.expired", {
+          id: "cs_2",
+          object: "checkout.session",
+          status: "expired",
+          customer_email: "someone@scalabid.test",
+          metadata: { app: "scalabid", ref: "r" },
+        }),
+      ),
+    );
+    expect(mocks.markCheckoutAbandoned).not.toHaveBeenCalled();
   });
 });
 

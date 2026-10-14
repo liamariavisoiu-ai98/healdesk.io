@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { Lead } from "@/lib/leads";
-import { TOUCHES, abandonmentEmail, dueTouch } from "@/lib/email/nurture";
+import { TOUCHES, dueTouch, nameForSubject, stillOpenEmail } from "@/lib/email/nurture";
 import { unsubscribeToken, verifyUnsubscribeToken } from "@/lib/email";
 import { canEmail } from "@/lib/leads";
 
@@ -43,6 +43,7 @@ function lead(over: Partial<Lead> = {}): Lead {
     lastSeenAt: consentAt,
     createdAt: consentAt,
     updatedAt: consentAt,
+    abandonedRef: null,
     ...over,
   };
 }
@@ -69,7 +70,7 @@ describe("nurture sequence", () => {
       expect(text).not.toMatch(/\b\d{2}%/);
       expect(text).not.toMatch(/hurry|only \d+ left|countdown/i);
     }
-    const abandoned = abandonmentEmail(lead());
+    const abandoned = stillOpenEmail(lead(), { clinicName: "Radiance", agreementKind: "baa", setupLink: null });
     expect(abandoned.text).toContain("Nothing has been charged");
     expect(abandoned.text).toContain("/api/email/unsubscribe?t=");
   });
@@ -136,5 +137,58 @@ describe("nurture sequence", () => {
     expect(verifyUnsubscribeToken(`0c1d2e3f-0000-4000-8000-000000000002.${token.split(".")[1]}`)).toBeNull();
     expect(verifyUnsubscribeToken("nonsense")).toBeNull();
     expect(verifyUnsubscribeToken(null)).toBeNull();
+  });
+});
+
+describe("P7: the purchase is still open", () => {
+  const LINK = { url: "https://healdesk.io/start?setup=abc", expiresAt: new Date("2026-10-27T15:00:00Z") };
+
+  test("in pilot mode it carries the setup link, with the day it stops working", () => {
+    const email = stillOpenEmail(lead(), { clinicName: "Radiance Med Spa", agreementKind: "baa", setupLink: LINK });
+    expect(email.subject).toBe("Your setup link for Radiance Med Spa is still open");
+    expect(email.text).toContain("Your setup link still works, until Tuesday 27 October:\n\nhttps://healdesk.io/start?setup=abc");
+    expect(email.text).toContain("You got as far as payment for Radiance Med Spa on healdesk.io and stopped. Nothing has been charged.");
+  });
+
+  test("without a link, it says where to start again and claims nothing is saved", () => {
+    const email = stillOpenEmail(lead(), { clinicName: "Radiance Med Spa", agreementKind: "baa", setupLink: null });
+    expect(email.subject).toBe("Your purchase for Radiance Med Spa is not finished");
+    expect(email.text).toContain("start again at https://healdesk.io/get-started");
+    for (const text of [email.subject, email.text]) {
+      expect(text).not.toMatch(/\bsaved\b|where you left/i);
+    }
+    expect(stillOpenEmail(lead(), { clinicName: null, agreementKind: null, setupLink: null }).subject).toBe(
+      "Your healdesk purchase is not finished",
+    );
+  });
+
+  test("names the agreement the practice signed, by its kind, and never the other", () => {
+    const baa = stillOpenEmail(lead(), { clinicName: "Radiance", agreementKind: "baa", setupLink: null }).text;
+    const dpa = stillOpenEmail(lead(), { clinicName: "Paws Vet", agreementKind: "dpa", setupLink: null }).text;
+    const unknown = stillOpenEmail(lead(), { clinicName: "Radiance", agreementKind: null, setupLink: null }).text;
+    expect(baa).toContain("If you signed the business associate agreement, it is on file and belongs to no account");
+    expect(baa).not.toMatch(/data protection agreement/i);
+    expect(dpa).toContain("If you signed the data protection agreement, it is on file and belongs to no account");
+    expect(dpa).not.toMatch(/business associate agreement/i);
+    expect(unknown).toContain("If you signed the data agreement your practice needs");
+  });
+
+  test("carries the footer every commercial email does", () => {
+    const text = stillOpenEmail(lead(), { clinicName: "Radiance", agreementKind: "baa", setupLink: LINK }).text;
+    expect(text).toContain("You're getting this because you started a purchase for Radiance at healdesk.io. Stop these emails: ");
+    expect(text).toContain("Replies reach the healdesk team. Please leave out patient details.");
+    expect(text).toContain("healdesk is a service of Viixi FZC");
+    expect(text).toContain("Wilmington, DE");
+  });
+
+  test("a long clinic name is cut so the subject stays within 70 characters", () => {
+    const long = "The Very Long Name Aesthetic and Wellness Medical Spa of Greater Austin LLC";
+    for (const setupLink of [LINK, null]) {
+      const subject = stillOpenEmail(lead(), { clinicName: long, agreementKind: "baa", setupLink }).subject;
+      expect(subject.length, subject).toBeLessThanOrEqual(70);
+      expect(subject).toContain("…");
+    }
+    expect(nameForSubject("Radiance", 20)).toBe("Radiance");
+    expect(nameForSubject("Radiance Med Spa", 9)).toBe("Radiance…");
   });
 });

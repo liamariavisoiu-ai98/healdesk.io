@@ -44,6 +44,7 @@ function channel(over: Partial<ChannelState> & Pick<ChannelState, "channel">): C
 
 describe("the menu", () => {
   test("the spec's order; each screen this build has is a link, and the patient screens say they open after go-live", () => {
+    // A clinic with no live channel and no booking request yet.
     const nav = portalNav("glow", "home");
     const order: PortalSection[] = [
       "home",
@@ -67,6 +68,33 @@ describe("the menu", () => {
     expect(nav.find((i) => i.section === "home")).toMatchObject({ current: true });
     expect(sectionPath("glow", "home")).toBe("/c/glow");
     expect(sectionPath("glow", "billing")).toBe("/c/glow/billing");
+  });
+
+  test("Bookings is a link once a channel has gone live or a request exists, and Conversations still waits", () => {
+    expect(isBuiltSection("bookings")).toBe(true);
+    const waiting = portalNav("glow", "home", { bookingsOpen: false });
+    expect(waiting.find((i) => i.section === "bookings")).toEqual({
+      section: "bookings",
+      label: "Bookings",
+      href: null,
+      current: false,
+      note: OPENS_AFTER_GO_LIVE,
+    });
+    const opened = portalNav("glow", "home", { bookingsOpen: true });
+    expect(opened.find((i) => i.section === "bookings")).toEqual({
+      section: "bookings",
+      label: "Bookings",
+      href: "/c/glow/bookings",
+      current: false,
+    });
+    expect(opened.find((i) => i.section === "conversations")).toMatchObject({
+      href: null,
+      note: OPENS_AFTER_GO_LIVE,
+    });
+    // On Bookings itself, it is the current page.
+    expect(
+      portalNav("glow", "bookings").find((i) => i.section === "bookings"),
+    ).toMatchObject({ href: "/c/glow/bookings", current: true });
   });
 
   test("a screen is in the menu only when its page exists, and every screen page is in the menu", () => {

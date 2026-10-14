@@ -5,6 +5,7 @@ import { loadSetupState, type SetupState } from "@/lib/setup/state";
 
 import { portalGrants, type PortalContext, type PortalGrant } from "./access";
 import { portalActor, type PortalActor } from "./actor";
+import { bookingsOpen } from "./bookings-open";
 import { answeringStatus, type AnsweringStatus } from "./header";
 import type { PortalSection } from "./nav";
 
@@ -15,7 +16,8 @@ import type { PortalSection } from "./nav";
  * requirePortal(slug) itself first and passes the context in, so the guard is
  * visible in every page file.
  *
- * Business data only: the practice, its settings and its channels. Nothing
+ * Business data only: the practice, its settings and its channels, and
+ * whether any booking request exists (for the menu; never a row). Nothing
  * here reads a patient.
  */
 export type PortalPage = {
@@ -23,6 +25,8 @@ export type PortalPage = {
   actorContext: ActorContext;
   state: SetupState;
   locations: PortalGrant[];
+  /** Whether the menu links Bookings: a channel has gone live, or a request exists. */
+  bookingsOpen: boolean;
 };
 
 export async function loadPortalPage(
@@ -39,7 +43,12 @@ export async function loadPortalPage(
   });
   if (!state) return null;
   const locations = await portalGrants(portal.userId);
-  return { actor, actorContext, state, locations };
+  const opened = await bookingsOpen({
+    clinicId: portal.clinicId,
+    actor: actorContext,
+    anyChannelLive: state.channels.some((c) => c.liveAt !== null),
+  });
+  return { actor, actorContext, state, locations, bookingsOpen: opened };
 }
 
 /** The shell's props for a screen, from what loadPortalPage read. */
@@ -55,6 +64,7 @@ export function shellProps(
   status: AnsweringStatus;
   timeZone: string;
   locations: PortalGrant[];
+  bookingsOpen: boolean;
 } {
   return {
     slug: portal.clinicSlug,
@@ -64,5 +74,6 @@ export function shellProps(
     status: answeringStatus(page.state.channels),
     timeZone: page.state.clinic.timezone,
     locations: page.locations,
+    bookingsOpen: page.bookingsOpen,
   };
 }

@@ -411,6 +411,48 @@ describe("the reply guard: who is writing", () => {
   });
 });
 
+describe("the reply guard: a named person presented as staff or a provider", () => {
+  // The Meta channels name no provider and the front door books nothing, so
+  // no reply has reason to name anyone who works at the practice. The old
+  // provider pattern caught only "with Dr Chen".
+  const context = { ...CLINIC, clinicName: "Glow Clinic", address: "1200 Peel Street, Suite 4" };
+
+  test.each([
+    ["Dr. Chen can help.", "a provider"],
+    ["Doctor Patel sees new clients on weekdays.", "a provider"],
+    ["Nurse Jane can answer that by phone.", "a provider"],
+    ["Jane, our nurse, will call.", "a named member of staff"],
+    ["Our injector Maria will call you back.", "a named member of staff"],
+    ["Maria (one of our injectors) can help with that.", "a named member of staff"],
+    ["Our lead nurse, Jane, will be in touch.", "a named member of staff"],
+    ["The receptionist is Amy; call the practice to book.", "a named member of staff"],
+    ["Jane at the front desk can help with that.", "a named member of staff"],
+    ["Sarah from Glow Clinic will call you to confirm.", "a named member of staff"],
+    ["Maria will call you back to confirm.", "a named member of staff"],
+    ["Ask for Maria when you call the practice.", "a named member of staff"],
+    ["Please speak to Jane about prices.", "a named member of staff"],
+  ])("refuses: %j", (reply, reason) => {
+    expect(guardReply(reply, context)).toEqual({ ok: false, reason });
+  });
+
+  test.each([
+    // The person's own first name, which the booking request asks for.
+    "Thanks, Jane! What's the best number for the practice to call?",
+    "Got it, Maria. The practice will call you to confirm.",
+    // No one named: a role on its own, the team, someone.
+    "Our team will call you to confirm.",
+    "Someone at the practice will call you to confirm.",
+    "A person at the practice can help with the rest.",
+    "Our front desk can help: call the practice to book.",
+    // The clinic's own name and address, which may look like a person's.
+    "Thanks for messaging Dr. Chen Aesthetics! Call the practice to book.",
+    "We're at 1200 Peel Street, Suite 4. Call the practice to book.",
+  ])("passes: %j", (reply) => {
+    const clinicName = reply.includes("Dr. Chen Aesthetics") ? "Dr. Chen Aesthetics" : "Glow Clinic";
+    expect(guardReply(reply, { ...context, clinicName })).toEqual({ ok: true });
+  });
+});
+
 describe("the reply guard: the person's own words", () => {
   // The C19 re-audit's B4: a reply saying back what the person wrote can
   // name their condition or reason, which no list is complete enough to

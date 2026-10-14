@@ -1,5 +1,5 @@
 import { isAfterHours, parseOpeningHours } from "@/lib/clinic/opening-hours";
-import { billableVoiceMinutes, resolveBookingRequirements, type BookingField } from "@healdesk/catalog";
+import { billableVoiceMinutes, DEFAULT_COVERAGE_MODE, resolveBookingRequirements, type BookingField, type CoverageModeId } from "@healdesk/catalog";
 import { toE164 } from "@healdesk/connectors";
 import { and, asc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
@@ -197,22 +197,28 @@ type StoredRecoveryReason = RecoveryReason | "missed_call_callback";
  * Under conditional forwarding that case cannot occur: if the clinic had
  * handled it, the call would never have reached us.
  *
- * ## The one case that is not recovery
+ * ## The cases that are not recovery
  *
  * A clinic can also point its number straight at us, with no ring at the
- * practice first — a solo operator with no front desk, typically. Then the AI
- * is not answering *instead of* anybody, and counting a routine midday call as
- * recovered would inflate the headline figure to the point of meaninglessness.
- * For those clinics only calls nobody there could have taken — outside opening
- * hours — are recovery.
+ * practice first: All calls, a solo operator with no front desk, typically.
+ * Then the AI is not answering *instead of* anybody, and counting a routine
+ * midday call as recovered would inflate the headline figure to the point of
+ * meaninglessness. For those clinics only calls nobody there could have taken
+ * — outside opening hours — are recovery.
  *
- * Which of the two applies is a property of the clinic's phone configuration,
- * not of the call, which is why it is read from the clinic row.
+ * After hours only is the same rule from the other side: every call is
+ * forwarded while the clinic is closed, and none should be while it is open.
+ * A call outside the hours is after-hours recovery; one inside them reached
+ * us only because the forwarding was not switched off at opening, nobody at
+ * the clinic had the chance to miss it, and it is not counted.
+ *
+ * Which applies is a property of the clinic's coverage mode
+ * (clinic_settings.coverage_mode, the single source), not of the call.
  */
 export function classifyRecovery(
   event: VoiceCallEvent,
   clinic: {
-    callRouting: "conditional" | "always";
+    coverageMode: CoverageModeId;
     openingHours: unknown;
     timezone: string;
   },
@@ -225,13 +231,14 @@ export function classifyRecovery(
 
   const outsideHours = isOutsideOpeningHours(event, clinic);
 
-  if (clinic.callRouting === "always") {
-    // We are the primary answerer. Only calls nobody at the clinic could have
-    // taken count — and if we do not know their hours, we cannot claim that.
+  if (clinic.coverageMode !== "overflow_after_hours") {
+    // We are the primary answerer: All calls always, After hours only while
+    // the clinic is closed. Only calls nobody at the clinic could have taken
+    // count — and if we do not know their hours, we cannot claim that.
     return outsideHours ? "after_hours" : null;
   }
 
-  // Conditional forwarding: the call rang at the clinic and came to us unanswered.
+  // Overflow and after hours: the call rang at the clinic and came to us unanswered.
   // After-hours is the more informative reason where we can establish it, and
   // rang_unanswered is the literal truth in every other case.
   if (outsideHours) return "after_hours";
@@ -433,7 +440,10 @@ export async function ingestCall(
       .select({
         timezone: clinics.timezone,
         openingHours: clinics.openingHours,
-        callRouting: clinics.callRouting,
+        // Which calls reach AYA: the settings row's, the single source. A
+        // clinic with no settings row is on the default, which is what 0056
+        // left every clinic whose call_routing was not 'always'.
+        coverageMode: clinicSettings.coverageMode,
         forwardingTestUntil: clinics.forwardingTestUntil,
         publishedPhoneE164: clinics.publishedPhoneE164,
         assistantNumberE164: clinics.assistantNumberE164,
@@ -441,13 +451,15 @@ export async function ingestCall(
         bookingRequirements: clinics.bookingRequirements,
       })
       .from(clinics)
+      .leftJoin(clinicSettings, eq(clinicSettings.clinicId, clinics.id))
       .where(eq(clinics.id, event.clinicId))
       .limit(1);
 
     if (!clinic) throw new VoiceIngestError("Unknown clinic.");
+    const coverageMode = clinic.coverageMode ?? DEFAULT_COVERAGE_MODE;
 
     const recoveryReason = classifyRecovery(event, {
-      callRouting: clinic.callRouting,
+      coverageMode,
       openingHours: clinic.openingHours,
       timezone: clinic.timezone,
     });
@@ -589,7 +601,7 @@ export async function ingestCall(
         // traced to the moment the decision was made and the facts behind it.
         recoveryReason: recoveryReason ?? "none",
         ...classifyBooking(event, recoveryReason),
-        callRouting: clinic.callRouting,
+        coverageMode,
         disclosurePlayed: Boolean(event.disclosurePlayedAt),
       },
     });

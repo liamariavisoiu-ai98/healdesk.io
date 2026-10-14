@@ -1199,6 +1199,9 @@ describe("directBookingOpen", () => {
     reply({ data: { directBooking: true } });
     expect(await Promise.all([opsClient.directBookingOpen(0), opsClient.directBookingOpen(0)])).toEqual([true, true]);
     expect(sent).toHaveLength(1);
+  });
+});
+
 describe("the practice questions' review queue (/admin/reviews)", () => {
   const REVIEW = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
   const RUN = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f";

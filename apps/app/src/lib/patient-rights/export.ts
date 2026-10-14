@@ -27,10 +27,11 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *
  * The BAA's patient-rights clause commits healdesk to give the clinic what
  * it needs to answer an access, amendment or accounting request within ten
- * business days. This is that: found by phone or email inside the clinic's
- * tenant, every row that names the contact, and the audit trail filtered to
- * those rows — which is the only possible accounting of disclosures, and
- * which report.ts already proves records even a count.
+ * business days. This is that: found by phone, email or a contact's id
+ * inside the clinic's tenant, every row that names the contact, and the
+ * audit trail filtered to those rows — which is the only possible
+ * accounting of disclosures, and which report.ts already proves records
+ * even a count.
  *
  * Its own audit row is written for the export itself: producing a bundle is
  * an access, and the next accounting request must show this one.
@@ -195,12 +196,52 @@ function assertRequester(requestedBy: unknown): asserts requestedBy is PatientRe
   }
 }
 
-export async function exportPatient(
-  tx: TenantTx,
-  query: { phone?: string; email?: string; requestedBy: PatientRequester },
-): Promise<PatientBundle> {
+/** The contact id given matches no contact of this clinic. */
+export class ExportContactNotFound extends Error {
+  constructor() {
+    super("No such contact at this clinic.");
+    this.name = "ExportContactNotFound";
+  }
+}
+
+const CONTACT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Who the bundle is about: a telephone number, an email address, or both;
+ * or a contact's id in their place. By id, the person is that contact and
+ * every contact carrying its number or its address, read here inside the
+ * transaction: the same bundle as asking by the contact's own details,
+ * with the contact itself always in it, even one with neither. It is how a
+ * per-patient export runs on the AWS host, where no patient's details may be
+ * typed or passed in (run-task's overrides are recorded by CloudTrail), as a
+ * deletion does (erasure.ts, `contactId`).
+ */
+export type PatientQuery = {
+  phone?: string;
+  email?: string;
+  contactId?: string;
+  requestedBy: PatientRequester;
+};
+
+export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<PatientBundle> {
   assertRequester(query.requestedBy);
-  if (!query.phone && !query.email) throw new Error("A phone number or an email address is required.");
+  let phone = query.phone;
+  let email = query.email?.toLowerCase();
+  const contactId = query.contactId;
+  if (contactId !== undefined) {
+    if (phone || email) throw new Error("Name the person by a contact's id, or by their details, not both.");
+    if (!CONTACT_ID.test(contactId)) throw new Error("A contact's id is its uuid.");
+    const [contact] = await tx.db
+      .select({ phone: contacts.phone, email: contacts.email })
+      .from(contacts)
+      .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)))
+      .limit(1);
+    if (!contact) throw new ExportContactNotFound();
+    phone = contact.phone ?? undefined;
+    email = contact.email?.toLowerCase() ?? undefined;
+  } else if (!phone && !email) {
+    throw new Error("A phone number, an email address or a contact's id is required.");
+  }
 
   const found = await tx.db
     .select()
@@ -209,14 +250,15 @@ export async function exportPatient(
       and(
         eq(contacts.clinicId, tx.clinicId),
         or(
-          query.phone ? eq(contacts.phone, query.phone) : sql`false`,
-          query.email ? eq(contacts.email, query.email.toLowerCase()) : sql`false`,
+          contactId ? eq(contacts.id, contactId) : sql`false`,
+          phone ? eq(contacts.phone, phone) : sql`false`,
+          email ? eq(contacts.email, email) : sql`false`,
         ),
       ),
     );
   const ids = found.map((c) => c.id);
   const phones = found.map((c) => c.phone).filter((p): p is string => Boolean(p));
-  if (query.phone) phones.push(query.phone);
+  if (phone) phones.push(phone);
 
   const convos = ids.length
     ? await tx.db.select().from(conversations).where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.contactId, ids)))
@@ -292,7 +334,11 @@ export async function exportPatient(
     resourceType: "patient_bundle",
     resourceIds: ids,
     resultCount: everyId.length,
-    metadata: { requestedBy: query.requestedBy, rows: everyId.length },
+    metadata: {
+      requestedBy: query.requestedBy,
+      rows: everyId.length,
+      by: contactId ? "contact_id" : "details",
+    },
   });
 
   return {

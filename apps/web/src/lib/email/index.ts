@@ -5,8 +5,12 @@ import { site } from "@/lib/site";
 /**
  * Email from the MARKETING side. No patient information ever passes through
  * here — this module lives in apps/web, which holds none — and that is what
- * lets it use Resend without a BAA. The product's own mail (agreement copies,
- * report notices) is a different module in apps/app with different rules.
+ * lets it use Resend without a BAA. The product's own mail (report notices,
+ * transcripts, an operator's resend of an agreement copy) is a different
+ * module in apps/app with different rules. Since 14 October 2026 the signer's
+ * copy of the agreement goes from here at signature, as a PDF attachment
+ * (app/api/agreement/route.ts): a business contract naming a practice and its
+ * signatory, business contact data, never PHI.
  *
  * ## The port/transport shape, borrowed from apps/app/src/lib/reporting/deliver.ts
  *
@@ -44,7 +48,27 @@ export type OutboundEmail = {
    * an address, because Resend keeps the key in its logs.
    */
   idempotencyKey?: string;
+  /** An HTML alternative to `text`, for a message whose words the catalog renders both ways. */
+  html?: string;
+  /**
+   * Files sent with the message, as Resend's API takes them: a name and the
+   * bytes, which go base64-encoded. Transactional mail only; the one sender
+   * is the signer's copy of the agreement.
+   */
+  attachments?: readonly EmailAttachment[];
 };
+
+export type EmailAttachment = {
+  /** Shown to the recipient. Letters, digits, dot, dash and underscore only, so it needs no quoting anywhere. */
+  filename: string;
+  content: Uint8Array;
+};
+
+/** A name that is safe in any header a provider writes it into, or a plain fallback. */
+function attachmentName(name: string): string {
+  const cleaned = name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").slice(0, 120);
+  return cleaned || "attachment";
+}
 
 export type SendResult =
   | { status: "sent"; providerId: string | null }
@@ -94,6 +118,15 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
         reply_to: message.replyTo ?? site.email,
         subject: message.subject,
         text: message.text,
+        ...(message.html ? { html: message.html } : {}),
+        ...(message.attachments?.length
+          ? {
+              attachments: message.attachments.map((file) => ({
+                filename: attachmentName(file.filename),
+                content: Buffer.from(file.content).toString("base64"),
+              })),
+            }
+          : {}),
         headers,
         // `app` lets the one Resend account's webhook tell this site's mail
         // from the product's (Annex X3). Tag values allow letters, digits,

@@ -33,8 +33,8 @@ import { baaAcceptances } from "@/db/schema";
  * list of two hundred of them is not the place to hand it out — it would turn
  * a search into a bulk export of every agreement the company has ever signed,
  * over whatever surface the register is rendered on. The document has its own
- * route (`/api/agreements/[id]/pdf`), which fetches one agreement, by id,
- * deliberately. So the projection below names its columns one by one rather
+ * paths, which fetch one agreement, by id, deliberately: the operator's resend
+ * (`resendAgreementCopy`) and the clinic portal's download. So the projection below names its columns one by one rather
  * than selecting the table: an explicit list cannot grow a text column by
  * accident when somebody adds `.select()` shorthand.
  *

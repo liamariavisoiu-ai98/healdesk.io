@@ -22,11 +22,11 @@ import { isIP } from "node:net";
  * alone, and with no proxy at all (`next start` on a laptop) Next fills an
  * absent header from the socket.
  *
- * Only for requests a browser makes. The routes apps/web calls with a signed
- * request (/api/provision, /api/agreements and its PDF) keep reading the
- * first entry: for /api/agreements apps/web puts the signer's address there,
- * the entry the balancer appends is Vercel's, and nobody else can make the
- * request at all.
+ * Only for requests a browser makes. The route apps/web calls with a signed
+ * request (/api/provision) keeps reading the first entry: nobody else can
+ * make the request at all. (/api/agreements and its PDF, which carried the
+ * signer's address there, were removed on 14 October 2026, when the
+ * signature moved to apps/web, which records the address itself.)
  */
 export const TRUSTED_PROXY_HOPS = 1;
 

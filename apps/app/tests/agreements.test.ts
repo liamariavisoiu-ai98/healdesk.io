@@ -18,18 +18,14 @@ import {
   platforms,
   prepareBaa,
   renderBaa,
-  SIGNATURE_HEADER,
-  sign,
   specialties,
   supportsVerifiedAttribution,
   templateReadsCalendarAccount,
-  TIMESTAMP_HEADER,
   type BaaVariables,
 } from "@healdesk/catalog";
 import { assentSentence, BAA_ASSENT_LABEL } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { POST as signRoute } from "@/app/api/agreements/route";
 import {
   AgreementError,
   agreementKindForRequest,
@@ -1500,52 +1496,10 @@ describe("the server's render", () => {
   });
 });
 
-/**
- * The endpoint answers a refusal with 422 and the field it names, which is
- * what a client keys its message to. Every request here is refused before
- * anything is written, so no database is needed.
- */
-describe("POST /api/agreements", () => {
-  const SECRET = "provision-secret-for-agreement-tests";
-
-  async function post(body: Record<string, unknown>): Promise<Response> {
-    const raw = JSON.stringify(body);
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    return signRoute(
-      new Request("https://app.healdesk.io/api/agreements", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          [TIMESTAMP_HEADER]: timestamp,
-          [SIGNATURE_HEADER]: sign(raw, timestamp, SECRET),
-        },
-        body: raw,
-      }),
-    );
-  }
-
-  test("refuses an unknown answer, or a practice this agreement is not for, with 422 naming the field", async () => {
-    vi.stubEnv("HEALDESK_PROVISION_SECRET", SECRET);
-    try {
-      for (const [over, field] of [
-        [{ bookingSystem: "zenoti" }, "bookingSystem"],
-        [{ calendarAccount: "gmail" }, "calendarAccount"],
-        // 1.3.0, the current version, cannot be signed without it.
-        [{ bookingSystem: undefined }, "bookingSystem"],
-        [{ specialty: "veterinary" }, "specialty"],
-        // A version below the floor, or a draft: refused as a version, never signed.
-        [{ templateVersion: "1.2.1" }, "templateVersion"],
-        [{ templateVersion: "1.1.0-draft" }, "templateVersion"],
-      ] as [Record<string, unknown>, string][]) {
-        const response = await post({ ...validSignRequest(over) });
-        expect(response.status, JSON.stringify(over)).toBe(422);
-        expect(await response.json()).toMatchObject({ field });
-      }
-    } finally {
-      vi.unstubAllEnvs();
-    }
-  });
-});
+// POST /api/agreements, which answered these refusals with 422 and the field,
+// was removed on 14 October 2026: the signature is taken on apps/web now
+// (docs/design/checkout-records-on-vercel-2026-10-14.md), whose route test
+// holds the same refusals (apps/web/src/app/api/agreement/route.test.ts).
 
 describeDb("signing", () => {
   beforeAll(async () => {

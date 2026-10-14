@@ -157,11 +157,22 @@ account's business details match Viixi FZC, the seller.
 
 Two things about that flow worth not rediscovering:
 
-**An account is recorded on `checkout.session.completed` and activated only by the first
-paid invoice.** The clinic is created in `provisioning`, with nothing switched on; the
-first invoice's `invoice.paid` (`billing_reason: "subscription_create"`) moves it to
-`active`. Never the success URL: a customer who closes the tab after paying still gets
-their account, and someone who hand-crafts a success URL gets nothing.
+**The agreement and the purchase are recorded on apps/web, and the account is made by the
+first paid invoice** (since 14 October 2026;
+[design/checkout-records-on-vercel-2026-10-14.md](./design/checkout-records-on-vercel-2026-10-14.md)).
+Signing writes a sealed agreement record to the marketing Sheet's `agreements` tab and mails
+the PDF copy through Resend; Pay writes a sealed purchase record to `checkout_intents` and
+sends the buyer to Stripe, which returns them to apps/web's `/welcome`. None of it calls
+apps/app, so a buyer can sign and pay while the AWS host is in standby. The first invoice's
+`invoice.paid` (`billing_reason: "subscription_create"`) is relayed to apps/app's
+`/api/provision` with both records; apps/app checks their seals and the agreement's
+re-rendered hash, imports them (same agreement id and accepted-at), and provisions. Never
+the success URL: a customer who closes the tab after paying still gets their account, and
+someone who hand-crafts a success URL gets nothing. apps/web's `/welcome` checks the Session
+with Stripe, asks apps/app (`welcomeHandoff`) whether the account is there, and sends the
+browser on to apps/app's own `/welcome` when it is; until then it shows a waiting page. **An
+agreement release deploys apps/app first**, then apps/web: a signature apps/app's catalog
+cannot re-render is a paid order it refuses.
 
 **Stripe retries every non-2xx for up to three days.** So a missing signing secret
 returns **500** deliberately: the events queue up and replay once it is set. A *wrong*
@@ -172,9 +183,14 @@ Never put a placeholder in `STRIPE_WEBHOOK_SECRET`.
 ### The marketing lead register
 
 The marketing site keeps its data in one Google Sheet: demo leads, funnel events, the
-demo-call consent record and the two daily spend counters. Four tabs, each headed with
-the old Postgres column names in the old order (`apps/web/src/lib/sheets/schema.ts`),
-ISO timestamps as text, TRUE/FALSE booleans, blanks for null. The site provisions the
+demo-call consent record, the two daily spend counters, setup requests, personalised
+demos and, since 14 October 2026, the checkout records (`agreements`, `checkout_intents`).
+Each tab is headed with snake_case column names (`apps/web/src/lib/sheets/schema.ts`),
+ISO timestamps as text, TRUE/FALSE booleans, blanks for null. **The two checkout tabs are
+legal and payment records:** each row is a record sealed with `HEALDESK_PROVISION_SECRET`,
+spread across `record_1`…`record_8`. Never edit, sort or delete their rows by hand: an
+edited record stops opening and its purchase stops provisioning, and a deleted signature is
+gone. The site provisions the
 tabs itself on first use; `npm run sheets:init -w @healdesk/web` does the same by hand,
 which is the quickest way to prove the sharing and the key work before a deploy.
 
@@ -197,9 +213,11 @@ Service account: `healdesk-sheets@healdesk-marketing-2026.iam.gserviceaccount.co
    `apps/web/.env.local`, or let the site do it lazily on the first lead. Then open
    `/admin/crm` signed in to the company account.
 
-With either variable missing nothing goes down: the demo runs and the lead is lost
-(logged as a count, never an address), `/admin/crm` shows an empty state, and the daily
-caps fall back to per-instance memory with one warning. Rotating the key is `gcloud iam
+With either variable missing the demo runs and the lead is lost (logged as a count, never
+an address), `/admin/crm` shows an empty state, and the daily caps fall back to
+per-instance memory with one warning. **Signing and checkout do not run without the Sheet**:
+`/api/agreement` and `/api/checkout` answer 503, because the agreement and the purchase
+are recorded there. Rotating the key is `gcloud iam
 service-accounts keys create` again, paste, redeploy, then delete the old key id.
 
 ---

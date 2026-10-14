@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { domainToASCII } from "node:url";
-
+import { asciiRecipient, isSendableAddress as catalogSendable, recipientProblem } from "@healdesk/catalog/mail-address";
 import type { SESv2ClientConfig } from "@aws-sdk/client-sesv2";
 
 import { env } from "@/lib/env";
@@ -700,37 +699,13 @@ export class MailFormatError extends Error {
  */
 
 /**
- * RFC 5322 dot-atom: the atext characters, in dot-separated runs. Narrower than
- * the old negated class in the two ways that were wrong rather than strict — it
- * is ASCII by construction, and it rejects the leading, trailing and doubled
- * dots that are not a legal mailbox anywhere.
+ * The two patterns and the two ceilings that used to be written out here are
+ * in @healdesk/catalog/mail-address now, because the agreement's signature is
+ * taken on apps/web since 14 October 2026 and asks the same question there
+ * before the address goes onto the record. One predicate, in one place:
+ * `recipientProblem` says why an address cannot be sent to, and this file
+ * words the refusal.
  */
-const LOCAL_PART =
-  /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/;
-
-/**
- * An LDH domain of at least two labels, checked AFTER punycode conversion.
- *
- * Checked after, and not merely for tidiness: `domainToASCII` is a converter,
- * not a validator, and hands back `a..b.com` and `-bad.com` unchanged rather
- * than rejecting them. It signals failure by returning the empty string, which
- * is necessary to check and nowhere near sufficient.
- */
-const DOMAIN_ASCII =
-  /^(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9][A-Za-z0-9-]{0,61}[A-Za-z0-9]$/;
-
-/**
- * The two ceilings, from the two specifications that set them.
- *
- * 64 for the local part is RFC 5321 §4.5.3.1. 253 for the domain is the DNS
- * presentation-format limit rather than RFC 5321's 255, because the value being
- * measured here is a domain NAME after punycode conversion: 255 is the wire
- * form, which spends two octets on the root label and the leading length byte.
- * Taking the smaller is the safe direction, and together they bound the header
- * line this becomes at well under the RFC 5322 998.
- */
-const MAX_LOCAL_PART_CHARS = 64;
-const MAX_DOMAIN_CHARS = 253;
 
 /**
  * Printable US-ASCII, which is all a header field may contain (RFC 5322 §2.2).
@@ -802,50 +777,40 @@ function assertSendableFrom(value: string): void {
  */
 export function normaliseRecipient(value: string): string {
   assertNoHeaderBreak("recipient address", value);
-  const trimmed = value.trim();
 
-  // The last "@", not the first: the local part below cannot contain one, so
-  // the two agree for any address that will be accepted — but splitting on the
-  // last means a rejected address is rejected for its local part rather than
-  // for a domain that was never the domain.
-  const at = trimmed.lastIndexOf("@");
-  if (at <= 0 || at === trimmed.length - 1) {
-    throw new MailFormatError(
-      "Refusing to send: the recipient is not a single plain address.",
-    );
+  switch (recipientProblem(value)) {
+    case null:
+      break;
+    case "header_break":
+      // assertNoHeaderBreak has already thrown for this; kept for the switch.
+      throw new MailFormatError(
+        "Refusing to send: the recipient address contains a line break or null byte, " +
+          "which in a mail header means an injected header rather than a value.",
+      );
+    case "not_single_address":
+      throw new MailFormatError(
+        "Refusing to send: the recipient is not a single plain address.",
+      );
+    case "local_part":
+      throw new MailFormatError(
+        "Refusing to send: the recipient's mailbox name is not one this " +
+          "transport can address. A mail header is US-ASCII, and a non-ASCII " +
+          "mailbox name needs SMTPUTF8, which is negotiated per hop and which " +
+          "healdesk does not speak — it can be neither encoded (RFC 2047 does " +
+          "not apply inside an address) nor transliterated (that names a " +
+          "different mailbox). A display name, a second address or a bracketed " +
+          "form is refused here too: this field takes one bare address.",
+      );
+    case "domain":
+      throw new MailFormatError(
+        "Refusing to send: the recipient's domain is not a domain healdesk can " +
+          "convert to the ASCII form a mail header requires.",
+      );
   }
 
-  const local = trimmed.slice(0, at);
-  const domain = trimmed.slice(at + 1);
-
-  if (local.length > MAX_LOCAL_PART_CHARS || !LOCAL_PART.test(local)) {
-    throw new MailFormatError(
-      "Refusing to send: the recipient's mailbox name is not one this " +
-        "transport can address. A mail header is US-ASCII, and a non-ASCII " +
-        "mailbox name needs SMTPUTF8, which is negotiated per hop and which " +
-        "healdesk does not speak — it can be neither encoded (RFC 2047 does " +
-        "not apply inside an address) nor transliterated (that names a " +
-        "different mailbox). A display name, a second address or a bracketed " +
-        "form is refused here too: this field takes one bare address.",
-    );
-  }
-
-  // The A-label, so an internationalised domain is transmitted correctly rather
-  // than raw. domainToASCII returns "" when it cannot convert, and returns
-  // some invalid inputs unchanged, so the result is validated either way.
-  const ascii = domainToASCII(domain);
-  if (
-    !ascii ||
-    ascii.length > MAX_DOMAIN_CHARS ||
-    !DOMAIN_ASCII.test(ascii)
-  ) {
-    throw new MailFormatError(
-      "Refusing to send: the recipient's domain is not a domain healdesk can " +
-        "convert to the ASCII form a mail header requires.",
-    );
-  }
-
-  return `${local}@${ascii}`;
+  // The A-label, so an internationalised domain is transmitted correctly
+  // rather than raw.
+  return asciiRecipient(value)!;
 }
 
 /**
@@ -858,12 +823,7 @@ export function normaliseRecipient(value: string): string {
  * will later refuse to send to, which is the worst moment to find out.
  */
 export function isSendableAddress(value: string): boolean {
-  try {
-    normaliseRecipient(value);
-    return true;
-  } catch {
-    return false;
-  }
+  return catalogSendable(value);
 }
 
 /**

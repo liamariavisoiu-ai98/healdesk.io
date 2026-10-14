@@ -24,8 +24,7 @@ import { describeError, log } from "@/lib/log";
  * driver and must not acquire one: that absence is why the marketing site can
  * deploy anywhere and why the audit of this codebase can say the public site
  * cannot reach patient data. So the console asks and this answers, over the
- * same signed channel `/api/provision` and `/api/agreements/[id]/pdf` already
- * use.
+ * same signed channel `/api/provision` already uses.
  *
  * The body is `{ op, args, context? }`. One question is asked about it:
  *
@@ -61,7 +60,7 @@ import { describeError, log } from "@/lib/log";
  *
  * `src/proxy.ts` redirects anything without a session cookie to /sign-in, and
  * exempts a short list of paths that authenticate themselves — `/api/auth`,
- * `/api/agreements`, `/api/provision`, `/api/webhooks`. `/api/ops` is not on
+ * `/api/provision`, `/api/webhooks`. `/api/ops` is not on
  * that list and belongs on it: a signed server-to-server POST carries no
  * cookie, so without the entry every call here becomes a 307 pointing at HTML,
  * which is a genuinely baffling failure to debug from the caller's side. That

@@ -1,6 +1,7 @@
 import { type ClinicProfile } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { relayedIntent, signTestAgreement } from "@/lib/checkout/records.testing";
 import { __resetDemoCacheForTests, createDemoSession, SELF_SERVE_DEMO, updateDemoSession } from "@/lib/demo/sessions";
 import { LEGAL_VERSION } from "@/lib/legal";
 import { issueSetupToken, setupLinkExpiry } from "@/lib/setup-link";
@@ -19,17 +20,59 @@ import { POST } from "./route";
  * what setup starts from. So a value the catalog does not know is refused
  * here, on both the paid and the unpaid path, and so is a checkout with no
  * signed agreement or no ticked terms. These tests run the unpaid development
- * path (no STRIPE_SECRET_KEY, NODE_ENV "test") with `fetch` stubbed, so a
- * request that passes validation can be inspected on its way to apps/app
- * without a server. A later block pins that the same path is refused in
- * production.
+ * path (no STRIPE_SECRET_KEY, NODE_ENV "test") with `fetch` stubbed and the
+ * marketing Sheet faked: each purchase is signed for first, as the agreement
+ * step would (records.testing.ts), and the purchase record the development
+ * path relays to /api/provision is opened and inspected, so a request that
+ * passes validation can be read on its way to apps/app without a server.
+ * A later block pins that the same path is refused in production.
  */
+
+const SECRET = "test-secret";
+
+/** The agreement id the fixtures carry until a matching signature is recorded for them. */
+const UNSIGNED = "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a";
+
+beforeEach(() => {
+  __setSheetsClientForTests(new FakeSheets());
+  __resetSheetSchemaForTests();
+});
+
+afterEach(() => {
+  __setSheetsClientForTests(null);
+  __resetSheetSchemaForTests();
+});
+
+/**
+ * The body with a signature recorded for its own answers, as the agreement
+ * step records one before Review and pay, unless the test chose its own
+ * agreement id. A body whose answers cannot be signed keeps the placeholder:
+ * the route refuses it before the agreement is looked at, or as unsigned.
+ */
+async function withSignature(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (body.agreementId !== UNSIGNED) return body;
+  try {
+    const record = await signTestAgreement({
+      clinicName: String(body.clinicName ?? ""),
+      specialty: String(body.specialty ?? ""),
+      covered: (body.covered ?? null) as "yes" | "no" | "not_sure" | null,
+      bookingSystem: String(body.bookingSystem ?? ""),
+      calendarAccount: String(body.calendarAccount ?? ""),
+      contactName: String(body.contactName ?? ""),
+      contactEmail: String(body.contactEmail ?? ""),
+    });
+    return { ...body, agreementId: record.id };
+  } catch {
+    return body;
+  }
+}
 
 let counter = 0;
 
 /** A fresh client per request, so the route's hourly rate limit never trips. */
-function post(body: Record<string, unknown>): Promise<Response> {
+async function post(body: Record<string, unknown>): Promise<Response> {
   counter += 1;
+  const signed = await withSignature(body);
   return POST(
     new Request("http://localhost/api/checkout", {
       method: "POST",
@@ -37,7 +80,7 @@ function post(body: Record<string, unknown>): Promise<Response> {
         "Content-Type": "application/json",
         "x-forwarded-for": `10.0.0.${counter}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(signed),
     }),
   );
 }
@@ -52,7 +95,7 @@ const VALID = {
   calendarAccount: "workspace_baa",
   contactName: "Alex Chen",
   contactEmail: "alex@example.com",
-  agreementId: "6f1f7c1e-2f0e-4d2b-9a0a-3f5e2c1d4b7a",
+  agreementId: UNSIGNED,
   covered: "no",
   profile: null,
   profileStatus: "failed",
@@ -83,21 +126,15 @@ function readProfile(overrides: Partial<ClinicProfile> = {}): ClinicProfile {
 }
 
 /**
- * apps/app, as the purchase routes see it: the intent answers with a ref and
- * the success URL, and provisioning (the development path) with the clinic.
+ * apps/app, as the development path sees it: provisioning answers with the
+ * clinic. Nothing else on apps/app is called any more: the purchase is
+ * recorded on this site.
  */
-async function appAnswers(url: URL | RequestInfo, _init?: RequestInit): Promise<Response> {
-  const path = new URL(String(url)).pathname;
-  const json =
-    path === "/api/checkout/intents"
-      ? {
-          ref: "11111111-2222-4333-8444-555555555555",
-          attempt: 1,
-          previousOpenSessionId: null,
-          successUrl: "http://localhost:3001/welcome?h=11111111-2222-4333-8444-555555555555&cs={CHECKOUT_SESSION_ID}",
-        }
-      : { clinicSlug: "radiance" };
-  return new Response(JSON.stringify(json), { status: 201, headers: { "Content-Type": "application/json" } });
+async function appAnswers(_url: URL | RequestInfo, _init?: RequestInit): Promise<Response> {
+  return new Response(JSON.stringify({ clinicSlug: "radiance" }), {
+    status: 201,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 /** The bodies sent to one apps/app path, in order. */
@@ -107,16 +144,21 @@ function sentTo(mock: ReturnType<typeof vi.fn>, path: string): Record<string, un
     .map(([, init]) => JSON.parse(String((init as RequestInit | undefined)?.body)) as Record<string, unknown>);
 }
 
+/** The purchases the development path relayed to provisioning, as their records hold them. */
+function intentsSent(mock: ReturnType<typeof vi.fn>): Record<string, unknown>[] {
+  return sentTo(mock, "/api/provision").map((body) => relayedIntent(body, SECRET).intent);
+}
+
 describe("POST /api/checkout validates the billing terms", () => {
   const fetchMock = vi.fn(appAnswers);
 
-  /** The n-th purchase the route handed apps/app as a checkout intent. */
+  /** The n-th purchase the route recorded, as the development path relayed it. */
   function forwarded(call = 0): Record<string, unknown> {
-    return sentTo(fetchMock, "/api/checkout/intents")[call]!;
+    return intentsSent(fetchMock)[call]!;
   }
 
   beforeEach(() => {
-    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", SECRET);
     vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
     vi.stubEnv("STRIPE_SECRET_KEY", "");
     // Open checkout: these blocks are about the order itself. The setup-link
@@ -274,7 +316,7 @@ describe("POST /api/checkout validates the billing terms", () => {
     // No website, so no read: anything but "none" is refused.
     const noSite = await post({ ...VALID, plan: "voice-500", website: null, profileStatus: "failed" });
     expect(((await noSite.json()) as { field: string }).field).toBe("profile");
-    expect(sentTo(fetchMock, "/api/checkout/intents")).toHaveLength(1);
+    expect(intentsSent(fetchMock)).toHaveLength(1);
   });
 
   test("only the allowlisted order reaches apps/app, with the platform derived from the booking system", async () => {
@@ -380,7 +422,7 @@ describe("POST /api/checkout never provisions without payment in production", ()
   const fetchMock = vi.fn(appAnswers);
 
   beforeEach(() => {
-    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", SECRET);
     vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
     vi.stubEnv("STRIPE_SECRET_KEY", "");
     // Open checkout: these blocks are about the order itself. The setup-link
@@ -430,7 +472,7 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
   const fetchMock = vi.fn(appAnswers);
 
   beforeEach(() => {
-    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", SECRET);
     vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
     vi.stubEnv("STRIPE_SECRET_KEY", "");
     vi.stubEnv("HEALDESK_CHECKOUT_MODE", "");
@@ -464,8 +506,9 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
     return { id: created.request.id, token: issueSetupToken(created.request.id, email, expiresAt) };
   }
 
-  function postWith(token: string | null, body: Record<string, unknown> = VALID): Promise<Response> {
+  async function postWith(token: string | null, body: Record<string, unknown> = VALID): Promise<Response> {
     counter += 1;
+    const signed = await withSignature(body);
     return POST(
       new Request("http://localhost/api/checkout", {
         method: "POST",
@@ -474,7 +517,7 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
           "x-forwarded-for": `10.1.0.${counter}`,
           ...(token ? { cookie: `hd_setup=${encodeURIComponent(token)}` } : {}),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(signed),
       }),
     );
   }
@@ -536,20 +579,23 @@ describe("POST /api/checkout, while the purchase is by setup link", () => {
 
     const own = await postWith(token, { ...VALID, contactEmail: "alex@example.com" });
     expect(own.status).toBe(201);
-    const [intent] = sentTo(fetchMock, "/api/checkout/intents");
+    const [intent] = intentsSent(fetchMock);
     expect(intent).toMatchObject({ inviteRef: id, contactEmail: "alex@example.com" });
     expect(intent!.nonceHash).toMatch(/^[0-9a-f]{64}$/);
-    // The development path provisions from that intent, as the webhook would,
-    // naming the press of Pay and the terms it was for.
-    expect(sentTo(fetchMock, "/api/provision")).toEqual([
-      {
-        ref: "11111111-2222-4333-8444-555555555555",
-        idempotencyKey: "dev:11111111-2222-4333-8444-555555555555",
-        attempt: 1,
-        plan: "webchat-300",
-        billingInterval: "month",
-      },
-    ]);
+    // The development path provisions from that purchase, as the webhook
+    // would: the setup link's own id is the purchase's ref, so two presses on
+    // one link are one purchase, named with the press of Pay and the terms it
+    // was for, and both sealed records ride along.
+    const [provision] = sentTo(fetchMock, "/api/provision");
+    expect(provision).toMatchObject({
+      ref: id,
+      idempotencyKey: `dev:${id}`,
+      attempt: 1,
+      plan: "webchat-300",
+      billingInterval: "month",
+    });
+    expect(Object.keys(provision!.records as object).sort()).toEqual(["agreement", "intent"]);
+    expect(relayedIntent(provision!, SECRET)).toMatchObject({ ref: id, attempt: 1 });
   });
 });
 
@@ -561,7 +607,7 @@ describe("POST /api/checkout, from the buyer's demo", () => {
   const fetchMock = vi.fn(appAnswers);
 
   beforeEach(() => {
-    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", SECRET);
     vi.stubEnv("HEALDESK_APP_URL", "http://app.test");
     vi.stubEnv("STRIPE_SECRET_KEY", "");
     vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
@@ -593,13 +639,14 @@ describe("POST /api/checkout, from the buyer's demo", () => {
     return session.slug;
   }
 
-  function postFromDemo(slug: string, body: Record<string, unknown>): Promise<Response> {
+  async function postFromDemo(slug: string, body: Record<string, unknown>): Promise<Response> {
     counter += 1;
+    const signed = await withSignature(body);
     return POST(
       new Request("http://localhost/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-forwarded-for": `10.1.0.${counter}`, cookie: `hd_demo=${slug}` },
-        body: JSON.stringify(body),
+        body: JSON.stringify(signed),
       }),
     );
   }
@@ -608,7 +655,7 @@ describe("POST /api/checkout, from the buyer's demo", () => {
     const slug = await builtDemo("https://radiancemedspa.com/");
     const response = await postFromDemo(slug, VALID);
     expect(response.status).toBe(201);
-    const [intent] = sentTo(fetchMock, "/api/checkout/intents");
+    const [intent] = intentsSent(fetchMock);
     expect(intent).toMatchObject({ profileStatus: "read", website: "radiancemedspa.com" });
     const profile = intent!.profile as ClinicProfile;
     expect(profile.services).toEqual([
@@ -620,10 +667,10 @@ describe("POST /api/checkout, from the buyer's demo", () => {
   test("leaves a successful read alone, and never lends a demo to another website", async () => {
     const slug = await builtDemo("https://radiancemedspa.com/");
     await postFromDemo(slug, { ...VALID, profile: readProfile(), profileStatus: "read" });
-    expect(sentTo(fetchMock, "/api/checkout/intents")[0]).toMatchObject({ profile: readProfile() });
+    expect(intentsSent(fetchMock)[0]).toMatchObject({ profile: readProfile() });
 
     const other = await builtDemo("https://otherspa.com/");
     await postFromDemo(other, VALID);
-    expect(sentTo(fetchMock, "/api/checkout/intents")[1]).toMatchObject({ profile: null, profileStatus: "failed" });
+    expect(intentsSent(fetchMock)[1]).toMatchObject({ profile: null, profileStatus: "failed" });
   });
 });

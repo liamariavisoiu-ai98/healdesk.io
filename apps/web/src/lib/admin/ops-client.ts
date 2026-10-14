@@ -11,7 +11,7 @@
  * doing so would quietly end that property for every route in the app, forever.
  *
  * So every read and every action crosses the network to apps/app over the same
- * HMAC that `/api/provision` and `/api/agreements/[id]/pdf` already use. This
+ * HMAC that `/api/provision` already uses. This
  * module is the only holder of that secret in the admin area, and the only
  * place the upstream origin is read.
  *
@@ -242,7 +242,7 @@ type OperatorOp =
  * so the worst a forged call could do is mark one of apps/app's ledger rows,
  * and a forged call needs HEALDESK_PROVISION_SECRET.
  */
-type RelayOp = "emailEvent";
+type RelayOp = "emailEvent" | "welcomeHandoff";
 
 type OpName = OperatorOp | RelayOp;
 
@@ -729,6 +729,40 @@ export function relayEmailEvent(
 }
 
 // -----------------------------------------------------------------------------
+// The paying browser's way back
+// -----------------------------------------------------------------------------
+
+/** Whether apps/app has the purchase and an answer for the browser that paid, and the page that gives it. */
+export type WelcomeHandoff = { ready: false } | { ready: true; url: string };
+
+/**
+ * Ask apps/app whether the purchase `ref`, paid through Checkout Session
+ * `sessionId`, is there yet with something to tell the paying browser, and
+ * where (app/welcome/route.ts). A relay op like emailEvent: no session and no
+ * browser context, because the request on this side is a buyer's browser
+ * that has not signed in to anything, and the answer names nothing about the
+ * purchase. The URL is composed upstream from BETTER_AUTH_URL; this never
+ * builds one. A short timeout: while the host is in standby this is expected
+ * to fail, and the buyer's page must not wait on it.
+ */
+export function welcomeHandoff(ref: string, sessionId: string): Promise<OpsResult<WelcomeHandoff>> {
+  return send(
+    "welcomeHandoff",
+    "read",
+    (value) => {
+      const data = object(value, "welcomeHandoff");
+      return bool(data.ready, "welcomeHandoff.ready")
+        ? { ready: true, url: url(data.url, "welcomeHandoff.url") }
+        : { ready: false };
+    },
+    { ref, sessionId },
+    { context: false, timeoutMs: WELCOME_HANDOFF_TIMEOUT_MS },
+  );
+}
+
+const WELCOME_HANDOFF_TIMEOUT_MS = 4_000;
+
+// -----------------------------------------------------------------------------
 // Transport
 // -----------------------------------------------------------------------------
 
@@ -780,7 +814,7 @@ async function send<T>(
   kind: CallKind,
   read: (value: unknown) => T,
   args: Record<string, unknown>,
-  options: { context?: boolean } = {},
+  options: { context?: boolean; timeoutMs?: number } = {},
 ): Promise<OpsResult<T>> {
   const secret = process.env.HEALDESK_PROVISION_SECRET;
   const target = process.env.HEALDESK_APP_URL;
@@ -819,7 +853,7 @@ async function send<T>(
       // Nothing about an ops read is cacheable, and a cached write would be a
       // different kind of wrong entirely.
       cache: "no-store",
-      signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? UPSTREAM_TIMEOUT_MS),
     });
   } catch (error) {
     if (isTimeout(error)) {

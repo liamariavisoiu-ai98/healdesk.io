@@ -8,15 +8,11 @@ import {
   DPA_ASSENT_LABEL,
   dpaAssentSentence,
   prepareDpa,
-  SIGNATURE_HEADER,
-  sign,
-  TIMESTAMP_HEADER,
   type DpaVariables,
 } from "@healdesk/catalog";
 import { PDFDocument } from "pdf-lib";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { POST as signRoute } from "@/app/api/agreements/route";
 import {
   AgreementError,
   agreementKindForRequest,
@@ -273,32 +269,15 @@ describe("the DPA's refusals, by field", () => {
     }
   });
 
-  test("the endpoint answers a DPA it cannot sign with 422 and the field, while it is unreleased", async () => {
-    const SECRET = "provision-secret-for-dpa-tests";
-    vi.stubEnv("HEALDESK_PROVISION_SECRET", SECRET);
-    try {
-      for (const [request, field] of [
-        [vetRequest(), "specialty"],
-        [noRequest(), "assentLabel"],
-      ] as [SignAgreementRequest, string][]) {
-        const raw = JSON.stringify(request);
-        const timestamp = String(Math.floor(Date.now() / 1000));
-        const response = await signRoute(
-          new Request("https://app.healdesk.io/api/agreements", {
-            method: "POST",
-            headers: {
-              "content-type": "application/json",
-              [TIMESTAMP_HEADER]: timestamp,
-              [SIGNATURE_HEADER]: sign(raw, timestamp, SECRET),
-            },
-            body: raw,
-          }),
-        );
-        expect(response.status, request.specialty).toBe(422);
-        expect(await response.json()).toMatchObject({ field });
-      }
-    } finally {
-      vi.unstubAllEnvs();
+  test("a DPA it cannot sign is refused by the field, while it is unreleased", () => {
+    // The endpoint that answered these with 422 and the field moved to
+    // apps/web on 14 October 2026 (its /api/agreement runs this same
+    // validation, from the catalog); the refusal and its field are this.
+    for (const [request, field] of [
+      [vetRequest(), "specialty"],
+      [noRequest(), "assentLabel"],
+    ] as [SignAgreementRequest, string][]) {
+      expect(refusal(() => validateSignRequest(request)), request.specialty).toMatchObject({ field });
     }
   });
 

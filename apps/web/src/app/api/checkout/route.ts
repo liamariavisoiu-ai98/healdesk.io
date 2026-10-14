@@ -1,19 +1,48 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
-import { WELCOME_NONCE_COOKIE } from "@healdesk/catalog";
+import {
+  agreementMismatch,
+  INTENT_TTL_DAYS,
+  IntentError,
+  validateIntentRequest,
+  WELCOME_NONCE_COOKIE,
+  type IntentRequest,
+} from "@healdesk/catalog";
+import {
+  acceptanceVariables,
+  CheckoutRecordError,
+  type IntentRecord,
+} from "@healdesk/catalog/checkout-record";
 import { NextResponse } from "next/server";
 
 import {
+  checkoutSessionPaid,
   chooseSetupOffer,
   createCheckout,
   expireUnrecordedCheckout,
   demoOfferFor,
   isBillingConfigured,
   isProductionDeployment,
+  welcomeUrl,
 } from "@/lib/billing";
 import { isCampaignCode } from "@/lib/attribution";
-import { postToApp, welcomeCookieOptions, type AppAnswer } from "@/lib/checkout/app-client";
-import { intentFields, validateOrder } from "@/lib/checkout/order";
+import { postToApp, welcomeCookieOptions } from "@/lib/checkout/app-client";
+import { intentFields, validateOrder, type Order } from "@/lib/checkout/order";
+import {
+  agreementSpent,
+  appendIntentRecord,
+  findAgreementRecord,
+  intentRecordsFor,
+  latestLive,
+  markAgreementProvisioned,
+  markIntentProvisioned,
+  recordIntentSession,
+  recordsConfigured,
+  withdrawIntentRecord,
+  type IntentRecords,
+  type StoredAgreement,
+  type StoredIntent,
+} from "@/lib/checkout/records";
 import { demoSlugFromCookieHeader } from "@/lib/demo/attribution";
 import { demoOfferEndsAt, demoSetupCredit, getDemoSession } from "@/lib/demo/sessions";
 import { demoSiteProfile } from "@/lib/demo/to-clinic-profile";
@@ -31,19 +60,26 @@ import { siteOfferEndsAt } from "@/lib/site-offer";
  * agreement; the Stripe webhook never does. It validates the purchase against
  * an allowlist (lib/checkout/order.ts: the package and its terms, the clinic,
  * its booking system and Google account, the website rule, the website read's
- * shape and the terms tick-box), hands it to apps/app as a checkout intent
- * (which checks everything provisioning will), and only then sends the buyer
- * to a Stripe-hosted Checkout Session that carries the intent's ref. The
- * account is made on the first paid invoice, from that intent, in
+ * shape and the terms tick-box), checks it against the agreement record it
+ * names and against provisioning's own rules (the catalog's
+ * validateIntentRequest and agreementMismatch, which apps/app runs again when
+ * it imports the purchase), records it as a sealed purchase record in the
+ * marketing Sheet (lib/checkout/records.ts), and only then sends the buyer to
+ * a Stripe-hosted Checkout Session that carries the purchase's ref. The
+ * account is made on the first paid invoice, from that record, in
  * app/api/webhooks/stripe (src/lib/billing.ts explains it), and Stripe brings
- * the buyer back to apps/app's /welcome, which this response's nonce cookie
- * lets in.
+ * the buyer back to this site's /welcome (app/welcome/route.ts), which this
+ * response's nonce cookie lets in.
  *
- * The marketing site never talks to the product database. What it sends is
- * signed and carried to apps/app, which owns every write. That keeps exactly
- * one service holding a connection to the database that will eventually
- * contain PHI, even though nothing in this payload is PHI, a clinic owner's
- * name and work email are business contact data.
+ * ## Nothing here calls apps/app (owner, 14 October 2026)
+ *
+ * Until that day this route stored the purchase on apps/app (POST
+ * /api/checkout/intents, then /api/checkout/intents/session). The AWS host
+ * now has a standby mode that removes its database until the first clinic
+ * pays, so a buyer must be able to pay with it off: the purchase is recorded
+ * here, as business contact data, and apps/app imports it with the first paid
+ * invoice (docs/design/checkout-records-on-vercel-2026-10-14.md). apps/web
+ * still has no database client: the store is the marketing Sheet.
  *
  * Without Stripe keys there is a development path at the bottom that
  * provisions inline, with no payment, so the purchase flow can be exercised
@@ -63,12 +99,12 @@ const RATE_WINDOW_MS = 60 * 60 * 1000;
 const MAX_BODY_CHARS = 300_000;
 
 export async function POST(request: Request): Promise<Response> {
-  const secret = process.env.HEALDESK_PROVISION_SECRET;
-  const target = process.env.HEALDESK_APP_URL;
-
-  if (!secret || !target) {
+  // The records are sealed with the secret apps/app checks them with, and
+  // kept in the marketing Sheet. HEALDESK_APP_URL is not needed to take a
+  // payment any more: only the development path below provisions inline.
+  if (!recordsConfigured()) {
     console.error(
-      "[healdesk] HEALDESK_PROVISION_SECRET or HEALDESK_APP_URL is not set",
+      "[healdesk] checkout is unavailable: HEALDESK_PROVISION_SECRET, MARKETING_SHEET_ID or GOOGLE_SERVICE_ACCOUNT_JSON is not set",
     );
     return Response.json({ error: "Signup is unavailable." }, { status: 503 });
   }
@@ -136,8 +172,8 @@ export async function POST(request: Request): Promise<Response> {
    * pay (docs/v1-product-spec.md, "Who is what"). The place to refuse a value
    * the catalog does not know is before any of that has happened, under the
    * field name the form uses to send the buyer back to the right step.
-   * The agreement is checked for shape only here; apps/app checks it exists,
-   * is unbound and was signed by this address before the Session exists.
+   * The agreement is checked for shape here, and against its record below,
+   * before the Session exists.
    */
   const validated = validateOrder(payload);
   if (!validated.ok) {
@@ -192,15 +228,8 @@ export async function POST(request: Request): Promise<Response> {
     setupRequestId: setupRequest?.id ?? null,
   };
 
-  /**
-   * The intent: the purchase, stored by apps/app before Stripe sees anything
-   * (design D1). apps/app runs provisioning's own validation and checks the
-   * agreement is unbound and signed by this address, so a refusal here costs
-   * the buyer nothing. The nonce binds /welcome to this browser: its hash goes
-   * into the intent, the nonce itself into a cookie only this browser holds.
-   */
   // Production without Stripe keys has nothing to do but refuse, and must do
-  // it before apps/app is asked for anything (the guard below says why).
+  // it before anything is recorded (the guard below says why).
   if (!isBillingConfigured() && isProductionDeployment()) {
     console.error(
       "[healdesk] checkout reached the unpaid development path in production; refusing (is STRIPE_SECRET_KEY set?)",
@@ -218,64 +247,182 @@ export async function POST(request: Request): Promise<Response> {
   const demoRead = order.profileStatus === "failed" && order.website && demo ? demoSiteProfile(demo, order.website) : null;
   const purchase = demoRead ? { ...order, profile: demoRead, profileStatus: "read" as const } : order;
 
+  /*
+   * The agreement, from its record: it must exist and open, belong to no
+   * account yet, have been signed by the buying address, and be the document
+   * this purchase describes. Everything apps/app's checkout intent checked
+   * before payment, against the record apps/app will import.
+   */
+  const signed = await agreementFor(purchase);
+  if (!signed.ok) return signed.response;
+
+  /*
+   * ## What the Sheet cannot guarantee that the database did
+   *
+   * apps/app kept one intent per setup link with a unique `invite_ref` and an
+   * atomic upsert: a press of Pay moved the attempt counter in one statement,
+   * and a second press could not interleave with it. A spreadsheet has no
+   * unique index, no transaction and no atomic increment, so here a press
+   * reads the purchase's earlier records, computes the next attempt, and
+   * appends a record of its own. Two presses on one setup link at the same
+   * instant can therefore both read attempt N and both append N + 1: their
+   * Sessions share Stripe's idempotency key (`checkout:<ref>:<attempt>`,
+   * lib/billing.ts), so the same request returns one Session, and a request
+   * whose terms differ is refused by Stripe and withdrawn here. Two presses
+   * that read different attempts, which needs one to have appended between
+   * the other's read and its append, can each create a Session the other
+   * did not expire, and both could be paid; apps/app then refuses the second
+   * subscription as a duplicate and tells ops (provision route,
+   * `duplicate_subscription`), as it did for any second subscription. The
+   * sequential case, which is the real one (Pay pressed again after
+   * cancelling at Stripe), is covered as before: the previous press's
+   * Session is asked about first and refused if paid, and expired before the
+   * new one is created (createCheckout).
+   *
+   * One more thing the database gave: a press of Pay that wrote its intent
+   * and then failed left nothing a later press could trip over. Here a
+   * record that opened no Session is withdrawn (`withdrawn_at`), kept as the
+   * evidence of the press, and never provisioned from.
+   */
+  const setupRef = setupRequest?.id ?? null;
+  const ref = setupRef ?? randomUUID();
+  let earlier: IntentRecords = { records: [], refused: [] };
+  if (setupRef) {
+    try {
+      earlier = await intentRecordsFor(setupRef);
+    } catch (error) {
+      console.error("[healdesk] checkout: the purchase's earlier records could not be read", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return startFailed(502);
+    }
+  }
+  if (earlier.records.some((r) => r.provisionedAt !== null)) {
+    return Response.json(
+      { error: "This setup link has already been used to complete a purchase.", field: "setupLink" },
+      { status: 409 },
+    );
+  }
+  const previous = latestLive(earlier.records);
+  // The previous press's Session, if it was paid, ends this: a second
+  // Session would take the setup fee twice, and its nonce cookie would
+  // replace the one the paid press's /welcome knows this browser by.
+  if (previous?.record.sessionId && isBillingConfigured()) {
+    let paid: boolean;
+    try {
+      paid = await checkoutSessionPaid(previous.record.sessionId);
+    } catch (error) {
+      console.warn("[healdesk] checkout: the previous session could not be checked", {
+        error: error instanceof Error ? error.name : "unknown error",
+      });
+      return Response.json(
+        { error: "We couldn't check your earlier payment page. Nothing has been charged. Please try again." },
+        { status: 503 },
+      );
+    }
+    if (paid) {
+      return Response.json({ error: "This purchase is already paid. Check your email." }, { status: 409 });
+    }
+  }
+  const attempt =
+    Math.max(0, ...earlier.records.map((r) => r.record.attempt), ...earlier.refused.map((r) => r.attempt ?? 0)) + 1;
+
+  /*
+   * The purchase, as apps/app will import it, held to provisioning's own
+   * rules now (the catalog's validateIntentRequest, which apps/app runs again
+   * at the import), so a purchase provisioning would refuse is refused before
+   * anyone pays. The nonce binds /welcome to this browser: its hash goes into
+   * the record, the nonce itself into a cookie only this browser holds.
+   */
   const nonce = randomBytes(24).toString("base64url");
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-  const saved = await postToApp(
-    "/api/checkout/intents",
-    {
+  const body: Record<string, unknown> = JSON.parse(
+    JSON.stringify({
       ...intentFields(purchase),
-      inviteRef: setupRequest?.id ?? null,
+      inviteRef: setupRef,
       nonceHash: createHash("sha256").update(nonce).digest("hex"),
       // The terms tick-box, as accepted: which text, when, and from where.
       terms: { version: LEGAL_VERSION, acceptedAt: new Date().toISOString(), ip: forwardedFor },
-    },
-    { target, secret },
-  );
-  const intent = intentFrom(saved);
-  if (!intent.ok) return intent.response;
+    }),
+  ) as Record<string, unknown>;
+  let intent: IntentRequest;
+  try {
+    intent = validateIntentRequest(body);
+  } catch (error) {
+    if (error instanceof IntentError) {
+      return Response.json({ error: error.message, field: error.field }, { status: error.status });
+    }
+    throw error;
+  }
+
+  const now = new Date();
+  const record: IntentRecord = {
+    record: "checkout_intent",
+    v: 1,
+    id: randomUUID(),
+    ref,
+    attempt,
+    createdAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + INTENT_TTL_DAYS * 86_400_000).toISOString(),
+    intent: body,
+    sessionId: null,
+  };
+  let stored: StoredIntent;
+  try {
+    stored = await appendIntentRecord(record, intent);
+  } catch (error) {
+    if (error instanceof CheckoutRecordError && error.reason === "too_large") {
+      // Only the website read can make a purchase this large: the purchase
+      // goes on without it, and setup asks instead.
+      return Response.json({ error: "The website read is too large to keep.", field: "profile" }, { status: 422 });
+    }
+    console.error("[healdesk] checkout: the purchase record was NOT written", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return startFailed(502);
+  }
 
   // Paid path: hand off to Stripe. The webhook makes the account from the
-  // intent once the first invoice is paid.
+  // records once the first invoice is paid.
   if (isBillingConfigured()) {
     try {
       const checkout = await createCheckout({
         plan,
         interval: chosenInterval,
         contactEmail,
-        intent: intent.value,
+        intent: {
+          ref,
+          attempt,
+          successUrl: welcomeUrl(ref),
+          previousOpenSessionId: previous?.record.sessionId ?? null,
+        },
         attribution,
       });
       if (checkout.kind === "already-paid") {
-        // The previous press of Pay was paid: the account is on its way, and
-        // a second Session would charge the setup fee twice.
+        // The previous press of Pay was paid in the moment since it was asked
+        // about: the account is on its way, and a second Session would charge
+        // the setup fee twice. This press's record opened nothing.
+        await withdrawIntentRecord(stored);
         return Response.json({ error: "This purchase is already paid. Check your email." }, { status: 409 });
       }
       if (checkout.kind === "redirect") {
-        // Which Session this attempt opened, so the next press of Pay can
-        // expire it. Not best effort: a Session the intent does not record
-        // is one no later press could expire, so it is expired now and its
-        // URL never handed out. A 409 means a newer press, in another tab,
-        // recorded its own Session first; that one is the one to pay.
-        const recorded = await postToApp(
-          "/api/checkout/intents/session",
-          { ref: intent.value.ref, attempt: intent.value.attempt, sessionId: checkout.sessionId },
-          { target, secret },
-        );
-        if (!recorded.reached || recorded.status !== 200) {
-          await expireUnrecordedCheckout(checkout.sessionId);
-          if (recorded.reached && recorded.status === 409) {
-            return Response.json(
-              { error: "Another payment page was opened; use the latest one." },
-              { status: 409 },
-            );
-          }
-          console.error("[healdesk] checkout session not recorded on the intent; expired and refused", {
-            status: recorded.reached ? recorded.status : "unreachable",
+        // Which Session this press opened, on its own record, so the next
+        // press can expire it and /welcome and apps/app know it. Not best
+        // effort: a Session the record does not name is one no later press
+        // could expire, so it is expired now and its URL never handed out.
+        let recorded = false;
+        try {
+          recorded = await recordIntentSession(stored, checkout.sessionId);
+        } catch (error) {
+          console.error("[healdesk] checkout: the session could not be recorded", {
+            error: error instanceof Error ? error.message : String(error),
           });
-          return Response.json(
-            { error: "We couldn't start checkout. Nothing has been charged. Please try again." },
-            { status: 502 },
-          );
+        }
+        if (!recorded) {
+          await expireUnrecordedCheckout(checkout.sessionId);
+          await withdrawIntentRecord(stored);
+          console.error("[healdesk] checkout session not recorded on its purchase record; expired and refused");
+          return startFailed(502);
         }
         // The funnel's "checkout_started" is the Session existing, not the
         // button click: a lead row is created here if the demo never made one.
@@ -292,16 +439,14 @@ export async function POST(request: Request): Promise<Response> {
         response.cookies.set(
           WELCOME_NONCE_COOKIE,
           nonce,
-          welcomeCookieOptions(new URL(request.url).hostname, intent.value.successUrl),
+          welcomeCookieOptions(new URL(request.url).hostname, process.env.HEALDESK_APP_URL),
         );
         return response;
       }
     } catch (error) {
       console.error("[healdesk] could not start checkout", error);
-      return Response.json(
-        { error: "We couldn't start checkout. Nothing has been charged. Please try again." },
-        { status: 502 },
-      );
+      await withdrawIntentRecord(stored);
+      return startFailed(502);
     }
   }
 
@@ -326,19 +471,26 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // Unpaid development path: provision from the intent at once, exactly as
-  // the webhook would after payment, keyed on the intent, and naming the
-  // press of Pay and the terms it was for, as a paid subscription does. Note
-  // the colon: an underscore would survive the audit log's uuid stripper and
-  // trip its PHI assertion on some ids and not others.
+  // Unpaid development path: provision at once, exactly as the webhook would
+  // after payment, keyed on the purchase, naming the press of Pay and the
+  // terms it was for, and carrying the two records, as a paid subscription
+  // does. Note the colon: an underscore would survive the audit log's uuid
+  // stripper and trip its PHI assertion on some ids and not others.
+  const secret = process.env.HEALDESK_PROVISION_SECRET!;
+  const target = process.env.HEALDESK_APP_URL;
+  if (!target) {
+    console.error("[healdesk] checkout's development path needs HEALDESK_APP_URL to provision");
+    return Response.json({ error: "Signup is unavailable." }, { status: 503 });
+  }
   const provisioned = await postToApp(
     "/api/provision",
     {
-      ref: intent.value.ref,
-      idempotencyKey: `dev:${intent.value.ref}`,
-      attempt: intent.value.attempt,
+      ref,
+      idempotencyKey: `dev:${ref}`,
+      attempt,
       plan: plan.id,
       billingInterval: chosenInterval,
+      records: { intent: stored.sealed, agreement: signed.agreement.sealed },
     },
     { target, secret },
   );
@@ -349,6 +501,10 @@ export async function POST(request: Request): Promise<Response> {
       { status: 502 },
     );
   }
+  if (provisioned.status >= 200 && provisioned.status < 300) {
+    await markIntentProvisioned(ref);
+    await markAgreementProvisioned(signed.agreement.record.id);
+  }
   // Pass the product's own validation messages through. They name the field
   // that was wrong, which is what the form needs to highlight it.
   return new Response(provisioned.text, {
@@ -357,40 +513,60 @@ export async function POST(request: Request): Promise<Response> {
   });
 }
 
-type StoredIntent = { ref: string; attempt: number; successUrl: string; previousOpenSessionId: string | null };
+/** "Try again", with nothing charged: every failure to start that a retry can fix. */
+function startFailed(status: number): Response {
+  return Response.json(
+    { error: "We couldn't start checkout. Nothing has been charged. Please try again." },
+    { status },
+  );
+}
 
 /**
- * apps/app's answer to the intent, or the response to send the browser
- * instead. Its own refusals (a field that is wrong, a setup link already
- * used) pass through with their field, so the form can point at it; anything
- * else is "try again", with nothing charged.
+ * The agreement record a purchase names, or the refusal to send instead.
+ * Each refusal of the document names `agreementId`, which sends the funnel
+ * back to the signature; one signed under another address names
+ * `contactEmail`. The same rules apps/app applies to the imported row
+ * (checkIntentAgreement), so a purchase that passes here is one the import
+ * accepts.
  */
-function intentFrom(answer: AppAnswer): { ok: true; value: StoredIntent } | { ok: false; response: Response } {
-  if (!answer.reached) {
-    console.error("[healdesk] checkout intents unreachable", answer.error);
-    return { ok: false, response: Response.json({ error: "We couldn't start checkout. Nothing has been charged. Please try again." }, { status: 502 }) };
+async function agreementFor(
+  purchase: Order,
+): Promise<{ ok: true; agreement: StoredAgreement } | { ok: false; response: Response }> {
+  const refuse = (error: string, field: string) => ({
+    ok: false as const,
+    response: Response.json({ error, field }, { status: 422 }),
+  });
+  let found: Awaited<ReturnType<typeof findAgreementRecord>>;
+  let spent: boolean;
+  try {
+    found = await findAgreementRecord(purchase.agreementId);
+    spent = found.status === "found" && (found.provisionedAt !== null || (await agreementSpent(purchase.agreementId)));
+  } catch (error) {
+    console.error("[healdesk] checkout: the agreement record could not be read", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { ok: false, response: startFailed(502) };
   }
-  const json = answer.json ?? {};
-  if (answer.status === 201 && typeof json.ref === "string" && typeof json.attempt === "number" && typeof json.successUrl === "string") {
-    return {
-      ok: true,
-      value: {
-        ref: json.ref,
-        attempt: json.attempt,
-        successUrl: json.successUrl,
-        previousOpenSessionId: typeof json.previousOpenSessionId === "string" ? json.previousOpenSessionId : null,
-      },
-    };
+  if (found.status === "missing") return refuse("That agreement wasn't found. Please sign it again.", "agreementId");
+  if (found.status === "refused") {
+    console.error("[healdesk] checkout: an agreement record failed its check", {
+      agreementId: purchase.agreementId,
+      problem: found.problem,
+    });
+    return refuse("That agreement can't be used. Please sign it again.", "agreementId");
   }
-  if (answer.status === 409 || answer.status === 422) {
-    return {
-      ok: false,
-      response: Response.json(
-        { error: typeof json.error === "string" ? json.error : "Something in the purchase needs a second look.", field: json.field },
-        { status: answer.status },
-      ),
-    };
+  if (spent) return refuse("That agreement already belongs to an account. Please sign it again.", "agreementId");
+  if (found.record.signatoryEmail.trim().toLowerCase() !== purchase.contactEmail) {
+    return refuse("The agreement was signed with a different email address.", "contactEmail");
   }
-  console.error("[healdesk] checkout intent refused", { status: answer.status });
-  return { ok: false, response: Response.json({ error: "We couldn't start checkout. Nothing has been charged. Please try again." }, { status: 502 }) };
+  const mismatch = agreementMismatch(found.record.documentVersion, acceptanceVariables(found.record), {
+    clinicName: purchase.clinicName,
+    specialty: purchase.specialty,
+    platform: purchase.platform,
+    isCoveredEntity: purchase.isCoveredEntity,
+    bookingSystem: purchase.bookingSystem,
+    calendarAccount: purchase.calendarAccount,
+  });
+  if (mismatch) return refuse(mismatch, "agreementId");
+  return { ok: true, agreement: found };
 }

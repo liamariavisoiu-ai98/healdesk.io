@@ -15,6 +15,12 @@ import { stepUps, userFactors } from "@/db/schema";
  * at most 8 hours old, its passkey is not revoked, and neither is the row.
  * Both windows are measured on the database's clock, like every other expiry
  * it enforces, so two app servers with drifting clocks agree.
+ *
+ * Only a passkey steps a session up (plan Part D3). The authenticator app and
+ * the backup codes can let a new device add its own passkey and nothing
+ * more, so a row whose factor is anything but a passkey is never recorded
+ * here and never counts as live, should one ever reach the table some other
+ * way: step_ups.factor_id references user_factors, which holds both kinds.
  */
 
 /** Idle limit: patient pages clear and ask again after this long untouched. */
@@ -38,7 +44,21 @@ export type LiveStepUp = {
   deviceLabel: string;
   createdAt: Date;
   lastActivityAt: Date;
+  /**
+   * When it lapses if nothing touches it again: 15 minutes after the last
+   * activity or the 8-hour limit, whichever comes first. Absolute, on the
+   * database's clock, like `checkedAt`; the browser counts down from the
+   * difference of the two, never from a figure a cached page could replay.
+   */
+  expiresAt: Date;
+  /** The database's now() for the statement that read it. */
+  checkedAt: Date;
+  /** Whether the 8-hour limit is the one that applies, which activity cannot extend. */
+  capped: boolean;
 };
+
+const IDLE = sql`${STEP_UP_IDLE_MS} * interval '1 millisecond'`;
+const MAX = sql`${STEP_UP_MAX_MS} * interval '1 millisecond'`;
 
 const returning = {
   id: stepUps.id,
@@ -46,13 +66,42 @@ const returning = {
   deviceLabel: stepUps.deviceLabel,
   createdAt: stepUps.createdAt,
   lastActivityAt: stepUps.lastActivityAt,
+  // In an UPDATE's RETURNING the columns are the new row, so after a touch
+  // these are measured from the activity just recorded.
+  expiresAt:
+    sql<Date>`least(${stepUps.lastActivityAt} + ${IDLE}, ${stepUps.createdAt} + ${MAX})`.mapWith(
+      stepUps.createdAt,
+    ),
+  checkedAt: sql<Date>`now()`.mapWith(stepUps.createdAt),
+  capped:
+    sql<boolean>`${stepUps.createdAt} + ${MAX} <= ${stepUps.lastActivityAt} + ${IDLE}`.mapWith(
+      Boolean,
+    ),
 };
 
-/** Record that this session just proved a passkey. Starts both clocks. */
+/**
+ * Record that this session just proved a passkey. Starts both clocks.
+ *
+ * Refuses a factor that is not one of this sign-in's unrevoked passkeys: an
+ * authenticator code is not a step-up, whoever asks.
+ */
 export async function recordStepUp(
   db: Queryable,
   input: { sessionTokenHash: Buffer; userId: string; factorId: string; deviceLabel: string },
 ): Promise<LiveStepUp> {
+  const [passkey] = await db
+    .select({ id: userFactors.id })
+    .from(userFactors)
+    .where(
+      and(
+        eq(userFactors.id, input.factorId),
+        eq(userFactors.userId, input.userId),
+        eq(userFactors.kind, "passkey"),
+        isNull(userFactors.revokedAt),
+      ),
+    )
+    .limit(1);
+  if (!passkey) throw new Error("Only one of this sign-in's passkeys can step a session up.");
   const [row] = await db
     .insert(stepUps)
     .values({
@@ -66,13 +115,13 @@ export async function recordStepUp(
   return row;
 }
 
-/** The SQL condition for "still live", on the database's clock. */
+/** The SQL condition for "still live", on the database's clock, and made with a passkey. */
 function liveCondition() {
   return and(
     isNull(stepUps.revokedAt),
-    gt(stepUps.lastActivityAt, sql`now() - ${STEP_UP_IDLE_MS} * interval '1 millisecond'`),
-    gt(stepUps.createdAt, sql`now() - ${STEP_UP_MAX_MS} * interval '1 millisecond'`),
-    sql`exists (select 1 from ${userFactors} f where f.id = ${stepUps.factorId} and f.revoked_at is null)`,
+    gt(stepUps.lastActivityAt, sql`now() - ${IDLE}`),
+    gt(stepUps.createdAt, sql`now() - ${MAX}`),
+    sql`exists (select 1 from ${userFactors} f where f.id = ${stepUps.factorId} and f.kind = 'passkey' and f.revoked_at is null)`,
   );
 }
 
@@ -83,7 +132,10 @@ function liveCondition() {
  * if the row is still live when the UPDATE takes its lock: a step-up that
  * lapsed, or whose passkey was removed, a moment ago is not revived by a
  * request that read it first. The 8-hour CHECK on the table is the backstop
- * if this condition is ever loosened.
+ * if this condition is ever loosened. It never moves activity back: two
+ * requests touching at once each see now() as their transaction began, and
+ * the one that began first may update second, which the table's trigger
+ * would refuse as activity moving backwards (and the request would fail).
  */
 export async function findLiveStepUp(
   db: Queryable,
@@ -114,7 +166,7 @@ export async function findLiveStepUp(
     .limit(1);
   const [row] = await db
     .update(stepUps)
-    .set({ lastActivityAt: sql`now()` })
+    .set({ lastActivityAt: sql`greatest(${stepUps.lastActivityAt}, now())` })
     .where(and(inArray(stepUps.id, latest), liveCondition()))
     .returning(returning);
   return row ?? null;

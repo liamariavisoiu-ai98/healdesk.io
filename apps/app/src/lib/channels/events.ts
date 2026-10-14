@@ -35,7 +35,7 @@ import { connectedMetaPlatforms } from "./meta-platforms";
  * `channel_events`. The answer gate (lib/billing/answering.ts) refuses a
  * channel whose `live_at` is null, and billing is charged from
  * `first_answer_at`, so the runtime role cannot write either: the definers
- * of drizzle/0077 record ready, live and the first answer, each re-checking
+ * of drizzle/0078 record ready, live and the first answer, each re-checking
  * in SQL what it records, and this module decides when to ask them.
  *
  * ## ready, waiting, live
@@ -182,7 +182,7 @@ export const CLINIC_STEP: Readonly<Record<Channel, ChannelWaitingOn>> = {
 
 /**
  * Pure: whether a channel is ready on our side, what it waits on, and
- * whether it is live. drizzle/0077's app_channel_ours_ok and
+ * whether it is live. drizzle/0078's app_channel_ours_ok and
  * app_channel_live_ok are the SQL mirror the definers enforce, and
  * tests/channel-events.test.ts holds the two together.
  */
@@ -393,7 +393,7 @@ const ROW = {
 
 /**
  * The clinic's channel rows, locked in channel order: the one order every
- * writer of them takes (here, the first answer and drizzle/0077's definers),
+ * writer of them takes (here, the first answer and drizzle/0078's definers),
  * so no two writers can each hold a row the other waits for.
  */
 async function lockChannelRows(tx: TenantTx): Promise<ChannelRow[]> {
@@ -673,7 +673,7 @@ export async function noteWidgetLoaded(
 
 /**
  * An operator looked at the clinic's website and saw its chat: website chat's
- * runtime is present. Recorded once, through drizzle/0077's definer, with
+ * runtime is present. Recorded once, through drizzle/0078's definer, with
  * actor `ops`; the caller then moves the channel on.
  */
 export async function confirmWidgetOnSite(tx: TenantTx): Promise<{ recorded: boolean }> {
@@ -791,7 +791,7 @@ const DEFINER_OUTCOMES = new Set(["recorded", "already", "not_bought", "not_live
  * answered channel, `stepUpPackage(channel, first_answer)` for each later
  * one.
  *
- * Once per channel, three ways over: drizzle/0077's definer sets
+ * Once per channel, three ways over: drizzle/0078's definer sets
  * `first_answer_at` once, for a conversation that exists on the channel; the
  * channel rows are locked in channel order while it is decided; and the
  * partial unique index on channel_events (drizzle/0044) refuses a second

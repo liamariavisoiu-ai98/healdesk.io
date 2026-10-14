@@ -65,7 +65,8 @@ export const currentSessionToken = cache(async (): Promise<string | null> => {
  *   that does not exist, so the portal cannot be used to list clinics.
  *
  * Membership is the whole check: the clinic's one sign-in can do everything.
- * Patient pages also need `requireStepUp` (step-up.ts).
+ * Patient pages call `requirePatientPage` (patient-page.ts) instead, which
+ * calls this and then asks for a passkey step-up.
  */
 export async function requirePortal(slug: string): Promise<PortalContext> {
   const userId = await currentUserId();

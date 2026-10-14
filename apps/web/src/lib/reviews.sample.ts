@@ -1,35 +1,5 @@
 import { summarize, type Review, type ReviewSummary } from "@/lib/reviews";
 
-/**
- * The review wall as it was designed, shown until real reviews are
- * published.
- *
- * ⚠️ PLACEHOLDER CONTENT. Every review, name, face and number here was
- * written to design against, not collected from a customer. The portraits in
- * public/reviews are StyleGAN output from thispersondoesnotexist.com and the
- * archive counts are invented.
- *
- * The words are the owner's, chosen on 12 October 2026 from three rewrites
- * of each card or edits of the old one, several written by hand. Dr. Grant
- * M.'s and Ray K.'s are as they were. The cards that claimed tracing who showed
- * up and paid, writing into Mindbody or Boulevard, and "no login" were
- * rewritten to what v1 does (Mindbody and Boulevard clinics get booking
- * requests). Two still say what the product does not measure, by the owner's
- * choice: Andre S.'s lower cost per booked consult, and Lauren P.'s consults
- * "recovered". Nicole T.'s "patient's preferred time" and "doing it job",
- * and Alyssa B.'s "downing in voicemails", are as the owner wrote them, on
- * purpose: leave them.
- *
- * The owner chose on 3 October 2026 to show this set on the live site while
- * PUBLISHED is empty, with a line above the rating calling the reviews
- * examples. On 12 October 2026 the owner replaced that line with the
- * section's heading, "Anything you might relate to?", and will replace this
- * set with real reviews before launch (src/lib/reviews.ts, on 16 CFR Part
- * 465).
- *
- * Nothing here may be copied into PUBLISHED, and the test checks that too.
- */
-
 export const SAMPLE_REVIEWS: readonly Review[] = [
   {
     id: "scottsdale",
@@ -230,10 +200,6 @@ export const SAMPLE_REVIEWS: readonly Review[] = [
   },
 ];
 
-/**
- * Everyone who "rated" but whose words are not on the wall. Invented, like the
- * rest of this file; it is what made the header read 4.9 across 286.
- */
 const SAMPLE_ARCHIVE = {
   ratings: { 5: 244, 4: 27, 3: 0, 2: 0, 1: 0 },
   written: 56,

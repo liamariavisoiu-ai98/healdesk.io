@@ -251,7 +251,29 @@ describe("every portal file", () => {
     const pages = portalFiles.filter((f) => f.endsWith("page.tsx"));
     expect(pages.length).toBeGreaterThan(3);
     for (const page of pages) {
-      expect(readFileSync(page, "utf8"), relative(PORTAL_DIR, page)).toMatch(/requirePortal\(/);
+      // requirePatientPage calls requirePortal first (lib/portal/patient-page.ts).
+      expect(readFileSync(page, "utf8"), relative(PORTAL_DIR, page)).toMatch(
+        /requirePortal\(|requirePatientPage\(/,
+      );
+    }
+  });
+
+  test("Conversations and Bookings open only through requirePatientPage", () => {
+    // The screens that show patients (spec: a passkey before any conversation
+    // or booking opens, and an access log naming the device). Every page,
+    // route and server action under them takes the passkey step-up there.
+    const patientFiles = portalFiles.filter((f) =>
+      /^(conversations|bookings)[\\/]/.test(relative(PORTAL_DIR, f)),
+    );
+    for (const file of patientFiles) {
+      const source = readFileSync(file, "utf8");
+      if (/(page|route)\.tsx?$/.test(file)) {
+        expect(source, relative(PORTAL_DIR, file)).toMatch(/requirePatientPage\(/);
+      }
+      if (!/^["']use server["'];/m.test(source)) continue;
+      for (const [body, name] of source.matchAll(/export async function (\w+)\([\s\S]*?\n\}/g)) {
+        expect(body, `${relative(PORTAL_DIR, file)}: ${name}`).toMatch(/requirePatientPage\(/);
+      }
     }
   });
 
@@ -265,7 +287,7 @@ describe("every portal file", () => {
       for (const [body, name] of exported) {
         if (exempt.has(name!)) continue;
         expect(body, `${relative(PORTAL_DIR, file)}: ${name}`).toMatch(
-          /requirePortal\(|contextFor\(|portalFor\(/,
+          /requirePortal\(|requirePatientPage\(|contextFor\(|portalFor\(/,
         );
       }
     }

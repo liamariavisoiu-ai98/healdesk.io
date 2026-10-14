@@ -121,7 +121,7 @@ function openNow(facts: Pick<AssistantFacts, "openingHours" | "timeZone">, now: 
  * (URGENT_ALERT_DELIVERED).
  */
 export function urgentReply(
-  facts: ReplyFacts,
+  facts: ReplyFacts & Partial<Pick<AssistantFacts, "specialty">>,
   channel: AssistantChannel,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>,
   now: Date,
@@ -130,6 +130,7 @@ export function urgentReply(
     channel,
     emergency: finding.emergency,
     language: finding.language ?? "en",
+    veterinary: urgentSetFor(facts.specialty) === "veterinary",
     clinicName: facts.clinicName,
     clinicNumber: personNumber(facts, channel),
     referralNumber: numberFor(channel, facts.vetReferralPhone),

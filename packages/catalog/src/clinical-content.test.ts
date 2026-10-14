@@ -260,3 +260,30 @@ describe("findClinicalContent in Spanish", () => {
     expect(findClinicalContent({ message: "Tengo mucho acné" })).toEqual([]);
   });
 });
+
+describe("third review: the inbound screen reads conditions, medicines and triage questions", () => {
+  // The Meta screen that runs before anything is stored, and the default one.
+  test.each([
+    ["estoy dando pecho", "pregnancy or breastfeeding"],
+    ["¿El relleno es peligroso?", "a safety claim"],
+    ["¿Es normal tener un bulto después del relleno?", "diagnosis, symptoms or triage"],
+    ["Tomo warfarina", "medication or interactions"],
+    ["Tengo diabetes", "a medical condition"],
+    ["Tengo lupus", "a medical condition"],
+    ["Tengo VIH", "a medical condition"],
+    ["I have diabetes", "a medical condition"],
+    ["I'm HIV positive", "a medical condition"],
+    ["Is it normal to have a lump after filler?", "diagnosis, symptoms or triage"],
+    ["my lip has a lump after filler", "a medical condition"],
+  ])("%j is clinical (%s)", (text, label) => {
+    expect(findClinicalContent({ message: text }, { conditions: true })[0]?.label).toBe(label);
+    expect(findClinicalContent({ message: text })[0]?.label).toBe(label);
+  });
+
+  test.each(["Hi, how much is Botox?", "Hola, ¿cuánto cuesta el botox?", "Can I book a lip filler consult?"])(
+    "%j is not clinical",
+    (text) => {
+      expect(findClinicalContent({ message: text }, { conditions: true })).toEqual([]);
+    },
+  );
+});

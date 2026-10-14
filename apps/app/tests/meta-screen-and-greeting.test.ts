@@ -1239,7 +1239,9 @@ describeDb("the screen and the greeting, end to end", () => {
     const person = (await answerSent(c.clinicId, { platform: "messenger", text: "call 911, my husband collapsed", responder, now: new Date("2026-10-13T17:00:00Z") }))!;
     expect(person.source).toBe("urgent");
     expect(person.text).toContain("If this is an emergency, call 911 now.");
-    expect(person.text).not.toContain("emergency vet");
+    // 911 leads, and at a vet the emergency vet is always given too.
+    expect(person.text.indexOf("call 911")).toBeLessThan(person.text.indexOf("emergency vet"));
+    expect(person.text).toContain("+14155550911");
     expect(responder).not.toHaveBeenCalled();
   }, 60_000);
 

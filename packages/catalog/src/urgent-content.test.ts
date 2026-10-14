@@ -195,7 +195,10 @@ describe("findUrgentContent: a question about the practice's emergency service i
 
   test("the practice's own name is read past, and only its name", () => {
     expect(findUrgentContent("Is Urgent Smiles Dental open on Saturday?", "dental", { clinicName: "Urgent Smiles Dental" })).toBeNull();
-    expect(findUrgentContent("Is Urgent Smiles Dental open on Saturday?", "dental")).not.toBeNull();
+    // A place's name with an emergency word, in a question about its hours, is read past configured or not.
+    expect(findUrgentContent("Is Urgent Smiles Dental open on Saturday?", "dental")).toBeNull();
+    // Not when someone needs help: "help" keeps it urgent.
+    expect(findUrgentContent("Help! Is Urgent Smiles Dental open on Saturday?", "dental")).not.toBeNull();
     expect(
       findUrgentContent("Urgent Smiles Dental, I knocked out my front tooth", "dental", { clinicName: "Urgent Smiles Dental" }),
     ).toMatchObject({ label: "a wound or an injury" });
@@ -302,7 +305,6 @@ describe("findUrgentContent for a veterinary practice", () => {
   // The review of 14 October: these reached the model.
   test.each([
     ["my dog isn't moving", "a collapse or a seizure"],
-    ["he won't wake up", "a collapse or a seizure"],
     ["my dog was attacked by a pit bull", "an accident or an injury"],
     ["she ate something and is now shaking", "a poisoning or something swallowed"],
     ["my dog overdosed on my pills", "a poisoning or something swallowed"],
@@ -445,5 +447,193 @@ describe("findUrgentContent for a veterinary practice", () => {
     "I'm not breathing easy about the cost lol",
   ])("%j is not urgent at a veterinary practice", (text) => {
     expect(findUrgentContent(text, "veterinary")).toBeNull();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The third review of 14 October: every input it quoted, with its expected result.
+// -----------------------------------------------------------------------------
+
+const VET_NAME = { clinicName: "Oakwood Animal Hospital" };
+
+describe("third review: at a vet, the animal's emergency is the animal's", () => {
+  // An owner named ("my daughter's dog"), the client upset ("my heart is
+  // pounding"), an injury ("hurt himself"), a pet's name: the emergency vet leads.
+  test.each([
+    "my daughter's dog was hit by a car",
+    "my son's cat is having a seizure",
+    "my neighbor's dog attacked my cat and she's bleeding badly",
+    "my mom's dog ate a whole bar of chocolate",
+    "our kids' puppy swallowed a sock",
+    "my friend's cat isn't breathing",
+    "el perro de mi hija no respira",
+    "el gato de mi mamá comió veneno",
+    "my heart is pounding, my dog just collapsed",
+    "my dog is choking and I can't get my hand in his mouth",
+    "I can't stop shaking, my dog got hit by a car",
+    "I'm in so much pain watching this, my cat is having a seizure",
+    "my dog hurt himself jumping off the bed and is bleeding",
+    "my cat hurt herself on the fence and can't walk",
+    "Bella swallowed a bottle of pills",
+    "call 911? Max ate antifreeze",
+    "Max isn't breathing",
+    "my horse collapsed",
+    "I can't get my cat to breathe",
+    "I can't wake my dog up",
+    "no puedo despertar a mi perro",
+    "my dog took my pills",
+    "mi perro tomó mis pastillas",
+    "my dog ate my medication",
+    "my dog got into my sleeping pills",
+    "mi perro no despierta",
+    "mi perro is not breathing",
+    "my perrito comió chocolate",
+  ])("%j leads with the emergency vet", (text) => {
+    const finding = findUrgentContent(text, "veterinary", VET_NAME);
+    expect(finding).toMatchObject({ emergency: "veterinary" });
+    expect(finding?.label).not.toBe("a crisis");
+  });
+
+  // Someone plainly a person, the person speaking, a crisis, someone unnamed
+  // not breathing: 911 leads (the reply at a vet still gives the emergency vet).
+  test.each([
+    "someone collapsed in the waiting room",
+    "a man just collapsed in your parking lot",
+    "the receptionist fainted",
+    "I got bitten by a dog and it won't stop bleeding",
+    "he's not breathing",
+    "he stopped breathing",
+    "he won't wake up",
+    "my partner took something",
+    "my partner took something and won't wake up",
+    "I think I'm having a heart attack",
+    "I think I'm having a stroke",
+    "my kid ate rat poison",
+    "my toddler swallowed a battery",
+    "my son drank bleach",
+    "my wife is unconscious",
+    "my husband is choking",
+    "your dog bit my son and he's bleeding a lot",
+    "my chest hurts and my arm is numb",
+    "I'm going to kill myself",
+    "I've been thinking about killing myself",
+    "I want to end it",
+    "I took 30 tylenol",
+    "I took a bunch of xanax",
+    "me quiero matar",
+    "me voy a matar",
+    "she wants to end her life",
+    "I'm having chest pains",
+  ])("%j leads with 911", (text) => {
+    expect(findUrgentContent(text, "veterinary", VET_NAME)).toMatchObject({ emergency: "911" });
+  });
+});
+
+describe("third review: crisis and overdose, in both sets", () => {
+  test.each([
+    "I've been thinking about killing myself",
+    "I want to end it",
+    "I'd be better off dead",
+    "I've been cutting myself",
+    "I took 30 tylenol",
+    "I swallowed a whole bottle of advil",
+    "I took a bunch of xanax",
+    "me quiero matar",
+    "me voy a matar",
+    "me tomé 20 pastillas",
+    "me corté las venas",
+    "ya no quiero estar aquí",
+    "my partner took something",
+  ])("%j is a crisis at every practice", (text) => {
+    for (const specialty of ["med-spa", "dental", "veterinary"]) {
+      expect(findUrgentContent(text, specialty), `${specialty}: ${text}`).toMatchObject({ label: "a crisis", emergency: "911" });
+    }
+  });
+
+  test("the Spanish ones answer in Spanish", () => {
+    for (const text of ["me quiero matar", "me voy a matar", "me tomé 20 pastillas", "me corté las venas", "ya no quiero estar aquí"]) {
+      expect(findUrgentContent(text, "med-spa")?.language, text).toBe("es");
+    }
+  });
+
+  test("my chest hurts and my arm is numb is urgent at a med spa", () => {
+    expect(findUrgentContent("my chest hurts and my arm is numb", "med-spa")).toMatchObject({ emergency: "911" });
+  });
+
+  // MEDIUM 5: no crisis in these, and none of the recall above is traded for it.
+  test.each([
+    ["med-spa", "I hurt myself skiing, can I still get botox on Friday?"],
+    ["dental", "my son hurt himself playing football, can we move his cleaning?"],
+    ["veterinary", "can you board my dog? I'm going to Puerto Rico and don't want to die of worry"],
+    ["med-spa", "I'm poisoning myself with coffee before my appointment haha"],
+    ["med-spa", "this traffic is killing me, running 10 min late"],
+    ["med-spa", "I'm dying to get my lips done lol"],
+    ["med-spa", "the price is to die for"],
+    ["med-spa", "can I take my meds before the appointment?"],
+    ["med-spa", "do you have rat poison free parking lol"],
+    ["med-spa", "I took 2 tylenol for my headache, is that ok before botox?"],
+  ])("%s: %j is not urgent", (specialty, text) => {
+    expect(findUrgentContent(text, specialty)).toBeNull();
+  });
+});
+
+describe("third review: the set for people catches someone not breathing", () => {
+  test.each([
+    "my son isn't breathing",
+    "she stopped breathing",
+    "my daughter is choking",
+    "he won't wake up",
+    "her lips are turning blue",
+    "mi hijo no respira",
+    "me duele el pecho",
+    "me duele mucho el pecho",
+    "no siento los labios",
+    "siento que me voy a desmayar",
+    "tengo la cara muy hinchada después del relleno",
+    "se me puso blanca la piel donde me pusieron el relleno",
+    "me sale mucha sangre",
+    "llamen a una ambulancia",
+    "creo que es una reacción alérgica",
+    "estoy vomitando",
+    "tengo fiebre y me sale pus",
+    "mi esposo can't breathe",
+    "my lips están hinchados after the filler",
+    "help, mi hija no puede respirar",
+  ])("%j is urgent at a med spa and a dentist, without the vet fallback", (text) => {
+    for (const specialty of ["med-spa", "dental"]) {
+      expect(findUrgentContent(text, specialty), `${specialty}: ${text}`).toMatchObject({ emergency: "911" });
+    }
+  });
+
+  test("not breathing easy about the cost is not urgent", () => {
+    expect(findUrgentContent("I'm not breathing easy about the cost lol", "med-spa")).toBeNull();
+  });
+});
+
+describe("third review: questions about a vet's emergency service, and its name", () => {
+  test.each([
+    ["Oakwood Animal Hospital", "Do you see emergencies on weekends?"],
+    ["Oakwood Animal Hospital", "Are you an emergency vet?"],
+    ["Oakwood Emergency Animal Hospital", "Do you handle emergencies?"],
+    ["Oakwood Emergency Animal Hospital", "Is Oakwood Emergency open Sunday?"],
+    ["Oakwood Emergency Animal Hospital", "Is Oakwood Emergency Animal Hospital open Sunday?"],
+    ["Oakwood Animal Hospital", "Is Oakwood Emergency Animal Hospital open Sunday?"],
+    ["24/7 Urgent Pet Care", "Is Urgent Pet Care open now?"],
+    ["Oakwood Animal Hospital", "do you offer emergency appointments?"],
+    ["Oakwood Animal Hospital", "How much is an emergency visit?"],
+  ])("[%s] %j is not urgent", (clinicName, text) => {
+    expect(findUrgentContent(text, "veterinary", { clinicName })).toBeNull();
+  });
+
+  test.each([
+    "is this an emergency?",
+    "should I take him to the animal hospital?",
+    "Do you do emergency appointments? he's bleeding",
+    "emergency appointments available? my dog is having a seizure",
+    "Is this an emergency? my dog ate a grape",
+    "Do you see emergencies? my dog was hit by a car",
+    "it's an emergency, are you open?",
+  ])("%j is still urgent", (text) => {
+    expect(findUrgentContent(text, "veterinary", VET_NAME)).not.toBeNull();
   });
 });

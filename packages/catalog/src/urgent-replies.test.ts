@@ -235,3 +235,65 @@ describe("the reply to a message no screen can read", () => {
     expect(reply).toContain("Otherwise, please call Paws.");
   });
 });
+
+describe("third review: at a vet, every urgent reply carries the emergency vet", () => {
+  const VET_911: UrgentReplyInput = {
+    channel: "web_chat",
+    emergency: "911",
+    veterinary: true,
+    clinicName: "Oakwood Animal Hospital",
+    clinicNumber: "(555) 111-2222",
+    referralNumber: "(555) 999-0000",
+    clinicOpen: false,
+    teamAlerted: false,
+  };
+
+  test("a person's emergency at a vet leads with 911, then gives the emergency vet", () => {
+    expect(fixedUrgentReply(VET_911)).toBe(
+      "I'm an AI assistant, so I can't help with anything urgent here. " +
+        "If this is an emergency, call 911 now. " +
+        "If an animal needs emergency care, call the emergency vet on (555) 999-0000. " +
+        "Leave a number for the clinic to call you.",
+    );
+  });
+
+  test("the practice's own number only while it is open, in the 911 branch too", () => {
+    expect(fixedUrgentReply(VET_911)).not.toContain("(555) 111-2222");
+    expect(fixedUrgentReply({ ...VET_911, clinicOpen: true })).toContain(
+      "Otherwise, please call Oakwood Animal Hospital on (555) 111-2222.",
+    );
+    expect(fixedUrgentReply({ ...VET_911, clinicOpen: null })).toContain("(555) 111-2222");
+    // With no referral clinic, the practice's own number whatever the hour.
+    expect(fixedUrgentReply({ ...VET_911, referralNumber: null })).toContain("(555) 111-2222");
+    expect(fixedUrgentReply({ ...VET_911, referralNumber: null })).toContain(
+      "If an animal needs emergency care, call your nearest emergency vet.",
+    );
+  });
+
+  test("a practice for people keeps its urgent-help number at any hour: it is the one that reaches a person", () => {
+    expect(
+      fixedUrgentReply({
+        ...VET_911,
+        veterinary: false,
+        referralNumber: null,
+        clinicName: "Glow",
+        clinicOpen: false,
+      }),
+    ).toContain("Otherwise, please call Glow on (555) 111-2222.");
+  });
+
+  test("whichever emergency led, both numbers are there, on every channel and in both languages", () => {
+    for (const channel of ["voice", "web_chat", "meta"] as const) {
+      for (const emergency of ["911", "veterinary"] as const) {
+        for (const language of ["en", "es"] as const) {
+          const reply = fixedUrgentReply({ ...VET_911, channel, emergency, language });
+          expect(reply, `${channel} ${emergency} ${language}`).toMatch(/\b911\b/);
+          expect(reply, `${channel} ${emergency} ${language}`).toContain("(555) 999-0000");
+        }
+      }
+    }
+    expect(fixedUrgentReply({ ...VET_911, language: "es" })).toContain(
+      "Si un animal necesita atención de urgencia, llame al veterinario de urgencias al (555) 999-0000.",
+    );
+  });
+});

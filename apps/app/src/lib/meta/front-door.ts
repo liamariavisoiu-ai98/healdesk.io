@@ -214,7 +214,7 @@ export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">)
  */
 export function urgentLine(
   facts: Pick<FrontDoorFacts, "clinicName" | "phone" | "urgentPhone"> &
-    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone">>,
+    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "specialty">>,
   finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">> = { emergency: "911" },
   now: Date = new Date(),
 ): string {
@@ -228,6 +228,7 @@ export function urgentLine(
     channel: "meta",
     emergency: finding.emergency,
     language: finding.language ?? "en",
+    veterinary: urgentSetFor(facts.specialty) === "veterinary",
     clinicName: facts.clinicName,
     clinicNumber: facts.urgentPhone ?? facts.phone,
     referralNumber: facts.vetReferralPhone ?? null,

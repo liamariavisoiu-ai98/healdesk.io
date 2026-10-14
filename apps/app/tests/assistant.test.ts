@@ -183,6 +183,85 @@ describe("the guard", () => {
     expect(guardAssistantReply(text, GLOW)).toEqual({ ok: false, reason: "clinical" });
   });
 
+  // The third review of 14 October: plain-worded clinical content, all of it sent before.
+  test.each([
+    "A little puffiness after lip filler usually settles within a couple of days.",
+    "Most clients are back to normal the next day.",
+    "You can wear makeup again after 24 hours.",
+    "Sleep on your back the first night after filler.",
+    "Drink plenty of water and stay upright for four hours.",
+    "Botox kicks in after 3 to 5 days and wears off around month four.",
+    "It sounds like a mild bruise, which is fine.",
+    "That sounds fine, no need to come in.",
+    "Hold off on ibuprofen for a week before your appointment.",
+    "Stop taking fish oil a week before filler.",
+    "Don't exercise for 24 hours after Botox.",
+    "Don't drink alcohol the night before.",
+    "It won't hurt much, we use numbing cream.",
+    "You'll look ten years younger.",
+    "The redness should be gone by tomorrow.",
+    "Wait two weeks before your next Botox touch-up.",
+    "Lip Filler usually takes 1 syringe for most people.",
+    "Most people need one syringe.",
+    "You'd probably want 20 to 25 units for your forehead.",
+    "Pregnant women shouldn't get Botox.",
+    "Bruising is totally normal.",
+    "Need about 20 for the forehead.",
+    "Usually 20 to 30 units.",
+    "Puede tomar Tylenol si le duele.",
+    "La hinchazón es normal después del relleno.",
+    "Es normal que se hinche un poco.",
+    "Póngase hielo y no haga ejercicio.",
+    "Los moretones desaparecen en una semana.",
+    "Los resultados duran unos cuatro meses.",
+  ])("third review: a clinical reply is refused: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: false, reason: "clinical" });
+  });
+
+  // ...and the ordinary replies around them, including LOW 8's, pass.
+  test.each([
+    "We have about 3 openings left on Saturday.",
+    "Our gift cards last 12 months from purchase.",
+    "Have a safe drive!",
+    "Drive safe!",
+    "We'll see you at 3 — stay safe in the rain!",
+    "We're at 88 Pine St, Unit 4B.",
+    "We're on the 2nd floor, room 210.",
+    "Parking is free and safe in the garage.",
+    "Please bring a list of any medications you take.",
+    "Is there anything else I can help with?",
+    "The appointment takes about 45 minutes.",
+    "The team usually replies within about 2 hours.",
+    "Our opening hours are Monday to Friday, 9 to 5.",
+    "I'll pass that to the team and they'll call you back today.",
+    "Your appointment is at 2pm; please arrive 10 minutes early.",
+    "The deposit is $100 and Lip Filler is $650.",
+    "We have parking for about 20 cars.",
+    "We close at about 6 on Fridays.",
+    "Sí, tenemos citas el sábado a las 10.",
+    "Claro, ¿le viene bien el martes a las 3?",
+    "Merci for the message! We're open until 6.",
+    "Your booking is confirmed for Mon 3pm.",
+    "The consultation is free and lasts about 30 minutes.",
+    "Bring your ID and arrive about 10 min early.",
+    "You can park on level 2, it's free for 2 hours.",
+    "Booking takes about 2 minutes online.",
+    "Our team has about 15 years of experience.",
+    "Room 4 is on your left.",
+    "We serve about 200 clients a month.",
+    "I'm sorry, I don't have that information, but the team will get back to you.",
+    "Our new hours take effect next week.",
+    "No need to come in early, five minutes before is plenty.",
+    "It won't hurt to ask the team!",
+  ])("third review: an ordinary reply passes: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: true });
+  });
+
+  test("third review: a reply in a language no list knows is never sent", () => {
+    expect(guardAssistantReply("Mwen pa ka ede w ak sa, rele klinik la.", GLOW)).toEqual({ ok: false, reason: "language" });
+    expect(guardAssistantReply("Nie mogę pomóc, proszę zadzwonić do kliniki.", GLOW)).toEqual({ ok: false, reason: "language" });
+  });
+
   test("a reply in a language the screens do not read is never sent", () => {
     expect(guardAssistantReply("C'est sans danger pendant la grossesse.", GLOW)).toEqual({ ok: false, reason: "language" });
     expect(guardAssistantReply("Não tem efeitos colaterais, pode fazer.", GLOW)).toEqual({ ok: false, reason: "language" });
@@ -350,18 +429,30 @@ describe("answerTurn", () => {
     expect(medSpa.source).toBe("model");
   });
 
-  test("a person's own emergency at a veterinary practice gets 911, not the emergency vet", async () => {
-    // The review of 14 October.
+  test("a person's own emergency at a veterinary practice leads with 911, and the emergency vet is still given", async () => {
+    // The reviews of 14 October: first 911 was lost, then the emergency vet.
     const voice = await answerTurn({ facts: VET, channel: "voice", history: [], text: "I swallowed a bottle of pills", responder: null, now: OPEN });
     expect(voice).toMatchObject({ source: "urgent", urgent: true });
     expect(voice.reply).toContain("hang up and call 911 now");
-    expect(voice.reply).not.toContain("emergency vet");
+    expect(voice.reply.indexOf("911")).toBeLessThan(voice.reply.indexOf("emergency vet"));
     const chat = await answerTurn({ facts: VET, channel: "web_chat", history: [], text: "call 911, my husband collapsed", responder: null, now: OPEN });
     expect(chat.reply).toContain("If this is an emergency, call 911 now.");
-    expect(chat.reply).not.toContain("emergency vet");
-    for (const text of ["she wants to die", "I took an overdose"]) {
-      const crisis = await answerTurn({ facts: VET, channel: "voice", history: [], text, responder: null, now: OPEN });
-      expect(crisis.reply, text).toContain("hang up and call 911 now");
+    expect(chat.reply).toContain("If an animal needs emergency care, call the emergency vet on (415) 555-0911.");
+    for (const text of ["she wants to die", "I took an overdose", "he stopped breathing", "someone collapsed in the waiting room"]) {
+      const person = await answerTurn({ facts: VET, channel: "voice", history: [], text, responder: null, now: OPEN });
+      expect(person.reply, text).toContain("hang up and call 911 now");
+      expect(person.reply, text).toContain("emergency vet");
+    }
+    // Closed: the practice's own number is left out in the 911 branch too.
+    const closed = await answerTurn({ facts: VET, channel: "web_chat", history: [], text: "he's not breathing", responder: null, now: CLOSED });
+    expect(closed.reply).toContain("(415) 555-0911");
+    expect(closed.reply).not.toContain("(415) 555-0123");
+  });
+
+  test("an animal's emergency read through an owner's words keeps the emergency vet in the lead", async () => {
+    for (const text of ["my daughter's dog was hit by a car", "my heart is pounding, my dog just collapsed", "Bella swallowed a bottle of pills"]) {
+      const result = await answerTurn({ facts: VET, channel: "web_chat", history: [], text, responder: null, now: OPEN });
+      expect(result.reply.indexOf("emergency vet"), text).toBeLessThan(result.reply.indexOf("911"));
     }
   });
 

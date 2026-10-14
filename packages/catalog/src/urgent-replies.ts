@@ -20,7 +20,9 @@ import type { UrgentEmergency, UrgentLanguage } from "./urgent-content";
  *      line. For an animal (a veterinary practice), the emergency vet the
  *      practice refers to, by its number (clinic_settings.vet_referral_e164),
  *      and then, always, 911 for a person who is hurt or in danger: whoever
- *      wrote may be the one in trouble.
+ *      wrote may be the one in trouble. At a veterinary practice a person's
+ *      emergency leads with 911 and still gives the emergency vet: every
+ *      urgent reply there carries both, whichever emergency the matcher read.
  *   3. The practice's own number: its urgent-help number as apps/app's
  *      lib/setup/urgent.ts resolves it, never on a call the number that
  *      forwards back to the assistant. A veterinary practice's own number
@@ -53,6 +55,13 @@ export type UrgentReplyInput = {
   clinicName: string;
   /** The practice's urgent-help number, written for the channel; null when it has none. */
   clinicNumber: string | null;
+  /**
+   * Whether the practice's patients are animals. At a veterinary practice
+   * every urgent reply carries the emergency vet, whichever emergency led:
+   * the matcher can read an animal's emergency as a person's ("he stopped
+   * breathing"), and the client must never lose the number that helps.
+   */
+  veterinary?: boolean;
   /** A veterinary practice's emergency referral number, written for the channel. */
   referralNumber?: string | null;
   /** Whether the practice is open now; null when its hours are not known, which counts as open. */
@@ -66,6 +75,8 @@ type Lines = {
   call911: (voice: boolean) => string;
   person911: (voice: boolean) => string;
   vet: (voice: boolean, referral: string | null) => string;
+  /** The emergency vet after 911, when a person's emergency leads at a veterinary practice. */
+  vetForAnimal: (referral: string | null) => string;
   clinic: (name: string, number: string | null) => string;
   told: string;
   leaveNumber: string;
@@ -90,6 +101,10 @@ const LINES: Readonly<Record<UrgentLanguage, Lines>> = {
         : voice
           ? "If this is an emergency, hang up and call your nearest emergency vet."
           : "If this is an emergency, call your nearest emergency vet now.",
+    vetForAnimal: (referral) =>
+      referral
+        ? `If an animal needs emergency care, call the emergency vet on ${referral}.`
+        : "If an animal needs emergency care, call your nearest emergency vet.",
     clinic: (name, number) =>
       number ? `Otherwise, please call ${name} on ${number}.` : `Otherwise, please call ${name}.`,
     told: "I've told the team.",
@@ -113,6 +128,10 @@ const LINES: Readonly<Record<UrgentLanguage, Lines>> = {
         : voice
           ? "Si es una emergencia, cuelgue y llame al veterinario de urgencias más cercano."
           : "Si es una emergencia, llame ahora al veterinario de urgencias más cercano.",
+    vetForAnimal: (referral) =>
+      referral
+        ? `Si un animal necesita atención de urgencia, llame al veterinario de urgencias al ${referral}.`
+        : "Si un animal necesita atención de urgencia, llame al veterinario de urgencias más cercano.",
     clinic: (name, number) =>
       number ? `Si no, llame a ${name} al ${number}.` : `Si no, llame a ${name}.`,
     told: "Ya avisé al equipo.",
@@ -128,18 +147,24 @@ export const URGENT_PERSON_LINE = LINES.en.person911(false);
 export function fixedUrgentReply(input: UrgentReplyInput): string {
   const t = LINES[input.language ?? "en"];
   const voice = input.channel === "voice";
+  const referral = input.referralNumber ?? null;
+  // An animal's emergency is a veterinary practice's by definition.
+  const veterinary = input.veterinary === true || input.emergency === "veterinary";
   const lines: (string | null)[] = [t.ai];
   if (input.emergency === "911") {
-    lines.push(t.call911(voice), t.clinic(input.clinicName, input.clinicNumber));
+    lines.push(t.call911(voice));
+    if (veterinary) lines.push(t.vetForAnimal(referral));
   } else {
-    const referral = input.referralNumber ?? null;
     lines.push(t.vet(voice, referral), t.person911(voice));
-    // The practice's own number while it is open, or whenever there is no
-    // referral clinic to send the client to.
-    const offered = !referral || input.clinicOpen !== false;
-    lines.push(
-      input.clinicNumber && offered ? t.clinic(input.clinicName, input.clinicNumber) : null,
-    );
+  }
+  // The practice's own number. At a veterinary practice that has given an
+  // emergency referral clinic, only while it is open: a closed practice
+  // cannot see an emergency, and the emergency vet can. Everywhere else
+  // always, because the urgent-help number is the one that reaches a person.
+  const withheld = veterinary && referral !== null && input.clinicOpen === false;
+  if (!withheld) {
+    if (input.clinicNumber) lines.push(t.clinic(input.clinicName, input.clinicNumber));
+    else if (!veterinary) lines.push(t.clinic(input.clinicName, null));
   }
   if (input.teamAlerted) lines.push(t.told);
   if (input.channel === "web_chat") lines.push(t.leaveNumber);

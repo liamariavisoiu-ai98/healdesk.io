@@ -49,9 +49,9 @@ function es(body: string): RegExp {
  */
 const CLINICAL_PATTERNS: ClinicalPattern[] = [
   {
-    pattern: /\b(safe|safely|safety)\b/i,
+    pattern: /\b(safe|safely|safety|dangerous|harmful)\b/i,
     // "Seguro" alone is also "insurance" and "sure": only the claim.
-    es: es("(es|son|ser[áa]|sea|muy|totalmente|completamente|100% ) ?segur[oa]s?|segur[oa]s? (para|durante|en el|en la)|sin riesgos?|seguridad"),
+    es: es("(es|son|ser[áa]|sea|muy|totalmente|completamente|100% ) ?segur[oa]s?|segur[oa]s? (para|durante|en el|en la)|sin riesgos?|seguridad|peligros[oa]s?|da[ñn]ino|da[ñn]ina"),
     label: "a safety claim",
     claim: true,
   },
@@ -62,7 +62,7 @@ const CLINICAL_PATTERNS: ClinicalPattern[] = [
   },
   {
     pattern: /\b(pregnan\w*|breastfeed\w*|nursing mothers?)\b/i,
-    es: es("embaraz\\p{L}*|lactancia|amamant\\p{L}*"),
+    es: es("embaraz\\p{L}*|lactancia|lactando|lactante|amamant\\p{L}*|(dando|dar|doy) (el )?pecho"),
     label: "pregnancy or breastfeeding",
   },
   {
@@ -77,8 +77,9 @@ const CLINICAL_PATTERNS: ClinicalPattern[] = [
     label: "candidacy",
   },
   {
-    pattern: /\b(diagnos\w*|symptom\w*|triage)\b/i,
-    es: es("diagn[óo]stic\\p{L}*|s[íi]ntomas?"),
+    // "Is it normal to have a lump after filler?" asks for triage.
+    pattern: /\b(diagnos\w*|symptom\w*|triage)\b|\b(is|are) (it|this|that|these|they) normal\b/i,
+    es: es("diagn[óo]stic\\p{L}*|s[íi]ntomas?|es normal (tener|que|sentir)"),
     label: "diagnosis, symptoms or triage",
   },
   {
@@ -87,13 +88,20 @@ const CLINICAL_PATTERNS: ClinicalPattern[] = [
     label: "recovery or aftercare",
   },
   {
-    pattern: /\b(interact\w* with|blood thinners?|medications?|prescri\w*)\b/i,
-    es: es("medicamentos?|medicinas?|anticoagulantes?|recet(ar|ado|ada|amos|an)|con receta|interact\\p{L}* con"),
+    pattern:
+      /\b(interact\w* with|blood thinners?|medications?|prescri\w*|warfarin|coumadin|eliquis|xarelto|heparin|metformin|insulin|accutane|isotretinoin|prednisone|antibiotics?|antidepressants?)\b/i,
+    es: es(
+      "medicamentos?|medicinas?|anticoagulantes?|recet(ar|ado|ada|amos|an)|con receta|interact\\p{L}* con|warfarina|coumadin|eliquis|xarelto|heparina|metformina|insulina|isotretino\\p{L}*|prednisona|antibi[óo]ticos?|antidepresivos?",
+    ),
     label: "medication or interactions",
   },
   {
-    pattern: /\b(condition|disease|disorder|infection|allerg\w*)\b/i,
-    es: es("condici[óo]n|enfermedad(es)?|trastornos?|infecci[óo]n(es)?|alergi\\p{L}*|al[ée]rgic\\p{L}*"),
+    // The condition named as well as the word: "I have diabetes", "I'm HIV positive", "a lump".
+    pattern:
+      /\b(condition|disease|disorder|infection|allerg\w*|diabet\w*|lupus|hiv|cancer|hepatitis|epilep\w*|asthma|hypertension|autoimmune|thyroid|lumps?|nodules?)\b/i,
+    es: es(
+      "condici[óo]n|enfermedad(es)?|trastornos?|infecci[óo]n(es)?|alergi\\p{L}*|al[ée]rgic\\p{L}*|diab[ée]t\\p{L}*|lupus|vih|sida|c[áa]ncer|hepatitis|epilep\\p{L}*|asma|hipertensi[óo]n|autoinmune|tiroides|bultos?|n[óo]dulos?",
+    ),
     label: "a medical condition",
   },
   {

@@ -645,7 +645,7 @@ describe("POST /api/checkout, from the buyer's demo", () => {
     return POST(
       new Request("http://localhost/api/checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-forwarded-for": `10.1.0.${counter}`, cookie: `hd_demo=${slug}` },
+        headers: { "Content-Type": "application/json", "x-forwarded-for": `10.1.0.${counter}`, cookie: `hd_demo_ref=${slug}` },
         body: JSON.stringify(signed),
       }),
     );

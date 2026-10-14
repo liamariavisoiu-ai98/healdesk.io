@@ -307,7 +307,7 @@ describe("the setup offer on the Session", () => {
     const demo = await createDemoSession({ clinicName: "Radiance", websiteUrl: "https://radiancemedspa.com/" }, readyAt);
     await updateDemoSession(demo.slug, { status: "ready", readyAt });
     __resetDemoCacheForTests();
-    return `hd_demo=${demo.slug}`;
+    return `hd_demo_ref=${demo.slug}`;
   }
 
   function discounts(): unknown {
@@ -338,7 +338,7 @@ describe("the setup offer on the Session", () => {
     const demo = await demoCookie(2);
     await pay({ cookie: `${demo}; ${siteCookie(1)}` });
     expect(discounts()).toEqual([{ coupon: "healdesk-demo-setup-50-voice-webchat-47800" }]);
-    expect(fake.params[0]!.metadata).toMatchObject({ offer: "demo-setup-50", demo: demo.slice("hd_demo=".length) });
+    expect(fake.params[0]!.metadata).toMatchObject({ offer: "demo-setup-50", demo: demo.slice("hd_demo_ref=".length) });
   });
 
   test("a demo past its 48 hours gives no 50%, and the website's 30% still applies", async () => {

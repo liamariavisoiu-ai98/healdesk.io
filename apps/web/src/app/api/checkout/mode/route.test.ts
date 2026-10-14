@@ -57,7 +57,7 @@ describe("the setup offer in the mode answer", () => {
     const demo = await createDemoSession({ clinicName: "Radiance", websiteUrl: "https://radiancemedspa.com/" }, readyAt);
     await updateDemoSession(demo.slug, { status: "ready", readyAt });
     __resetDemoCacheForTests();
-    const body = (await (await ask(`hd_demo=${demo.slug}; ${siteCookie(1)}`)).json()) as {
+    const body = (await (await ask(`hd_demo_ref=${demo.slug}; ${siteCookie(1)}`)).json()) as {
       offer: { kind: string; percentOfSetupFee: number; endsAt: string };
     };
     expect(body.offer).toEqual({

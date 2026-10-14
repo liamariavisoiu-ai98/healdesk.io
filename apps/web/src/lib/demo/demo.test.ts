@@ -237,14 +237,14 @@ describe("the demo register", () => {
   it("lets a built, unbought demo open the purchase, and nothing else", async () => {
     const { demoInvitation } = await import("@/lib/setup-gate");
     const demo = await createDemoSession({ clinicName: "Peachy", websiteUrl: "https://peachystudio.com/" });
-    const cookie = `a=1; hd_demo=${demo.slug}`;
+    const cookie = `a=1; hd_demo_ref=${demo.slug}`;
     expect(await demoInvitation(cookie)).toBeNull(); // still building
     await updateDemoSession(demo.slug, { status: "ready" });
     expect((await demoInvitation(cookie))?.slug).toBe(demo.slug);
     await markDemoClaimed(demo.slug, "voice-500");
     __resetDemoCacheForTests();
     expect(await demoInvitation(cookie)).toBeNull(); // already bought
-    expect(await demoInvitation("hd_demo=peachy-zzzzzzzzzz")).toBeNull();
+    expect(await demoInvitation("hd_demo_ref=peachy-zzzzzzzzzz")).toBeNull();
     expect(await demoInvitation(null)).toBeNull();
   });
 
@@ -254,8 +254,8 @@ describe("the demo register", () => {
     const visitors = await createDemoSession({ clinicName: "Peachy", websiteUrl: "https://peachystudio.com/", createdBy: "homepage" });
     await updateDemoSession(operators.slug, { status: "ready" });
     await updateDemoSession(visitors.slug, { status: "ready" });
-    expect((await demoInvitation(`hd_demo=${operators.slug}`))?.slug).toBe(operators.slug);
-    expect(await demoInvitation(`hd_demo=${visitors.slug}`)).toBeNull();
+    expect((await demoInvitation(`hd_demo_ref=${operators.slug}`))?.slug).toBe(operators.slug);
+    expect(await demoInvitation(`hd_demo_ref=${visitors.slug}`)).toBeNull();
   });
 
   it("purges demos a month past expiry, and never a claimed one", async () => {
@@ -370,8 +370,8 @@ describe("where the slug may go", () => {
   // only, pinned in app/api/webhooks/stripe/route.test.ts.
 
   it("is read from the onboarding cookie, shape-checked", () => {
-    expect(demoSlugFromCookieHeader("a=1; hd_demo=smith-dental-k7q2mz9xwa")).toBe("smith-dental-k7q2mz9xwa");
-    expect(demoSlugFromCookieHeader("hd_demo=../../x")).toBeUndefined();
+    expect(demoSlugFromCookieHeader("a=1; hd_demo_ref=smith-dental-k7q2mz9xwa")).toBe("smith-dental-k7q2mz9xwa");
+    expect(demoSlugFromCookieHeader("hd_demo_ref=../../x")).toBeUndefined();
     expect(demoSlugFromCookieHeader(null)).toBeUndefined();
   });
 });
@@ -511,5 +511,29 @@ describe("what each package could book", () => {
       yearValueUsd: 19710,
     });
     expect(estimate({ channels: { web: false, meta: false, voice: false }, monthlyUsd: 0 }, inputs).multiple).toBe(0);
+  });
+});
+
+describe("the site's cookie names", () => {
+  // Two cookies with one name and one path are one cookie in the browser: the
+  // demo gate and this attribution cookie were both hd_demo until 14 October
+  // 2026, so each overwrote the other. Every name this app sets is listed
+  // here, and a new one belongs in the list.
+  it("are all different, and the attribution cookie is not the demo gate's", async () => {
+    const [{ DEMO_COOKIE }, { GATE_COOKIE }, { OPERATOR_COOKIE, STEP_COOKIE }, { SITE_OFFER_COOKIE }, { SETUP_COOKIE }, { DOWNLOAD_COOKIE }, { READ_COOKIE }, { WELCOME_NONCE_COOKIE }] =
+      await Promise.all([
+        import("./attribution"),
+        import("@/lib/gate"),
+        import("@/lib/admin/operator"),
+        import("@/lib/site-offer"),
+        import("@/lib/setup-link"),
+        import("@/lib/agreement-download"),
+        import("@/app/api/clinic-site/route"),
+        import("@healdesk/catalog"),
+      ]);
+    const names = [DEMO_COOKIE, GATE_COOKIE, OPERATOR_COOKIE, STEP_COOKIE, SITE_OFFER_COOKIE, SETUP_COOKIE, DOWNLOAD_COOKIE, READ_COOKIE, WELCOME_NONCE_COOKIE];
+    expect(new Set(names).size).toBe(names.length);
+    expect(GATE_COOKIE).toBe("hd_demo"); // the name the Privacy page gives it
+    expect(demoSlugFromCookieHeader(`${GATE_COOKIE}=signed.gate.token; ${DEMO_COOKIE}=smith-dental-k7q2mz9xwa`)).toBe("smith-dental-k7q2mz9xwa");
   });
 });

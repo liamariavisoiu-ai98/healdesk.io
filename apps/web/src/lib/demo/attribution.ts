@@ -8,8 +8,16 @@ import { isDemoSlug } from "./sessions";
  * form, /api/checkout to put the slug on the Stripe Session. It names a
  * demo, not a person, and grants nothing on its own: checkout re-reads the
  * row before trusting it, exactly as it does `leadId`.
+ *
+ * Its own name, never the demo gate's. Until 14 October 2026 both were
+ * `hd_demo`, with the same path, so a browser kept one cookie of that name:
+ * unlocking a demo replaced the slug with the gate's token, and checkout lost
+ * which demo the buyer came from and the setup discount that came with it;
+ * "Book Onboarding" replaced the token with the slug, and the demo asked for
+ * the email again. `lib/gate.ts` keeps `hd_demo`, the name the Privacy page
+ * gives it.
  */
-export const DEMO_COOKIE = "hd_demo";
+export const DEMO_COOKIE = "hd_demo_ref";
 
 const MAX_AGE_SECONDS = 14 * 24 * 60 * 60;
 

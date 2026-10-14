@@ -164,6 +164,35 @@ describeDb("database audit (0031)", () => {
     ]);
   });
 
+  test("the assistant's number kept its grant through the rename, and the console's projection reads it by its new name (0075)", async () => {
+    // A rename keeps a column's privileges, but app_clinics_overview() is a
+    // LANGUAGE sql function whose body is stored as text: it had to be
+    // recreated to read the column at all, with its OUT column renamed.
+    const { rows: granted } = await getMigratorPool().query<{ column_name: string; privilege_type: string }>(`
+      select column_name, privilege_type
+        from information_schema.column_privileges
+       where table_schema = 'public' and table_name = 'clinics' and grantee = 'healdesk_app'
+         and column_name in ('assistant_number_e164', 'synthflow_number_e164')
+         and privilege_type = 'UPDATE'
+    `);
+    expect(granted).toEqual([{ column_name: "assistant_number_e164", privilege_type: "UPDATE" }]);
+    const { rows: columns } = await getMigratorPool().query<{ attname: string }>(`
+      select attname from pg_attribute
+       where attrelid = 'clinics'::regclass and attname like '%synthflow%' and not attisdropped
+    `);
+    expect(columns).toEqual([]);
+    const { rows: out } = await getMigratorPool().query<{ outputs: string[] }>(`
+      select p.proargnames::text[] as outputs from pg_proc p where p.oid = 'app_clinics_overview()'::regprocedure
+    `);
+    expect(out[0]!.outputs).toContain("assistant_number_e164");
+    expect(out[0]!.outputs).not.toContain("synthflow_number_e164");
+    const { rows: execute } = await getMigratorPool().query<{ app: boolean; anyone: boolean }>(`
+      select has_function_privilege('healdesk_app', 'app_clinics_overview()', 'EXECUTE') as app,
+             has_function_privilege('public', 'app_clinics_overview()', 'EXECUTE') as anyone
+    `);
+    expect(execute).toEqual([{ app: true, anyone: false }]);
+  });
+
   test("the runtime role cannot delete a clinic (0066)", async () => {
     // A clinic ends by offboarding and destruction, which keep its row.
     // Deleting one and inserting its id again as synthetic reopened the
@@ -480,9 +509,10 @@ describeDb("database audit (0031)", () => {
     // Until 0048 any bound version went live, 1.0.0 and unapproved drafts
     // included. Everything else is ready here, so the version is the refusal:
     // superseded releases below the floor (1.2.2 since the 1.3.0 release,
-    // which replaced it outright, and 1.3.0 since the 1.4.0 release, which
-    // replaced it outright in turn, 0070), and older drafts and releases.
-    for (const [i, version] of ["1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"].entries()) {
+    // which replaced it outright, 1.3.0 since the 1.4.0 release, which
+    // replaced it outright in turn, 0070, and 1.4.0 since the 1.5.0 release,
+    // 0073), and older drafts and releases.
+    for (const [i, version] of ["1.4.0", "1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.0.0", "1.1.0-draft", "0.1.0-draft"].entries()) {
       const { clinicId, organizationId } = await seedClinic(`superseded${i}`);
       await readyForGoLive(clinicId);
       await seedAcceptance(organizationId, version);
@@ -502,15 +532,16 @@ describeDb("database audit (0031)", () => {
     }
   });
 
-  test("app_mark_clinic_production takes 1.4.0, the floor its release raised", async () => {
-    // 1.4.0's release (0070) raised MIN_ACCEPTABLE_BAA_VERSION to 1.4.0: no
-    // clinic had signed 1.3.0, which describes a stored transcript, so 1.4.0
-    // replaced it outright (owner, 13 October 2026), as 1.3.0 had replaced
-    // 1.2.2 (12 October), and the test above refuses a 1.3.0 clinic.
-    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.4.0");
+  test("app_mark_clinic_production takes 1.5.0, the floor its release raised", async () => {
+    // 1.5.0's release (0073) raised MIN_ACCEPTABLE_BAA_VERSION to 1.5.0: no
+    // clinic had signed 1.4.0, which promises a transcript copy kept seven
+    // days after the email first goes, so 1.5.0 replaced it outright (owner,
+    // 14 October 2026), as 1.4.0 had replaced 1.3.0 (13 October), and the
+    // test above refuses a 1.4.0 clinic.
+    expect(MIN_ACCEPTABLE_BAA_VERSION).toBe("1.5.0");
     const { clinicId, organizationId } = await seedClinic("acceptable");
     await readyForGoLive(clinicId);
-    await seedAcceptance(organizationId, "1.4.0");
+    await seedAcceptance(organizationId, "1.5.0");
     await getAppPool().query(`select app_mark_clinic_production($1::uuid)`, [clinicId]);
     const { rows } = await getMigratorPool().query(
       `select data_classification from clinics where id = $1`,
@@ -841,5 +872,16 @@ describeDb("database audit (0031)", () => {
       );
       expect(rows[0]!.ok, `booking_requests.${column}`).toBe(false);
     }
+  });
+
+  test("the operator's second factor is not in this database (0074)", async () => {
+    // It moved onto Vercel on 14 October 2026 (apps/web/src/lib/admin/totp.ts).
+    // The table's trigger went with it; its function is dropped by hand,
+    // because CASCADE does not reach a function a trigger merely called.
+    const { rows } = await getMigratorPool().query<{ table: string | null; functions: number }>(`
+      select to_regclass('public.admin_totp')::text as table,
+             (select count(*)::int from pg_proc where proname = 'app_admin_totp_no_rewrite') as functions
+    `);
+    expect(rows[0]).toEqual({ table: null, functions: 0 });
   });
 });

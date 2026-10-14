@@ -240,7 +240,7 @@ run "production_defaults" {
   }
 
   assert {
-    condition     = length(cloudflare_dns_record.app.comment) <= 100 && length(cloudflare_dns_record.internal.comment) <= 100
+    condition     = length(cloudflare_dns_record.app[0].comment) <= 100 && length(cloudflare_dns_record.internal[0].comment) <= 100
     error_message = "Cloudflare refuses a DNS record comment over 100 characters."
   }
 
@@ -295,7 +295,7 @@ run "production_defaults" {
       ]) == toset([
       "ANTHROPIC_API_KEY", "BETTER_AUTH_SECRET", "DATABASE_URL", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
       "HEALDESK_IDENTIFIER_REF_KEY", "HEALDESK_PROVISION_SECRET", "HEALDESK_RETELL_LLM_SECRET",
-      "HEALDESK_VOICE_TOOLS_SECRET", "HEALDESK_VOICE_WEBHOOK_SECRET", "META_APP_SECRET", "META_VERIFY_TOKEN",
+      "META_APP_SECRET", "META_VERIFY_TOKEN",
       "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
     ])
     error_message = "The web app container must get every app/ parameter as a secret, and nothing else."
@@ -418,7 +418,7 @@ run "production_defaults" {
   # credentials as its only secrets, the role passwords read by itself ---
   assert {
     condition = {
-      for e in jsondecode(aws_ecs_task_definition.db_bootstrap.container_definitions)[0].environment : e.name => e.value
+      for e in jsondecode(aws_ecs_task_definition.db_bootstrap[0].container_definitions)[0].environment : e.name => e.value
       } == {
       AWS_REGION                = "us-east-1"
       HEALDESK_KMS_KEY_ID       = "arn:aws:kms:us-east-1:865780386982:key/11111111-2222-3333-4444-555555555555"
@@ -434,12 +434,12 @@ run "production_defaults" {
 
   assert {
     condition = (
-      jsondecode(aws_ecs_task_definition.db_bootstrap.container_definitions)[0].secrets == [
+      jsondecode(aws_ecs_task_definition.db_bootstrap[0].container_definitions)[0].secrets == [
         { name = "PGPASSWORD", valueFrom = "arn:aws:secretsmanager:us-east-1:865780386982:secret:rds!db-0000-AbCdEf:password::" },
         { name = "PGUSER", valueFrom = "arn:aws:secretsmanager:us-east-1:865780386982:secret:rds!db-0000-AbCdEf:username::" },
       ] &&
-      jsondecode(aws_ecs_task_definition.db_bootstrap.container_definitions)[0].name == "db-admin" &&
-      aws_ecs_task_definition.db_bootstrap.task_role_arn == aws_iam_role.db_admin_task.arn
+      jsondecode(aws_ecs_task_definition.db_bootstrap[0].container_definitions)[0].name == "db-admin" &&
+      aws_ecs_task_definition.db_bootstrap[0].task_role_arn == aws_iam_role.db_admin_task.arn
     )
     error_message = "db-bootstrap's only secrets are the RDS master secret's two keys; the role passwords are no longer ECS secrets."
   }
@@ -448,7 +448,7 @@ run "production_defaults" {
   assert {
     condition = alltrue(flatten([
       for name in ["HEALDESK_LOCAL_KEK", "HEALDESK_DIRECT_BOOKING_ENABLED", "HEALDESK_PHASE_TWO_ATTRIBUTION", "BETTER_AUTH_SECRETS", "APP_PASSWORD", "MIGRATOR_PASSWORD"] : [
-        for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.ops_script["erase-person"].container_definitions, aws_ecs_task_definition.ops_script["amend-contact"].container_definitions, aws_ecs_task_definition.migrate.container_definitions, aws_ecs_task_definition.db_bootstrap.container_definitions] :
+        for definition in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.worker.container_definitions, aws_ecs_task_definition.destroy_due.container_definitions, aws_ecs_task_definition.patient_export.container_definitions, aws_ecs_task_definition.ops_script["erase-person"].container_definitions, aws_ecs_task_definition.ops_script["amend-contact"].container_definitions, aws_ecs_task_definition.migrate.container_definitions, aws_ecs_task_definition.db_bootstrap[0].container_definitions] :
         !strcontains(definition, "\"${name}\"")
       ]
     ])) && !strcontains(aws_ecs_task_definition.web.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.worker.container_definitions, "MIGRATION_DATABASE_URL") && !strcontains(aws_ecs_task_definition.destroy_due.container_definitions, "MIGRATION_DATABASE_URL")
@@ -464,7 +464,7 @@ run "production_defaults" {
   assert {
     condition = alltrue([
       for d in concat(
-        [aws_ecs_task_definition.web, aws_ecs_task_definition.worker, aws_ecs_task_definition.destroy_due, aws_ecs_task_definition.patient_export, aws_ecs_task_definition.migrate, aws_ecs_task_definition.db_bootstrap],
+        [aws_ecs_task_definition.web, aws_ecs_task_definition.worker, aws_ecs_task_definition.destroy_due, aws_ecs_task_definition.patient_export, aws_ecs_task_definition.migrate, aws_ecs_task_definition.db_bootstrap[0]],
         values(aws_ecs_task_definition.ops_script),
       ) : d.runtime_platform[0].cpu_architecture == "ARM64"
     ])
@@ -474,17 +474,17 @@ run "production_defaults" {
   # --- services: web only; the worker shares its task ---
   assert {
     condition = (
-      aws_ecs_service.web.desired_count == 0 &&
-      !aws_ecs_service.web.enable_execute_command &&
-      aws_ecs_service.web.deployment_circuit_breaker[0].enable && aws_ecs_service.web.deployment_circuit_breaker[0].rollback &&
-      aws_ecs_service.web.tags["DesiredCount"] == "1" &&
+      aws_ecs_service.web[0].desired_count == 0 &&
+      !aws_ecs_service.web[0].enable_execute_command &&
+      aws_ecs_service.web[0].deployment_circuit_breaker[0].enable && aws_ecs_service.web[0].deployment_circuit_breaker[0].rollback &&
+      aws_ecs_service.web[0].tags["DesiredCount"] == "1" &&
       length(aws_ecs_service.worker) == 0 && length(aws_cloudwatch_metric_alarm.worker_running) == 0
     )
     error_message = "The web service starts at 0 tasks, with the circuit breaker on, ECS Exec off and its DesiredCount tag; a shared worker has no service and no alarm of its own."
   }
 
   assert {
-    condition     = one(aws_ecs_service.web.load_balancer).container_name == "tls-proxy" && one(aws_ecs_service.web.load_balancer).container_port == 8443
+    condition     = one(aws_ecs_service.web[0].load_balancer).container_name == "tls-proxy" && one(aws_ecs_service.web[0].load_balancer).container_port == 8443
     error_message = "The web service registers the sidecar's 8443."
   }
 
@@ -506,28 +506,28 @@ run "production_defaults" {
   # --- load balancer and TLS ---
   assert {
     condition = (
-      aws_lb_target_group.web.protocol == "HTTPS" && aws_lb_target_group.web.port == 8443 &&
-      aws_lb_target_group.web.health_check[0].path == "/api/health?probe=liveness" &&
-      aws_lb_target_group.web.health_check[0].matcher == "200" &&
-      aws_lb_target_group.web.health_check[0].protocol == "HTTPS"
+      aws_lb_target_group.web[0].protocol == "HTTPS" && aws_lb_target_group.web[0].port == 8443 &&
+      aws_lb_target_group.web[0].health_check[0].path == "/api/health?probe=liveness" &&
+      aws_lb_target_group.web[0].health_check[0].matcher == "200" &&
+      aws_lb_target_group.web[0].health_check[0].protocol == "HTTPS"
     )
     error_message = "With alb_to_task_tls the target group is HTTPS:8443 with the liveness check."
   }
 
   assert {
     condition = (
-      aws_lb_listener.https.ssl_policy == "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09" &&
-      aws_lb_listener.https.certificate_arn == aws_acm_certificate_validation.app.certificate_arn &&
-      aws_lb_listener.https.default_action[0].type == "fixed-response" &&
-      aws_lb_listener.https.default_action[0].fixed_response[0].status_code == "404" &&
-      aws_lb_listener.http.default_action[0].redirect[0].protocol == "HTTPS" &&
-      aws_lb_listener.http.default_action[0].redirect[0].status_code == "HTTP_301"
+      aws_lb_listener.https[0].ssl_policy == "ELBSecurityPolicy-TLS13-1-2-Res-PQ-2025-09" &&
+      aws_lb_listener.https[0].certificate_arn == aws_acm_certificate_validation.app.certificate_arn &&
+      aws_lb_listener.https[0].default_action[0].type == "fixed-response" &&
+      aws_lb_listener.https[0].default_action[0].fixed_response[0].status_code == "404" &&
+      aws_lb_listener.http[0].default_action[0].redirect[0].protocol == "HTTPS" &&
+      aws_lb_listener.http[0].default_action[0].redirect[0].status_code == "HTTP_301"
     )
     error_message = "HTTPS uses the TLS 1.3/1.2 PQ policy and the validated certificate, and answers 404 to any host it does not know; HTTP redirects."
   }
 
   assert {
-    condition     = aws_lb.main.drop_invalid_header_fields && aws_lb.main.enable_deletion_protection && aws_lb.main.idle_timeout == 120 && !aws_lb.main.internal
+    condition     = aws_lb.main[0].drop_invalid_header_fields && aws_lb.main[0].enable_deletion_protection && aws_lb.main[0].idle_timeout == 120 && !aws_lb.main[0].internal
     error_message = "The ALB settings differ from contract section 1."
   }
 
@@ -553,10 +553,10 @@ run "production_defaults" {
 
   assert {
     condition = (
-      cloudflare_dns_record.app.name == "app.healdesk.io" && !cloudflare_dns_record.app.proxied &&
-      cloudflare_dns_record.app.type == "CNAME" && cloudflare_dns_record.app.content == aws_lb.main.dns_name &&
-      cloudflare_dns_record.internal.name == "app-internal.healdesk.io" && !cloudflare_dns_record.internal.proxied &&
-      cloudflare_dns_record.internal.type == "CNAME" && cloudflare_dns_record.internal.content == aws_lb.main.dns_name
+      cloudflare_dns_record.app[0].name == "app.healdesk.io" && !cloudflare_dns_record.app[0].proxied &&
+      cloudflare_dns_record.app[0].type == "CNAME" && cloudflare_dns_record.app[0].content == aws_lb.main[0].dns_name &&
+      cloudflare_dns_record.internal[0].name == "app-internal.healdesk.io" && !cloudflare_dns_record.internal[0].proxied &&
+      cloudflare_dns_record.internal[0].type == "CNAME" && cloudflare_dns_record.internal[0].content == aws_lb.main[0].dns_name
     )
     error_message = "Both origins are DNS-only CNAMEs to the load balancer."
   }
@@ -567,20 +567,16 @@ run "production_defaults" {
       "/api/provision",
       "/api/billing/events",
       "/api/ops",
-      "/api/agreements",
-      "/api/agreements/*/pdf",
       "/api/reviews/verify",
-      "/api/checkout/intents",
-      "/api/checkout/intents/session",
     ]
     error_message = "The signed routes differ from the ones enumerated from apps/web and apps/app; change both the code survey in locals.tf and this list."
   }
 
   assert {
     condition = (
-      length(aws_lb_listener_rule.internal_signed) == 3 &&
+      length(aws_lb_listener_rule.internal_signed) == 2 &&
       toset(flatten([for r in aws_lb_listener_rule.internal_signed : [for c in r.condition : tolist(c.path_pattern[0].values) if length(c.path_pattern) > 0]])) == toset(local.signed_paths) &&
-      alltrue([for r in aws_lb_listener_rule.internal_signed : r.action[0].type == "forward" && r.action[0].target_group_arn == aws_lb_target_group.web.arn]) &&
+      alltrue([for r in aws_lb_listener_rule.internal_signed : r.action[0].type == "forward" && r.action[0].target_group_arn == aws_lb_target_group.web[0].arn]) &&
       alltrue([for r in aws_lb_listener_rule.internal_signed : toset(flatten([for c in r.condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app-internal.healdesk.io"])])
     )
     error_message = "Every signed path is forwarded on the internal host, and only there."
@@ -588,17 +584,17 @@ run "production_defaults" {
 
   assert {
     condition = (
-      aws_lb_listener_rule.internal_nothing_else.action[0].type == "fixed-response" &&
-      aws_lb_listener_rule.internal_nothing_else.action[0].fixed_response[0].status_code == "404" &&
-      toset(flatten([for c in aws_lb_listener_rule.internal_nothing_else.condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app-internal.healdesk.io"]) &&
-      length(flatten([for c in aws_lb_listener_rule.internal_nothing_else.condition : c.path_pattern])) == 0
+      aws_lb_listener_rule.internal_nothing_else[0].action[0].type == "fixed-response" &&
+      aws_lb_listener_rule.internal_nothing_else[0].action[0].fixed_response[0].status_code == "404" &&
+      toset(flatten([for c in aws_lb_listener_rule.internal_nothing_else[0].condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app-internal.healdesk.io"]) &&
+      length(flatten([for c in aws_lb_listener_rule.internal_nothing_else[0].condition : c.path_pattern])) == 0
     )
     error_message = "The internal host answers 404 to anything that is not a signed route."
   }
 
   assert {
     condition = (
-      length(aws_lb_listener_rule.public_refuses_signed) == 3 &&
+      length(aws_lb_listener_rule.public_refuses_signed) == 2 &&
       toset(flatten([for r in aws_lb_listener_rule.public_refuses_signed : [for c in r.condition : tolist(c.path_pattern[0].values) if length(c.path_pattern) > 0]])) == toset(local.signed_paths) &&
       alltrue([for r in aws_lb_listener_rule.public_refuses_signed : r.action[0].type == "fixed-response" && r.action[0].fixed_response[0].status_code == "404"]) &&
       alltrue([for r in aws_lb_listener_rule.public_refuses_signed : toset(flatten([for c in r.condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app.healdesk.io"])])
@@ -608,9 +604,9 @@ run "production_defaults" {
 
   assert {
     condition = (
-      aws_lb_listener_rule.public.action[0].type == "forward" &&
-      aws_lb_listener_rule.public.action[0].target_group_arn == aws_lb_target_group.web.arn &&
-      toset(flatten([for c in aws_lb_listener_rule.public.condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app.healdesk.io"])
+      aws_lb_listener_rule.public[0].action[0].type == "forward" &&
+      aws_lb_listener_rule.public[0].action[0].target_group_arn == aws_lb_target_group.web[0].arn &&
+      toset(flatten([for c in aws_lb_listener_rule.public[0].condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app.healdesk.io"])
     )
     error_message = "The public host forwards everything else to the web tier."
   }
@@ -620,8 +616,8 @@ run "production_defaults" {
   # condition, five a rule).
   assert {
     condition = (
-      max([for r in aws_lb_listener_rule.internal_signed : r.priority]...) < aws_lb_listener_rule.internal_nothing_else.priority &&
-      max([for r in aws_lb_listener_rule.public_refuses_signed : r.priority]...) < aws_lb_listener_rule.public.priority &&
+      max([for r in aws_lb_listener_rule.internal_signed : r.priority]...) < aws_lb_listener_rule.internal_nothing_else[0].priority &&
+      max([for r in aws_lb_listener_rule.public_refuses_signed : r.priority]...) < aws_lb_listener_rule.public[0].priority &&
       alltrue([
         for r in concat(aws_lb_listener_rule.internal_signed, aws_lb_listener_rule.public_refuses_signed) :
         alltrue([for c in r.condition : length(flatten([c.host_header[*].values, c.path_pattern[*].values])) <= 3]) &&
@@ -683,27 +679,58 @@ run "production_defaults" {
 
   # --- database ---
   assert {
-    condition     = aws_cloudwatch_metric_alarm.rds_freeable_memory.threshold == 134217728
+    condition     = aws_cloudwatch_metric_alarm.rds_freeable_memory[0].threshold == 134217728
     error_message = "On a db.t4g.micro the freeable-memory alarm fires below 128 MiB, an eighth of the instance."
   }
 
   assert {
     condition = (
-      aws_db_instance.main.engine_version == "17.11" && aws_db_instance.main.instance_class == "db.t4g.micro" &&
-      aws_db_instance.main.allocated_storage == 20 && aws_db_instance.main.storage_type == "gp3" &&
-      aws_db_instance.main.storage_encrypted && aws_db_instance.main.kms_key_id == aws_kms_key.main.arn &&
-      !aws_db_instance.main.multi_az && !aws_db_instance.main.publicly_accessible &&
-      aws_db_instance.main.backup_retention_period == 35 && aws_db_instance.main.skip_final_snapshot &&
-      !aws_db_instance.main.delete_automated_backups && aws_db_instance.main.deletion_protection &&
-      aws_db_instance.main.copy_tags_to_snapshot && aws_db_instance.main.manage_master_user_password &&
-      aws_db_instance.main.master_user_secret_kms_key_id == aws_kms_key.main.arn &&
-      aws_db_instance.main.username == "healdesk_admin" && aws_db_instance.main.db_name == "healdesk" &&
-      aws_db_instance.main.ca_cert_identifier == "rds-ca-rsa2048-g1" && aws_db_instance.main.auto_minor_version_upgrade &&
-      aws_db_instance.main.enabled_cloudwatch_logs_exports == toset(["postgresql"]) &&
-      aws_db_instance.main.database_insights_mode == "standard" && aws_db_instance.main.performance_insights_enabled &&
-      aws_db_instance.main.performance_insights_kms_key_id == aws_kms_key.main.arn
+      aws_db_instance.main[0].engine_version == "17.11" && aws_db_instance.main[0].instance_class == "db.t4g.micro" &&
+      aws_db_instance.main[0].allocated_storage == 20 && aws_db_instance.main[0].storage_type == "gp3" &&
+      aws_db_instance.main[0].storage_encrypted && aws_db_instance.main[0].kms_key_id == aws_kms_key.main.arn &&
+      !aws_db_instance.main[0].multi_az && !aws_db_instance.main[0].publicly_accessible &&
+      aws_db_instance.main[0].backup_retention_period == 35 && aws_db_instance.main[0].skip_final_snapshot &&
+      !aws_db_instance.main[0].delete_automated_backups && aws_db_instance.main[0].deletion_protection &&
+      aws_db_instance.main[0].copy_tags_to_snapshot && aws_db_instance.main[0].manage_master_user_password &&
+      aws_db_instance.main[0].master_user_secret_kms_key_id == aws_kms_key.main.arn &&
+      aws_db_instance.main[0].username == "healdesk_admin" && aws_db_instance.main[0].db_name == "healdesk" &&
+      aws_db_instance.main[0].ca_cert_identifier == "rds-ca-rsa2048-g1" && aws_db_instance.main[0].auto_minor_version_upgrade &&
+      aws_db_instance.main[0].enabled_cloudwatch_logs_exports == toset(["postgresql"]) &&
+      aws_db_instance.main[0].database_insights_mode == "standard" && aws_db_instance.main[0].performance_insights_enabled &&
+      aws_db_instance.main[0].performance_insights_kms_key_id == aws_kms_key.main.arn
     )
     error_message = "The RDS instance differs from contract section 1."
+  }
+
+  # --- standby off, as production.tfvars records the active shape: the
+  # database protected (above) and with no final snapshot when deleted; the
+  # master secret readable by db-bootstrap. (snapshot_identifier is computed
+  # as well as optional, so the mock fills it here; back_from_standby checks
+  # the value a restore sets.) ---
+  assert {
+    condition = (
+      length(aws_db_instance.main) == 1 &&
+      aws_db_instance.main[0].final_snapshot_identifier == null &&
+      !output.standby &&
+      output.rds_endpoint == "healdesk-production.abcdefghijkl.us-east-1.rds.amazonaws.com" &&
+      output.alb_dns_name == "healdesk-production-1234567890.us-east-1.elb.amazonaws.com" &&
+      toset(one([for st in data.aws_iam_policy_document.ecs_execution.statement : st if st.sid == "ReadRdsMasterSecret"]).resources) == toset([
+        "arn:aws:secretsmanager:us-east-1:865780386982:secret:rds!db-0000-AbCdEf",
+      ])
+    )
+    error_message = "Active, the database takes no final snapshot when deleted, and the execution role reads its master secret and nothing else."
+  }
+
+  assert {
+    condition = sum([
+      length(aws_cloudwatch_metric_alarm.alb_5xx), length(aws_cloudwatch_metric_alarm.target_5xx),
+      length(aws_cloudwatch_metric_alarm.unhealthy_hosts), length(aws_cloudwatch_metric_alarm.web_running),
+      length(aws_cloudwatch_metric_alarm.worker_running), length(aws_cloudwatch_metric_alarm.voice_running),
+      length(aws_cloudwatch_metric_alarm.nat_instance_status), length(aws_cloudwatch_metric_alarm.rds_cpu),
+      length(aws_cloudwatch_metric_alarm.rds_free_storage), length(aws_cloudwatch_metric_alarm.rds_freeable_memory),
+      length(aws_cloudwatch_metric_alarm.rds_idle_in_transaction),
+    ]) == 9
+    error_message = "The lean profile has nine alarms (README, Alarms and monitoring)."
   }
 
   assert {
@@ -725,7 +752,7 @@ run "production_defaults" {
   assert {
     condition = (
       local.unset_placeholder == "__unset__" &&
-      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 12 &&
+      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 10 &&
       alltrue([
         for p in concat(values(aws_ssm_parameter.internal), values(aws_ssm_parameter.external)) :
         p.type == "SecureString" && p.key_id == aws_kms_key.main.arn && p.tier == "Standard" &&
@@ -751,13 +778,13 @@ run "production_defaults" {
     condition = (
       output.parameters_to_fill == sort([for name in [
         "ANTHROPIC_API_KEY", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "HEALDESK_PROVISION_SECRET",
-        "HEALDESK_RETELL_LLM_SECRET", "HEALDESK_VOICE_TOOLS_SECRET", "HEALDESK_VOICE_WEBHOOK_SECRET", "META_APP_SECRET",
+        "HEALDESK_RETELL_LLM_SECRET", "META_APP_SECRET",
         "META_VERIFY_TOKEN", "RESEND_API_KEY", "STRIPE_CONNECT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY",
       ] : "/healdesk/production/app/${name}"]) &&
       length(output.internal_parameters) == 6 &&
       !contains(output.parameters_to_fill, "/healdesk/production/ci/CLOUDFLARE_API_TOKEN")
     )
-    error_message = "parameters_to_fill lists the twelve external keys (and never the CI token, which Terraform does not manage)."
+    error_message = "parameters_to_fill lists the ten external keys, without the two retired Synthflow ones (and never the CI token, which Terraform does not manage)."
   }
 
   assert {
@@ -966,11 +993,11 @@ run "production_defaults" {
 
   assert {
     condition = (
-      aws_cloudwatch_metric_alarm.rds_idle_in_transaction.threshold == 300 &&
-      aws_cloudwatch_metric_alarm.rds_idle_in_transaction.comparison_operator == "GreaterThanThreshold" &&
-      aws_cloudwatch_metric_alarm.rds_idle_in_transaction.treat_missing_data == "notBreaching" &&
-      one(aws_cloudwatch_metric_alarm.rds_idle_in_transaction.metric_query).expression == "DB_PERF_INSIGHTS('RDS', 'db-ABCDEFGHIJKLMNOPQRSTUVWXY1', 'db.state.idle_in_transaction_max_time.max')" &&
-      one(aws_cloudwatch_metric_alarm.rds_idle_in_transaction.metric_query).period == 60
+      aws_cloudwatch_metric_alarm.rds_idle_in_transaction[0].threshold == 300 &&
+      aws_cloudwatch_metric_alarm.rds_idle_in_transaction[0].comparison_operator == "GreaterThanThreshold" &&
+      aws_cloudwatch_metric_alarm.rds_idle_in_transaction[0].treat_missing_data == "notBreaching" &&
+      one(aws_cloudwatch_metric_alarm.rds_idle_in_transaction[0].metric_query).expression == "DB_PERF_INSIGHTS('RDS', 'db-ABCDEFGHIJKLMNOPQRSTUVWXY1', 'db.state.idle_in_transaction_max_time.max')" &&
+      one(aws_cloudwatch_metric_alarm.rds_idle_in_transaction[0].metric_query).period == 60
     )
     error_message = "The idle-in-transaction alarm reads Performance Insights' counter for this instance and fires past five minutes."
   }
@@ -1211,7 +1238,7 @@ run "separate_worker_nat_gateway_and_waf" {
   }
 
   assert {
-    condition     = aws_db_instance.main.instance_class == "db.t4g.small" && aws_cloudwatch_metric_alarm.rds_freeable_memory.threshold == 268435456
+    condition     = aws_db_instance.main[0].instance_class == "db.t4g.small" && aws_cloudwatch_metric_alarm.rds_freeable_memory[0].threshold == 268435456
     error_message = "On a db.t4g.small the freeable-memory alarm stays at 256 MiB."
   }
 }
@@ -1334,10 +1361,10 @@ run "voice_on" {
     condition = (
       aws_lb_listener_rule.voice[0].action[0].type == "forward" &&
       aws_lb_listener_rule.voice[0].action[0].target_group_arn == aws_lb_target_group.voice[0].arn &&
-      aws_lb_target_group.voice[0].arn != aws_lb_target_group.web.arn &&
+      aws_lb_target_group.voice[0].arn != aws_lb_target_group.web[0].arn &&
       toset(flatten([for c in aws_lb_listener_rule.voice[0].condition : tolist(c.host_header[0].values) if length(c.host_header) > 0])) == toset(["app.healdesk.io"]) &&
       toset(flatten([for c in aws_lb_listener_rule.voice[0].condition : tolist(c.path_pattern[0].values) if length(c.path_pattern) > 0])) == toset(["/llm-websocket/*"]) &&
-      aws_lb_listener_rule.public.action[0].target_group_arn == aws_lb_target_group.web.arn
+      aws_lb_listener_rule.public[0].action[0].target_group_arn == aws_lb_target_group.web[0].arn
     )
     error_message = "/llm-websocket/* on the public host, and only there, goes to the voice group; everything else on it still goes to the web tier."
   }
@@ -1345,8 +1372,8 @@ run "voice_on" {
   assert {
     condition = (
       aws_lb_listener_rule.voice[0].priority > max([for r in aws_lb_listener_rule.public_refuses_signed : r.priority]...) &&
-      aws_lb_listener_rule.voice[0].priority < aws_lb_listener_rule.public.priority &&
-      aws_lb_listener_rule.voice[0].priority > aws_lb_listener_rule.internal_nothing_else.priority
+      aws_lb_listener_rule.voice[0].priority < aws_lb_listener_rule.public[0].priority &&
+      aws_lb_listener_rule.voice[0].priority > aws_lb_listener_rule.internal_nothing_else[0].priority
     )
     error_message = "The voice rule is decided after the public host's refusals of the signed paths and before its catch-all."
   }
@@ -1484,7 +1511,7 @@ run "plain_http_to_tasks" {
   }
 
   assert {
-    condition     = aws_lb_target_group.web.protocol == "HTTP" && aws_lb_target_group.web.port == 3001 && one(aws_ecs_service.web.load_balancer).container_name == "app" && one(aws_ecs_service.web.load_balancer).container_port == 3001
+    condition     = aws_lb_target_group.web[0].protocol == "HTTP" && aws_lb_target_group.web[0].port == 3001 && one(aws_ecs_service.web[0].load_balancer).container_name == "app" && one(aws_ecs_service.web[0].load_balancer).container_port == 3001
     error_message = "Without alb_to_task_tls the target group is HTTP:3001 on the app container."
   }
 
@@ -1671,30 +1698,278 @@ run "refuses_the_missing_personal_values" {
   expect_failures = [var.cloudflare_zone_id, var.alarm_email, var.healdesk_admin_email]
 }
 
-run "transcript_archive_needs_the_baa_statement" {
+
+# The archive copy of each transcript went on 14 October 2026: healdesk keeps
+# no copy of a transcript, so neither name may come back as plain environment.
+run "refuses_the_transcript_archive" {
   command = plan
 
   variables {
-    transcript_archive_to = "transcripts@healdesk.io"
+    app_environment = {
+      HEALDESK_TRANSCRIPT_ARCHIVE_TO  = "transcripts@healdesk.io"
+      HEALDESK_TRANSCRIPT_ARCHIVE_BAA = "signed"
+    }
   }
 
-  expect_failures = [var.transcript_archive_to]
+  expect_failures = [var.app_environment]
 }
 
-run "transcript_archive_with_the_baa_statement" {
+# ---------------------------------------------------------------------------
+# Standby (variables.tf, README "Standby"): host.yml's two applies in, and the
+# apply that brings the host back from its snapshot
+# ---------------------------------------------------------------------------
+
+# Standby's first apply: the protections lifted and the final snapshot named
+# in the state, and nothing removed.
+run "standby_first_apply_releases_the_protections" {
   command = plan
 
   variables {
-    transcript_archive_to         = "transcripts@healdesk.io"
-    transcript_archive_baa_signed = true
+    deletion_protection       = false
+    final_snapshot_identifier = "healdesk-production-standby-20261014120000"
   }
 
   assert {
     condition = (
-      strcontains(aws_ecs_task_definition.web.container_definitions, "transcripts@healdesk.io") &&
-      strcontains(aws_ecs_task_definition.worker.container_definitions, "transcripts@healdesk.io") &&
-      strcontains(aws_ecs_task_definition.worker.container_definitions, "HEALDESK_TRANSCRIPT_ARCHIVE_BAA")
+      length(aws_db_instance.main) == 1 &&
+      !aws_db_instance.main[0].deletion_protection &&
+      !aws_db_instance.main[0].skip_final_snapshot &&
+      aws_db_instance.main[0].final_snapshot_identifier == "healdesk-production-standby-20261014120000" &&
+      !aws_db_instance.main[0].delete_automated_backups &&
+      aws_db_instance.main[0].backup_retention_period == 35 &&
+      !aws_lb.main[0].enable_deletion_protection
     )
-    error_message = "With a mailbox and the owner's BAA statement, both tasks that send transcripts get the archive address and the statement."
+    error_message = "Standby's first apply lifts the deletion protection of the database and the load balancer and records the final snapshot's name, keeping the automated backups and their 35 days."
+  }
+
+  assert {
+    condition = (
+      length(aws_lb.main) == 1 && length(aws_ecs_service.web) == 1 && length(aws_instance.nat) == 1 &&
+      length(cloudflare_dns_record.app) == 1 && length(cloudflare_dns_record.internal) == 1 &&
+      length(aws_cloudwatch_metric_alarm.web_running) == 1 && length(aws_ecs_task_definition.db_bootstrap) == 1
+    )
+    error_message = "Standby's first apply removes nothing: the second does."
+  }
+}
+
+# Standby's second apply, the lean profile.
+run "standby" {
+  command = plan
+
+  variables {
+    standby             = true
+    deletion_protection = false
+  }
+
+  # --- what goes ---
+  assert {
+    condition = (
+      length(aws_db_instance.main) == 0 &&
+      length(aws_lb.main) == 0 && length(aws_lb_listener.https) == 0 && length(aws_lb_listener.http) == 0 &&
+      length(aws_lb_target_group.web) == 0 && length(aws_lb_target_group.voice) == 0 &&
+      length(aws_lb_listener_rule.internal_signed) == 0 && length(aws_lb_listener_rule.internal_nothing_else) == 0 &&
+      length(aws_lb_listener_rule.public_refuses_signed) == 0 && length(aws_lb_listener_rule.voice) == 0 &&
+      length(aws_lb_listener_rule.public) == 0
+    )
+    error_message = "Standby removes the database, and the load balancer with every listener, rule and target group."
+  }
+
+  assert {
+    condition = (
+      length(aws_instance.nat) == 0 && length(data.aws_ssm_parameter.nat_ami) == 0 &&
+      length(aws_nat_gateway.main) == 0 && length(aws_eip.nat) == 0 &&
+      length(aws_route_table.private) == 2 &&
+      alltrue([for rt in aws_route_table.private : length(rt.route) == 0])
+    )
+    error_message = "Standby removes the NAT instance and leaves the private subnets with no default route."
+  }
+
+  assert {
+    condition     = length(aws_ecs_service.web) == 0 && length(aws_ecs_service.worker) == 0 && length(aws_ecs_service.voice) == 0
+    error_message = "Standby removes every ECS service."
+  }
+
+  assert {
+    condition = (
+      length(aws_cloudwatch_metric_alarm.alb_5xx) == 0 && length(aws_cloudwatch_metric_alarm.target_5xx) == 0 &&
+      length(aws_cloudwatch_metric_alarm.unhealthy_hosts) == 0 && length(aws_cloudwatch_metric_alarm.web_running) == 0 &&
+      length(aws_cloudwatch_metric_alarm.worker_running) == 0 && length(aws_cloudwatch_metric_alarm.voice_running) == 0 &&
+      length(aws_cloudwatch_metric_alarm.nat_instance_status) == 0 && length(aws_cloudwatch_metric_alarm.rds_cpu) == 0 &&
+      length(aws_cloudwatch_metric_alarm.rds_free_storage) == 0 && length(aws_cloudwatch_metric_alarm.rds_freeable_memory) == 0 &&
+      length(aws_cloudwatch_metric_alarm.rds_idle_in_transaction) == 0
+    )
+    error_message = "Standby removes every alarm: each watches the load balancer, a service, the NAT instance or the database."
+  }
+
+  assert {
+    condition = (
+      length(cloudflare_dns_record.app) == 0 && length(cloudflare_dns_record.internal) == 0 &&
+      length(cloudflare_dns_record.acm_validation) == 2 && length(cloudflare_dns_record.ses_dkim) == 3 &&
+      aws_acm_certificate.app.domain_name == "app.healdesk.io"
+    )
+    error_message = "Standby removes the two CNAMEs to the load balancer and keeps the certificate, its validation records and SES's DKIM records."
+  }
+
+  assert {
+    condition = (
+      length(aws_ecs_task_definition.db_bootstrap) == 0 &&
+      length(aws_wafv2_web_acl.main) == 0 && length(aws_wafv2_web_acl_association.alb) == 0 &&
+      length(aws_sns_topic_subscription.ses_events_app) == 0
+    )
+    error_message = "Standby removes the db-bootstrap task definition (it names the instance and its secret), the WAF and SES's subscription to the removed host, even with subscribe_ses_events on."
+  }
+
+  # --- what stays ---
+  assert {
+    condition = (
+      aws_kms_key.main.enable_key_rotation && aws_kms_alias.main.name == "alias/healdesk-production" &&
+      length(aws_ssm_parameter.internal) == 6 && length(aws_ssm_parameter.external) == 10 &&
+      toset(keys(aws_ecr_repository.this)) == toset(["app", "db-admin", "tls-proxy"]) &&
+      length(aws_ecr_lifecycle_policy.this) == 3
+    )
+    error_message = "Standby keeps the key, every parameter (so pasted and generated secrets survive) and the three image repositories with their images."
+  }
+
+  assert {
+    condition = (
+      aws_vpc.main.cidr_block == "10.40.0.0/16" && length(aws_subnet.public) == 2 && length(aws_subnet.private) == 2 &&
+      aws_security_group.rds.name == "healdesk-production-rds" && aws_security_group.tasks.name == "healdesk-production-tasks" &&
+      aws_security_group.alb.name == "healdesk-production-alb" && length(aws_security_group.nat) == 1 &&
+      aws_db_subnet_group.main.name == "healdesk-production" && aws_db_parameter_group.main.name == "healdesk-production-postgres17"
+    )
+    error_message = "Standby keeps the network, the security groups and the database's subnet and parameter groups, so everything comes back where it was."
+  }
+
+  assert {
+    condition = (
+      aws_cloudtrail.main.name == "healdesk-production" && length(aws_guardduty_detector.main) == 1 &&
+      aws_config_configuration_recorder.main.name == "healdesk-production" &&
+      aws_s3_bucket.exports.bucket == "healdesk-production-exports-865780386982" &&
+      aws_sns_topic.alarms.name == "healdesk-production-alarms" && aws_sns_topic_subscription.alarm_email.protocol == "email" &&
+      length(aws_sesv2_email_identity.main) == 1 && length(aws_sns_topic.ses_events) == 1 &&
+      length(aws_cloudwatch_log_group.app) == 11 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
+      aws_budgets_budget.monthly.limit_amount == "250"
+    )
+    error_message = "Standby keeps the trail, Config, GuardDuty, the buckets, the alarm topic and its subscription, SES's identity and events topic, every log group and the budget."
+  }
+
+  assert {
+    condition = (
+      aws_ecs_cluster.main.name == "healdesk-production" &&
+      aws_ecs_task_definition.web.family == "healdesk-production-web" && aws_ecs_task_definition.worker.family == "healdesk-production-worker" &&
+      aws_ecs_task_definition.migrate.family == "healdesk-production-migrate" &&
+      aws_iam_role.github_deploy.name == "healdesk-production-github-deploy" && aws_iam_role.app_task.name == "healdesk-production-app-task"
+    )
+    error_message = "Standby keeps the cluster, the task definitions it does not have to drop and every role."
+  }
+
+  # --- what follows from the instance being gone ---
+  assert {
+    condition = (
+      length([for st in data.aws_iam_policy_document.ecs_execution.statement : st if st.sid == "ReadRdsMasterSecret"]) == 0 &&
+      output.standby && output.alb_dns_name == null && output.rds_endpoint == null &&
+      output.rds_master_secret_arn == null && output.voice_service == null && output.voice_websocket_url == null
+    )
+    error_message = "With no instance there is no master secret to read, and the outputs that name removed things are null."
+  }
+}
+
+# Standby with every switch that adds something: they all go, and the voice
+# task definition stays registered like the others.
+run "standby_with_voice_a_separate_worker_nat_gateways_and_the_waf" {
+  command = plan
+
+  variables {
+    standby             = true
+    deletion_protection = false
+    enable_voice        = true
+    worker_placement    = "separate"
+    nat_mode            = "gateway"
+    nat_gateways        = 2
+    enable_waf          = true
+  }
+
+  assert {
+    condition = (
+      length(aws_ecs_service.worker) == 0 && length(aws_ecs_service.voice) == 0 &&
+      length(aws_cloudwatch_metric_alarm.worker_running) == 0 && length(aws_cloudwatch_metric_alarm.voice_running) == 0 &&
+      length(aws_lb_target_group.voice) == 0 && length(aws_lb_listener_rule.voice) == 0 &&
+      length(aws_nat_gateway.main) == 0 && length(aws_eip.nat) == 0 && length(aws_instance.nat) == 0 &&
+      length(aws_wafv2_web_acl.main) == 0 && length(aws_wafv2_web_acl_association.alb) == 0 &&
+      length(aws_ecs_task_definition.voice) == 1 &&
+      alltrue([for rt in aws_route_table.private : length(rt.route) == 0])
+    )
+    error_message = "In standby the worker and voice services, their alarms, voice's target group and rule, the NAT gateways with their addresses and the WAF are gone too; the voice task definition stays."
+  }
+}
+
+run "refuses_standby_while_protected" {
+  command = plan
+  variables {
+    standby = true
+  }
+  expect_failures = [var.standby]
+}
+
+run "refuses_a_restore_into_standby" {
+  command = plan
+  variables {
+    standby                     = true
+    deletion_protection         = false
+    restore_snapshot_identifier = "healdesk-production-standby-20261014120000"
+  }
+  expect_failures = [var.standby]
+}
+
+run "refuses_a_final_snapshot_of_another_name" {
+  command = plan
+  variables {
+    deletion_protection       = false
+    final_snapshot_identifier = "healdesk-production-final"
+  }
+  expect_failures = [var.final_snapshot_identifier]
+}
+
+run "refuses_a_restore_from_a_snapshot_standby_did_not_take" {
+  command = plan
+  variables {
+    restore_snapshot_identifier = "rds:healdesk-production-2026-10-14-08-00"
+  }
+  expect_failures = [var.restore_snapshot_identifier]
+}
+
+# Back from standby: the database from its final snapshot, protected again,
+# under the same identifier (so the URLs Parameter Store kept still name it),
+# and everything standby removed back in place.
+run "back_from_standby" {
+  command = plan
+
+  variables {
+    restore_snapshot_identifier = "healdesk-production-standby-20261014120000"
+  }
+
+  assert {
+    condition = (
+      aws_db_instance.main[0].snapshot_identifier == "healdesk-production-standby-20261014120000" &&
+      aws_db_instance.main[0].identifier == "healdesk-production" &&
+      aws_db_instance.main[0].db_name == "healdesk" && aws_db_instance.main[0].username == "healdesk_admin" &&
+      aws_db_instance.main[0].manage_master_user_password &&
+      aws_db_instance.main[0].kms_key_id == aws_kms_key.main.arn && aws_db_instance.main[0].storage_encrypted &&
+      aws_db_instance.main[0].deletion_protection && aws_db_instance.main[0].skip_final_snapshot &&
+      aws_db_instance.main[0].final_snapshot_identifier == null
+    )
+    error_message = "Back from standby, the database is made from the snapshot under the same identifier, name, master user and key, and is protected again with no final snapshot of its own."
+  }
+
+  assert {
+    condition = (
+      length(aws_lb.main) == 1 && aws_lb.main[0].enable_deletion_protection &&
+      length(aws_lb_listener_rule.internal_signed) == 2 && length(aws_lb_listener_rule.public_refuses_signed) == 2 &&
+      length(aws_ecs_service.web) == 1 && aws_ecs_service.web[0].desired_count == 0 &&
+      length(aws_instance.nat) == 1 && length(cloudflare_dns_record.app) == 1 && length(cloudflare_dns_record.internal) == 1 &&
+      length(aws_ecs_task_definition.db_bootstrap) == 1 &&
+      alltrue([for rt in aws_route_table.private : one(rt.route).network_interface_id == "eni-0bbbbbbbbbbbbbbbb"])
+    )
+    error_message = "Back from standby, the load balancer, its rules, the web service at 0 tasks, the NAT instance and its routes, the CNAMEs and the db-bootstrap task definition are all there again."
   }
 }

@@ -183,7 +183,7 @@ describeDb("retention purge", () => {
         client.query(
           `insert into webhook_events
              (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
-           values ($1, 'synthflow', $2, true, '{"transcript":"user: I want botox"}', $3, $4)`,
+           values ($1, 'retell', $2, true, '{"transcript":"user: I want botox"}', $3, $4)`,
           [
             clinicId,
             deliveryId,
@@ -384,7 +384,7 @@ describeDb("retention purge", () => {
         client.query(
           `insert into webhook_events
              (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
-           values ($1, 'synthflow', $2, $3, '{"lead":{"phone_number":"+15550150001"}}', $4, $5)`,
+           values ($1, 'retell', $2, $3, '{"call":{"from_number":"+15550150001"}}', $4, $5)`,
           [
             clinicId,
             deliveryId,
@@ -449,8 +449,8 @@ describeDb("retention purge", () => {
       );
       await client.query(
         `insert into webhook_events (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
-         values ($1, 'synthflow', 'margin-done', true, '{}', $2, $2),
-                ($1, 'synthflow', 'margin-never', true, '{}', null, $3)`,
+         values ($1, 'retell', 'margin-done', true, '{}', $2, $2),
+                ($1, 'retell', 'margin-never', true, '{}', null, $3)`,
         [c.clinicId, endsIn3h(30), endsIn3h(90)],
       );
       await client.query(
@@ -722,7 +722,7 @@ describeDb("retention purge", () => {
       if (statesThePeriods(text)) promising.push(t.version);
     }
     // Pinned, so a change in what any version promises is seen here.
-    expect(promising.sort()).toEqual(["1.3.0", "1.4.0", "dpa/1.0.0"]);
+    expect(promising.sort()).toEqual(["1.3.0", "1.4.0", "1.5.0", "dpa/1.0.0"]);
     // A version the catalog does not hold has no text, and promises nothing:
     // the old rule purged any unknown version with the switch off.
     expect(purgeIsPromised("1.4.1")).toBe(false);

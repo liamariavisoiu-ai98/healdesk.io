@@ -461,7 +461,7 @@ function requireStepUp(ctx: SettingContext, key: SettingKey): void {
  */
 async function refuseLoop(tx: TenantTx, e164: string): Promise<void> {
   const [clinic] = await tx.db
-    .select({ published: clinics.publishedPhoneE164, assistant: clinics.synthflowNumberE164 })
+    .select({ published: clinics.publishedPhoneE164, assistant: clinics.assistantNumberE164 })
     .from(clinics)
     .where(eq(clinics.id, tx.clinicId))
     .limit(1);

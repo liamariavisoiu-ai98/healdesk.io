@@ -429,9 +429,11 @@ describe("the annex on how we protect data", () => {
   });
 
   test("says transcripts are emailed to the clinic and not kept, and claims no audit", () => {
-    // BAA 1.4.0 clause 11 (owner, 13 October 2026; LEGAL_VERSION 2026-10-13.3).
+    // BAA 1.4.0 clause 11 (owner, 13 October 2026; LEGAL_VERSION 2026-10-13.3),
+    // and since 14 October 2026 BAA 1.5.0's: the copy goes once delivery is
+    // confirmed (LEGAL_VERSION 2026-10-14.1).
     expect(annex).toContain(
-      "Transcripts are emailed to the clinic, not kept. When a call or a website chat ends, its transcript is emailed to the address on the clinic's account, only over an encrypted connection. The one encrypted copy we hold so that a failed email can be sent again is deleted seven days after the email is first accepted for delivery, or seven days after it was queued if it never is; from then on the email is the clinic's record.",
+      "Transcripts are emailed to the clinic, not kept. When a call or a website chat ends, its transcript is emailed to the address on the clinic's account, only over an encrypted connection. The one encrypted copy we hold so that a failed email can be sent again is deleted as soon as the clinic's mail server confirms delivery. An email that fails is sent again until it is delivered, but the copy is never kept more than 30 days after the transcript was queued, and one whose delivery is never confirmed is deleted 72 hours after it was sent; from then on the email is the clinic's record. We keep a record that each transcript was delivered, without what was said.",
     );
     expect(annex).toContain(
       `The record of each conversation, without what was said, is deleted ${TRANSCRIPT_RETENTION_DAYS} days after it took place.`,

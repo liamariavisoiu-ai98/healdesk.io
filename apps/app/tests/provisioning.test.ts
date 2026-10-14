@@ -41,8 +41,8 @@ import {
  * longer accepts, and nothing else changes. And for the floor as it stood
  * before a release raised it: a version in `floor.restored` is one it accepts
  * again, so a test can provision a document from before that release. BAA
- * 1.4.0 is released (13 October 2026), accepted for real, and the floor: 1.3.0
- * and 1.2.2 are refused for real.
+ * 1.5.0 is released (14 October 2026), accepted for real, and the floor:
+ * 1.4.0, 1.3.0 and 1.2.2 are refused for real.
  *
  * And for a booking system the catalogue reclassifies after a practice has
  * signed, as a vendor's written confirmation would (plan Q4): a system in
@@ -124,7 +124,7 @@ async function signFor(
     isCoveredEntity: false,
     attributionMode: "estimated",
     platform: "none",
-    // The current version (1.4.0, as 1.3.0 before it) reads both calendar answers.
+    // The current version (1.5.0, as 1.4.0 and 1.3.0 before it) reads both calendar answers.
     bookingSystem: "none",
     calendarAccount: "workspace_no_baa",
     assentLabel: BAA_ASSENT_LABEL,
@@ -137,7 +137,7 @@ type SignedAnswers = {
   /**
    * A version other than the current one, signed as if it were current: how
    * 1.2.0 was signed before 1.2.1 replaced it, 1.2.1 before 1.2.2, 1.2.2
-   * before 1.3.0, and 1.3.0 before 1.4.0 replaced it.
+   * before 1.3.0, 1.3.0 before 1.4.0, and 1.4.0 before 1.5.0 replaced it.
    */
   version?: string;
   platform?: string;
@@ -803,9 +803,26 @@ describeDb("provisioning", () => {
       platform: "calcom",
       // 1.3.0, released on 12 October and replaced outright by 1.4.0 on 13
       // October before any clinic signed it, since it describes a stored
-      // transcript: below the floor 1.4.0 raised, calendar terms and all.
+      // transcript: below the floor 1.4.0 raised (and 1.5.0 after it),
+      // calendar terms and all.
       agreementId: await signWith("Transcript Gate Clinic", transcriptEmail, {
         version: "1.3.0",
+        bookingSystem: "calcom",
+        calendarAccount: "workspace_baa",
+      }),
+    });
+
+    const sevenDaysEmail = "seven-days@gate.test";
+    const sevenDays = validRequest({
+      clinicName: "Seven Days Gate Clinic",
+      contactEmail: sevenDaysEmail,
+      platform: "calcom",
+      // 1.4.0, released on 13 October and replaced outright by 1.5.0 on 14
+      // October before any clinic signed it, since it promises a transcript
+      // copy kept seven days after the email first goes: below the floor
+      // 1.5.0 raised, calendar terms and all.
+      agreementId: await signWith("Seven Days Gate Clinic", sevenDaysEmail, {
+        version: "1.4.0",
         bookingSystem: "calcom",
         calendarAccount: "workspace_baa",
       }),
@@ -817,6 +834,7 @@ describeDb("provisioning", () => {
       [replaced, "1.2.1"],
       [outright, "1.2.2"],
       [transcripts, "1.3.0"],
+      [sevenDays, "1.4.0"],
     ] as const) {
       // A refusal, not a 500: the row never changes, so a retry would only
       // meet it again, and a paid purchase belongs with ops.
@@ -831,8 +849,8 @@ describeDb("provisioning", () => {
       expect(await written(request), version).toEqual({ clinics: 0, claims: 0, bound: false });
     }
 
-    // The version's own standing is all the gate asks: 1.4.0, released,
-    // current and the floor since 13 October 2026, provisions, with its
+    // The version's own standing is all the gate asks: 1.5.0, released,
+    // current and the floor since 14 October 2026, provisions, with its
     // calendar terms.
     const releasedEmail = "released@gate.test";
     const released = validRequest({
@@ -948,7 +966,7 @@ describeDb("provisioning", () => {
   });
 
   test("a signature from 1.3.0 on gives the location it sets up its first calendar terms: the agreement row, sequence 1, as signed", async () => {
-    // Signed as whatever is current: 1.4.0 since 13 October 2026, which
+    // Signed as whatever is current: 1.5.0 since 14 October 2026, which
     // carries 1.3.0's calendar clauses under the same ids.
     const email = "terms@calendar.test";
     const agreementId = await signWith("Covered Terms Clinic", email, {

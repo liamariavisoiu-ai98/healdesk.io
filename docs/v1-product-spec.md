@@ -1,5 +1,5 @@
 <!-- Source of truth. Exported verbatim from the "Healdesk v1: Products, Behaviour and Limits" doc,
-     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-13.
+     tab 1 (https://claude.ai/artifact/F7bKioXheMJwn5Epc65bVQ), on 2026-10-14.
      Do not edit this copy: change the doc, then re-export. The "Launch plan" it links to is
      tab 2 of the same doc, and is the only live task list. -->
 
@@ -46,7 +46,7 @@ One brain, four adapters. Claude decides everything. Each channel is a translati
 
 Answers the clinic's phone. The clinic keeps its published number and sets conditional call forwarding, so unanswered or after-hours calls land on a Healdesk number the patient never sees or dials directly. The agent answers questions from the clinic's own menu and pricing, qualifies the caller, checks live calendar availability and books the appointment during the call.
 
-Built on Retell for telephony and speech, with the conversation itself driven by Claude through a Healdesk-hosted endpoint that Retell opens a WebSocket to at the start of each call. Recording and transcript retention are configured down at the vendor, with per-agent retention and PII controls; the transcript is emailed to the clinic when the call ends, and Healdesk keeps only an encrypted copy until it is delivered and for seven days after, then deletes it (owner, 13 October 2026).
+Built on Retell for telephony and speech, with the conversation itself driven by Claude through a Healdesk-hosted endpoint that Retell opens a WebSocket to at the start of each call. Recording and transcript retention are configured down at the vendor, with per-agent retention and PII controls; the transcript is emailed to the clinic when the call ends, and Healdesk keeps an encrypted copy only until the clinic's mail server confirms delivery, then deletes it at once, and in no case for longer than 30 days (owner, 14 October 2026).
 
 Language coverage comes from the voice platform, which supports 55 languages across 63 regional locale variants. The clinic picks which languages its agent should handle; the agent answers in the caller's language and stays in it for the rest of the conversation.
 
@@ -556,7 +556,7 @@ Quick edits, no re-scrape needed.
 
 ### 4. Conversations
 
-Every call, chat and DM, searchable, with the outcome and whether it produced a booking. The words are not kept: each call's and web chat's transcript is emailed to the clinic when it ends, and can be sent again for seven days. Second factor required to open one. Export available.
+Every call, chat and DM, searchable, with the outcome and whether it produced a booking. The words are not kept: each call's and web chat's transcript is emailed to the clinic when it ends, and can be sent again only until its delivery is confirmed; after that a receipt without the words shows when it was sent and delivered. Second factor required to open one. Export available.
 
 ### 5. Bookings
 
@@ -721,8 +721,8 @@ The scoping decision rests on this table, so it is worth being precise rather th
 | Data | Where it goes | Treat as PHI? |
 | --- | --- | --- |
 | Caller or messager name, phone number, the treatment they asked about, preferred time | Healdesk database, the clinic's calendar | **Yes.** An identifier plus a fact about care sought from a healthcare provider. Do not assume a callback slip is exempt because it feels administrative |
-| Call audio and call transcript | Voice vendor in transit; the transcript emailed to the clinic through Amazon SES with TLS required; Healdesk keeps an encrypted copy only until it is delivered and seven days after. No call audio is kept | Yes |
-| Chat and DM transcripts | Web chat: emailed to the clinic like a call's, the encrypted copy kept while the chat is open and seven days after it is sent. Meta DMs: not kept | Yes on web. On Meta channels, scoped to stay non-clinical by design |
+| Call audio and call transcript | Voice vendor in transit; the transcript emailed to the clinic through Amazon SES with TLS required; Healdesk keeps an encrypted copy only until the clinic's mail server confirms delivery, and deletes it then; a copy with no confirmation 72 hours after it goes, or not delivered within 30 days, is deleted too. Healdesk keeps no other copy. No call audio is kept | Yes |
+| Chat and DM transcripts | Web chat: emailed to the clinic like a call's, the encrypted copy kept while the chat is open and until its delivery is confirmed. Meta DMs: not kept | Yes on web. On Meta channels, scoped to stay non-clinical by design |
 | Calendar event | The clinic's own Google Calendar, under the clinic's own agreement with Google | Yes, and it is the clinic's system, which is the right place for it |
 | Payment amount, generic descriptor, reference id | Stripe or the clinic's gateway | No, provided no clinical context travels with it |
 | Anything typed into the portal support chat | Healdesk support | Must be kept non-clinical. The interface says so permanently |
@@ -767,7 +767,7 @@ Two gaps stay open by design, and both are handled by scoping rather than by pap
 - Collect the minimum: what a receptionist would write on a callback slip. Nothing clinical, no history, no medication, no diagnosis.
 - No clinical detail in any payment artifact, any Meta message, or the support chat.
 - Vendor-side call recording and transcript retention off everywhere it can be turned off.
-- Transcripts are not stored: each is emailed to the clinic through Amazon SES, with TLS required, when its conversation ends, and Healdesk deletes its encrypted copy seven days after it first goes. The conversation record, without the words, keeps a 90-day clock. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
+- Transcripts are not stored: each is emailed to the clinic through Amazon SES, with TLS required, when its conversation ends, and Healdesk deletes its encrypted copy the moment Amazon SES reports it delivered, keeping a receipt without the words (when it was sent, when it was delivered, how many attempts). A copy never confirmed is deleted 72 hours after it goes; one that cannot be delivered, after 30 days. No other copy is kept anywhere. The conversation record, without the words, keeps a 90-day clock. Demo sandbox transcripts purge on a 7 to 14 day cycle whether or not the lead ever buys.
 - Second factor before any conversation or booking can be opened, and an access log of who opened what.
 - Offboarding is export first, then destroy, on a clock that matches the agreement text.
 - Breach notification runs to the clinic without unreasonable delay and inside 60 days, and vendor notices flow upward into that obligation.

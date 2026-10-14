@@ -1,3 +1,5 @@
+import type { DepositAction } from "@/lib/billing/deposits";
+
 /**
  * The fixed lines the assistant says about a booking (plan §7.13), in one
  * place, so a tool's answer and the assistant's words cannot drift apart.
@@ -6,10 +8,10 @@
  * says TOOL_FAILURE_LINE rather than an explanation of its own (the spec's
  * failure table).
  *
- * `{when}` is a spoken time in the clinic's own zone (lib/voice/spoken.ts
- * spokenSlot), and `{ for service}` names the clinic's own service only,
- * never the caller's words for it. A call never takes a deposit and is
- * never sent a link: a deposit is said with depositLine (lib/voice/tools.ts).
+ * `{when}` is a time as the caller hears it, in the clinic's own zone, and
+ * `{ for service}` names the clinic's own service only, never the caller's
+ * words for it. A call never takes a deposit and is never sent a link: a
+ * deposit is said with depositLine below.
  */
 
 /** The assistant may not book this call itself: it takes the time as a request. */
@@ -90,4 +92,30 @@ function joinOr(items: readonly string[]): string {
   if (items.length === 1) return items[0]!;
   if (items.length === 2) return `${items[0]} or ${items[1]}`;
   return `${items.slice(0, -1).join(", ")}, or ${items[items.length - 1]}`;
+}
+
+/**
+ * The deposit rule as the agent states it (BD27): what the deposit decision
+ * means for this caller, and who collects, never a payment link (voice never
+ * collects, §E.7). `book_and_flag` books and leaves the deposit to the front
+ * desk; `decline_and_alert` books nothing, so the line never promises a
+ * booking, and says the team will call to take the deposit and confirm a
+ * time. `booking` is one appointment's line; `clinic` is the line for the
+ * clinic's default deposit, said before anything is chosen; `some_services`
+ * is the line when there is no default but some services ask for one, and
+ * the agent learns which at booking.
+ */
+export function depositLine(input: { action: DepositAction; amountUsd: number | null; scope?: "booking" | "clinic" | "some_services" } | null): string {
+  if (!input) return "";
+  const amount = input.amountUsd !== null && Number.isFinite(input.amountUsd) && input.amountUsd > 0 ? input.amountUsd : null;
+  if (input.action === "book_and_flag") {
+    if (input.scope === "some_services") return "Some appointments need a deposit to hold them. If yours does, the front desk will call you to take it; nothing is charged on this call.";
+    return `${amount !== null ? `A deposit of ${amount} dollars` : "A deposit"} is required to hold the appointment. The front desk will call you to take it; nothing is charged on this call.`;
+  }
+  if (input.action === "decline_and_alert") {
+    if (input.scope === "some_services") return "Some appointments need a deposit and can't be booked on this call. For those, I'll pass your request to the team, who will call you to take the deposit and confirm a time; nothing is charged on this call.";
+    if (input.scope === "clinic") return `Appointments need a deposit${amount !== null ? ` of ${amount} dollars` : ""}, so they can't be booked on this call. I'll pass your request to the team, who will call you to take the deposit and confirm a time; nothing is charged on this call.`;
+    return `This appointment needs a deposit${amount !== null ? ` of ${amount} dollars` : ""}, so it can't be booked on this call. I'll pass your request to the team, who will call you to take the deposit and confirm a time; nothing is charged on this call.`;
+  }
+  return "";
 }

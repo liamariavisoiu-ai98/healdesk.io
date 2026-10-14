@@ -48,11 +48,11 @@ number *plus the treatment they asked about* **is** PHI.
 | `apps/web` — NO PHI (Vercel) | `apps/app` — PHI (BAA-covered host) |
 | --- | --- |
 | Marketing, pricing, specialty/SEO content | Every patient conversation: the Retell custom-LLM WebSocket endpoint, the web chat widget's API, the Meta webhooks and send adapters |
-| Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends; the only copy is the sealed outbox row, deleted seven days after it first goes (owner, 13 October 2026; no call audio is kept) |
+| Chat + voice demos (they talk to *owners*) | Call and chat transcripts, which are emailed to the clinic through SES when the conversation ends; the only copy is the sealed outbox row, deleted the moment SES reports it delivered and never kept past 30 days, the row staying as a receipt without the words (owner, 14 October 2026; BAA 1.5.0; no call audio is kept) |
 | The demo's scraped clinic profile (business data) | Bookings: Google Calendar availability and writes, slot holds, the manual-booking queue |
-| Checkout, Stripe, BAA signing UI, download | Deposit links through the clinic's own payment gateway |
+| Checkout, Stripe, agreement signing, its emailed copy and PDF; until the first paid invoice, the sealed agreement and purchase records in the marketing Sheet (owner, 14 October 2026; `lib/checkout/records.ts`) | Deposit links through the clinic's own payment gateway |
 | Contact form, reviews (business contacts) | The clinic portal, the onboarding wizard and the portal support chat |
-| The `/admin` operator console | The BAA register itself + retention clock |
+| The `/admin` operator console | The BAA register itself + retention clock: a signed agreement enters it at provisioning, its seal and re-rendered hash checked (`lib/checkout/import.ts`) |
 | Anything public, cached, indexed | Clinic credentials: Google Calendar tokens, Meta Page and WhatsApp tokens, the gateway connection |
 | | The background worker; anything writing an audit row |
 | | Phase two, fenced out of v1: **the attribution engine**, POS/EMR read-back, sync and reconciliation, the connectors |
@@ -80,7 +80,8 @@ enforceable rather than aspirational.
 2. **The demos are on the no-PHI side only because of who they talk to.** They
    serve clinic owners from a generic knowledge tree or, for a personalised
    demo, from the clinic's public website, and the demo calls run on Retell
-   demo agents (Synthflow was replaced on 5 October 2026). The product's voice
+   demo agents (Synthflow was replaced on 5 October 2026, and its webhook and
+   tool routes were removed on 14 October). The product's voice
    agent answers real patients, so it belongs in `apps/app`, built on Retell:
    Retell opens a WebSocket per call to a Healdesk-hosted Claude endpoint
    (`src/voice/server.ts`, `lib/voice/retell.ts`, built 13 October 2026), and
@@ -92,7 +93,10 @@ enforceable rather than aspirational.
 3. **`/admin` on `apps/web` is deliberate, not a shortcut.** It is our tool,
    not a clinic's — and note how it gets its data. Clinics use a different
    surface, the clinic portal in `apps/app`. `/admin` must never be exposed to
-   a clinic.
+   a clinic. Its sign-in, the password and the authenticator code, is checked
+   on Vercel against Vercel variables and calls nothing in `apps/app` (owner,
+   14 October 2026; `apps/web/src/lib/admin/totp.ts`), so the console opens
+   while the AWS host is in standby.
 
 ## The pattern to copy when `apps/web` needs PHI-side data
 
@@ -113,7 +117,13 @@ Add a new operation to the ops envelope rather than widening what crosses. The
 same holds in the other direction: when the demo's scraped clinic profile has to
 reach the wizard (the spec's "never ask twice"), send it to `apps/app` as
 business data inside a signed request, such as the provision request, rather
-than giving `apps/web` anywhere new to keep it.
+than giving `apps/web` anywhere new to keep it. The one exception is the
+buyer's own records (business contact data, no PHI): since 14 October 2026
+the signed agreement and the purchase are sealed rows in the marketing Sheet
+until the first paid invoice carries them to `/api/provision`, so a buyer can
+sign and pay while the host is in standby
+(`docs/design/checkout-records-on-vercel-2026-10-14.md`). Those Sheet tabs are
+legal records: no hand edits, sorting or deleted rows.
 
 ## Rules that keep `apps/app` portable
 
@@ -135,7 +145,7 @@ chain: the clinic's BAA (accepted inline at checkout), Retell, Anthropic, the
 database provider and AWS. Meta and Stripe never sign one; they are handled by
 scoping, not paperwork (see "Product rules the code enforces").
 
-### `apps/app` is portable but NOT currently deployable
+### `apps/app` is portable, applied on AWS, and not yet deployed
 
 Audited 2026-09-12; re-checked against the code 2026-09-30; the AWS host was
 written on 2026-10-07 and reworked after its review on 2026-10-12. The rules
@@ -143,22 +153,30 @@ above all pass — no `@vercel/*`, no edge, plain Node. The host is code in
 `infra/aws`, for account `865780386982` in `us-east-1`: Terraform for ECS on
 Fargate behind one load balancer, RDS for PostgreSQL 17, one KMS key, SSM
 Parameter Store, CloudTrail, Config, GuardDuty, SES and alarms; a
-CloudFormation bootstrap stack; and two workflows, `infra.yml` (plan, apply)
-and `deploy-app.yml` (build, migrate, roll, restart, roll back). Since 13
+CloudFormation bootstrap stack; and three workflows, `infra.yml` (plan,
+apply), `deploy-app.yml` (build, migrate, roll, restart, roll back) and
+`host.yml` (the one switch: `active` applies, sets up the database and
+deploys; `standby` snapshots the database and removes it, the load balancer,
+the NAT and every service, keeping the key, the parameters and the images, at
+about $4 a month; started from `/admin/host` or by a first paid invoice that
+finds the host off). Since 13
 October 2026 it builds the owner's lean profile by default, about $70 a month
 running: one ARM64 web task of a quarter vCPU carrying the worker too
 (`worker_placement`), a `db.t4g.micro`, a NAT instance instead of a NAT
 gateway (`nat_mode`), and the WAF off (`enable_waf`); each is one variable
 from the shape first built (README, "Costs").
-`infra/aws/README.md` is the runbook. **Whether it is applied is unsettled.**
-The owner reported on 13 October 2026 that the bootstrap stack is launched, the
-external secrets pasted, the alarm email confirmed and the Vercel variables
-set; but GitHub's record that day shows one `infra.yml` run, a plan with its
-apply skipped (on 719b584, before the lean profile), and no `deploy-app.yml`
-run at all, and `put-external-secrets.sh` refuses a parameter an apply has not
-created. Check the account (the ECS cluster `healdesk-production`, the SSM
-parameters) before assuming anything exists, and assume the image has never
-run on AWS. What has been checked here is local:
+`infra/aws/README.md` is the runbook. **Applied on 14 October 2026, not yet
+deployed.** `infra.yml` applied main three times that day (runs 38523739346,
+38525449296, 38525919193): the first two stopped on what a mocked plan cannot
+see (an apostrophe in a security group description, Cloudflare comments over
+100 characters, an SNS retry policy over an hour, an SNS subscription to an
+endpoint that did not answer yet), each now pinned by a plan test, and the
+third found nothing left to change. The database, the load balancer, the NAT
+instance, the web service and the DNS records exist; no image has been
+pushed, no db-bootstrap or migration has run, and the external secrets cannot
+have been pasted before that day's apply created their parameters. The first
+`host.yml` run with `active` is the first deploy. Check the account before
+assuming anything else. What has been checked here is local:
 `terraform validate`, `terraform test` against mocked providers, tflint,
 checkov, cfn-lint, actionlint, and the app image built for arm64 and booted
 under emulation (13 October 2026).
@@ -197,7 +215,7 @@ under emulation (13 October 2026).
   copies the workspace `node_modules`. `tests/aws-sdk-clients.test.ts` pins
   all three; re-check the chunks after a Next upgrade.
 - **Static assets are in the image, and so is everything the AWS host needs
-  from it; the host is defined but not applied.** `.next/static` is still not
+  from it.** `.next/static` is still not
   part of Next's standalone output, but the Dockerfile (L117) copies it beside
   `server.js`. The image carries the Amazon RDS us-east-1 CA bundle at
   `/etc/ssl/rds/us-east-1-bundle.pem`, fetched against a pinned checksum, with
@@ -424,11 +442,15 @@ the spec edits the owner approved.
     emailed to the clinic when it ends, instead of being stored
     (`lib/conversations/transcript-email.ts`). It is classed `may-carry-phi`,
     so it goes only through SES with TLS required, never Resend; its subject
-    names nobody and it asks not to be replied to. Until SES has taken it,
-    and seven days after, it waits sealed in the outbox, retried and sent
-    again after a bounce (`lib/conversations/transcript-outbox.ts`); the
-    spec says so since 13 October 2026
-    (`docs/design/transcript-email-2026-10-13.md`);
+    names nobody and it asks not to be replied to. It waits sealed in the
+    outbox, retried and sent again after a bounce, until SES reports it
+    delivered; then the copy is deleted and the row stays as a receipt
+    without the words (status, times, attempts), which the ops operation
+    `transcriptDeliveries` reads. A copy with no answer 72 hours after it
+    goes, or undelivered after 30 days, is deleted too, and healdesk keeps no
+    other copy, hello@ included (owner, 14 October 2026; BAA 1.5.0;
+    `lib/conversations/transcript-outbox.ts`,
+    `docs/design/transcript-email-2026-10-13.md`);
   - one Resend account sends all of it, product and marketing mail alike, from
     hello@healdesk.io, the only address (owner, 9 October 2026), and every
     email can be replied to; the sender is the `HEALDESK_EMAIL_FROM`
@@ -467,7 +489,7 @@ not by restoring that code.
 | Workspace | Target | Root directory | PHI |
 | --- | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` | No |
-| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`; reported applied by the owner on 13 October 2026, but GitHub records only a plan (see above) | `apps/app` | **Yes** |
+| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`; applied 14 October 2026, not yet deployed (see above); `host.yml` turns it on or puts it in standby | `apps/app` | **Yes** |
 | `apps/app` worker | Same cluster: by default a container in each web task; its own service `healdesk-production-worker` with `worker_placement = "separate"` | `apps/app` | **Yes** |
 | `apps/app` migrations and role creation | One-off tasks `healdesk-production-migrate` and `healdesk-production-db-bootstrap`, run by `deploy-app.yml` | `apps/app` | **Yes** |
 | `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same cluster, its own long-lived service `healdesk-production-voice`, created only with `enable_voice` (off by default) | `apps/app` | **Yes** |
@@ -476,7 +498,7 @@ not by restoring that code.
 The BAA host is the AWS account designated under the AWS BAA, in `us-east-1`
 (`docs/policies/aws-hipaa-account.md`). The database is Amazon RDS for
 PostgreSQL 17 under that agreement, the owner's choice of 7 October 2026 over
-Neon, defined in `infra/aws/rds.tf`; whether it is provisioned is unsettled (see above). Vercel is a BAA
+Neon, defined in `infra/aws/rds.tf`; created 14 October 2026, empty until the first deploy, and removed in standby after a final snapshot it comes back from. Vercel is a BAA
 host only on Enterprise.
 
 The voice endpoint cannot be a route handler or a serverless function. Retell

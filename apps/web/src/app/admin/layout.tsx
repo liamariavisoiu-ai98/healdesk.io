@@ -4,9 +4,7 @@ import { redirect } from "next/navigation";
 
 import { AdminChrome } from "@/components/admin/AdminDashboard";
 import {
-  ENROLMENT_COOKIE,
   OPERATOR_COOKIE,
-  enrolmentCookieOptions,
   operatorCookieOptions,
   requireOperator,
 } from "@/lib/admin/operator";
@@ -97,12 +95,14 @@ export const metadata: Metadata = {
 
 /**
  * The surfaces this console has, in the order somebody uses them: what
- * changed, what is running, who asked to be set up, who is in the funnel, the
- * personalised demos built for them, and what has been signed.
+ * changed, what is running, whether the AWS host is on, who asked to be set
+ * up, who is in the funnel, the personalised demos built for them, and what
+ * has been signed.
  */
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
   { href: "/admin/ops", label: "Ops" },
+  { href: "/admin/host", label: "Host" },
   { href: "/admin/setup", label: "Setup" },
   { href: "/admin/crm", label: "CRM" },
   { href: "/admin/demos", label: "Demos" },
@@ -115,14 +115,13 @@ const SECTIONS = [
  * A server action rather than a fetch, because it works with no JavaScript,
  * which a `DELETE` from a click handler cannot.
  *
- * BOTH admin cookies, which is the same list `DELETE /api/admin/session`
- * clears and for the same reason it gives: a half-finished enrolment left
- * behind by a sign-out is a one-factor credential sitting in a browser with
- * nobody expecting it to be there. `hd_operator_enrol` is short-lived and
- * useless once a factor exists, so leaving it was never a way in, but "sign
- * out" meaning "some of your credentials" is the kind of near-miss that stops
- * being harmless the moment the enrolment token grows a second use. The two
- * places that end a session should end the same things.
+ * The session cookie, which is the same list `DELETE /api/admin/session`
+ * clears: the two places that end a session should end the same things. Until
+ * 14 October 2026 both also cleared `hd_operator_enrol`, the ten-minute
+ * first-run token; enrolment is now a script on the owner's machine, nothing
+ * mints or reads that cookie, and a stale one expires on its own. The step
+ * cookie (`hd_operator_step`) is left on purpose: it can only refuse a code,
+ * and signing out then offering the same code again is what it refuses.
  *
  * This used to clear `hd_admin` as well, the older shared-password gate that
  * guarded the changes view beside the console session. That gate is gone,
@@ -131,12 +130,12 @@ const SECTIONS = [
  * being cleared by a line that would have to import a module that no longer
  * exists.
  *
- * The flags come from the same helpers that set the cookies. A browser only
+ * The flags come from the same helper that set the cookie. A browser only
  * replaces a cookie when name, path and domain all match, so a hand-written
  * `delete` with a different path would leave the cookie exactly where it was.
  *
  * Sign-out is the one action worth having no confirmation and no CSRF anxiety:
- * both cookies are `sameSite: "strict"` so a cross-site post carries neither,
+ * the cookie is `sameSite: "strict"` so a cross-site post does not carry it,
  * Next checks the origin of every server action, and the worst a forged one
  * could do is sign the administrator out.
  */
@@ -145,7 +144,6 @@ async function signOut(): Promise<void> {
 
   const store = await cookies();
   store.set(OPERATOR_COOKIE, "", { ...operatorCookieOptions(), maxAge: 0 });
-  store.set(ENROLMENT_COOKIE, "", { ...enrolmentCookieOptions(), maxAge: 0 });
 
   redirect("/admin/sign-in");
 }

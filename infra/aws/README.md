@@ -4,17 +4,22 @@
 Business Associate Addendum: account `865780386982`, region `us-east-1`
 ([docs/policies/aws-hipaa-account.md](../../docs/policies/aws-hipaa-account.md)). This directory
 is that host written down as code: a Terraform root module, a CloudFormation bootstrap stack, two
-helper images, two terminal scripts, and the two workflows that apply and deploy it
-(`.github/workflows/infra.yml`, `.github/workflows/deploy-app.yml`). The website (`apps/web`,
-including `/admin`) stays on Vercel. healdesk.io's DNS stays at Cloudflare.
+helper images, four terminal scripts, and the three workflows that switch, apply and deploy it
+(`.github/workflows/host.yml`, `.github/workflows/infra.yml`, `.github/workflows/deploy-app.yml`).
+The website (`apps/web`, including `/admin`) stays on Vercel. healdesk.io's DNS stays at
+Cloudflare.
 
-**Status, 12 October 2026: defined and checked locally, not applied.** No AWS resource exists
-until the owner launches the bootstrap stack and runs `infra.yml`, and nothing here has run
-against AWS. What has been checked: `terraform fmt`, `init -lockfile=readonly`, `validate` and
-`test` (29 runs against mocked providers, `tests/stack.tftest.hcl`), tflint, checkov, cfn-lint,
-actionlint, and the workflows' scripts against fake AWS commands. Until every link of the BAA
-chain is in place ("What still blocks real patient data", below), the host takes synthetic data
-only, like every other copy of `apps/app`.
+**Status, 14 October 2026: applied, not deployed.** `infra.yml` applied the module for the first
+time on 14 October (three applies; the third fixed what AWS and Cloudflare refused on the first two).
+No image has been pushed and db-bootstrap has not run, so the services are at 0 tasks and the
+database holds nothing. The standby switch ("Standby", below) and `host.yml` are new on the same
+day and have not run against AWS. What has been checked locally: `terraform fmt`,
+`init -lockfile=readonly`, `validate` and `test` (39 runs against mocked providers in
+`tests/stack.tftest.hcl` and `tests/restore.tftest.hcl`), actionlint with shellcheck, the plan
+guard against fixture plans, and `host-apply.sh` against fake `aws` and `terraform` commands; tflint,
+checkov and cfn-lint were run on the module before the standby change, not since. Until every link
+of the BAA chain is in place ("What still blocks real patient data", below), the host takes
+synthetic data only, like every other copy of `apps/app`.
 
 This file is the engineer's runbook. The owner's step-by-step guide is a separate document written
 from it.
@@ -65,9 +70,9 @@ from it.
 
 The signed routes are every `apps/app` path `apps/web` calls on `HEALDESK_APP_URL`, each
 authenticated by an HMAC over the body with `HEALDESK_PROVISION_SECRET` (all POST):
-`/api/provision`, `/api/billing/events`, `/api/ops`, `/api/agreements`,
-`/api/agreements/<id>/pdf`, `/api/reviews/verify`, `/api/checkout/intents` and
-`/api/checkout/intents/session`. They are listed once, in `locals.tf` (`signed_paths`, with each
+`/api/provision`, `/api/billing/events`, `/api/ops` and `/api/reviews/verify` (signing, the
+agreement's PDF and Pay moved to apps/web on 14 October 2026 and no longer call the host). They
+are listed once, in `locals.tf` (`signed_paths`, with each
 call site), and `alb.tf` builds both sets of rules from that list. **A new signed route must be
 added there**, or `apps/web`'s calls to it get the internal host's 404.
 
@@ -121,8 +126,8 @@ Why each piece is shaped the way it is:
 | `network.tf` | VPC `10.40.0.0/16` over us-east-1a and 1b; public subnets for the ALB and the way out; private subnets for tasks and RDS, routed to the NAT instance (`nat_mode = "instance"`) or to `nat_gateways` NAT gateways (`"gateway"`); default security group stripped; flow logs and VPC endpoints behind variables, both off | The tasks call vendors on the internet, so NAT is needed whatever else is chosen. Endpoints only take AWS API traffic off the NAT |
 | `nat.tf`, `templates/nat-instance.sh.tftpl` | The NAT instance: one `t4g.nano` (`nat_instance_type`) on the newest minimal Amazon Linux 2023 arm64 image, in the first public subnet with its own public address; source/destination check off; security group admitting 443 from the tasks only and sending 443 only; nftables forwarding new connections to 443 from the VPC and dropping everything else; IMDSv2 only, no key pair, no instance role, standard CPU credits, an encrypted root volume, automatic recovery; `dnf-automatic` security updates; alarm `nat-instance-status` | About $7 a month against about $37 for a NAT gateway, for the same job: only the app's own TLS crosses it. See "The NAT instance" below |
 | `kms.tf` | One customer-managed key, `alias/healdesk-production`: symmetric, single-region, rotating, `prevent_destroy`. Key policy: account root (delegating to IAM), CloudWatch Logs for this account's log groups, CloudTrail for this trail by `aws:SourceArn` | It encrypts the credential vault (`HEALDESK_KMS_KEY_ID`), RDS storage, the master secret, Performance Insights, every SSM parameter, ECR, every log group and the trail. The app pins its ARN, so it is never replaced. The key policy names the app's task role nowhere, and must never: a statement naming it without the lock-label conditions would make them moot |
-| `rds.tf` | PostgreSQL 17.11 on `db.t4g.micro` (`db_instance_class`), 20 GiB gp3, encrypted with the key, single-AZ (`db_multi_az`), private, 5432 from the tasks' security group only; 35-day backups, no final snapshot, deletion protection, `prevent_destroy`; master user `healdesk_admin` with an RDS-managed password; database `healdesk`; CA `rds-ca-rsa2048-g1`; `postgresql` log exported; Database Insights standard (free), Performance Insights under the key for 7 days. Parameter group `healdesk-production-postgres17`: `rds.force_ssl=1`, TLS 1.2 minimum, SCRAM, `log_error_verbosity=terse`, `log_statement=none`, `log_min_error_statement=panic` | Encryption at rest can only be set at creation. 35 days is the clinic agreement's backup promise (1.3.0, release gate 18): no copy of deleted data may outlive it, hence no final snapshot. The engine log never expires: terse drops DETAIL and CONTEXT lines, `none` logs no statement as it runs, and `panic` keeps the text of a *failing* statement out (at the default, `error`, a failed `ALTER ROLE ... PASSWORD '...'` or an `INSERT` carrying patient values is logged in full after its ERROR line). What remains: a primary message that quotes its own input (`invalid input syntax for type uuid: "..."`) |
-| `ssm.tf` | SecureString parameters under `/healdesk/production/`, all under the key, all created holding `__unset__` through the write-only `value_wo`: six internal (`db/APP_PASSWORD`, `db/MIGRATOR_PASSWORD`, `app/BETTER_AUTH_SECRET`, `app/HEALDESK_IDENTIFIER_REF_KEY`, `app/DATABASE_URL`, `migrator/MIGRATION_DATABASE_URL`) and twelve external under `app/`; `prevent_destroy` on all | See "Secrets and configuration" |
+| `rds.tf` | PostgreSQL 17.11 on `db.t4g.micro` (`db_instance_class`), 20 GiB gp3, encrypted with the key, single-AZ (`db_multi_az`), private, 5432 from the tasks' security group only; 35-day backups, no final snapshot (but standby's), deletion protection (`deletion_protection`, off only for standby's first apply), no `prevent_destroy` (the plan guard instead: "Standby"); created from a standby snapshot when `restore_snapshot_identifier` names one, which it then ignores; master user `healdesk_admin` with an RDS-managed password; database `healdesk`; CA `rds-ca-rsa2048-g1`; `postgresql` log exported; Database Insights standard (free), Performance Insights under the key for 7 days. Parameter group `healdesk-production-postgres17`: `rds.force_ssl=1`, TLS 1.2 minimum, SCRAM, `log_error_verbosity=terse`, `log_statement=none`, `log_min_error_statement=panic` | Encryption at rest can only be set at creation. 35 days is the clinic agreement's backup promise (1.3.0, release gate 18): no copy of deleted data may outlive it, hence no final snapshot. Standby's snapshot is the one exception, allowed only while no clinic is in production and no agreement in effect. The engine log never expires: terse drops DETAIL and CONTEXT lines, `none` logs no statement as it runs, and `panic` keeps the text of a *failing* statement out (at the default, `error`, a failed `ALTER ROLE ... PASSWORD '...'` or an `INSERT` carrying patient values is logged in full after its ERROR line). What remains: a primary message that quotes its own input (`invalid input syntax for type uuid: "..."`) |
+| `ssm.tf` | SecureString parameters under `/healdesk/production/`, all under the key, all created holding `__unset__` through the write-only `value_wo`: six internal (`db/APP_PASSWORD`, `db/MIGRATOR_PASSWORD`, `app/BETTER_AUTH_SECRET`, `app/HEALDESK_IDENTIFIER_REF_KEY`, `app/DATABASE_URL`, `migrator/MIGRATION_DATABASE_URL`) and ten external under `app/`; `prevent_destroy` on all; two `moved` blocks that retire the Synthflow pair (below) | See "Secrets and configuration". The retired `HEALDESK_VOICE_WEBHOOK_SECRET` and `HEALDESK_VOICE_TOOLS_SECRET` (14 October 2026) are moved to an address no resource declares, which Terraform destroys without the `prevent_destroy` the rest keep, since a `removed` block can name only a whole resource |
 | `ecr.tf` | `healdesk/app`, `healdesk/db-admin`, `healdesk/tls-proxy`: immutable tags, scan on push, the key, last 30 images kept | A git SHA always names the same bytes, and 30 images are weeks of rollback |
 | `iam.tf` | Execution role (pull our images, write our log streams, `ssm:GetParameters` on `app/*` and `migrator/*` only, the RDS master secret, decrypt only through SSM and Secrets Manager); app task role (the credential vault, below; S3 and SES statements only when their flags are on); db-admin task role (`ssm:GetParameter` and `ssm:PutParameter` on exactly the six internal parameters, the key only through SSM and only for those six); deploy role `healdesk-production-github-deploy` | The app task role may call `GenerateDataKey`, `Decrypt` and `Encrypt` on the key only as its own calls (no `kms:ViaService`), only with an encryption context of `healdesk:clinic` and `healdesk:login` and no other key, and, with `kms_require_lock_labels` (the default), with both present: statement 1 of `docs/design/google-calendar-2026-10-05.md` §5. That refuses every context an AWS service puts on its own data under the key, so the role cannot decrypt the parameters, logs or trail even with the ciphertext. The deploy role: "Who can change production", below |
 | `logs.tf` | `/healdesk/production/{web,worker,voice,migrate,db-bootstrap,tls-proxy}` (and one per operator task) and `/aws/rds/instance/healdesk-production/postgresql`, each with the key, "Never expire" and `skip_destroy`; Container Insights and flow-log groups when those are on | AWS addendum §4.2(c) asks for maximum retention. A group AWS creates by itself would get neither our key nor the retention, so every group is created first |
@@ -134,15 +139,17 @@ Why each piece is shaped the way it is:
 | `config.tf` | Recorder `healdesk-production` for all supported resources, with a role of its own; bucket `healdesk-production-config-865780386982` (SSE-S3); rules `rds-storage-encrypted`, `s3-bucket-ssl-requests-only`, `cloud-trail-encryption-enabled`, `cloudwatch-log-group-encrypted` | The four rules the handover names; the Security Official reads the findings each quarter. A custom role, because creating Config's service-linked role fails if the console made it first |
 | `guardduty.tf` | One detector (`enable_guardduty`) | Foundational threat detection; findings are read in the console |
 | `alarms.tf`, `budgets.tf` | SNS topic `healdesk-production-alarms` emailed to `alarm_email`; nine alarms in the lean profile; a monthly cost budget (`monthly_budget_usd`, 250) | Alarm messages carry metric names and counts, never patient data |
-| `ses.tf` | **On** (`enable_ses`): the SES configuration set `healdesk-production-phi` with `TlsPolicy=REQUIRE`, the domain identity and its DKIM records at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the tasks and the task role's send rights on that set only; the set's events (delivery, bounce, complaint, rejection) to the SNS topic `healdesk-production-ses-events`, signed (v2), subscribed over HTTPS at `/api/webhooks/ses`, whose ARN the web task gets as `HEALDESK_SES_EVENTS_TOPIC_ARN`. `transcript_archive_to` adds a blind copy of every transcript to one mailbox, only with `transcript_archive_baa_signed = true` | A conversation's transcript is emailed to the clinic, never kept (the owner's decision of 13 October 2026; `apps/app/src/lib/conversations/transcript-email.ts`). That email is classed `may-carry-phi`, so the app sends it, and only it, through SES; everything else stays on Resend. The account must leave the SES sandbox before it reaches a clinic (First run, step 9) |
+| `ses.tf` | **On** (`enable_ses`): the SES configuration set `healdesk-production-phi` with `TlsPolicy=REQUIRE`, the domain identity and its DKIM records at Cloudflare, `HEALDESK_SES_CONFIGURATION_SET` on the tasks and the task role's send rights on that set only; the set's events (delivery, bounce, complaint, rejection) to the SNS topic `healdesk-production-ses-events`, signed (v2), subscribed over HTTPS at `/api/webhooks/ses` (`subscribe_ses_events`, which the workflows turn off while the app does not answer), whose ARN the web task gets as `HEALDESK_SES_EVENTS_TOPIC_ARN`. No copy of a transcript goes anywhere else: the archive copy went on 14 October 2026, and `app_environment` refuses its two names | A conversation's transcript is emailed to the clinic, never kept (the owner's decision of 13 October 2026; `apps/app/src/lib/conversations/transcript-email.ts`). That email is classed `may-carry-phi`, so the app sends it, and only it, through SES; everything else stays on Resend. The account must leave the SES sandbox before it reaches a clinic (First run, step 9) |
 | `storage.tf` | The transcript bucket (`enable_transcript_bucket`). **Off, and now superseded**: transcripts are emailed, not stored | See "Deliberately not built" |
-| `outputs.tf` | `alb_dns_name`, `app_url`, `internal_url`, `github_deploy_role_arn`, `ecr_repository_urls`, `rds_endpoint`, `rds_master_secret_arn`, `kms_key_arn`, `alarm_topic_arn`, `parameters_to_fill`, `internal_parameters`, `transcript_bucket`, `ses_configuration_set`, `voice_websocket_url`, `voice_service` | What the next steps need. None is a secret |
-| `tests/stack.tftest.hcl` | 29 plan-only runs with both providers mocked: production defaults, lock labels off, the bucket and SES on, the shape first built, voice on (with the encrypted hop, and without it under the longest environment name), plain HTTP to tasks, public ids, an imported GuardDuty detector, the transcript archive, and 19 refusals | CI's `infra` job runs it; it needs no credentials |
+| `outputs.tf` | `standby`, `alb_dns_name`, `app_url`, `internal_url`, `github_deploy_role_arn`, `ecr_repository_urls`, `rds_endpoint`, `rds_master_secret_arn`, `kms_key_arn`, `alarm_topic_arn`, `parameters_to_fill`, `internal_parameters`, `transcript_bucket`, `ses_configuration_set`, `voice_websocket_url`, `voice_service` | What the next steps need. None is a secret. Those naming something standby removes are null in standby |
+| `tests/stack.tftest.hcl`, `tests/restore.tftest.hcl` | 36 plan-only runs with both providers mocked: production defaults, lock labels off, the bucket and SES on, the shape first built, voice on (with the encrypted hop, and without it under the longest environment name), plain HTTP to tasks, public ids, an imported GuardDuty detector, standby's two applies (lean, and with every switch on), the way back from a snapshot, and 24 refusals; and, in a state of its own, a restore applied and two plans after it (another snapshot named, none named) that must keep the database | CI's `infra` job runs both; they need no credentials. The second file applies, so its mocks fill values at apply time and it targets the database alone |
 | `bootstrap/bootstrap.yaml` | CloudFormation stack `healdesk-bootstrap`: state bucket `healdesk-terraform-state-865780386982` with its own key (`alias/healdesk-terraform-state`), the GitHub OIDC provider, role `healdesk-github-terraform` | What Terraform cannot create for itself. The stack refuses any other account or region; bucket and key are kept if the stack is deleted, and removed if the launch that created them rolls back (`RetainExceptOnCreate`) |
 | `images/tls-proxy/` | nginx 1.30.5 (pinned by digest), an entrypoint making the key and configuration under `/tmp/tls-proxy` (or `TLS_PROXY_RUN_DIR`), keep-alive from `TLS_PROXY_KEEPALIVE_SECONDS` (`alb_idle_timeout + 10`), a health-check script | See "The request paths" |
 | `images/db-admin/` | postgres 17 alpine client (pinned by digest), the AWS CLI and Python 3, the RDS CA bundle, `apps/app/scripts/provision-roles.sql`, `scram-verifier.py`, an entrypoint that takes no arguments | The app image has no psql, and the RDS master user is not a superuser. See "The database" |
 | `scripts/put-external-secrets.sh` | Pastes the owner's secrets into Parameter Store from AWS CloudShell | See "Secrets and configuration" |
 | `scripts/run-task.sh` | Runs the migrate or db-bootstrap task from a terminal | See "One-off tasks from a terminal" |
+| `scripts/plan-guard.sh` | Reads a saved plan's JSON and refuses one that deletes the key, a parameter (but a retired one), an image repository or a bucket, or deletes or replaces the database outside standby; `--release` and `--standby` for standby's two applies | What `prevent_destroy` did for the database before standby ("Standby"). `infra.yml` and `host.yml` run it on every plan before it is shown as ready or applied |
+| `scripts/host-apply.sh` | One plan, the guard and the apply, for `host.yml` | The same steps as `infra.yml`'s apply, with `-var` after `production.tfvars` |
 
 The app-side pieces this module relies on: `apps/app/Dockerfile` copies `tsconfig.base.json`
 (the worker and every tsx script crashed without it), adds the RDS us-east-1 CA bundle at
@@ -180,9 +187,8 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/GOOGLE_OAUTH_CLIENT_ID`, `app/GOOGLE_OAUTH_CLIENT_SECRET` | The owner, from the Google OAuth client whose redirect URI is `https://app.healdesk.io/api/calendar/google/callback` (the calendar's Google connection, on main since its C8). Until both are set, apps/app sends no clinic to Google: the connect page says calendar connection is not available yet | web, worker |
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
-| `app/HEALDESK_VOICE_WEBHOOK_SECRET`, `app/HEALDESK_VOICE_TOOLS_SECRET` | Leave `__unset__`: these are the Synthflow routes, which must never carry a real call | web |
 | `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). Until then leave it `__unset__`, and the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
-| `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml`, after it assumes the Terraform role |
+| `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
 With `enable_voice`, the voice task reads every `app/` parameter the web tier reads: it runs the
@@ -205,7 +211,7 @@ same conversation code.
   URL that does not carry its role's password or the expected database and TLS settings. Its task
   role can get and put those six parameters and nothing else (`output internal_parameters`).
   **Never paste, edit or regenerate them by hand**; rotation is below.
-- **The external twelve: `scripts/put-external-secrets.sh`, in AWS CloudShell.** Upload it, then
+- **The external ten: `scripts/put-external-secrets.sh`, in AWS CloudShell.** Upload it, then
   `bash put-external-secrets.sh` walks every key (Enter keeps one as it is),
   `bash put-external-secrets.sh STRIPE_SECRET_KEY RESEND_API_KEY` does only those, and
   `bash put-external-secrets.sh --status` lists each as `set`, `__unset__` or `missing` without
@@ -213,7 +219,7 @@ same conversation code.
   unknown names, inner whitespace, the placeholder itself and multi-line pastes, checks the shape
   of the Stripe (`sk_`/`rk_` of `STRIPE_MODE`, test unless `STRIPE_MODE=live`), Stripe webhook,
   Resend, Anthropic and Google client-id values and the Retell secret (32 to 200 URL-safe
-  characters), asks for a typed `yes` before the six keys that open a patient-facing path, writes through a 0600 file under the key the parameter already has,
+  characters), asks for a typed `yes` before the four keys that open a patient-facing path, writes through a 0600 file under the key the parameter already has,
   and prints key names and where each value came from, never a value or its length. An app key it
   cannot find means `infra.yml` apply has not run. `CLOUDFLARE_API_TOKEN` is the one it creates,
   under `alias/healdesk-terraform-state`. Then run `deploy-app.yml` with `restart_only`: tasks
@@ -260,8 +266,8 @@ Both trust GitHub's OIDC provider, and both accept a token only when all four co
 
 - **`healdesk-github-terraform`** (bootstrap stack) holds AdministratorAccess, because Terraform
   writes IAM, and a role that can write IAM policies can grant itself anything. Sessions up to two
-  hours; `infra.yml` asks for 90 minutes, its whole timeout, so an apply never outlives its
-  credentials.
+  hours; `infra.yml` and `host.yml`'s apply jobs ask for 90 minutes, their whole timeout, so an
+  apply never outlives its credentials.
 - **`healdesk-production-github-deploy`** (`iam.tf`) can push the three images, register the
   task-definition families, update the web, worker and voice services, run the two one-off tasks
   on this cluster,
@@ -274,7 +280,7 @@ Both trust GitHub's OIDC provider, and both accept a token only when all four co
   checks every task definition it starts from or rolls back to against the shape Terraform gives
   it (containers, roles, the never-set names, Secrets Manager only on db-bootstrap) and stops on
   anything else.
-- **No GitHub environment, and no GitHub secret.** Neither job names an environment: one that did
+- **No GitHub environment, and no GitHub secret.** No job names an environment: one that did
   would get a different subject and be refused, so no environment setting is part of the control.
   The Cloudflare token (Edit zone DNS on healdesk.io, enough to repoint `app.healdesk.io`) lives
   in Parameter Store under the bootstrap stack's key, which only administrators can use; the plan
@@ -288,6 +294,15 @@ Both trust GitHub's OIDC provider, and both accept a token only when all four co
   boundary. GitHub Pro's branch protection on main is the next step. The account's administrators
   (the Terraform role and the owner's IAM user) can read every parameter and the master secret
   directly.
+- **The switch's token is one of those tools.** `HEALDESK_GITHUB_ACTIONS_TOKEN` on Vercel is a
+  fine-grained token of the owner, Actions read and write on this repository only. It cannot push
+  code, but it can start any workflow on main as the owner, `infra.yml` apply and `host.yml`
+  standby included, and so whoever holds it can make AWS run main's workflows. In apps/web only
+  `/api/admin/host` (behind the operator session, the same-origin check and apps/app's standby
+  check) and the Stripe webhook's wake (mode `active`, once an hour) use it, and no response
+  carries it; anyone who can read Vercel's environment can use it directly, and `host.yml`'s own
+  refusal of standby (the production-clinic parameter) is then the guard. Rotate it with the
+  other Vercel secrets, and give it the shortest expiry GitHub allows that you will renew.
 
 If the first run is refused with "Not authorized to perform sts:AssumeRoleWithWebIdentity", the
 subject GitHub issued differs from the trusted one. Decode only the `sub` claim of one main run,
@@ -330,13 +345,14 @@ behind.
    `HEALDESK_ADMIN_EMAIL` (byte-for-byte the `HEALDESK_ADMIN_EMAIL` on Vercel; nothing checks that
    they match), `CLOUDFLARE_ZONE_ID` (healdesk.io's zone id, 32 hex characters) and, optionally,
    `HEALDESK_OPS_EMAIL`. `infra.yml` refuses to start without the first six.
-6. **`infra.yml` with `plan`, read it, then `apply`.** The apply makes a fresh plan and applies
-   exactly that saved plan in the same job; check its `Plan:` line matches the plan run's. The
-   first apply creates about a hundred resources, waits for ACM to issue the certificate through
-   the two Cloudflare records, then creates the listener, its rules and the services at 0 tasks.
-   RDS takes the longest. The run ends by printing the outputs.
-7. **Set `AWS_DEPLOY_ROLE_ARN`** to the `github_deploy_role_arn` output
-   (`arn:aws:iam::865780386982:role/healdesk-production-github-deploy`).
+6. **`infra.yml` with `plan`, read it, then `apply`** (done on 14 October 2026). The apply makes a
+   fresh plan and applies exactly that saved plan in the same job; check its `Plan:` line matches
+   the plan run's. The first apply creates about a hundred resources, waits for ACM to issue the
+   certificate through the two Cloudflare records, then creates the listener, its rules and the
+   services at 0 tasks. RDS takes the longest. The run ends by printing the outputs.
+7. **No `AWS_DEPLOY_ROLE_ARN` to set any more.** `deploy-app.yml` derives the deploy role,
+   `arn:aws:iam::865780386982:role/healdesk-production-github-deploy`, from
+   `AWS_TERRAFORM_ROLE_ARN`'s account when the variable is unset; set it only to use another role.
 8. **Confirm the SNS subscription** from the email AWS sends to `alarm_email`. Both
    below-desired alarms most likely went into ALARM before it was confirmed (missing data counts as
    breaching, and nothing runs yet), and SNS sends nothing to a pending subscription, so expect no
@@ -344,21 +360,30 @@ behind.
 9. **Paste the external parameters** (`parameters_to_fill`): `HEALDESK_PROVISION_SECRET` (a new
    random value, set on Vercel in step 11 with the same bytes), `STRIPE_SECRET_KEY` (the test key:
    the end-to-end test runs on this host before launch), `RESEND_API_KEY`, and the two Google
-   OAuth values once the client exists. Leave `META_*`, `ANTHROPIC_API_KEY`, the two voice
-   secrets and `HEALDESK_RETELL_LLM_SECRET` as they are. Then ask AWS to take SES out of its sandbox (console → Amazon SES → Get
+   OAuth values once the client exists. Leave `META_*`, `ANTHROPIC_API_KEY` and
+   `HEALDESK_RETELL_LLM_SECRET` as they are. Then ask AWS to take SES out of its sandbox (console → Amazon SES → Get
    set up → Request production access, transactional mail, from healdesk.io): until it does, SES
    sends only to addresses verified in the account, so an emailed transcript would not reach a
    clinic. The domain identity and its DKIM records are already made by the apply.
-10. **`deploy-app.yml` with `bootstrap_db` and `migrate` ticked.** A first deploy (every service
-    at 0) is refused without either. db-bootstrap generates the six internal values and creates the
-    two roles, migrate runs the migrations and the queue install, and each service comes up to its
-    `DesiredCount` tag.
+10. **`host.yml` with mode `active`**, from GitHub (Actions → Host (AWS) → Run workflow, on main):
+    the first time it has to be GitHub, because `/admin` cannot be signed in to before the host
+    answers (its second factor lives in this host's database). It applies (nothing to change on a
+    host `infra.yml` has just applied, but what main has changed since), then calls
+    `deploy-app.yml` with `bootstrap_db` and `migrate`: db-bootstrap generates the six internal
+    values and creates the two roles, migrate runs the migrations and the queue install, and each
+    service comes up to its `DesiredCount` tag. Once the liveness probe answers it applies once
+    more, subscribing the app to SES's events, which SNS refuses before then. About an hour, most
+    of it the arm64 image build under QEMU. A hand-started `deploy-app.yml` with `bootstrap_db` and
+    `migrate` ticked does the middle step alone (a first deploy, every service at 0, is refused
+    without either).
 11. **Vercel**: `HEALDESK_APP_URL=https://app-internal.healdesk.io` (the `internal_url` output) and
-    the same `HEALDESK_PROVISION_SECRET`, on Production and Preview, then redeploy Production
-    (Vercel applies variables only to new deployments). Preview has them only while this host
-    holds Stripe test keys and synthetic data, so the Stripe guide's test purchase can run from a
-    preview; on launch day, take both off Preview, or every branch preview would provision against
-    the production PHI host.
+    the same `HEALDESK_PROVISION_SECRET`, on Production and Preview, and on Production only
+    `HEALDESK_GITHUB_ACTIONS_TOKEN` ("Standby": a fine-grained token of the owner, Actions read and
+    write on this repository only), then redeploy Production (Vercel applies variables only to new
+    deployments). Preview has the first two only while this host holds Stripe test keys and
+    synthetic data, so the Stripe guide's test purchase can run from a preview; on launch day,
+    take both off Preview, or every branch preview would provision against the production PHI
+    host.
 12. **Check**: `https://app.healdesk.io/api/health?probe=liveness` answers `{"ok":true}`;
     `https://app.healdesk.io/api/health` shows `"db":"ok"` and, within the hour, a
     `heartbeatAgeSeconds`; `https://app-internal.healdesk.io/api/health` answers 404 (the internal
@@ -367,22 +392,22 @@ behind.
     to `https://app.healdesk.io/api/ops` answers the ALB's 404; the worker log shows
     `credential key self-check passed`; healdesk.io/admin's Ops page loads, which proves the signed
     path end to end, and its first sign-in enrols a new authenticator, because its second factor
-    lives in this host's database, which is new. Last, SES's events: SNS refuses to subscribe an
-    HTTPS endpoint that does not answer, so the first apply leaves the subscription out
-    (`subscribe_ses_events = false`). Once the checks above pass, set it to `true` in
-    `production.tfvars`, push, and apply again; in the console, SNS → Subscriptions, the
-    `https://app.healdesk.io/api/webhooks/ses` subscription to `healdesk-production-ses-events`
-    should then read Confirmed (the app confirms it itself when SNS asks). Until it is
-    confirmed, a transcript that bounces at the clinic's mail server is not sent again (every
-    other retry still runs).
+    lives in this host's database, which is new; `/admin/host` shows Active. Last, SES's events:
+    in the console, SNS → Subscriptions, the `https://app.healdesk.io/api/webhooks/ses`
+    subscription to `healdesk-production-ses-events`, which `host.yml`'s last apply made, should
+    read Confirmed (the app confirms it itself when SNS asks). Until it is confirmed, a transcript
+    that bounces at the clinic's mail server is not sent again (every other retry still runs).
 
 ---
 
 ## Deploying
 
-`deploy-app.yml` runs by hand, from main, as `healdesk-production-github-deploy` over OIDC. It
-shares the concurrency group `healdesk-aws-production` with `infra.yml`, so an apply never runs
-beside a deploy.
+`deploy-app.yml` runs by hand, from main, as `healdesk-production-github-deploy` over OIDC, or
+called by `host.yml` (with `bootstrap_db` and `migrate`) after the apply that turns the host on. It
+shares the concurrency group `healdesk-aws-production` with `infra.yml` and `host.yml`, so an apply
+never runs beside a deploy. Called, it takes a group named after its caller's run instead, since
+the caller already holds the shared one and a called run that asked for it would wait for its own
+caller for ever; the caller's hold keeps everything else out meanwhile.
 
 | Input | Default | Meaning |
 | --- | --- | --- |
@@ -393,8 +418,11 @@ beside a deploy.
 
 A full run, in order:
 
-1. Checks: `AWS_DEPLOY_ROLE_ARN` set, ref is main, started by the owner, the inputs consistent
-   (`restart_only` and `rollback_to` exclusive; neither with `bootstrap_db`).
+1. Checks: the deploy role (`AWS_DEPLOY_ROLE_ARN`, or `healdesk-production-github-deploy` in
+   `AWS_TERRAFORM_ROLE_ARN`'s account when that is unset, and in either case in `865780386982`),
+   ref is main, started by the owner, the inputs consistent (`restart_only` and `rollback_to`
+   exclusive; neither with `bootstrap_db`). No web service means the host is in standby or was
+   never applied: the run stops and points at `host.yml`.
 2. Reads the services: task families, desired counts, the private subnets and security group
    the one-off tasks borrow from the web service, whether a worker service exists (none means the
    worker is a container of the web task), whether the voice service exists (none means
@@ -429,6 +457,126 @@ Two things that are easy to get wrong:
   a new environment variable) reaches the services on the next **full** deploy. `restart_only`
   restarts the revisions already running and does not pick it up.
 - **A Parameter Store change** needs only `restart_only`: ECS resolves secrets at task start.
+
+---
+
+## Standby
+
+Until the first clinic pays, the host serves synthetic data only, and nearly all of its cost is
+billed by the hour whether anything uses it or not. Standby removes those pieces, after a snapshot
+of the database, and keeps everything that holds data or identity, so turning the host on again
+brings back the same host: the same key, secrets, images, names and database. The switch is
+`/admin/host` (apps/web; it dispatches `host.yml` with the owner's token) or
+`.github/workflows/host.yml` itself, run by the owner from main with mode `active` or `standby`.
+Terraform's side is the `standby` variable and its three companions (`variables.tf`, "Standby").
+
+| Standby removes | Standby keeps |
+| --- | --- |
+| The RDS instance, after its final snapshot `healdesk-production-standby-<UTC yyyymmddhhmmss>`, and with it its RDS-managed master secret | The KMS key, and every SSM parameter: the six internal (passwords, URLs, auth and reference keys), the ten external, `ci/CLOUDFLARE_API_TOKEN`, `host/mode` |
+| The load balancer, its two listeners, its rules and target groups (web, voice) | The ECR repositories and their images |
+| The NAT instance and its address (or the NAT gateways and their Elastic IPs), and the private subnets' default route | The VPC, subnets, internet gateway, every security group, the database's subnet and parameter groups |
+| Every ECS service: web, worker (when separate), voice (when on) | The ECS cluster and the task definitions, but one |
+| Terraform's db-bootstrap task definition, which names the instance's endpoint and master secret | Every IAM role and policy (the execution role's master-secret statement goes with the secret) |
+| Every alarm: each watches the load balancer, a service, the NAT instance or the database | The alarm topic and its confirmed email subscription; the budget |
+| The WAF (when on) | CloudTrail, Config, GuardDuty and their buckets; the export bucket; every log group and its logs |
+| The SES events subscription, which posts to the removed host | SES's identity, configuration set, DKIM records and events topic |
+| The two Cloudflare CNAMEs, `app.healdesk.io` and `app-internal.healdesk.io` | The ACM certificate and its two validation records |
+
+**What it costs.** Active, the lean profile, about $69 a month ("Costs"). In standby, line by line
+from what is left: the two KMS keys $2.00 (each adds $1 a month after its first yearly rotation);
+the images in ECR $0.10 to $2.00 at $0.10 per GB-month, under $0.20 after a few deploys and up to
+$2 with 30 images in each repository; the standby snapshot of a synthetic database, about 1 to 2 GB
+at $0.095 per GB-month, about $0.15; the deleted instance's automated backups, kept 35 days and
+billed at the same rate with no instance to make them free, about $0.20 for the first month only;
+Config, with almost nothing changing, about $0.50; GuardDuty, with no traffic to read, about
+$0.25; the trail, Config and state buckets and the stored logs, about $0.30. No alarm, no public
+IPv4 address, no secret in Secrets Manager is left; Parameter Store standard parameters, SES's
+identity, the VPC, ACM, SNS and the budget cost nothing. **About $4 a month**, an estimate: read the
+first bill in standby. `/admin/host` shows both tables (`apps/web/src/lib/host/costs.ts`, kept in
+step with this paragraph). Each switch bills its hours as on; turning on also spends GitHub
+Actions minutes, most of them the arm64 build of a commit not built before.
+
+**How long.** Standby takes about twenty minutes: the guard, the first apply (a minute or two),
+then the second, in which the services drain (60 s), the final snapshot is taken and the
+instance deleted (most of it), and the rest goes in seconds; with `enable_voice` the voice service
+drains its calls first, up to an hour. Turning on takes about an hour: the apply (the database
+from its snapshot, 10 to 20 minutes, the NAT instance's first boot, the load balancer), the deploy
+(the images, reused when this commit was built before and otherwise built under QEMU; db-bootstrap;
+the migrations; the rollout and its smoke test), and the last apply, which subscribes SES's events.
+
+**How the switch runs** (`host.yml`, every apply through `scripts/host-apply.sh`, so each is a
+saved plan, rendered for the log, checked by `scripts/plan-guard.sh`, then applied exactly; the
+variables go on the command line after `production.tfvars`, which stays the record of the active
+shape):
+
+- **Standby.** The guard below. Then the switch is recorded in `/healdesk/production/host/mode`.
+  Apply 1, targeted at the database and the load balancer (only those that exist both in AWS and
+  in the state), with `deletion_protection = false` and `final_snapshot_identifier` set, and
+  `plan-guard.sh --release`, which refuses anything but updates: the provider reads
+  `skip_final_snapshot` and the snapshot's name from the state when it destroys, and one apply
+  cannot both lift deletion protection and delete. Apply 2, `standby = true`, with
+  `plan-guard.sh --standby`, which allows the database's deletion (never a replacement) and
+  refuses any plain deletion outside the list above. Then, once the new snapshot is available,
+  every older standby snapshot is deleted.
+- **Active.** The switch is recorded. The database: if it exists it is kept (`rds.tf` ignores
+  `snapshot_identifier` once it exists, so no later apply can replace it with a copy); if not,
+  the newest available standby snapshot is named in `restore_snapshot_identifier`, or none, and
+  the database is new and empty (a warning says so). The apply, with deletion protection back on
+  and the SES subscription off unless the app already answers. Then `deploy-app.yml` with
+  `bootstrap_db` and `migrate`, a first deploy since every service is new at 0 tasks. Then, once
+  `https://app.healdesk.io/api/health?probe=liveness` answers, the apply that subscribes SES's
+  events. The run's summary says which step did not succeed; every step is safe to run again.
+
+**What happens to the data.** The database's final snapshot is a manual snapshot, kept until a
+later standby replaces it: the clinic agreement's 35-day promise (`rds.tf`) is why that is allowed
+only while nothing real is on the host. It is restored under the same identifier, so the
+instance gets back the same endpoint (`<identifier>.<the account's hash>.us-east-1...`), and the
+two URLs Parameter Store kept still name it; the roles in it already have the passwords Parameter
+Store holds, and db-bootstrap re-asserts them. With no snapshot, db-bootstrap creates the roles in
+the new database with those same passwords, and migrate builds the schema; it never generates a
+value that is set, so nothing rotates either way. Point-in-time recovery starts again with the new
+instance; the old instance's automated backups stay 35 days, restorable only to a new instance by
+hand. RDS deletes the old master secret with the old instance and makes a new one; the apply
+registers a new db-bootstrap revision naming it, and the deploy builds on that one
+(`run-task.sh db-bootstrap` picks a deployed revision, so it works again after the deploy).
+Logs, parameters and images are untouched. The guard keeps standby away from a transcript SES
+has not taken; a sent one's sealed copy waits in the snapshot and the outbox job deletes it on its
+own clock once the host is back.
+
+**The guard on standby.** `/admin/host` asks apps/app's `hostStandbyCheck` first (signed, counts
+only: clinics in production, agreements bound and in effect, transcripts SES has not taken) and
+dispatches nothing unless all three are 0, saying why otherwise. `host.yml` cannot sign that call,
+so, started any other way, it refuses standby while the database exists and the String parameter
+`/healdesk/production/host/production-clinic` reads `yes`. **apps/app does not write that
+parameter**: set it by hand in CloudShell when the first clinic goes live,
+`aws ssm put-parameter --name /healdesk/production/host/production-clinic --type String --value yes --overwrite`,
+and to `no` if none is left. The plan guard runs on every apply of both workflows.
+
+**infra.yml follows the switch.** It reads `/healdesk/production/host/mode` and, while it says
+`standby`, plans with `standby = true` (and `deletion_protection = false`), so a change merged in
+standby is applied to the host in standby rather than turning it on half-way. The plan guard
+refuses an `infra.yml` plan that deletes the database: if the mode says standby and the database
+is still there, a standby stopped half-way, and `host.yml` finishes it (or brings the host back).
+
+Things to know:
+
+- **`/admin` cannot be signed in to while the host is in standby**: the sign-in's second factor
+  lives in apps/app's database, and the session route fails closed when it cannot ask. Keep the
+  session, or turn the host on from GitHub (Actions → Host (AWS) → Run workflow → `active`).
+- **A first paid invoice turns it on.** The Stripe webhook's provision call finds nothing and
+  answers Stripe 500 as before, so Stripe retries for about three days; `apps/web/src/lib/host/wake.ts`
+  also dispatches `host.yml` with `active` and emails the administrator, at most once an hour.
+  The account is made on Stripe's first retry after the host answers.
+- **A standby that stopped after its first apply** leaves the database and the load balancer
+  without deletion protection until `host.yml` runs again, in either mode.
+- **The certificate is not renewed in standby**: ACM renews only a certificate in use. One that
+  outlasts its thirteen months needs replacing (an apply with `aws_acm_certificate.app` replaced;
+  it is create-before-destroy) before the host comes back.
+- **A snapshot taken after an automatic minor upgrade** comes back at that minor: raise
+  `postgres_version` first, or the apply plans a downgrade.
+- **The NAT instance comes back on the newest image**, as a quarterly replacement does.
+- **Rollback** after a return works on the revisions deployed since; a revision registered before
+  14 October names the retired Synthflow parameters and would not start (none was deployed).
 
 ---
 
@@ -813,7 +961,8 @@ re-sets the role's password and rolls the services onto the new URL.
 | `HEALDESK_PROVISION_SECRET` | `bash put-external-secrets.sh HEALDESK_PROVISION_SECRET` **and** Vercel (Production, and Preview while it points here), then `restart_only` and a Vercel redeploy together | Signed calls answer 401 in between: the Stripe relay retries, checkout shows an error, `/admin` is briefly unavailable |
 | `STRIPE_SECRET_KEY` | Roll in Stripe, paste here and on Vercel, `restart_only`, redeploy Vercel | Same account and mode on both sides. Stripe can keep the old key alive for a while when it rolls; use that window |
 | `RESEND_API_KEY`, `STRIPE_CONNECT_WEBHOOK_SECRET`, `GOOGLE_OAUTH_CLIENT_SECRET`, `META_APP_SECRET`, `ANTHROPIC_API_KEY` | Vendor console, `bash put-external-secrets.sh <KEY>`, `restart_only` | The Anthropic key is always the HIPAA organisation's, never the marketing one |
-| `CLOUDFLARE_API_TOKEN` | Roll in Cloudflare, `bash put-external-secrets.sh CLOUDFLARE_API_TOKEN` | Only `infra.yml` uses it, from its next run |
+| `CLOUDFLARE_API_TOKEN` | Roll in Cloudflare, `bash put-external-secrets.sh CLOUDFLARE_API_TOKEN` | Only `infra.yml` and `host.yml` use it, from their next run |
+| `HEALDESK_GITHUB_ACTIONS_TOKEN` (Vercel, not this host) | A new fine-grained token of the owner (Actions read and write, this repository only), set on Vercel's Production, redeploy, then revoke the old one in GitHub | In between `/admin/host` and the first-invoice wake cannot dispatch; `host.yml` from GitHub's page still works |
 | ACM certificate | Nothing: ACM renews while the validation records stay in Cloudflare | Terraform keeps those records; never delete them by hand |
 | tls-proxy certificate | Nothing: a new key at every task start | Never stored |
 | GitHub to AWS | Nothing stored: OIDC, sessions of two hours at most | Revoke by editing the trust policies |
@@ -887,6 +1036,10 @@ profile the owner chose on 13 October 2026:
 | GuardDuty, foundational | 4.00 |
 | SES: the transcript emails, $0.10 per 1,000 (more on SES's newer bundled plans) | under 0.10 |
 | **Total, running** | **≈ 70** |
+
+In standby ("Standby") the account costs **about $4 a month**: the two KMS keys, the images, the
+database's snapshot and, for 35 days, its automated backups, and a little Config, GuardDuty and
+storage; every line above but those is gone.
 
 Between the first apply and the first deploy the service runs no task, so the account costs about
 $61.50 a month until then. Fixed-rate lines are exact; usage lines are low-traffic guesses. The
@@ -1075,11 +1228,11 @@ data only until every link of the chain is in place.
 | Clinic to Google | The clinic's own calendar under its own Google agreement; confirmed per clinic |
 
 Nothing in the code checks vendor BAAs, so configuration holds the chain: leave
-`META_APP_SECRET`, `META_VERIFY_TOKEN`, `ANTHROPIC_API_KEY`, both voice secrets and
+`META_APP_SECRET`, `META_VERIFY_TOKEN`, `ANTHROPIC_API_KEY` and
 `HEALDESK_RETELL_LLM_SECRET` `__unset__`, and `enable_voice` off, until it is complete
 (`put-external-secrets.sh` asks for a typed `yes` before each). With them unset, the Meta webhook
-answers 503, the front door has no model to call, the Synthflow routes answer 503 and the voice
-endpoint refuses every call.
+answers 503, the front door has no model to call and the voice endpoint refuses every call. (The
+Synthflow routes' two secrets were retired on 14 October 2026, `ssm.tf`.)
 
 Records and drills still open (the compliance map's §4): this module's first apply and deploy;
 the restore drill (T9); the rotation runbook (T6; the table above is its draft, not yet adopted or
@@ -1106,16 +1259,25 @@ and every v1 surface the spec still lists as unbuilt.
       terraform validate && terraform test'
   docker run --rm -v "$PWD/infra/aws:/w:ro" bridgecrew/checkov:3.3.26 -d /w --framework terraform --quiet
   docker run --rm -v "$PWD:/repo:ro" -w /repo rhysd/actionlint:1.7.12 \
-    .github/workflows/infra.yml .github/workflows/deploy-app.yml
+    .github/workflows/host.yml .github/workflows/infra.yml .github/workflows/deploy-app.yml
   docker run --rm -v "$PWD/infra/aws/bootstrap:/w:ro" python:3.13-slim \
     sh -c 'pip install -q cfn-lint && cfn-lint /w/bootstrap.yaml'
   ```
 
   Every accepted checkov finding is a `#checkov:skip` with its reason next to the resource. Under
   heavy load `terraform test` can time out starting the AWS provider; run it again.
-- **Read every plan for replacements.** `aws_db_instance.main`, `aws_kms_key.main`, every
-  `aws_ssm_parameter` and the transcript bucket carry `prevent_destroy`, so a plan that would
-  replace them fails; anything else marked "must be replaced" deserves a second look before apply.
+- **Read every plan for replacements.** `aws_kms_key.main`, every `aws_ssm_parameter` and the
+  transcript and export buckets carry `prevent_destroy`, so a plan that would replace them fails.
+  `aws_db_instance.main` cannot (standby removes it): `scripts/plan-guard.sh` refuses, in both
+  workflows, a plan that deletes or replaces it outside standby's second apply, and AWS's deletion
+  protection refuses the delete in any other apply. Anything else marked "must be replaced"
+  deserves a second look before apply.
+- **A resource standby should remove** gets `count = var.standby ? 0 : 1` (or joins its
+  condition), every reference to it an index or a `one()`/`try()`, an entry in
+  `plan-guard.sh`'s standby list, and an assertion in the `standby` test run.
+- **Retiring a parameter** is a `moved` block from its `aws_ssm_parameter.external[...]` instance
+  to `aws_ssm_parameter.retired[...]` (`ssm.tf`), never a bare removal from the list, which every
+  plan would refuse.
 - **A new signed route** goes into `signed_paths` in `locals.tf`, or the internal host answers it
   404.
 - **`postgres_version`** will show an attempted downgrade after AWS's automatic minor upgrade:

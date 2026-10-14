@@ -138,7 +138,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     name: "Amazon Web Services",
     category: "cloud-hosting",
     purpose: "Hosting the product and its storage, in the AWS account designated under our AWS agreement",
-    data: "Patient information the product holds: contacts, conversation records, appointments, and each transcript only until it is emailed to the clinic through Amazon SES and seven days after (no call audio is kept)",
+    data: "Patient information the product holds: contacts, conversation records, appointments, and each transcript only until the clinic's mail server confirms delivery of the email Amazon SES sends it, and never more than 30 days (no call audio is kept)",
     region: "United States (single region)",
     handlesPhi: true,
     // The AWS Business Associate Addendum, accepted click-through in AWS

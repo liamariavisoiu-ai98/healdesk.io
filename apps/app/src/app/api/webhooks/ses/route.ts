@@ -17,10 +17,14 @@ export const runtime = "nodejs";
  * posts them (infra/aws/ses.tf).
  *
  * What it is for: the transcript outbox knows SES accepted a transcript; only
- * this says whether the clinic's mail server took it. A delivery is recorded,
- * and a hard bounce, a rejection, a complaint or a rendering failure marks the
- * transcript bounced, so the outbox sends it again an hour later while its
- * sealed copy lasts, and ops hears once (lib/conversations/transcript-outbox.ts).
+ * this says whether the clinic's mail server took it. A delivery deletes the
+ * sealed copy, in the same transaction, and leaves the row as a receipt (the
+ * owner's decision of 14 October 2026); a hard bounce, a rejection, a
+ * complaint or a rendering failure marks the transcript bounced, so the
+ * outbox sends it again an hour later while its 30 days last, and ops hears
+ * once (lib/conversations/transcript-outbox.ts). With no event at all for 72
+ * hours the outbox deletes the copy itself, so a topic that stops reaching
+ * this route costs the clinic a transcript, never a copy kept.
  *
  * Answers:
  *   503  SES events are not set up on this host (no topic to trust);

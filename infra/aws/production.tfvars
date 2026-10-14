@@ -85,14 +85,24 @@ enable_transcript_bucket  = false
 transcript_retention_days = 90
 enable_ses                = true
 
-# Off until the first deploy answers on app.healdesk.io: SNS refuses to
-# subscribe an endpoint that does not answer (the second apply, 14 October
-# 2026). Turned on by the apply after that deploy.
-subscribe_ses_events = false
+# SES's events reach the app (the active shape). SNS refuses to subscribe an
+# endpoint that does not answer (the second apply, 14 October 2026), so
+# infra.yml and host.yml override this with -var subscribe_ses_events=false
+# while https://app.healdesk.io/api/health?probe=liveness does not answer ok,
+# and host.yml's last apply, after its deploy, leaves it on.
+subscribe_ses_events = true
 
 # Monitoring and cost.
 enable_guardduty   = true
 monthly_budget_usd = 250
+
+# Standby (README, "Standby"): the active shape is recorded here. host.yml
+# switches between the two with -var on its command line (standby,
+# deletion_protection, final_snapshot_identifier, restore_snapshot_identifier),
+# and infra.yml follows the mode host.yml last recorded in Parameter Store, so
+# this file never changes for a switch.
+standby             = false
+deletion_protection = true
 
 # Who may deploy: GitHub's immutable OIDC subject for this repository's main
 # branch, exactly as the bootstrap stack's Terraform role, and the one GitHub

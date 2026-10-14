@@ -7,29 +7,30 @@
  * because deleting somebody else's work is not this slice's to do.
  *
  * The properties worth having a test for are the ones a future edit could break
- * without anything looking wrong: that an enrolment token is not a session, that
- * the signature is checked before the clock, that a token stops verifying when
- * the configured address changes, and that a work factor read out of an
- * environment variable cannot ask for a gigabyte of memory.
+ * without anything looking wrong: that the step cookie is not a session and a
+ * session is not a step cookie, that the signature is checked before the
+ * clock, that a token stops verifying when the configured address changes, and
+ * that a work factor read out of an environment variable cannot ask for a
+ * gigabyte of memory.
  */
 
 import { randomBytes, scryptSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  ENROLMENT_COOKIE,
-  ENROLMENT_TTL_SECONDS,
   OPERATOR_COOKIE,
   OPERATOR_TTL_SECONDS,
-  enrolmentCookieOptions,
+  STEP_COOKIE,
+  STEP_COOKIE_TTL_SECONDS,
   isAdminAccountConfigured,
-  issueEnrolmentToken,
   issueOperatorToken,
+  issueStepToken,
   missingAdminConfig,
   operatorCookieOptions,
+  stepCookieOptions,
   verifyAdminPassword,
-  verifyEnrolmentToken,
   verifyOperatorToken,
+  verifyStepToken,
 } from "./operator";
 
 const EMAIL = "healdesk.io@gmail.com";
@@ -47,6 +48,7 @@ beforeEach(() => {
   process.env.HEALDESK_ADMIN_EMAIL = EMAIL;
   process.env.HEALDESK_ADMIN_SECRET = "test-secret-not-a-real-one";
   process.env.HEALDESK_ADMIN_PASSWORD_HASH = hashFor(PASSWORD);
+  process.env.HEALDESK_ADMIN_TOTP_SECRET = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
 });
 
 afterEach(() => {
@@ -54,7 +56,7 @@ afterEach(() => {
 });
 
 describe("configuration", () => {
-  it("is configured when all three are present", () => {
+  it("is configured when all four are present", () => {
     expect(isAdminAccountConfigured()).toBe(true);
     expect(missingAdminConfig()).toEqual([]);
   });
@@ -62,11 +64,21 @@ describe("configuration", () => {
   it("names what is missing", () => {
     delete process.env.HEALDESK_ADMIN_SECRET;
     process.env.HEALDESK_ADMIN_PASSWORD_HASH = "not-a-hash";
+    process.env.HEALDESK_ADMIN_TOTP_SECRET = "too-short";
     expect(isAdminAccountConfigured()).toBe(false);
     expect(missingAdminConfig()).toEqual([
       "HEALDESK_ADMIN_PASSWORD_HASH",
       "HEALDESK_ADMIN_SECRET",
+      "HEALDESK_ADMIN_TOTP_SECRET",
     ]);
+  });
+
+  it("still renders the form without the TOTP secret, which the session route refuses with a 503 instead", () => {
+    // The form is shown, so the sentence naming the variable reaches only
+    // somebody who has just proved the password (see the session route).
+    delete process.env.HEALDESK_ADMIN_TOTP_SECRET;
+    expect(isAdminAccountConfigured()).toBe(true);
+    expect(missingAdminConfig()).toEqual(["HEALDESK_ADMIN_TOTP_SECRET"]);
   });
 
   it("treats a blank secret as unset", () => {
@@ -199,21 +211,46 @@ describe("operator token", () => {
   });
 });
 
-describe("enrolment token is not a session", () => {
-  it("does not verify as an operator token", () => {
-    expect(verifyOperatorToken(issueEnrolmentToken(EMAIL))).toBeNull();
+describe("the step cookie is not a session", () => {
+  it("round-trips the step it was minted for", () => {
+    expect(verifyStepToken(issueStepToken(58_000_123))).toBe(58_000_123);
+    expect(verifyStepToken(issueStepToken(0))).toBe(0);
   });
 
-  it("and an operator token does not verify as an enrolment token", () => {
-    expect(verifyEnrolmentToken(issueOperatorToken(EMAIL))).toBeNull();
+  it("does not verify as an operator token, and an operator token does not verify as one", () => {
+    expect(verifyOperatorToken(issueStepToken(58_000_123))).toBeNull();
+    expect(verifyStepToken(issueOperatorToken(EMAIL))).toBeNull();
   });
 
-  it("round-trips on its own key and is short lived", () => {
-    expect(ENROLMENT_TTL_SECONDS).toBe(600);
-    const token = issueEnrolmentToken(EMAIL);
-    expect(verifyEnrolmentToken(token)).toBe(EMAIL);
-    const expiry = Number(token.split(".")[1]);
-    expect(expiry - Date.now()).toBeLessThanOrEqual(ENROLMENT_TTL_SECONDS * 1000);
+  it("refuses a step it did not sign, so a tossed cookie cannot lock the owner out", () => {
+    const token = issueStepToken(58_000_123);
+    const [, signature] = token.split(".") as [string, string];
+    expect(verifyStepToken(`999999999999.${signature}`)).toBeNull();
+    const flipped = signature.slice(0, -1) + (signature.endsWith("A") ? "B" : "A");
+    expect(verifyStepToken(`58000123.${flipped}`)).toBeNull();
+    expect(verifyStepToken("58000123")).toBeNull();
+    expect(verifyStepToken(`${token}.x`)).toBeNull();
+  });
+
+  it("refuses one minted under a different secret, and reads as nothing without one", () => {
+    const token = issueStepToken(58_000_123);
+    process.env.HEALDESK_ADMIN_SECRET = "a-different-secret";
+    expect(verifyStepToken(token)).toBeNull();
+    delete process.env.HEALDESK_ADMIN_SECRET;
+    expect(verifyStepToken(token)).toBeNull();
+    expect(() => issueStepToken(1)).toThrow();
+  });
+
+  it("refuses rubbish without throwing", () => {
+    for (const value of ["", ".", "-1.x", "1e3.x", "x".repeat(5000), undefined]) {
+      expect(verifyStepToken(value as string | undefined)).toBeNull();
+    }
+  });
+
+  it("refuses to mint anything but a whole, non-negative step", () => {
+    for (const step of [-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => issueStepToken(step)).toThrow();
+    }
   });
 });
 
@@ -226,20 +263,23 @@ describe("cookie flags", () => {
     expect(options.maxAge).toBe(OPERATOR_TTL_SECONDS);
   });
 
-  it("scope the enrolment cookie to the one route that reads it", () => {
-    const options = enrolmentCookieOptions();
+  it("scope the step cookie to the one route that reads it, for longer than any code lasts", () => {
+    const options = stepCookieOptions();
     expect(options.httpOnly).toBe(true);
     expect(options.sameSite).toBe("strict");
-    expect(options.path).toBe("/api/admin/enroll");
-    expect(options.maxAge).toBe(ENROLMENT_TTL_SECONDS);
+    expect(options.path).toBe("/api/admin/session");
+    expect(options.maxAge).toBe(STEP_COOKIE_TTL_SECONDS);
+    // Three thirty-second steps is the longest a code is acceptable.
+    expect(STEP_COOKIE_TTL_SECONDS).toBeGreaterThan(90);
   });
 
   it("keep the two cookies under different names", () => {
-    expect(OPERATOR_COOKIE).not.toBe(ENROLMENT_COOKIE);
-    // And apart from the three cookies this app already sets.
-    expect([OPERATOR_COOKIE, ENROLMENT_COOKIE]).not.toContain("hd_admin");
-    expect([OPERATOR_COOKIE, ENROLMENT_COOKIE]).not.toContain("hd_demo");
-    expect([OPERATOR_COOKIE, ENROLMENT_COOKIE]).not.toContain("hd_agreement");
+    expect(OPERATOR_COOKIE).not.toBe(STEP_COOKIE);
+    // And apart from the three cookies this app already sets, and the retired
+    // enrolment cookie, which nothing mints or reads any more.
+    for (const taken of ["hd_admin", "hd_demo", "hd_agreement", "hd_operator_enrol"]) {
+      expect([OPERATOR_COOKIE, STEP_COOKIE]).not.toContain(taken);
+    }
   });
 
   it("are secure in production", () => {
@@ -252,7 +292,7 @@ describe("cookie flags", () => {
       configurable: true,
     });
     expect(operatorCookieOptions().secure).toBe(true);
-    expect(enrolmentCookieOptions().secure).toBe(true);
+    expect(stepCookieOptions().secure).toBe(true);
     Object.defineProperty(process.env, "NODE_ENV", {
       value: saved,
       configurable: true,

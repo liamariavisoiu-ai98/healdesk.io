@@ -35,9 +35,16 @@
 > transcript paragraph and the conversation's record kept without the words,
 > with nothing for the portal to shorten, and clause 13's paragraph that
 > Practice answers a request about a transcript from the email (gap 2).
-> Counsel's approval covered the clauses as they stood on 6 October, not
-> these edits, which the owner reads in `docs/dpa-v1.0.0.txt` before the
-> release.
+> On 14 October 2026 the owner decided that the copy is deleted the moment
+> delivery is confirmed (agreement-changes.md § 15), and the DPA took BAA
+> 1.5.0's two changes in place: clause 10's transcript paragraph (the copy
+> held only until Practice's mail server confirms delivery, kept and sent
+> again after a failure until delivered, never past 30 days, deleted 72
+> hours after a send nothing answered, and a record of each transcript's
+> delivery kept without the words), and clause 13's paragraph, which holds
+> a transcript "only for as long as" clause 10 allows. Counsel's approval
+> covered the clauses as they stood on 6 October, not these edits, which
+> the owner reads in `docs/dpa-v1.0.0.txt` before the release.
 
 ## 1. What it is, and who signs it
 
@@ -186,8 +193,19 @@ Added on 13 October 2026, read at `7da5ee3` (the transcript outbox), with BAA
 | --- | --- | --- |
 | "healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection" (10) | Queued in the conversation's own transaction and sent after commit to `billingRecipients` (the account's one address in v1), classed `may-carry-phi`, which only SES with `TlsPolicy` `REQUIRE` carries. The voice endpoint and the chat API that queue it are not built | `apps/app/src/lib/conversations/transcript-outbox.ts`, `transcript-email.ts`; `apps/app/src/lib/reporting/deliver.ts` |
 | "one encrypted copy … until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it"; "may send the email again when a send fails or the email is returned, and when Practice asks" (10) | `transcript_emails`, sealed under the KMS key, one per conversation; `destroy_after` set by trigger from the database's clock and moved once, at the first recorded send; deleted by the `transcript-emails` job (seeded on), with its conversation, and at destruction; retried with back-off, sent again an hour after a bounce, and on the ops `resendTranscript` | `apps/app/drizzle/0069_transcript_outbox.sql`; `apps/app/src/app/api/webhooks/ses/route.ts`; `apps/app/src/lib/ops/api.ts` |
-| "healdesk keeps no other copy of a transcript, apart from the backups described below" (10) | `transcript_uri` written null; the archive copy off unless a mailbox under a business associate agreement is named (`HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed`); the pre-Retell Synthflow webhook's raw payload is the one exception left in code (agreement-changes.md § 14.5, item 9) | `transcript-email.ts`; `apps/app/src/lib/voice/ingest.ts` |
+| "healdesk keeps no other copy of a transcript, apart from the backups described below" (10) | `transcript_uri` written null; the archive copy off unless a mailbox under a business associate agreement is named (`HEALDESK_TRANSCRIPT_ARCHIVE_BAA=signed`); the pre-Retell Synthflow webhook's raw payload is the one exception left in code (agreement-changes.md § 14.5, item 9). 14 October 2026: that webhook was removed, raw payload and all, so no exception is left | `transcript-email.ts`; `apps/app/src/lib/voice/ingest.ts` |
 | "After them healdesk has no transcript to give Practice, correct or delete" (13) | No export reads `transcript_emails`, and nothing else holds the words once its row is gone | `apps/app/src/lib/patient-rights/export.ts` |
+
+Added on 14 October 2026, with BAA 1.5.0 (agreement-changes.md § 15.2 has
+the same rows for the BAA's words), superseding the second and third rows
+above:
+
+| Sentence (clause) | The code fact | Where |
+| --- | --- | --- |
+| "one encrypted copy of the transcript only until Practice's mail server confirms that it has received the email, and then deletes the copy at once" (10) | SES's Delivery event for the message id the row records sets `sealed` to NULL, the status to `delivered` and `delivered_at` in one transaction; a CHECK and the trigger hold the copy NULL exactly for a receipt, and never back | `apps/app/drizzle/0072_transcript_delete_on_delivery.sql`; `recordSesTranscriptEvent` in `apps/app/src/lib/conversations/transcript-outbox.ts` |
+| "keeps the copy and sends the email again until it is delivered"; "within 72 hours of its last sending"; "In no case … more than 30 days after the transcript was queued" (10) | Back-off on a failed send, an hour after a bounce; `destroy_after` is `created_at` plus 30 days, never moved; a sent row with no answer 72 hours after `sent_at` is `unconfirmed`; both deletions run whatever the job's switch says, on the database's clock | drizzle/0072; `runTranscriptEmailsJob`, `endTranscriptCopy` |
+| "a record of each transcript's delivery, without what was said or written in it"; "keeps no other copy" (10) | The row stays as a receipt with its conversation; the archive copy and blind copies are removed from the code | `transcript-outbox.ts`; `transcript-email.ts`; `apps/app/src/lib/reporting/deliver.ts` |
+| "Once the copy is deleted, healdesk has no transcript to give Practice, correct or delete" (13) | No export reads `transcript_emails`, and a receipt holds no words | `apps/app/src/lib/patient-rights/export.ts` |
 
 ## 5. Choices made in drafting
 
@@ -373,6 +391,18 @@ Added on 13 October 2026, read at `7da5ee3` (the transcript outbox), with BAA
    (`apps/app/src/lib/conversations/transcript-outbox.ts`); the purge still
    runs for every DPA practice, reading the new wording
    (`apps/app/src/lib/agreements/what-it-says.ts`).
+   **Changed again on 14 October 2026**, with BAA 1.5.0
+   (agreement-changes.md § 15): clause 10's transcript paragraph, 1.5.0's
+   word for word, holds the copy only until Practice's mail server confirms
+   delivery and then deletes it, keeps it and sends again after a failure or
+   a return until delivered, never for more than 30 days after it was
+   queued, deletes it 72 hours after the last sending when neither delivery
+   nor failure is confirmed, and keeps a record of each transcript's
+   delivery without the words; clause 13 holds a transcript "only for as
+   long as" clause 10 allows and answers from the email "once the copy is
+   deleted". The facts are drizzle/0072. `docs/dpa-v1.0.0.txt` and the
+   eight hashes were regenerated (the sample is now a84117ed…9e55); no BAA
+   hash moved.
    `docs/dpa-v1.0.0.txt` and the eight hashes were regenerated (the sample is
    now `97058d2d2ca9ec0483a1cf2e2d459ee7d3ae3d0c9949ad38cc8dd052104dad05`).
 3. **Deletion on request: resolved** (12 October 2026, BAA 1.3.0 release gate

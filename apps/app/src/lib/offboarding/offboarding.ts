@@ -208,9 +208,9 @@ export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
 /**
  * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.2 and
  * earlier). export_or_ninety: from day 29 if the export was delivered by
- * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0
- * and 1.4.0, whose Term clause is 1.3.0's own; DPA 1.0.0). Every hourly run
- * destroys on either rule.
+ * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
+ * and 1.4.0 and 1.5.0, whose Term clause is 1.3.0's own; DPA 1.0.0). Every
+ * hourly run destroys on either rule.
  */
 export type DestructionRule = "thirty_days" | "export_or_ninety";
 
@@ -226,6 +226,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
  */
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
+    "1.5.0": "export_or_ninety",
     "1.4.0": "export_or_ninety",
     "1.3.0": "export_or_ninety",
     "1.2.2": "thirty_days",
@@ -530,9 +531,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   const requests = await tx.db.execute<{ n: number }>(sql`select app_destroy_booking_requests(${c}::uuid) as n`);
   deleted.booking_requests = requests.rows[0]?.n ?? 0;
   await del("appointments", () => tx.db.delete(appointments).where(eq(appointments.clinicId, c)).returning({ id: appointments.id }));
-  // The transcript outbox (drizzle/0069): each sealed copy goes with its
-  // conversation by the foreign key's cascade, and is deleted here first so
-  // the count is in the record and the stamp's check names it.
+  // The transcript outbox (drizzle/0069, 0072): each row, sealed copy or
+  // receipt, goes with its conversation by the foreign key's cascade, and is
+  // deleted here first so the count is in the record and the stamp's check
+  // names it.
   await del("transcript_emails", () => tx.db.delete(transcriptEmails).where(eq(transcriptEmails.clinicId, c)).returning({ id: transcriptEmails.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
   // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
@@ -590,7 +592,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // The number is released with the data. destroyed_at is the database's
   // to stamp, and it refuses a clinic that is not due or still holds any
   // row deleted above (see the header).
-  await tx.db.update(clinics).set({ synthflowNumberE164: null }).where(eq(clinics.id, c));
+  await tx.db.update(clinics).set({ assistantNumberE164: null }).where(eq(clinics.id, c));
   await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);
   tx.audit.record({

@@ -96,10 +96,10 @@ describe("the product's commitments the policy repeats", () => {
     expect(text).not.toMatch(/five (?:calendar|business) days/);
   });
 
-  test("no transcript is kept: it is emailed to the clinic, the one copy goes in seven days, the record without the words at the agreement's period", () => {
-    // BAA 1.4.0 clause 11 (owner, 13 October 2026; LEGAL_VERSION 2026-10-13.3).
+  test("no transcript is kept: it is emailed to the clinic, the one copy goes once delivery is confirmed, the record without the words at the agreement's period", () => {
+    // BAA 1.5.0 clause 11 (owner, 14 October 2026; LEGAL_VERSION 2026-10-14.1).
     expect(text).toContain(
-      "Inside the product, a clinic's patient conversations: we keep no transcript. When a call or a website chat ends, its transcript is emailed to the clinic, and the one encrypted copy we hold so that a failed email can be sent again is deleted seven days after the email is first accepted for delivery, or seven days after it was queued if it never is.",
+      "Inside the product, a clinic's patient conversations: we keep no transcript. When a call or a website chat ends, its transcript is emailed to the clinic, and the one encrypted copy we hold so that a failed email can be sent again is deleted as soon as the clinic's mail server confirms delivery. If the email cannot be delivered we keep trying for at most 30 days after the transcript was queued, and if its delivery is never confirmed we delete the copy 72 hours after it was sent. We keep a record that each transcript was delivered, without what was said.",
     );
     expect(text).toContain(
       `The record of each conversation, without what was said, is deleted automatically ${TRANSCRIPT_RETENTION_DAYS} days after it took place, and no call audio is kept at all.`,

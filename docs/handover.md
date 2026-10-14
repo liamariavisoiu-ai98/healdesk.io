@@ -24,7 +24,7 @@ where code goes is the root [`CLAUDE.md`](../CLAUDE.md), which also lists what s
 | [`CLAUDE.md`](../CLAUDE.md) | Where code goes (the PHI boundary), the product rules the code enforces, deploy blockers |
 | [architecture.md](./architecture.md) | How the apps fit together, and what is built |
 | [hipaa-compliance.md](./hipaa-compliance.md), [hipaa-risk-analysis.md](./hipaa-risk-analysis.md), [policies/](./policies/), [incident-response.md](./incident-response.md), [on-call.md](./on-call.md) | The compliance set, redrafted for v1 |
-| [blockers-runbook.md](./blockers-runbook.md), [research-conclusions.md](./research-conclusions.md), [state-of-play.md](./state-of-play.md), [counsel-audit.md](./counsel-audit.md), [synthflow-voice-agent-context.md](./synthflow-voice-agent-context.md), [marketing-voice-demo-context.md](./marketing-voice-demo-context.md) | Dated research, audits and agent briefs. Each opens with a banner naming where the spec overrides it |
+| [blockers-runbook.md](./blockers-runbook.md), [research-conclusions.md](./research-conclusions.md), [state-of-play.md](./state-of-play.md), [counsel-audit.md](./counsel-audit.md), [marketing-voice-demo-context.md](./marketing-voice-demo-context.md), [archive/synthflow-voice-agent-context.md](./archive/synthflow-voice-agent-context.md) | Dated research, audits and agent briefs. Each opens with a banner naming where the spec overrides it |
 | [launch-plan.md](./launch-plan.md), [next-steps.md](./next-steps.md), [prd.md](./prd.md), [onboarding-runbook.md](./onboarding-runbook.md), [design/](./design/) | Superseded. Kept in place for history, under banners; [docs/README.md](./README.md) indexes them |
 
 `npm run docs` serves these documents locally with a task view that predates the spec.
@@ -59,11 +59,12 @@ daily summary email.
 **Pre-spec code still in the tree, not v1.** Keep it switched off; the spec decides
 whether each piece is reworked, fenced or removed.
 
-- **Synthflow** voice routes: the post-call webhook (`api/webhooks/voice/[clinicId]`,
-  `lib/voice/synthflow-payload.ts`, `ingestCall()`) and the mid-call tools
-  (`api/voice/tools/[clinicId]`, `HEALDESK_VOICE_TOOLS_SECRET`). Pre-Retell; they must
-  not carry a real patient call. The marketing demo call (`apps/web`, owner-requested)
-  stays on Synthflow until a Retell demo agent exists.
+- **Synthflow** voice routes: removed on 14 October 2026. The post-call webhook
+  (`api/webhooks/voice/[clinicId]`, `lib/voice/synthflow-payload.ts`) and the mid-call
+  tools (`api/voice/tools/[clinicId]`, `lib/voice/tools.ts`) and their two secrets are
+  gone; voice is the Retell endpoint (`src/voice/server.ts`, `lib/voice/retell.ts`),
+  which hands each finished call to the vendor-neutral `ingestCall()`. The marketing demo
+  call (`apps/web`, owner-requested) moved to a Retell demo agent on 5 October 2026.
 - **Call-backs, direct booking into Cal.com, WhatsApp templates and the `/setup` link**
   (migration 0040, `lib/callbacks/`, `lib/booking/calendar.ts`, the direct-booking
   addendum). v1 is inbound only and writes only to Google Calendar.
@@ -156,11 +157,22 @@ account's business details match Viixi FZC, the seller.
 
 Two things about that flow worth not rediscovering:
 
-**An account is recorded on `checkout.session.completed` and activated only by the first
-paid invoice.** The clinic is created in `provisioning`, with nothing switched on; the
-first invoice's `invoice.paid` (`billing_reason: "subscription_create"`) moves it to
-`active`. Never the success URL: a customer who closes the tab after paying still gets
-their account, and someone who hand-crafts a success URL gets nothing.
+**The agreement and the purchase are recorded on apps/web, and the account is made by the
+first paid invoice** (since 14 October 2026;
+[design/checkout-records-on-vercel-2026-10-14.md](./design/checkout-records-on-vercel-2026-10-14.md)).
+Signing writes a sealed agreement record to the marketing Sheet's `agreements` tab and mails
+the PDF copy through Resend; Pay writes a sealed purchase record to `checkout_intents` and
+sends the buyer to Stripe, which returns them to apps/web's `/welcome`. None of it calls
+apps/app, so a buyer can sign and pay while the AWS host is in standby. The first invoice's
+`invoice.paid` (`billing_reason: "subscription_create"`) is relayed to apps/app's
+`/api/provision` with both records; apps/app checks their seals and the agreement's
+re-rendered hash, imports them (same agreement id and accepted-at), and provisions. Never
+the success URL: a customer who closes the tab after paying still gets their account, and
+someone who hand-crafts a success URL gets nothing. apps/web's `/welcome` checks the Session
+with Stripe, asks apps/app (`welcomeHandoff`) whether the account is there, and sends the
+browser on to apps/app's own `/welcome` when it is; until then it shows a waiting page. **An
+agreement release deploys apps/app first**, then apps/web: a signature apps/app's catalog
+cannot re-render is a paid order it refuses.
 
 **Stripe retries every non-2xx for up to three days.** So a missing signing secret
 returns **500** deliberately: the events queue up and replay once it is set. A *wrong*
@@ -171,9 +183,14 @@ Never put a placeholder in `STRIPE_WEBHOOK_SECRET`.
 ### The marketing lead register
 
 The marketing site keeps its data in one Google Sheet: demo leads, funnel events, the
-demo-call consent record and the two daily spend counters. Four tabs, each headed with
-the old Postgres column names in the old order (`apps/web/src/lib/sheets/schema.ts`),
-ISO timestamps as text, TRUE/FALSE booleans, blanks for null. The site provisions the
+demo-call consent record, the two daily spend counters, setup requests, personalised
+demos and, since 14 October 2026, the checkout records (`agreements`, `checkout_intents`).
+Each tab is headed with snake_case column names (`apps/web/src/lib/sheets/schema.ts`),
+ISO timestamps as text, TRUE/FALSE booleans, blanks for null. **The two checkout tabs are
+legal and payment records:** each row is a record sealed with `HEALDESK_PROVISION_SECRET`,
+spread across `record_1`…`record_8`. Never edit, sort or delete their rows by hand: an
+edited record stops opening and its purchase stops provisioning, and a deleted signature is
+gone. The site provisions the
 tabs itself on first use; `npm run sheets:init -w @healdesk/web` does the same by hand,
 which is the quickest way to prove the sharing and the key work before a deploy.
 
@@ -196,9 +213,11 @@ Service account: `healdesk-sheets@healdesk-marketing-2026.iam.gserviceaccount.co
    `apps/web/.env.local`, or let the site do it lazily on the first lead. Then open
    `/admin/crm` signed in to the company account.
 
-With either variable missing nothing goes down: the demo runs and the lead is lost
-(logged as a count, never an address), `/admin/crm` shows an empty state, and the daily
-caps fall back to per-instance memory with one warning. Rotating the key is `gcloud iam
+With either variable missing the demo runs and the lead is lost (logged as a count, never
+an address), `/admin/crm` shows an empty state, and the daily caps fall back to
+per-instance memory with one warning. **Signing and checkout do not run without the Sheet**:
+`/api/agreement` and `/api/checkout` answer 503, because the agreement and the purchase
+are recorded there. Rotating the key is `gcloud iam
 service-accounts keys create` again, paste, redeploy, then delete the old key id.
 
 ---
@@ -216,8 +235,9 @@ RDS instance, not after, because the first item cannot be added later.
 roll, a CloudFormation bootstrap stack, and [`infra/aws/README.md`](../infra/aws/README.md) as
 the runbook. *Done in `infra/aws`* below means defined there and checked locally (`terraform
 validate`, `terraform test` against mocked providers, tflint, checkov, cfn-lint, actionlint;
-the images built and run against a local Postgres shaped like RDS). **Nothing is applied**, so
-every item stays unproven until the owner's first `infra.yml` apply and first deploy.
+the images built and run against a local Postgres shaped like RDS). **Applied on 14 October 2026,
+not yet deployed** (no image pushed, no db-bootstrap run), so every item that needs a running
+task stays unproven until the first `host.yml` turn-on.
 
 - *Decide the database first:* **done.** RDS under this agreement, the owner's choice of
   7 October 2026 (`infra/aws/rds.tf`).
@@ -318,8 +338,23 @@ every item stays unproven until the owner's first `infra.yml` apply and first de
   clinic contact they belong to, never to patient suppression tables.
 - **Not on the addendum's list, but needed before the first apply:** the owner's part of the
   first run in the runbook (the bootstrap stack, the Cloudflare token in Parameter Store, the
-  GitHub variables, `infra.yml`, the vendor keys, the first deploy with `bootstrap_db`, Vercel's
-  `HEALDESK_APP_URL` and `HEALDESK_PROVISION_SECRET`).
+  GitHub variables, `infra.yml`, applied on 14 October 2026, the vendor keys, then
+  `.github/workflows/host.yml` with mode `active`, which applies, runs the first deploy with
+  `bootstrap_db` and `migrate`, and subscribes SES's events once the app answers; Vercel's
+  `HEALDESK_APP_URL`, `HEALDESK_PROVISION_SECRET` and `HEALDESK_GITHUB_ACTIONS_TOKEN`). The first
+  turn-on is from GitHub's page, because `/admin` cannot be signed in to before the host answers;
+  after that `/admin/host` turns the host on or puts it in standby, and the `AWS_DEPLOY_ROLE_ARN`
+  variable is no longer needed.
+- **Standby** (14 October 2026; the runbook's "Standby"): `/admin/host` or `host.yml` with mode
+  `standby` snapshots the database and removes it, the load balancer, the NAT, every service,
+  their alarms and the two CNAMEs, keeping the key, every parameter, the images and the network;
+  about $4 a month against about $69. It is refused while a clinic is in production, an agreement
+  is in effect or a transcript has not reached SES (apps/app's `hostStandbyCheck`), and, when
+  `host.yml` is started from GitHub, while `/healdesk/production/host/production-clinic` reads
+  `yes`, which **the owner sets by hand when the first clinic goes live** (apps/app does not write
+  it). The standby snapshot is a manual one, outside the 35-day backup promise, which is why
+  standby is allowed only while the host holds synthetic data. A first paid invoice in standby
+  turns the host back on (`apps/web/src/lib/host/wake.ts`) and Stripe's retries make the account.
 - **A2P 10DLC — dropped.** No SMS in v1. SMS is a phase-two paid add-on with per-clinic
   carrier registration of one to four weeks.
 - **The monthly report job stays off.** It is the phase-two revenue report.
@@ -381,10 +416,13 @@ npm test -w @healdesk/app          # database suites skip without TEST_APP_URL
 the runtime role deliberately does not have. The worker is a plain Node entry point, not
 a Next route. Jobs are enabled from the ops console, and most ship switched off, with
 these exceptions. `heartbeat`, `incident-deadlines` and `transcript-emails` ship on (0066
-seeds the second on; 0069 the third). `transcript-emails` deletes every sealed transcript
-copy on its seventh day whatever its switch, which decides only whether transcripts are sent. `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
+seeds the second on; 0069 the third). A sealed transcript copy is deleted the moment SES
+reports it delivered, by the SES webhook; `transcript-emails` deletes every copy never
+delivered, 30 days after it was queued or 72 hours after a send nothing answered (0072),
+whatever its switch, which decides only whether transcripts are sent, and leaves each row
+as a receipt (the ops operation `transcriptDeliveries` reads them). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
-1.3.0 and 1.4.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
+1.3.0, 1.4.0 and 1.5.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no
 switch at all: `erasure-expiry`, `booking-request-expiry`, `welcome-email` and
 `booking-requirements-defaults`. The `heartbeat` row is the liveness signal and
@@ -422,7 +460,7 @@ does, or once older than the record clock when its appointment is already gone
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
-retention clause: BAA 1.3.0 and 1.4.0 and the DPA today, and any later version only if
+retention clause: BAA 1.3.0, 1.4.0 and 1.5.0 and the DPA today, and any later version only if
 its text says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
 agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
 ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
@@ -453,9 +491,9 @@ the same rule as the database's floor):
   though these agreements give it only "on request"), so deliver it and record the
   handover before then; ops is alerted at day 21 when none is recorded
   (`export_undelivered_before_destruction`).
-- BAA 1.3.0, 1.4.0 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
+- BAA 1.3.0, 1.4.0 and 1.5.0 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
   recorded as delivered, its delivery when that is later, and day 89 whatever happens, each
-  a day inside the thirty days and the ninety that BAA 1.3.0 and 1.4.0 state. Record the delivery by day 29: one recorded later is
+  a day inside the thirty days and the ninety that BAA 1.3.0, 1.4.0 and 1.5.0 state. Record the delivery by day 29: one recorded later is
   destroyed at the next hourly run, which in the thirtieth day's last hour can fall after
   the thirty days.
 
@@ -538,7 +576,7 @@ record of the request, no longer than we need it.
    copies, with the Connect event that last touched each; the charge stays the
    practice's record in its own Stripe account), every booking request that names
    them, their half-collected Meta drafts, their own messaging threads, the raw
-   payloads the voice vendor or another service sent about them, the conversation of a
+   payloads another service sent about them, the conversation of a
    call with no caller ID whose payload named them, and their suppressions, consent
    records and contact attempts. A booking request that names someone else stays, even
    one the person sent: a messaging thread is theirs only when everything it sent
@@ -555,9 +593,9 @@ record of the request, no longer than we need it.
    deadline, until it is recorded. Retell: in Retell's console, find and delete the
    person's calls and transcripts by their number, then record how it went on the care
    page, one of two choices ("Deleted in the vendor's console", "The vendor held
-   nothing for the person"), never typed. Retell is the only voice vendor with a step:
-   **no real patient call may go through Synthflow**, which still carries the owners'
-   demo calls and has no deletion step here, so a deletion could not reach its copy. Anthropic is not
+   nothing for the person"), never typed. Retell is the only voice vendor, and the only
+   one with a step: Synthflow, which carried the owners' demo calls until 5 October 2026,
+   never carried a patient call, and its webhook was removed on 14 October 2026. Anthropic is not
    a step: what it keeps it keeps under the exception clause 4(c) names, for the period
    the Subcontractors clause states. AWS is our database and its backups, which the
    deletion and the 35-day backup window reach. Meta and Google Calendar are the
@@ -840,9 +878,43 @@ added a PHI table and forgot the policy.
 ### Operator sign-in
 
 `/admin` on `apps/web` has one operator account: `HEALDESK_ADMIN_EMAIL`, a scrypt hash in
-`HEALDESK_ADMIN_PASSWORD_HASH`, and a TOTP second factor whose secret lives in `apps/app`
-(`lib/ops/admin-totp.ts`). There is no public sign-up. Clinic users sign in to the
-portal in `apps/app`, which is not built
+`HEALDESK_ADMIN_PASSWORD_HASH`, and a TOTP second factor whose secret is
+`HEALDESK_ADMIN_TOTP_SECRET`, all Vercel environment variables on `apps/web`
+(`HEALDESK_ADMIN_SECRET` signs the session). Since 14 October 2026 both factors are
+checked on Vercel (`lib/admin/operator.ts`, `lib/admin/totp.ts`) and signing in makes no
+call to `apps/app`, so the console opens while the AWS host is off; the pages behind it
+still read through the signed ops API and say so when it cannot answer. Before that the
+TOTP secret, its last-used step and ten recovery codes lived in `apps/app`'s `admin_totp`
+table, which `drizzle/0074_drop_admin_totp.sql` drops. There is no public sign-up.
+
+- **Setting up or replacing the authenticator.** `npm run admin:totp -w @healdesk/web`
+  (`-- you@example.com`, or it reads `HEALDESK_ADMIN_EMAIL`). It makes a secret, shows a
+  QR code, asks for a code from the phone to prove the scan, and only then prints the
+  value and `vercel env add HEALDESK_ADMIN_TOTP_SECRET production --sensitive`. It
+  writes nothing to disk. Redeploy for the new value to take effect; the old phone entry
+  stops working then. There are no recovery codes: a lost phone is this script again, and
+  the way to Vercel is the Vercel account's own second factor.
+- **The password.** `npx tsx apps/web/scripts/set-admin-password.ts` writes the hash into
+  `apps/web/.env.local`; paste the same hash, raw, into Vercel.
+- **Without the TOTP secret** a correct password is answered 503 with a sentence naming
+  the variable, and nobody is signed in on the password alone.
+- **Replay.** A code is refused a second time in the same serverless instance (an
+  in-memory ledger of the last step) and in the same browser (the signed
+  `hd_operator_step` cookie). Two different instances with no cookie between them can each
+  accept one code once inside its 90 seconds: there is no shared store on `apps/web` by
+  design. The password, the per-address and global attempt limits, and the alert below
+  stand in front of that.
+- **The record.** Every successful sign-in emails `HEALDESK_ADMIN_EMAIL` through Resend,
+  after the response (time, address, browser; no link, no code). Every attempt past the
+  limiters writes one log line, `[healdesk] admin sign-in {"outcome":...}` (success,
+  wrong_password, code_required, wrong_code, replayed_code, misconfigured), in Vercel's
+  logs. There is no `security_events` row for a sign-in any more: `apps/web` has no
+  database.
+- **If a sign-in was not you.** Change the password, rotate `HEALDESK_ADMIN_SECRET`
+  (which ends every session), run the TOTP script and replace the variable, and check who
+  can reach the Vercel project, since both factors are kept there.
+
+Clinic users sign in to the portal in `apps/app`, which is not built
 ([policies/access-control.md](./policies/access-control.md) has its rules).
 
 ---

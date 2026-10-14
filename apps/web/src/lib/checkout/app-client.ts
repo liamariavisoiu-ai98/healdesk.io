@@ -6,7 +6,11 @@ import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign, WELCOME_NONCE_TTL_SECONDS } f
  *
  * The same HMAC channel /api/checkout has always used for provisioning
  * (HEALDESK_PROVISION_SECRET over the body and a timestamp), so apps/app
- * can trust the body without trusting the browser that started it.
+ * can trust the body without trusting the browser that started it. Since
+ * 14 October 2026 the only caller is checkout's development path, which
+ * provisions at once with no payment; the purchase itself is recorded on this
+ * site (lib/checkout/records.ts) and reaches apps/app with its first paid
+ * invoice.
  */
 
 export type AppConfig = { target: string; secret: string };
@@ -51,14 +55,25 @@ export type WelcomeCookieOptions = {
 };
 
 /**
- * The nonce cookie's attributes. It is read by apps/app's /welcome, which is
- * on another host (app.healdesk.io beside healdesk.io), so it is set on the
- * parent domain the two share; on one host (localhost in development) it is
- * host-only, and cookies ignore ports. Path /welcome, so no other request on
- * either app carries it.
+ * The nonce cookie's attributes. It is read by this site's /welcome, where
+ * Stripe returns the buyer since 14 October 2026, and then by apps/app's
+ * /welcome, which hands the paying browser its sign-in link: another host
+ * (app.healdesk.io beside healdesk.io), so it is set on the parent domain the
+ * two share. The app's host is read off HEALDESK_APP_URL, the internal origin
+ * (app-internal.healdesk.io), which shares the same parent as the public one;
+ * only the parent ever reaches the browser, as the cookie's Domain. Without
+ * it, or on one host (localhost in development, where cookies ignore ports),
+ * the cookie is host-only. Path /welcome, so no other request on either app
+ * carries it.
  */
-export function welcomeCookieOptions(siteHost: string, successUrl: string): WelcomeCookieOptions {
-  const domain = sharedParentDomain(siteHost, new URL(successUrl).hostname);
+export function welcomeCookieOptions(siteHost: string, appUrl: string | undefined): WelcomeCookieOptions {
+  let appHost = siteHost;
+  try {
+    if (appUrl) appHost = new URL(appUrl).hostname;
+  } catch {
+    appHost = siteHost;
+  }
+  const domain = sharedParentDomain(siteHost, appHost);
   return {
     httpOnly: true,
     sameSite: "lax",

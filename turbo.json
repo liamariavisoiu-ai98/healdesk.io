@@ -37,16 +37,24 @@
         // secrets invalidates the build cache, which is the safe direction to
         // be wrong in.
 
-        // The admin console. All three are required together; with any one
-        // missing the area is shut in every environment.
+        // The admin console. The first three are required together; with any
+        // one missing the area is shut in every environment. The TOTP secret
+        // is the second factor, checked on Vercel: without it no sign-in
+        // succeeds.
         "HEALDESK_ADMIN_EMAIL",
         "HEALDESK_ADMIN_PASSWORD_HASH",
         "HEALDESK_ADMIN_SECRET",
+        "HEALDESK_ADMIN_TOTP_SECRET",
 
         // The admin change feed. Without a token it falls back to reading the
         // local checkout with git log, which a deployed instance does not have.
         "GITHUB_TOKEN",
         "HEALDESK_REPO",
+        // The AWS host's switch (/admin/host, lib/host): the owner's token
+        // that dispatches host.yml, and its repository. Runtime only, like the
+        // two above, and declared for the same reason.
+        "HEALDESK_GITHUB_ACTIONS_TOKEN",
+        "HEALDESK_GITHUB_REPO",
 
         // The marketing Sheet: leads, funnel events, call consents and the two
         // daily spend counters. Required together; either missing fails open.
@@ -61,11 +69,8 @@
         "HEALDESK_SES_CONFIGURATION_SET",
         "AWS_REGION",
         // The transcript outbox (13 October 2026): the SNS topic whose signed
-        // SES events /api/webhooks/ses trusts, and the archive copy, sent only
-        // to a mailbox stated to be under a BAA (both, or no copy).
+        // SES events /api/webhooks/ses trusts.
         "HEALDESK_SES_EVENTS_TOPIC_ARN",
-        "HEALDESK_TRANSCRIPT_ARCHIVE_TO",
-        "HEALDESK_TRANSCRIPT_ARCHIVE_BAA",
         // The web chat and the Retell voice endpoint (13 October 2026): the
         // models each uses, and the secret in each clinic's custom-LLM URL.
         "HEALDESK_CHAT_MODEL",
@@ -81,17 +86,14 @@
         "RETELL_DEMO_FROM_NUMBER",
         "RETELL_WEBHOOK_KEY",
 
-        // apps/app, Phases 6 and 8. The watchdog's digest address, the voice
-        // webhook's bearer, the Meta webhook's secret and verify token, Stripe
-        // Connect's platform id, and where the console lives for redirects.
+        // apps/app, Phases 6 and 8. The watchdog's digest address, the Meta
+        // webhook's secret and verify token, Stripe Connect's platform id, and
+        // where the console lives for redirects.
         "HEALDESK_OPS_EMAIL",
-        "HEALDESK_VOICE_WEBHOOK_SECRET",
         // The booking design of 23 September 2026: the direct-booking switch
-        // (off unless "true") and the mid-call tool routes' own bearer. The
-        // call-back and WhatsApp-template switches went with v1's
-        // inbound-only rule.
+        // (off unless "true"). The call-back and WhatsApp-template switches
+        // went with v1's inbound-only rule.
         "HEALDESK_DIRECT_BOOKING_ENABLED",
-        "HEALDESK_VOICE_TOOLS_SECRET",
         // The Google Calendar connection (plan §12): apps/app only; set on the
         // AWS BAA host, never on a Vercel project.
         "GOOGLE_OAUTH_CLIENT_ID",

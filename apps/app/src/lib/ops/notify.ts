@@ -130,10 +130,13 @@ export const OPS_EVENTS = [
   // past the periods the agreements state.
   "retention_purge_failed",
   // A conversation's transcript could not be emailed to its clinic
-  // (lib/conversations/transcript-email.ts; the owner's decision of 13
-  // October 2026 that transcripts are emailed, never kept): SES refused it,
+  // (lib/conversations/transcript-outbox.ts; the owner's decisions of 13 and
+  // 14 October 2026 that transcripts are emailed, never kept): SES refused it,
   // the receiving server would not take it over TLS, or this deployment has
-  // no SES to send it with. No copy exists, so this is the only trace.
+  // no SES to send it with (`retrying`, or SES's event type); its copy was
+  // deleted undelivered 30 days after it was queued (`expired`); or SES never
+  // answered for a send within 72 hours (`unconfirmed`, which usually means
+  // SES's events are not reaching the app). Ids only.
   "transcript_undelivered",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];

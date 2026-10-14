@@ -55,12 +55,15 @@ beforeAll(() => {
   process.env.HEALDESK_ADMIN_SECRET = "test-secret-not-a-real-one";
   process.env.HEALDESK_ADMIN_PASSWORD_HASH = hashFor(PASSWORD);
   /**
-   * Deliberately unreachable. Nothing below carries a correct password, so
-   * nothing reaches the ops API; pointing it at a closed port means a test that
-   * ever DID reach it would fail loudly rather than talk to something real.
+   * Deliberately unreachable, and since 14 October 2026 never asked: signing
+   * in makes no call to apps/app at all. Pointing it at a closed port means a
+   * change that ever DID reach it would fail loudly rather than talk to
+   * something real.
    */
   process.env.HEALDESK_APP_URL = "http://127.0.0.1:1";
   process.env.HEALDESK_PROVISION_SECRET = "test-provision-secret";
+  // No HEALDESK_ADMIN_TOTP_SECRET: the last test relies on its absence.
+  delete process.env.HEALDESK_ADMIN_TOTP_SECRET;
 });
 
 /** One attempt, from an address the caller invented. */
@@ -124,9 +127,9 @@ describe("a burst of sign-in attempts", () => {
     // actually derived may have charged the guess budget, which leaves the
     // owner far short of the ceiling.
     const response = await POST(attempt("198.51.100.8", PASSWORD));
-    // 503, not 200: the password was right and the ops API is unreachable by
-    // design here, which is the fail-closed answer. What matters is that it got
-    // past the password at all.
+    // 503, not 200: the password was right and HEALDESK_ADMIN_TOTP_SECRET is
+    // unset by design here, which is the fail-closed answer. What matters is
+    // that it got past the password at all.
     expect(response.status).toBe(503);
   });
 });

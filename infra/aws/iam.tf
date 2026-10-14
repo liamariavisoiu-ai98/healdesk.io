@@ -80,11 +80,16 @@ data "aws_iam_policy_document" "ecs_execution" {
   }
 
   # The RDS-managed master secret, and no other secret. Only the db-bootstrap
-  # task definition references it.
-  statement {
-    sid       = "ReadRdsMasterSecret"
-    actions   = ["secretsmanager:GetSecretValue"]
-    resources = [aws_db_instance.main.master_user_secret[0].secret_arn]
+  # task definition references it. In standby there is no instance, so no
+  # secret and no statement; the instance that comes back has a new one.
+  dynamic "statement" {
+    for_each = var.standby ? [] : [local.db_master_secret_arn]
+
+    content {
+      sid       = "ReadRdsMasterSecret"
+      actions   = ["secretsmanager:GetSecretValue"]
+      resources = [statement.value]
+    }
   }
 
   # Decrypt only when SSM or Secrets Manager calls KMS for this role, never

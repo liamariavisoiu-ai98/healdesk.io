@@ -34,6 +34,12 @@ The Stripe session and the calendar session have acknowledged these versions.
   not an owner one and a billing one.
 - **The provisioning cutover** (D2 semantics), `/welcome` and the welcome email
   are the plan's. `/welcome` replaces §4.3 and §4.4's done-page polling.
+  *Since 14 October 2026* the signed agreement and the purchase are recorded on
+  apps/web (sealed records in the marketing Sheet) instead of in apps/app at
+  signing and at Pay, and apps/app imports both when the first invoice is paid;
+  Stripe returns the buyer to apps/web's `/welcome`, which hands the browser on
+  to apps/app's `/welcome` once the account exists. Provisioning's semantics
+  are unchanged. See `docs/design/checkout-records-on-vercel-2026-10-14.md`.
 - **The email platform and its sender** are the plan's (§4 below). Package C
   supplies kinds, payloads and templates.
 - **The portal has no Behaviour screen.** It has Home, Settings, Knowledge,

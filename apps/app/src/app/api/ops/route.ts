@@ -24,8 +24,7 @@ import { describeError, log } from "@/lib/log";
  * driver and must not acquire one: that absence is why the marketing site can
  * deploy anywhere and why the audit of this codebase can say the public site
  * cannot reach patient data. So the console asks and this answers, over the
- * same signed channel `/api/provision` and `/api/agreements/[id]/pdf` already
- * use.
+ * same signed channel `/api/provision` already uses.
  *
  * The body is `{ op, args, context? }`. One question is asked about it:
  *
@@ -42,11 +41,12 @@ import { describeError, log } from "@/lib/log";
  *
  * Note what the signature therefore is and is not. It authenticates apps/web,
  * not the person at the keyboard. Whether the human passed a password and a
- * TOTP code is apps/web's question, answered with the ops in this API
- * (`verifyAdminTotpStep`, `burnRecoveryCode`) and carried in its own session
- * cookie. A leaked HEALDESK_PROVISION_SECRET is therefore full command of this
- * endpoint, which is why the second factor's own table refuses re-enrolment and
- * deletion to the application role: see drizzle/0026_admin_totp.sql.
+ * TOTP code is apps/web's question, answered entirely on apps/web since
+ * 14 October 2026 (both factors are Vercel variables there, so /admin can be
+ * signed into while this host is off) and carried in its own session cookie.
+ * Nothing in this API takes part in signing in. A leaked
+ * HEALDESK_PROVISION_SECRET is therefore full command of this endpoint without
+ * either factor: guard it as the console itself.
  *
  * ## Ordering
  *
@@ -60,7 +60,7 @@ import { describeError, log } from "@/lib/log";
  *
  * `src/proxy.ts` redirects anything without a session cookie to /sign-in, and
  * exempts a short list of paths that authenticate themselves — `/api/auth`,
- * `/api/agreements`, `/api/provision`, `/api/webhooks`. `/api/ops` is not on
+ * `/api/provision`, `/api/webhooks`. `/api/ops` is not on
  * that list and belongs on it: a signed server-to-server POST carries no
  * cookie, so without the entry every call here becomes a 307 pointing at HTML,
  * which is a genuinely baffling failure to debug from the caller's side. That

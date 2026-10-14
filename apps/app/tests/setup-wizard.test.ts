@@ -16,7 +16,6 @@ import {
 } from "@healdesk/catalog";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { POST as postIntent } from "@/app/api/checkout/intents/route";
 import { POST as postProvision } from "@/app/api/provision/route";
 import { signAgreement } from "@/lib/agreements";
 import {
@@ -38,6 +37,8 @@ import { queueSetupClosedEmail } from "@/lib/setup/closure-email";
 import { queueSetupReminder, runSetupRemindersJob } from "@/lib/setup/reminders";
 import { saveSetupScreen, skipSetupScreen, type SaveContext } from "@/lib/setup/save";
 import { readProgress, resumeScreen } from "@/lib/setup/screens";
+
+import { agreementRecord, intentRecord, records } from "./setup/checkout-records";
 import type { SetupSeed } from "@/lib/setup/seed";
 import { loadSetupState } from "@/lib/setup/state";
 import { buildTracker } from "@/lib/setup/tracker";
@@ -203,14 +204,17 @@ async function purchaseAndProvision(
   const email = `laura-${randomUUID().slice(0, 8)}@glowspa.test`;
   const platform = options.platform ?? "mindbody";
   const bookingSystem = options.bookingSystem ?? "mindbody";
-  const agreementId = await agreementFor(email, {
-    bookingSystem,
-    calendarAccount: "workspace_no_baa",
-  });
+  const agreementId = randomUUID();
   const nonce = createHash("sha256").update(randomBytes(24)).digest("hex");
   const website = "glowmedspa.com";
-  const intent = await postIntent(
-    signed("http://app.test/api/checkout/intents", {
+  // The purchase as apps/web records it at Pay (since 14 October 2026, in the
+  // marketing Sheet), relayed with the first paid invoice and imported.
+  const agreement = agreementRecord(
+    { signatoryEmail: email, platform: agreementPlatformFor(bookingSystem), bookingSystem, calendarAccount: "workspace_no_baa" },
+    { id: agreementId },
+  );
+  const purchase = intentRecord(agreement, {
+    purchase: {
       clinicName: "Glow Med Spa LLC",
       specialty: "med-spa",
       platform,
@@ -229,10 +233,9 @@ async function purchaseAndProvision(
       profileStatus: "read",
       timezone: "America/Los_Angeles",
       terms: { version: "2026-10-07.1", acceptedAt: new Date().toISOString(), ip: "203.0.113.4" },
-    }),
-  );
-  const saved = (await intent.json()) as { ref: string };
-  expect(intent.status, JSON.stringify(saved)).toBe(201);
+    },
+  });
+  const saved = { ref: purchase.ref };
   const sub = `sub_test_${randomUUID().slice(0, 8)}`;
   const provisionBody = {
     ref: saved.ref,
@@ -244,6 +247,7 @@ async function purchaseAndProvision(
     billingInterval: "month",
     hostedInvoiceUrl:
       options.hostedInvoiceUrl === undefined ? RECEIPT_URL : options.hostedInvoiceUrl,
+    records: records(agreement, purchase),
   };
   const provisioned = await postProvision(signed("http://app.test/api/provision", provisionBody));
   const json = (await provisioned.json()) as { clinicId: string; clinicSlug: string };

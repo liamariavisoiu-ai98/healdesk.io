@@ -67,6 +67,7 @@ import {
   resolveIncident,
   type IncidentClass,
 } from "@/lib/incidents/incidents";
+import { findIntent } from "@/lib/checkout/intents";
 import { applyEmailEvent, isDeliveryStatus } from "@/lib/email/events";
 import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import {
@@ -110,6 +111,7 @@ import {
 } from "@/lib/meta/channels";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
+import { hostStandbyCheck } from "@/lib/ops/host-standby";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -117,16 +119,15 @@ import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
-import { resendTranscript } from "@/lib/conversations/transcript-outbox";
+import {
+  listTranscriptDeliveries,
+  resendTranscript,
+  TRANSCRIPT_DELIVERIES_DEFAULT_DAYS,
+  TRANSCRIPT_DELIVERIES_MAX_DAYS,
+  type TranscriptDeliveries,
+} from "@/lib/conversations/transcript-outbox";
 import { isDemoClinic } from "@/lib/booking/terms";
 import { applyBookingRequirementDefaultsFor, setBookingRequirementsWithin } from "@/lib/onboarding/requirements";
-import {
-  burnRecoveryCode,
-  enrolAdminTotp,
-  getAdminTotpState,
-  proposeAdminTotp,
-  verifyAdminTotpCode,
-} from "@/lib/ops/admin-totp";
 import {
   opCloseUnfinishedSetup,
   opCommitRefund,
@@ -152,12 +153,7 @@ import {
   listClinics as listClinicOverviews,
   type ClinicBlocker,
 } from "@/lib/ops/clinics";
-import {
-  getTransport,
-  isSendableAddress,
-  type DeliveryTarget,
-  type OutgoingEmail,
-} from "@/lib/reporting/deliver";
+import { isSendableAddress } from "@/lib/reporting/deliver";
 import {
   AgentConfigError,
   approveAgentConfig,
@@ -188,17 +184,19 @@ import { log } from "@/lib/log";
  * Putting the console on that surface therefore cannot mean putting the queries
  * there with it. It means the console asks, and this answers.
  *
- * The transport is the HMAC already used by `/api/provision` and
- * `/api/agreements/[id]/pdf`: a signature over the body and a timestamp, keyed
- * on HEALDESK_PROVISION_SECRET, verified before anything is parsed. One scheme,
- * three callers, one place to get it right. See packages/catalog/request-signing.
+ * The transport is the HMAC already used by `/api/provision`: a signature
+ * over the body and a timestamp, keyed on HEALDESK_PROVISION_SECRET, verified
+ * before anything is parsed. One scheme, one place to get it right. See
+ * packages/catalog/request-signing.
  *
  * ## Who the operator is now, and where the user id went
  *
  * There is exactly ONE administrator. HEALDESK_ADMIN_EMAIL is the username, a
  * scrypt hash is the password, a TOTP code is the second factor, and there is
  * no user store behind any of it: no invitations, no team, no roles, and
- * therefore no `member` row to re-check on each call.
+ * therefore no `member` row to re-check on each call. All three are checked
+ * by apps/web; since 14 October 2026 the TOTP secret is a Vercel variable as
+ * well, and nothing in this file takes part in signing in.
  *
  * The previous version of this file took the operator's identity from the
  * signed envelope and re-checked it against Better Auth's `member` table on
@@ -266,8 +264,7 @@ import { log } from "@/lib/log";
  * The signature covers the body, so the body has to be read before the caller
  * is authenticated — the one window in which an unauthenticated stranger
  * chooses how much memory this process allocates. The largest real envelope is
- * an operator's search string, or an enrolment proposal, inside a small JSON
- * object; 16 KB is generous by orders of magnitude and still closes the window.
+ * an operator's search string inside a small JSON object; 16 KB is generous by orders of magnitude and still closes the window.
  * Twice the PDF route's cap for exactly that reason: that route carries one
  * UUID.
  *
@@ -293,11 +290,11 @@ const OPERATIONS = [
   "markAgreementTerminated",
   "searchAgreements",
   "getAgreement",
-  "getAdminTotpState",
-  "enrolAdminTotp",
-  "verifyAdminTotpStep",
-  "burnRecoveryCode",
-  "sendSignInAlert",
+  // The operator's sign-in is not here. Until 14 October 2026 five operations
+  // (the admin TOTP's state, enrolment, step check, recovery code and the
+  // sign-in alert) answered apps/web before there was a session; the owner
+  // moved the second factor onto Vercel so /admin can be signed into while
+  // this host is off, and they went with drizzle/0074_drop_admin_totp.sql.
   // Onboarding (lib/onboarding): configuration, never patient data.
   "getOnboarding",
   "completeOnboardingStep",
@@ -390,11 +387,29 @@ const OPERATIONS = [
   // a live seal-and-open of a throwaway value. Never the key's full ARN, never
   // a credential, never an AWS error message.
   "getCredentialKeyStatus",
-  // The transcript outbox (drizzle/0069): send a conversation's transcript to
-  // the clinic again, while its sealed copy lasts (seven days after it first
-  // went). Takes the conversation's id and returns whether a copy was there;
-  // never the transcript, never an address.
+  // The transcript outbox (drizzle/0069, 0072): send a conversation's
+  // transcript to the clinic again, while its sealed copy lasts (until SES
+  // reports it delivered, and never past 30 days). Takes the conversation's id
+  // and returns whether a copy was there; never the transcript, never an
+  // address.
   "resendTranscript",
+  // The receipts the outbox keeps once a copy is gone (drizzle/0072): counts
+  // by status and the newest receipts, so the owner can tell a clinic whether
+  // each transcript reached it. Conversation ids, statuses, times and
+  // attempts; never words, never an address, never SES's reason.
+  "transcriptDeliveries",
+  // The host's standby switch (/admin/host, infra/aws README "Standby"):
+  // whether anything real is on this host, as three counts across every
+  // clinic (lib/ops/host-standby.ts). A read: no name, no id, no audit row.
+  "hostStandbyCheck",
+  // The paying browser's way back (docs/design/checkout-records-on-vercel-2026-10-14.md):
+  // apps/web's /welcome, which Stripe returns the buyer to since the purchase
+  // is recorded on Vercel, asks whether this host has the purchase yet and has
+  // something to tell that browser. Machine to machine, like emailEvent: it
+  // takes a ref and a Checkout Session id and answers `{ ready }`, with a URL
+  // composed here from BETTER_AUTH_URL when ready, never a name or an address.
+  // It writes nothing, so it is not in MUTATING_OPERATIONS.
+  "welcomeHandoff",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -405,15 +420,6 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "issueConnectLink",
   "resendAgreementCopy",
   "markAgreementTerminated",
-  "enrolAdminTotp",
-  // Mutating because it spends a step. A verification that changed nothing
-  // would be a verification a code could pass twice.
-  "verifyAdminTotpStep",
-  "burnRecoveryCode",
-  // It sends mail and writes the sign-in event. Nothing in the database changes
-  // that a retry could undo, which is exactly why the failure copy for a
-  // mutating op ("reload before trying again") is the right thing to show.
-  "sendSignInAlert",
   "completeOnboardingStep",
   "reopenOnboardingStep",
   "setPhoneSettings",
@@ -545,8 +551,9 @@ export function ok<T>(data: T): OpsOutcome {
 /**
  * The request body, or null when it is bigger than one of ours could be.
  *
- * Lifted from `api/agreements/[id]/pdf/route.ts`, whose header explains the
- * reasoning at length and whose copy cannot be imported: Next validates the
+ * Lifted from the agreement PDF route apps/app had until 14 October 2026
+ * (`api/agreements/[id]/pdf/route.ts`; the PDF is rendered on apps/web from
+ * its record now), whose copy could not be imported: Next validates the
  * export surface of a `route.ts` and rejects anything that is not a handler or
  * a segment option, so a shared helper cannot live in one. It lives here, where
  * both could eventually share it; the duplication is noted rather than hidden.
@@ -609,13 +616,6 @@ const MAX_EMAIL_LENGTH = 320;
 
 /** Free text an operator can type. Long enough for any real search. */
 const MAX_QUERY_LENGTH = 200;
-
-/**
- * An enrolment proposal is base64url(JSON) + "." + a base64url HMAC. A 20-byte
- * secret and a timestamp make roughly 120 characters; the cap is well clear of
- * that and still bounds what reaches a MAC and a JSON parser.
- */
-const MAX_PROPOSAL_LENGTH = 512;
 
 /**
  * Turn the verified body into an envelope, or say why it is not one.
@@ -892,16 +892,6 @@ export async function runOperation(
       return opSearchAgreements(args);
     case "getAgreement":
       return opGetAgreement(args);
-    case "getAdminTotpState":
-      return opGetAdminTotpState();
-    case "enrolAdminTotp":
-      return opEnrolAdminTotp(args, operator);
-    case "verifyAdminTotpStep":
-      return opVerifyAdminTotpStep(args, operator);
-    case "burnRecoveryCode":
-      return opBurnRecoveryCode(args, operator);
-    case "sendSignInAlert":
-      return opSendSignInAlert(args, operator);
     case "getOnboarding":
       return opGetOnboarding(args, operator);
     case "completeOnboardingStep":
@@ -1008,6 +998,12 @@ export async function runOperation(
       return opGetCredentialKeyStatus();
     case "resendTranscript":
       return opResendTranscript(args, operator);
+    case "transcriptDeliveries":
+      return opTranscriptDeliveries(args, operator);
+    case "hostStandbyCheck":
+      return ok(await hostStandbyCheck(actorFor(operator), operator.request));
+    case "welcomeHandoff":
+      return opWelcomeHandoff(args);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2087,505 +2083,6 @@ async function opGetAgreement(
 }
 
 // -----------------------------------------------------------------------------
-// The second factor
-// -----------------------------------------------------------------------------
-
-/**
- * How many second-factor attempts one process will judge in a window.
- *
- * A six-digit code is a million possibilities and a 90-second window, which is
- * brute-forceable in an afternoon by anything that can submit codes freely.
- * Three things stand in the way, and this is the third:
- *
- *   1. The HMAC. Nothing reaches this API without HEALDESK_PROVISION_SECRET, so
- *      the attacker has to be apps/web or hold its key.
- *   2. The audit row per rejection, which makes a run of failures visible in
- *      `security_events` rather than merely quiet.
- *   3. This counter, which caps the rate at something a person can obviously
- *      exceed only on purpose.
- *
- * It is deliberately in memory and deliberately per process: a database counter
- * would need a column this table does not have, and a shared cache is
- * infrastructure this app does not run. That means N processes multiply the
- * ceiling and a restart clears it — so it is a speed bump, stated as one, and
- * the rate limit that actually matters belongs on the sign-in form in apps/web
- * where the attempts originate. The number is generous: there is one
- * administrator, and a legitimate sign-in is one attempt.
- */
-const MAX_SECOND_FACTOR_FAILURES = 10;
-const SECOND_FACTOR_WINDOW_MS = 5 * 60_000;
-
-let secondFactorFailures: { since: number; count: number } = {
-  since: 0,
-  count: 0,
-};
-
-function secondFactorThrottled(now = Date.now()): boolean {
-  if (now - secondFactorFailures.since > SECOND_FACTOR_WINDOW_MS) return false;
-  return secondFactorFailures.count >= MAX_SECOND_FACTOR_FAILURES;
-}
-
-function recordSecondFactorFailure(now = Date.now()): void {
-  if (now - secondFactorFailures.since > SECOND_FACTOR_WINDOW_MS) {
-    secondFactorFailures = { since: now, count: 1 };
-    return;
-  }
-  secondFactorFailures.count += 1;
-}
-
-/** A success ends the window. One right answer is not a suspicious pattern. */
-function clearSecondFactorFailures(): void {
-  secondFactorFailures = { since: 0, count: 0 };
-}
-
-async function opGetAdminTotpState(): Promise<OpsOutcome> {
-  // Never the secret, never a digest. See getAdminTotpState: the projection
-  // does not include the ciphertext column at all, so this cannot leak it even
-  // if somebody later spreads the row into the response.
-  return ok(await getAdminTotpState());
-}
-
-export type EnrolAdminTotpState =
-  | {
-      status: "proposed";
-      /** ⚠️ The enrolment secret. Show it, never store it. */
-      secret: string;
-      /** ⚠️ Contains the secret. The QR payload. */
-      otpauthUri: string;
-      /** ⚠️ Contains the secret. Hand it straight back with the code. */
-      proposal: string;
-      expiresInMs: number;
-    }
-  | {
-      status: "enrolled";
-      /** Shown once and never again. Only digests are stored. */
-      recoveryCodes: string[];
-      enrolledAt: string;
-      auditRecorded: boolean;
-    }
-  | { status: "error"; message: string };
-
-/**
- * Enrol the second factor, in two calls of one operation.
- *
- * With no `code`, this proposes: a secret is generated, returned for the QR,
- * and stored nowhere. With `code` and the `proposal` it came with, it enrols,
- * but only if the code proves the authenticator actually holds the secret. See
- * lib/ops/admin-totp.ts for why enrolling an unproved factor is the failure
- * worth avoiding.
- *
- * Once enrolled, this operation cannot replace anything: the INSERT is
- * conditional on a singleton primary key and the application has neither DELETE
- * nor UPDATE on the secret column. An attacker holding the signing key and full
- * command of apps/web still cannot re-point the second factor at a phone of
- * their own, which is the property that makes it a second factor rather than a
- * second copy of the first.
- */
-async function opEnrolAdminTotp(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const code = stringArg(args, "code", 16);
-  const proposal = stringArg(args, "proposal", MAX_PROPOSAL_LENGTH);
-
-  if (!code) {
-    // The propose phase. Refused outright if a factor already exists, so that
-    // the QR for a secret that can never be enrolled is not even generated.
-    const state = await getAdminTotpState();
-    if (state.enrolled) {
-      return ok({
-        status: "error",
-        message:
-          "A second factor is already enrolled. Removing it is a deliberate act with the migrator role, not something this console can do.",
-      } satisfies EnrolAdminTotpState);
-    }
-
-    const proposed = proposeAdminTotp(operator.email);
-
-    // The proposal itself is never recorded, only that one was made. A row that
-    // held the proposal would hold the secret.
-    await audit(operator, "admin_totp_enrolment_proposed", {});
-
-    return ok({
-      status: "proposed",
-      secret: proposed.secret,
-      otpauthUri: proposed.otpauthUri,
-      proposal: proposed.proposal,
-      expiresInMs: proposed.expiresInMs,
-    } satisfies EnrolAdminTotpState);
-  }
-
-  if (!proposal) {
-    return opsProblem(
-      "Enrolment takes two steps: call enrolAdminTotp with no code to get a proposal, then call it again with that proposal and a code from the authenticator.",
-      400,
-      "invalid_args",
-    );
-  }
-
-  const result = await enrolAdminTotp(proposal, code);
-
-  switch (result.status) {
-    case "enrolled": {
-      const auditRecorded = await audit(operator, "admin_totp_enrolled", {
-        recoveryCodesIssued: result.recoveryCodes.length,
-      });
-      return ok({
-        status: "enrolled",
-        recoveryCodes: result.recoveryCodes,
-        enrolledAt: result.enrolledAt,
-        auditRecorded,
-      } satisfies EnrolAdminTotpState);
-    }
-    case "already_enrolled":
-      return ok({
-        status: "error",
-        message:
-          "A second factor is already enrolled. Removing it is a deliberate act with the migrator role, not something this console can do.",
-      } satisfies EnrolAdminTotpState);
-    default:
-      await audit(operator, "admin_totp_enrolment_rejected", {
-        reason: result.reason,
-      });
-      return ok({
-        status: "error",
-        message:
-          result.reason === "proposal_expired"
-            ? "That enrolment has expired. Start again to get a new QR code."
-            : "That code is not right. Check the clock on your phone and try the next one.",
-      } satisfies EnrolAdminTotpState);
-  }
-}
-
-export type VerifyTotpState =
-  | { ok: true }
-  | {
-      ok: false;
-      reason: "not_enrolled" | "incorrect" | "already_used" | "unreadable" | "throttled";
-      message: string;
-    };
-
-/**
- * Check one code and spend it.
- *
- * Returns 200 with `ok: false` rather than a 401, on purpose. This is an answer
- * to a question apps/web asked on somebody's behalf, not a judgement on
- * apps/web's own authority, and mapping a wrong code onto the same status as a
- * bad signature would have the console tell the administrator to check its
- * configuration when the truth is that they mistyped six digits.
- *
- * Every outcome is audited, success and failure alike. A run of failures on the
- * only account in the system is the thing somebody needs to be able to find
- * later, and `already_used` on a code the administrator submitted once is the
- * signature of a relay.
- */
-async function opVerifyAdminTotpStep(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const code = stringArg(args, "code", 16);
-
-  if (!code) {
-    return opsProblem("Missing code.", 400, "invalid_args");
-  }
-
-  if (secondFactorThrottled()) {
-    await audit(operator, "admin_totp_throttled", {});
-    return ok({
-      ok: false,
-      reason: "throttled",
-      message:
-        "Too many attempts. Wait a few minutes before trying the next code.",
-    } satisfies VerifyTotpState);
-  }
-
-  const result = await verifyAdminTotpCode(code);
-
-  if (result.ok) {
-    clearSecondFactorFailures();
-    // The step is recorded, and it is not a secret: knowing which 30-second
-    // window a code belonged to yields nothing without the secret that
-    // generates codes for it. It is what makes a replay visible in the log.
-    await audit(operator, "admin_totp_verified", { step: result.step });
-    return ok({ ok: true } satisfies VerifyTotpState);
-  }
-
-  recordSecondFactorFailure();
-  await audit(operator, "admin_totp_rejected", { reason: result.reason });
-
-  return ok({
-    ok: false,
-    reason: result.reason,
-    message: verifyMessage(result.reason),
-  } satisfies VerifyTotpState);
-}
-
-function verifyMessage(
-  reason: "not_enrolled" | "incorrect" | "already_used" | "unreadable",
-): string {
-  switch (reason) {
-    case "not_enrolled":
-      return "No second factor is enrolled yet.";
-    case "already_used":
-      return "That code has already been used. Wait for the next one.";
-    case "unreadable":
-      return "The stored second factor could not be read. This needs someone with database access, not another attempt.";
-    case "incorrect":
-      return "That code is not right. Check the clock on your phone and try the next one.";
-  }
-}
-
-export type BurnRecoveryCodeState =
-  | { ok: true; remaining: number; auditRecorded: boolean }
-  | {
-      ok: false;
-      reason: "not_enrolled" | "incorrect" | "throttled";
-      message: string;
-    };
-
-/**
- * Spend a recovery code, when the authenticator is gone.
- *
- * This is the whole second factor in one string, so it is treated exactly like
- * a code: throttled on the same counter, audited on every outcome, and spent
- * atomically so the same code cannot be used twice at once.
- *
- * `remaining` is returned because the number matters to the person using it.
- * Running out is not recoverable from this console — there is no operation that
- * issues more, by design, since minting recovery codes is minting credentials —
- * so somebody who is down to their last one needs to know before they need it.
- */
-async function opBurnRecoveryCode(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const code = stringArg(args, "code", 64);
-
-  if (!code) {
-    return opsProblem("Missing recovery code.", 400, "invalid_args");
-  }
-
-  if (secondFactorThrottled()) {
-    await audit(operator, "admin_totp_throttled", {});
-    return ok({
-      ok: false,
-      reason: "throttled",
-      message: "Too many attempts. Wait a few minutes before trying again.",
-    } satisfies BurnRecoveryCodeState);
-  }
-
-  const result = await burnRecoveryCode(code);
-
-  if (result.ok) {
-    clearSecondFactorFailures();
-    const auditRecorded = await audit(operator, "admin_recovery_code_used", {
-      remaining: result.remaining,
-    });
-    return ok({
-      ok: true,
-      remaining: result.remaining,
-      auditRecorded,
-    } satisfies BurnRecoveryCodeState);
-  }
-
-  recordSecondFactorFailure();
-  await audit(operator, "admin_recovery_code_rejected", {
-    reason: result.reason,
-  });
-
-  return ok({
-    ok: false,
-    reason: result.reason,
-    message:
-      result.reason === "not_enrolled"
-        ? "No second factor is enrolled yet."
-        : "That recovery code is not one of yours, or it has already been used.",
-  } satisfies BurnRecoveryCodeState);
-}
-
-// -----------------------------------------------------------------------------
-// The sign-in alert
-// -----------------------------------------------------------------------------
-
-export type SignInAlertState = {
-  delivery: "sent" | "skipped" | "failed";
-  /** Why, when it was not sent. Safe to show: it names configuration, not data. */
-  reason?: string;
-  auditRecorded: boolean;
-};
-
-/**
- * Tell the administrator that somebody signed in as them.
- *
- * With one account and no colleagues, there is nobody to notice an unfamiliar
- * session in a list. This email is the entire detection surface: the only way
- * the person who owns the credential finds out that it was used without them.
- * So it goes out on every success, not on "suspicious" ones, because a filter
- * that decides which sign-ins are worth mentioning is a filter that will one
- * day decline to mention the one that mattered.
- *
- * ## What is in it, and what must never be
- *
- * The time in UTC, the address it came from, the browser string, and what to do
- * if it was not them. No session id, no token, no code, no password, no link
- * to click. A sign-in alert that carries a credential is a phishing template
- * with our domain on it, and one that carries a link teaches the recipient to
- * click links in emails about their own account.
- *
- * `phiClass: "none"` and therefore Resend: it names one business address and an
- * IP, and there is no patient in it and nowhere for one to appear.
- *
- * ## Where this belongs
- *
- * Beside `lib/email/connect-link.ts` and `lib/email/agreement-copy.ts`, as
- * `lib/email/sign-in-alert.ts`. That directory is outside this slice, so the
- * message is rendered here and the move is noted rather than made.
- */
-async function opSendSignInAlert(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const at = stringArg(args, "at", 40);
-  const when = at ? new Date(at) : new Date();
-
-  if (Number.isNaN(when.getTime())) {
-    // Refused rather than quietly replaced with "now". The time is the one fact
-    // in this email the recipient checks against their own memory, and a
-    // silently substituted one would make a stale alert look current.
-    return opsProblem("That is not a time.", 400, "invalid_args");
-  }
-
-  /**
-   * The browser's address and agent, from the arguments rather than from the
-   * envelope's `context`.
-   *
-   * They are the CONTENT of this message, not ambient request metadata, and
-   * reading them from two places would let the email say one thing and the
-   * audit row another about the same sign-in. So this operation takes them as
-   * arguments and uses the same values for both.
-   */
-  const ipAddress = stringArg(args, "ipAddress", 64) ?? operator.request.ipAddress;
-  const userAgent =
-    stringArg(args, "userAgent", 256) ?? operator.request.userAgent;
-
-  const message: OutgoingEmail = {
-    ...renderSignInAlert({ at: when, ipAddress, userAgent }),
-    phiClass: "none",
-  };
-
-  const target: DeliveryTarget = {
-    to: operator.email,
-    // No clinic. This is the identity plane, and the transport uses these two
-    // for its own logging only. Same sentinel the deleted invite mailer used.
-    clinicId: "",
-    clinicName: "healdesk operations",
-  };
-
-  let delivery: SignInAlertState["delivery"] = "failed";
-  let reason: string | undefined;
-
-  try {
-    const result = await getTransport(message.phiClass).send(target, message);
-    delivery = result.status === "sent" ? "sent" : result.status;
-    if (result.status !== "sent") reason = result.reason;
-  } catch (error) {
-    // Message, not the object: a transport error can carry the request it
-    // attempted, and that request contains the recipient address.
-    reason = error instanceof Error ? error.message : "Unknown error";
-  }
-
-  /**
-   * The security event is written whether or not the mail went out, and it is
-   * the more important of the two: the email can be blocked, filtered or
-   * unread, but this row is the durable record that the single administrative
-   * credential was used at a particular moment from a particular address.
-   *
-   * The address and the browser go into their own COLUMNS, not into metadata —
-   * `assertNoPhi()` reads an IP as a phone-shaped string and would refuse the
-   * whole write, and those columns exist for exactly this.
-   */
-  const auditRecorded = await audit(
-    { email: operator.email, request: { ...operator.request, ipAddress, userAgent } },
-    "admin_sign_in",
-    { alert: delivery },
-  );
-
-  // The `reason` key is absent rather than null when there is nothing to say.
-  // A console rendering "could not send: null" would be reporting a failure
-  // that did not happen.
-  return ok(
-    reason === undefined
-      ? ({ delivery, auditRecorded } satisfies SignInAlertState)
-      : ({ delivery, reason, auditRecorded } satisfies SignInAlertState),
-  );
-}
-
-function renderSignInAlert(event: {
-  at: Date;
-  ipAddress: string | undefined;
-  userAgent: string | undefined;
-}): { subject: string; text: string; html: string } {
-  const when = `${event.at.toISOString().replace("T", " ").slice(0, 16)} UTC`;
-  // "not recorded" rather than a blank line. An absent value and an unknown one
-  // read identically in an email, and only one of them is true here.
-  const from = event.ipAddress ?? "not recorded";
-  const browser = event.userAgent ?? "not recorded";
-
-  const subject = `healdesk admin: signed in at ${when}`;
-
-  const text = [
-    `Someone signed in to the healdesk admin console.`,
-    ``,
-    `Time:    ${when}`,
-    `Address: ${from}`,
-    `Browser: ${browser}`,
-    ``,
-    `If that was you, there is nothing to do.`,
-    ``,
-    `If it was not, both factors are compromised, because there is only one`,
-    `account and both are needed to reach this point. Change the admin password`,
-    `and rotate the signing secret, then have someone with database access`,
-    `disenrol the authenticator. The console cannot do that itself, which is`,
-    `deliberate.`,
-    ``,
-    `healdesk will never email you a code, a password, or a link to sign in.`,
-    `This message contains none of those, and any message that does is not from`,
-    `us.`,
-  ].join("\n");
-
-  const html = [
-    `<p>Someone signed in to the healdesk admin console.</p>`,
-    `<table cellpadding="0" cellspacing="0"><tbody>`,
-    `<tr><td><strong>Time</strong></td><td>&nbsp;${escapeHtml(when)}</td></tr>`,
-    `<tr><td><strong>Address</strong></td><td>&nbsp;${escapeHtml(from)}</td></tr>`,
-    // Escaped, and it matters here more than anywhere else on this page: the
-    // user agent is a header the browser chose, so it is the one string in this
-    // message that somebody else wrote.
-    `<tr><td><strong>Browser</strong></td><td>&nbsp;${escapeHtml(browser)}</td></tr>`,
-    `</tbody></table>`,
-    `<p>If that was you, there is nothing to do.</p>`,
-    `<p>If it was not, both factors are compromised, because there is only one `,
-    `account and both are needed to reach this point. Change the admin password `,
-    `and rotate the signing secret, then have someone with database access `,
-    `disenrol the authenticator. The console cannot do that itself, which is `,
-    `deliberate.</p>`,
-    `<p>healdesk will never email you a code, a password, or a link to sign in. `,
-    `This message contains none of those, and any message that does is not from `,
-    `us.</p>`,
-  ].join("");
-
-  return { subject, text, html };
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-// -----------------------------------------------------------------------------
 // Dates
 // -----------------------------------------------------------------------------
 
@@ -2644,7 +2141,7 @@ export type OnboardingView = {
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
-    synthflowNumberE164: string | null;
+    assistantNumberE164: string | null;
     publishedPhoneE164: string | null;
     openingHoursPresent: boolean;
     wentLiveAt: string | null;
@@ -2780,7 +2277,7 @@ async function opGetOnboarding(
       callRouting: clinic.callRouting,
       callRoutingConfirmedAt: clinic.callRoutingConfirmedAt?.toISOString() ?? null,
       carrier: clinic.carrier,
-      synthflowNumberE164: clinic.synthflowNumberE164,
+      assistantNumberE164: clinic.assistantNumberE164,
       publishedPhoneE164: clinic.publishedPhoneE164,
       openingHoursPresent: clinic.openingHoursPresent,
       wentLiveAt: clinic.wentLiveAt?.toISOString() ?? null,
@@ -2806,12 +2303,12 @@ async function opGetOnboarding(
     },
     // Counts only. The requests themselves live behind the desk's link.
     meta: { enabled: clinic.metaFrontDoorEnabled, platforms: metaPlatforms, channels: metaChannels, bookingRequests },
-    forwarding: clinic.synthflowNumberE164
+    forwarding: clinic.assistantNumberE164
       ? forwardingInstructions({
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
           phoneSystemType: clinic.phoneSystemType,
           routing: clinic.callRouting,
-          destinationE164: clinic.synthflowNumberE164,
+          destinationE164: clinic.assistantNumberE164,
         })
       : null,
     agent: agent
@@ -2937,8 +2434,8 @@ async function opSetPhoneSettings(
   const phoneSystemType = stringArg(args, "phoneSystemType", 16);
   const callRouting = stringArg(args, "callRouting", 16);
   const carrier = args.carrier === null ? null : stringArg(args, "carrier", 32);
-  const synthflowNumberE164 =
-    args.synthflowNumberE164 === null ? null : stringArg(args, "synthflowNumberE164", 20);
+  const assistantNumberE164 =
+    args.assistantNumberE164 === null ? null : stringArg(args, "assistantNumberE164", 20);
   const publishedPhoneE164 =
     args.publishedPhoneE164 === null ? null : stringArg(args, "publishedPhoneE164", 20);
 
@@ -2960,7 +2457,7 @@ async function opSetPhoneSettings(
           phoneSystemType: phoneSystemType as "landline" | "voip" | "unknown" | undefined,
           callRouting: callRouting as "conditional" | "always" | undefined,
           carrier: carrier as never,
-          synthflowNumberE164,
+          assistantNumberE164,
           publishedPhoneE164,
         }),
     );
@@ -3707,8 +3204,8 @@ async function opStartForwardingTest(
 ): Promise<OpsOutcome> {
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies ForwardingTestOutcome);
-  if (!clinic.synthflowNumberE164) {
-    return ok({ status: "error", message: "Enter the Synthflow number first; there is nothing to forward to." } satisfies ForwardingTestOutcome);
+  if (!clinic.assistantNumberE164) {
+    return ok({ status: "error", message: "Enter the assistant's number first; there is nothing to forward to." } satisfies ForwardingTestOutcome);
   }
   if (!clinic.publishedPhoneE164) {
     return ok({
@@ -4067,9 +3564,11 @@ export type ResendTranscriptState =
 
 /**
  * Send a conversation's transcript to the clinic's own address again, from
- * its sealed copy, at the outbox's next minute. "gone" once the copy's seven
- * days are up: healdesk keeps no transcript after that, and has nothing to
- * send. The address is always the clinic's; the console cannot name one.
+ * its sealed copy, at the outbox's next minute. "gone" once the copy is: SES
+ * reported it delivered, or it expired or went unconfirmed (drizzle/0072),
+ * and healdesk has nothing left to send. A web chat still going answers an
+ * error, since its transcript goes when it ends. The address is always the
+ * clinic's; the console cannot name one.
  */
 async function opResendTranscript(
   args: Record<string, unknown>,
@@ -4081,10 +3580,63 @@ async function opResendTranscript(
   if (!conversationId || !UUID_SHAPED.test(conversationId)) {
     return ok({ status: "error", message: "That is not a conversation id." } satisfies ResendTranscriptState);
   }
-  const queued = await resendTranscript(clinic.id, conversationId, actorFor(operator));
-  if (!queued) return ok({ status: "gone" } satisfies ResendTranscriptState);
+  const outcome = await resendTranscript(clinic.id, conversationId, actorFor(operator));
+  if (outcome === "gone") return ok({ status: "gone" } satisfies ResendTranscriptState);
+  if (outcome === "open") {
+    return ok({
+      status: "error",
+      message: "That web chat is still going; its transcript is emailed when it ends.",
+    } satisfies ResendTranscriptState);
+  }
   const auditRecorded = await audit(operator, "transcript_resent", { clinicSlug: clinic.slug, conversationId });
   return ok({ status: "queued", auditRecorded } satisfies ResendTranscriptState);
+}
+
+export type TranscriptDeliveriesState =
+  | ({ status: "ok" } & TranscriptDeliveries)
+  | { status: "error"; message: string };
+
+/**
+ * Whether each of a clinic's transcripts reached it (drizzle/0072's
+ * receipts): counts by status over the rows queued in the last `sinceDays`
+ * days (30 by default, a whole number from 1 to 366), and the newest receipts
+ * as { conversationId, status, sentAt, deliveredAt, attempts }. Read-only. A
+ * receipt holds no words and no address, and SES's reason is left out too:
+ * a mail server's diagnostic can quote the address.
+ */
+async function opTranscriptDeliveries(
+  args: Record<string, unknown>,
+  operator: Operator,
+): Promise<OpsOutcome> {
+  const clinic = await clinicById(stringArg(args, "clinicId"));
+  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies TranscriptDeliveriesState);
+  const raw = args.sinceDays;
+  const sinceDays = raw === undefined || raw === null ? TRANSCRIPT_DELIVERIES_DEFAULT_DAYS : numberArg(args, "sinceDays");
+  if (
+    sinceDays === undefined ||
+    !Number.isInteger(sinceDays) ||
+    sinceDays < 1 ||
+    sinceDays > TRANSCRIPT_DELIVERIES_MAX_DAYS
+  ) {
+    return ok({
+      status: "error",
+      message: `sinceDays is a whole number of days from 1 to ${TRANSCRIPT_DELIVERIES_MAX_DAYS}.`,
+    } satisfies TranscriptDeliveriesState);
+  }
+  const deliveries = await withTenant(
+    { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
+    async (tx) => {
+      const listed = await listTranscriptDeliveries(tx, sinceDays);
+      tx.audit.record({
+        action: "read",
+        resourceType: "transcript_email",
+        resultCount: listed.receipts.length,
+        metadata: { purpose: "transcript_deliveries", sinceDays },
+      });
+      return listed;
+    },
+  );
+  return ok({ status: "ok", ...deliveries } satisfies TranscriptDeliveriesState);
 }
 
 /** §B.4: the calendar-write ledger on its own, for a refresh after a retry. */
@@ -4143,6 +3695,46 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
     ...(kind ? { kind } : {}),
   });
   return ok(result);
+}
+
+// -----------------------------------------------------------------------------
+// The paying browser's hand-off
+// -----------------------------------------------------------------------------
+
+const CHECKOUT_SESSION_SHAPED = /^cs_(test|live)_[A-Za-z0-9]{1,200}$/;
+
+/**
+ * Whether this host's /welcome has something to tell the browser that paid
+ * for `ref` through Checkout Session `sessionId`, and where that page is.
+ *
+ * Since 14 October 2026 Stripe returns the buyer to apps/web's /welcome,
+ * which can answer while this host is in standby (it has checked with Stripe
+ * that the Session is paid). Once the first paid invoice has brought the
+ * purchase here and provisioning has either made the account or refused it,
+ * this answers ready, and apps/web sends the browser on, 303, to this app's
+ * own /welcome, which checks the nonce cookie and hands that browser, and
+ * only that browser, its one-time sign-in link, exactly as before.
+ *
+ * The URL is composed here, from BETTER_AUTH_URL (publicUrl), because every
+ * clinic-facing link is composed upstream (root CLAUDE.md); apps/web holds
+ * only the internal origin, which must never reach a browser. The answer
+ * names nothing about the purchase: a Session that is not this purchase's
+ * latest is simply not ready, so a stranger holding a ref learns nothing.
+ */
+async function opWelcomeHandoff(args: Record<string, unknown>): Promise<OpsOutcome> {
+  const ref = stringArg(args, "ref", 64);
+  const sessionId = stringArg(args, "sessionId", 256);
+  if (!ref || !UUID_SHAPED.test(ref) || !sessionId || !CHECKOUT_SESSION_SHAPED.test(sessionId)) {
+    return opsProblem("A purchase ref and a Checkout Session id are required.", 400, "invalid_args");
+  }
+  const intent = await findIntent(ref);
+  const settled = intent !== null && (intent.consumedAt !== null || intent.provisionFailedAt !== null);
+  const theirs = intent !== null && (intent.openSessionId === null || intent.openSessionId === sessionId);
+  if (!settled || !theirs || publicOriginProblem()) return ok({ ready: false });
+  return ok({
+    ready: true,
+    url: publicUrl(`/welcome?h=${encodeURIComponent(ref)}&cs=${encodeURIComponent(sessionId)}`),
+  });
 }
 
 // -----------------------------------------------------------------------------

@@ -167,17 +167,6 @@ async function evidence(client: Client, clinicId: string, phone: string, at: Dat
   );
 }
 
-function voicePayload(callId: string, phone: string, at: Date) {
-  return {
-    call_id: callId,
-    start_time: at.toISOString(),
-    duration: 120,
-    lead: { name: "Sam", phone_number: phone },
-    transcript: "Caller asked about a consultation.",
-    collected_variables: { outcome: "booked" },
-  };
-}
-
 type Seeded = {
   contactId: string;
   spouseContactId: string;
@@ -191,14 +180,14 @@ type Seeded = {
 
 /**
  * A person with a record in every table the erase path reaches: a booked
- * call (its contact, conversation, appointment and voice payload), their own
- * requests on a call, on WhatsApp and on Instagram, a draft carrying their
- * number on Messenger and one on their Instagram thread carrying none, their
- * three messaging threads, a payload the voice vendor sent that ingestion
- * never processed (the number written as a person would), another service's
- * payload naming them, and a stop, a consent and a contact attempt. And a
- * household Instagram account, with its own thread, that booked once for
- * them and once for their spouse: a thread that is not theirs alone.
+ * call (its contact, conversation and appointment), their own requests on a
+ * call, on WhatsApp and on Instagram, a draft carrying their number on
+ * Messenger and one on their Instagram thread carrying none, their three
+ * messaging threads, a payload another service sent that was never processed
+ * (the number written as a person would), another payload naming them, and
+ * a stop, a consent and a contact attempt. And a household Instagram
+ * account, with its own thread, that booked once for them and once for their
+ * spouse: a thread that is not theirs alone.
  */
 async function seedEverywhere(clinicId: string, digits: string, at: Date): Promise<Seeded> {
   const phone = `+1${digits}`;
@@ -258,22 +247,9 @@ async function seedEverywhere(clinicId: string, digits: string, at: Date): Promi
       await payload(
         client,
         clinicId,
-        "synthflow",
-        `call_${digits}`,
-        voicePayload(`call_${digits}`, phone, at),
-        at,
-        true,
-      ),
-      await payload(
-        client,
-        clinicId,
-        "synthflow",
-        `call_${digits}_failed`,
-        voicePayload(
-          `call_${digits}_failed`,
-          `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`,
-          at,
-        ),
+        "mindbody",
+        `evt_${digits}_failed`,
+        { client: { mobile: `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` } },
         at,
         false,
       ),
@@ -428,7 +404,7 @@ describeDb("deletion on request", () => {
       conversations: 1,
       drafts: 2,
       chatThreads: 3,
-      webhookEvents: 3,
+      webhookEvents: 2,
       suppressions: 1,
       consentRecords: 1,
       contactAttempts: 1,
@@ -450,7 +426,7 @@ describeDb("deletion on request", () => {
       booking_requests: before.booking_requests! - 4,
       meta_booking_drafts: before.meta_booking_drafts! - 2,
       chat_threads: before.chat_threads! - 3,
-      webhook_events: before.webhook_events! - 3,
+      webhook_events: before.webhook_events! - 2,
       suppressions: before.suppressions! - 1,
       consent_records: before.consent_records! - 1,
       contact_attempts: before.contact_attempts! - 1,
@@ -501,7 +477,7 @@ describeDb("deletion on request", () => {
     expect(record).toHaveLength(1);
     expect(record[0]!.requested_by).toBe("practice");
     expect(record[0]!.received_at.toISOString()).toBe("2026-10-05T09:00:00.000Z");
-    expect(record[0]!.deleted.webhookEvents).toBe(3);
+    expect(record[0]!.deleted.webhookEvents).toBe(2);
     expect(record[0]!.restore_refs.length).toBeGreaterThan(0);
     for (const ref of record[0]!.restore_refs) expect(ref).toMatch(/^v1:[0-9a-f]{64}$/);
     expect(record[0]!.restore_refs).toContain(
@@ -821,10 +797,10 @@ describeDb("deletion on request", () => {
          values ($1, 'conversation', $2, 'The caller meant the Tuesday clinic.', 'practice', $3, 'ops@healdesk.test')`,
         [c.clinicId, unmatched, at],
       );
-      const say = (callId: string, words: string) => ({ call_id: callId, start_time: at.toISOString(), lead: { phone_number: null }, transcript: words });
-      await payload(client, c.clinicId, "synthflow", "call_nocid_theirs", say("call_nocid_theirs", "My number is 555 013 6301."), at, true);
-      await payload(client, c.clinicId, "synthflow", "call_nocid_other", say("call_nocid_other", "Just asking about prices."), at, true);
-      await payload(client, c.clinicId, "synthflow", "call_nocid_someone", say("call_nocid_someone", "Book my friend on 555-013-6301 too."), at, true);
+      const say = (callId: string, words: string) => ({ call_id: callId, start_time: at.toISOString(), transcript: words });
+      await payload(client, c.clinicId, "retell", "call_nocid_theirs", say("call_nocid_theirs", "My number is 555 013 6301."), at, true);
+      await payload(client, c.clinicId, "retell", "call_nocid_other", say("call_nocid_other", "Just asking about prices."), at, true);
+      await payload(client, c.clinicId, "retell", "call_nocid_someone", say("call_nocid_someone", "Book my friend on 555-013-6301 too."), at, true);
       return { unmatched, otherUnmatched, onSomeone };
     });
 
@@ -1531,9 +1507,9 @@ describeDb("deletion on request", () => {
       await payload(
         client,
         c.clinicId,
-        "synthflow",
-        "call_5550134001_restored",
-        voicePayload("call_5550134001_restored", "+15550134001", at),
+        "mindbody",
+        "evt_5550134001_restored",
+        { client: { mobile: "+15550134001" } },
         at,
         true,
       );
@@ -1577,7 +1553,7 @@ describeDb("deletion on request", () => {
       ]);
       expect(threads.rows).toEqual([]);
       const payloads = await client.query(
-        `select 1 from webhook_events where delivery_id = 'call_5550134001_restored'`,
+        `select 1 from webhook_events where delivery_id = 'evt_5550134001_restored'`,
       );
       expect(payloads.rows).toEqual([]);
     });
@@ -1622,11 +1598,11 @@ describeDb("deletion on request", () => {
     });
   });
 
-  test("the runbook runs a deletion per location, says nothing on AWS turns a number into a contact id before M5, and keeps real calls off Synthflow", () => {
+  test("the runbook runs a deletion per location, says nothing on AWS turns a number into a contact id before M5, and names every voice vendor that can hold a call", () => {
     // The calendar session's re-audit (C19, 12 October 2026): a deletion
     // reaches one clinic (one location); the runbook and run-task.sh said the
-    // ops console shows a contact's id, which it does not; and Synthflow,
-    // which still carries the demo calls, has no deletion step.
+    // ops console shows a contact's id, which it does not; and a voice vendor
+    // without a deletion step must be one that never carried a patient call.
     const repo = join(__dirname, "..", "..", "..");
     const handover = readFileSync(join(repo, "docs", "handover.md"), "utf8");
     const section = handover.slice(
@@ -1637,7 +1613,8 @@ describeDb("deletion on request", () => {
     expect(section).toMatch(/run it once for every location the person may have used/);
     expect(section).toMatch(/Nothing on AWS turns a number into a contact id yet/);
     expect(section).toMatch(/waits for M5/);
-    expect(section).toMatch(/no real patient call may go through Synthflow/);
+    expect(section).toMatch(/Retell is the only voice vendor/);
+    expect(section).toMatch(/never carried a patient call/);
     const runTask = readFileSync(join(repo, "infra", "aws", "scripts", "run-task.sh"), "utf8");
     expect(runTask).not.toMatch(/contact's uuid \(the ops console shows it\)/);
     // A practice never sees our contact ids, so no text may send an operator to

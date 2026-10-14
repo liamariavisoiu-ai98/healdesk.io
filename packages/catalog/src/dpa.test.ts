@@ -101,17 +101,19 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
  * variant → sha256 of the assembled text. Frozen from the draft; see the
  * header. Regenerated on 13 October 2026 for the emailed transcript (BAA
  * 1.4.0's clauses 4, 11 and 14 in this document's words; the sample was
- * 7b4a1a97…bc49).
+ * 7b4a1a97…bc49), and on 14 October 2026 for the copy deleted once delivery
+ * is confirmed (BAA 1.5.0's clauses 11 and 14 in this document's words; the
+ * sample was 97058d2d…ad05).
  */
 const GOLDEN: Record<string, string> = {
-  sample: "97058d2d2ca9ec0483a1cf2e2d459ee7d3ae3d0c9949ad38cc8dd052104dad05",
-  notcovered_live_covered: "8c6d6208fcd9fb61ebc2a963769d7237abf0826960841cb92f849ecf69ea5ab1",
-  notcovered_live_uncovered: "82c54ec7809a75bd0c6ebbcf86421783752ac70fbbdfa4c4652fdee83471e115",
-  notcovered_live_personal: "a0022b647f6392e4889af06a623a9cd9b95f2ac45b32a6b7d74f3ac77674520b",
-  notcovered_notused_other: "519ab25dbca268eb066bc4d7d4557e4338fa906645540fd036ecc76c5127988a",
-  vet_live_covered: "cd06ffb631a2874f2d989d29dce2201b5523c685d533fd7863e35f76ea267ecd",
-  vet_live_personal: "bdfc2a5f88a7cff623f589b8d1e5a1a91690ccd039f9326efee17e2c0571baa0",
-  vet_notused_mindbody: "5dffa3fe690e4edee44aa8d4ebd6daaec60d5ba3ab46193eeecdfbe6838d2e9e",
+  sample: "a84117ed3b31091e8c8d02dd9744262e7bfb29aa72b60ec19b24ddfc08ff9e55",
+  notcovered_live_covered: "9899ed5ed0e9472b1180e069c95f0e543be2595f6e860ee440f34a4f54b803ca",
+  notcovered_live_uncovered: "5e0746a939a62cd462f50be61c0917506006b0e9fbb08e1feafa66f125936076",
+  notcovered_live_personal: "16bdacc4dbb55598aabda80fad1cdcab7e7546bfbd720218d2a998e77d581602",
+  notcovered_notused_other: "dfe6e78e51f61d97dcd5fd52c417735b7ecefec16b65670e1368dd6d997f0689",
+  vet_live_covered: "af2fd0de688e26aa33ee86a209690f91b42b4e049cbf82e4dee723d3ec9f365a",
+  vet_live_personal: "1c3d6a007536bc3da6523864ec2a4e0fa63527d4159d6052ea5c7d9968bf0639",
+  vet_notused_mindbody: "97ecb8b05091a813feddc2bf65463d49e0ddf9ee6913977aad3c9bdd304ab0e6",
 };
 
 const template = () => currentDpaTemplate();
@@ -873,11 +875,12 @@ describe("retention during the term", () => {
     }
   });
 
-  // The owner's decision of 13 October 2026, as BAA 1.4.0 clauses 11 and 14
-  // state it (apps/app lib/conversations/transcript-outbox.ts, drizzle/0069).
-  test("emails each transcript to Practice's one address, holds one copy for seven days, and says who answers for it after", () => {
+  // The owner's decisions of 13 and 14 October 2026, as BAA 1.5.0 clauses 11
+  // and 14 state them (apps/app lib/conversations/transcript-outbox.ts,
+  // drizzle/0069 and 0072).
+  test("emails each transcript to Practice's one address, holds one copy only until delivery is confirmed, and says who answers for it after", () => {
     const baa = unwrap(
-      prepareBaa(getBaaTemplate("1.4.0")!, {
+      prepareBaa(getBaaTemplate("1.5.0")!, {
         clinicLegalName: "Glow Med Spa LLC",
         specialty: "Med spa",
         signatoryName: "Alex Chen",
@@ -895,14 +898,15 @@ describe("retention during the term", () => {
       const text = render(overrides).text;
       const minimum = unwrap(section(text, "Minimum necessary, and who receives Client Information"));
       const transcripts =
-        "healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection, as the Safeguards clause provides. So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it. Until then healdesk may send the email again when a send fails or the email is returned, and when Practice asks. healdesk keeps no other copy of a transcript, apart from the backups described below; what Anthropic keeps is what the Subcontractors clause describes. Once healdesk's copy is deleted, the email is Practice's own record of what was said, and Practice is responsible for keeping, protecting and deleting it.";
+        "healdesk does not keep transcripts. When a call or a website chat ends, healdesk emails its transcript to the email address on Practice's healdesk account, and to no other address, only over an encrypted connection, as the Safeguards clause provides. So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript only until Practice's mail server confirms that it has received the email, and then deletes the copy at once. If a send fails or the email is returned, healdesk keeps the copy and sends the email again until it is delivered. If the email is accepted for delivery but neither its delivery nor its failure is confirmed within 72 hours of its last sending, healdesk deletes the copy then. In no case does healdesk hold the copy for more than 30 days after the transcript was queued for sending: a copy whose email has not been delivered by then is deleted. While it holds the copy, healdesk may also send the email again when Practice asks. healdesk keeps a record of each transcript's delivery, without what was said or written in it, for as long as it keeps the record of that conversation. It keeps no other copy of a transcript, apart from the backups described below; what Anthropic keeps is what the Subcontractors clause describes. Once healdesk's copy is deleted, the email is Practice's own record of what was said, and Practice is responsible for keeping, protecting and deleting it.";
       // The BAA's paragraph, word for word: it names no patient.
       expect(baa, name).toContain(transcripts);
       expect(minimum, name).toContain(transcripts);
       const requests = unwrap(section(text, "Clients' requests"));
       expect(requests, name).toContain(
-        `healdesk holds a transcript only to deliver it to Practice, and only for the days the clause headed "Minimum necessary, and who receives Client Information" allows. After them healdesk has no transcript to give Practice, correct or delete: the email that carried it is Practice's own record, and Practice answers a request about a transcript from that email.`,
+        `healdesk holds a transcript only to deliver it to Practice, and only for as long as the clause headed "Minimum necessary, and who receives Client Information" allows. Once the copy is deleted, healdesk has no transcript to give Practice, correct or delete: the email that carried it is Practice's own record, and Practice answers a request about a transcript from that email.`,
       );
+      expect(text, name).not.toMatch(/seven days/);
       const stateLaw = unwrap(section(text, STATE_LAW_CLAUSE_HEADING));
       expect(stateLaw, name).toContain(
         "e. email Practice the transcript of each call and website chat, keep records of those conversations, without what was said or written in them, and of bookings,",

@@ -182,6 +182,19 @@ describe("the shared state-law clause", () => {
   });
 });
 
+describe("1.5.0's state-law clause", () => {
+  test("is 1.4.0's own object: it promises nothing the delete-on-delivery decision changed", () => {
+    // The owner's decision of 14 October 2026 changes only how long the
+    // transcript's copy is held, which the state-law clause leaves to the
+    // Minimum necessary clause.
+    const clause = (version: string) => getBaaTemplate(version)!.clauses.find((c) => c.id === "state-law")!;
+    expect(clause("1.5.0")).toBe(clause("1.4.0"));
+    expect(unwrap(stateLawClauseBody140({ subject: "patient information", sync: "live" }))).not.toMatch(
+      /seven days/,
+    );
+  });
+});
+
 describe("the Payments clause", () => {
   test("names no patient, so the DPA shares it word for word", () => {
     expect(PAYMENTS_CLAUSE_BODY).not.toMatch(/patient|PHI/i);
@@ -190,7 +203,7 @@ describe("the Payments clause", () => {
   });
 });
 
-describe.each(["1.3.0", "1.4.0"])("%s's render guard", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0"])("%s's render guard", (version) => {
   test("refuses verified reporting, the phase-two read-back it does not describe", () => {
     const template = getBaaTemplate(version)!;
     expect(template.clauses.map((c) => c.id)).not.toContain("data-sources-verified");
@@ -209,7 +222,7 @@ describe.each(["1.3.0", "1.4.0"])("%s's render guard", (version) => {
   });
 });
 
-describe.each(["1.3.0", "1.4.0"])("every %s document", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0"])("every %s document", (version) => {
   test("names other clauses only by headings it has, and fits 78 columns", () => {
     const template = getBaaTemplate(version)!;
     for (const { label, variables } of everyDocument()) {

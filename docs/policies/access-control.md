@@ -2,7 +2,8 @@
 
 **Effective:** 13 September 2026; amended 1 October 2026 for the v1 product
 (the operator console's location, the vendor list, and clinic portal access),
-and 13 October 2026 for the AWS account as it was set up.
+13 October 2026 for the AWS account as it was set up, and 14 October 2026 for
+the operator's second factor moving onto Vercel.
 **Applies to:** everyone with any access to production systems, including the
 founder, and, for the clinic portal section, every clinic user.
 
@@ -10,10 +11,10 @@ founder, and, for the clinic portal section, every clinic user.
 
 | Access | Who | How | Revoked by |
 | --- | --- | --- | --- |
-| The operator console (`/admin` on `apps/web`) | Internal staff only | Password (scrypt hash) + TOTP second factor. It holds no database client: it reaches `apps/app` only through the HMAC-signed ops API, which returns projections (clinic configuration, scheduler state, contract metadata), never a patient row | Removing the operator's credentials; sessions expire |
+| The operator console (`/admin` on `apps/web`) | Internal staff only | Password (scrypt hash) + TOTP second factor, both checked on Vercel against Sensitive environment variables (`HEALDESK_ADMIN_PASSWORD_HASH`, `HEALDESK_ADMIN_TOTP_SECRET`); signing in calls nothing in `apps/app`. A code is refused twice in one instance and in one browser, not across instances, and every sign-in is emailed to the operator. No recovery codes: a lost authenticator is replaced with `npm run admin:totp -w @healdesk/web`. It holds no database client: it reaches `apps/app` only through the HMAC-signed ops API, which returns projections (clinic configuration, scheduler state, contract metadata), never a patient row | Replacing the password hash, the TOTP secret or `HEALDESK_ADMIN_SECRET` (which ends every session); sessions expire |
 | The production database, as a person | Nobody, routinely | A break-glass connection as `healdesk_migrator` from a named laptop, for a migration or an incident, recorded in the audit log by hand before and after | Rotating the migrator password |
 | The host console (AWS) | The Security Official | Root has a passkey or security key as its MFA device and no access keys, and is kept for billing and account changes. Day-to-day work goes through the Security Official's own IAM user, `lia@healdesk`, with MFA and AdministratorAccess rather than a narrower policy: the administrator launches the bootstrap stack, which writes IAM, and an identity that can write IAM can grant itself anything ([infra/aws/README.md](../../infra/aws/README.md), "Who can change production") | Deleting the IAM user |
-| Vendor consoles (Retell, Anthropic, Stripe, the database provider, Meta Business Manager and the Meta app, Google Cloud (the calendar OAuth app), Resend) | The Security Official | Unique password + MFA, in a password manager. Every clinic's Page and WhatsApp tokens are issued to Healdesk's Meta app, and every clinic's calendar token to Healdesk's Google Cloud OAuth client, so both consoles are production access | Vendor-side removal |
+| Vendor consoles (Retell, Anthropic, Stripe, the database provider, Meta Business Manager and the Meta app, Google Cloud (the calendar OAuth app), Resend, Vercel) | The Security Official | Unique password + MFA, in a password manager. Every clinic's Page and WhatsApp tokens are issued to Healdesk's Meta app, and every clinic's calendar token to Healdesk's Google Cloud OAuth client, so both consoles are production access. Vercel holds both of the operator console's factors and the ops API's signing secret, so the Vercel account is the operator console's real door | Vendor-side removal |
 
 ## Clinic portal access
 

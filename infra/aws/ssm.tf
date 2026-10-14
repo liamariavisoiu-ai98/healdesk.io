@@ -24,7 +24,7 @@
 #   - external: the owner, in AWS CloudShell, with
 #     infra/aws/scripts/put-external-secrets.sh (the parameters_to_fill
 #     output lists them). Several stay "__unset__" on purpose until the vendor
-#     chain is complete (META_*, ANTHROPIC_API_KEY, the voice secrets, and
+#     chain is complete (META_*, ANTHROPIC_API_KEY, and
 #     HEALDESK_RETELL_LLM_SECRET until enable_voice is turned on).
 #
 # Three things follow from the write-only form, and each is pinned below:
@@ -80,8 +80,6 @@ locals {
     "META_APP_SECRET",
     "META_VERIFY_TOKEN",
     "ANTHROPIC_API_KEY",
-    "HEALDESK_VOICE_WEBHOOK_SECRET",
-    "HEALDESK_VOICE_TOOLS_SECRET",
     "HEALDESK_RETELL_LLM_SECRET",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
@@ -133,4 +131,35 @@ resource "aws_ssm_parameter" "external" {
     prevent_destroy = true
     ignore_changes  = [description, key_id, tier, type, allowed_pattern, data_type]
   }
+}
+
+# ---------------------------------------------------------------------------
+# Retired parameters
+# ---------------------------------------------------------------------------
+#
+# HEALDESK_VOICE_WEBHOOK_SECRET and HEALDESK_VOICE_TOOLS_SECRET guarded the
+# Synthflow routes, which went when Retell replaced Synthflow (5 and 13
+# October 2026); the owner retired the parameters on 14 October. The first
+# apply created them holding only "__unset__", so deleting them loses nothing.
+#
+# Removing a key from external_parameter_names alone would make every plan
+# fail: prevent_destroy above applies to every instance of the resource,
+# including a key that left the set, and a `removed` block can name only a
+# whole resource, not one of its instances. So each retired instance is moved
+# to an address no resource declares. Terraform then plans to destroy it as an
+# object that is no longer configured, which prevent_destroy (a setting of the
+# resource it left) does not cover, while every parameter still in the set
+# keeps it. The plan guard (scripts/plan-guard.sh) allows the deletion of
+# aws_ssm_parameter.retired only. On a state that never had them (a new
+# account, the tests) the moves do nothing. Keep these blocks: they are what
+# lets an older state reach this configuration, and they cost nothing once
+# applied.
+moved {
+  from = aws_ssm_parameter.external["HEALDESK_VOICE_WEBHOOK_SECRET"]
+  to   = aws_ssm_parameter.retired["HEALDESK_VOICE_WEBHOOK_SECRET"]
+}
+
+moved {
+  from = aws_ssm_parameter.external["HEALDESK_VOICE_TOOLS_SECRET"]
+  to   = aws_ssm_parameter.retired["HEALDESK_VOICE_TOOLS_SECRET"]
 }

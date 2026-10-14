@@ -186,7 +186,7 @@ function onboardingWith(greeting: string, booking: unknown = BOOKING): unknown {
         callRouting: "conditional",
         callRoutingConfirmedAt: null,
         carrier: null,
-        synthflowNumberE164: null,
+        assistantNumberE164: null,
         publishedPhoneE164: null,
         openingHoursPresent: false,
         wentLiveAt: null,

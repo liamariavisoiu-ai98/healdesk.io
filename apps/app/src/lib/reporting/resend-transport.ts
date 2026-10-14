@@ -229,11 +229,6 @@ export class ResendTransport implements EmailTransport {
     message: OutgoingEmail,
   ): Promise<DeliveryResult> {
     assertNoPhi(message);
-    // Blind copies exist for the transcript's archive copy, which is PHI and
-    // never reaches here; one on anything else is a caller's mistake.
-    if ((target.bcc?.length ?? 0) > 0) {
-      return { status: "failed", reason: "Resend does not carry blind copies." };
-    }
 
     // After the class gate, never before it. A refusal that depended on
     // configuration would be a refusal that a missing environment variable

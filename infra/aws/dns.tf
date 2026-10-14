@@ -61,21 +61,34 @@ resource "aws_acm_certificate_validation" "app" {
   depends_on = [cloudflare_dns_record.acm_validation]
 }
 
+# The two origins point at the load balancer, so standby removes them with
+# it: while it lasts both names answer NXDOMAIN, and apps/web's signed calls
+# fail at once as unreachable (its Stripe relay answers Stripe 500 and Stripe
+# retries; lib/host/wake.ts turns the host on for a first paid invoice). The
+# validation records above stay, and so does the certificate, so the listener
+# comes back without a new validation. ACM renews only a certificate that is
+# in use, and nothing uses it in standby: one that outlasts its validity
+# (about thirteen months from issue) needs replacing before the host comes
+# back (README, "Standby").
 resource "cloudflare_dns_record" "app" {
+  count = var.standby ? 0 : 1
+
   zone_id = var.cloudflare_zone_id
   name    = var.app_domain
   type    = "CNAME"
-  content = aws_lb.main.dns_name
+  content = aws_lb.main[0].dns_name
   ttl     = 300
   proxied = false
   comment = "infra/aws: the public origin. DNS only: a proxy would decrypt patient traffic at Cloudflare."
 }
 
 resource "cloudflare_dns_record" "internal" {
+  count = var.standby ? 0 : 1
+
   zone_id = var.cloudflare_zone_id
   name    = var.internal_hostname
   type    = "CNAME"
-  content = aws_lb.main.dns_name
+  content = aws_lb.main[0].dns_name
   ttl     = 300
   proxied = false
   comment = "infra/aws: HEALDESK_APP_URL, signed calls only. DNS only: a proxy would decrypt them."

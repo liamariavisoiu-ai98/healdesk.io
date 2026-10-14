@@ -110,6 +110,15 @@ export const metadata: Metadata = {
  * the clinic chooses a shorter period". Section 12's "or sooner if the
  * clinic chooses" is "or sooner if the clinic asks us to delete them": the
  * portal setting it leaned on shortened transcripts only, and is gone.
+ *
+ * Revised on 14 October 2026 as LEGAL_VERSION 2026-10-14.1, for BAA 1.5.0
+ * (agreement-changes.md § 15): the owner decided that day that the copy is
+ * deleted the moment delivery is confirmed. Section 6 says it goes as soon as
+ * the clinic's mail server confirms delivery, that an email that cannot be
+ * delivered is tried for at most 30 days, that one never confirmed goes 72
+ * hours after it was sent, and that a record of each transcript's delivery
+ * is kept without the words, where it said seven days after the email was
+ * first accepted.
  */
 export default function PrivacyPage() {
   return (
@@ -429,11 +438,14 @@ export default function PrivacyPage() {
           <li>
             Inside the product, a clinic&apos;s patient conversations: we keep no transcript. When
             a call or a website chat ends, its transcript is emailed to the clinic, and the one
-            encrypted copy we hold so that a failed email can be sent again is deleted seven days
-            after the email is first accepted for delivery, or seven days after it was queued if it
-            never is. The record of each conversation, without what was said, is deleted
-            automatically {TRANSCRIPT_RETENTION_DAYS} days after it took place, and no call audio
-            is kept at all. The clinic&apos;s Business Associate Agreement with us governs the rest.
+            encrypted copy we hold so that a failed email can be sent again is deleted as soon as
+            the clinic&apos;s mail server confirms delivery. If the email cannot be delivered we
+            keep trying for at most 30 days after the transcript was queued, and if its delivery is
+            never confirmed we delete the copy 72 hours after it was sent. We keep a record that
+            each transcript was delivered, without what was said. The record of each conversation,
+            without what was said, is deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after
+            it took place, and no call audio is kept at all. The clinic&apos;s Business Associate
+            Agreement with us governs the rest.
           </li>
         </ul>
       </Section>

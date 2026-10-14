@@ -125,7 +125,11 @@ The product announces on every call regardless.
    1.3.0 or 1.4.0 relies on a stored transcript as the record (both say only
    that the line is given and cannot be switched off), and the Terms annex
    no longer calls the line "the first line of every transcript"
-   (LEGAL_VERSION 2026-10-13.3). Whether a timestamp and a fixed asset
+   (LEGAL_VERSION 2026-10-13.3). Since 14 October 2026 (BAA 1.5.0;
+   agreement-changes.md § 15) healdesk's copy is deleted as soon as the
+   clinic's mail server confirms delivery, never later than 30 days after it
+   was queued, so this record is unchanged and the transcript line is only
+   ever in the clinic's own email. Whether a timestamp and a fixed asset
    are "the announcement recorded" is part of R1.
 4. **California § 631 after *Ambriz*.** The court's test was whether the
    vendor *can* use call content for its own purposes. The defence is the

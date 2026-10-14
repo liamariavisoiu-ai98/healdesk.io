@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
+import { HostStandbyNotice } from "@/components/admin/HostStandbyNotice";
 import {
   DOWNLOAD_COOKIE,
   downloadCookieOptions,
@@ -22,6 +23,7 @@ import {
   type ResendOutcome,
   type TerminateOutcome,
 } from "@/lib/admin/ops-client";
+import { isHostUnreachable } from "@/lib/host/state";
 
 import {
   AgreementsRegister,
@@ -139,6 +141,7 @@ export default async function AgreementsPage({
 
 async function Register({ filters }: { filters: AgreementQuery }) {
   const result = await fetchAgreements(filters);
+  if (isHostUnreachable(result)) return <HostStandbyNotice what="The agreement register" />;
   if (!result.ok) return <RegisterError failure={result} filters={filters} />;
 
   return (

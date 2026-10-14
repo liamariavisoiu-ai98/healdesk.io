@@ -1,0 +1,560 @@
+name: Host (AWS)
+
+# Turns the product host (infra/aws) on, or puts it in standby, by hand from
+# main or from /admin/host (apps/web, which dispatches it with the owner's
+# token). README "Standby" is the runbook; variables.tf has the switches.
+#
+#   active   Apply with standby off: everything standby removed comes back,
+#            the database from the newest standby snapshot when it does not
+#            exist (a new, empty one when there is no snapshot). Then
+#            deploy-app.yml, called below, builds and pushes the images (or
+#            reuses this commit's), runs db-bootstrap (it keeps every secret
+#            Parameter Store holds and gives the roles those passwords, in a
+#            restored database or a new one), migrates, and brings each
+#            service up to its DesiredCount tag. Then, once the app answers,
+#            one more apply subscribes the app to SES's events, which SNS
+#            refuses earlier.
+#   standby  Refused while Parameter Store says the host has a production
+#            clinic (below). Then two applies, because one cannot both change
+#            the database and delete it: the first lifts the deletion
+#            protection of the database and the load balancer and records the
+#            final snapshot healdesk-production-standby-<UTC time> in the
+#            state; the second removes the database (taking that snapshot),
+#            the load balancer, the NAT, every service, their alarms and the
+#            two CNAMEs. The key, every parameter, the images, the network,
+#            the trail, Config, GuardDuty, the buckets, SES and the alarm
+#            topic stay. Then older standby snapshots are deleted.
+#
+# Who can run it is decided in AWS, as for infra.yml and deploy-app.yml: the
+# Terraform role and the deploy role trust only a run of this repository on
+# main started by the owner. The checks below say so in plain words first.
+#
+# The guard on standby has two halves. /admin asks apps/app first, with the
+# signed ops call hostStandbyCheck (production clinics, agreements in effect,
+# transcripts not yet sent; counts only), and dispatches nothing unless all
+# three are 0. This workflow cannot sign an ops call, so when it is started
+# some other way (Actions, gh workflow run) it refuses standby while the
+# database exists and the String parameter
+# /healdesk/production/host/production-clinic reads "yes". apps/app does not
+# write that parameter yet: the owner sets it by hand when the first clinic
+# goes live (README, "Standby").
+#
+# Every apply runs scripts/host-apply.sh: a saved plan, rendered for the log,
+# checked by scripts/plan-guard.sh (which refuses a plan that deletes the key,
+# a parameter, an image repository, a bucket, or the database outside
+# standby's removal), then applied exactly. Variables are passed with -var,
+# after -var-file=production.tfvars, so the file stays the record of the
+# active shape. The switch is recorded in the String parameter
+# /healdesk/production/host/mode before anything changes, and infra.yml
+# follows it, so an infra.yml apply while the host is in standby keeps it
+# there.
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "active: apply, set up the database and deploy. standby: snapshot the database, then remove it, the load balancer, the NAT and the services"
+        type: choice
+        options: [active, standby]
+        default: active
+      reason:
+        description: "Why, in a few words (shown in the run's name, which /admin/host reads)"
+        type: string
+        default: ""
+
+# /admin/host reads the mode from this name ("Host active", "Host standby"),
+# so keep the first two words.
+run-name: Host ${{ inputs.mode }}${{ inputs.reason != '' && format(' ({0})', inputs.reason) || '' }}
+
+permissions:
+  id-token: write
+  contents: read
+
+# The group infra.yml and deploy-app.yml use: one change to production at a
+# time, never cancelled once going. deploy-app.yml, called below, takes a
+# group of its own while this run holds this one (see its concurrency).
+concurrency:
+  group: healdesk-aws-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AWS_ACCOUNT_ID: "865780386982"
+  TF_IN_AUTOMATION: "1"
+  TF_INPUT: "0"
+  CLOUDFLARE_TOKEN_PARAMETER: /healdesk/production/ci/CLOUDFLARE_API_TOKEN
+  # Plain String parameters outside Terraform: the switch this workflow last
+  # made (infra.yml reads it), and the owner's statement that a clinic is in
+  # production (the guard on standby).
+  HOST_MODE_PARAMETER: /healdesk/production/host/mode
+  PRODUCTION_CLINIC_PARAMETER: /healdesk/production/host/production-clinic
+  DB_INSTANCE: healdesk-production
+  LB_NAME: healdesk-production
+  SNAPSHOT_PREFIX: healdesk-production-standby-
+  LIVENESS_URL: https://app.healdesk.io/api/health?probe=liveness
+
+jobs:
+  check:
+    name: check the run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.run.outputs.mode }}
+    steps:
+      - name: Check the run
+        id: run
+        env:
+          MODE: ${{ inputs.mode }}
+          TERRAFORM_ROLE: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          STATE_KEY: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+          ALARM_EMAIL: ${{ vars.ALARM_EMAIL }}
+          ADMIN_EMAIL: ${{ vars.HEALDESK_ADMIN_EMAIL }}
+          ZONE_ID: ${{ vars.CLOUDFLARE_ZONE_ID }}
+        run: |
+          case "$MODE" in
+            active | standby) ;;
+            *)
+              echo "::error::mode must be active or standby."
+              exit 1
+              ;;
+          esac
+          missing=""
+          [ -n "$TERRAFORM_ROLE" ] || missing="$missing AWS_TERRAFORM_ROLE_ARN"
+          [ -n "$STATE_BUCKET" ] || missing="$missing TF_STATE_BUCKET"
+          [ -n "$STATE_KEY" ] || missing="$missing TF_STATE_KMS_KEY_ARN"
+          if [ -n "$missing" ]; then
+            echo "::error::Set the GitHub variable(s)$missing from the outputs of the healdesk-bootstrap stack (infra/aws/bootstrap/bootstrap.yaml)."
+            exit 1
+          fi
+          missing=""
+          [ -n "$ALARM_EMAIL" ] || missing="$missing ALARM_EMAIL"
+          [ -n "$ADMIN_EMAIL" ] || missing="$missing HEALDESK_ADMIN_EMAIL"
+          [ -n "$ZONE_ID" ] || missing="$missing CLOUDFLARE_ZONE_ID"
+          if [ -n "$missing" ]; then
+            echo "::error::Set the GitHub variable(s)$missing: Terraform takes the personal settings from repository variables, not from git (HEALDESK_OPS_EMAIL is optional)."
+            exit 1
+          fi
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::host.yml runs from main only (it was started on $GITHUB_REF): AWS gives its roles to no other branch."
+            exit 1
+          fi
+          # The roles' trust policies name the owner's id; if they ever name
+          # someone else, this check has to follow.
+          if [ "$GITHUB_ACTOR_ID" != "$GITHUB_REPOSITORY_OWNER_ID" ]; then
+            echo "::error::AWS gives the roles only to runs the repository owner starts, and $GITHUB_ACTOR started this one. Start it as the owner (/admin/host dispatches with the owner's token)."
+            exit 1
+          fi
+          echo "mode=$MODE" >>"$GITHUB_OUTPUT"
+          echo "Mode: $MODE"
+
+  # ---------------------------------------------------------------- standby
+  standby:
+    name: standby
+    needs: check
+    if: ${{ needs.check.outputs.mode == 'standby' }}
+    runs-on: ubuntu-latest
+    # As long as the AWS session below. The second apply waits for the
+    # database's final snapshot and deletion (minutes on a small instance)
+    # and, with enable_voice, for the voice tasks to drain their calls (up to
+    # an hour, inside the service's 65-minute delete timeout).
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/aws
+    env:
+      TF_VAR_alarm_email: ${{ vars.ALARM_EMAIL }}
+      TF_VAR_healdesk_admin_email: ${{ vars.HEALDESK_ADMIN_EMAIL }}
+      TF_VAR_healdesk_ops_email: ${{ vars.HEALDESK_OPS_EMAIL }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          role-session-name: healdesk-host-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 5400
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+
+      - name: terraform init
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          STATE_KEY: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="kms_key_id=$STATE_KEY"
+
+      # The workflow's half of the guard (the header). Nothing has changed
+      # yet when it refuses.
+      - name: Refuse standby while a clinic is in production
+        id: guard
+        run: |
+          if aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE" \
+            --query 'DBInstances[0].DBInstanceStatus' --output text >"$RUNNER_TEMP/db.txt" 2>"$RUNNER_TEMP/db.err"; then
+            database=present
+            echo "The database exists ($(cat "$RUNNER_TEMP/db.txt"))."
+          elif grep -q DBInstanceNotFound "$RUNNER_TEMP/db.err"; then
+            database=absent
+            echo "There is no database: the host is in standby already, or standby stopped after removing it."
+          else
+            cat "$RUNNER_TEMP/db.err" >&2
+            exit 1
+          fi
+          if [ "$database" = present ]; then
+            if flag=$(aws ssm get-parameter --name "$PRODUCTION_CLINIC_PARAMETER" \
+              --query Parameter.Value --output text 2>"$RUNNER_TEMP/flag.err"); then
+              :
+            elif grep -q ParameterNotFound "$RUNNER_TEMP/flag.err"; then
+              flag=""
+            else
+              cat "$RUNNER_TEMP/flag.err" >&2
+              exit 1
+            fi
+            if [ "$flag" = yes ]; then
+              echo "::error::$PRODUCTION_CLINIC_PARAMETER says a clinic is in production, so the host does not go into standby: its patients' calls and chats run here. Nothing was changed. If no clinic is in production any more, set the parameter to no in CloudShell first."
+              exit 1
+            fi
+            echo "$PRODUCTION_CLINIC_PARAMETER: ${flag:-not set} (apps/app does not write it; /admin/host asked apps/app itself before dispatching this run, if it did)."
+          fi
+          if aws elbv2 describe-load-balancers --names "$LB_NAME" \
+            --query 'LoadBalancers[0].State.Code' --output text >"$RUNNER_TEMP/lb.txt" 2>"$RUNNER_TEMP/lb.err"; then
+            load_balancer=present
+          elif grep -q LoadBalancerNotFound "$RUNNER_TEMP/lb.err"; then
+            load_balancer=absent
+          else
+            cat "$RUNNER_TEMP/lb.err" >&2
+            exit 1
+          fi
+          echo "The load balancer: $load_balancer."
+          {
+            echo "database=$database"
+            echo "load_balancer=$load_balancer"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Record the switch
+        run: |
+          aws ssm put-parameter --name "$HOST_MODE_PARAMETER" --type String --overwrite \
+            --value standby --description "The switch host.yml last made (active or standby); infra.yml follows it." \
+            --query Version --output text >/dev/null
+          echo "$HOST_MODE_PARAMETER: standby"
+
+      # Apply 1 of 2. Targeted at the two resources it changes, so it does
+      # nothing else, and only at those that exist both in AWS and in the
+      # state, so a run after a standby that stopped half-way never makes one
+      # again; the release guard refuses anything but updates besides.
+      - name: Standby, apply 1 of 2 (lift the protections, name the final snapshot)
+        id: first
+        env:
+          DATABASE: ${{ steps.guard.outputs.database }}
+          LB_FOUND: ${{ steps.guard.outputs.load_balancer }}
+        run: |
+          snapshot="$SNAPSHOT_PREFIX$(date -u +%Y%m%d%H%M%S)"
+          state=$(terraform state list)
+          targets=()
+          if [ "$DATABASE" = present ] && grep -qE '^aws_db_instance\.main(\[0\])?$' <<<"$state"; then
+            targets+=(-target=aws_db_instance.main)
+            echo "snapshot=$snapshot" >>"$GITHUB_OUTPUT"
+          fi
+          if [ "$LB_FOUND" = present ] && grep -qE '^aws_lb\.main(\[0\])?$' <<<"$state"; then
+            targets+=(-target=aws_lb.main)
+          fi
+          if [ "${#targets[@]}" = 0 ]; then
+            echo "Neither the database nor the load balancer is left: nothing to release."
+            exit 0
+          fi
+          bash scripts/host-apply.sh "standby 1 of 2" release \
+            -var standby=false -var deletion_protection=false \
+            -var final_snapshot_identifier="$snapshot" "${targets[@]}"
+
+      - name: Standby, apply 2 of 2 (remove)
+        env:
+          SNAPSHOT: ${{ steps.first.outputs.snapshot }}
+        run: |
+          args=(-var standby=true -var deletion_protection=false)
+          [ -z "$SNAPSHOT" ] || args+=(-var final_snapshot_identifier="$SNAPSHOT")
+          bash scripts/host-apply.sh "standby 2 of 2" standby "${args[@]}"
+
+      # Only the newest standby snapshot is kept, once it is available.
+      # Manual snapshots never expire, and each older one is a copy of the
+      # same synthetic database at an earlier time.
+      - name: Keep only the newest standby snapshot
+        if: ${{ steps.first.outputs.snapshot != '' }}
+        env:
+          SNAPSHOT: ${{ steps.first.outputs.snapshot }}
+        run: |
+          aws rds wait db-snapshot-available --db-snapshot-identifier "$SNAPSHOT"
+          echo "$SNAPSHOT is available."
+          older=$(aws rds describe-db-snapshots --snapshot-type manual \
+            --query "DBSnapshots[?starts_with(DBSnapshotIdentifier, '$SNAPSHOT_PREFIX') && DBSnapshotIdentifier != '$SNAPSHOT'].DBSnapshotIdentifier" \
+            --output text)
+          for old in $older; do
+            [ "$old" != None ] || continue
+            aws rds delete-db-snapshot --db-snapshot-identifier "$old" --query 'DBSnapshot.Status' --output text >/dev/null
+            echo "Deleted the older standby snapshot $old."
+          done
+          echo "The database's final snapshot: \`$SNAPSHOT\` (the host comes back from it)." >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the rendered plans
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: host-standby-plans-${{ github.run_id }}-${{ github.run_attempt }}
+          path: infra/aws/plan-*.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # --------------------------------------------------------------- turn on
+  turn-on:
+    name: turn on (apply)
+    needs: check
+    if: ${{ needs.check.outputs.mode == 'active' }}
+    runs-on: ubuntu-latest
+    # A database restored from a snapshot takes the longest, then the NAT
+    # instance's first boot and the load balancer.
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/aws
+    env:
+      TF_VAR_alarm_email: ${{ vars.ALARM_EMAIL }}
+      TF_VAR_healdesk_admin_email: ${{ vars.HEALDESK_ADMIN_EMAIL }}
+      TF_VAR_healdesk_ops_email: ${{ vars.HEALDESK_OPS_EMAIL }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+    outputs:
+      database: ${{ steps.database.outputs.summary }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          role-session-name: healdesk-host-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 5400
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+
+      - name: terraform init
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          STATE_KEY: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="kms_key_id=$STATE_KEY"
+
+      - name: Record the switch
+        run: |
+          aws ssm put-parameter --name "$HOST_MODE_PARAMETER" --type String --overwrite \
+            --value active --description "The switch host.yml last made (active or standby); infra.yml follows it." \
+            --query Version --output text >/dev/null
+          echo "$HOST_MODE_PARAMETER: active"
+
+      # A database that exists is kept whatever is passed (rds.tf ignores
+      # snapshot_identifier once it exists), so a snapshot is named only when
+      # there is none: the newest available standby snapshot, or nothing, and
+      # then a new, empty database.
+      - name: Find the database
+        id: database
+        run: |
+          if aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE" \
+            --query 'DBInstances[0].DBInstanceStatus' --output text >"$RUNNER_TEMP/db.txt" 2>"$RUNNER_TEMP/db.err"; then
+            summary="the database exists ($(cat "$RUNNER_TEMP/db.txt")) and is kept"
+            snapshot=""
+          elif grep -q DBInstanceNotFound "$RUNNER_TEMP/db.err"; then
+            snapshot=$(aws rds describe-db-snapshots --snapshot-type manual \
+              --query "reverse(sort_by(DBSnapshots[?starts_with(DBSnapshotIdentifier, '$SNAPSHOT_PREFIX') && Status == 'available'], &SnapshotCreateTime))[0].DBSnapshotIdentifier" \
+              --output text)
+            if [ -z "$snapshot" ] || [ "$snapshot" = None ]; then
+              snapshot=""
+              summary="no database and no standby snapshot: a new, empty database; db-bootstrap creates the roles with the passwords Parameter Store keeps"
+              echo "::warning::There is no standby snapshot, so the database starts empty."
+            else
+              summary="the database comes back from $snapshot"
+            fi
+          else
+            cat "$RUNNER_TEMP/db.err" >&2
+            exit 1
+          fi
+          echo "$summary"
+          {
+            echo "snapshot=$snapshot"
+            echo "summary=$summary"
+          } >>"$GITHUB_OUTPUT"
+
+      # SNS refuses to subscribe an endpoint that does not answer, so the
+      # subscription waits for the last job unless the app already answers
+      # (the host was on).
+      - name: Turn on
+        env:
+          SNAPSHOT: ${{ steps.database.outputs.snapshot }}
+        run: |
+          subscribe=false
+          if body=$(curl --silent --max-time 10 --fail "$LIVENESS_URL") && jq -e '.ok == true' <<<"$body" >/dev/null 2>&1; then
+            subscribe=true
+          fi
+          args=(-var standby=false -var deletion_protection=true -var subscribe_ses_events="$subscribe")
+          [ -z "$SNAPSHOT" ] || args+=(-var restore_snapshot_identifier="$SNAPSHOT")
+          bash scripts/host-apply.sh "turn on" active "${args[@]}"
+
+      - name: Upload the rendered plan
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: host-turn-on-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: infra/aws/plan-*.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # The deploy, exactly as a hand-started full deploy with bootstrap_db and
+  # migrate ticked: every service this apply created is at 0 tasks, which
+  # deploy-app.yml treats as a first deploy, and db-bootstrap is safe to run
+  # again whatever the database holds.
+  deploy:
+    name: deploy
+    needs: turn-on
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/deploy-app.yml
+    with:
+      bootstrap_db: true
+      migrate: true
+
+  subscribe:
+    name: subscribe the app to SES's events
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: infra/aws
+    env:
+      TF_VAR_alarm_email: ${{ vars.ALARM_EMAIL }}
+      TF_VAR_healdesk_admin_email: ${{ vars.HEALDESK_ADMIN_EMAIL }}
+      TF_VAR_healdesk_ops_email: ${{ vars.HEALDESK_OPS_EMAIL }}
+      TF_VAR_cloudflare_zone_id: ${{ vars.CLOUDFLARE_ZONE_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Wait for the app to answer
+        run: |
+          for attempt in $(seq 1 20); do
+            if body=$(curl --silent --max-time 10 --fail "$LIVENESS_URL") && jq -e '.ok == true' <<<"$body" >/dev/null 2>&1; then
+              echo "$LIVENESS_URL answered ok"
+              exit 0
+            fi
+            echo "attempt $attempt: not yet"
+            sleep 15
+          done
+          echo "::error::$LIVENESS_URL did not answer ok within five minutes, so SNS would refuse the subscription. The host is on; run host.yml with active again once it answers."
+          exit 1
+
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: 1.16.5
+          terraform_wrapper: false
+
+      - uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+          role-session-name: healdesk-host-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-duration-seconds: 1800
+          allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
+
+      - name: terraform init
+        env:
+          STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
+          STATE_KEY: ${{ vars.TF_STATE_KMS_KEY_ARN }}
+        run: |
+          terraform init -input=false -lockfile=readonly \
+            -backend-config="bucket=$STATE_BUCKET" \
+            -backend-config="kms_key_id=$STATE_KEY"
+
+      - name: Subscribe
+        run: |
+          bash scripts/host-apply.sh "subscribe" active \
+            -var standby=false -var deletion_protection=true -var subscribe_ses_events=true
+
+      - name: Upload the rendered plan
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: host-subscribe-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: infra/aws/plan-*.txt
+          if-no-files-found: ignore
+          retention-days: 30
+
+  # --------------------------------------------------------------- summary
+  summary:
+    name: summary
+    needs: [check, standby, turn-on, deploy, subscribe]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Outcome
+        env:
+          MODE: ${{ inputs.mode }}
+          REASON: ${{ inputs.reason }}
+          CHECK: ${{ needs.check.result }}
+          STANDBY: ${{ needs.standby.result }}
+          TURN_ON: ${{ needs.turn-on.result }}
+          DEPLOY: ${{ needs.deploy.result }}
+          SUBSCRIBE: ${{ needs.subscribe.result }}
+          DATABASE: ${{ needs.turn-on.outputs.database }}
+        run: |
+          {
+            echo "### Host: $MODE${REASON:+ ($REASON)}"
+            echo
+            if [ "$CHECK" != success ]; then
+              echo "Refused before anything changed: see the check job."
+            elif [ "$MODE" = standby ]; then
+              case "$STANDBY" in
+                success)
+                  echo "**Standby.** The database (after its final snapshot), the load balancer, the NAT, every service, their alarms and the two CNAMEs are gone; the key, the parameters, the images, the network, the trail, Config, GuardDuty, the buckets, SES and the alarm topic stay."
+                  echo
+                  echo "Turn it on again from /admin/host, or here with mode active."
+                  ;;
+                *)
+                  echo "**Standby did not finish ($STANDBY).** Read the standby job: if it stopped after its first apply, the database and the load balancer are unprotected until host.yml runs again, with either mode."
+                  ;;
+              esac
+            else
+              echo "- apply: $TURN_ON${DATABASE:+ ($DATABASE)}"
+              echo "- deploy (bootstrap, migrate, roll): $DEPLOY"
+              echo "- SES events subscription: $SUBSCRIBE"
+              echo
+              if [ "$TURN_ON" = success ] && [ "$DEPLOY" = success ] && [ "$SUBSCRIBE" = success ]; then
+                echo "**Active.** https://app.healdesk.io/api/health?probe=liveness answers ok."
+              else
+                echo "**Not fully on.** Read the first job that did not succeed; run host.yml with active again once it is fixed (every step is safe to repeat)."
+              fi
+            fi
+          } >>"$GITHUB_STEP_SUMMARY"
+          if [ "$CHECK" != success ]; then exit 1; fi
+          if [ "$MODE" = standby ] && [ "$STANDBY" != success ]; then exit 1; fi
+          if [ "$MODE" = active ] && { [ "$TURN_ON" != success ] || [ "$DEPLOY" != success ] || [ "$SUBSCRIBE" != success ]; }; then exit 1; fi
+          exit 0

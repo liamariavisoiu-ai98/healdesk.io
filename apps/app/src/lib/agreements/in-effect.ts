@@ -1,9 +1,9 @@
-import { agreementKindOfVersion, type AgreementKind } from "@healdesk/catalog";
+import { agreementKindOfVersion, agreementMismatch, type AgreementKind, type AgreementMatchPurchase } from "@healdesk/catalog";
 import { eq, sql } from "drizzle-orm";
 
 import { unsafeDb, type Queryable } from "@/db";
 import { baaAcceptances } from "@/db/schema";
-import type { IntentRequest } from "@/lib/checkout/intents";
+import { agreementTemplateReleased } from "@/lib/agreements/kind";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
@@ -94,10 +94,7 @@ export async function agreementInEffectFor(
 // -----------------------------------------------------------------------------
 
 /** Every answer that names or selects the document, as the purchase carries it. */
-export type AgreementPurchase = Pick<
-  IntentRequest,
-  "clinicName" | "specialty" | "platform" | "isCoveredEntity" | "bookingSystem" | "calendarAccount"
->;
+export type AgreementPurchase = AgreementMatchPurchase;
 
 export class AgreementMismatchError extends Error {
   readonly field = "agreementId";
@@ -116,26 +113,18 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  * account), and with them the practice, specialty and covered-entity answer
  * that select the rest (plan §2.7, the seam §14.3 left for the purchase).
  *
- * Not a second definition of a matching agreement. The checkout intent
- * already refuses a mismatch before payment through `agreementMismatch`
- * (lib/checkout/intents.ts, the funnel's), and this asks exactly that
- * function about the signed row, so the two cannot disagree; the design
- * record (docs/design/google-calendar-2026-10-05.md §6) drops the plan's own
- * comparison for that reason. The message is agreementMismatch's, which tells
- * the buyer to sign again.
- *
- * The intents module is loaded when this is called, not when this file is.
- * It imports provisioning, and with it the billing lifecycle; statically
- * imported here, all of that would load with every reader of the agreement
- * in effect, and should provisioning ever read the agreement in effect from
- * this file, the three would form an import cycle, which breaks whichever
- * module of it is evaluated first.
+ * Not a second definition of a matching agreement. The purchase is refused
+ * on a mismatch before payment through `agreementMismatch` (the catalog's,
+ * packages/catalog/src/agreement-match.ts, which apps/web asks at Pay), and
+ * this asks exactly that function about the signed row, so the two cannot
+ * disagree; the design record (docs/design/google-calendar-2026-10-05.md §6)
+ * drops the plan's own comparison for that reason. The message is
+ * agreementMismatch's, which tells the buyer to sign again.
  */
 export async function assertPlatformMatchesAgreement(
   agreementId: string,
   purchase: AgreementPurchase,
 ): Promise<void> {
-  const { agreementMismatch } = await import("@/lib/checkout/intents");
   const [row] = UUID.test(agreementId)
     ? await unsafeDb
         .select({ version: baaAcceptances.documentVersion, variables: baaAcceptances.variables })
@@ -144,6 +133,6 @@ export async function assertPlatformMatchesAgreement(
         .limit(1)
     : [];
   if (!row) throw new AgreementMismatchError("That agreement wasn't found. Please sign it again.");
-  const mismatch = agreementMismatch(row.version, row.variables, purchase);
+  const mismatch = agreementMismatch(row.version, row.variables, purchase, { released: agreementTemplateReleased });
   if (mismatch) throw new AgreementMismatchError(mismatch);
 }

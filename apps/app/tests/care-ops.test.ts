@@ -171,7 +171,7 @@ describeDb("care operations", () => {
       await client.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
       await client.query(
         `insert into webhook_events (clinic_id, provider, delivery_id, signature_valid, raw_payload, processed_at, received_at)
-         values ($1, 'synthflow', 'call_export_1', true, $2, $3, $3),
+         values ($1, 'retell', 'call_export_1', true, $2, $3, $3),
                 ($1, 'mindbody', 'evt_export_text', false, 'From: Ann <ann@mail.test>', null, $3),
                 ($1, 'mindbody', 'evt_export_deep', true, $4, null, $3),
                 ($1, 'mindbody', 'evt_export_deepish', true, $5, null, $3),
@@ -213,7 +213,7 @@ describeDb("care operations", () => {
       "evt_export_text",
     ]);
     expect(byDelivery.call_export_1).toMatchObject({
-      provider: "synthflow",
+      provider: "retell",
       processed: true,
       text: null,
       body: { call_id: "call_export_1", transcript: "Caller asked about a consultation." },

@@ -15,8 +15,8 @@ import { NextResponse, type NextRequest } from "next/server";
  * Everything here authenticates itself, and a proxy check would protect
  * neither route handlers nor client-side navigations. The clinic portal's
  * pages and server actions each call requirePortal, and patient pages
- * requireStepUp. The signed API routes (`/api/provision`, `/api/agreements`,
- * `/api/ops`, `/api/checkout/*`) check an HMAC over the body and a timestamp,
+ * requireStepUp. The signed API routes (`/api/provision`, `/api/ops`,
+ * `/api/billing/events`) check an HMAC over the body and a timestamp,
  * the webhooks check their provider's signature, and the single-use link
  * pages (`/link`, `/connect`, `/booking`) resolve their token server-side.
  *

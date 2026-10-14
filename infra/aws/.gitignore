@@ -10,6 +10,9 @@
 *.tfplan
 tfplan
 plan.txt
+# scripts/host-apply.sh's saved plans and their renderings (host.yml).
+tfplan-*
+plan-*.txt
 crash.log
 crash.*.log
 .terraformrc

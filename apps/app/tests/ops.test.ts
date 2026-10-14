@@ -50,7 +50,7 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   callRouting: "conditional",
   callRoutingConfirmedAt: new Date(),
   carrier: "verizon",
-  synthflowNumberE164: "+14155550100",
+  assistantNumberE164: "+14155550100",
   openingHoursPresent: true,
   onboarding: Object.fromEntries(ONBOARDING_STEPS.map((step) => [step, "2026-09-13T00:00:00.000Z"])),
   agentApprovedAt: new Date(),
@@ -189,6 +189,7 @@ describeDb("ops clinic listing", () => {
     expect(Object.keys(first!).sort()).toEqual(
       [
         "agentApprovedAt",
+        "assistantNumberE164",
         "attributionMode",
         "baaSignedAt",
         "baaVersion",
@@ -226,7 +227,6 @@ describeDb("ops clinic listing", () => {
         "stripeConnectAccountId",
         "stripeConnectConnectedAt",
         "stripeConnectDisconnectedAt",
-        "synthflowNumberE164",
         "timezone",
         "wentLiveAt",
       ].sort(),
@@ -300,6 +300,24 @@ describe("inbound only: the call-back and template operations are gone", () => {
   test("neither the call-back switch nor the WhatsApp template op is an operation any more", () => {
     expect(isOpName("setOutboundCallbacks")).toBe(false);
     expect(isOpName("setWhatsAppTemplate")).toBe(false);
+  });
+});
+
+describe("the operator's sign-in is not an operation (14 October 2026)", () => {
+  test("none of the five ops that answered apps/web before a session exists any more", () => {
+    // The second factor moved onto Vercel (apps/web/src/lib/admin/totp.ts) so
+    // /admin can be signed into while this host is off; drizzle/0074 dropped
+    // its table. An op that answers without a session is one nobody should be
+    // able to add back by accident.
+    for (const op of [
+      "getAdminTotpState",
+      "enrolAdminTotp",
+      "verifyAdminTotpStep",
+      "burnRecoveryCode",
+      "sendSignInAlert",
+    ]) {
+      expect(isOpName(op), op).toBe(false);
+    }
   });
 });
 

@@ -44,6 +44,8 @@ import {
   type CalendarTermsKind,
   type Channel,
   CHANNELS,
+  CHECKOUT_PROFILE_STATUSES,
+  type CheckoutProfileStatus,
   type ClinicProfile,
   COVERAGE_MODES,
   type CoverageModeId,
@@ -459,8 +461,8 @@ export const clinics = pgTable(
     onboarding: jsonb("onboarding").$type<OnboardingState>().notNull().default({}),
     /** Who bills the clinic for its main line; decides the forwarding codes. */
     carrier: text("carrier"),
-    /** The Synthflow-issued number the clinic forwards to, E.164. */
-    synthflowNumberE164: text("synthflow_number_e164"),
+    /** The assistant's own number (on Retell) that the clinic forwards to, E.164. */
+    assistantNumberE164: text("assistant_number_e164"),
     /**
      * The clinic's own published number, E.164. A forwarded call that arrives
      * carrying THIS as its caller ID has lost the caller: the carrier
@@ -2846,95 +2848,6 @@ export type PendingCalendarElection = {
   documentHash: string;
 };
 
-/**
- * The administrator's second factor. Exactly one row, forever.
- *
- * There is one administrator, identified by HEALDESK_ADMIN_EMAIL, and no user
- * store behind them — no invitations, no team, no roles. So this table is not
- * "TOTP secrets keyed by user"; it is the single secret belonging to the single
- * operator, and the primary key is a constant with a CHECK pinning it to 1. A
- * second row is not a state this design has an opinion about, so the database
- * refuses to represent it rather than leaving two secrets for a later reader to
- * choose between.
- *
- * Four properties, all enforced by drizzle/0026_admin_totp.sql rather than here:
- *
- *   1. **The secret is never stored in the clear.** `secretCiphertext` holds the
- *      whole sealed envelope from lib/crypto/envelope.ts — AES-256-GCM under a
- *      wrapped data key — and a CHECK constraint demands the object carry an
- *      `authTag`, so the refactor that "simplifies" this into storing the base32
- *      secret fails the INSERT instead of silently turning the table into a
- *      list of working authenticators. Same reasoning as connection_links'
- *      `octet_length(token_hash) = 32`.
- *   2. **A used step stays used.** `lastUsedStep` only ever moves forward, by a
- *      conditional UPDATE and by a trigger that refuses a smaller value. That is
- *      what makes a code single-use: an intercepted six digits is worthless for
- *      the remaining seconds of its own window.
- *   3. **The application cannot disenrol.** No DELETE for the app role, and
- *      column-scoped UPDATE covering only `lastUsedStep` and
- *      `recoveryCodeHashes`. Nothing reachable from a request can replace the
- *      secret or clear the enrolment; doing that deliberately takes the migrator
- *      role and a human. An application that could re-enrol on demand is an
- *      application whose second factor an attacker can simply re-point.
- *   4. **Recovery codes are digests.** Never the codes. They are ours, 50 bits
- *      of randomness each, so SHA-256 is the right primitive and not a password
- *      hash — see lib/ops/admin-totp.ts for why that also buys single-use.
- *
- * ⚠️ No PHI, ever, and no clinic_id: this is identity plane, like
- * security_events and provisioning_attempts, so there is no RLS and no tenant
- * for one to scope by.
- */
-export const adminTotp = pgTable(
-  "admin_totp",
-  {
-    /**
-     * Always 1. The CHECK in the migration is what makes that true; the default
-     * is what makes every writer here able to ignore it.
-     */
-    id: smallint("id").primaryKey().default(1),
-
-    /**
-     * The sealed secret, as the whole `SealedPayload` from envelope.ts.
-     *
-     * One jsonb column rather than the six that provider_connections spreads it
-     * across, and the difference is deliberate: those six exist so a rotation
-     * job can scan `key_version` across thousands of rows. There is one row
-     * here. What matters instead is that the parts cannot be written apart from
-     * one another — a half-updated envelope is an unopenable secret and a
-     * locked-out administrator — so they move as one value.
-     */
-    secretCiphertext: jsonb("secret_ciphertext").$type<SealedPayload>().notNull(),
-
-    enrolledAt: timestamp("enrolled_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-
-    /**
-     * The highest TOTP step already spent, as a number.
-     *
-     * `mode: "number"` rather than bigint-as-string because a step is
-     * `floor(unixSeconds / 30)` — about 5.8e7 today and 1.4e8 when the sun
-     * expands. It will not reach Number.MAX_SAFE_INTEGER, and a string here
-     * would make every comparison in admin-totp.ts a place to get a coercion
-     * wrong. bigint in Postgres anyway, because the column outlives the reason.
-     */
-    lastUsedStep: bigint("last_used_step", { mode: "number" })
-      .notNull()
-      .default(0),
-
-    /** SHA-256 hex of each unspent recovery code. Never the codes themselves. */
-    recoveryCodeHashes: text("recovery_code_hashes")
-      .array()
-      .notNull()
-      .default(sql`'{}'::text[]`),
-
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [check("admin_totp_is_a_singleton", sql`${t.id} = 1`)],
-);
-
 // -----------------------------------------------------------------------------
 // Billing
 // -----------------------------------------------------------------------------
@@ -3047,7 +2960,7 @@ export const entitlements = pgTable(
       .notNull()
       .default("allow"),
 
-    /** When the forwarded-to Synthflow number may be released after a cancel. */
+    /** When the assistant's forwarded-to number may be released after a cancel. */
     numberReleaseAt: timestamp("number_release_at", { withTimezone: true }),
 
     /**
@@ -3383,9 +3296,12 @@ export type CheckoutIntentPayload = {
   timezone?: string;
 };
 
-/** Whether the website was read at checkout: read, tried and failed, or there was none. */
-export const CHECKOUT_PROFILE_STATUSES = ["read", "failed", "none"] as const;
-export type CheckoutProfileStatus = (typeof CHECKOUT_PROFILE_STATUSES)[number];
+/**
+ * Whether the website was read at checkout: read, tried and failed, or there
+ * was none. The catalog's list since 14 October 2026, because apps/web holds a
+ * purchase to it before payment (packages/catalog/src/checkout-intent.ts).
+ */
+export { CHECKOUT_PROFILE_STATUSES, type CheckoutProfileStatus };
 
 /**
  * A purchase waiting on its first paid invoice.
@@ -5247,9 +5163,26 @@ export const TENANT_SCOPED_TABLES = [
 // The transcript outbox (the owner's decisions of 13 October 2026)
 // -----------------------------------------------------------------------------
 
-/** Where an emailed transcript stands. */
-export const TRANSCRIPT_EMAIL_STATUSES = ["open", "pending", "sent", "delivered", "bounced"] as const;
+/**
+ * Where an emailed transcript stands. The first four hold the sealed copy;
+ * the last three are a receipt without it (drizzle/0072): `delivered` (the
+ * clinic's mail server took it), `expired` (not delivered 30 days after it
+ * was queued) and `unconfirmed` (SES accepted it and nothing answered for
+ * 72 hours).
+ */
+export const TRANSCRIPT_EMAIL_STATUSES = [
+  "open",
+  "pending",
+  "sent",
+  "bounced",
+  "delivered",
+  "expired",
+  "unconfirmed",
+] as const;
 export type TranscriptEmailStatus = (typeof TRANSCRIPT_EMAIL_STATUSES)[number];
+
+/** The statuses that are a receipt: the copy is gone, and the row never changes again (drizzle/0072). */
+export const TRANSCRIPT_EMAIL_FINAL_STATUSES = ["delivered", "expired", "unconfirmed"] as const satisfies readonly TranscriptEmailStatus[];
 
 /**
  * A conversation's transcript on its way to the clinic, and the only copy
@@ -5260,19 +5193,23 @@ export type TranscriptEmailStatus = (typeof TRANSCRIPT_EMAIL_STATUSES)[number];
  * ⚠️ PHI, and sealed: `sealed` is the transcript's turns, envelope-encrypted
  * under the KMS key with the clinic's lock label (login `transcript`) and
  * this row's id in the AAD, so a copied row opens nowhere else. Tenant RLS,
- * forced, and the BAA gate (drizzle/0069). The row, and the copy with it, is
- * deleted at `destroy_after`: seven days after the transcript was first
- * accepted by SES, or seven days after it was queued if it never was. A
- * delivered transcript is kept that long only so a clinic that lost the
- * email can be sent it again. It also goes with its conversation (erasure,
- * the record clock, destruction), through the foreign key's cascade.
+ * forced, and the BAA gate (drizzle/0069). The copy is set to NULL the
+ * moment SES reports the clinic's mail server took the email (`delivered`),
+ * and otherwise at the latest 30 days after the row was queued (`expired`,
+ * `destroy_after`), or 72 hours after a send SES accepted and nothing
+ * answered for (`unconfirmed`), the owner's decision of 14 October 2026
+ * (drizzle/0072, whose trigger holds both clocks to the database's). What
+ * stays is a receipt without the words: whether, and when, the transcript
+ * reached the clinic. The row goes with its conversation (erasure, the
+ * record clock, destruction), through the foreign key's cascade.
  *
  * `open` is a web chat still going (lib/chat/web-chat.ts): the only state of
  * its conversation healdesk holds, sealed the same way and rewritten at each
  * message, and due to be sent once the visitor has been quiet until
  * `next_attempt_at`, or at once when they end it. Only an open row's copy may
- * change, and only while it stays open (drizzle/0071). A call is queued
- * `pending` when it ends.
+ * change, and only while it stays open (drizzle/0071); any other copy changes
+ * only to NULL, as its row becomes a receipt, and never back (drizzle/0072).
+ * A call is queued `pending` when it ends.
  *
  * Never stored here: the clinic's address (read at each send, from the
  * sign-in), and anything SES says beyond a status and its own reason.
@@ -5285,8 +5222,11 @@ export const transcriptEmails = pgTable(
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
     conversationId: uuid("conversation_id").notNull(),
-    /** The sealed transcript (lib/crypto/envelope.ts). */
-    sealed: jsonb("sealed").$type<SealedPayload>().notNull(),
+    /**
+     * The sealed transcript (lib/crypto/envelope.ts), or NULL once the row is
+     * a receipt: exactly when the status is delivered, expired or unconfirmed.
+     */
+    sealed: jsonb("sealed").$type<SealedPayload>(),
     status: text("status").$type<TranscriptEmailStatus>().notNull().default("pending"),
     /** Sends tried, accepted or not. */
     attempts: integer("attempts").notNull().default(0),
@@ -5298,14 +5238,18 @@ export const transcriptEmails = pgTable(
     sesMessageId: text("ses_message_id"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
-    /** When the row, and the sealed copy with it, is deleted. */
+    /**
+     * The 30-day cap: created_at plus 30 days, set by the trigger and never
+     * moved. A copy not delivered by then is deleted and the row expired.
+     */
     destroyAfter: timestamp("destroy_after", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
   },
   (t) => [
     uniqueIndex("transcript_emails_conversation_idx").on(t.conversationId),
     index("transcript_emails_due_idx").on(t.clinicId, t.nextAttemptAt).where(sql`${t.status} in ('open', 'pending', 'bounced')`),
-    index("transcript_emails_destroy_idx").on(t.clinicId, t.destroyAfter),
+    index("transcript_emails_destroy_idx").on(t.clinicId, t.destroyAfter).where(sql`${t.sealed} is not null`),
+    index("transcript_emails_unconfirmed_idx").on(t.clinicId, t.sentAt).where(sql`${t.status} = 'sent'`),
     uniqueIndex("transcript_emails_ses_message_idx").on(t.sesMessageId).where(sql`${t.sesMessageId} is not null`),
     // Composite, so a transcript can only belong to a conversation of its own
     // clinic; it goes when the conversation goes.
@@ -5314,13 +5258,21 @@ export const transcriptEmails = pgTable(
       columns: [t.clinicId, t.conversationId],
       foreignColumns: [conversations.clinicId, conversations.id],
     }).onDelete("cascade"),
-    check("transcript_emails_status_check", sql`${t.status} in ('open', 'pending', 'sent', 'delivered', 'bounced')`),
+    check(
+      "transcript_emails_status_check",
+      sql`${t.status} in ('open', 'pending', 'sent', 'bounced', 'delivered', 'expired', 'unconfirmed')`,
+    ),
+    // A receipt holds no copy, and only a receipt (drizzle/0072).
+    check(
+      "transcript_emails_sealed_check",
+      sql`(${t.status} in ('delivered', 'expired', 'unconfirmed')) = (${t.sealed} is null)`,
+    ),
     check("transcript_emails_attempts_check", sql`${t.attempts} >= 0`),
     check("transcript_emails_last_error_check", sql`${t.lastError} is null or char_length(${t.lastError}) <= 500`),
     check("transcript_emails_destroy_check", sql`${t.destroyAfter} > ${t.createdAt}`),
     check(
       "transcript_emails_sent_check",
-      sql`(${t.status} in ('open', 'pending')) or (${t.sentAt} is not null and ${t.sesMessageId} is not null)`,
+      sql`(${t.status} in ('open', 'pending', 'expired')) or (${t.sentAt} is not null and ${t.sesMessageId} is not null)`,
     ),
   ],
 );

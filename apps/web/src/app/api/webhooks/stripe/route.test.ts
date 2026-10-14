@@ -1,6 +1,11 @@
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
+import { openSealedRecord, type IntentRecord } from "@healdesk/catalog/checkout-record";
 import Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+
+import { recordTestPurchase, signTestAgreement } from "@/lib/checkout/records.testing";
+import { FakeSheets, __setSheetsClientForTests } from "@/lib/sheets/client";
+import { __resetSheetSchemaForTests } from "@/lib/sheets/schema";
 
 /**
  * The Stripe webhook: where a paid purchase becomes an account.
@@ -10,9 +15,11 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
  *   retry rather than acknowledging real sales into the void;
  * - a completed Checkout Session creates nothing: it closes the funnel in the
  *   lead store and spends the setup link;
- * - the FIRST paid invoice provisions from the intent apps/app stored at Pay,
- *   keyed by the subscription id, and the event goes on only once the account
- *   exists. A failure a retry can fix answers 500 and forwards nothing; one it
+ * - the FIRST paid invoice provisions from the purchase recorded at Pay,
+ *   keyed by the subscription id, carrying the sealed purchase record of the
+ *   press that was paid and the sealed agreement it names, exactly as the
+ *   marketing Sheet holds them (since 14 October 2026), and the event goes
+ *   on only once the account exists. A failure a retry can fix answers 500 and forwards nothing; one it
  *   cannot is logged loudly and forwarded, so the event parks against the
  *   subscription;
  * - refunds go to apps/app with no marker, and one Stripe account's other
@@ -122,9 +129,16 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   vi.spyOn(console, "warn").mockImplementation(() => {});
   for (const mock of Object.values(mocks)) mock.mockClear();
+  sheets = new FakeSheets();
+  __setSheetsClientForTests(sheets);
+  __resetSheetSchemaForTests();
 });
 
+let sheets: FakeSheets;
+
 afterEach(() => {
+  __setSheetsClientForTests(null);
+  __resetSheetSchemaForTests();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   for (const key of ENV) {
@@ -239,6 +253,77 @@ describe("the first paid invoice makes the account", () => {
     const response = await POST(signed(firstInvoice({ app: "scalabid", ref: "ref_1" })));
     expect(await response.json()).toEqual({ received: true, skipped: "not-healdesk" });
     expect(calls).toEqual([]);
+  });
+});
+
+describe("the first paid invoice carries the checkout records", () => {
+  const REF = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+
+  async function purchase() {
+    const agreement = await signTestAgreement({
+      clinicName: "Radiance Med Spa LLC",
+      specialty: "med-spa",
+      covered: "no",
+      bookingSystem: "google_calendar",
+      calendarAccount: "workspace_baa",
+      contactName: "Alex Chen",
+      contactEmail: "alex@radiance.test",
+    });
+    // Two presses of Pay: the first cancelled at Stripe, the second paid.
+    await recordTestPurchase(agreement, { ref: REF, attempt: 1, sessionId: "cs_test_first" });
+    const paid = await recordTestPurchase(agreement, {
+      ref: REF,
+      attempt: 2,
+      sessionId: "cs_test_second",
+      billingInterval: "year",
+    });
+    return { agreement, paid };
+  }
+
+  test("the record of the press that was paid and its agreement, sealed, exactly as the Sheet holds them", async () => {
+    const { agreement, paid } = await purchase();
+    const response = await POST(signed(firstInvoice({ ...PAID, ref: REF })));
+    expect(response.status).toBe(200);
+    expect(paths()).toEqual(["/api/provision", "/api/billing/events"]);
+
+    const body = JSON.parse(calls[0]!.body) as { records: { intent: unknown; agreement: unknown } };
+    expect(body).toMatchObject({ ref: REF, idempotencyKey: "sub_1", attempt: 2 });
+    const intent = openSealedRecord(body.records.intent, PROVISION_SECRET) as IntentRecord;
+    expect(intent).toMatchObject({ id: paid.id, ref: REF, attempt: 2, sessionId: "cs_test_second" });
+    expect(openSealedRecord(body.records.agreement, PROVISION_SECRET)).toMatchObject({
+      id: agreement.id,
+      documentHash: agreement.documentHash,
+    });
+
+    // Once provisioned, the purchase and its agreement are spent here too.
+    expect(sheets.records("checkout_intents").every((row) => row.provisioned_at !== "")).toBe(true);
+    expect(sheets.records("agreements")[0]!.provisioned_at).not.toBe("");
+  });
+
+  test("a record edited in the Sheet is relayed as it is, for apps/app to refuse", async () => {
+    const { agreement } = await purchase();
+    const cell = String(sheets.records("agreements")[0]!.record_1);
+    sheets.setCell("agreements", 2, "record_1", cell.replace("Alex Chen", "Alex Chan"));
+    await POST(signed(firstInvoice({ ...PAID, ref: REF })));
+    const body = JSON.parse(calls[0]!.body) as { records: { agreement: { json: string } } };
+    expect(body.records.agreement.json).toContain("Alex Chan");
+    expect(openSealedRecord(body.records.agreement, PROVISION_SECRET)).toBeNull();
+    expect(agreement.signatoryName).toBe("Alex Chen");
+  });
+
+  test("a Sheet that cannot be read is retried: 500, and nothing reaches apps/app", async () => {
+    await purchase();
+    vi.spyOn(sheets, "getValues").mockRejectedValue(new Error("Google Sheets API 503 UNAVAILABLE"));
+    const response = await POST(signed(firstInvoice({ ...PAID, ref: REF })));
+    expect(response.status).toBe(500);
+    expect(calls).toEqual([]);
+  });
+
+  test("a provisioning refusal leaves the records unspent", async () => {
+    await purchase();
+    answers["/api/provision"] = () => new Response("bad records", { status: 422 });
+    await POST(signed(firstInvoice({ ...PAID, ref: REF })));
+    expect(sheets.records("checkout_intents").every((row) => row.provisioned_at === "")).toBe(true);
   });
 });
 

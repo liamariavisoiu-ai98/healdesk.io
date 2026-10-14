@@ -25,9 +25,19 @@
 # first boot can fetch its two packages before anything else is attached.
 # The address costs the same as an Elastic IP and changes only if the
 # instance is stopped and started, which nothing here relies on.
+#
+# Standby (variables.tf) terminates the instance, its address and its alarm,
+# and the private subnets lose their default route (network.tf): nothing runs
+# there to need one. Its security group and rules are free and stay. The
+# instance that comes back boots the newest image, as a quarterly replacement
+# does.
+
+locals {
+  nat_instance = var.nat_mode == "instance" && !var.standby
+}
 
 data "aws_ssm_parameter" "nat_ami" {
-  count = var.nat_mode == "instance" ? 1 : 0
+  count = local.nat_instance ? 1 : 0
 
   # Amazon's own pointer to the newest minimal AL2023 image for arm64. Read at
   # plan time; the instance ignores later changes of it (see lifecycle below),
@@ -70,7 +80,7 @@ resource "aws_vpc_security_group_egress_rule" "nat_https" {
 }
 
 resource "aws_instance" "nat" {
-  count = var.nat_mode == "instance" ? 1 : 0
+  count = local.nat_instance ? 1 : 0
 
   ami                         = nonsensitive(data.aws_ssm_parameter.nat_ami[0].value)
   instance_type               = var.nat_instance_type
@@ -132,7 +142,7 @@ resource "aws_instance" "nat" {
 # A failed system check starts automatic recovery on its own; this tells the
 # owner, because egress is down until it finishes.
 resource "aws_cloudwatch_metric_alarm" "nat_instance_status" {
-  count = var.nat_mode == "instance" ? 1 : 0
+  count = local.nat_instance ? 1 : 0
 
   alarm_name          = "${local.name}-nat-instance-status"
   alarm_description   = "The NAT instance failed its EC2 status checks for three minutes: the tasks cannot reach Stripe, Google, Anthropic or AWS's APIs until it recovers."

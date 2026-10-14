@@ -4,9 +4,12 @@ name: Deploy apps/app (AWS)
 # the web service on ECS, the worker service when the worker has its own
 # (infra/aws, worker_placement = "separate"; by default it is a container in
 # the web task and moves with it), and the Retell voice endpoint's service
-# when enable_voice has made one, by hand, from main. It runs as the
-# Terraform-made role healdesk-production-github-deploy, assumed with GitHub's
-# OIDC token, and AWS gives that role only to a run of this repository on
+# when enable_voice has made one, by hand, from main, or called by host.yml
+# after the apply that turns the host on (with bootstrap_db and migrate). It
+# runs as the Terraform-made role healdesk-production-github-deploy
+# (AWS_DEPLOY_ROLE_ARN, or derived from AWS_TERRAFORM_ROLE_ARN's account when
+# that is unset), assumed with GitHub's OIDC token, and AWS gives that role
+# only to a run of this repository on
 # main started by the owner: the role's trust policy (infra/aws/iam.tf) checks
 # the token's subject, ref and actor_id, as the Terraform role's does. That
 # policy is the control, not the checks below, which live in a file a branch
@@ -86,15 +89,42 @@ on:
         description: "Roll the services (web, worker, voice) back to the revisions of this commit SHA (no build, no migrations); empty for a deploy"
         type: string
         default: ""
+  # host.yml calls this after its apply, with bootstrap_db and migrate, the
+  # same inputs a hand-started run takes. The caller grants id-token: write.
+  workflow_call:
+    inputs:
+      bootstrap_db:
+        type: boolean
+        default: false
+      migrate:
+        type: boolean
+        default: true
+      restart_only:
+        type: boolean
+        default: false
+      rollback_to:
+        type: string
+        default: ""
+      # Never set by a caller: its default is what tells a called run from a
+      # dispatched one below. A dispatched run has no such input, so it reads
+      # as false.
+      called_by_host:
+        type: boolean
+        default: true
 
 permissions:
   id-token: write
   contents: read
 
-# Shared with infra.yml: one change to production at a time. A new run waits
-# for the one in progress; GitHub keeps only the newest waiting run in a group.
+# Shared with infra.yml and host.yml: one change to production at a time. A
+# new run waits for the one in progress; GitHub keeps only the newest waiting
+# run in a group. Called from host.yml, this run is part of one that already
+# holds the group, and a called workflow that asked for its caller's group
+# would wait for its own caller to finish, for ever. So a called run takes a
+# group of its own, named after the caller's run, and the caller's hold on
+# healdesk-aws-production is what keeps everything else out meanwhile.
 concurrency:
-  group: healdesk-aws-production
+  group: ${{ inputs.called_by_host && format('healdesk-aws-production-called-{0}', github.run_id) || 'healdesk-aws-production' }}
   cancel-in-progress: false
 
 env:
@@ -141,11 +171,30 @@ jobs:
           RESTART_ONLY: ${{ inputs.restart_only }}
           ROLLBACK_TO: ${{ inputs.rollback_to }}
           DEPLOY_ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          TERRAFORM_ROLE: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
         run: |
+          # The deploy role's name is fixed by Terraform (iam.tf), so without
+          # the variable it is derived from the Terraform role's account (the
+          # variable was never set, and the connector that edits this
+          # repository cannot set variables). Either way it must be in the
+          # account designated under the BAA.
           if [ -z "$DEPLOY_ROLE" ]; then
-            echo "::error::Set the GitHub variable AWS_DEPLOY_ROLE_ARN to the output github_deploy_role_arn of an infra.yml apply."
+            account=""
+            if [[ "$TERRAFORM_ROLE" =~ ^arn:aws:iam::([0-9]{12}):role/ ]]; then
+              account=${BASH_REMATCH[1]}
+            fi
+            if [ -z "$account" ]; then
+              echo "::error::Set the GitHub variable AWS_TERRAFORM_ROLE_ARN (the bootstrap stack's TerraformRoleArn output): without AWS_DEPLOY_ROLE_ARN, the deploy role is found in its account."
+              exit 1
+            fi
+            DEPLOY_ROLE="arn:aws:iam::$account:role/healdesk-production-github-deploy"
+            echo "AWS_DEPLOY_ROLE_ARN is not set: using $DEPLOY_ROLE"
+          fi
+          if [[ ! "$DEPLOY_ROLE" =~ ^arn:aws:iam::$AWS_ACCOUNT_ID:role/ ]]; then
+            echo "::error::The deploy role $DEPLOY_ROLE is not in account $AWS_ACCOUNT_ID, the one designated under the AWS BAA."
             exit 1
           fi
+          echo "deploy_role=$DEPLOY_ROLE" >>"$GITHUB_OUTPUT"
           if [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error::Production deploys run from main only, and AWS gives the deploy role to no other branch; this run is on $GITHUB_REF."
             exit 1
@@ -192,7 +241,7 @@ jobs:
       - name: Assume the deploy role
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ steps.run.outputs.deploy_role }}
           role-session-name: healdesk-deploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
@@ -237,7 +286,7 @@ jobs:
           active() { jq -r --arg name "$1" '[.services[] | select(.serviceName == $name and .status == "ACTIVE")] | length' <<<"$out"; }
           draining() { jq -e --arg name "$1" '[.services[] | select(.serviceName == $name and .status == "DRAINING")] | length > 0' <<<"$out" >/dev/null; }
           if [ "$(active "$WEB_SERVICE")" != 1 ]; then
-            echo "::error::$CLUSTER has no active $WEB_SERVICE. Run infra.yml with apply first."
+            echo "::error::$CLUSTER has no active $WEB_SERVICE: the host is in standby, or has never been applied. Turn it on with host.yml (mode active), which applies and then runs this deploy itself."
             jq -r '.failures[]? | "  \(.arn): \(.reason)"' <<<"$out"
             exit 1
           fi
@@ -415,7 +464,7 @@ jobs:
         if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ steps.run.outputs.deploy_role }}
           role-session-name: healdesk-deploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}
@@ -975,7 +1024,7 @@ jobs:
         if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
         with:
-          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          role-to-assume: ${{ steps.run.outputs.deploy_role }}
           role-session-name: healdesk-deploy-${{ github.run_id }}
           aws-region: ${{ env.AWS_REGION }}
           allowed-account-ids: ${{ env.AWS_ACCOUNT_ID }}

@@ -3,7 +3,6 @@ import {
   getDpaTemplate,
   isBaaVersionAcceptable,
   type AgreementKind,
-  type RegulatoryRegime,
 } from "@healdesk/catalog";
 import { eq, sql } from "drizzle-orm";
 
@@ -23,29 +22,26 @@ import { baaAcceptances } from "@/db/schema";
  * through this mirror and the SQL function and fails if they ever disagree.
  */
 
-/**
- * The mirror of app_agreement_kind_sufficient(regime, kind, covered): a BAA
- * covers a practice HIPAA can reach, whatever it answered; a DPA covers a
- * veterinary practice, and a practice HIPAA reaches only if covered while it
- * is not covered; nothing else covers anything. Total, like the SQL.
- */
-export function agreementKindSufficient(
-  regime: RegulatoryRegime | string | null | undefined,
-  kind: AgreementKind | string | null | undefined,
-  covered: boolean | null | undefined,
-): boolean {
-  if (kind === "baa") return regime === "hipaa" || regime === "hipaa-if-covered";
-  if (kind === "dpa") {
-    return regime === "non-hipaa" || (regime === "hipaa-if-covered" && covered === false);
-  }
-  return false;
-}
+// The mirror of app_agreement_kind_sufficient() is pure and in the catalog
+// since 14 October 2026 (packages/catalog/src/agreement-match.ts), because
+// apps/web asks it too, when the buyer presses Pay, against the agreement
+// record it holds. Re-exported so every reader here, and
+// tests/agreement-kinds.test.ts, which holds the mirror against the SQL, keeps
+// its import.
+export { agreementKindSufficient } from "@healdesk/catalog";
 
 /**
  * Whether a stored acceptance may be put in force: a released DPA template,
  * or a BAA version go-live accepts (isBaaVersionAcceptable, the TypeScript
  * twin of 0048's app_baa_version_acceptable), so released but superseded BAA
  * versions are refused as the database refuses them.
+ *
+ * The catalog holds the same rule (`agreementTemplateReleased`, for apps/web's
+ * check at Pay). This one is kept here, reading the catalogue through its
+ * exports, because provisioning's tests stand in for the owner's release of
+ * the DPA by changing what `getDpaTemplate` reports, and only a call through
+ * the module reaches that stand-in; tests/checkout-agreement-match.test.ts
+ * holds the two equal for every version the catalogue knows.
  */
 export function agreementTemplateReleased(version: string): boolean {
   if (agreementKindOfVersion(version) === "dpa") {

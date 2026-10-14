@@ -1,14 +1,12 @@
 import { BACKUP_RETENTION_DAYS } from "@healdesk/catalog";
-import { and, asc, eq, gt, inArray, isNotNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, lte, or, sql, type SQL } from "drizzle-orm";
 
 import {
-  appointments,
   bookingRequests,
   chatThreads,
   consentRecords,
   contactAttempts,
   contacts,
-  conversations,
   erasureRequests,
   metaBookingDrafts,
   suppressions,
@@ -22,7 +20,6 @@ import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
 import { eraseContact, type ErasureResult } from "@/lib/retention/purge";
 import { withTenant, type TenantTx } from "@/lib/tenant";
-import { readSynthflowPayload } from "@/lib/voice/synthflow-payload";
 
 import { REQUESTER_LABELS, type PatientRequester } from "./requesters";
 
@@ -58,15 +55,13 @@ import { REQUESTER_LABELS, type PatientRequester } from "./requesters";
  *     their contact, each draft their number). A thread that also
  *     booked for someone else is not theirs to delete: what it sent for
  *     others stays, with its drafts and its chat_threads row, and the result
- *     counts what was kept (`kept`), never naming anyone;
- *   - the vendor call id of each of their calls, and of each call that
- *     produced one of their appointments.
+ *     counts what was kept (`kept`), never naming anyone.
  *
  * Matching uses what the tables already hold: contacts by number and address,
  * drafts by number, chat threads by their keyed reference
- * (identifierRef("chat_party", …), lib/identifier-ref.ts), raw call payloads
- * by call id or by the number they carry. Nothing stores a new copy of the
- * number to find anyone.
+ * (identifierRef("chat_party", …), lib/identifier-ref.ts), raw payloads by
+ * the number or address they carry. Nothing stores a new copy of the number
+ * to find anyone.
  *
  * ## What goes
  *
@@ -81,9 +76,8 @@ import { REQUESTER_LABELS, type PatientRequester } from "./requesters";
  * stays. Then what it does not reach:
  *
  *   - the drafts on their own threads, and those threads (chat_threads);
- *   - the raw payloads other services sent about them (webhook_events): every
- *     voice payload of their calls, and any payload carrying their number or
- *     address;
+ *   - the raw payloads other services sent about them (webhook_events): any
+ *     payload carrying their number or address;
  *   - their suppressions, consent records and contact attempts
  *     (app_erase_contact_evidence), so no telephone number of theirs is left.
  *
@@ -258,7 +252,6 @@ type Survey = {
    */
   namedSharedThreads: string[];
   kept: ErasureKept;
-  callIds: string[];
 };
 
 /** "whatsapp:15551234567" for "+15551234567": a WhatsApp sender id is the number without its plus. */
@@ -388,41 +381,6 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
     kept.drafts -= entry.drafts;
   }
 
-  // Their calls, and the calls that produced their appointments: the two
-  // kinds app_erase_contacts deletes, read first so their raw payloads can go
-  // after them.
-  const callIds = contactIds.length
-    ? (
-        await tx.db
-          .select({ callId: conversations.externalCallId })
-          .from(conversations)
-          .where(
-            and(
-              eq(conversations.clinicId, tx.clinicId),
-              isNotNull(conversations.externalCallId),
-              or(
-                inArray(conversations.contactId, contactIds),
-                inArray(
-                  conversations.id,
-                  tx.db
-                    .select({ id: appointments.conversationId })
-                    .from(appointments)
-                    .where(
-                      and(
-                        eq(appointments.clinicId, tx.clinicId),
-                        inArray(appointments.contactId, contactIds),
-                        isNotNull(appointments.conversationId),
-                      ),
-                    ),
-                ),
-              ),
-            ),
-          )
-      )
-        .map((r) => r.callId)
-        .filter((id): id is string => Boolean(id))
-    : [];
-
   return {
     contactIds,
     phones: [...phones],
@@ -431,7 +389,6 @@ async function survey(tx: TenantTx, asked: Asked, before: Date): Promise<Survey>
     sharedThreads: shared,
     namedSharedThreads: namedShared,
     kept,
-    callIds,
   };
 }
 
@@ -576,12 +533,12 @@ function payloadNames(patterns: readonly string[]): SQL {
   return sql`app_payload_names(${webhookEvents.rawPayload}, ${textArray(patterns)})`;
 }
 
-/** The ids of the raw payloads about them: their calls' voice payloads, and any payload naming their number or address. */
+/** The ids of the raw payloads about them: any payload naming their number or address. */
 async function payloadsAbout(tx: TenantTx, s: Survey, before: Date): Promise<string[]> {
-  const found = new Set<string>();
   const patterns = [
     ...new Set([...s.phones.flatMap(numberPatterns), ...s.emails.map(addressPattern)]),
   ];
+  if (patterns.length === 0) return [];
 
   // Any provider: the number or the address in the body, matched whole in
   // each decoded string (payloadNames). The first version tested for a
@@ -589,45 +546,24 @@ async function payloadsAbout(tx: TenantTx, s: Survey, before: Date): Promise<str
   // possibly the only copy of an unprocessed call, and missed a number
   // written without its country code; the second matched the raw text, so it
   // missed an address after a JSON escape and took o'ann@ and a +44 number.
-  if (s.callIds.length || patterns.length) {
-    const rows = await tx.db
-      .select({ id: webhookEvents.id })
-      .from(webhookEvents)
-      .where(
-        and(
-          eq(webhookEvents.clinicId, tx.clinicId),
-          lte(webhookEvents.receivedAt, before),
-          or(
-            s.callIds.length
-              ? and(
-                  eq(webhookEvents.provider, "synthflow"),
-                  inArray(webhookEvents.deliveryId, s.callIds),
-                )
-              : sql`false`,
-            patterns.length ? payloadNames(patterns) : sql`false`,
-          ),
-        ),
-      );
-    for (const r of rows) found.add(r.id);
-  }
-
-  // The voice vendor's payloads, read as ingestion reads them, for a number
-  // in a shape the patterns above miss.
-  if (s.phones.length) {
-    const wanted = new Set(s.phones);
-    for await (const row of synthflowPayloads(tx, before)) {
-      if (found.has(row.id)) continue;
-      if (row.callerPhone && wanted.has(row.callerPhone)) found.add(row.id);
-    }
-  }
-  return [...found];
+  const rows = await tx.db
+    .select({ id: webhookEvents.id })
+    .from(webhookEvents)
+    .where(
+      and(
+        eq(webhookEvents.clinicId, tx.clinicId),
+        lte(webhookEvents.receivedAt, before),
+        payloadNames(patterns),
+      ),
+    );
+  return rows.map((r) => r.id);
 }
 
 /**
- * The calls the matched payloads were: each payload's delivery id (a voice
- * payload's is its call's id, the conversation's external_call_id), and the
- * call id a JSON body carries ("call_id", or "call.call_id"), for a vendor
- * whose delivery id is its event's.
+ * The calls the matched payloads were: each payload's delivery id (for a
+ * vendor that keys a delivery by its call, the conversation's
+ * external_call_id), and the call id a JSON body carries ("call_id", or
+ * "call.call_id"), for a vendor whose delivery id is its event's.
  */
 async function callsOfPayloads(tx: TenantTx, ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return [];
@@ -651,41 +587,6 @@ async function callsOfPayloads(tx: TenantTx, ids: readonly string[]): Promise<st
     }
   }
   return [...calls];
-}
-
-/** Every voice payload of the clinic recorded by `before`, a page at a time, with the caller's number as ingestion reads it. */
-async function* synthflowPayloads(
-  tx: TenantTx,
-  before: Date,
-): AsyncGenerator<{ id: string; callerPhone: string | null }> {
-  let after: string | null = null;
-  for (;;) {
-    const page: { id: string; rawPayload: string }[] = await tx.db
-      .select({ id: webhookEvents.id, rawPayload: webhookEvents.rawPayload })
-      .from(webhookEvents)
-      .where(
-        and(
-          eq(webhookEvents.clinicId, tx.clinicId),
-          eq(webhookEvents.provider, "synthflow"),
-          lte(webhookEvents.receivedAt, before),
-          after ? gt(webhookEvents.id, after) : sql`true`,
-        ),
-      )
-      .orderBy(asc(webhookEvents.id))
-      .limit(100);
-    if (page.length === 0) return;
-    for (const row of page) {
-      let callerPhone: string | null = null;
-      try {
-        callerPhone =
-          readSynthflowPayload(JSON.parse(row.rawPayload), tx.clinicId).callerPhone ?? null;
-      } catch {
-        // A body the reader cannot read names no caller it can match.
-      }
-      yield { id: row.id, callerPhone };
-    }
-    after = page[page.length - 1]!.id;
-  }
 }
 
 function add(counts: ErasureCounts, contact: ErasureResult): void {
@@ -1194,9 +1095,6 @@ async function recover(tx: TenantTx, refs: ReadonlySet<string>, before: Date): P
       )),
   ];
   for (const r of evidence) candidatePhones.add(r.phone);
-  for await (const row of synthflowPayloads(tx, before)) {
-    if (row.callerPhone) candidatePhones.add(row.callerPhone);
-  }
 
   return {
     phones: [...candidatePhones].filter((p) => refs.has(phoneRef(p))),

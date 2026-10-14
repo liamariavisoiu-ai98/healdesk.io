@@ -44,6 +44,11 @@ export const metadata: Metadata = {
  * TRANSCRIPT_RETENTION_DAYS, where they said the conversation and its
  * transcript went then "or sooner if you choose a shorter period in your
  * portal", a setting that is gone.
+ *
+ * Revised 14 October 2026 (LEGAL_VERSION 2026-10-14.1), for BAA 1.5.0: the
+ * encrypted copy goes as soon as the clinic's mail server confirms delivery,
+ * or 30 days after it was queued if it is never delivered, where it went
+ * seven days after the email first went.
  */
 export default function DataDeletionPage() {
   const email = (
@@ -91,9 +96,9 @@ export default function DataDeletionPage() {
             <strong>Everything else.</strong> Conversations, bookings and the data we received from
             Google or Meta are deleted on your instruction, under your Business Associate Agreement
             with us. We keep no transcript: each is emailed to you when its conversation ends, and
-            our encrypted copy is deleted seven days after that email first goes (or seven days
-            after it was queued, if it never goes), so a transcript in your inbox is yours to
-            delete. The record of each conversation, without what was
+            our encrypted copy is deleted as soon as your mail server confirms it has the email (or
+            30 days after it was queued, if it is never delivered), so a transcript in your inbox
+            is yours to delete. The record of each conversation, without what was
             said, is also deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it took
             place. Email {email} from the owner&apos;s address on the account. Our AI model
             provider keeps conversation inputs for 30 days under its own agreement, which we cannot

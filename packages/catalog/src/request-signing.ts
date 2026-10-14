@@ -10,7 +10,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * whose first paid invoice is what activates service: provisioning is gated
  * on that invoice, never on the checkout session alone
  * (docs/v1-product-spec.md → "Stage 1, payment"). The operator console's ops
- * requests, the agreement endpoints and review verification use it too.
+ * requests and review verification use it too. The same secret seals the
+ * checkout records apps/web keeps until provisioning (checkout-record.ts),
+ * under a key derived for that purpose alone, so a seal is never a signature.
  *
  * The marketing site (Vercel) and the product (AWS) are different hosts, so
  * this crosses a network boundary. A bare bearer token would be enough to stop

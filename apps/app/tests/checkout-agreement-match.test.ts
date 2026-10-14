@@ -1,7 +1,16 @@
-import { CURRENT_BAA_VERSION, currentDpaTemplate, specialties } from "@healdesk/catalog";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import {
+  agreementTemplateReleased,
+  BAA_TEMPLATES,
+  CURRENT_BAA_VERSION,
+  DPA_TEMPLATES,
+  currentDpaTemplate,
+  specialties,
+  type AgreementMatchPurchase,
+} from "@healdesk/catalog";
+import { afterEach, describe, expect, test } from "vitest";
 
-import { agreementMismatch } from "@/lib/checkout/intents";
+import { agreementTemplateReleased as hostReleased } from "@/lib/agreements/kind";
+import { agreementMismatch as mismatchOf } from "@/lib/checkout/intents";
 
 /**
  * Standing in for the go-live floor as it stood before 1.3.0's release, which
@@ -10,18 +19,33 @@ import { agreementMismatch } from "@/lib/checkout/intents";
  * for a document before 1.3.0 can still be read. Every other test reads the
  * real floor, under which a 1.2.2 signature is refused.
  */
-const floor = vi.hoisted(() => ({ restored: [] as string[] }));
-vi.mock("@healdesk/catalog", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
-  return {
-    ...actual,
-    isBaaVersionAcceptable: (version: string) =>
-      actual.isBaaVersionAcceptable(version) || floor.restored.includes(version),
-  };
-});
+const floor = { restored: [] as string[] };
+
+/**
+ * agreementMismatch, with the go-live floor as `floor` says. The rule is the
+ * catalog's since 14 October 2026, which calls its own release gate, so the
+ * stand-in is passed rather than mocked into the module.
+ */
+function agreementMismatch(version: string, variables: unknown, purchase: AgreementMatchPurchase): string | null {
+  return mismatchOf(version, variables, purchase, {
+    released: (v) => agreementTemplateReleased(v) || floor.restored.includes(v),
+  });
+}
 
 afterEach(() => {
   floor.restored = [];
+});
+
+test("this host's release gate and the catalog's agree on every version the catalogue knows", () => {
+  const versions = [
+    ...BAA_TEMPLATES.map((t) => t.version),
+    ...DPA_TEMPLATES.map((t) => t.version),
+    "9.9.9",
+    "dpa/9.9.9",
+  ];
+  for (const version of versions) {
+    expect(hostReleased(version), version).toBe(agreementTemplateReleased(version));
+  }
 });
 
 /**
@@ -30,8 +54,9 @@ afterEach(() => {
  * force, its kind covers the practice, and every answer that names or
  * selects it is the one signed. The browser compares the same answers to
  * decide whether a signature still holds; this is the comparison a changed
- * request cannot skip. tests/checkout-purchase.test.ts runs it through the
- * intents route against real signatures; this reads each rule on its own.
+ * request cannot skip. apps/web asks it at Pay, against the agreement record,
+ * and tests/checkout-purchase.test.ts runs it through the import against real
+ * signatures; this reads each rule on its own.
  */
 
 const nameOf = (id: string) => specialties.find((s) => s.id === id)!.name;
@@ -58,7 +83,7 @@ const BAA_122 = {
 };
 
 /**
- * A current one (1.4.0 since 13 October 2026, and 1.3.0 before it): it names the
+ * A current one (1.5.0 since 14 October 2026, 1.4.0 and 1.3.0 before it): it names the
  * booking system, and carries both calendar answers beside the variant.
  */
 const BAA = {
@@ -81,7 +106,7 @@ const PURCHASE = {
 
 describe("a Business Associate Agreement", () => {
   test("the document as signed, under the version being signed, passes", () => {
-    expect(CURRENT_BAA_VERSION).toBe("1.4.0");
+    expect(CURRENT_BAA_VERSION).toBe("1.5.0");
     expect(agreementMismatch(CURRENT_BAA_VERSION, BAA, PURCHASE)).toBeNull();
     // 1.2.2 too, while the floor admits it (below, it no longer does).
     floor.restored = ["1.2.2"];
@@ -162,8 +187,9 @@ describe("a Business Associate Agreement", () => {
 
   test("is of a template that may not be put in force: a draft, a superseded release, or none we know", () => {
     // 1.2.2 among them since 1.3.0 replaced it outright (12 October 2026),
-    // and 1.3.0 since 1.4.0 replaced it outright (13 October 2026).
-    for (const version of ["1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "9.9.9"]) {
+    // 1.3.0 since 1.4.0 replaced it outright (13 October 2026), and 1.4.0
+    // since 1.5.0 replaced it outright (14 October 2026).
+    for (const version of ["1.4.0", "1.3.0", "1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft", "9.9.9"]) {
       expect(agreementMismatch(version, BAA_122, PURCHASE), version).toMatch(
         /can no longer be used/,
       );

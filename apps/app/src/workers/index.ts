@@ -149,7 +149,8 @@ async function main(): Promise<void> {
   // The billing minute clock: the billing-request worker (plan starts,
   // step-ups, cancellations and setup closures on Stripe), the usage meter
   // report and the transcript outbox (a conversation's emailed transcript,
-  // retried until SES takes it, and each sealed copy deleted on its day),
+  // retried until it is delivered, and each undelivered sealed copy deleted
+  // at its 30 days, or 72 hours after a send nothing answered),
   // each behind its own job row's switch and each recording its own run. Neither takes runJob's 60-minute lock: every request and every
   // usage row is leased on its own, so a run that overlaps the next does no
   // harm and a crash costs a minute, not an hour. Guarded, unlike the clocks

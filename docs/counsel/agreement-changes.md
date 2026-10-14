@@ -28,6 +28,16 @@
 > counsel; § 14.5 recommends that counsel review it. No clinic had signed
 > 1.3.0, so 1.4.0 replaced it outright: 1.3.0 is no longer signable, and
 > 1.4.0 is the go-live floor.
+>
+> **Since 14 October 2026 the version offered is BAA 1.5.0** (§ 15,
+> `docs/baa-v1.5.0.txt`): 1.4.0 with the transcript's one encrypted copy
+> held only until the practice's mail server confirms delivery, and then
+> deleted, rather than for seven days after the email first goes; never
+> past 30 days, and 72 hours after a send nothing answered. Released by the
+> owner on the owner's own instruction, without external counsel; § 15.5
+> recommends that counsel review it. No clinic had signed 1.4.0, so 1.5.0
+> replaced it outright: 1.4.0 is no longer signable, and 1.5.0 is the
+> go-live floor.
 
 ## Contents
 
@@ -45,7 +55,8 @@
 12. [BAA 1.3.0: calendar terms, the Q8 clauses and 24 hours' notice](#12-baa-130-calendar-terms-the-q8-clauses-and-24-hours-notice) (released 12 October 2026, § 12.15)
 13. [BAA 1.2.2: the list on request, one email address, the spec's breach wording](#13-baa-122-the-list-on-request-one-email-address-the-specs-breach-wording)
 14. [BAA 1.4.0: the transcript emailed, not kept](#14-baa-140-the-transcript-emailed-not-kept) (released 13 October 2026)
-15. [Review log](#review-log-2026-10-01)
+15. [BAA 1.5.0: the transcript's copy deleted once delivery is confirmed](#15-baa-150-the-transcripts-copy-deleted-once-delivery-is-confirmed) (released 14 October 2026)
+16. [Review log](#review-log-2026-10-01)
 
 ---
 
@@ -2458,6 +2469,8 @@ these points in particular. Each open row has an owner.
    serves no clinic in v1; it must be removed, or stop keeping the
    transcript, before any real call reaches it, and the Retell endpoint must
    store none (the design record's "Raw vendor payloads"). (engineering)
+   **Done 14 October 2026:** the webhook was removed, and with it the only
+   code that stored a voice vendor's raw payload; the Retell endpoint stores none.
 10. **Backups.** The sealed copy is in the database's backups until they
     expire, within 35 days of its deletion, which clause 11's "apart from
     the backups described below" says.
@@ -2498,6 +2511,172 @@ every older version reproduce as before, and so do the election
 (`63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa`, rendered
 against 1.3.0) and the Google Calendar disclosure. The DPA's other seven
 hashes moved with its sample (`packages/catalog/src/dpa.test.ts`).
+
+---
+
+## 15. BAA 1.5.0: the transcript's copy deleted once delivery is confirmed
+
+> **Not legal advice.** The owner released BAA 1.5.0 on 14 October 2026, on
+> the owner's own instruction and **without external counsel**, the day the
+> owner decided that a transcript's encrypted copy is deleted the moment its
+> delivery is confirmed. The text was drafted by an AI assistant from the
+> code, as the rest of this folder was. **Recommended: counsel reviews
+> 1.5.0's two changed clauses, with § 14.5 and the points in § 15.5, before
+> the first live clinic.** No clinic had signed 1.4.0, so 1.5.0 replaces it
+> outright: no overlap, and the go-live floor rises to 1.5.0. The DPA,
+> unreleased, takes the same change in place.
+
+### 15.1 What the owner decided (14 October 2026)
+
+1.4.0 held each transcript's one encrypted copy until seven days after SES
+first accepted the email, delivered or not, so that a clinic that lost the
+email could be sent it again. The owner decided that no copy is kept once
+the clinic has the email, and none indefinitely when it never arrives:
+
+- the copy is deleted the moment delivery is confirmed: SES's Delivery event
+  for the message the row records, which says the practice's mail server
+  accepted the email, deletes it in the same transaction;
+- if delivery fails, the copy is kept and the email sent again until it is
+  delivered: a failed send keeps its back-off, and a hard bounce, a
+  rejection, a complaint or a rendering failure is sent again an hour later;
+- but never for longer than 30 days after the transcript was queued: then
+  the copy is deleted, and ops hears, so a dead address cannot keep patient
+  words;
+- an email SES accepted with no Delivery and no failure 72 hours after it
+  was last sent loses its copy then, and ops hears once (SES's events are
+  probably not reaching the app); a transient bounce or a delay is not an
+  answer;
+- what stays is a receipt without the words (the conversation, the
+  attempts, when it was sent and delivered, SES's message id, the status,
+  SES's scrubbed reason), so the owner and the clinic can know whether each
+  transcript reached the clinic. It goes with its conversation.
+
+The blind archive copy to a healdesk mailbox, which 1.4.0's "healdesk keeps
+no other copy" already forbade and the code kept off (§ 14.5, item 4), is
+removed from the code. The design record is
+`docs/design/transcript-email-2026-10-13.md`.
+
+### 15.2 What the code does, read 14 October 2026
+
+| Sentence (clause) | The code fact | Where |
+| --- | --- | --- |
+| "healdesk holds one encrypted copy of the transcript only until Practice's mail server confirms that it has received the email, and then deletes the copy at once" (11) | `recordSesTranscriptEvent`, called by `/api/webhooks/ses` for a verified SNS message, sets `sealed` to NULL, the status to `delivered` and `delivered_at` (the database's clock) in one tenant transaction, for the SES message id the row records and only while it holds a copy; an event for an earlier send, whose id the row no longer records, finds nothing. A CHECK holds `sealed` NULL exactly when the status is delivered, expired or unconfirmed, and the trigger lets a copy become NULL only with one of those statuses, never come back, and a receipt never change | `apps/app/src/lib/conversations/transcript-outbox.ts`; `apps/app/src/app/api/webhooks/ses/route.ts`; `apps/app/drizzle/0072_transcript_delete_on_delivery.sql` |
+| "If a send fails or the email is returned, healdesk keeps the copy and sends the email again until it is delivered" (11) | A failed send waits 1, 2, 5, 10 and 30 minutes, then an hour between tries; SES's hard bounce, rejection, complaint or rendering failure for a sent row marks it bounced, sent again an hour later. Ops hears on the third failure and at the first bounce (`transcript_undelivered`, ids only) | `deliverTranscriptEmail`, `recordSesTranscriptEvent` |
+| "If the email is accepted for delivery but neither its delivery nor its failure is confirmed within 72 hours of its last sending, healdesk deletes the copy then" (11) | `sent_at` is set from the database's clock at each accepted send; `app_transcript_email_work` returns a sent row 72 hours after it as `unconfirmed`, and `endTranscriptCopy` deletes the copy under the same condition, which the trigger checks again; ops hears once per transcript | drizzle/0072; `endTranscriptCopy`, `runTranscriptEmailsJob` |
+| "In no case does healdesk hold the copy for more than 30 days after the transcript was queued for sending" (11) | `destroy_after` is `created_at` plus 30 days, set by the trigger at the insert and never moved; the work function returns every row still holding a copy past it as `expire`, before any send, and the claim refuses to send one; the trigger refuses `expired` before it | drizzle/0072; `deliverTranscriptEmail`'s claim |
+| (the deletions do not depend on a switch) | Both deletions run in `runTranscriptEmailsJob` outside `runSwitchedJob`, whatever the `transcript-emails` switch says, every minute from the `billing-minute` queue with the hourly tick as its backstop; the switch governs sending only | `runTranscriptEmailsJob`; `apps/app/src/lib/scheduler/tick.ts`; `apps/app/src/workers/index.ts` |
+| "While it holds the copy, healdesk may also send the email again when Practice asks" (11) | The ops operation `resendTranscript` queues a row that is pending, bounced, or sent and awaiting SES's answer; a receipt answers `gone` | `resendTranscript`; `apps/app/src/lib/ops/api.ts` |
+| "healdesk keeps a record of each transcript's delivery, without what was said or written in it, for as long as it keeps the record of that conversation" (11) | The `transcript_emails` row, once a receipt, holds no copy; it goes with its conversation by the foreign key's cascade (the record clock, erasure), and with the clinic's destruction (`destroyClinicData`; `app_mark_clinic_destroyed` refuses while one is left). The read-only ops operation `transcriptDeliveries` shows counts by status and the newest receipts, never words, an address or SES's reason | drizzle/0069, 0072; `apps/app/src/lib/offboarding/offboarding.ts`; `listTranscriptDeliveries` |
+| "It keeps no other copy of a transcript" (11) | The archive copy is gone from the code: no blind copy option, no `bcc` on a delivery target, no BccAddresses on the SES send, and the `HEALDESK_TRANSCRIPT_ARCHIVE_*` variables are read nowhere | `transcript-email.ts`; `apps/app/src/lib/reporting/deliver.ts` |
+| "Once the copy is deleted, healdesk has no transcript to make available, amend, export or delete" (14) | Neither export reads `transcript_emails`; a receipt holds no words | `apps/app/src/lib/patient-rights/export.ts` |
+
+### 15.3 The text, against 1.4.0
+
+Two clauses change; every other clause is 1.4.0's own clause object, in
+1.4.0's order (the state-law clause included: it says only that what
+people say is kept no longer than the Minimum necessary clause allows), and
+the preamble differs only in its version line
+(`apps/app/tests/baa-golden.test.ts`, "1.5.0: the transcript's copy deleted
+once delivery is confirmed", holds it to that).
+
+| Clause | 1.4.0 | 1.5.0 |
+| --- | --- | --- |
+| 11, Minimum necessary (the transcript paragraph; the other five paragraphs are 1.4.0's word for word) | "… So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript until seven days after the email was first accepted for delivery or, if it never is, seven days after the transcript was queued for sending, and then deletes it. Until then healdesk may send the email again when a send fails or the email is returned, and when Practice asks. healdesk keeps no other copy of a transcript, apart from the backups described below; …" | "… So that an email that fails or is returned can be sent again, healdesk holds one encrypted copy of the transcript only until Practice's mail server confirms that it has received the email, and then deletes the copy at once. If a send fails or the email is returned, healdesk keeps the copy and sends the email again until it is delivered. If the email is accepted for delivery but neither its delivery nor its failure is confirmed within 72 hours of its last sending, healdesk deletes the copy then. In no case does healdesk hold the copy for more than 30 days after the transcript was queued for sending: a copy whose email has not been delivered by then is deleted. While it holds the copy, healdesk may also send the email again when Practice asks. healdesk keeps a record of each transcript's delivery, without what was said or written in it, for as long as it keeps the record of that conversation. It keeps no other copy of a transcript, apart from the backups described below; …" |
+| 14, Patient access, amendment and accounting (the paragraph after the list) | "healdesk holds a transcript only to deliver it to Practice, and only for the days the clause headed "Minimum necessary" allows. After them healdesk has no transcript to make available, amend, export or delete: …" | "healdesk holds a transcript only to deliver it to Practice, and only for as long as the clause headed "Minimum necessary" allows. Once the copy is deleted, healdesk has no transcript to make available, amend, export or delete: …" |
+
+The DPA (unreleased, so edited in place; `docs/dpa-v1.0.0.txt` and its
+eight hashes regenerated) takes the same two changes: its clause 10 carries
+1.5.0's transcript paragraph word for word, and its clause 13 the paragraph
+of 1.5.0's clause 14 with "give Practice, correct or delete" (`dpa.md`).
+
+### 15.4 What shipped
+
+| Change | Where |
+| --- | --- |
+| 1.5.0 is `BAA_TEMPLATES[0]`, `publishedOn` 2026-10-14, `approvedByCounsel: true`, which records the owner's release (the flag's doc comment); checkout offers it and signing takes it. Its clauses are `CLAUSES_1_4` with `MINIMUM_NECESSARY_1_5` and `PATIENT_RIGHTS_1_5` in place of 1.4.0's two; its preamble and render guard are 1.3.0's naming 1.5.0 | `packages/catalog/src/baa.ts` |
+| 1.4.0 is `BAA_TEMPLATES[1]`, frozen, and no longer signable: `BAA_RELEASE_OVERLAP` is empty | `packages/catalog/src/baa.ts`; `signableTemplate` in `apps/app/src/lib/agreements.ts` |
+| The go-live floor rises to 1.5.0: provisioning, the checkout's agreement check, go-live and a supersede refuse a 1.4.0 signature | `MIN_ACCEPTABLE_BAA_VERSION` |
+| `app_baa_version_acceptable()` accepts 1.5.0 and nothing else; `app_destruction_rule()` gives 1.5.0 the export rule 1.4.0 has (its Term clause is 1.3.0's own); a DO block asserts both lists and the election list as 0070 left it | `apps/app/drizzle/0073_baa_release_1_5_0.sql`; parity tests in `apps/app/tests/database-audit.test.ts` and `destruction-clock.test.ts` |
+| `DESTRUCTION_RULES` gives 1.5.0 the export rule; `PURGE_PERIODS` needs nothing, since 1.5.0's retention paragraph is 1.4.0's, so a 1.5.0 clinic is purged nightly whatever the switch | `apps/app/src/lib/offboarding/offboarding.ts`; `apps/app/src/lib/agreements/what-it-says.ts` |
+| The signing screen's note beside 1.5.0's clause 11 says healdesk's copy is deleted once the practice's mail server confirms delivery, and kept trying for up to 30 days; 1.5.0's other notes and its bullets are 1.3.0's own objects | `packages/catalog/src/baa-explainer.ts` |
+| The outbox: the copy deleted with SES's Delivery event, the 30-day cap and the 72 hours on the database's clock, the receipt, the `transcriptDeliveries` operation, and the archive copy removed | `apps/app/drizzle/0072_transcript_delete_on_delivery.sql`; `apps/app/src/lib/conversations/transcript-outbox.ts`, `transcript-email.ts`; `apps/app/src/lib/ops/api.ts` |
+| /terms, /privacy and /data-deletion and the homepage FAQ say the copy is deleted once delivery is confirmed, or at 30 days if it never is; the vendor register's hosting row says the same. LEGAL_VERSION 2026-10-14.1 | `apps/web/src/app/terms/page.tsx`, `privacy/page.tsx`, `data-deletion/page.tsx`; `apps/web/src/components/KnowMore.tsx`; `apps/web/src/lib/subprocessors.ts`; `apps/web/src/lib/legal.ts` |
+| The transcript email tells the clinic healdesk's copy goes once its mail server confirms receipt | `apps/app/src/lib/conversations/transcript-email.ts` |
+| The released review copy, with the variant clauses, the election and the disclosure in appendices | `docs/baa-v1.5.0.txt` |
+
+**The floor, and nobody signed.** 1.4.0 is below the floor from this
+release, as 1.3.0 was from 1.4.0's. No clinic has signed any version, the
+product has not launched, and `apps/app` has only ever held synthetic and
+seed data. 1.5.0 applies 1.3.0's calendar clauses under the same ids, so a
+1.5.0 signer's first location gets its terms exactly as before, and
+`calendar-election/1.0.0` takes the place of 1.5.0's calendar clause word
+for word. The tests that sign "the current version" now sign 1.5.0.
+
+### 15.5 For counsel, and the owner
+
+Counsel review of 1.5.0 is recommended before the first live clinic, with
+§ 14.5, whose items this release changes as follows.
+
+1. **No resend after delivery.** A clinic that loses the email after its
+   server accepted it can no longer be sent it again: healdesk's copy is
+   gone the moment delivery is confirmed. § 14.5, item 1 (the inbox is the
+   record) now applies from delivery rather than seven days after; the
+   question for counsel is the same, and more pressing. (owner; counsel)
+2. **Delivery is the receiving server's acceptance.** SES's Delivery event
+   says the practice's mail server accepted the message, not that it
+   reached a mailbox a person reads: a server that accepts and then
+   quarantines or drops it counts as delivered. The agreement says "Practice's
+   mail server confirms that it has received the email", which is that
+   fact. (counsel)
+3. **A transcript that never goes** (§ 14.5, item 6) is now lost after 30
+   days of failed sends rather than seven; ops hears at the third failure,
+   at the first bounce and at the deletion, and a person tells the clinic.
+   (owner)
+4. **SES's events are load-bearing.** Deletion on delivery depends on SES's
+   events reaching `/api/webhooks/ses` (`infra/aws/ses.tf`). If they stop,
+   no copy is deleted on delivery, but none outlives the 72 hours after its
+   last send, and ops hears once per transcript; the clinic still has the
+   email. (infra)
+5. **The receipt.** The record of each transcript's delivery holds the
+   conversation's id, times, attempts, SES's message id and SES's own
+   reason, scrubbed: patient information only in so far as the
+   conversation's record is, and kept with it. (counsel)
+6. **The archive copy** (§ 14.5, item 4) is closed: the code that could
+   send it is removed, and the Terraform variables that set it are removed
+   from `infra/aws` separately. (engineering; infra)
+7. **The voice vendor's copy** (§ 14.5, item 8): Retell's retention must
+   still be set to its minimum before the first call; it should be no
+   longer than the 72 hours a confirmed email's copy can now outlive its
+   send, and in any case short. (owner; infra)
+8. **Outside this change.** The spec (`docs/v1-product-spec.md`, an export)
+   still says seven days; the owner's spec doc changes and is re-exported.
+
+### 15.6 Golden hashes
+
+Frozen from the release (`apps/app/tests/baa-golden.test.ts`):
+
+| Document and variant | SHA-256 |
+| --- | --- |
+| 1.5.0 covered_estimated (the sample, and covered_outbound) | `cc903fb5d31765ee0f084096ef47181e55737ad3a28816e3bab9a21f37e6f7e2` |
+| 1.5.0 notcovered_estimated | `f73fac87ffce5a7d0b2da7a38423ca1e9582e122d9ebddeef018c124f3b29825` |
+| 1.5.0 unknown_estimated | `5845f4d5676953eed5d376dd9343b80299a859cb52108d8afd63e41cfae61e2e` |
+| 1.5.0 uncovered_nobaa | `53b5f205112ad935c06e9981425afacca8e0e1f2f8a27c85d1cb55c3458c2034` |
+| 1.5.0 uncovered_personal | `625b0096758cc4366b08c41de6325e36b9310f8b58b1e4466faefcb51f16cb79` |
+| 1.5.0 notused_mindbody | `31a03c3426ae769ee9e5845ba1cc70097036b4bf13967dd442c9048af4abcbde` |
+| 1.5.0 notused_other | `7c873d501ece8b209904d6460545bbbf180d2308284dfad818a0e8766e153c4f` |
+| 1.5.0 live_calcom | `6ec8b4429bab9f7cedb8e944b2f52e019cce1ee0c02340804c1ab170ac574d58` |
+| 1.5.0 live_highlevel_personal | `ac831c6e29f29f99bffb65c370047543a4fdfbbebe2dd187785bd42642db2fe8` |
+| 1.5.0 live_calendly_nobaa | `eb71e8ef0b94b402950e045369b93be24094fb75d2f1c602af67d86af45675f7` |
+| DPA 1.0.0 sample, regenerated | `a84117ed3b31091e8c8d02dd9744262e7bfb29aa72b60ec19b24ddfc08ff9e55` |
+
+No released hash moved: 1.4.0 / covered_estimated is still
+`090b15ed4e7c18484e478f9fd7513fe98fac7538970aff02966913d19d081f1c`, 1.3.0 and
+every older version reproduce as before, and so do the election
+(`63586893a436803155ee71811ea17a8d71800a0d90ce41e1b3d9c596650a02aa`, rendered
+against 1.3.0; against 1.5.0, in `docs/baa-v1.5.0.txt`'s Appendix B,
+`595ed7f45fd4eb3510e021abbdf285fb9afd6a1b9869a34e2f11c6c2fd0f03dd`) and the
+Google Calendar disclosure. The DPA's other seven hashes moved with its
+sample (`packages/catalog/src/dpa.test.ts`).
 
 ---
 

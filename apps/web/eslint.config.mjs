@@ -41,10 +41,10 @@ export default defineConfig([
       // it would turn eight home links into <Link> and leave /pricing,
       // /privacy and every other link plain.
       "@next/next/no-html-link-for-pages": "off",
-      // No next/image anywhere either. Three images cannot go through the
-      // optimizer at all (the share image is drawn by Satori, the admin QR code
-      // is a data URL, a review photo is the visitor's own upload), and the
-      // rest are static files served as they are, sized in the markup.
+      // No next/image anywhere either. Two images cannot go through the
+      // optimizer at all (the share image is drawn by Satori, a review photo is
+      // the visitor's own upload), and the rest are static files served as
+      // they are, sized in the markup.
       "@next/next/no-img-element": "off",
     },
   },

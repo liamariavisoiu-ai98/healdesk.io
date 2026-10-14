@@ -1,5 +1,15 @@
-import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
-import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
+
+import {
+  AgreementError,
+  effectiveDateOf,
+  MAX_SIGN_REQUEST_BYTES,
+  prepareSigning,
+  validateSignRequest,
+  type PreparedSigning,
+} from "@healdesk/catalog/agreement-signing";
+import { agreementRecordFrom } from "@healdesk/catalog/checkout-record";
+import { after, NextResponse } from "next/server";
 
 import {
   DOWNLOAD_COOKIE,
@@ -7,6 +17,8 @@ import {
   issueDownloadToken,
 } from "@/lib/agreement-download";
 import { signRequestRefusal } from "@/lib/checkout/order";
+import { appendAgreementRecord, recordsConfigured } from "@/lib/checkout/records";
+import { copyReport, COPY_BUDGET_MS, deliverAgreementCopyWithin } from "@/lib/email/agreement-copy";
 import { normalizeEmail } from "@/lib/leads";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { demoInvitation, gateState, refuseOtherEmail, refuseWithoutLink } from "@/lib/setup-gate";
@@ -14,67 +26,64 @@ import { readCookie, SETUP_COOKIE } from "@/lib/setup-link";
 import { updateSetupRequest } from "@/lib/setup-requests";
 
 /**
- * POST /api/agreement, sign the BAA, before payment.
+ * POST /api/agreement, sign the agreement, before payment.
  *
- * Same shape as /api/checkout: the marketing site never talks to the product
- * database, it signs the payload and forwards it. What differs is when it runs.
- * This is called while the buyer is still on the signature step, BEFORE a
- * payment session is created, because a business associate may not receive
- * patient data without a written contract, and "we'll record it when the
- * webhook lands" is not a contract.
+ * Called while the buyer is still on the signature step, BEFORE a payment
+ * session is created, because a business associate may not receive patient
+ * data without a written contract, and "we'll record it when the webhook
+ * lands" is not a contract. An abandoned checkout therefore leaves a signed
+ * agreement that no account names. That is correct and deliberate.
  *
- * The practical consequence is that an abandoned checkout leaves a signed
- * agreement with no organization attached. That is correct and deliberate. See
- * apps/app/src/lib/agreements.ts.
+ * ## Recorded here, not on apps/app (owner, 14 October 2026)
  *
- * Rate limited harder than checkout, because this endpoint writes a row on
- * every call and the caller is unauthenticated by construction.
+ * Until that day this route signed the payload over to apps/app's
+ * /api/agreements, which rendered, stored and mailed the agreement. The AWS
+ * host now has a standby mode that removes its database until the first
+ * clinic pays, so a buyer must be able to sign with it off: the signature is
+ * validated and the document rendered here, by the catalog's own code
+ * (@healdesk/catalog/agreement-signing, the same functions apps/app ran), and
+ * recorded as a SEALED record in the marketing Sheet's `agreements` tab
+ * (lib/checkout/records.ts). apps/app imports it, with the same id and
+ * accepted-at, when the purchase's first invoice is paid
+ * (docs/design/checkout-records-on-vercel-2026-10-14.md). Nothing here calls
+ * apps/app.
  *
- * ## Why the app's body is returned whole
+ * The record keeps no text: it keeps what re-renders the document exactly,
+ * with the hash beside it, and every reader renders it again and checks.
  *
- * The 201 carries more than an id: the rendered text, and what became of the
- * copy the app tried to email the signer. That last one is the only place the
- * browser can learn its copy did not go out, and the buyer is on the signature
- * step waiting to be told. Narrowing this to the fields the checkout happened
- * to need on the day would drop it silently, which is exactly how it went
- * missing before. So the payload is passed through untouched, and anything
- * added on the app side reaches the client without a change here.
+ * ## Why the server renders the document
  *
- * ## Why this response also carries a download cookie
+ * The browser is shown the agreement, but it does not get to say what it was.
+ * The text is rendered again from the submitted answers, here, and compared
+ * with the hash of what the screen displayed: a mismatch is refused and
+ * nothing is recorded. The assent sentence stored is derived here too.
  *
- * The buyer wants a PDF of what they just signed, and the obvious way to give
- * them one is a URL keyed on the acceptance id. That would be a mistake, and it
- * is the specific mistake this codebase already decided not to make: the id is
- * deliberately kept out of the emailed copy, because a UUID sent to an address
- * nobody has verified is a bearer credential for a signed contract the moment
- * anything will serve a document in exchange for it.
+ * ## The copy
  *
- * So the id is not the credential. THIS response is. A successful signature is
- * the one moment where the server knows the browser it is answering is the
- * browser that signed, and the cookie minted here says that and nothing else:
- * a short-lived, HTTP-only MAC that is arithmetically valid for this one
- * agreement id and no other. /api/agreement/pdf serves a document only against
- * it. Possession of the UUID alone gets a 401. See lib/agreement-download.ts,
- * which unlike lib/gate.ts is a security boundary and says so.
+ * The signer is mailed the PDF of what they signed, through this site's
+ * Resend sender (lib/email/agreement-copy.ts), within eight seconds; a send
+ * still running then is left to finish (Next's `after`) and still records
+ * its evidence. The response says whether the copy went, because the browser
+ * is the only place the buyer can learn that it did not.
  *
- * The cookie is minted from the app's own 201, received over the HMAC-signed
- * channel, and from nothing the browser sent. A body that does not parse, a
- * status that is not 201, or an id that is not a UUID all yield no cookie at
- * all.
+ * ## The download cookie
  *
- * ## Minting a cookie may never cost the buyer their signature
+ * The buyer wants a PDF of what they just signed, and the obvious URL keyed on
+ * the acceptance id would be a bearer credential for a signed contract. So the
+ * id is not the credential. THIS response is: the cookie minted here is a
+ * short-lived, HTTP-only MAC valid for this one agreement id and no other, and
+ * /api/agreement/pdf serves the document only against it
+ * (lib/agreement-download.ts).
  *
- * By the time this code runs the agreement is a row in an append-only table.
- * The buyer is one step from paying, and the acceptance table has no notion of
- * "the same signature twice", a 500 here would tell a browser that its
- * agreement was not recorded when it was, and the honest response to that
- * message is to sign again, which writes a second row for one act of assent.
+ * ## Recording may never cost the buyer their signature
  *
- * `issueDownloadToken` throws when it has no key to sign with, and its own
- * comment says callers must catch. So the whole cookie step is wrapped, logged
- * loudly and then abandoned. The client gets the app's 201 either way, and the
- * checkout falls back to the stored text, which is the authority the PDF only
- * presents. The cost of failing here is a plainer file, never a lost contract.
+ * Once the record is written, nothing after it (the cookie, the copy, the
+ * setup request's progress) may turn the answer into a failure: a buyer told
+ * their agreement was not recorded would sign again, and two records would
+ * stand for one act of assent.
+ *
+ * Rate limited harder than checkout, because this writes a record on every
+ * call and the caller is unauthenticated by construction.
  */
 
 export const runtime = "nodejs";
@@ -83,68 +92,42 @@ export const dynamic = "force-dynamic";
 const RATE_LIMIT = 5;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 
-/** Postgres `uuid`, which is what the acceptance id is. See db/schema.ts. */
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * The id of an agreement this request just recorded, or null.
- *
- * Deliberately narrow, because its return value becomes the subject of a
- * credential. Only a 201 counts: that is the single status /api/agreements
- * issues on a write, and treating any 2xx as a signature would let a future
- * 200 somewhere upstream mint a download token for a row that was not created
- * here. The shape check is the same argument one step down: the id is the MAC
- * input that binds the token to one record, so a value that cannot be an id
- * must never become the thing a download is authorised against.
- */
-function signedAgreementId(status: number, payload: string): string | null {
-  if (status !== 201) return null;
-
-  let body: unknown;
-  try {
-    body = JSON.parse(payload);
-  } catch {
-    return null;
-  }
-
-  const id = (body as { agreementId?: unknown } | null)?.agreementId;
-  return typeof id === "string" && UUID.test(id) ? id : null;
+function refuse(error: string, status: number, field?: string, headers: Record<string, string> = {}): Response {
+  return Response.json(
+    { error, ...(field ? { field } : {}) },
+    { status, headers: { "Cache-Control": "no-store", ...headers } },
+  );
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const secret = process.env.HEALDESK_PROVISION_SECRET;
-  const target = process.env.HEALDESK_APP_URL;
-
-  if (!secret || !target) {
+  if (!recordsConfigured()) {
     console.error(
-      "[healdesk] HEALDESK_PROVISION_SECRET or HEALDESK_APP_URL is not set",
+      "[healdesk] signing is unavailable: HEALDESK_PROVISION_SECRET, MARKETING_SHEET_ID or GOOGLE_SERVICE_ACCOUNT_JSON is not set",
     );
-    return Response.json({ error: "Signing is unavailable." }, { status: 503 });
+    return refuse("Signing is unavailable.", 503);
   }
 
-  const limit = await rateLimit(
-    `agreement:${clientKey(request.headers)}`,
-    RATE_LIMIT,
-    RATE_WINDOW_MS,
-  );
+  const limit = await rateLimit(`agreement:${clientKey(request.headers)}`, RATE_LIMIT, RATE_WINDOW_MS);
   if (!limit.ok) {
-    return Response.json(
-      { error: "Too many attempts. Try again shortly." },
-      { status: 429, headers: { "Retry-After": String(limit.retryAfter) } },
-    );
+    return refuse("Too many attempts. Try again shortly.", 429, undefined, { "Retry-After": String(limit.retryAfter) });
   }
 
+  // A signature is a dozen short fields. The declared length is a claim, so
+  // the text is measured too, before it is parsed.
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_SIGN_REQUEST_BYTES) {
+    return refuse("Request too large.", 413);
+  }
   const raw = await request.text();
+  if (Buffer.byteLength(raw, "utf8") > MAX_SIGN_REQUEST_BYTES) return refuse("Request too large.", 413);
 
   /**
    * The setup link, while the purchase is by invitation (lib/checkout-mode.ts).
    *
    * Signing comes before paying, so it is gated the same way, by the same
    * function, as /api/checkout: without a valid link there is nothing to sign
-   * for, and every refusal here is one fewer orphaned row in an append-only
-   * table. The signatory's address must be the one the link was sent to,
-   * because it becomes the clinic's one address. The body is parsed only to
-   * check it; what is forwarded is still the raw bytes.
+   * for, and every refusal here is one fewer orphaned record. The signatory's
+   * address must be the one the link was sent to, because it becomes the
+   * clinic's one address.
    */
   const gate = await gateState(readCookie(request.headers, SETUP_COOKIE));
   let invited: { id: string; signedAt: Date | null } | null = null;
@@ -160,7 +143,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
     body = parsed as Record<string, unknown>;
   } catch {
-    return Response.json({ error: "Invalid request body." }, { status: 400 });
+    return refuse("Invalid request body.", 400);
   }
 
   if (gate.mode === "pilot" && gate.link === "valid") {
@@ -170,92 +153,101 @@ export async function POST(request: Request): Promise<Response> {
     invited = { id: gate.request.id, signedAt: gate.request.signedAt };
   }
 
-  /**
-   * The calendar answers and the agreement's kind (lib/checkout/order.ts),
-   * before a row is written: apps/app's signing path does not read the
-   * booking system or the Google account yet, so a mismatch caught here is
-   * one the record would otherwise carry silently.
-   */
+  // The calendar answers and the agreement's kind (lib/checkout/order.ts),
+  // under the field names the funnel's steps use.
   const unsignable = signRequestRefusal(body);
-  if (unsignable) return Response.json(unsignable, { status: 422 });
+  if (unsignable) return Response.json(unsignable, { status: 422, headers: { "Cache-Control": "no-store" } });
 
-  const timestamp = Math.floor(Date.now() / 1000).toString();
-
-  let response: Response;
+  // Everything a signature must be, and the document it signs, by the
+  // catalog's rules: the version (current, or inside a release overlap),
+  // the kind the practice signs, every answer, the published assent label,
+  // the address (one healdesk can mail), and the caps on every typed field.
+  // Today in UTC is the effective date: the signer's clock is not asked.
+  const acceptedAt = new Date();
+  let prepared: PreparedSigning;
   try {
-    response = await fetch(new URL("/api/agreements", target), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        [TIMESTAMP_HEADER]: timestamp,
-        [SIGNATURE_HEADER]: sign(raw, timestamp, secret),
-        // Forwarded so the acceptance record shows where the signature came
-        // from, not where our server sits.
-        "x-forwarded-for":
-          request.headers.get("x-forwarded-for") ??
-          request.headers.get("x-real-ip") ??
-          "",
-        "user-agent": request.headers.get("user-agent") ?? "",
-      },
-      body: raw,
-    });
+    validateSignRequest(body);
+    prepared = prepareSigning(body, effectiveDateOf(acceptedAt), {});
   } catch (error) {
-    console.error("[healdesk] signing endpoint unreachable", error);
-    return Response.json(
-      { error: "We couldn't record your agreement. Please try again." },
-      { status: 502 },
+    if (error instanceof AgreementError) return refuse(error.message, 422, error.field);
+    throw error;
+  }
+
+  /**
+   * The screen and the record must agree, byte for byte. A mismatch means the
+   * browser displayed something other than what would be recorded (a stale
+   * bundle, a tampered client), and a signature on a document nobody can
+   * identify is worse than none: it looks like evidence.
+   */
+  const displayed = typeof body.displayedHash === "string" ? body.displayedHash.toLowerCase() : "";
+  if (displayed && displayed !== prepared.hash) {
+    return refuse(
+      "The agreement on your screen doesn't match our copy. Please reload the page and read it again — nothing has been recorded.",
+      422,
+      "displayedHash",
     );
   }
 
-  const payload = await response.text();
-  // The app's bytes, unchanged. Parsed above only to read the id; never
-  // re-serialised, so a field this file has never heard of still reaches the
-  // browser exactly as the app wrote it.
-  const out = new NextResponse(payload, {
-    status: response.status,
-    headers: {
-      "Content-Type": "application/json",
-      /**
-       * This is the one response in the whole feature that is worth storing
-       * twice over: the body is the agreement text with the signatory's name
-       * and address in it, and the `Set-Cookie` below is the download
-       * credential itself. A conformant shared cache will not reuse a POST
-       * response with no freshness information anyway, which is why nothing
-       * was obviously broken without this, but "no cache is allowed to" is a
-       * weaker guarantee than "we said not to", and every sibling on this path
-       * (/api/agreement/pdf here, /api/agreements/[id]/pdf in apps/app, and
-       * apps/app's blanket next.config header) says it out loud. apps/web has
-       * no blanket header, so this route has to.
-       */
-      "Cache-Control": "no-store",
-    },
+  const record = agreementRecordFrom(prepared, {
+    id: randomUUID(),
+    acceptedAt,
+    // Where the signature came from: the browser, as Vercel reports it.
+    ipAddress:
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip")?.trim() ||
+      null,
+    userAgent: request.headers.get("user-agent"),
   });
 
-  const agreementId = signedAgreementId(response.status, payload);
-  if (agreementId) {
-    try {
-      out.cookies.set(
-        DOWNLOAD_COOKIE,
-        issueDownloadToken(agreementId),
-        downloadCookieOptions(),
-      );
-    } catch (error) {
-      // The agreement is already recorded. Whatever went wrong here, the one
-      // thing that must not happen is telling this browser its signature
-      // failed. The id is safe to log. It is the reference the checkout
-      // already displays, and it is the only way to find the row later.
-      console.error(
-        `[healdesk] agreement ${agreementId}: download cookie not issued`,
-        error,
-      );
-    }
+  try {
+    await appendAgreementRecord(record);
+  } catch (error) {
+    console.error("[healdesk] agreement NOT recorded", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return refuse("We couldn't record your agreement. Please try again.", 502);
   }
 
-  // Progress for /admin/setup: the first signature on this link. Never a
-  // reason to fail the response, which already carries a recorded signature.
-  if (agreementId && invited && !invited.signedAt) {
+  // One line per signature: what was signed, never who signed it.
+  console.info("[healdesk] agreement signed", {
+    agreementId: record.id,
+    version: record.documentVersion,
+    hash: record.documentHash,
+  });
+
+  // From here the agreement is recorded, and nothing below may say otherwise.
+  const copy = await deliverAgreementCopyWithin(COPY_BUDGET_MS, record, prepared.text, keepAlive);
+
+  const out = NextResponse.json(
+    {
+      agreementId: record.id,
+      version: record.documentVersion,
+      hash: record.documentHash,
+      text: prepared.text,
+      acceptedAt: record.acceptedAt,
+      approvedByCounsel: record.approvedByCounsel,
+      copy: copyReport(copy),
+    },
+    {
+      status: 201,
+      // The agreement text with the signatory's name and address in it, and
+      // the download credential in Set-Cookie: no cache keeps this.
+      headers: { "Cache-Control": "no-store" },
+    },
+  );
+
+  try {
+    out.cookies.set(DOWNLOAD_COOKIE, issueDownloadToken(record.id), downloadCookieOptions());
+  } catch (error) {
+    // Recorded already. The checkout falls back to the text copy; the id is
+    // the reference the checkout displays, and the only way to find the record.
+    console.error(`[healdesk] agreement ${record.id}: download cookie not issued`, error);
+  }
+
+  // Progress for /admin/setup: the first signature on this link.
+  if (invited && !invited.signedAt) {
     try {
-      await updateSetupRequest(invited.id, { signedAt: new Date() });
+      await updateSetupRequest(invited.id, { signedAt: acceptedAt });
     } catch (error) {
       console.error("[healdesk] could not mark the setup request signed", {
         error: error instanceof Error ? error.message : String(error),
@@ -264,4 +256,13 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   return out;
+}
+
+/** Hold the function open for a copy still sending after the response; outside a request (tests), nothing to hold. */
+function keepAlive(pending: Promise<unknown>): void {
+  try {
+    after(() => pending.then(() => undefined));
+  } catch {
+    // Not in a request scope: the promise runs on regardless.
+  }
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { revalidatePath } from "next/cache";
 import { notFound, redirect } from "next/navigation";
 
+import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
 import {
   approveAgentConfig as approveUpstream,
@@ -26,6 +27,7 @@ import {
   type DepositPolicy,
   type MetaPlatform,
 } from "@/lib/admin/ops-client";
+import { isHostUnreachable } from "@/lib/host/state";
 
 import { OnboardingPanel } from "./OnboardingPanel";
 
@@ -57,6 +59,7 @@ export default async function OnboardingPage({
   if (!UUID.test(clinicId)) notFound();
 
   const view = await fetchOnboarding(clinicId);
+  if (isHostUnreachable(view)) return <HostStandbyPage title="Onboarding" back={{ href: "/admin/ops", label: "Back to ops" }} />;
   const path = `/admin/ops/${clinicId}/onboarding`;
 
   async function completeStep(step: string, note?: string) {

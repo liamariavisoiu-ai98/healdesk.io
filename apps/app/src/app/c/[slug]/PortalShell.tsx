@@ -35,7 +35,7 @@ export type ShellProps = {
 };
 
 export function PortalShell(props: ShellProps) {
-  const nav = portalNav(props.slug, props.section);
+  const nav = portalNav(props.slug, props.section, { live: props.status.kind !== "not_yet" });
   const others = props.locations.filter((l) => l.slug !== props.slug);
 
   return (

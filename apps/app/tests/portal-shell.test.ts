@@ -9,6 +9,7 @@ import { portalDay, portalMoment, portalMoney } from "@/lib/portal/format";
 import { answeringStatus } from "@/lib/portal/header";
 import {
   isBuiltSection,
+  BY_EMAIL_UNTIL_BUILT,
   OPENS_AFTER_GO_LIVE,
   portalNav,
   sectionPath,
@@ -67,6 +68,27 @@ describe("the menu", () => {
     expect(nav.find((i) => i.section === "home")).toMatchObject({ current: true });
     expect(sectionPath("glow", "home")).toBe("/c/glow");
     expect(sectionPath("glow", "billing")).toBe("/c/glow/billing");
+  });
+
+  test("after go-live the patient screens stop saying they open after go-live, and say where their contents go until they are built", () => {
+    const before = portalNav("glow", "home", { live: false });
+    const after = portalNav("glow", "home", { live: true });
+    for (const section of ["conversations", "bookings"] as const) {
+      expect(before.find((i) => i.section === section)).toMatchObject({ href: null, note: OPENS_AFTER_GO_LIVE });
+      const item = after.find((i) => i.section === section)!;
+      if (isBuiltSection(section)) {
+        expect(item.href).toBe(sectionPath("glow", section));
+      } else {
+        expect(item).toMatchObject({ href: null, note: BY_EMAIL_UNTIL_BUILT[section] });
+        expect(item.href === null && item.note).not.toBe(OPENS_AFTER_GO_LIVE);
+      }
+    }
+    // Everything else is the same either way.
+    expect(after.filter((i) => i.href !== null).map((i) => i.section)).toEqual(
+      before.filter((i) => i.href !== null).map((i) => i.section).concat(
+        (["conversations", "bookings"] as const).filter((s) => isBuiltSection(s)),
+      ),
+    );
   });
 
   test("a screen is in the menu only when its page exists, and every screen page is in the menu", () => {

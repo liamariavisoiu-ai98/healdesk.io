@@ -34,7 +34,10 @@ export type ClinicOverview = {
   createdAt: Date;
   // Onboarding state (0033). Configuration, never patient data.
   phoneSystemType: "landline" | "voip" | "unknown";
-  callRouting: "conditional" | "always";
+  // Which calls reach AYA is clinic_settings.coverage_mode, a tenant row this
+  // cross-clinic read cannot see; the onboarding view reads it in the
+  // clinic's own tenant (lib/ops/api.ts). clinics.call_routing is not read
+  // here. When the operator confirmed it is.
   callRoutingConfirmedAt: Date | null;
   carrier: string | null;
   assistantNumberE164: string | null;
@@ -92,7 +95,7 @@ export async function listClinics(): Promise<ClinicOverview[]> {
     sql`select id, slug, name, timezone, specialty, plan,
                attribution_mode, data_classification,
                is_covered_entity, baa_signed_at, created_at,
-               phone_system_type, call_routing, call_routing_confirmed_at,
+               phone_system_type, call_routing_confirmed_at,
                carrier, assistant_number_e164, opening_hours_present,
                onboarding, agent_approved_at, went_live_at,
                offboarding_started_at, export_delivered_at, destroy_after, destroyed_at,
@@ -125,7 +128,6 @@ export async function listClinics(): Promise<ClinicOverview[]> {
     baaSignedAt: row.baa_signed_at ? new Date(row.baa_signed_at as string) : null,
     createdAt: new Date(row.created_at as string),
     phoneSystemType: (row.phone_system_type as "landline" | "voip" | "unknown") ?? "unknown",
-    callRouting: (row.call_routing as "conditional" | "always") ?? "conditional",
     callRoutingConfirmedAt: row.call_routing_confirmed_at
       ? new Date(row.call_routing_confirmed_at as string)
       : null,

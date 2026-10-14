@@ -2515,13 +2515,13 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
 
 /**
  * An amendment Practice directed to a record that must stay as it was made
- * (BAA 1.3.0 clause 14(b), 45 CFR 164.526(c)(1); the DPA's Clients' requests
- * clause; release gate 8, PT-17). A booking request's facts never change (the
- * no-rewrite trigger, 0039 and 0041), a conversation is the record of what
- * was said, and an appointment is the booking as the clinic's calendar holds
- * it, so none is edited on Practice's word: the amendment is appended beside
- * it and linked to it, and every later export of the record, and every
- * screen of healdesk's that shows it, carries it
+ * (clause 14(b) of BAA 1.5.0, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
+ * Clients' requests clause; release gate 8, PT-17). A booking request's
+ * facts never change (the no-rewrite trigger, 0039 and 0041), a conversation
+ * is the record of what was said, and an appointment is the booking as the
+ * clinic's calendar holds it, so none is edited on Practice's word: the
+ * amendment is appended beside it and linked to it, and every later export
+ * of the record, and every screen of healdesk's that shows it, carries it
  * (lib/patient-rights/amendments.ts).
  *
  * `amendment` is Practice's words about a patient: PHI, so tenant RLS and the
@@ -3569,6 +3569,11 @@ export const clinicSettings = pgTable(
     transferE164: text("transfer_e164"),
     /** The daily summary email, at the start of each working day. */
     dailySummary: boolean("daily_summary").notNull().default(true),
+    /**
+     * L33, "What changed in healdesk": on by default, and turned off by its
+     * one-click stop link (lib/email/stop.ts), which the sender reads.
+     */
+    productUpdates: boolean("product_updates").notNull().default(true),
     /**
      * Which calls reach AYA: the single source (plan Part F2). Seeded from
      * clinics.call_routing for clinics made before it; while the readers on

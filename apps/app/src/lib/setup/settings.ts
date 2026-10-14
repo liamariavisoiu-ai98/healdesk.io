@@ -265,10 +265,9 @@ export async function saveSetupSettings(
   }
 
   // Which calls reach AYA is the single source here; clinics.call_routing is
-  // kept in step for the readers still on it (the voice ingest's recovered
-  // reasons, the ops console, and Package B's coverage accessor for a clinic
-  // with no settings row), and confirmed,
-  // with the onboarding step it stamps. A changed mode is confirmed now; an
+  // kept in step for the one reader still on it (billing's coverageModeOf,
+  // for a clinic with no settings row) and for the ops console's phone form,
+  // and confirmed, with the onboarding step it stamps. A changed mode is confirmed now; an
   // unchanged one keeps the time it was first confirmed.
   if (routingAnswer !== undefined) {
     await tx.db

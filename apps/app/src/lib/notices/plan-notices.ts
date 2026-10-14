@@ -25,6 +25,14 @@ import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder"
  * way.
  */
 
+/**
+ * A kind registered before its package builds it (14 October 2026): the
+ * CHECK already takes it, but nothing can queue one until the package named
+ * in PENDING_TEMPLATES (lib/email/templates/registry.ts) replaces this with
+ * its payload type, beside its template.
+ */
+type OwedPayload = never;
+
 /** What each plan kind carries. No PHI: counts, ISO dates, channel ids, our own URLs. */
 export type PlanNoticePayloads = {
   /** Dedupe `setup_reminder:<n>`, n from 1 to 6. */
@@ -41,6 +49,37 @@ export type PlanNoticePayloads = {
   channel_ready: ChannelReadyPayload;
   /** Dedupe `channel_live:<channel>`: once per channel, which goes live once. */
   channel_live: ChannelLivePayload;
+
+  // Registered ahead of their packages; each package names its payload here.
+  booking_request: OwedPayload;
+  request_still_open: OwedPayload;
+  request_missed: OwedPayload;
+  deposit_to_collect: OwedPayload;
+  handover: OwedPayload;
+  urgent: OwedPayload;
+  website_message: OwedPayload;
+  calendar_check: OwedPayload;
+  daily_summary: OwedPayload;
+  weekly_recap: OwedPayload;
+  ai_paused: OwedPayload;
+  outage_started: OwedPayload;
+  outage_ended: OwedPayload;
+  guarantee_miss: OwedPayload;
+  website_changes: OwedPayload;
+  support_request: OwedPayload;
+  terms_notice: OwedPayload;
+  subprocessor_notice: OwedPayload;
+  incident_report: OwedPayload;
+  guarantee_claim_received: OwedPayload;
+  guarantee_finding: OwedPayload;
+  suspended_for_cause: OwedPayload;
+  patient_request: OwedPayload;
+  product_update: OwedPayload;
+  pass_through_ending: OwedPayload;
+  export_ready: OwedPayload;
+  export_reminder: OwedPayload;
+  assistant_ready: OwedPayload;
+  practice_questions_failed: OwedPayload;
 };
 
 // The payload map and the registry's plan kinds name the same kinds: adding a

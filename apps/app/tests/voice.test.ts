@@ -32,13 +32,16 @@ const TZ = "America/New_York";
 
 /** The normal setup: their line rings first, we get what nobody answered. */
 const CONDITIONAL = {
-  callRouting: "conditional" as const,
+  coverageMode: "overflow_after_hours" as const,
   openingHours: COMMON_WEEKDAY_HOURS,
   timezone: TZ,
 };
 
 /** A solo operator with no front desk: we are the primary number. */
-const ALWAYS = { ...CONDITIONAL, callRouting: "always" as const };
+const ALWAYS = { ...CONDITIONAL, coverageMode: "all_calls" as const };
+
+/** After hours only: every call forwarded while the clinic is closed, none while it is open. */
+const AFTER_HOURS_ONLY = { ...CONDITIONAL, coverageMode: "after_hours_only" as const };
 
 const call = (over: Partial<VoiceCallEvent> = {}): VoiceCallEvent => ({
   externalCallId: "call_1",
@@ -119,6 +122,20 @@ describe("always-forwarded — where the AI is the front desk", () => {
     expect(
       classifyRecovery(call(), { ...ALWAYS, openingHours: null }),
     ).toBeNull();
+  });
+});
+
+describe("after hours only — where the AI answers only while the clinic is closed", () => {
+  test("an after-hours call IS recovered", () => {
+    expect(classifyRecovery(call({ startedAt: AFTER_HOURS }), AFTER_HOURS_ONLY)).toBe("after_hours");
+  });
+
+  test("a call inside the hours is NOT recovered: the forwarding was left on, and nobody at the clinic missed it", () => {
+    // Read as Overflow and after hours, as call_routing's 'conditional' did,
+    // this would count as rang_unanswered: a call the clinic never had the
+    // chance to answer, claimed as one it let ring out.
+    expect(classifyRecovery(call(), AFTER_HOURS_ONLY)).toBeNull();
+    expect(classifyRecovery(call(), { ...AFTER_HOURS_ONLY, openingHours: null })).toBeNull();
   });
 });
 

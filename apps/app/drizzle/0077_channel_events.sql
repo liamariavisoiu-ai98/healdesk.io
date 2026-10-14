@@ -1,9 +1,5 @@
-ALTER TABLE "billing_notices" DROP CONSTRAINT "billing_notices_kind_check";--> statement-breakpoint
 ALTER TABLE "channel_events" DROP CONSTRAINT "channel_events_kind_check";--> statement-breakpoint
-ALTER TABLE "report_deliveries" DROP CONSTRAINT "report_deliveries_kind_check";--> statement-breakpoint
-ALTER TABLE "billing_notices" ADD CONSTRAINT "billing_notices_kind_check" CHECK ("billing_notices"."kind" in ('payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live'));--> statement-breakpoint
 ALTER TABLE "channel_events" ADD CONSTRAINT "channel_events_kind_check" CHECK ("channel_events"."kind" in ('ready', 'waiting', 'live', 'first_answer', 'paused', 'resumed', 'turned_off', 'turned_on', 'audit_passed', 'runtime_seen'));--> statement-breakpoint
-ALTER TABLE "report_deliveries" ADD CONSTRAINT "report_deliveries_kind_check" CHECK ("report_deliveries"."kind" in ('monthly', 'weekly', 'alert', 'renewal', 'payment_failed', 'payment_action_required', 'grace_ending', 'suspended', 'restored', 'cancel_scheduled', 'cancel_reversed', 'canceled', 'renewal_upcoming', 'usage_80', 'usage_100', 'overage_invoiced', 'plan_changed', 'location_added', 'connect_disconnected', 'plan_started', 'price_stepped_up', 'step_up_reminder', 'allowance_fallback', 'receipt', 'refund_issued', 'card_expiring', 'connect_connected', 'setup_reminder', 'setup_closed', 'calendar_stopped', 'calendar_reconnected', 'setting_changed', 'channel_ready', 'channel_live', 'welcome', 'steps_sent'));--> statement-breakpoint
 
 -- =============================================================================
 -- Channel events (WP1, 14 October 2026). The statements above were generated
@@ -18,8 +14,8 @@ ALTER TABLE "report_deliveries" ADD CONSTRAINT "report_deliveries_kind_check" CH
 -- records until the practice questions exist (an ops operation through the
 -- signed envelope, never a default), and `runtime_seen`, the first time
 -- website chat's widget loaded on the clinic's own site. L1, "AYA is
--- answering on {channel}" (`channel_live`), joins the outbox's kinds, and the
--- ledger's CHECK follows the registry as it always has.
+-- answering on {channel}" (`channel_live`), is already in the outbox's and the
+-- ledger's kinds (0076).
 --
 -- Grants are unchanged: channel_events stays append-only for the runtime
 -- role (0044's SELECT and INSERT), so neither new kind can be rewritten or
@@ -28,7 +24,7 @@ ALTER TABLE "report_deliveries" ADD CONSTRAINT "report_deliveries_kind_check" CH
 -- policies and their place in offboarding and the purge: both are
 -- clinic-scoped, hold no patient data, and are already covered.
 --
--- Safe to apply in place: three CHECKs widened, and the comments below.
+-- Safe to apply in place: one CHECK widened, and the comments below.
 -- apps/app has only ever held synthetic and seed data (CLAUDE.md).
 -- =============================================================================
 

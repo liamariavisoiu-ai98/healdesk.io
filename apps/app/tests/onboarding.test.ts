@@ -26,6 +26,7 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { applyBookingRequirementDefaults, applyBookingRequirementDefaultsFor } from "@/lib/onboarding/requirements";
 import { completeStep, readOnboarding, reopenStep } from "@/lib/onboarding/steps";
 import { listClinics } from "@/lib/ops/clinics";
+import { undoSteps } from "@/lib/portal/settings-view";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -53,6 +54,21 @@ describe("forwarding instructions", () => {
     const f = forwardingInstructions({ carrier: null, phoneSystemType: "unknown", routing: "conditional", destinationE164: "+14155550100" });
     expect(f.needsCarrierHelp).toBe(true);
     expect(f.steps[0]!.dial).toBe("+14155550100");
+  });
+
+  test("the Safety net's undo codes follow the coverage mode: After hours only undoes all-call forwarding, never *91 and *93", () => {
+    // After hours only forwards every call at closing (*72), so *91 and *93
+    // would leave the line forwarded; it was shown them while the mode was
+    // read as 'conditional'.
+    const dialsFor = (mode: "all_calls" | "overflow_after_hours" | "after_hours_only") =>
+      undoSteps("verizon", "landline", mode).map((row) => [row.carrier, row.steps.map((s) => s.dial)]);
+    expect(dialsFor("after_hours_only")).toEqual([["Verizon", ["*73"]]]);
+    expect(dialsFor("all_calls")).toEqual([["Verizon", ["*73"]]]);
+    expect(dialsFor("overflow_after_hours")).toEqual([["Verizon", ["*91", "*93"]]]);
+    // With no carrier on file, every carrier's, each for the mode.
+    for (const row of undoSteps(null, "landline", "after_hours_only")) {
+      expect(JSON.stringify(row.steps), row.carrier).not.toMatch(/\*91|\*93|##67#|##61#/);
+    }
   });
 
   test("VoIP gets a rule, not a star code, and asks for caller-ID pass-through", () => {

@@ -6,7 +6,7 @@ import { isWaitingOnReadyStep } from "@/lib/email/superseded";
 import { describeError, log } from "@/lib/log";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { emailCallUrl, helpContacts } from "@/lib/setup/help";
-import { readSetupSettings, routingForCoverageMode } from "@/lib/setup/settings";
+import { readSetupSettings } from "@/lib/setup/settings";
 import type { TenantTx } from "@/lib/tenant";
 
 import { enqueuePlanNotice } from "./plan-notices";
@@ -88,7 +88,7 @@ export async function queueChannelReady(
             clinic.phoneSystem === "voip" || clinic.phoneSystem === "landline"
               ? clinic.phoneSystem
               : "unknown",
-          routing: routingForCoverageMode(settings.coverageMode),
+          routing: settings.coverageMode,
           setupUrl: publicUrl(`/c/${clinic.slug}/setup?s=channels`),
           callUrl: emailCallUrl(),
           helpPhoneE164: helpContacts().phoneE164,

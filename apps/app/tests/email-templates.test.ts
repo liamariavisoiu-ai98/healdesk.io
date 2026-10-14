@@ -150,6 +150,45 @@ describe("the template registry", () => {
     }
   });
 
+  test("every pending kind names the package that owes it", () => {
+    const byPackage: Record<string, string[]> = {};
+    for (const [kind, pending] of Object.entries(PENDING_TEMPLATES)) {
+      (byPackage[pending.package] ??= []).push(kind);
+    }
+    expect(byPackage).toEqual({
+      WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
+      F: [
+        "booking_request",
+        "request_still_open",
+        "request_missed",
+        "deposit_to_collect",
+        "handover",
+        "urgent",
+        "website_message",
+        "calendar_check",
+      ],
+      WP4: ["daily_summary", "weekly_recap"],
+      WP3: ["ai_paused"],
+      runtime: ["outage_started", "outage_ended", "guarantee_miss"],
+      WP9: ["agreement_to_sign"],
+      WP11: ["website_changes"],
+      WP10: ["support_request"],
+      WP7: [
+        "terms_notice",
+        "subprocessor_notice",
+        "incident_report",
+        "guarantee_claim_received",
+        "guarantee_finding",
+        "suspended_for_cause",
+        "patient_request",
+        "product_update",
+      ],
+      WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
+      B: ["assistant_ready", "practice_questions_failed"],
+      WP5: ["ops_digest", "flag_alert"],
+    });
+  });
+
   test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
@@ -193,10 +232,22 @@ describe("the template registry", () => {
     ]);
   });
 
-  test("the ledger records exactly the direct kinds flagged for it: the welcome email and O11's sent-on steps", () => {
+  test("the ledger records exactly the direct kinds flagged for it: B1, O11's sent-on steps, O5, L22 and E6", () => {
     const flagged = DIRECT_KINDS.filter((kind) => DIRECT_KIND_REGISTRY[kind].ledger);
     expect([...LEDGER_DIRECT_KINDS]).toEqual(flagged);
-    expect(flagged).toEqual(["welcome", "steps_sent"]);
+    expect(flagged).toEqual([
+      "welcome",
+      "steps_sent",
+      "address_change_confirm",
+      "address_changing",
+      "agreement_to_sign",
+      "data_destroyed",
+    ]);
+    // X1.5 names O5's confirmation and L22 link emails; O5's notice and E6 carry no token.
+    expect(isLinkEmail("address_change_confirm")).toBe(true);
+    expect(isLinkEmail("agreement_to_sign")).toBe(true);
+    expect(isLinkEmail("address_changing")).toBe(false);
+    expect(isLinkEmail("data_destroyed")).toBe(false);
     expect(isLinkEmail("welcome")).toBe(true);
     expect(locksOutClinic("welcome")).toBe(true);
     // O11 goes to someone the clinic names, never to the clinic's address,

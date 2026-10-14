@@ -124,6 +124,83 @@ export const NOTICE_KIND_REGISTRY = {
   // hour later (lib/notices/channel-ready.ts, the seam the voice runtime
   // calls). It waits for daytime: it is a step to take, not an alert.
   channel_ready: kind("O10", "transactional", "normal", null, "daytime", "plan"),
+
+  // The rest of Annex X5, registered together (14 October 2026) so the CHECK
+  // widens once and the packages that finish the plan never collide on it.
+  // The package that owes each one's payload and template is named in
+  // PENDING_TEMPLATES (templates/registry.ts). Until its payload type lands
+  // in lib/notices/plan-notices.ts nothing can queue one, and until its
+  // template lands the sender holds any that are queued.
+  //
+  // L1: AYA is answering on a channel (`live`). It waits for daytime, with the
+  // attributes WP1 (pkg/channel-events) gives it beside its template, so the
+  // two registrations are one when both land.
+  channel_live: kind("L1", "transactional", "normal", null, "daytime", "plan"),
+  // The live alerts: pointers only, sent at once, at any hour, and one per
+  // event, the most specific (X5). The names are BookingAlertKind's
+  // (lib/notices/booking-alerts.ts), which the booking engine, deposits and
+  // the runtimes already call with.
+  booking_request: kind("L7", "transactional", "normal", null, "any_hour", "plan"),
+  // Queued at the clinic's next opening hour, only while the daily summary is
+  // off: the job picks the hour, so it goes when queued.
+  request_still_open: kind("L8", "transactional", "normal", null, "any_hour", "plan"),
+  request_missed: kind("L9", "transactional", "normal", null, "any_hour", "plan"),
+  deposit_to_collect: kind("L10", "transactional", "normal", null, "any_hour", "plan"),
+  handover: kind("L11", "transactional", "normal", null, "any_hour", "plan"),
+  // The one critical alert: in-process right after commit.
+  urgent: kind("L12", "transactional", "critical", null, "any_hour", "plan"),
+  website_message: kind("L20", "transactional", "normal", null, "any_hour", "plan"),
+  calendar_check: kind("L34", "transactional", "normal", null, "any_hour", "plan"),
+  // L13, at the clinic's opening time each working day: the job picks the
+  // hour, so it goes when queued. The spec's switch, which its one-click
+  // stop link also turns off.
+  daily_summary: kind("L13", "transactional", "normal", "daily_summary", "any_hour", "plan"),
+  // L14, on Mondays only while the daily summary is off (otherwise it rides
+  // in the week's first summary). Part of the service, so no switch: the
+  // daily summary's switch would stop it exactly when it is meant to go.
+  weekly_recap: kind("L14", "transactional", "normal", null, "daytime", "plan"),
+  // L15: a pause until tomorrow or indefinitely, or a channel switched Off.
+  // At any hour, like O4: it is how a pause nobody at the clinic made gets
+  // noticed.
+  ai_paused: kind("L15", "transactional", "normal", null, "any_hour", "plan"),
+  // L17 and L18: one pair per incident, both critical (X5).
+  outage_started: kind("L17", "transactional", "critical", null, "any_hour", "plan"),
+  outage_ended: kind("L18", "transactional", "critical", null, "any_hour", "plan"),
+  // L21: a guarantee miss, within the Terms' notice days.
+  guarantee_miss: kind("L21", "transactional", "normal", null, "daytime", "plan"),
+  // L23: the drift check found changes on the clinic's website.
+  website_changes: kind("L23", "transactional", "normal", null, "daytime", "plan"),
+  // L25: the acknowledgement of a support-chat escalation, naming the reply date.
+  support_request: kind("L25", "transactional", "normal", null, "any_hour", "plan"),
+  // The operator's notices (L28–L33). Terms notices are mandatory, with no
+  // unsubscribe, and go 30 days ahead, so they wait for daytime.
+  terms_notice: kind("L28", "transactional", "normal", null, "daytime", "plan"),
+  // L29 is two emails with two payloads. A new subprocessor's notice goes as
+  // soon as ops sends it, because a 24-hour notice period starts then; an
+  // incident report is critical once ops sends it (X5).
+  subprocessor_notice: kind("L29", "transactional", "normal", null, "any_hour", "plan"),
+  incident_report: kind("L29", "transactional", "critical", null, "any_hour", "plan"),
+  // L30's two: the claim received, then our finding.
+  guarantee_claim_received: kind("L30", "transactional", "normal", null, "any_hour", "plan"),
+  guarantee_finding: kind("L30", "transactional", "normal", null, "any_hour", "plan"),
+  // L31: suspended for a legal or security reason. Critical, like billing's
+  // `suspended`: calls go to the direct line from then on.
+  suspended_for_cause: kind("L31", "transactional", "critical", null, "any_hour", "plan"),
+  // L32: a pointer to a patient's request, which ops records by hand.
+  patient_request: kind("L32", "transactional", "normal", null, "any_hour", "plan"),
+  // L33: changes to features the clinic already has. Transactional, never
+  // promotional, with its own one-click switch.
+  product_update: kind("L33", "transactional", "normal", "product_updates", "daytime", "plan"),
+  // After cancellation: E3 at 7 days and 1 day before pass-through ends, E4
+  // once the export is built, E5 a week before destruction if the export
+  // has not been downloaded. E6 is a direct kind (direct-kinds.ts): it goes
+  // to an address captured before destruction, not the clinic's address.
+  pass_through_ending: kind("E3", "transactional", "normal", null, "daytime", "plan"),
+  export_ready: kind("E4", "transactional", "normal", null, "daytime", "plan"),
+  export_reminder: kind("E5", "transactional", "normal", null, "daytime", "plan"),
+  // O8 and O9, from the practice questions: steps to take, not alerts.
+  assistant_ready: kind("O8", "transactional", "normal", null, "daytime", "plan"),
+  practice_questions_failed: kind("O9", "transactional", "normal", null, "daytime", "plan"),
 } as const;
 
 export type NoticeKind = keyof typeof NOTICE_KIND_REGISTRY;

@@ -10,9 +10,9 @@ import {
   FORWARDING_PASS_THROUGH_DAYS,
   forwardingInstructions,
   isCarrier,
-  type CallRouting,
   type Carrier,
   type Channel,
+  type CoverageModeId,
 } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
@@ -285,7 +285,7 @@ export async function readSettingsView(input: {
         ? undoSteps(
             isCarrier(tenant.carrier) ? tenant.carrier : null,
             tenant.phoneSystem === "voip" ? "voip" : "landline",
-            settings.coverageMode === "all_calls" ? "always" : "conditional",
+            settings.coverageMode,
           )
         : [],
     },
@@ -371,14 +371,16 @@ function lowerFirst(text: string): string {
 
 /**
  * "How to undo call forwarding" (plan Part F2): the codes for the clinic's
- * own carrier when we know it, otherwise for each carrier, matching how its
- * calls are forwarded (every call, or the busy and no-answer pair). Undoing
- * needs no number, so these are right whatever AYA's number is.
+ * own carrier when we know it, otherwise for each carrier, matching how the
+ * clinic's coverage mode forwards its calls: all-call forwarding for All
+ * calls and for After hours only (which switches it on at closing), the busy
+ * and no-answer pair for Overflow and after hours. Undoing needs no number,
+ * so these are right whatever AYA's number is. Exported for its test.
  */
-function undoSteps(
+export function undoSteps(
   carrier: Carrier | null,
   phoneSystem: "landline" | "voip",
-  routing: CallRouting,
+  routing: CoverageModeId,
 ): SettingsView["safety"]["undo"] {
   const carriers = carrier ? CARRIERS.filter((c) => c.id === carrier) : CARRIERS;
   return carriers.map((c) => ({

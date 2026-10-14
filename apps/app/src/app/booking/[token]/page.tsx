@@ -132,9 +132,10 @@ export default async function BookingRequestPage({ params, searchParams }: { par
       ) : null}
       {req.amendmentCount ? (
         // The practice's amendments: the request stays as it was made, and
-        // every screen of healdesk's that shows it carries them (BAA 1.3.0
-        // clause 14(b)). This page opens with the emailed token alone, so it
-        // says how many and where to read them, never what they say.
+        // every screen of healdesk's that shows it carries them (clause 14(b)
+        // of BAA 1.5.0, as of 1.3.0). This page opens with the emailed token
+        // alone, so it says how many and where to read them, never what they
+        // say.
         <p className="mt-3 rounded-2xl border border-[color:var(--color-line)] p-5 text-[15px]">
           {req.amendmentCount === 1 ? "1 amendment" : `${req.amendmentCount} amendments`} at your practice&rsquo;s direction. Read
           {req.amendmentCount === 1 ? " it" : " them"} in the {person}&rsquo;s export before you act on this request.

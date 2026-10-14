@@ -1,8 +1,8 @@
 import {
   CARRIERS,
   forwardingInstructions,
-  type CallRouting,
   type Carrier,
+  type ForwardingCoverage,
   type PhoneSystemType,
 } from "@healdesk/catalog";
 
@@ -26,7 +26,12 @@ export type ForwardingFields = {
   /** The practice's carrier, when it said; null shows every carrier's codes' common form. */
   carrier: Carrier | null;
   phoneSystem: PhoneSystemType;
-  routing: CallRouting;
+  /**
+   * Which calls reach AYA: the clinic's coverage mode, so After hours only
+   * gets its own steps. A notice queued before 14 October 2026 holds the older
+   * 'conditional' or 'always', which the catalog reads as the mode it meant.
+   */
+  routing: ForwardingCoverage;
 };
 
 export function forwardingBlocks(fields: ForwardingFields): Block[] {

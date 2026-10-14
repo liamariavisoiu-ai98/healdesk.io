@@ -88,7 +88,9 @@ export { AgreementCopyLink, filenameFrom } from "./AgreementCopy";
  *
  * A healthcare provider may not hand patient information to a supplier
  * without a written contract first, so the agreement is its own step, and it
- * is recorded in the database before the buyer ever sees a payment form.
+ * is recorded, as a sealed record in the marketing Sheet (lib/checkout/
+ * records.ts; apps/app imports it with the first paid invoice), before the
+ * buyer ever sees a payment form.
  * Abandoning at step 4 leaves a signed agreement with no account behind it,
  * which is correct: far better than taking money for an account with no
  * agreement.
@@ -689,7 +691,9 @@ function Complete({ email, onClose }: { email: string; onClose?: () => void }) {
       </h1>
       {/* Reached only on the unpaid development path (no Stripe keys), where
           apps/app has already created the account. On the paid path the buyer
-          leaves for Stripe and comes back to apps/app's /welcome. */}
+          leaves for Stripe and comes back to this site's /welcome
+          (app/welcome/route.ts), which hands them on to apps/app's once the
+          account exists. */}
       <p className="text-muted mt-4 text-[19.2px] font-medium">
         Your agreement is signed and on file, and we&apos;ve emailed a copy to{" "}
         <strong className="text-ink">{email}</strong>.

@@ -22,12 +22,14 @@ import { readClinicSite, type SiteRead } from "@/lib/site-read/read";
  * setup never asks for what the site already says
  * (docs/design/funnel-onboarding-portal-2026-10-06.md, Part B).
  *
- * ## Why here, and why it keeps nothing
+ * ## Why here, and what keeps it
  *
  * Fetching a URL a stranger typed belongs off the PHI host, so the read runs
- * on apps/web, behind the fetch guard in lib/site-read/fetch.ts. And apps/web
- * stores nothing from it: no Sheet row, no cache, no copy of the profile.
- * The browser holds it until Pay, and apps/app keeps it from there.
+ * on apps/web, behind the fetch guard in lib/site-read/fetch.ts. This route
+ * stores nothing from it: no cache and no row of its own. The browser holds
+ * the profile until Pay, which puts it in the purchase's sealed record in the
+ * marketing Sheet (lib/checkout/records.ts), and apps/app keeps it from the
+ * first paid invoice on, when it imports that record.
  *
  * ## Who may ask
  *

@@ -3,16 +3,17 @@
  * nothing nested more than one level deep, in the spec's order.
  *
  * Conversations and Bookings hold patient details and are built with step-up
- * enforcement (packages G and E). They follow the clinic's live state: before
- * any channel is live they say they open after go-live, never links; after
- * it, they link once their screen is in this build, and until then say where
- * what they will hold reaches the clinic meanwhile, by email. A menu item
- * that goes nowhere breaks the rule that every link works the day it ships,
- * and one that 404s reads as a broken product. When a package builds one it
- * adds it to `BUILT` here and nothing else changes. Any other screen is
- * listed only once it exists, and every link into a screen asks
- * `isBuiltSection` first, so no build ships a link to a page it does not
- * have.
+ * enforcement in M5. Until one exists, or while the clinic has nothing for it
+ * to show, it is a menu entry that says it opens after go-live, never a link:
+ * a menu item that goes nowhere breaks the rule that every link works the day
+ * it ships, and one that 404s reads as a broken product. A built patient
+ * screen links once the clinic `opened` it: a channel has gone live, or there
+ * is already something to show (lib/portal/page.ts, openPatientScreens). One
+ * not built yet, once a channel is live, says where what it will hold reaches
+ * the clinic meanwhile, per live channel, rather than promising an opening
+ * that has already happened. Any other screen is listed only once it exists,
+ * and every link into a screen asks `isBuiltSection` first, so no build ships
+ * a link to a page it does not have.
  *
  * Pure, so the menu is one table test.
  */
@@ -36,11 +37,12 @@ const SECTIONS: readonly { section: PortalSection; label: string; path: string }
   { section: "billing", label: "Billing", path: "/billing" },
 ];
 
-/** The screens that exist in this build. Conversations and Bookings join in M5. */
+/** The screens that exist in this build. Bookings joins in M5. */
 const BUILT: ReadonlySet<PortalSection> = new Set<PortalSection>([
   "home",
   "settings",
   "knowledge",
+  "conversations",
   "billing",
 ]);
 
@@ -88,31 +90,30 @@ export function isBuiltSection(section: PortalSection): boolean {
 }
 
 /**
- * The menu for the clinic `slug`, in order, with `active` marked. `live` is
- * whether any of the clinic's channels has gone live (lib/portal/header.ts's
- * answering status is anything but "not yet"), and `liveChannels` which.
+ * The menu for the clinic `slug`, in order, with `active` marked. `opened` is
+ * which patient screens the clinic has opened (openPatientScreens); a built
+ * one not in it still says when it opens. `liveChannels` are the channels
+ * that have gone live: with any, a patient screen not built yet says where
+ * its contents go meanwhile instead.
  */
 export function portalNav(
   slug: string,
   active: PortalSection | null,
-  options: { live?: boolean; liveChannels?: readonly Channel[] } = {},
+  opened: readonly PortalSection[] = [],
+  liveChannels: readonly Channel[] = [],
 ): NavItem[] {
-  const live = options.live === true;
   const items: NavItem[] = [];
   for (const { section, label } of SECTIONS) {
-    const link = { section, label, href: sectionPath(slug, section), current: section === active };
-    if (AFTER_GO_LIVE.has(section)) {
-      if (!live) {
-        items.push({ section, label, href: null, current: false, note: OPENS_AFTER_GO_LIVE });
-      } else if (BUILT.has(section)) {
-        items.push(link);
-      } else {
-        const note =
-          section === "bookings" ? BOOKINGS_BY_EMAIL : conversationsUntilBuilt(options.liveChannels ?? []);
-        items.push({ section, label, href: null, current: false, note });
-      }
-    } else if (BUILT.has(section)) {
-      items.push(link);
+    if (BUILT.has(section) && (!AFTER_GO_LIVE.has(section) || opened.includes(section))) {
+      items.push({ section, label, href: sectionPath(slug, section), current: section === active });
+    } else if (AFTER_GO_LIVE.has(section)) {
+      const note =
+        !BUILT.has(section) && liveChannels.length > 0
+          ? section === "bookings"
+            ? BOOKINGS_BY_EMAIL
+            : conversationsUntilBuilt(liveChannels)
+          : OPENS_AFTER_GO_LIVE;
+      items.push({ section, label, href: null, current: false, note });
     }
   }
   return items;

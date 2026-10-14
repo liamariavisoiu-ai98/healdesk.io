@@ -355,30 +355,30 @@ export function cancelOnline(options: { beforeStart?: boolean } = {}): Block {
  * unknown carrier gets the catalog's "ask your carrier" step rather than a
  * guess that would do nothing or leave the line forwarded.
  *
- * After hours only forwards on the carrier's schedule, which no star code
- * undoes (the catalog says so), so that mode asks the carrier too; a cloud
- * phone system is a rule in its admin whatever the mode. The destination
- * number only fills the set-up steps, which an undo never prints, so none is
- * passed.
+ * The clinic's coverage mode goes to the catalog as it is, so each mode gets
+ * its own undo: After hours only is all-call forwarding switched on at
+ * closing, so its undo is the carrier's all-call cancel code; a
+ * cloud phone system is a rule in its admin whatever the mode. The
+ * destination number only fills the set-up steps, which an undo never
+ * prints, so none is passed.
  *
  * `lead` is the email's own sentence saying why; the list follows it.
  */
 export function undoForwarding(facts: ForwardingFacts, lead: string): Block[] {
   const instructions = forwardingInstructions({
-    carrier: facts.routing === "after_hours_only" ? null : facts.carrier,
+    carrier: facts.carrier,
     phoneSystemType: facts.phoneSystem,
-    routing: facts.routing === "all_calls" ? "always" : "conditional",
+    routing: facts.routing,
     destinationE164: "",
   });
   const carrier = CARRIERS.find((c) => c.id === facts.carrier)?.name;
+  const codes = instructions.undo.length === 1 ? `this ${carrier} code` : `these ${carrier} codes`;
   const how =
     facts.phoneSystem === "voip"
       ? "Your line forwards by a rule in your phone system's admin:"
-      : facts.routing === "after_hours_only"
-        ? "After-hours forwarding runs on your carrier's schedule, so:"
-        : instructions.needsCarrierHelp || !carrier
-          ? "We don't have your carrier's codes on file, so:"
-          : `From the clinic's own line, dial these ${carrier} codes:`;
+      : instructions.needsCarrierHelp || !carrier
+        ? "We don't have your carrier's codes on file, so:"
+        : `From the clinic's own line, dial ${codes}:`;
   return [
     { type: "paragraph", text: `${lead} ${how}` },
     {

@@ -1,5 +1,5 @@
 {
-  "id": "3b317946-6e69-4bbf-974d-534022fe8658",
+  "id": "46ff5725-26e1-4a6f-bef0-be64b881376e",
   "prevId": "34b65560-fbcb-43be-9646-17f41c8024ad",
   "version": "7",
   "dialect": "postgresql",
@@ -2319,34 +2319,6 @@
           "method": "btree",
           "with": {}
         },
-        "channel_events_input_once_idx": {
-          "name": "channel_events_input_once_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "channel",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "kind",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"channel_events\".\"kind\" in ('audit_passed', 'runtime_seen')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "channel_events_clinic_idx": {
           "name": "channel_events_clinic_idx",
           "columns": [
@@ -2394,11 +2366,11 @@
         },
         "channel_events_kind_check": {
           "name": "channel_events_kind_check",
-          "value": "\"channel_events\".\"kind\" in ('ready', 'waiting', 'live', 'first_answer', 'paused', 'resumed', 'turned_off', 'turned_on', 'audit_passed', 'runtime_seen')"
+          "value": "\"channel_events\".\"kind\" in ('ready', 'waiting', 'live', 'first_answer', 'paused', 'resumed', 'turned_off', 'turned_on')"
         },
         "channel_events_waiting_on_check": {
           "name": "channel_events_waiting_on_check",
-          "value": "\"channel_events\".\"waiting_on\" is null or \"channel_events\".\"waiting_on\" in ('setup', 'direct_line', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
+          "value": "\"channel_events\".\"waiting_on\" is null or \"channel_events\".\"waiting_on\" in ('setup', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
         },
         "channel_events_channel_required": {
           "name": "channel_events_channel_required",
@@ -2784,7 +2756,7 @@
         },
         "clinic_channels_waiting_on_check": {
           "name": "clinic_channels_waiting_on_check",
-          "value": "\"clinic_channels\".\"waiting_on\" is null or \"clinic_channels\".\"waiting_on\" in ('setup', 'direct_line', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
+          "value": "\"clinic_channels\".\"waiting_on\" is null or \"clinic_channels\".\"waiting_on\" in ('setup', 'forwarding', 'snippet', 'meta_connect', 'whatsapp_payment_method')"
         }
       },
       "isRLSEnabled": false
@@ -4902,6 +4874,13 @@
           "typeSchema": "public",
           "primaryKey": false,
           "notNull": false
+        },
+        "urgent": {
+          "name": "urgent",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "treatment_interest": {
           "name": "treatment_interest",

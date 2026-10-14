@@ -64,7 +64,7 @@ import {
 import { provisionPortalClinic } from "./setup/portal-clinic";
 
 /**
- * Channel events (lib/channels/events.ts, drizzle/0078): a channel's ready,
+ * Channel events (lib/channels/events.ts, drizzle/0079): a channel's ready,
  * waiting_on, live and first answer, and the billing hooks the first answer
  * records (healdesk-io-58's startPlan and stepUpPackage).
  *

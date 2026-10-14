@@ -1,7 +1,9 @@
 import { audienceFor, type Channel } from "@healdesk/catalog";
+import { sql } from "drizzle-orm";
 
 import type { ActorContext } from "@/lib/audit";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
+import { withTenant } from "@/lib/tenant";
 
 import { portalGrants, type PortalContext, type PortalGrant } from "./access";
 import { portalActor, type PortalActor } from "./actor";
@@ -15,14 +17,17 @@ import type { PortalSection } from "./nav";
  * requirePortal(slug) itself first and passes the context in, so the guard is
  * visible in every page file.
  *
- * Business data only: the practice, its settings and its channels. Nothing
- * here reads a patient.
+ * Business data only: the practice, its settings and its channels, and
+ * whether a patient screen has anything to show. Nothing here reads a
+ * patient.
  */
 export type PortalPage = {
   actor: PortalActor;
   actorContext: ActorContext;
   state: SetupState;
   locations: PortalGrant[];
+  /** The patient screens the menu links to (openPatientScreens). */
+  opened: PortalSection[];
 };
 
 export async function loadPortalPage(
@@ -39,7 +44,30 @@ export async function loadPortalPage(
   });
   if (!state) return null;
   const locations = await portalGrants(portal.userId);
-  return { actor, actorContext, state, locations };
+  const opened = await openPatientScreens(portal.clinicId, actorContext, state);
+  return { actor, actorContext, state, locations, opened };
+}
+
+/**
+ * Which patient screens the menu links to: each once a channel has gone
+ * live, or once there is something for it to show. Conversations: a call,
+ * a web chat or a Meta thread. Whether one exists, never what it says.
+ */
+export async function openPatientScreens(
+  clinicId: string,
+  actor: ActorContext,
+  state: Pick<SetupState, "channels">,
+): Promise<PortalSection[]> {
+  if (state.channels.some((c) => c.liveAt !== null)) return ["conversations"];
+  const any = await withTenant({ clinicId, actor }, async (tx) => {
+    const found = await tx.db.execute<{ any: boolean }>(
+      sql`select exists (select 1 from conversations where clinic_id = ${clinicId}::uuid)
+              or exists (select 1 from chat_threads where clinic_id = ${clinicId}::uuid
+                           and channel in ('messenger', 'instagram', 'whatsapp')) as any`,
+    );
+    return found.rows[0]?.any === true;
+  });
+  return any ? ["conversations"] : [];
 }
 
 /** The shell's props for a screen, from what loadPortalPage read. */
@@ -56,6 +84,7 @@ export function shellProps(
   liveChannels: Channel[];
   timeZone: string;
   locations: PortalGrant[];
+  opened: PortalSection[];
 } {
   return {
     slug: portal.clinicSlug,
@@ -66,5 +95,6 @@ export function shellProps(
     liveChannels: page.state.channels.filter((c) => c.liveAt !== null).map((c) => c.channel),
     timeZone: page.state.clinic.timezone,
     locations: page.locations,
+    opened: page.opened,
   };
 }

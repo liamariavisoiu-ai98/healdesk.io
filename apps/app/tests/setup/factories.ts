@@ -331,7 +331,7 @@ export async function seedEntitled(
  * locations), inside its tenant: a bare row on the RUNTIME role, as
  * provisioning writes it; a row already carrying a lifecycle stamp
  * (ready_at, live_at, first_answer_at) as the migrator, standing in for the
- * channel definers that alone may write those since drizzle/0078.
+ * channel definers that alone may write those since drizzle/0079.
  */
 export async function seedChannels(clinicId: string, rows: readonly SeedChannelRow[]): Promise<void> {
   const stamped = rows.some((row) => row.readyAt || row.liveAt || row.firstAnswerAt);

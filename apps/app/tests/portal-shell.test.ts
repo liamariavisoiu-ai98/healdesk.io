@@ -80,14 +80,16 @@ describe("the menu", () => {
     expect(sectionPath("glow", "billing")).toBe("/c/glow/billing");
   });
 
-  test("after go-live the patient screens stop saying they open after go-live, and say where their contents go until they are built", () => {
-    const before = portalNav("glow", "home", { live: false });
-    const after = portalNav("glow", "home", { live: true, liveChannels: ["voice"] });
+  test("once a channel is live, a patient screen not built yet stops saying it opens after go-live, and says where its contents go", () => {
+    const before = portalNav("glow", "home");
+    // A channel live: Conversations, built, links once opened (openPatientScreens);
+    // Bookings, not built yet, says where its requests go meanwhile.
+    const after = portalNav("glow", "home", ["conversations"], ["voice"]);
+    expect(before.find((i) => i.section === "bookings")).toMatchObject({ href: null, note: OPENS_AFTER_GO_LIVE });
     for (const section of ["conversations", "bookings"] as const) {
-      expect(before.find((i) => i.section === section)).toMatchObject({ href: null, note: OPENS_AFTER_GO_LIVE });
       const item = after.find((i) => i.section === section)!;
       if (isBuiltSection(section)) {
-        expect(item.href).toBe(sectionPath("glow", section));
+        if (section === "conversations") expect(item.href).toBe(sectionPath("glow", section));
       } else {
         expect(item.href).toBeNull();
         expect(item.href === null && item.note).not.toBe(OPENS_AFTER_GO_LIVE);
@@ -95,27 +97,20 @@ describe("the menu", () => {
     }
     if (!isBuiltSection("bookings")) {
       expect(after.find((i) => i.section === "bookings")).toMatchObject({ note: BOOKINGS_BY_EMAIL });
+      // Before any channel is live it still promises the opening.
+      expect(portalNav("glow", "home", ["conversations"], []).find((i) => i.section === "bookings")).toMatchObject({
+        note: OPENS_AFTER_GO_LIVE,
+      });
     }
-    expect(after.filter((i) => i.href !== null).map((i) => i.section)).toEqual(
-      before
-        .filter((i) => i.href !== null)
-        .map((i) => i.section)
-        .concat((["conversations", "bookings"] as const).filter((s) => isBuiltSection(s))),
-    );
   });
 
-  test("Conversations says per channel where a conversation goes meanwhile: Meta's are never emailed", () => {
+  test("what a not-yet-built Conversations would say, per channel: Meta's are never emailed", () => {
     expect(conversationsUntilBuilt(["voice"])).toBe("Each call transcript is emailed to you");
     expect(conversationsUntilBuilt(["voice", "web"])).toBe("Each call and website chat transcript is emailed to you");
     expect(conversationsUntilBuilt(["meta"])).toBe("Instagram, Messenger and WhatsApp messages stay in those apps");
     expect(conversationsUntilBuilt(["web", "meta"])).toBe(
       "Each website chat transcript is emailed to you; Instagram, Messenger and WhatsApp messages stay in those apps",
     );
-    if (!isBuiltSection("conversations")) {
-      expect(
-        portalNav("glow", "home", { live: true, liveChannels: ["meta"] }).find((i) => i.section === "conversations"),
-      ).toMatchObject({ note: "Instagram, Messenger and WhatsApp messages stay in those apps" });
-    }
   });
 
   test("a screen is in the menu only when its page exists, and every screen page is in the menu", () => {

@@ -9,6 +9,8 @@
 #   bash infra/aws/scripts/run-task.sh reapply-erasures   after a restore: delete again every person deleted
 #   bash infra/aws/scripts/run-task.sh patient-export <clinic id>
 #                                                     a leaving clinic's return bundle
+#   bash infra/aws/scripts/run-task.sh patient-export <clinic id> <contact id> <who asked>
+#                                                     one person's bundle (a patient-rights request)
 #   bash infra/aws/scripts/run-task.sh erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at]
 #   bash infra/aws/scripts/run-task.sh amend-contact <clinic id> <contact id> <fields to clear> <who asked> <you@healdesk.io>
 #                                                     a person's deletion or correction request
@@ -31,10 +33,11 @@
 #
 # run-task arguments are recorded by CloudTrail, so commands and secrets live
 # in the task definition and nothing is overridden, with one exception:
-# patient-export takes three environment overrides, the clinic's id, who
-# asked (always "practice": a whole clinic's bundle is the practice's, and
-# nothing typed reaches the audit row) and the object key,
-# clinic-<id>-<UTC time>.json. None is secret or a patient's. The two
+# patient-export takes environment overrides: the clinic's id, who asked
+# (always "practice" for a whole clinic's bundle, and nothing typed reaches
+# the audit row) and the object key, clinic-<id>-<UTC time>.json; or, for one
+# person, also the contact's id, who asked from the closed three, and the key
+# clinic-<id>-patient-<UTC time>.json. None is secret or a patient's. The two
 # patient-rights scripts take theirs the same way (apps/app/scripts/
 # ops-erase-person.ts, ops-amend-contact.ts): the clinic's and the contact's
 # ids, who asked (practice, person_via_practice or representative_via_practice),
@@ -79,7 +82,7 @@ fail() {
 }
 usage() {
   echo "usage: $0 migrate|db-bootstrap|destroy-due|reapply-erasures" >&2
-  echo "       $0 patient-export <clinic id>" >&2
+  echo "       $0 patient-export <clinic id> [<contact id> <who asked>]" >&2
   echo "       $0 erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at, e.g. 2026-10-12]" >&2
   echo "       $0 amend-contact <clinic id> <contact id> <fields to clear, e.g. phone,email> <who asked> <you@healdesk.io>" >&2
   echo "       who asked: practice | person_via_practice | representative_via_practice" >&2
@@ -91,7 +94,7 @@ usage() {
 EXPORT_BUCKET=healdesk-production-exports-$ACCOUNT
 [ "$#" -ge 1 ] || usage
 case "$1" in
-  patient-export) [ "$#" -eq 2 ] || usage ;;
+  patient-export) [ "$#" -eq 2 ] || [ "$#" -eq 4 ] || usage ;;
   erase-person) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
   amend-contact) [ "$#" -eq 6 ] || usage ;;
   demo-clinic) [ "$#" -eq 4 ] || usage ;;
@@ -152,18 +155,27 @@ check_operator() {
   fi
 }
 
-# patient-export's three overrides, checked before any AWS call.
+# patient-export's overrides, checked before any AWS call: the whole clinic
+# (who asked is always the practice), or one person named by a contact's id
+# (a patient-rights request) with who asked from the closed three, under a
+# clinic-<id>-patient-<time>.json key, never the contact's id.
 overrides=""
 export_key=""
 if [ "$1" = patient-export ]; then
-  clinic_id=$2
-  if ! printf '%s' "$clinic_id" | grep -Eqi '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
-    fail "the clinic id must be the clinic's uuid (the ops console shows it)"
+  is_uuid "$2" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
+  clinic_id=$(lower "$2")
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  if [ "$#" -eq 4 ]; then
+    is_uuid "$3" || fail "the contact id must be the contact's uuid; until the M5 portal nothing on AWS turns a number, an address or a name into one (docs/handover.md, \"Deletion requests\"), and a person is never named by any of those here"
+    check_requester "$4"
+    export_key="clinic-$clinic_id-patient-$stamp.json"
+    overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_EXPORT_CLINIC_ID","value":"%s"},{"name":"HEALDESK_EXPORT_CONTACT_ID","value":"%s"},{"name":"HEALDESK_EXPORT_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_EXPORT_KEY","value":"%s"}]}]}' \
+      "$clinic_id" "$(lower "$3")" "$4" "$export_key")
+  else
+    export_key="clinic-$clinic_id-$stamp.json"
+    overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_EXPORT_CLINIC_ID","value":"%s"},{"name":"HEALDESK_EXPORT_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_EXPORT_KEY","value":"%s"}]}]}' \
+      "$clinic_id" practice "$export_key")
   fi
-  clinic_id=$(printf '%s' "$clinic_id" | tr '[:upper:]' '[:lower:]')
-  export_key="clinic-$clinic_id-$(date -u +%Y%m%dT%H%M%SZ).json"
-  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_EXPORT_CLINIC_ID","value":"%s"},{"name":"HEALDESK_EXPORT_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_EXPORT_KEY","value":"%s"}]}]}' \
-    "$clinic_id" practice "$export_key")
 fi
 
 # The patient-rights scripts' overrides, checked the same way. Every value is

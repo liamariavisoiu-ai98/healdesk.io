@@ -193,7 +193,7 @@ describeDb("database audit (0031)", () => {
     expect(execute).toEqual([{ app: true, anyone: false }]);
   });
 
-  test("a channel's lifecycle and live's recorded inputs are the channel definers' alone (0078)", async () => {
+  test("a channel's lifecycle and live's recorded inputs are the channel definers' alone (0079)", async () => {
     // The answer gate answers only a live channel and billing is charged from
     // a channel's first answer, so neither may be written by the runtime role
     // directly: only the four definers, which re-check what they record.

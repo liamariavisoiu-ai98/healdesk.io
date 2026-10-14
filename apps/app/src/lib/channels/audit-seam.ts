@@ -14,7 +14,7 @@ import type { TenantTx } from "@/lib/tenant";
  * which do not exist yet. Until they do, only an operator can say a channel's
  * audit passed, through the signed ops envelope's `attestChannelAudit`
  * (lib/ops/api.ts), and it is recorded: a `channel_events` row of kind
- * `audit_passed`, actor `ops`, which only drizzle/0078's definer may insert
+ * `audit_passed`, actor `ops`, which only drizzle/0079's definer may insert
  * and nothing may rewrite or erase (drizzle/0044), plus the operator's own
  * audit row. It fails closed: no row, no pass. Nothing records one by
  * default, and no path but the ops operation calls `attestChannelAudit`.
@@ -58,7 +58,7 @@ export class AuditSeamError extends Error {
 /**
  * Record that `channel`'s audit passed, once: a second attestation of the
  * same channel records nothing and says so. Refuses a channel the clinic did
- * not buy, and a clinic that has left. Recorded through drizzle/0078's
+ * not buy, and a clinic that has left. Recorded through drizzle/0079's
  * definer, app_channel_record_input, because the runtime role may not insert
  * an `audit_passed` row itself; it takes no row lock (a unique index makes
  * the second one a no-op), so the caller can move the channel on afterwards,

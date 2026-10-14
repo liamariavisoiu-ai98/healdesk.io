@@ -150,6 +150,15 @@ jobs:
       # it, Node's lookup walks up past the standalone output into the build's
       # own aliases and the repo's node_modules, and finds whatever the image
       # would be missing.
+      #
+      # @aws-sdk/client-s3 is in serverExternalPackages but deliberately not
+      # checked here: no Next route loads it, so no server chunk requires it
+      # and this step would fail. Only scripts/patient-export.ts uses it
+      # (lib/patient-rights/export-store.ts), run by tsx from the image's whole
+      # workspace node_modules, outside the Next build. Its source side is held
+      # by tests/aws-sdk-externals.test.ts (a runtime dependency, imported by a
+      # literal specifier outside any try). If a route ever imports it, add it
+      # to the two lists and the pattern below.
       - name: Assert the apps/app build loads the AWS SDKs rather than throwing
         run: |
           test -d apps/app/.next/server && test -d apps/app/.next/standalone || { echo "::error::apps/app/.next/server or .next/standalone is missing: apps/app was not built."; exit 1; }

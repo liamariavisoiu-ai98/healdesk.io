@@ -61,8 +61,11 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  * Who asked is one of PATIENT_REQUESTERS, chosen, never typed: the audit
  * row this writes outlives the person, so it holds nothing typed.
  *
- * Operator-only, on purpose. The covered entity validates the request; we
- * produce the bundle. Never a self-serve clinic feature.
+ * A person's bundle is produced for the covered entity, which validates the
+ * request: the operator's script, or the clinic itself from a conversation
+ * it opens in the portal behind its passkey (M5, lib/portal/conversations.ts).
+ * The whole clinic's bundle is the clinic's to download from the portal at
+ * any time, and the operator's to hand over at offboarding.
  */
 /** A record as exported: the row, and every amendment Practice directed to it beside it. */
 export type Amended<T> = T & { amendments: RecordAmendment[] };
@@ -414,8 +417,22 @@ export async function amendContact(
  * shape as one patient's bundle so the same reader handles both. Its own audit
  * row is written for the export, which is the last accounting the clinic gets.
  */
-export async function exportClinic(tx: TenantTx, requestedBy: PatientRequester): Promise<PatientBundle> {
+/**
+ * Why a whole clinic's bundle was produced, for its audit row: the return at
+ * offboarding (the operator's script), or the clinic's own download from the
+ * portal's Conversations screen, which it may take at any time.
+ */
+export type ClinicExportPurpose = "offboarding_return" | "portal_download";
+
+export async function exportClinic(
+  tx: TenantTx,
+  requestedBy: PatientRequester,
+  purpose: ClinicExportPurpose = "offboarding_return",
+): Promise<PatientBundle> {
   assertRequester(requestedBy);
+  if (purpose !== "offboarding_return" && purpose !== "portal_download") {
+    throw new Error("An export's purpose is one of the closed set (ClinicExportPurpose).");
+  }
   const c = tx.clinicId;
   const found = await tx.db.select().from(contacts).where(eq(contacts.clinicId, c));
   const convos = await tx.db.select().from(conversations).where(eq(conversations.clinicId, c));
@@ -461,7 +478,7 @@ export async function exportClinic(tx: TenantTx, requestedBy: PatientRequester):
     resourceType: "clinic_bundle",
     resourceId: c,
     resultCount: rows,
-    metadata: { requestedBy, rows, purpose: "offboarding_return" },
+    metadata: { requestedBy, rows, purpose },
   });
 
   return {

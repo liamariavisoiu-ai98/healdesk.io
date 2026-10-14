@@ -380,7 +380,7 @@ GRANT EXECUTE ON FUNCTION app_channel_record_first_answer(text, uuid, text, time
 -- Comments
 -- -----------------------------------------------------------------------------
 COMMENT ON TABLE channel_events IS
-  'Append-only history of a clinic''s channels: ready, waiting, live, first_answer, the header''s pause and resume, the Settings switch, and two of live''s inputs: audit_passed (an operator''s attestation until the practice questions exist) and runtime_seen (an operator''s confirmation that website chat''s line is on the clinic''s site). ready, live, first_answer, audit_passed and runtime_seen are recorded only through the channel definers (0078). Billing evidence: the plan start and each step-up are charged from first_answer, which the partial unique index lets each channel record once. No patient data.';--> statement-breakpoint
+  'Append-only history of a clinic''s channels: ready, waiting, live, first_answer, the header''s pause and resume, the Settings switch, and two of live''s inputs: audit_passed (an operator''s attestation until the practice questions exist) and runtime_seen (an operator''s confirmation that website chat''s line is on the clinic''s site). ready, live, first_answer, audit_passed and runtime_seen are recorded only through the channel definers (0079). Billing evidence: the plan start and each step-up are charged from first_answer, which the partial unique index lets each channel record once. No patient data.';--> statement-breakpoint
 COMMENT ON COLUMN channel_events.detail IS
   'Ids, ISO dates and closed codes only (how a live input was recorded, the conversation a first answer belongs to, which billing request it recorded). Never conversation content, never a caller''s number.';--> statement-breakpoint
 COMMENT ON COLUMN clinic_channels.waiting_on IS
@@ -398,7 +398,7 @@ BEGIN
   IF has_column_privilege('healdesk_app'::name, 'clinic_channels'::regclass, 'ready_at', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'clinic_channels'::regclass, 'live_at', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'clinic_channels'::regclass, 'first_answer_at', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can UPDATE a channel lifecycle stamp, which 0078 made the definers''.';
+    RAISE EXCEPTION 'healdesk_app can UPDATE a channel lifecycle stamp, which 0079 made the definers''.';
   END IF;
   IF NOT has_column_privilege('healdesk_app'::name, 'clinic_channels'::regclass, 'enabled', 'UPDATE')
      OR NOT has_column_privilege('healdesk_app'::name, 'clinic_channels'::regclass, 'waiting_on', 'UPDATE') THEN

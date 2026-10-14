@@ -34,14 +34,13 @@ export type ShellProps = {
   timeZone: string;
   /** Every clinic this sign-in opens; the switcher shows only when there are several. */
   locations: readonly PortalGrant[];
+  /** The patient screens the menu links to (openPatientScreens). */
+  opened?: readonly PortalSection[];
   children: ReactNode;
 };
 
 export function PortalShell(props: ShellProps) {
-  const nav = portalNav(props.slug, props.section, {
-    live: props.status.kind !== "not_yet",
-    liveChannels: props.liveChannels ?? [],
-  });
+  const nav = portalNav(props.slug, props.section, props.opened, props.liveChannels ?? []);
   const others = props.locations.filter((l) => l.slug !== props.slug);
 
   return (

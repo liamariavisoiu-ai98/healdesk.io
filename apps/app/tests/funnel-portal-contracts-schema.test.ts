@@ -125,7 +125,7 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
       delete: true,
     });
     // Where table-level UPDATE is withheld, these are the only columns left.
-    // Since 0078 the lifecycle stamps (ready_at, live_at, first_answer_at)
+    // Since 0079 the lifecycle stamps (ready_at, live_at, first_answer_at)
     // are the channel definers' alone.
     expect(await updatableColumns("clinic_channels")).toEqual([
       "enabled",
@@ -138,7 +138,7 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
 
   test("a channel's first answer is recorded once; every other kind may repeat", async () => {
     const { clinicId } = await seedClinic("first-answer");
-    // As the migrator, the definers' owner: since 0078 the runtime role
+    // As the migrator, the definers' owner: since 0079 the runtime role
     // inserts none of these kinds itself.
     await inTenant(clinicId, async (c) => {
       const insert = (channel: string | null, kind: string) =>
@@ -266,7 +266,7 @@ describeDb("drizzle/0044: the funnel and portal contracts schema", () => {
       );
       expect(moved.rows).toHaveLength(1);
       await c.query(`savepoint t`);
-      // The lifecycle stamps are the channel definers' (0078).
+      // The lifecycle stamps are the channel definers' (0079).
       for (const column of ["ready_at", "live_at", "first_answer_at"]) {
         await expect(
           c.query(`update clinic_channels set ${column} = now() where clinic_id = $1 and channel = 'web'`, [

@@ -96,8 +96,9 @@ export const metadata: Metadata = {
 /**
  * The surfaces this console has, in the order somebody uses them: what
  * changed, what is running, how every tool links up and which keys are in
- * place, whether the AWS host is on, who asked to be set up, who is in the
- * funnel, the personalised demos built for them, and what has been signed.
+ * place, whether the AWS host is on, who asked to be set up, whose website
+ * could not be read at checkout, who is in the funnel, the personalised
+ * demos built for them, and what has been signed.
  */
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
@@ -105,6 +106,7 @@ const SECTIONS = [
   { href: "/admin/map", label: "Map" },
   { href: "/admin/host", label: "Host" },
   { href: "/admin/setup", label: "Setup" },
+  { href: "/admin/site-reads", label: "Site reads" },
   { href: "/admin/crm", label: "CRM" },
   { href: "/admin/demos", label: "Demos" },
   { href: "/admin/agreements", label: "Agreements" },

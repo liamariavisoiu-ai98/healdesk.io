@@ -231,7 +231,18 @@ type OperatorOp =
   // The system map (/admin/map): which of the host's keys are in place, yes
   // or no per name, and a live seal-and-open with the credential key.
   | "keyPresence"
-  | "getCredentialKeyStatus";
+  | "getCredentialKeyStatus"
+  // The account (plan Part K, D5 and L): the clinic's address and each
+  // change of it; changeClinicEmail, sent only after the operator's fresh
+  // TOTP (lib/admin/fresh-code.ts), and an objection's stop; the
+  // covered-entity answer; the clinic cards' channel states, tracker and
+  // agreement label; and the purchases whose website read failed.
+  | "getClinicSignIn"
+  | "changeClinicEmail"
+  | "stopClinicEmailChange"
+  | "setCoveredEntity"
+  | "listClinicCards"
+  | "listSiteReadFailures";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -3759,4 +3770,268 @@ export function credentialKeyStatus(): Promise<OpsResult<CredentialKeyCheck>> {
     },
     MAP_TIMEOUT_MS,
   );
+}
+
+// -----------------------------------------------------------------------------
+// The account (plan Part K, D5 and L)
+//
+// Business contact data and configuration, each a projection apps/app wrote:
+// the clinic's one address (its sign-in, the Stripe customer's email and the
+// agreement's notice address) and each change of it, the covered-entity
+// answer, the clinic cards and the site-read failures. Never a patient row.
+// -----------------------------------------------------------------------------
+
+const ADDRESS_CHANGE_STATUSES = [
+  "awaiting_confirmation",
+  "pending",
+  "applied",
+  "stopped",
+  "expired",
+  "failed",
+] as const;
+
+export type AddressChangeRow = {
+  id: string;
+  status: (typeof ADDRESS_CHANGE_STATUSES)[number];
+  source: "settings" | "operator";
+  oldEmail: string;
+  newEmail: string;
+  requestedBy: string;
+  createdAt: string;
+  confirmedAt: string | null;
+  /** When it takes effect: the end of the 72-hour objection window. ISO, UTC. */
+  effectiveAt: string | null;
+  resolvedAt: string | null;
+  stoppedBy: "clinic" | "operator" | null;
+  resolution: string | null;
+};
+
+export type ClinicSignInView = {
+  clinicId: string;
+  clinicName: string;
+  address: string | null;
+  changes: AddressChangeRow[];
+  coveredEntity: {
+    specialty: string;
+    regime: "hipaa" | "hipaa-if-covered" | "non-hipaa" | null;
+    agreementKind: "baa" | "dpa" | null;
+    isCoveredEntity: boolean | null;
+  };
+};
+
+function address(value: unknown, at: string): string {
+  const raw = text(value, at);
+  if (raw.length > 320 || !/^[^\s@]+@[^\s@]+$/.test(raw)) throw new ShapeError(at);
+  return raw;
+}
+
+function optionalBoolean(value: unknown, at: string): boolean | null {
+  return value === null ? null : bool(value, at);
+}
+
+function readAddressChange(value: unknown): AddressChangeRow {
+  const row = object(value, "change");
+  return {
+    id: id(row.id, "change.id"),
+    status: literal(row.status, ADDRESS_CHANGE_STATUSES, "change.status"),
+    source: literal(row.source, ["settings", "operator"] as const, "change.source"),
+    oldEmail: address(row.oldEmail, "change.oldEmail"),
+    newEmail: address(row.newEmail, "change.newEmail"),
+    requestedBy: text(row.requestedBy, "change.requestedBy"),
+    createdAt: isoInstant(row.createdAt, "change.createdAt"),
+    confirmedAt: optionalIsoInstant(row.confirmedAt, "change.confirmedAt"),
+    effectiveAt: optionalIsoInstant(row.effectiveAt, "change.effectiveAt"),
+    resolvedAt: optionalIsoInstant(row.resolvedAt, "change.resolvedAt"),
+    stoppedBy:
+      row.stoppedBy === null
+        ? null
+        : literal(row.stoppedBy, ["clinic", "operator"] as const, "change.stoppedBy"),
+    resolution: optionalText(row.resolution, "change.resolution"),
+  };
+}
+
+export function fetchClinicSignIn(clinicId: string): Promise<OpsResult<ClinicSignInView>> {
+  return callOps("getClinicSignIn", "read", { clinicId }, (value) => {
+    const data = object(value, "getClinicSignIn");
+    const covered = object(data.coveredEntity, "getClinicSignIn.coveredEntity");
+    return {
+      clinicId: id(data.clinicId, "getClinicSignIn.clinicId"),
+      clinicName: text(data.clinicName, "getClinicSignIn.clinicName"),
+      address: data.address === null ? null : address(data.address, "getClinicSignIn.address"),
+      changes: list(data.changes, "getClinicSignIn.changes").map(readAddressChange),
+      coveredEntity: {
+        specialty: text(covered.specialty, "coveredEntity.specialty"),
+        regime:
+          covered.regime === null
+            ? null
+            : literal(covered.regime, ["hipaa", "hipaa-if-covered", "non-hipaa"] as const, "coveredEntity.regime"),
+        agreementKind:
+          covered.agreementKind === null
+            ? null
+            : literal(covered.agreementKind, ["baa", "dpa"] as const, "coveredEntity.agreementKind"),
+        isCoveredEntity: optionalBoolean(covered.isCoveredEntity, "coveredEntity.isCoveredEntity"),
+      },
+    };
+  });
+}
+
+export type ChangeClinicEmailOutcome =
+  | { status: "entered"; changeId: string; newEmail: string; effectiveAt: string; emailed: boolean }
+  | { status: "refused"; message: string };
+
+/**
+ * changeClinicEmail. The caller has already checked the operator's fresh
+ * TOTP code (lib/admin/fresh-code.ts): this only sends the clinic and the
+ * address, and the far side decides.
+ */
+export function changeClinicEmail(
+  clinicId: string,
+  newEmail: string,
+): Promise<OpsResult<ChangeClinicEmailOutcome>> {
+  return callOps("changeClinicEmail", "write", { clinicId, newEmail }, (value) => {
+    const data = object(value, "changeClinicEmail");
+    if (state(data, "changeClinicEmail") !== "entered") return refusal(data, "changeClinicEmail");
+    return {
+      status: "entered",
+      changeId: id(data.changeId, "changeClinicEmail.changeId"),
+      newEmail: address(data.newEmail, "changeClinicEmail.newEmail"),
+      effectiveAt: isoInstant(data.effectiveAt, "changeClinicEmail.effectiveAt"),
+      emailed: bool(data.emailed, "changeClinicEmail.emailed"),
+    };
+  });
+}
+
+export function stopClinicEmailChange(
+  clinicId: string,
+): Promise<OpsResult<{ status: "stopped" | "none" }>> {
+  return callOps("stopClinicEmailChange", "write", { clinicId }, (value) => {
+    const data = object(value, "stopClinicEmailChange");
+    return { status: literal(data.status, ["stopped", "none"] as const, "stopClinicEmailChange.status") };
+  });
+}
+
+export type CoveredAnswer = "yes" | "no" | "not_sure";
+
+export type SetCoveredEntityOutcome =
+  | {
+      status: "recorded";
+      agreementKind: "baa" | "dpa";
+      isCoveredEntity: boolean | null;
+      covered: boolean;
+      supersedeStarted: boolean;
+      linkSent: boolean;
+      auditRecorded: boolean;
+    }
+  | { status: "refused"; message: string };
+
+export function setCoveredEntity(
+  clinicId: string,
+  answer: CoveredAnswer,
+): Promise<OpsResult<SetCoveredEntityOutcome>> {
+  return callOps("setCoveredEntity", "write", { clinicId, answer }, (value) => {
+    const data = object(value, "setCoveredEntity");
+    if (state(data, "setCoveredEntity") !== "recorded") return refusal(data, "setCoveredEntity");
+    return {
+      status: "recorded",
+      agreementKind: literal(data.agreementKind, ["baa", "dpa"] as const, "setCoveredEntity.agreementKind"),
+      isCoveredEntity: optionalBoolean(data.isCoveredEntity, "setCoveredEntity.isCoveredEntity"),
+      covered: bool(data.covered, "setCoveredEntity.covered"),
+      supersedeStarted: bool(data.supersedeStarted, "setCoveredEntity.supersedeStarted"),
+      linkSent: bool(data.linkSent, "setCoveredEntity.linkSent"),
+      auditRecorded: bool(data.auditRecorded, "setCoveredEntity.auditRecorded"),
+    };
+  });
+}
+
+const CARD_CHANNELS = ["web", "meta", "voice"] as const;
+const CARD_CHANNEL_STATUSES = ["off", "paused", "live", "waiting", "setting_up"] as const;
+const TRACKER_STAGES = [
+  "agreement",
+  "payment",
+  "website",
+  "answers",
+  "calendar",
+  "built",
+  "practice_questions",
+] as const;
+const TRACKER_STATES = ["done", "not_done", "info"] as const;
+
+export type ClinicCardView = {
+  id: string;
+  agreementKind: "baa" | "dpa" | null;
+  agreementLabel: string;
+  channels: { channel: (typeof CARD_CHANNELS)[number]; status: (typeof CARD_CHANNEL_STATUSES)[number] }[];
+  tracker: { id: (typeof TRACKER_STAGES)[number]; label: string; state: (typeof TRACKER_STATES)[number] }[];
+  trackerLeft: string[];
+};
+
+export type ClinicCards = { cards: ClinicCardView[]; limit: number };
+
+export function fetchClinicCards(): Promise<OpsResult<ClinicCards>> {
+  return callOps("listClinicCards", "read", {}, (value) => {
+    const data = object(value, "listClinicCards");
+    return {
+      limit: count(data.limit, "listClinicCards.limit"),
+      cards: list(data.cards, "listClinicCards.cards").map((entry) => {
+        const card = object(entry, "card");
+        return {
+          id: id(card.id, "card.id"),
+          agreementKind:
+            card.agreementKind === null
+              ? null
+              : literal(card.agreementKind, ["baa", "dpa"] as const, "card.agreementKind"),
+          agreementLabel: text(card.agreementLabel, "card.agreementLabel"),
+          channels: list(card.channels, "card.channels").map((c) => {
+            const row = object(c, "card.channel");
+            return {
+              channel: literal(row.channel, CARD_CHANNELS, "card.channel.channel"),
+              status: literal(row.status, CARD_CHANNEL_STATUSES, "card.channel.status"),
+            };
+          }),
+          tracker: list(card.tracker, "card.tracker").map((s) => {
+            const row = object(s, "card.stage");
+            return {
+              id: literal(row.id, TRACKER_STAGES, "card.stage.id"),
+              label: text(row.label, "card.stage.label"),
+              state: literal(row.state, TRACKER_STATES, "card.stage.state"),
+            };
+          }),
+          trackerLeft: list(card.trackerLeft, "card.trackerLeft").map((l) => text(l, "card.trackerLeft")),
+        };
+      }),
+    };
+  });
+}
+
+export type SiteReadFailureRow = {
+  ref: string;
+  clinicName: string;
+  website: string | null;
+  createdAt: string;
+  provisionedAt: string | null;
+  clinicId: string | null;
+  profileSince: boolean;
+};
+
+export function fetchSiteReadFailures(): Promise<
+  OpsResult<{ failures: SiteReadFailureRow[]; limit: number }>
+> {
+  return callOps("listSiteReadFailures", "read", {}, (value) => {
+    const data = object(value, "listSiteReadFailures");
+    return {
+      limit: count(data.limit, "listSiteReadFailures.limit"),
+      failures: list(data.failures, "listSiteReadFailures.failures").map((entry) => {
+        const row = object(entry, "failure");
+        return {
+          ref: id(row.ref, "failure.ref"),
+          clinicName: text(row.clinicName, "failure.clinicName"),
+          website: row.website === null ? null : url(row.website, "failure.website"),
+          createdAt: isoInstant(row.createdAt, "failure.createdAt"),
+          provisionedAt: optionalIsoInstant(row.provisionedAt, "failure.provisionedAt"),
+          clinicId: row.clinicId === null ? null : id(row.clinicId, "failure.clinicId"),
+          profileSince: bool(row.profileSince, "failure.profileSince"),
+        };
+      }),
+    };
+  });
 }

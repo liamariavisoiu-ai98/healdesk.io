@@ -174,23 +174,15 @@ describe("the template registry", () => {
       WP9: ["agreement_to_sign"],
       WP11: ["website_changes"],
       WP10: ["support_request"],
-      WP7: [
-        "terms_notice",
-        "subprocessor_notice",
-        "incident_report",
-        "guarantee_claim_received",
-        "guarantee_finding",
-        "suspended_for_cause",
-        "patient_request",
-        "product_update",
-      ],
+      // WP7's operator notices are templated; L32 is the one left.
+      WP7: ["patient_request"],
       WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
       B: ["assistant_ready", "practice_questions_failed"],
       WP5: ["ops_digest", "flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, and the operator's notices", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -229,6 +221,13 @@ describe("the template registry", () => {
       "steps_sent",
       "calendar_link",
       "calendar_election_recorded",
+      "terms_notice",
+      "subprocessor_notice",
+      "incident_report",
+      "guarantee_claim_received",
+      "guarantee_finding",
+      "suspended_for_cause",
+      "product_update",
     ]);
   });
 

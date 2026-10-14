@@ -122,6 +122,18 @@ import { sendConnectLink } from "@/lib/email/connect-link";
 import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { recordDailyQuota } from "@/lib/email/quota";
+import {
+  opGetOperatorNotices,
+  opListIncidentRegister,
+  opMarkIncidentNotReportable,
+  opRecordGuaranteeClaim,
+  opSendGuaranteeFinding,
+  opSendIncidentReport,
+  opSendProductUpdate,
+  opSendSubprocessorNotice,
+  opSendTermsNotice,
+  opSuspendForCause,
+} from "@/lib/ops/notices-ops";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { writeToCalendar, type CalendarWriteOutcome } from "@/lib/booking/calendar";
 import {
@@ -436,6 +448,22 @@ const OPERATIONS = [
   // keeps the day's highest and alerts once, and no audit row, so it is not
   // in MUTATING_OPERATIONS. Machine to machine, like emailEvent.
   "emailQuota",
+  // The operator's notices and the incidents across practices (WP7,
+  // lib/ops/notices-ops.ts; Annex X5, L28 to L31 and L33). Every argument is
+  // an id, a date, a flag or a code from the catalog's closed lists; the one
+  // piece of prose, a not-reportable reason, is PHI-scanned like an incident
+  // summary. The reads return ids, kinds, dates, states and counts, and the
+  // incidents' operator-written summaries; never a notice's payload.
+  "listIncidentRegister",
+  "sendIncidentReport",
+  "markIncidentNotReportable",
+  "sendTermsNotice",
+  "sendSubprocessorNotice",
+  "sendProductUpdate",
+  "recordGuaranteeClaim",
+  "sendGuaranteeFinding",
+  "suspendForCause",
+  "getOperatorNotices",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -498,6 +526,16 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "disconnectCalendar",
   // Mutating: it queues an email of patient information to the clinic.
   "resendTranscript",
+  // The operator's notices (WP7): each queues an email to one practice or
+  // many, records an incident's decision, or suspends a practice.
+  "sendIncidentReport",
+  "markIncidentNotReportable",
+  "sendTermsNotice",
+  "sendSubprocessorNotice",
+  "sendProductUpdate",
+  "recordGuaranteeClaim",
+  "sendGuaranteeFinding",
+  "suspendForCause",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1036,6 +1074,26 @@ export async function runOperation(
       return ok({ directBooking: env.directBookingEnabled() });
     case "emailQuota":
       return opEmailQuota(args);
+    case "listIncidentRegister":
+      return opListIncidentRegister(operator);
+    case "sendIncidentReport":
+      return opSendIncidentReport(args, operator);
+    case "markIncidentNotReportable":
+      return opMarkIncidentNotReportable(args, operator);
+    case "sendTermsNotice":
+      return opSendTermsNotice(args, operator);
+    case "sendSubprocessorNotice":
+      return opSendSubprocessorNotice(args, operator);
+    case "sendProductUpdate":
+      return opSendProductUpdate(args, operator);
+    case "recordGuaranteeClaim":
+      return opRecordGuaranteeClaim(args, operator);
+    case "sendGuaranteeFinding":
+      return opSendGuaranteeFinding(args, operator);
+    case "suspendForCause":
+      return opSuspendForCause(args, operator);
+    case "getOperatorNotices":
+      return opGetOperatorNotices(operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The
@@ -2819,6 +2877,17 @@ export type CareView = {
     resolvedAt: string | null;
     resolution: string | null;
     openedBy: string;
+    /**
+     * WP7: the deadline the clinic's agreement promises (null for a service
+     * complaint), beside notifyBy, healdesk's internal target; and ops'
+     * decision, a report sent or not reportable with the reason.
+     */
+    agreementNotifyBy: string | null;
+    agreementVersion: string | null;
+    reportedAt: string | null;
+    reportsSent: number;
+    notReportableAt: string | null;
+    notReportableReason: string | null;
   }[];
 };
 
@@ -2931,6 +3000,12 @@ async function opGetClinicCare(
             resolvedAt: i.resolvedAt?.toISOString() ?? null,
             resolution: i.resolution,
             openedBy: i.openedBy,
+            agreementNotifyBy: i.agreementNotifyBy?.toISOString() ?? null,
+            agreementVersion: i.agreementVersion,
+            reportedAt: i.reportedAt?.toISOString() ?? null,
+            reportsSent: i.reportsSent,
+            notReportableAt: i.notReportableAt?.toISOString() ?? null,
+            notReportableReason: i.notReportableReason,
           })),
       };
     },
@@ -3018,7 +3093,14 @@ function incidentText(
 }
 
 export type OpenIncidentOutcome =
-  | { status: "opened"; id: string; notifyBy: string; ftcNotifyBy: string | null }
+  | {
+      status: "opened";
+      id: string;
+      notifyBy: string;
+      ftcNotifyBy: string | null;
+      /** The agreement's own deadline (WP7); notifyBy is healdesk's internal target. */
+      agreementNotifyBy: string | null;
+    }
   | { status: "error"; message: string };
 
 async function opOpenIncident(
@@ -3061,6 +3143,7 @@ async function opOpenIncident(
     id: row.id,
     notifyBy: row.notifyBy.toISOString(),
     ftcNotifyBy: row.ftcNotifyBy?.toISOString() ?? null,
+    agreementNotifyBy: row.agreementNotifyBy?.toISOString() ?? null,
   } satisfies OpenIncidentOutcome);
 }
 

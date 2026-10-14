@@ -3,9 +3,18 @@ import { billingNotices } from "@/db/schema";
 import { PLAN_NOTICE_KINDS, type PlanNoticeKind } from "@/lib/email/kinds";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
+import type {
+  GuaranteeClaimReceivedPayload,
+  GuaranteeFindingPayload,
+} from "@/lib/email/templates/guarantee_claim";
+import type { IncidentReportPayload } from "@/lib/email/templates/incident_report";
+import type { ProductUpdatePayload } from "@/lib/email/templates/product_update";
 import type { SettingChangedPayload } from "@/lib/email/templates/setting_changed";
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
+import type { SubprocessorNoticePayload } from "@/lib/email/templates/subprocessor_notice";
+import type { SuspendedForCausePayload } from "@/lib/email/templates/suspended_for_cause";
+import type { TermsNoticePayload } from "@/lib/email/templates/terms_notice";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -47,6 +56,22 @@ export type PlanNoticePayloads = {
   /** Dedupe `channel_ready:<channel>:<ready_at>`: once per readiness. */
   channel_ready: ChannelReadyPayload;
 
+  // The operator's notices from /admin (WP7, lib/notices/operator-notices.ts).
+  /** Dedupe `terms_notice:<version>`: once per practice per Terms version. */
+  terms_notice: TermsNoticePayload;
+  /** Dedupe `subprocessor_notice:<provider>:<startsAt>`: once per practice per addition. */
+  subprocessor_notice: SubprocessorNoticePayload;
+  /** Dedupe `incident_report:<incident id>:<n>`: each report and update once. */
+  incident_report: IncidentReportPayload;
+  /** Dedupe `guarantee_claim_received:<claimReceivedOn>`: once per claim. */
+  guarantee_claim_received: GuaranteeClaimReceivedPayload;
+  /** Dedupe `guarantee_finding:<claimReceivedOn>`: one finding per claim. */
+  guarantee_finding: GuaranteeFindingPayload;
+  /** Dedupe `suspended_for_cause:<suspendedAt>`: once per suspension. */
+  suspended_for_cause: SuspendedForCausePayload;
+  /** Dedupe `product_update:<code>`: once per practice per update. */
+  product_update: ProductUpdatePayload;
+
   // Registered ahead of their packages; each package names its payload here.
   channel_live: OwedPayload;
   booking_request: OwedPayload;
@@ -65,14 +90,7 @@ export type PlanNoticePayloads = {
   guarantee_miss: OwedPayload;
   website_changes: OwedPayload;
   support_request: OwedPayload;
-  terms_notice: OwedPayload;
-  subprocessor_notice: OwedPayload;
-  incident_report: OwedPayload;
-  guarantee_claim_received: OwedPayload;
-  guarantee_finding: OwedPayload;
-  suspended_for_cause: OwedPayload;
   patient_request: OwedPayload;
-  product_update: OwedPayload;
   pass_through_ending: OwedPayload;
   export_ready: OwedPayload;
   export_reminder: OwedPayload;

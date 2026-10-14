@@ -1,7 +1,12 @@
 import { and, eq, isNull, lt } from "drizzle-orm";
 
 import { incidents } from "@/db/schema";
+import { agreementInEffect } from "@/lib/agreements/in-effect";
 import type { TenantTx } from "@/lib/tenant";
+
+import { addBusinessDays, agreementReportDeadline } from "./reporting-rules";
+
+export { addBusinessDays } from "./reporting-rules";
 
 /**
  * Incidents: the BAA's promises as rows with deadlines.
@@ -43,6 +48,20 @@ import type { TenantTx } from "@/lib/tenant";
  * 1 October 2026), and the clock it held was 60 days until 3 October 2026.
  * Covered clinics keep the BAA's clocks and get no second one.
  *
+ * Two deadlines, then, and the console shows both (WP7): the agreement's
+ * own, `agreement_notify_by`, stamped at opening from the agreement in
+ * effect (lib/incidents/reporting-rules.ts), which is the promise; and
+ * `notify_by`, the internal target, which the hourly incident-deadlines job
+ * chases. Never present the second as the first: no page, email or
+ * agreement may promise "24 hours" (owner, 12 October 2026).
+ *
+ * Ops then decides, once, for an incident the agreement covers: send the
+ * report (L29, built from fixed fields only and queued through the outbox,
+ * lib/notices/operator-notices.ts), or record it as not reportable, with the
+ * reason, such as a routine unsuccessful attempt the clause already reports
+ * once. Nothing reaches a clinic unless ops sends it. A report can be added
+ * to as more is learned, as the agreement says, so each one counts.
+ *
  * Nothing here holds patient data: a summary in ids, and a conversation id
  * where the transcript is the evidence — never the transcript.
  */
@@ -59,18 +78,6 @@ const IMMEDIATELY_MS = DAY_MS;
 
 /** California's clock for the owner of the data to notify the people affected. */
 const OWNER_NOTICE_DAYS = 30;
-
-/** Business days, skipping Saturday and Sunday in UTC. */
-export function addBusinessDays(from: Date, days: number): Date {
-  const d = new Date(from.getTime());
-  let left = days;
-  while (left > 0) {
-    d.setUTCDate(d.getUTCDate() + 1);
-    const dow = d.getUTCDay();
-    if (dow !== 0 && dow !== 6) left -= 1;
-  }
-  return d;
-}
 
 /**
  * When the clinic must be told: discovery plus 24 hours for a breach, a
@@ -123,6 +130,11 @@ export type OpenIncidentInput = {
 
 export async function openIncident(tx: TenantTx, input: OpenIncidentInput) {
   const discoveredAt = input.discoveredAt ?? new Date();
+  // The agreement in effect now is the one in effect at discovery for any
+  // incident opened promptly; the deadline is fixed here, so a later
+  // re-signing never moves the promise an open incident was made under.
+  const version = (await agreementInEffect(tx))?.documentVersion ?? null;
+  const agreement = agreementReportDeadline(input.class, discoveredAt, version);
   const [row] = await tx.db
     .insert(incidents)
     .values({
@@ -133,6 +145,8 @@ export async function openIncident(tx: TenantTx, input: OpenIncidentInput) {
       discoveredAt,
       notifyBy: notifyDeadline(input.class, discoveredAt, input.isCoveredEntity),
       ftcNotifyBy: ownerNotifyDeadline(input.class, discoveredAt, input.isCoveredEntity),
+      agreementNotifyBy: agreement.notifyBy,
+      agreementVersion: version,
       openedBy: input.openedBy,
     })
     .returning();
@@ -176,7 +190,11 @@ export async function listIncidents(tx: TenantTx, options: { openOnly?: boolean 
     );
 }
 
-/** Open incidents past their clinic-notification deadline with no notification recorded. */
+/**
+ * Open incidents past their clinic-notification deadline with no
+ * notification recorded, and none recorded as not reportable: an incident
+ * ops decided owes the clinic nothing has no notice to chase.
+ */
 export async function overdueIncidents(tx: TenantTx, now: Date = new Date()) {
   return tx.db
     .select()
@@ -186,7 +204,120 @@ export async function overdueIncidents(tx: TenantTx, now: Date = new Date()) {
         eq(incidents.clinicId, tx.clinicId),
         isNull(incidents.resolvedAt),
         isNull(incidents.notifiedAt),
+        isNull(incidents.notReportableAt),
         lt(incidents.notifyBy, now),
       ),
     );
+}
+
+export type IncidentDecisionRefusal =
+  | "no_such_incident"
+  | "resolved"
+  | "not_reportable_class"
+  | "already_not_reportable"
+  | "already_reported";
+
+/**
+ * The incident, locked for its decision, or why no decision can be taken on
+ * it: a resolved incident is closed, a service complaint is no agreement's
+ * to report, and one decision excludes the other.
+ */
+export async function incidentForDecision(
+  tx: TenantTx,
+  id: string,
+  decision: "report" | "not_reportable",
+): Promise<{ row: typeof incidents.$inferSelect } | { refused: IncidentDecisionRefusal }> {
+  const [row] = await tx.db
+    .select()
+    .from(incidents)
+    .where(and(eq(incidents.id, id), eq(incidents.clinicId, tx.clinicId)))
+    .for("update");
+  if (!row) return { refused: "no_such_incident" };
+  if (row.resolvedAt) return { refused: "resolved" };
+  if (row.class === "service_complaint") return { refused: "not_reportable_class" };
+  if (row.notReportableAt) return { refused: "already_not_reportable" };
+  if (decision === "not_reportable" && row.reportedAt) return { refused: "already_reported" };
+  return { row };
+}
+
+/**
+ * Record that a report (or an update to one) was queued for the clinic, in
+ * the transaction that queued it. The first one is also the notice the
+ * internal target chases, so it stamps `notified_at` when nothing else has.
+ * Returns the report's number, from 1.
+ */
+export async function recordReportQueued(
+  tx: TenantTx,
+  id: string,
+  input: { noticeId: string; decidedBy: string; now?: Date },
+): Promise<number> {
+  const now = input.now ?? new Date();
+  const [row] = await tx.db
+    .select({ reportsSent: incidents.reportsSent, notifiedAt: incidents.notifiedAt, reportedAt: incidents.reportedAt })
+    .from(incidents)
+    .where(and(eq(incidents.id, id), eq(incidents.clinicId, tx.clinicId)))
+    .limit(1);
+  if (!row) throw new Error("No such incident at this clinic.");
+  const n = row.reportsSent + 1;
+  await tx.db
+    .update(incidents)
+    .set({
+      reportsSent: n,
+      reportedAt: row.reportedAt ?? now,
+      decidedBy: input.decidedBy.slice(0, 320),
+      ...(row.notifiedAt
+        ? {}
+        : {
+            notifiedAt: now,
+            notifiedHow: `Report emailed to the practice's address from the incidents page (notice ${input.noticeId})`,
+          }),
+      updatedAt: now,
+    })
+    .where(and(eq(incidents.id, id), eq(incidents.clinicId, tx.clinicId)));
+  tx.audit.record({
+    action: "update",
+    resourceType: "incident",
+    resourceId: id,
+    metadata: { reported: true, report: n, noticeId: input.noticeId },
+  });
+  return n;
+}
+
+/**
+ * Record that an incident owes the clinic no report, and why. The reason is
+ * operator prose, PHI-scanned by the caller before it gets here.
+ */
+export async function recordNotReportable(
+  tx: TenantTx,
+  id: string,
+  input: { reason: string; decidedBy: string; now?: Date },
+) {
+  const now = input.now ?? new Date();
+  const [row] = await tx.db
+    .update(incidents)
+    .set({
+      notReportableAt: now,
+      notReportableReason: input.reason.slice(0, 2000),
+      decidedBy: input.decidedBy.slice(0, 320),
+      updatedAt: now,
+    })
+    .where(
+      and(
+        eq(incidents.id, id),
+        eq(incidents.clinicId, tx.clinicId),
+        isNull(incidents.reportedAt),
+        isNull(incidents.notReportableAt),
+        isNull(incidents.resolvedAt),
+      ),
+    )
+    .returning();
+  if (row) {
+    tx.audit.record({
+      action: "update",
+      resourceType: "incident",
+      resourceId: id,
+      metadata: { notReportable: true },
+    });
+  }
+  return row ?? null;
 }

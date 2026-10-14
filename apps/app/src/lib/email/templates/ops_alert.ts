@@ -313,7 +313,7 @@ const WORDING: Record<OpsEvent, Wording> = {
   incident_notice_overdue: {
     title: "An incident's notice target has passed",
     action:
-      "Our own target is to tell the practice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, well inside the agreement's outer limit, and no notice is recorded for the incident below. Send the notice to the practice's notice address now, following docs/incident-response.md, then record it on the incident in the console.",
+      "Our own target is to tell the practice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, well inside the agreement's outer limit, and no notice is recorded for the incident below. Decide it now on the console's Incidents page: send the report, which emails the practice's address from fixed fields, or record why it isn't reportable (docs/incident-response.md).",
   },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",

@@ -56,16 +56,11 @@ export async function sendAgainAction(
   const page = await requirePatientPage(String(slug));
   const result = await sendTranscriptAgain(page, String(conversationId));
   switch (result.status) {
-    case "sent":
-      return {
-        ok: true,
-        message:
-          "Sent again to your clinic's address. This page shows when your mail server confirms it.",
-      };
     case "queued":
       return {
         ok: true,
-        message: "Queued to send again to your clinic's address. It goes out within a few minutes.",
+        message:
+          "Sending again to your clinic's address. It goes within a minute or two, and this page shows when your mail server confirms it.",
       };
     case "open":
       return {

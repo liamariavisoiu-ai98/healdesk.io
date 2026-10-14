@@ -1,16 +1,36 @@
 import { randomUUID } from "node:crypto";
 
-import { eq, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
-import { clinics } from "@/db/schema";
+import {
+  appointments,
+  bookingRequests,
+  chatThreads,
+  clinics,
+  contacts,
+  conversations,
+  recordAmendments,
+} from "@/db/schema";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import {
   canResend,
   resendTranscriptIn,
-  sendQueuedTranscriptNow,
   transcriptReceiptFor,
   type TranscriptReceipt,
-  type TranscriptSendOptions,
 } from "@/lib/conversations/transcript-outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { notifyRecordsExported } from "@/lib/notices/setting-changed";
@@ -198,23 +218,112 @@ export type ConversationFilter = { search?: ConversationSearch; day?: DayChip | 
 /** How many rows the list shows: the newest first. Records are kept 90 days. */
 export const LIST_LIMIT = 100;
 
-/** Meta booking requests made a little before their thread's start still belong to it: two clocks write them. */
-const THREAD_MATCH_SLACK = sql`interval '1 hour'`;
-
-type CallRow = {
-  id: string;
-  channel: string;
-  started_at: Date | string;
-  outcome: string | null;
-  urgent: boolean;
-  caller_name: string | null;
-  caller_phone: string | null;
-  request_id: string | null;
-  booked: boolean;
-  amended: boolean;
-};
-
 const iso = (value: Date | string): string => new Date(value).toISOString();
+
+/** The person a conversation's booking request names, beside the conversation's own contact. */
+const requestContact = alias(contacts, "request_contact");
+
+/**
+ * A call's or web chat's first booking request, as a lateral subquery: one
+ * row per conversation however many requests it produced.
+ */
+function firstRequest(tx: TenantTx) {
+  return tx.db
+    .select({
+      id: bookingRequests.id,
+      status: bookingRequests.status,
+      createdAt: bookingRequests.createdAt,
+      appointmentId: bookingRequests.appointmentId,
+      contactId: bookingRequests.contactId,
+    })
+    .from(bookingRequests)
+    .where(
+      and(
+        eq(bookingRequests.clinicId, conversations.clinicId),
+        eq(bookingRequests.conversationId, conversations.id),
+      ),
+    )
+    .orderBy(asc(bookingRequests.createdAt), asc(bookingRequests.id))
+    .limit(1)
+    .as("first_request");
+}
+
+/**
+ * Calls and web chats with their person, their first request, whether an
+ * appointment came of them and whether an amendment sits on them: the query
+ * builder throughout, inside the page's transaction.
+ */
+async function callRows(tx: TenantTx, where: SQL[], limit: number) {
+  const request = firstRequest(tx);
+  return tx.db
+    .select({
+      id: conversations.id,
+      channel: conversations.channel,
+      startedAt: conversations.startedAt,
+      endedAt: conversations.endedAt,
+      outcome: conversations.outcome,
+      urgent: conversations.urgent,
+      contactId: sql<string | null>`coalesce(${contacts.id}, ${requestContact.id})`,
+      callerName: sql<string | null>`coalesce(${contacts.fullName}, ${requestContact.fullName})`,
+      callerPhone: sql<string | null>`coalesce(${contacts.phone}, ${requestContact.phone})`,
+      requestId: request.id,
+      requestStatus: request.status,
+      requestCreatedAt: request.createdAt,
+      requestAppointmentId: request.appointmentId,
+      hasAppointment: exists(
+        tx.db
+          .select({ one: sql`1` })
+          .from(appointments)
+          .where(
+            and(
+              eq(appointments.clinicId, conversations.clinicId),
+              eq(appointments.conversationId, conversations.id),
+            ),
+          ),
+      ),
+      amended: exists(
+        tx.db
+          .select({ one: sql`1` })
+          .from(recordAmendments)
+          .where(
+            and(
+              eq(recordAmendments.clinicId, conversations.clinicId),
+              or(
+                eq(recordAmendments.conversationId, conversations.id),
+                eq(recordAmendments.bookingRequestId, request.id),
+              ),
+            ),
+          ),
+      ),
+    })
+    .from(conversations)
+    .leftJoin(
+      contacts,
+      and(eq(contacts.clinicId, conversations.clinicId), eq(contacts.id, conversations.contactId)),
+    )
+    .leftJoinLateral(request, sql`true`)
+    .leftJoin(
+      requestContact,
+      and(
+        eq(requestContact.clinicId, conversations.clinicId),
+        eq(requestContact.id, request.contactId),
+      ),
+    )
+    .where(and(eq(conversations.clinicId, tx.clinicId), ...where))
+    .orderBy(desc(conversations.startedAt), desc(conversations.id))
+    .limit(limit);
+}
+
+type CallRow = Awaited<ReturnType<typeof callRows>>[number];
+
+function callOutcome(row: CallRow): ConversationOutcome {
+  return outcomeOf({
+    outcome: row.outcome,
+    urgent: row.urgent === true,
+    requestId: row.requestId,
+    booked: row.requestAppointmentId !== null || row.hasAppointment === true,
+  });
+}
 
 async function callsAndChats(
   tx: TenantTx,
@@ -222,60 +331,35 @@ async function callsAndChats(
   range: { from: string; to: string } | null,
   timeZone: string,
 ): Promise<ConversationListItem[]> {
-  const where = [sql`c.clinic_id = ${tx.clinicId}::uuid`];
+  const where: SQL[] = [];
   if (range) {
     where.push(
-      sql`(c.started_at at time zone ${timeZone})::date between ${range.from}::date and ${range.to}::date`,
+      sql`(${conversations.startedAt} at time zone ${timeZone})::date between ${range.from}::date and ${range.to}::date`,
     );
   }
   const search = filter.search;
   if (search.kind === "digits") {
     const like = containing(search.digits);
-    where.push(sql`(regexp_replace(coalesce(ct.phone, ''), '[^0-9]', '', 'g') like ${like}
-                    or regexp_replace(coalesce(rc.phone, ''), '[^0-9]', '', 'g') like ${like})`);
+    where.push(
+      or(
+        sql`regexp_replace(coalesce(${contacts.phone}, ''), '[^0-9]', '', 'g') like ${like}`,
+        sql`regexp_replace(coalesce(${requestContact.phone}, ''), '[^0-9]', '', 'g') like ${like}`,
+      )!,
+    );
   } else if (search.kind === "name") {
     const like = containing(search.text);
-    where.push(sql`(ct.full_name ilike ${like} or rc.full_name ilike ${like})`);
+    where.push(or(ilike(contacts.fullName, like), ilike(requestContact.fullName, like))!);
   }
-  const result = await tx.db.execute<CallRow>(sql`
-    select c.id, c.channel::text as channel, c.started_at, c.outcome::text as outcome, c.urgent,
-           coalesce(ct.full_name, rc.full_name) as caller_name,
-           coalesce(ct.phone, rc.phone) as caller_phone,
-           br.id as request_id,
-           (br.appointment_id is not null
-              or exists (select 1 from appointments a
-                          where a.clinic_id = c.clinic_id and a.conversation_id = c.id)) as booked,
-           exists (select 1 from record_amendments ra
-                    where ra.clinic_id = c.clinic_id
-                      and (ra.conversation_id = c.id or ra.booking_request_id = br.id)) as amended
-      from conversations c
-      left join contacts ct on ct.clinic_id = c.clinic_id and ct.id = c.contact_id
-      left join lateral (
-        select b.id, b.appointment_id, b.contact_id
-          from booking_requests b
-         where b.clinic_id = c.clinic_id and b.conversation_id = c.id
-         order by b.created_at, b.id
-         limit 1
-      ) br on true
-      left join contacts rc on rc.clinic_id = c.clinic_id and rc.id = br.contact_id
-     where ${sql.join(where, sql` and `)}
-     order by c.started_at desc, c.id desc
-     limit ${LIST_LIMIT}
-  `);
-  return result.rows.map((row) => ({
+  const rows = await callRows(tx, where, LIST_LIMIT);
+  return rows.map((row) => ({
     id: row.id,
     source: "call_or_chat",
     channel: callChannel(row.channel),
-    at: iso(row.started_at),
-    outcome: outcomeOf({
-      outcome: row.outcome,
-      urgent: row.urgent === true,
-      requestId: row.request_id,
-      booked: row.booked === true,
-    }),
-    callerName: row.caller_name,
-    callerPhone: row.caller_phone,
-    bookingRequestId: row.request_id,
+    at: iso(row.startedAt),
+    outcome: callOutcome(row),
+    callerName: row.callerName,
+    callerPhone: row.callerPhone,
+    bookingRequestId: row.requestId,
     amended: row.amended === true,
   }));
 }
@@ -286,25 +370,80 @@ function callChannel(channel: string): ConversationChannel {
   return "voice";
 }
 
-type ThreadRow = {
-  conversation_id: string;
-  channel: "messenger" | "instagram" | "whatsapp";
-  party_ref: string;
-  conversation_started_at: Date | string;
-  last_inbound_at: Date | string;
-  conversations_count: number;
-};
+/** Meta's three channels, which keep a thread and no conversations row. */
+const META_CHANNELS = ["messenger", "instagram", "whatsapp"] as const;
 
-type MetaRequestRow = {
-  id: string;
-  platform: string;
-  sender_id: string;
-  created_at: Date | string;
-  booked: boolean;
-  full_name: string | null;
-  phone: string | null;
-  amended: boolean;
-};
+/** Meta booking requests made a little before their thread's start still belong to it: two clocks write them. */
+const THREAD_MATCH_SLACK_MS = 60 * 60 * 1000;
+
+async function threadRows(tx: TenantTx, where: SQL[], limit: number) {
+  return tx.db
+    .select({
+      conversationId: chatThreads.conversationId,
+      channel: chatThreads.channel,
+      partyRef: chatThreads.partyRef,
+      conversationStartedAt: chatThreads.conversationStartedAt,
+      lastInboundAt: chatThreads.lastInboundAt,
+      conversationsCount: chatThreads.conversationsCount,
+    })
+    .from(chatThreads)
+    .where(
+      and(
+        eq(chatThreads.clinicId, tx.clinicId),
+        inArray(chatThreads.channel, [...META_CHANNELS]),
+        ...where,
+      ),
+    )
+    .orderBy(desc(chatThreads.lastInboundAt), desc(chatThreads.conversationId))
+    .limit(limit);
+}
+
+async function metaRequestRows(tx: TenantTx, since: Date) {
+  return tx.db
+    .select({
+      id: bookingRequests.id,
+      platform: bookingRequests.platform,
+      senderId: bookingRequests.senderId,
+      createdAt: bookingRequests.createdAt,
+      status: bookingRequests.status,
+      appointmentId: bookingRequests.appointmentId,
+      contactId: bookingRequests.contactId,
+      fullName: contacts.fullName,
+      phone: contacts.phone,
+      amended: exists(
+        tx.db
+          .select({ one: sql`1` })
+          .from(recordAmendments)
+          .where(
+            and(
+              eq(recordAmendments.clinicId, bookingRequests.clinicId),
+              eq(recordAmendments.bookingRequestId, bookingRequests.id),
+            ),
+          ),
+      ),
+    })
+    .from(bookingRequests)
+    .innerJoin(
+      contacts,
+      and(
+        eq(contacts.clinicId, bookingRequests.clinicId),
+        eq(contacts.id, bookingRequests.contactId),
+      ),
+    )
+    .where(
+      and(
+        eq(bookingRequests.clinicId, tx.clinicId),
+        eq(bookingRequests.channel, "meta"),
+        isNotNull(bookingRequests.platform),
+        isNotNull(bookingRequests.senderId),
+        gte(bookingRequests.createdAt, since),
+      ),
+    )
+    .orderBy(desc(bookingRequests.createdAt), desc(bookingRequests.id));
+}
+
+type ThreadRow = Awaited<ReturnType<typeof threadRows>>[number];
+type MetaRequestRow = Awaited<ReturnType<typeof metaRequestRows>>[number];
 
 /** A Meta thread with the request its current conversation produced, if any. */
 type MatchedThread = { thread: ThreadRow; request: MetaRequestRow | null };
@@ -316,66 +455,38 @@ type MatchedThread = { thread: ThreadRow; request: MetaRequestRow | null };
  * (identifierRef("chat_party", …), lib/chat/threads.ts), so the reference is
  * made here from the request's id and compared.
  */
-async function metaThreads(
-  tx: TenantTx,
-  where: ReturnType<typeof sql>[],
-  limit: number,
-): Promise<MatchedThread[]> {
-  const threads = await tx.db.execute<ThreadRow>(sql`
-    select t.conversation_id, t.channel, t.party_ref, t.conversation_started_at,
-           t.last_inbound_at, t.conversations_count
-      from chat_threads t
-     where t.clinic_id = ${tx.clinicId}::uuid
-       and t.channel in ('messenger', 'instagram', 'whatsapp')
-       ${where.length ? sql`and ${sql.join(where, sql` and `)}` : sql``}
-     order by t.last_inbound_at desc, t.conversation_id desc
-     limit ${limit}
-  `);
-  if (threads.rows.length === 0) return [];
-  const earliest = threads.rows
-    .map((t) => new Date(t.conversation_started_at).getTime())
-    .reduce((a, b) => Math.min(a, b));
-  const requests = await tx.db.execute<MetaRequestRow>(sql`
-    select b.id, b.platform, b.sender_id, b.created_at,
-           (b.appointment_id is not null) as booked,
-           ct.full_name, ct.phone,
-           exists (select 1 from record_amendments ra
-                    where ra.clinic_id = b.clinic_id and ra.booking_request_id = b.id) as amended
-      from booking_requests b
-      join contacts ct on ct.clinic_id = b.clinic_id and ct.id = b.contact_id
-     where b.clinic_id = ${tx.clinicId}::uuid
-       and b.channel = 'meta' and b.platform is not null and b.sender_id is not null
-       and b.created_at >= ${new Date(earliest)}::timestamptz - ${THREAD_MATCH_SLACK}
-     order by b.created_at desc, b.id desc
-  `);
+async function metaThreads(tx: TenantTx, where: SQL[], limit: number): Promise<MatchedThread[]> {
+  const threads = await threadRows(tx, where, limit);
+  if (threads.length === 0) return [];
+  const earliest = Math.min(...threads.map((t) => t.conversationStartedAt.getTime()));
+  const requests = await metaRequestRows(tx, new Date(earliest - THREAD_MATCH_SLACK_MS));
   const byParty = new Map<string, MetaRequestRow[]>();
-  for (const request of requests.rows) {
-    const ref = identifierRef(
-      "chat_party",
-      tx.clinicId,
-      `${request.platform}:${request.sender_id}`,
-    );
+  for (const request of requests) {
+    const ref = identifierRef("chat_party", tx.clinicId, `${request.platform}:${request.senderId}`);
     byParty.set(ref, [...(byParty.get(ref) ?? []), request]);
   }
-  const slackMs = 60 * 60 * 1000;
-  return threads.rows.map((thread) => {
-    const started = new Date(thread.conversation_started_at).getTime() - slackMs;
+  return threads.map((thread) => {
+    const started = thread.conversationStartedAt.getTime() - THREAD_MATCH_SLACK_MS;
     const request =
-      (byParty.get(thread.party_ref) ?? []).find(
-        (r) => new Date(r.created_at).getTime() >= started,
-      ) ?? null;
+      (byParty.get(thread.partyRef) ?? []).find((r) => r.createdAt.getTime() >= started) ?? null;
     return { thread, request };
   });
 }
 
+function metaChannel(channel: string): ConversationChannel {
+  return (META_CHANNELS as readonly string[]).includes(channel)
+    ? (channel as ConversationChannel)
+    : "messenger";
+}
+
 function threadItem({ thread, request }: MatchedThread): ConversationListItem {
   return {
-    id: thread.conversation_id,
+    id: thread.conversationId,
     source: "meta_thread",
-    channel: thread.channel,
-    at: iso(thread.last_inbound_at),
-    outcome: request ? (request.booked ? "booked" : "request") : null,
-    callerName: request?.full_name ?? null,
+    channel: metaChannel(thread.channel),
+    at: iso(thread.lastInboundAt),
+    outcome: request ? (request.appointmentId !== null ? "booked" : "request") : null,
+    callerName: request?.fullName ?? null,
     callerPhone: request?.phone ?? null,
     bookingRequestId: request?.id ?? null,
     amended: request?.amended === true,
@@ -421,7 +532,7 @@ export async function listConversations(
   const calls = await callsAndChats(tx, full, range, timeZone);
   const threadWhere = range
     ? [
-        sql`(t.last_inbound_at at time zone ${timeZone})::date between ${range.from}::date and ${range.to}::date`,
+        sql`(${chatThreads.lastInboundAt} at time zone ${timeZone})::date between ${range.from}::date and ${range.to}::date`,
       ]
     : [];
   // A search reads further back, since a thread is named only through its
@@ -510,101 +621,50 @@ export function isConversationId(value: unknown): value is string {
   return typeof value === "string" && UUID.test(value);
 }
 
-type DetailRow = {
-  id: string;
-  channel: string;
-  started_at: Date | string;
-  ended_at: Date | string | null;
-  outcome: string | null;
-  urgent: boolean;
-  contact_id: string | null;
-  caller_name: string | null;
-  caller_phone: string | null;
-  request_id: string | null;
-  request_status: string | null;
-  request_created_at: Date | string | null;
-  booked: boolean;
-};
-
 async function readCallOrChat(tx: TenantTx, id: string): Promise<ConversationDetail | null> {
-  const result = await tx.db.execute<DetailRow>(sql`
-    select c.id, c.channel::text as channel, c.started_at, c.ended_at, c.outcome::text as outcome, c.urgent,
-           coalesce(ct.id, rc.id) as contact_id,
-           coalesce(ct.full_name, rc.full_name) as caller_name,
-           coalesce(ct.phone, rc.phone) as caller_phone,
-           br.id as request_id, br.status as request_status, br.created_at as request_created_at,
-           (br.appointment_id is not null
-              or exists (select 1 from appointments a
-                          where a.clinic_id = c.clinic_id and a.conversation_id = c.id)) as booked
-      from conversations c
-      left join contacts ct on ct.clinic_id = c.clinic_id and ct.id = c.contact_id
-      left join lateral (
-        select b.id, b.status, b.created_at, b.appointment_id, b.contact_id
-          from booking_requests b
-         where b.clinic_id = c.clinic_id and b.conversation_id = c.id
-         order by b.created_at, b.id
-         limit 1
-      ) br on true
-      left join contacts rc on rc.clinic_id = c.clinic_id and rc.id = br.contact_id
-     where c.clinic_id = ${tx.clinicId}::uuid and c.id = ${id}::uuid
-  `);
-  const row = result.rows[0];
+  const [row] = await callRows(tx, [eq(conversations.id, id)], 1);
   if (!row) return null;
   const receipt = await transcriptReceiptFor(tx, row.id);
   return {
     id: row.id,
     source: "call_or_chat",
     channel: callChannel(row.channel),
-    startedAt: iso(row.started_at),
-    endedAt: row.ended_at ? iso(row.ended_at) : null,
-    outcome: outcomeOf({
-      outcome: row.outcome,
-      urgent: row.urgent === true,
-      requestId: row.request_id,
-      booked: row.booked === true,
-    }),
-    callerName: row.caller_name,
-    callerPhone: row.caller_phone,
-    contactId: row.contact_id,
+    startedAt: iso(row.startedAt),
+    endedAt: row.endedAt ? iso(row.endedAt) : null,
+    outcome: callOutcome(row),
+    callerName: row.callerName,
+    callerPhone: row.callerPhone,
+    contactId: row.contactId,
     request:
-      row.request_id && row.request_status && row.request_created_at
-        ? { id: row.request_id, status: row.request_status, createdAt: iso(row.request_created_at) }
+      row.requestId && row.requestStatus && row.requestCreatedAt
+        ? { id: row.requestId, status: row.requestStatus, createdAt: iso(row.requestCreatedAt) }
         : null,
     conversationsCount: null,
     receipt,
     canSendAgain: receipt !== null && canResend(receipt.status),
-    amendments: await shownAmendments(tx, row.id, row.request_id),
+    amendments: await shownAmendments(tx, row.id, row.requestId),
   };
 }
 
 async function readThread(tx: TenantTx, id: string): Promise<ConversationDetail | null> {
-  const [matched] = await metaThreads(tx, [sql`t.conversation_id = ${id}::uuid`], 1);
+  const [matched] = await metaThreads(tx, [eq(chatThreads.conversationId, id)], 1);
   if (!matched) return null;
+  const item = threadItem(matched);
   const { thread, request } = matched;
-  let status: { status: string; contactId: string } | null = null;
-  if (request) {
-    const found = await tx.db.execute<{ status: string; contact_id: string }>(
-      sql`select status, contact_id from booking_requests
-           where clinic_id = ${tx.clinicId}::uuid and id = ${request.id}::uuid`,
-    );
-    const row = found.rows[0];
-    status = row ? { status: row.status, contactId: row.contact_id } : null;
-  }
   return {
-    id: thread.conversation_id,
+    id: item.id,
     source: "meta_thread",
-    channel: thread.channel,
-    startedAt: iso(thread.conversation_started_at),
-    endedAt: iso(thread.last_inbound_at),
-    outcome: request ? (request.booked ? "booked" : "request") : null,
-    callerName: request?.full_name ?? null,
-    callerPhone: request?.phone ?? null,
-    contactId: status?.contactId ?? null,
-    request:
-      request && status
-        ? { id: request.id, status: status.status, createdAt: iso(request.created_at) }
-        : null,
-    conversationsCount: Number(thread.conversations_count),
+    channel: item.channel,
+    startedAt: iso(thread.conversationStartedAt),
+    endedAt: iso(thread.lastInboundAt),
+    outcome: item.outcome,
+    callerName: item.callerName,
+    callerPhone: item.callerPhone,
+    contactId: request?.contactId ?? null,
+    request: request
+      ? { id: request.id, status: request.status, createdAt: iso(request.createdAt) }
+      : null,
+    conversationsCount: thread.conversationsCount,
     receipt: null,
     canSendAgain: false,
     amendments: await shownAmendments(tx, null, request?.id ?? null),
@@ -699,7 +759,6 @@ export async function readConversation(
 // -----------------------------------------------------------------------------
 
 export type SendAgainResult =
-  | { status: "sent" }
   | { status: "queued" }
   | { status: "delivered" }
   | { status: "gone" }
@@ -710,18 +769,17 @@ export type SendAgainResult =
  * "Send again": the transcript goes to the clinic's address once more, from
  * its sealed copy, for as long as the copy lasts (until delivery is
  * confirmed, or its 30 days or 72 hours run out). Behind the step-up, with
- * the access row and the outbox's own row in one transaction; then, after
- * commit, a send straight away if the outbox's job is on (otherwise the next
- * minute's run takes it). Never another address: the outbox sends only to the
- * clinic's.
+ * the access row and the outbox's own row in one transaction. It is queued,
+ * as the operator console's resend is: the outbox's every-minute run sends
+ * it, so nothing here reaches the database outside withPatientPage. Never
+ * another address: the outbox sends only to the clinic's.
  */
 export async function sendTranscriptAgain(
   page: PatientPage,
   conversationId: string,
-  deps: Pick<TranscriptSendOptions, "transport"> = {},
 ): Promise<SendAgainResult> {
   if (!isConversationId(conversationId)) return { status: "not_found" };
-  const done = await withPatientPage(page, async (tx) => {
+  return withPatientPage(page, async (tx): Promise<SendAgainResult> => {
     const receipt = await transcriptReceiptFor(tx, conversationId);
     // By the receipt's id when there is one; otherwise the attempt, by the conversation asked about.
     await logPatientAccess(
@@ -730,14 +788,10 @@ export async function sendTranscriptAgain(
         ? { action: "read", resourceType: "transcript_email", resourceId: receipt.id }
         : { action: "read", resourceType: "conversation", resourceId: conversationId },
     );
-    if (!receipt) return { status: "not_found" as const, id: null };
-    if (receipt.status === "delivered") return { status: "delivered" as const, id: null };
-    const resent = await resendTranscriptIn(tx, conversationId);
-    return { status: resent.outcome, id: resent.id };
+    if (!receipt) return { status: "not_found" };
+    if (receipt.status === "delivered") return { status: "delivered" };
+    return { status: (await resendTranscriptIn(tx, conversationId)).outcome };
   });
-  if (done.status !== "queued") return { status: done.status };
-  const sent = await sendQueuedTranscriptNow(page.portal.clinicId, done.id, deps);
-  return sent === "sent" ? { status: "sent" } : { status: "queued" };
 }
 
 // -----------------------------------------------------------------------------

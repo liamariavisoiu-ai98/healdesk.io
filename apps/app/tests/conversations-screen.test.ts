@@ -45,7 +45,6 @@ import type {
   EmailTransport,
   OutgoingEmail,
 } from "@/lib/reporting/deliver";
-import { JOB_TRANSCRIPT_EMAILS } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -354,13 +353,6 @@ async function transcriptRow(clinicId: string, id: string) {
 
 async function messageIdOf(clinicId: string, id: string): Promise<string> {
   return (await transcriptRow(clinicId, id)).ses_message_id!;
-}
-
-async function setTranscriptJob(enabled: boolean) {
-  await getMigratorPool().query(`update scheduled_jobs set enabled = $2 where name = $1`, [
-    JOB_TRANSCRIPT_EMAILS,
-    enabled,
-  ]);
 }
 
 async function exportNotices(clinicId: string) {
@@ -1043,10 +1035,11 @@ describeDb("Conversations", () => {
     const path = `/c/${desk.clinic.slug}/conversations/${call.conversationId}`;
     browse(desk.link, path);
 
-    // Sent, awaiting SES: queued again (the outbox's job is off here, so the next minute's run sends it).
+    // Sent, awaiting SES: queued again, for the outbox's next minute to send.
     expect(await actions.sendAgainAction(desk.clinic.slug, call.conversationId)).toEqual({
       ok: true,
-      message: "Queued to send again to your clinic's address. It goes out within a few minutes.",
+      message:
+        "Sending again to your clinic's address. It goes within a minute or two, and this page shows when your mail server confirms it.",
     });
     expect((await transcriptRow(c, transcript.id)).status).toBe("pending");
     const rows = await auditRows(c);
@@ -1068,16 +1061,12 @@ describeDb("Conversations", () => {
       }),
     );
 
-    // With the job on, it goes at once.
-    await setTranscriptJob(true);
+    // The outbox sends it, to the clinic's address and no other.
     const page = await requirePatientPage(desk.clinic.slug);
+    expect(await sendTranscriptAgain(page, call.conversationId)).toEqual({ status: "queued" });
     const transport = new FakeTransport();
-    expect(await sendTranscriptAgain(page, call.conversationId, { transport })).toEqual({
-      status: "sent",
-    });
-    expect(transport.sent).toHaveLength(1);
-    expect(transport.sent[0]!.target.to).toBe(desk.clinic.staffEmail);
-    await setTranscriptJob(false);
+    expect(await deliverTranscriptEmail(c, transcript.id, { transport })).toBe("sent");
+    expect(transport.sent.map((m) => m.target.to)).toEqual([desk.clinic.staffEmail]);
 
     // Delivered: a receipt. "Send again" is gone from the page and refused by the action.
     expect(

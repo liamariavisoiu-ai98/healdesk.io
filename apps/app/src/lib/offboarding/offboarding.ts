@@ -363,24 +363,25 @@ export function dueForDestruction(
  * starts offboarding). Null while the clinic is not offboarding.
  */
 export async function destructionPlanIn(tx: TenantTx): Promise<DestructionPlan | null> {
-  const result = await tx.db.execute<{
-    offboarding_started_at: Date | string | null;
-    destroy_after: Date | string | null;
-    export_delivered_at: Date | string | null;
-    agreement_version: string | null;
-  }>(
-    sql`select c.offboarding_started_at, c.destroy_after, c.export_delivered_at,
-               (select e.document_version from app_agreement_at_end(c.id) e) as agreement_version
-          from clinics c
-         where c.id = ${tx.clinicId}::uuid`,
-  );
-  const row = result.rows[0];
+  // The query builder, not a raw execute: the portal's patient screens call
+  // this inside their own transaction, and read nothing raw (the patient-page
+  // source check).
+  const [row] = await tx.db
+    .select({
+      offboardingStartedAt: clinics.offboardingStartedAt,
+      destroyAfter: clinics.destroyAfter,
+      exportDeliveredAt: clinics.exportDeliveredAt,
+      agreementVersion: sql<string | null>`(select e.document_version from app_agreement_at_end(${clinics.id}) e)`,
+    })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
   if (!row) return null;
   return destructionPlan({
-    offboardingStartedAt: dateOf(row.offboarding_started_at),
-    destroyAfter: dateOf(row.destroy_after),
-    exportDeliveredAt: dateOf(row.export_delivered_at),
-    destructionAgreementVersion: row.agreement_version ?? null,
+    offboardingStartedAt: dateOf(row.offboardingStartedAt),
+    destroyAfter: dateOf(row.destroyAfter),
+    exportDeliveredAt: dateOf(row.exportDeliveredAt),
+    destructionAgreementVersion: row.agreementVersion ?? null,
   });
 }
 
@@ -478,11 +479,12 @@ export async function alertIfOffboardingStartedLate(
  * and stamp nothing.
  */
 export async function markExportDelivered(tx: TenantTx, how: string): Promise<Date> {
-  const result = await tx.db.execute<{ delivered: Date | string }>(
-    sql`select app_mark_export_delivered(${tx.clinicId}::uuid) as delivered`,
-  );
+  // One call of the function, through the query builder (see destructionPlanIn).
+  const [row] = await tx.db
+    .select({ delivered: sql<Date | string>`app_mark_export_delivered(${tx.clinicId}::uuid)` })
+    .from(sql`(select 1) as once`);
   tx.audit.record({ action: "export", resourceType: "clinic_offboarding", resourceId: tx.clinicId, metadata: { how: how.slice(0, 200) } });
-  return new Date(result.rows[0]!.delivered);
+  return new Date(row!.delivered);
 }
 
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import {
   BAA_TEMPLATES,
@@ -872,6 +872,72 @@ describeDb("database audit (0031)", () => {
       );
       expect(rows[0]!.ok, `booking_requests.${column}`).toBe(false);
     }
+  });
+
+  test("a step-up or a second factor is never dated ahead of now, for any role (0076)", async () => {
+    // The idle and 8-hour limits count from step_ups' two times, so a row
+    // dated ahead would open patient pages for as long as it said.
+    const { rows: triggers } = await getMigratorPool().query<{ tgname: string }>(
+      `select tgname from pg_trigger
+        where tgname in ('step_ups_not_ahead', 'user_factors_not_ahead') and not tgisinternal
+        order by tgname`,
+    );
+    expect(triggers.map((t) => t.tgname)).toEqual(["step_ups_not_ahead", "user_factors_not_ahead"]);
+
+    const { staffUserId } = await seedClinic("ahead");
+    const app = getAppPool();
+    const passkey = (extra: string, value: string) =>
+      app.query<{ id: string }>(
+        `insert into user_factors (user_id, kind, device_label, credential_id, public_key, counter, backed_up${extra})
+         values ($1, 'passkey', 'Front desk Mac', $2, '\\x01', 0, true${value}) returning id`,
+        [staffUserId, randomBytes(16).toString("base64url")],
+      );
+    // As the app writes them, now: accepted.
+    const factorId = (await passkey("", "")).rows[0]!.id;
+    for (const [extra, value] of [
+      [", created_at", ", now() + interval '30 days'"],
+      [", last_used_at", ", now() + interval '30 days'"],
+    ] as const) {
+      await expect(passkey(extra, value), extra).rejects.toMatchObject({ code: "42501" });
+    }
+    await expect(
+      app.query(`update user_factors set last_used_at = now() + interval '1 day' where id = $1`, [
+        factorId,
+      ]),
+    ).rejects.toMatchObject({ code: "42501" });
+    await app.query(`update user_factors set last_used_at = now() where id = $1`, [factorId]);
+
+    const stepUp = (times: string) =>
+      app.query<{ id: string }>(
+        `insert into step_ups (session_token_hash, user_id, factor_id, device_label${times ? ", created_at, last_activity_at" : ""})
+         values ($1, $2, $3, 'Front desk Mac'${times}) returning id`,
+        [randomBytes(32), staffUserId, factorId],
+      );
+    const stepUpId = (await stepUp("")).rows[0]!.id;
+    await expect(
+      stepUp(", now() + interval '30 days', now() + interval '30 days'"),
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(stepUp(", now(), now() + interval '7 hours'")).rejects.toMatchObject({
+      code: "42501",
+    });
+    await expect(
+      app.query(`update step_ups set last_activity_at = now() + interval '7 hours' where id = $1`, [
+        stepUpId,
+      ]),
+    ).rejects.toMatchObject({ code: "42501" });
+    // A touch, and a row dated in the past (it only lapses sooner), go through.
+    await app.query(`update step_ups set last_activity_at = greatest(last_activity_at, now()) where id = $1`, [
+      stepUpId,
+    ]);
+    await stepUp(", now() - interval '1 hour', now() - interval '1 hour'");
+    // No role is exempt: the migrator cannot date one ahead either.
+    await expect(
+      getMigratorPool().query(
+        `insert into step_ups (session_token_hash, user_id, factor_id, device_label, created_at, last_activity_at)
+         values ($1, $2, $3, 'Front desk Mac', now() + interval '1 day', now() + interval '1 day')`,
+        [randomBytes(32), staffUserId, factorId],
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
   });
 
   test("the operator's second factor is not in this database (0074)", async () => {

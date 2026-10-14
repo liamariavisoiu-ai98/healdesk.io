@@ -9,6 +9,9 @@ import type {
   CalendarConnectionStatus,
   CalendarLinkOutcome,
   CalendarTermsKind,
+  CareOutcome,
+  ChannelId,
+  ChannelLiveInput,
   DepositPolicy,
   DisconnectCalendarOutcome,
   ForwardingTestOutcome,
@@ -54,6 +57,10 @@ type Actions = {
   setAutoConfirm: (on: boolean) => Promise<OpsResult<AutoConfirmOutcome>>;
   sendCalendarLink: () => Promise<OpsResult<CalendarLinkOutcome>>;
   disconnectCalendar: () => Promise<OpsResult<DisconnectCalendarOutcome>>;
+  // Channel events: the audit seam, until the practice questions exist, and
+  // website chat's line confirmed on the clinic's site.
+  attestAudit: (channel: ChannelId) => Promise<OpsResult<CareOutcome>>;
+  confirmWidget: () => Promise<OpsResult<CareOutcome>>;
 };
 
 const UNAUDITED = "Done, but the audit entry could not be written. Tell whoever keeps the security log.";
@@ -194,6 +201,10 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
 
       <Section title="Go live">
         <GoLiveControl view={v} onGoLive={actions.goLive} />
+      </Section>
+
+      <Section title="Channels">
+        <ChannelsCard view={v} onAttest={actions.attestAudit} onConfirmWidget={actions.confirmWidget} />
       </Section>
     </main>
   );
@@ -516,6 +527,136 @@ function GoLiveControl({ view, onGoLive }: { view: OnboardingView; onGoLive: Act
       </button>
       {message ? <p className="mt-2 text-sm">{message}</p> : null}
     </div>
+  );
+}
+
+const CHANNEL_NAMES: Record<ChannelId, string> = {
+  web: "Website chat",
+  meta: "Instagram, Messenger & WhatsApp",
+  voice: "Phone",
+};
+
+/** What a channel still needs, in the console's words; the code beside it is apps/app's. */
+function needWords(channel: ChannelId, input: ChannelLiveInput): string {
+  switch (input) {
+    case "leaving":
+      return "The clinic has left: nothing goes live.";
+    case "audit":
+      return "Its audit hasn't passed. Until the practice questions exist, check AYA's answers on this channel, then mark it below. Check in Talk to your AYA once it exists, or by calling from one of healdesk's test numbers (HEALDESK_TEST_NUMBERS): an ordinary call to a live channel is billed as its first answer.";
+    case "runtime":
+      return channel === "voice"
+        ? "No assistant number: enter it under Phone line once the Retell agent and number exist."
+        : "The Meta front door is off.";
+    case "setup":
+      return "The clinic hasn't finished setup.";
+    case "hours":
+      return "The clinic's opening hours aren't confirmed: phone can't go live without them.";
+    case "direct_line":
+      return "No direct line on file: every call AYA can't answer goes there.";
+    case "vet_referral":
+      return "No emergency referral clinic on file: AYA can't answer anyone for a vet practice without one.";
+    case "prices_checked":
+      return "The clinic hasn't checked the prices we filled in: AYA isn't built until it does.";
+    case "covered_status":
+      return "Whether the practice is a HIPAA covered entity is still open: we ask again before AYA answers anyone.";
+    case "clinic_step":
+      return channel === "voice"
+        ? "No forwarding-test call observed with the caller's number intact: run the forwarding test above. A stamped step is not enough."
+        : channel === "web"
+          ? "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat is there and answers, then confirm below."
+          : "No Instagram, Messenger or WhatsApp account is connected.";
+    case "go_live":
+      return "Go live first (above).";
+  }
+}
+
+function ChannelsCard({
+  view,
+  onAttest,
+  onConfirmWidget,
+}: {
+  view: OnboardingView;
+  onAttest: Actions["attestAudit"];
+  onConfirmWidget: Actions["confirmWidget"];
+}) {
+  if (view.channels === null) {
+    return <p className="text-muted text-sm">apps/app sent no channel states: it predates channel events.</p>;
+  }
+  if (view.channels.length === 0) return <p className="text-muted text-sm">No channels bought.</p>;
+  return (
+    <ul className="grid gap-3">
+      {view.channels.map((c) => (
+        <ChannelRow key={c.channel} channel={c} onAttest={onAttest} onConfirmWidget={onConfirmWidget} />
+      ))}
+    </ul>
+  );
+}
+
+function ChannelRow({
+  channel: c,
+  onAttest,
+  onConfirmWidget,
+}: {
+  channel: NonNullable<OnboardingView["channels"]>[number];
+  onAttest: Actions["attestAudit"];
+  onConfirmWidget: Actions["confirmWidget"];
+}) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  const state = c.liveAt
+    ? `live since ${c.liveAt.slice(0, 10)}${c.firstAnswerAt ? `, first answer ${c.firstAnswerAt.slice(0, 10)}` : ", no patient answered yet"}`
+    : c.readyAt
+      ? `ready since ${c.readyAt.slice(0, 10)}${c.waitingOn ? `, waiting on ${c.waitingOn.replace(/_/g, " ")}` : ", waiting on us"}`
+      : "not ready on our side";
+  const run = (action: () => Promise<OpsResult<CareOutcome>>) =>
+    start(async () => {
+      const result = await action();
+      if (!result.ok) return setMessage(result.message);
+      setMessage(
+        result.data.status === "updated"
+          ? "Recorded. The channel moves on as far as its other inputs allow."
+          : result.data.message,
+      );
+    });
+  return (
+    <li className="border-line rounded-sm border p-4 text-sm">
+      <p>
+        <span className="font-semibold">{CHANNEL_NAMES[c.channel]}</span> · {state}
+        {c.auditPassed ? " · audit passed" : ""}
+      </p>
+      {c.missing.length > 0 ? (
+        <ul className="mt-2 list-disc pl-5">
+          {c.missing.map((m) => (
+            <li key={m}>
+              {needWords(c.channel, m)} <code className="text-muted text-xs">{m}</code>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {!c.auditPassed && !c.liveAt ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run(() => onAttest(c.channel))}
+            className="border-line rounded-full border px-4 py-2 text-sm font-bold disabled:opacity-40"
+          >
+            I checked AYA&rsquo;s answers: audit passed
+          </button>
+        ) : null}
+        {c.channel === "web" && !c.liveAt && c.missing.includes("clinic_step") ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => run(onConfirmWidget)}
+            className="border-line rounded-full border px-4 py-2 text-sm font-bold disabled:opacity-40"
+          >
+            The line is on their website
+          </button>
+        ) : null}
+      </div>
+      {message ? <p className="mt-2">{message}</p> : null}
+    </li>
   );
 }
 

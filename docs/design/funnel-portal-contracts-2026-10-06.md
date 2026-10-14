@@ -282,4 +282,5 @@ hello@), `RESEND_WEBHOOK_SECRET`, `ANTHROPIC_API_KEY`,
 | `STRIPE_AUTOMATIC_TAX` | web | M2 | `true` turns on Stripe Tax at checkout (owner's open item 9) |
 | `NEXT_PUBLIC_PORTAL_URL` | web | M3 | The site's "Sign in" link. Declared in `turbo.json`'s `build.env` |
 | `HEALDESK_SUPPORT_PHONE` | app | M3 | Help's voicemail number (open item 7), E.164: `+18886889404`, the owner's. Help hides it while unset or malformed |
+| `HEALDESK_TEST_NUMBERS` | app | M6 | Healdesk's own test phones, comma-separated, kept as E.164: a call from one is never billed as minutes or counted as phone's first answer (lib/voice/test-numbers.ts). Empty by default |
 | `HEALDESK_CALL_BOOKING_URL` | app | M3 | The five-minute call link (open item 8), https: `https://calendly.com/healdesk-io/quick-onboarding`, the owner's. Emails link it through `/help/call`; the button hides while unset or malformed |

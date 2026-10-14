@@ -1,4 +1,4 @@
-import { audienceFor } from "@healdesk/catalog";
+import { audienceFor, type Channel } from "@healdesk/catalog";
 import { sql } from "drizzle-orm";
 
 import type { ActorContext } from "@/lib/audit";
@@ -81,6 +81,7 @@ export function shellProps(
   section: PortalSection;
   audience: "patients" | "clients";
   status: AnsweringStatus;
+  liveChannels: Channel[];
   timeZone: string;
   locations: PortalGrant[];
   opened: PortalSection[];
@@ -91,6 +92,7 @@ export function shellProps(
     section,
     audience: audienceFor(page.state.clinic.specialty),
     status: answeringStatus(page.state.channels),
+    liveChannels: page.state.channels.filter((c) => c.liveAt !== null).map((c) => c.channel),
     timeZone: page.state.clinic.timezone,
     locations: page.locations,
     opened: page.opened,

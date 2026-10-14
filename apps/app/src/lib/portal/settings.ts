@@ -18,6 +18,7 @@ import {
   META_PLATFORM_NAMES,
   setMetaPlatformEnabled,
 } from "@/lib/channels/meta-platforms";
+import { noteChannelSwitchedOff } from "@/lib/channels/pause";
 import { ChannelSwitchError, setChannelEnabled } from "@/lib/channels/switch";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { formatPhone } from "@/lib/setup/help";
@@ -235,7 +236,9 @@ async function write(
     case "channel_voice": {
       const channel = key.slice("channel_".length) as Channel;
       const on = requireBoolean(value, key);
-      await setChannelEnabled(tx, channel, on, label, now);
+      const { changed } = await setChannelEnabled(tx, channel, on, label, now);
+      // L15: a live channel switched Off counts as a pause with no end there.
+      if (changed && !on) await noteChannelSwitchedOff(tx, { channel, actorLabel: label, now });
       return channelToast(channel, on, state.settings.directLineE164);
     }
 
@@ -252,7 +255,10 @@ async function write(
           `${META_PLATFORM_NAMES[platform]} isn't connected yet. Its switch appears here once it is.`,
         );
       }
-      await setMetaPlatformEnabled(tx, platform, on, label, now);
+      const { changed } = await setMetaPlatformEnabled(tx, platform, on, label, now);
+      if (changed && !on) {
+        await noteChannelSwitchedOff(tx, { channel: "meta", platform, actorLabel: label, now });
+      }
       return metaPlatformToast(platform, on);
     }
 

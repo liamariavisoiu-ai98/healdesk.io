@@ -115,6 +115,8 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "change",
   // B1: the Terms version accepted at checkout ("2026-10-07.1").
   "version",
+  // L15: the Meta app switched Off ("instagram"), an id, never a name.
+  "platform",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */

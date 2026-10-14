@@ -1,3 +1,5 @@
+import { createHmac } from "node:crypto";
+
 import {
   checkAgreementRecord,
   checkIntentRecord,
@@ -369,6 +371,29 @@ export async function intentRecordsFor(ref: string): Promise<IntentRecords> {
   // raced to the same attempt are both kept, the later one last.
   records.sort((a, b) => a.record.attempt - b.record.attempt || a.row - b.row);
   return { records, refused };
+}
+
+/**
+ * The ref of a purchase no setup link names: public mode, or a buyer an
+ * operator invited through a personalised demo. Every press of Pay by the same
+ * address on the same signed agreement is one purchase, as every press on one
+ * setup link is, so the next press finds the last one's Session and expires it
+ * before opening its own (app/api/checkout/route.ts). A fresh ref per press
+ * left the Session a buyer cancelled at Stripe payable beside the new one.
+ *
+ * Keyed on the agreement because the agreement is what the purchase is: the
+ * route refuses one signed under another address, and one whose answers no
+ * longer match, so the same agreement means the same buyer and the same
+ * document. An HMAC under the records' own secret, so nobody can work out a
+ * ref from an address and an agreement id, and shaped as a UUID (version 8,
+ * RFC 9562's custom kind) because every reader of a ref checks that shape.
+ */
+export function purchaseRefFor(email: string, agreementId: string): string {
+  const hex = createHmac("sha256", requireSecret())
+    .update(`purchase-ref:${email.trim().toLowerCase()}:${agreementId.toLowerCase()}`)
+    .digest("hex");
+  const variant = ((parseInt(hex[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
 /** The latest press of Pay that opened a Session, or the latest at all when none has. */

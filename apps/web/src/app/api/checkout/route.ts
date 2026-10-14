@@ -36,6 +36,7 @@ import {
   intentRecordsFor,
   latestLive,
   markAgreementProvisioned,
+  purchaseRefFor,
   markIntentProvisioned,
   recordIntentSession,
   recordsConfigured,
@@ -278,7 +279,13 @@ export async function POST(request: Request): Promise<Response> {
    * sequential case, which is the real one (Pay pressed again after
    * cancelling at Stripe), is covered as before: the previous press's
    * Session is asked about first and refused if paid, and expired before the
-   * new one is created (createCheckout).
+   * new one is created (createCheckout). Without a setup link the purchase
+   * is the buyer's address and signed agreement (purchaseRefFor), so the same
+   * holds in public mode and for a buyer invited through a demo. A buyer who
+   * changes an answer that names the document signs a new agreement, which
+   * is a new purchase: its first press cannot see the earlier one's Session,
+   * which Stripe expires within 24 hours, and a second payment is again
+   * caught as a duplicate subscription.
    *
    * One more thing the database gave: a press of Pay that wrote its intent
    * and then failed left nothing a later press could trip over. Here a
@@ -286,21 +293,24 @@ export async function POST(request: Request): Promise<Response> {
    * evidence of the press, and never provisioned from.
    */
   const setupRef = setupRequest?.id ?? null;
-  const ref = setupRef ?? randomUUID();
-  let earlier: IntentRecords = { records: [], refused: [] };
-  if (setupRef) {
-    try {
-      earlier = await intentRecordsFor(setupRef);
-    } catch (error) {
-      console.error("[healdesk] checkout: the purchase's earlier records could not be read", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return startFailed(502);
-    }
+  // One purchase per setup link, or else per address and signed agreement
+  // (purchaseRefFor), so a press of Pay always finds the previous press's
+  // Session and no buyer can be left holding two payable Sessions.
+  const ref = setupRef ?? purchaseRefFor(contactEmail, purchase.agreementId);
+  let earlier: IntentRecords;
+  try {
+    earlier = await intentRecordsFor(ref);
+  } catch (error) {
+    console.error("[healdesk] checkout: the purchase's earlier records could not be read", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return startFailed(502);
   }
   if (earlier.records.some((r) => r.provisionedAt !== null)) {
     return Response.json(
-      { error: "This setup link has already been used to complete a purchase.", field: "setupLink" },
+      setupRef
+        ? { error: "This setup link has already been used to complete a purchase.", field: "setupLink" }
+        : { error: "This purchase is already complete. Check your email." },
       { status: 409 },
     );
   }

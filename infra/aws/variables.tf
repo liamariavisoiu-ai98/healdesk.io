@@ -528,6 +528,12 @@ variable "enable_ses" {
   default     = true
 }
 
+variable "subscribe_ses_events" {
+  description = "Subscribe the app's /api/webhooks/ses to the SES events topic. SNS refuses an HTTPS subscription to an endpoint that does not answer (\"Unreachable Endpoint\"), so it stays off until the web service has been deployed and answers on the public host, and the apply after that first deploy turns it on. Off, a transcript that bounces at the clinic's mail server is not sent again and a delivered one is not known to be delivered; every other retry still runs."
+  type        = bool
+  default     = false
+}
+
 variable "transcript_archive_to" {
   description = "One mailbox that gets a blind copy of every emailed transcript (HEALDESK_TRANSCRIPT_ARCHIVE_TO), or empty for none. A transcript is patient information, so the copy goes only to a mailbox held under a business associate agreement, and only once transcript_archive_baa_signed says so. Never hello@healdesk.io while its provider has signed none."
   type        = string

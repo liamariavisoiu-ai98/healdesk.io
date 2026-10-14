@@ -367,14 +367,14 @@ behind.
     to `https://app.healdesk.io/api/ops` answers the ALB's 404; the worker log shows
     `credential key self-check passed`; healdesk.io/admin's Ops page loads, which proves the signed
     path end to end, and its first sign-in enrols a new authenticator, because its second factor
-    lives in this host's database, which is new. Last, SES's events: in the console, SNS →
-    Subscriptions, the `https://app.healdesk.io/api/webhooks/ses` subscription to
-    `healdesk-production-ses-events` should read Confirmed (the app confirms it itself when SNS
-    asks). It reads "Pending confirmation" when infra.yml created it before the web service was
-    up, since SNS asks once; ask again from CloudShell, now that the app answers:
-    `aws sns subscribe --topic-arn <the topic's ARN> --protocol https --notification-endpoint https://app.healdesk.io/api/webhooks/ses`.
-    Until it is confirmed, a transcript that bounces at the clinic's mail server is not sent
-    again (every other retry still runs).
+    lives in this host's database, which is new. Last, SES's events: SNS refuses to subscribe an
+    HTTPS endpoint that does not answer, so the first apply leaves the subscription out
+    (`subscribe_ses_events = false`). Once the checks above pass, set it to `true` in
+    `production.tfvars`, push, and apply again; in the console, SNS → Subscriptions, the
+    `https://app.healdesk.io/api/webhooks/ses` subscription to `healdesk-production-ses-events`
+    should then read Confirmed (the app confirms it itself when SNS asks). Until it is
+    confirmed, a transcript that bounces at the clinic's mail server is not sent again (every
+    other retry still runs).
 
 ---
 

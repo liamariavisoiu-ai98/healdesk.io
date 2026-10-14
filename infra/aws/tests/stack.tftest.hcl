@@ -219,7 +219,8 @@ run "production_defaults" {
   command = plan
 
   # --- what the vendors' APIs refuse and a mocked plan cannot see (the first
-  # apply, 14 October 2026, failed on all three) ---
+  # apply, 14 October 2026, failed on both, and on SNS's retry limit, which
+  # transcript_bucket_and_ses_on pins) ---
   assert {
     condition = alltrue([
       for d in concat(
@@ -243,15 +244,6 @@ run "production_defaults" {
     error_message = "Cloudflare refuses a DNS record comment over 100 characters."
   }
 
-  assert {
-    condition = (
-      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.numMaxDelayRetries *
-      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.maxDelayTarget +
-      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.numRetries *
-      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.minDelayTarget < 2400
-    )
-    error_message = "SNS refuses a delivery policy whose retries add up to more than an hour; the delays at the longest wait, plus one short delay per try, must leave room for the backoff."
-  }
 
   # --- web task: the app, the TLS sidecar and the shared worker, environment versus secrets ---
   assert {
@@ -1006,13 +998,11 @@ run "production_defaults" {
       toset(flatten([for c in one(data.aws_iam_policy_document.ses_events[0].statement).condition : c.values if c.variable == "aws:SourceArn"])) == toset(["arn:aws:ses:us-east-1:865780386982:configuration-set/healdesk-production-phi"]) &&
       toset(flatten([for c in one(data.aws_iam_policy_document.ses_events[0].statement).condition : c.values if c.variable == "aws:SourceAccount"])) == toset(["865780386982"]) &&
       toset(one(aws_sesv2_configuration_set_event_destination.phi_events[0].event_destination).matching_event_types) == toset(["DELIVERY", "BOUNCE", "COMPLAINT", "REJECT", "RENDERING_FAILURE", "DELIVERY_DELAY"]) &&
-      aws_sns_topic_subscription.ses_events_app[0].protocol == "https" &&
-      aws_sns_topic_subscription.ses_events_app[0].endpoint == "https://app.healdesk.io/api/webhooks/ses" &&
-      !aws_sns_topic_subscription.ses_events_app[0].raw_message_delivery &&
+      length(aws_sns_topic_subscription.ses_events_app) == 0 &&
       strcontains(aws_ecs_task_definition.web.container_definitions, "HEALDESK_SES_EVENTS_TOPIC_ARN") &&
       !strcontains(aws_ecs_task_definition.worker.container_definitions, "HEALDESK_SES_EVENTS_TOPIC_ARN")
     )
-    error_message = "SES's events go to a signed (v2) SNS topic only this configuration set may publish to, subscribed over HTTPS at the app's /api/webhooks/ses, and the web task is told the topic's ARN."
+    error_message = "SES's events go to a signed (v2) SNS topic only this configuration set may publish to, not subscribed until subscribe_ses_events (SNS refuses an endpoint that does not answer yet), and the web task is told the topic's ARN."
   }
 
   assert {
@@ -1058,6 +1048,26 @@ run "transcript_bucket_and_ses_on" {
   variables {
     enable_transcript_bucket = true
     enable_ses               = true
+    subscribe_ses_events     = true
+  }
+
+  assert {
+    condition = (
+      aws_sns_topic_subscription.ses_events_app[0].protocol == "https" &&
+      aws_sns_topic_subscription.ses_events_app[0].endpoint == "https://app.healdesk.io/api/webhooks/ses" &&
+      !aws_sns_topic_subscription.ses_events_app[0].raw_message_delivery
+    )
+    error_message = "Once subscribed, SES's events reach the app over HTTPS at the public host's /api/webhooks/ses, wrapped (not raw), so the app can check SNS's signature."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.numMaxDelayRetries *
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.maxDelayTarget +
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.numRetries *
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.minDelayTarget < 2400
+    )
+    error_message = "SNS refuses a delivery policy whose retries add up to more than an hour; the delays at the longest wait, plus one short delay per try, must leave room for the backoff."
   }
 
   assert {

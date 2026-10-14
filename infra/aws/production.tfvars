@@ -85,6 +85,11 @@ enable_transcript_bucket  = false
 transcript_retention_days = 90
 enable_ses                = true
 
+# Off until the first deploy answers on app.healdesk.io: SNS refuses to
+# subscribe an endpoint that does not answer (the second apply, 14 October
+# 2026). Turned on by the apply after that deploy.
+subscribe_ses_events = false
+
 # Monitoring and cost.
 enable_guardduty   = true
 monthly_budget_usd = 250

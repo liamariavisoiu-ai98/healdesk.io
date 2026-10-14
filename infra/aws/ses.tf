@@ -171,7 +171,8 @@ resource "aws_sesv2_configuration_set_event_destination" "phi_events" {
 }
 
 resource "aws_sns_topic_subscription" "ses_events_app" {
-  count = var.enable_ses ? 1 : 0
+  # Only once the app answers: SNS checks the endpoint when it subscribes.
+  count = var.enable_ses && var.subscribe_ses_events ? 1 : 0
 
   topic_arn              = aws_sns_topic.ses_events[0].arn
   protocol               = "https"

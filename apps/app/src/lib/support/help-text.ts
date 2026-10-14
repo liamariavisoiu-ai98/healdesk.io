@@ -95,9 +95,9 @@ Switching a channel off in Settings → Channels stops AYA there at once: calls 
 - Her first line always says she is an AI assistant, on every channel, and on calls that the call is transcribed. The greeting fields in Settings → How AYA talks come after that line; it can't be edited out.
 - Prices come only from Knowledge → Prices. Asked for a price that isn't listed, she offers to book a consultation.
 - She never diagnoses, prescribes, gives treatment plans or promises outcomes.
-- Messages about a complication or an urgent symptom never reach the model: AYA gives a fixed reply (call 911 in an emergency, then the practice's urgent-help number) and the practice is alerted.
+- A message that matches the complication and urgent-symptom patterns is answered before the model sees it, with a fixed reply (call 911 in an emergency, then the practice's urgent-help number), and the practice is alerted.
 - Knowledge → Never say lists phrases AYA must never use, on every channel.
-- On Instagram, Messenger and WhatsApp she names no treatment and carries nothing clinical: those apps' owner signs no business associate agreement, so she moves the person to a call or to the practice's own secure route.
+- On Instagram, Messenger and WhatsApp she is designed not to name a treatment or carry anything clinical, because Meta signs no business associate agreement: she moves the person to a call or to the practice's own secure route, and says why.
 
 ## Bookings and the calendar
 

@@ -1,4 +1,4 @@
-import { sendSafely, type OutboundEmail, type SendResult } from "@/lib/email";
+import { emailKey, sendSafely, type OutboundEmail, type SendResult } from "@/lib/email";
 import { site } from "@/lib/site";
 
 import { dispatchHost, githubConfig, type DispatchResult, type GitHubConfig } from "./github";
@@ -116,7 +116,7 @@ export async function wakeHostForPaidInvoice(
         `Stripe event: ${eventId}`,
       ].join("\n"),
       tag: "host-wake",
-      idempotencyKey: `host-wake:${hour}`,
+      idempotencyKey: emailKey("host-wake", hour),
     });
     if (emailed.status !== "sent") {
       console.error("[healdesk] host wake: the administrator's email did not go", emailed.status);

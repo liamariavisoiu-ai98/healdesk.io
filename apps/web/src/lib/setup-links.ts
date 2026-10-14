@@ -1,7 +1,7 @@
 import { COHORT_SETUP_CREDIT } from "@healdesk/catalog";
 
 import { setupLinksOpen } from "@/lib/checkout-mode";
-import { sendSafely, setupUnsubscribeUrl } from "@/lib/email";
+import { emailKey, sendSafely, setupUnsubscribeUrl } from "@/lib/email";
 import { setupLinkEmail, setupLinkReminder } from "@/lib/email/setup-emails";
 import { creditUntil } from "@/lib/setup-gate";
 import { issueSetupToken, setupLinkExpiry, setupLinkUrl } from "@/lib/setup-link";
@@ -72,7 +72,8 @@ export async function sendSetupLink(id: string, now: Date = new Date()): Promise
     text: email.text,
     unsubscribeUrl: setupUnsubscribeUrl(request.id),
     tag: "setup-link",
-    idempotencyKey: `setup-link:${request.id}:${expiresAt.getTime()}`,
+    // A new link is a new attempt: its expiry tells the two apart.
+    idempotencyKey: emailKey("setup-link", request.id, 1, expiresAt.getTime()),
   });
   if (result.status === "failed") {
     console.error("[healdesk] setup link saved but not emailed", { id: request.id, reason: result.reason });
@@ -116,7 +117,7 @@ export async function sendSetupLinkReminders(now: Date = new Date()): Promise<{ 
       text: email.text,
       unsubscribeUrl: setupUnsubscribeUrl(request.id),
       tag: "setup-reminder",
-      idempotencyKey: `setup-reminder:${request.id}:${expiresAt.getTime()}`,
+      idempotencyKey: emailKey("setup-reminder", request.id, 1, expiresAt.getTime()),
     });
     if (result.status === "failed") {
       failed += 1;

@@ -1,6 +1,8 @@
-import { isSpecialtyId } from "@healdesk/catalog";
+import { isSpecialtyId, specialtyOffered } from "@healdesk/catalog";
 
 import type { DemoCheckout } from "@/components/checkout/DemoPackageExtras";
+import { verifyGateToken } from "@/lib/gate";
+import { findLeadByEmail } from "@/lib/leads";
 import { getSpecialty } from "@/lib/specialties";
 
 import { REPEAT_VISITS, typicalVisit } from "./roi";
@@ -45,5 +47,33 @@ export function demoPrefill(session: DemoSession): {
     ...(session.websiteUrl ? { website: session.websiteUrl } : {}),
     ...(session.leadEmail ? { contactEmail: session.leadEmail } : {}),
     ...(isSpecialtyId(session.specialty) ? { specialty: session.specialty } : {}),
+  };
+}
+
+/**
+ * What the homepage chat demo's gate already knows: the address the visitor
+ * unlocked it with (the signed `hd_demo` cookie, lib/gate.ts) and the
+ * specialty they were demoing, which the gate recorded on their lead row.
+ * Plan Part A3: "Email and specialty are pre-filled from the demo gate when
+ * present." Read from our own cookie and row, never from the browser's word;
+ * a cookie that does not verify, or a store that cannot be read, pre-fills
+ * nothing. Undefined when there is nothing to pre-fill.
+ */
+export async function gatePrefill(
+  token: string | undefined,
+): Promise<{ contactEmail: string; specialty?: string } | undefined> {
+  let email: string | undefined;
+  try {
+    email = verifyGateToken(token)?.email;
+  } catch {
+    // No signing secret: the cookie proves nothing.
+    return undefined;
+  }
+  if (!email) return undefined;
+  const lead = await findLeadByEmail(email).catch(() => null);
+  const specialty = lead?.specialty;
+  return {
+    contactEmail: email,
+    ...(isSpecialtyId(specialty) && specialtyOffered(specialty) ? { specialty } : {}),
   };
 }

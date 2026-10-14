@@ -571,6 +571,23 @@ describe("the clinic step", () => {
     );
   });
 
+  test("the consequence follows the owner's direct-booking switch, as the page hands it in", () => {
+    const on = h(ClinicStep, {
+      state: answered(),
+      directBooking: true,
+      update: noop,
+      onPlan: noop,
+      onBack: noop,
+      onContinue: noop,
+    });
+    expect(text(on)).toContain("AYA books straight into your Google Calendar once it is connected and checked.");
+    expect(text(on)).not.toContain("For now your team confirms");
+    // A system that never books live says so whatever the switch.
+    expect(text(h(ClinicStep, { ...on.props, state: answered({ bookingSystem: "mindbody" }) }))).toContain(
+      "confirm it in Mindbody",
+    );
+  });
+
   test("no website: the phone first, then Meta Chat beside it, then Meta Chat with its condition", () => {
     const words = text(clinicStep(answered({ noWebsite: true })));
     expect(words).toContain("AYA Web Chat needs a website");

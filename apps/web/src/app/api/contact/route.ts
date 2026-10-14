@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { NextResponse } from "next/server";
 
-import { isEmailConfigured, sendSafely } from "@/lib/email";
+import { emailKey, isEmailConfigured, sendSafely } from "@/lib/email";
 import { contactAck } from "@/lib/email/setup-emails";
 import { isBusinessEmail, isValidEmail } from "@/lib/gate";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
@@ -38,9 +38,10 @@ export const dynamic = "force-dynamic";
  * The sender gets one email naming the day we reply by, because a form that
  * answers "thanks" and then goes quiet reads as a form nobody reads. Their
  * address is unverified, so the acknowledgement echoes nothing they typed but
- * that address, and goes at most once a day per address (per instance, on
- * top of the per-IP limit above): the form must not be a way to mail a
- * stranger.
+ * that address, and goes at most once a day per address, counted in the
+ * marketing Sheet's counters so every instance shares the count
+ * (lib/rate-limit.ts, SHARED_KEY_PREFIXES), on top of the per-IP limit above:
+ * the form must not be a way to mail a stranger.
  */
 
 const RATE_LIMIT = 5;
@@ -113,6 +114,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     return fail(`Our form is down, email us at ${site.email} and we'll reply.`, 503);
   }
 
+  // The form keeps no row, so the submission's own digest stands for one in
+  // the email keys (lib/email emailKey): a double submit sends each email once.
+  const submission = createHash("sha256")
+    .update(JSON.stringify([from, name, clinic, message]))
+    .digest("hex")
+    .slice(0, 32);
+
   const toUs = await sendSafely({
     to: site.email,
     // Replying goes to the prospect rather than to our own From address.
@@ -120,6 +128,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     subject: `Website enquiry, ${name}${clinic ? ` (${clinic})` : ""}`,
     text: [`Name:   ${name}`, `Clinic: ${clinic || "(none)"}`, `Email:  ${from}`, "", message].join("\n"),
     tag: "contact",
+    idempotencyKey: emailKey("contact", submission),
   });
   if (toUs.status === "failed") {
     console.error("[healdesk] the contact email did not send", { reason: toUs.reason.slice(0, 500) });
@@ -131,7 +140,13 @@ export async function POST(request: Request): Promise<NextResponse> {
   const firstToday = await rateLimit(`contact-ack:${addressKey}`, 1, 24 * 60 * 60 * 1000);
   if (firstToday.ok) {
     const ack = contactAck(from, replyBy);
-    const sent = await sendSafely({ to: from, subject: ack.subject, text: ack.text, tag: "contact-ack" });
+    const sent = await sendSafely({
+      to: from,
+      subject: ack.subject,
+      text: ack.text,
+      tag: "contact-ack",
+      idempotencyKey: emailKey("contact-ack", submission),
+    });
     if (sent.status === "failed") {
       // We have their message; the acknowledgement is a courtesy.
       console.error("[healdesk] the contact acknowledgement did not send", { reason: sent.reason.slice(0, 200) });

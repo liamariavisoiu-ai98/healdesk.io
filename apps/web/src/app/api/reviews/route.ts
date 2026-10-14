@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
+
 import { SIGNATURE_HEADER, TIMESTAMP_HEADER, sign } from "@healdesk/catalog";
 import { NextResponse } from "next/server";
 
+import { emailKey, isEmailConfigured, sendSafely } from "@/lib/email";
 import { clientKey, rateLimit } from "@/lib/rate-limit";
 import { isStateCode } from "@/lib/us-places";
 import { site } from "@/lib/site";
@@ -283,9 +286,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     at: new Date().toISOString(),
   });
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const sender = process.env.HEALDESK_EMAIL_FROM;
-  if (!apiKey || !sender) {
+  if (!isEmailConfigured()) {
     console.error(
       "[healdesk] review accepted but no transport is configured " +
         "(RESEND_API_KEY, HEALDESK_EMAIL_FROM)",
@@ -296,49 +297,38 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  try {
-    const response = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from: sender,
-        to: [site.email],
-        subject: `Review (${rating}/5), ${check.clinic.name}`,
-        text: [
-          `Rating:   ${rating}/5`,
-          `Title:    ${title || "(none)"}`,
-          `From:     ${name}`,
-          `Role:     ${jobTitle || "(none)"}`,
-          `Place:    ${city ? `${city} ${stateCode}` : `${stateCode} (state only)`}`,
-          `Clinic:   ${check.clinic.name}`,
-          `Specialty:${check.clinic.specialty || " (none)"}`,
-          `Customer: ${customerId}`,
-          `Photo:    ${photo.jpeg ? "attached" : "none"}`,
-          "",
-          body || "(rating only, no review written)",
-          "",
-          "Read it before it goes on the site. See src/lib/reviews.ts.",
-        ].join("\n"),
-        attachments: photo.jpeg
-          ? [{ filename: "portrait.jpg", content: photo.jpeg.toString("base64") }]
-          : undefined,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      console.error("[healdesk] resend rejected the review email", {
-        status: response.status,
-        detail: detail.slice(0, 500),
-      });
-      return fail(`We couldn't send that. Email ${site.email} instead.`, 502);
-    }
-  } catch (error) {
-    console.error("[healdesk] review email threw", error);
+  // Through the one sender, like every email from this site (Annex X3), so it
+  // carries the app and kind tags and a key. The review keeps no row, so a
+  // digest of what was submitted stands for one: a double submit sends once.
+  const submission = createHash("sha256")
+    .update(JSON.stringify([customerId, rating, title, name, jobTitle, city, stateCode, body]))
+    .update(photo.jpeg ?? Buffer.alloc(0))
+    .digest("hex")
+    .slice(0, 32);
+  const sent = await sendSafely({
+    to: site.email,
+    subject: `Review (${rating}/5), ${check.clinic.name}`,
+    text: [
+      `Rating:   ${rating}/5`,
+      `Title:    ${title || "(none)"}`,
+      `From:     ${name}`,
+      `Role:     ${jobTitle || "(none)"}`,
+      `Place:    ${city ? `${city} ${stateCode}` : `${stateCode} (state only)`}`,
+      `Clinic:   ${check.clinic.name}`,
+      `Specialty:${check.clinic.specialty || " (none)"}`,
+      `Customer: ${customerId}`,
+      `Photo:    ${photo.jpeg ? "attached" : "none"}`,
+      "",
+      body || "(rating only, no review written)",
+      "",
+      "Read it before it goes on the site. See src/lib/reviews.ts.",
+    ].join("\n"),
+    ...(photo.jpeg ? { attachments: [{ filename: "portrait.jpg", content: photo.jpeg }] } : {}),
+    tag: "review",
+    idempotencyKey: emailKey("review", submission),
+  });
+  if (sent.status === "failed") {
+    console.error("[healdesk] the review email did not send", { reason: sent.reason.slice(0, 500) });
     return fail(`We couldn't send that. Email ${site.email} instead.`, 502);
   }
 

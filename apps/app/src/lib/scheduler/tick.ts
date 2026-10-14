@@ -21,6 +21,7 @@ import { heartbeat } from "./jobs";
 import { runMonthlyReportJob } from "./monthly-report";
 import { runNightlySyncJob } from "./nightly-sync";
 import { runOffboardingDestroyJob } from "./offboarding-destroy";
+import { runRequestsStillOpenJob } from "./requests-still-open";
 import { runRetentionPurgeJob } from "./retention-purge";
 import { runWeeklyRecapJob } from "./weekly-recap";
 
@@ -124,6 +125,9 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));
+  // L8, hourly behind its switch: each clinic's "request still open" goes at
+  // its own opening hour, so the hour it runs is the clinic's, not UTC's.
+  await record("requests-still-open", () => runRequestsStillOpenJob({ now }));
   // The welcome email's backstop. Not a switched job: the welcome itself goes
   // at every provisioning, unswitched, so its retry must not wait for a
   // switch that ships off. It reaches only a clinic whose provisioning

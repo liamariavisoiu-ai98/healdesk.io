@@ -105,6 +105,14 @@ export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
  */
 export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
 /**
+ * L8, "Request still open" (package F), seeded off by drizzle/0077. Hourly
+ * from the tick: at a clinic's opening hour, only while its daily summary is
+ * off, one email counting the booking requests still waiting for the desk
+ * (lib/scheduler/requests-still-open.ts). The owner switches it on with the
+ * live alerts, once the sender's own switch is on.
+ */
+export const JOB_REQUESTS_STILL_OPEN = "requests-still-open";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

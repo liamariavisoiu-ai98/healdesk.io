@@ -437,6 +437,9 @@ describeDb("delivery", () => {
           // The transcript outbox's backstop (drizzle/0069): every minute from
           // the billing-minute queue, and hourly here, behind its switch.
           "transcript-emails",
+          // L8, "Request still open" (drizzle/0077), hourly behind its switch:
+          // each clinic's goes at its own opening hour.
+          "requests-still-open",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.

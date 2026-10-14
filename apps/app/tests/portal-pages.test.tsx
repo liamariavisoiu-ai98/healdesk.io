@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -28,9 +28,10 @@ import { createStripeWorld } from "./setup/stripe-world";
  *     still there);
  *
  * and axe-core on every screen this build has (Part F8): Home, Settings,
- * Knowledge, Conversations and Billing, before and after go-live. Bookings
- * joins when its page lands (package E). A WCAG 2.2 A or AA failure fails
- * the screen (tests/setup/axe.ts).
+ * Knowledge, Conversations and Billing, and the add-a-device and step-up
+ * pages a patient screen sends the browser to, before and after go-live.
+ * Bookings joins when its page lands (package E). A WCAG 2.2 A or AA
+ * failure fails the screen (tests/setup/axe.ts).
  */
 
 const portal = { userId: "", clinicId: "", clinicSlug: "" };
@@ -58,6 +59,8 @@ vi.mock("@/lib/portal/step-up", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/portal/step-up")>()),
   requireStepUp: async () => STEP_UP,
   touchStepUp: async () => null,
+  // A session with no step-up of its own, for the device and step-up pages.
+  sessionBinding: async () => ({ userId: portal.userId, sessionTokenHash: randomBytes(32) }),
 }));
 vi.mock("next/headers", () => ({
   headers: async () => new Headers({ "user-agent": "vitest" }),
@@ -71,7 +74,8 @@ const s = (date: Date) => Math.floor(date.getTime() / 1000);
 
 let clinic: PortalClinic;
 
-type Screen = "home" | "settings" | "knowledge" | "conversations" | "billing";
+type Screen =
+  "home" | "settings" | "knowledge" | "conversations" | "billing" | "protect" | "step-up";
 
 async function render(screen: Screen): Promise<string> {
   const params = Promise.resolve({ slug: portal.clinicSlug });
@@ -95,6 +99,14 @@ async function render(screen: Screen): Promise<string> {
     case "billing": {
       const { default: Page } = await import("@/app/c/[slug]/billing/page");
       return renderPage(<Page params={params} />);
+    }
+    case "protect": {
+      const { default: Page } = await import("@/app/c/[slug]/protect/page");
+      return renderPage(<Page params={params} searchParams={Promise.resolve({})} />);
+    }
+    case "step-up": {
+      const { default: Page } = await import("@/app/c/[slug]/step-up/page");
+      return renderPage(<Page params={params} searchParams={Promise.resolve({})} />);
     }
   }
 }
@@ -124,7 +136,16 @@ async function setChannels(set: string) {
   );
 }
 
-const SCREENS: readonly Screen[] = ["home", "settings", "knowledge", "conversations", "billing"];
+/** The six screens this build has (Bookings is package E's), and the two a patient page sends a device to. */
+const SCREENS: readonly Screen[] = [
+  "home",
+  "settings",
+  "knowledge",
+  "conversations",
+  "billing",
+  "protect",
+  "step-up",
+];
 
 describeDb("the portal's screens, before and after go-live", () => {
   beforeAll(async () => {
@@ -152,6 +173,8 @@ describeDb("the portal's screens, before and after go-live", () => {
     await import("@/app/c/[slug]/knowledge/page");
     await import("@/app/c/[slug]/conversations/page");
     await import("@/app/c/[slug]/billing/page");
+    await import("@/app/c/[slug]/protect/page");
+    await import("@/app/c/[slug]/step-up/page");
   }, 300_000);
 
   beforeEach(() => {

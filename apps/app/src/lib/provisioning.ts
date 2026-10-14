@@ -56,22 +56,26 @@ import { recordWelcomeOwed } from "./setup/welcome-email";
  * insert the clinic first (that table is not FORCEd), then declare the tenant,
  * then write everything that is.
  *
- * ## Why nobody is invited to sign in
+ * ## How the clinic signs in, and why nobody is invited
  *
- * A clinic never signs in, because there is nothing for a clinic to sign in to.
- * The clinic-facing console was removed on 7 September, and the one thing we
- * ever ask a clinic to do in a browser — hand over booking credentials — now
- * happens through a single-use link that needs no account at all (see
- * lib/email/connect-link.ts).
+ * The clinic signs in to its portal (plan Part D1) with its one email address.
+ * Provisioning finds or creates the user for the buying address and makes it
+ * the owner of the new clinic, in the clinic's own transaction (`ensureOwner`,
+ * below). That user has no password and no invitation: every sign-in is a
+ * single-use link (lib/sign-in/links.ts, and `startLinkSession` in
+ * lib/auth.ts), the first handed only to the browser that paid, at /welcome
+ * (lib/checkout/welcome.ts), and every later one mailed to the address, the
+ * welcome email's "Continue setup" link among them. Patient pages ask for the
+ * device's passkey on top.
  *
- * So provisioning used to end by writing a Better Auth `invitation` row, which
- * the provision route then mailed as "choose a password". That is an invitation
- * into a product with nothing behind the login. The mild failure is a confused
- * customer setting a credential they can never use; the real one is a live
- * password on a system holding patient records, created for no purpose, never
- * used, and therefore never noticed and never rotated. The fewest credentials
- * that can exist is the security property here, so the invitation is not
- * written and the account it would have created is never made.
+ * Provisioning used to end by writing a Better Auth `invitation` row instead,
+ * which the provision route mailed as "choose a password", into a clinic
+ * console that was later deleted. A pending invitation is a live credential
+ * with a 14-day fuse, one per sale, and a password on a system holding patient
+ * records is one more credential to guess, phish or forget to rotate. The
+ * fewest credentials that can exist is the security property here, so no
+ * invitation is written, no password can be set (lib/auth.ts), and the only
+ * way in is a link to the clinic's own address.
  *
  * Gone with it is `ensureSystemUser()`, which existed for exactly one reason:
  * Better Auth's invitation table requires an inviterId and a self-serve
@@ -81,23 +85,23 @@ import { recordWelcomeOwed } from "./setup/welcome-email";
  * authenticates as it and nothing reads it, and clearing it out is a migration
  * rather than a code path.
  *
- * The buyer still receives everything the purchase owes them, by email: their
- * signed agreement as a PDF (sent by signAgreement, before payment, from
- * lib/email/agreement-copy.ts) and — only when they have a booking system to
- * connect — the single-use connect link.
+ * The buyer receives what the purchase owes them by email: their signed
+ * agreement as a PDF (sent at signing, before payment, from
+ * lib/email/agreement-copy.ts) and the welcome email (B1), which the provision
+ * route sends once this transaction has committed.
  *
- * The alternative considered was keeping the invitation dormant "in case a
- * console comes back". Rejected: a pending invitation is a live credential with
- * a 14-day fuse and no product behind it, and it accrues one per sale. If a
- * clinic-facing surface is ever built, issuing invitations at that point is a
- * far smaller job than auditing the ones issued in the meantime.
+ * The spec's three roles are deferred, so there is nobody else to invite: one
+ * shared sign-in per clinic. If roles come back, an invitation is issued then,
+ * to a named address, and the hooks in lib/auth.ts turn an accepted one into a
+ * membership.
  *
  * ## Why the organization row stays
  *
  * `clinics.organizationId` is NOT NULL and references `organization`, and an
- * agreement binds to an organization id. It remains a data concept with nobody
- * logging into it. Removing Better Auth's tables is a different and much larger
- * change than declining to write one row.
+ * agreement binds to an organization id. It remains a data concept: the owner
+ * is its `member`, but what opens a clinic is the `clinic_memberships` row
+ * written beside it. Removing Better Auth's tables is a different and much
+ * larger change than declining to write one row.
  *
  * ## Why provisioning does not record the BAA
  *
@@ -107,11 +111,10 @@ import { recordWelcomeOwed } from "./setup/welcome-email";
  * may or may not arrive. By the time we reach here the signature exists; this
  * only binds it to the organization that payment just created.
  *
- * That is also why baa_acceptances.userId is nullable, and why it now stays
- * null forever: the buyer signed before any user record existed, and since the
- * invitation went away no user record is ever created. Their name and email are
- * frozen into their own columns on the acceptance row, which is the whole
- * reason that evidence survives having no account to hang off.
+ * That is also why baa_acceptances.userId is nullable, and why a signing's row
+ * keeps it null: the buyer signed before provisioning created their user. Their
+ * name and email are frozen into their own columns on the acceptance row, so
+ * the evidence never depends on the account.
  */
 
 /**

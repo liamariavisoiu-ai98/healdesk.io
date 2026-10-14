@@ -57,10 +57,15 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * window, carrying nothing clinical. Neither exists yet; this front door is
  * the pre-v1 request taker until they do.
  *
- * Every message is screened before the model sees it, as BAA 1.3.0 promises
- * ("healdesk checks each message a person sends there for clinical content
- * before the language model sees it, and keeps no message there and no
- * summary of one"; docs/counsel/agreement-changes.md §12.14, gate 4, PT-12).
+ * Every message is screened before the model sees it, as clause 16 of the
+ * agreement in force says (BAA 1.5.0, unchanged since 1.3.0: "healdesk checks
+ * each message a person sends there for clinical content before the language
+ * model sees it, and keeps no message there and no summary of one";
+ * docs/counsel/agreement-changes.md §12.14, gate 4, PT-12). The screen, like
+ * the reply guard, is a filter designed to catch clinical content, and the
+ * clause promises no more than that: "No filter catches every wording, so
+ * Practice should not invite patients to send clinical information on these
+ * channels."
  * A complication or an urgent symptom (the catalog's findUrgentContent) gets
  * the fixed urgent line: 911, then the clinic's own number. Anything else
  * clinical (findClinicalContent, the vocabulary that guards everything else

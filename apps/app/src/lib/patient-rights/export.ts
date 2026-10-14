@@ -35,18 +35,20 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  * Its own audit row is written for the export itself: producing a bundle is
  * an access, and the next accounting request must show this one.
  *
- * Each booking request, appointment and conversation carries its amendments beside it
- * (`amendments`, oldest first; lib/patient-rights/amendments.ts), as BAA
- * 1.3.0's clause 14(b) promises: "Every later export of that record, and
- * every screen of healdesk's that shows it, then carries the amendment." So
- * does the whole clinic's bundle. The portal's export (M5) must do the same,
- * and so must any screen that shows a request or a conversation.
+ * Each booking request, appointment and conversation carries its amendments
+ * beside it (`amendments`, oldest first; lib/patient-rights/amendments.ts),
+ * as clause 14(b) of the agreement in force promises (BAA 1.5.0, unchanged
+ * since 1.3.0): "Every later export of that record, and every screen of
+ * healdesk's that shows it, then carries the amendment." So does the whole
+ * clinic's bundle. The portal's export (M5) must do the same, and so must
+ * any screen that shows a request or a conversation.
  *
  * Each bundle also carries the deposits the clinic took through its own
  * Stripe account for the person's appointments (the whole clinic's, in its
  * bundle): the amount, when and how it was paid, and the Stripe session the
- * clinic can find it by. Destruction deletes them (BAA 1.3.0 clause 17 lets
- * only two records survive), so the return bundle is the clinic's copy.
+ * clinic can find it by. Destruction deletes them (clause 17 of BAA 1.5.0,
+ * as of 1.3.0, lets only two records survive), so the return bundle is the
+ * clinic's copy.
  *
  * The whole clinic's bundle also carries the raw payloads other services
  * sent (`rawPayloads`: provider, when it arrived, whether it was processed,
@@ -312,12 +314,12 @@ export async function exportPatient(
 /**
  * Amendment where the record can be changed: a real correction.
  *
- * BAA 1.3.0's clause 14(b): "healdesk corrects a person's contact details in
- * its own copy." A contact's name, number and address are those details, so
- * the row changes, and the audit row says which fields changed and who
- * asked, never what they said: a "prior" that carried the old name would
- * keep the wrong data the amendment exists to remove. The records healdesk
- * does not rewrite (a booking request, an appointment, a conversation) take
+ * BAA 1.5.0's clause 14(b), as of 1.3.0: "healdesk corrects a person's
+ * contact details in its own copy." A contact's name, number and address are
+ * those details, so the row changes, and the audit row says which fields
+ * changed and who asked, never what they said: a "prior" that carried the
+ * old name would keep the wrong data the amendment exists to remove. The
+ * records healdesk does not rewrite (a booking request, an appointment, a conversation) take
  * an appended amendment instead (lib/patient-rights/amendments.ts). The operator's path is
  * `npm run ops:amend-contact` in apps/app's own shell (lib/ops/patient-entry.ts),
  * never apps/web; the portal's comes with M5.

@@ -40,10 +40,12 @@ import { sendWelcomeEmail } from "@/lib/setup/welcome-email";
  * while this host was in standby; they are imported first, idempotently, and
  * provisioning then reads the two rows as it always has (lib/checkout/import.ts,
  * docs/design/checkout-records-on-vercel-2026-10-14.md). A seal or a document
- * hash that does not match refuses the purchase, as any other refusal does. It creates no user, no invitation and no credential of
- * any kind: a clinic never signs in to healdesk, so there is no login to
- * invite anyone into. See lib/provisioning.ts for why, and
- * lib/email/connect-link.ts for the single-use link that replaced the account.
+ * hash that does not match refuses the purchase, as any other refusal does.
+ * It creates the clinic's one user, the owner, with no password and no
+ * invitation: the clinic signs in to its portal only by single-use links,
+ * the first handed to the browser that paid at /welcome and every later one
+ * mailed to its address, the welcome email's below among them (see
+ * lib/provisioning.ts for why).
  *
  * It sends exactly one email, and only on a genuine creation: the welcome
  * email (B1, plan Part C4), with the order's terms, the setup-fee receipt

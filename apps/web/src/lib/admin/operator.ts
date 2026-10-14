@@ -14,15 +14,16 @@
  * went with it, and what is left is one surface with exactly one human behind
  * it. So the account model is: `HEALDESK_ADMIN_EMAIL` is the username,
  * `HEALDESK_ADMIN_PASSWORD_HASH` is a scrypt hash of the password, and a TOTP
- * app is the second factor. There is no user table on this side, no roles, no
- * invitations, and nothing in the token but the address of the one account.
+ * app holding `HEALDESK_ADMIN_TOTP_SECRET` is the second factor. There is no
+ * user table on this side, no roles, no invitations, and nothing in the token
+ * but the address of the one account.
  *
  * The plaintext password exists in a password manager and nowhere else. It is
  * not in this repository, not in `.env.example`, and must never be written into
  * either. `HEALDESK_ADMIN_PASSWORD` is gone; if you find a code path still
  * reading it, that path is the bug.
  *
- * ## There is one first factor in this directory, and this is it
+ * ## One first factor and one second factor in this directory
  *
  * An earlier draft split the same job across `credential.ts` (a second
  * `verifyAdminPassword` and `adminEmail`) and `totp.ts` (a second TOTP
@@ -30,21 +31,17 @@
  * 9 September, unreferenced by anything but their own tests, and the reason is
  * worth keeping: two implementations of one credential check in one directory
  * is a trap for whoever hardens one of them. Their tests passed, which made
- * them look live.
+ * them look live. That draft's verifier had no replay guard at all.
  *
- * They were not merely redundant, they had drifted. `totp.ts`'s verifier had no
- * replay guard at all. It returned the matching step and left "refuse a step
- * twice" to a caller that did not exist, and its recovery-code digest
- * lower-cased and prefixed a purpose string where the live one in
- * `apps/app/src/lib/ops/admin-totp.ts` upper-cases and does not, so codes
- * issued by one would never verify against the other. Wiring either back in
- * would have reintroduced replay and broken recovery in the same commit.
- *
- * So: the first factor is `verifyAdminPassword` below, and the second factor is
- * upstream in apps/app, where the secret, the used-step counter and the
- * recovery digests live and where the compare-and-set can be atomic. Nothing in
- * apps/web verifies a code. If a second copy of either ever appears beside this
- * file, delete it rather than keeping it in step.
+ * Today the first factor is `verifyAdminPassword` below and the second is
+ * `lib/admin/totp.ts`, which checks the code against
+ * `HEALDESK_ADMIN_TOTP_SECRET` and refuses a replay as far as an app with no
+ * shared store can (that file says exactly how far). Until 14 October 2026 the
+ * second factor lived in apps/app's database and was asked for over the signed
+ * ops API, which made the console impossible to sign into while the AWS host
+ * was off; the owner moved it here, and apps/app's copy and its table are
+ * gone. One of each, and if a second copy of either ever appears beside these
+ * files, delete it rather than keeping it in step.
  *
  * ## Why the token carries the email at all, when there is only one account
  *
@@ -80,31 +77,29 @@
  *     decoded. Nothing in the payload is worth looking at until we know we wrote
  *     it.
  *
- * ## Two tokens, two keys, two cookie names
+ * ## The session cookie, and the one other cookie this file signs
  *
- * First sign-in has a gap in it: the password has been proved and the second
- * factor does not exist yet, because the authenticator has not been enrolled.
- * Something has to carry the user across that gap, and that something must not
- * be a session. It is one factor short of one.
+ * There used to be a ten-minute enrolment token for the gap between "the
+ * password was right" and "an authenticator exists". That gap is gone: the
+ * authenticator exists before the deployment does, because enrolment is now a
+ * script run on the owner's own machine (`scripts/set-admin-totp.ts`), so
+ * every sign-in proves both factors in one request and nothing half-signed-in
+ * is ever issued.
  *
- * So there is a second, ten-minute ENROLMENT token, and it is separated from the
- * operator token three ways rather than one:
- *
- *   - a different cookie name, so the browser never presents one where the other
- *     is expected;
- *   - a different derived key, so an enrolment token does not verify as an
- *     operator token even though the two have the same shape; and
- *   - a different function to read it, so a route has to say which one it wants.
- *
- * `callOps` in `lib/admin/ops-client.ts` asks `requireOperator()`, which reads
- * the operator cookie with the operator key. An enrolment token therefore cannot
- * reach any ops route by any route, and that is structure rather than a check
- * somebody remembered to write.
+ * The other cookie is `hd_operator_step`, which names the last TOTP step this
+ * browser signed in with so the same browser cannot use that code again on
+ * another serverless instance. It is not a credential and grants nothing: the
+ * only thing it can ever do is make a sign-in fail. It is still signed, under
+ * its own derived key, because a cookie that can only refuse is a cookie
+ * worth forging if you want to lock somebody out: a sibling subdomain tossing
+ * an `hd_operator_step` with a huge step would otherwise shut the owner's
+ * browser out of the console until it expired.
  *
  * ## Why the key is derived rather than used directly
  *
- * `HEALDESK_ADMIN_SECRET` signs three different things across this app if you
- * count the old admin gate. Deriving `HMAC(secret, "<purpose>")` per use means a
+ * `HEALDESK_ADMIN_SECRET` signs two different things in this file, the
+ * session and the step cookie, and signed a third before the old admin gate
+ * went. Deriving `HMAC(secret, "<purpose>")` per use means a
  * token minted for one purpose cannot be replayed at another however its payload
  * is shaped, which is a property of the arithmetic rather than a coincidence of
  * two validators disagreeing about field counts.
@@ -143,6 +138,8 @@ import { createHash, createHmac, scrypt, timingSafeEqual } from "node:crypto";
 import type { ScryptOptions } from "node:crypto";
 
 import { cookies } from "next/headers";
+
+import { TOTP_SECRET_VARIABLE, adminTotpSecret } from "@/lib/admin/totp";
 
 /**
  * `promisify(scrypt)` picks the first of node's two overloads, which has no
@@ -184,17 +181,19 @@ export const OPERATOR_COOKIE = "hd_operator";
 export const OPERATOR_TTL_SECONDS = 60 * 60 * 8;
 
 /**
- * The half-authenticated token that exists only between "the password was
- * right" and "an authenticator is enrolled".
+ * The browser's record of the last TOTP step it signed in with. See "The
+ * session cookie, and the one other cookie this file signs" above, and the
+ * replay notes in `lib/admin/totp.ts`.
  */
-export const ENROLMENT_COOKIE = "hd_operator_enrol";
+export const STEP_COOKIE = "hd_operator_step";
 
 /**
- * Ten minutes: install the app, scan the code, type six digits. Long enough for
- * someone reaching for a phone in another room, short enough that walking away
- * mid-enrolment does not leave a usable half-credential in the browser.
+ * Ten minutes. A code is acceptable for at most ninety seconds after it is
+ * first used (three thirty-second steps), so this outlives every code it could
+ * refuse, with room for an instance whose clock is a minute out. Longer would
+ * buy nothing: once a code's window has passed it is refused by the clock.
  */
-export const ENROLMENT_TTL_SECONDS = 60 * 10;
+export const STEP_COOKIE_TTL_SECONDS = 60 * 10;
 
 /**
  * Domain separation for the derived keys. Changing either string invalidates
@@ -205,7 +204,7 @@ export const ENROLMENT_TTL_SECONDS = 60 * 10;
  * identity. Any cookie still holding one of those must not verify here.
  */
 const OPERATOR_PURPOSE = "healdesk.admin-operator.v2";
-const ENROLMENT_PURPOSE = "healdesk.admin-enrolment.v1";
+const STEP_PURPOSE = "healdesk.admin-totp-step.v1";
 
 /** The longest legal email address is 320 bytes. */
 const MAX_EMAIL_BYTES = 320;
@@ -233,7 +232,7 @@ const B64URL = /^[A-Za-z0-9_-]{1,512}$/;
  * whatever `Number()` made of an arbitrary string. */
 const EXPIRY = /^[0-9]{1,15}$/;
 
-type TokenPurpose = typeof OPERATOR_PURPOSE | typeof ENROLMENT_PURPOSE;
+type TokenPurpose = typeof OPERATOR_PURPOSE | typeof STEP_PURPOSE;
 
 /**
  * The purpose-bound signing key, or null when there is nothing safe to sign
@@ -284,9 +283,17 @@ export function isAdminAccountConfigured(): boolean {
   );
 }
 
-/** Which pieces are missing, for the development-only setup panel. Never shown
+/**
+ * Which pieces are missing, for the development-only setup panel. Never shown
  * in production: the names of the variables a deployment lacks are operator
- * detail, and the operator has a terminal. */
+ * detail, and the operator has a terminal.
+ *
+ * `HEALDESK_ADMIN_TOTP_SECRET` is listed here but is not part of
+ * `isAdminAccountConfigured()`. Without it the form still renders, and the
+ * session route answers a correct password with a 503 naming the variable:
+ * that sentence reaches only somebody who has just proved the password, which
+ * a page anyone can load is not.
+ */
 export function missingAdminConfig(): string[] {
   const missing: string[] = [];
   if (adminEmail() === null) missing.push("HEALDESK_ADMIN_EMAIL");
@@ -294,6 +301,7 @@ export function missingAdminConfig(): string[] {
     missing.push("HEALDESK_ADMIN_PASSWORD_HASH");
   }
   if (signingKey(OPERATOR_PURPOSE) === null) missing.push("HEALDESK_ADMIN_SECRET");
+  if (!adminTotpSecret().ok) missing.push(TOTP_SECRET_VARIABLE);
   return missing;
 }
 
@@ -639,20 +647,54 @@ export function verifyOperatorToken(value: string | undefined): string | null {
   return verifyToken(OPERATOR_PURPOSE, value);
 }
 
+// -----------------------------------------------------------------------------
+// The step cookie
+// -----------------------------------------------------------------------------
+
+/** Digits only, bounded, as the expiry is: shape before signature. */
+const STEP_DIGITS = /^[0-9]{1,15}$/;
+
 /**
- * Mint the ten-minute token that carries first-run enrolment.
+ * `<step>.<hmac>` under the step cookie's own derived key, so it can never
+ * verify as a session and a session can never verify as one of these.
  *
- * This is NOT a session. It proves one factor, it is signed with a different
- * key, it lives under a different cookie name, and `requireOperator()` will
- * never return anything for it. `/api/admin/enroll` is the only route that
- * accepts it.
+ * Throws when the signing secret is missing, like the operator token. It is
+ * only ever minted in the same response as an operator cookie, which has
+ * already needed the secret.
  */
-export function issueEnrolmentToken(email: string): string {
-  return issueToken(ENROLMENT_PURPOSE, email, ENROLMENT_TTL_SECONDS);
+export function issueStepToken(step: number): string {
+  if (!Number.isSafeInteger(step) || step < 0) {
+    throw new Error("issueStepToken requires a non-negative whole step.");
+  }
+  const key = signingKey(STEP_PURPOSE);
+  if (key === null) {
+    throw new Error(
+      "HEALDESK_ADMIN_SECRET is required: the step cookie cannot be signed without it.",
+    );
+  }
+  const payload = String(step);
+  return `${payload}.${sign(payload, key)}`;
 }
 
-export function verifyEnrolmentToken(value: string | undefined): string | null {
-  return verifyToken(ENROLMENT_PURPOSE, value);
+/**
+ * The step this browser last signed in with, or null when the cookie is
+ * absent, forged, or signed under a secret this server no longer has. Never
+ * throws: the value is whatever the request carried.
+ *
+ * Null means "nothing known about this browser", never "refuse": a cookie we
+ * cannot read is not evidence of a replay, and the in-process ledger still
+ * applies.
+ */
+export function verifyStepToken(value: string | undefined): number | null {
+  if (typeof value !== "string" || value.length === 0 || value.length > 128) return null;
+  const key = signingKey(STEP_PURPOSE);
+  if (key === null) return null;
+  const parts = value.split(".");
+  if (parts.length !== 2) return null;
+  const [payload, signature] = parts as [string, string];
+  if (!STEP_DIGITS.test(payload)) return null;
+  if (!equals(sign(payload, key), signature)) return null;
+  return Number(payload);
 }
 
 /**
@@ -666,12 +708,6 @@ export function verifyEnrolmentToken(value: string | undefined): string | null {
 export async function requireOperator(): Promise<string | null> {
   const store = await cookies();
   return verifyOperatorToken(store.get(OPERATOR_COOKIE)?.value);
-}
-
-/** The same question for the enrolment token, asked only by `/api/admin/enroll`. */
-export async function requireEnrolment(): Promise<string | null> {
-  const store = await cookies();
-  return verifyEnrolmentToken(store.get(ENROLMENT_COOKIE)?.value);
 }
 
 // -----------------------------------------------------------------------------
@@ -714,16 +750,20 @@ export function operatorCookieOptions(): SessionCookieOptions {
 }
 
 /**
- * The enrolment cookie is scoped to the one route that reads it, which is the
- * narrowest thing that works and means it is not attached to every request the
- * browser makes while a half-finished enrolment is outstanding.
+ * The step cookie is scoped to the one route that reads it, so it rides on
+ * sign-in attempts and nothing else.
+ *
+ * Deliberately NOT cleared on sign-out. A browser that signs out and then
+ * submits the same six digits inside their ninety seconds is exactly the reuse
+ * this cookie exists to refuse, and clearing it on the way out would hand that
+ * back.
  */
-export function enrolmentCookieOptions(): SessionCookieOptions {
+export function stepCookieOptions(): SessionCookieOptions {
   return {
     httpOnly: true,
     sameSite: "strict",
     secure: process.env.NODE_ENV === "production",
-    path: "/api/admin/enroll",
-    maxAge: ENROLMENT_TTL_SECONDS,
+    path: "/api/admin/session",
+    maxAge: STEP_COOKIE_TTL_SECONDS,
   };
 }

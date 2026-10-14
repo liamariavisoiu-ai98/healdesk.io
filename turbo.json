@@ -37,11 +37,14 @@
         // secrets invalidates the build cache, which is the safe direction to
         // be wrong in.
 
-        // The admin console. All three are required together; with any one
-        // missing the area is shut in every environment.
+        // The admin console. The first three are required together; with any
+        // one missing the area is shut in every environment. The TOTP secret
+        // is the second factor, checked on Vercel: without it no sign-in
+        // succeeds.
         "HEALDESK_ADMIN_EMAIL",
         "HEALDESK_ADMIN_PASSWORD_HASH",
         "HEALDESK_ADMIN_SECRET",
+        "HEALDESK_ADMIN_TOTP_SECRET",
 
         // The admin change feed. Without a token it falls back to reading the
         // local checkout with git log, which a deployed instance does not have.

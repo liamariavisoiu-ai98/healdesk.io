@@ -189,7 +189,7 @@ async function main(): Promise<void> {
     console.log("Removed the old HEALDESK_ADMIN_PASSWORD line.");
   }
   console.log("\nRestart the web app for it to take effect.");
-  console.log("Your second factor and recovery codes are unchanged.");
+  console.log("Your authenticator (HEALDESK_ADMIN_TOTP_SECRET) is unchanged.");
 }
 
 main().catch((error: unknown) => {

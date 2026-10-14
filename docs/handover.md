@@ -840,9 +840,43 @@ added a PHI table and forgot the policy.
 ### Operator sign-in
 
 `/admin` on `apps/web` has one operator account: `HEALDESK_ADMIN_EMAIL`, a scrypt hash in
-`HEALDESK_ADMIN_PASSWORD_HASH`, and a TOTP second factor whose secret lives in `apps/app`
-(`lib/ops/admin-totp.ts`). There is no public sign-up. Clinic users sign in to the
-portal in `apps/app`, which is not built
+`HEALDESK_ADMIN_PASSWORD_HASH`, and a TOTP second factor whose secret is
+`HEALDESK_ADMIN_TOTP_SECRET`, all Vercel environment variables on `apps/web`
+(`HEALDESK_ADMIN_SECRET` signs the session). Since 14 October 2026 both factors are
+checked on Vercel (`lib/admin/operator.ts`, `lib/admin/totp.ts`) and signing in makes no
+call to `apps/app`, so the console opens while the AWS host is off; the pages behind it
+still read through the signed ops API and say so when it cannot answer. Before that the
+TOTP secret, its last-used step and ten recovery codes lived in `apps/app`'s `admin_totp`
+table, which `drizzle/0074_drop_admin_totp.sql` drops. There is no public sign-up.
+
+- **Setting up or replacing the authenticator.** `npm run admin:totp -w @healdesk/web`
+  (`-- you@example.com`, or it reads `HEALDESK_ADMIN_EMAIL`). It makes a secret, shows a
+  QR code, asks for a code from the phone to prove the scan, and only then prints the
+  value and `vercel env add HEALDESK_ADMIN_TOTP_SECRET production --sensitive`. It
+  writes nothing to disk. Redeploy for the new value to take effect; the old phone entry
+  stops working then. There are no recovery codes: a lost phone is this script again, and
+  the way to Vercel is the Vercel account's own second factor.
+- **The password.** `npx tsx apps/web/scripts/set-admin-password.ts` writes the hash into
+  `apps/web/.env.local`; paste the same hash, raw, into Vercel.
+- **Without the TOTP secret** a correct password is answered 503 with a sentence naming
+  the variable, and nobody is signed in on the password alone.
+- **Replay.** A code is refused a second time in the same serverless instance (an
+  in-memory ledger of the last step) and in the same browser (the signed
+  `hd_operator_step` cookie). Two different instances with no cookie between them can each
+  accept one code once inside its 90 seconds: there is no shared store on `apps/web` by
+  design. The password, the per-address and global attempt limits, and the alert below
+  stand in front of that.
+- **The record.** Every successful sign-in emails `HEALDESK_ADMIN_EMAIL` through Resend,
+  after the response (time, address, browser; no link, no code). Every attempt past the
+  limiters writes one log line, `[healdesk] admin sign-in {"outcome":...}` (success,
+  wrong_password, code_required, wrong_code, replayed_code, misconfigured), in Vercel's
+  logs. There is no `security_events` row for a sign-in any more: `apps/web` has no
+  database.
+- **If a sign-in was not you.** Change the password, rotate `HEALDESK_ADMIN_SECRET`
+  (which ends every session), run the TOTP script and replace the variable, and check who
+  can reach the Vercel project, since both factors are kept there.
+
+Clinic users sign in to the portal in `apps/app`, which is not built
 ([policies/access-control.md](./policies/access-control.md) has its rules).
 
 ---

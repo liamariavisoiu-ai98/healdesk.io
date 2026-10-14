@@ -36,16 +36,16 @@ export const dynamic = "force-dynamic";
  * neither answer is shipped to the browser. The only thing that becomes client
  * JavaScript is the form.
  *
- * ## Why enrolment lives inside this page rather than at /admin/enroll
+ * ## There is no enrolment screen
  *
- * There is no separate enrolment URL, and that is deliberate rather than
- * unfinished. A URL is a thing that can be linked, bookmarked, shared and
- * arrived at cold, and every one of those is a state this flow does not have an
- * honest answer for: an enrolment screen reached without having just proved the
- * password is a screen that has to say no. Keeping it as the second state of the
- * sign-in form means the only way to see it is to have got there through the
- * password, in this browser, in the last ten minutes. Refreshing the page drops
- * back to the password, which is correct.
+ * The authenticator is set up before this page can be used, by
+ * `npm run admin:totp -w @healdesk/web` on the owner's own machine, which makes
+ * the secret, has the phone prove it scanned, and prints the value for
+ * `HEALDESK_ADMIN_TOTP_SECRET` in Vercel (owner, 14 October 2026). So this page
+ * never shows a secret, never shows a QR code, and has no state in which the
+ * password alone is enough. A lost authenticator is the same script again,
+ * which the one line under the form says; the Vercel account it ends in has a
+ * second factor of its own.
  *
  * Deliberately spare. No navigation, no marketing, no explanation of what is
  * behind it beyond one line. The one person who needs this page already knows
@@ -83,7 +83,17 @@ export default async function AdminSignInPage() {
           for over a signed request.
         </p>
 
-        {configured ? <SignInForm /> : <NotConfigured />}
+        {configured ? (
+          <>
+            <SignInForm />
+            <p className="text-muted mt-2 text-[15.6px]">
+              Lost the authenticator? Run the admin:totp script again and
+              replace its secret in Vercel; nothing here can reset it.
+            </p>
+          </>
+        ) : (
+          <NotConfigured />
+        )}
       </main>
     </div>
   );
@@ -139,7 +149,7 @@ function NotConfigured() {
 }
 
 /**
- * The three variables, and what each one is for.
+ * The four variables, and what each one is for.
  *
  * `HEALDESK_ADMIN_PASSWORD_HASH` is a hash and not a password, and the note says
  * so in the strongest terms available, because the single worst thing anybody
@@ -159,5 +169,9 @@ const SETUP = [
   {
     name: "HEALDESK_ADMIN_SECRET",
     note: "Signs the session cookie. Generate with openssl rand -base64 32. Rotating it signs you out.",
+  },
+  {
+    name: "HEALDESK_ADMIN_TOTP_SECRET",
+    note: "The authenticator's secret, 32 base32 characters. Make it with npm run admin:totp -w @healdesk/web, which checks a code from your phone before printing it. Without it no sign-in succeeds, whatever the password.",
   },
 ] as const;

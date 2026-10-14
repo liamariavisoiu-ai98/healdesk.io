@@ -430,7 +430,9 @@ function BookedRow(props: {
   const { appointment: a, zone, now } = props;
   const calendar = calendarLine(a);
   return (
-    <article className="border-line rounded-xl border bg-white p-4">
+    // The request's anchor too: a link to a conversation's booking
+    // (/c/<slug>/bookings#request-<id>) lands here once it is booked.
+    <article id={`request-${a.requestId}`} className="border-line rounded-xl border bg-white p-4">
       <h3 className="font-semibold">
         {a.firstName ?? "Someone"}, {portalMoment(a.scheduledFor, zone, now)}
       </h3>

@@ -371,6 +371,11 @@ describeDb("Bookings", () => {
     expect(missedPart).not.toContain("Decline");
     const bookedPart = html.slice(html.indexOf('id="booked"'));
     expect(bookedPart).toContain("Cleo Park");
+    // Conversations links a booking as /c/<slug>/bookings#request-<id>: every
+    // request has that anchor, wherever it now sits.
+    expect(needs).toContain(`id="request-${open.id}"`);
+    expect(missedPart).toContain(`id="request-${missed.id}"`);
+    expect(bookedPart).toContain(`id="request-${booked.id}"`);
     expect(bookedPart).toContain("Confirmed by Jo");
     expect(bookedPart).toContain("Deposit of $50 to collect: call them");
     expect(bookedPart).toMatch(/aria-pressed="false"[^>]*>Showed</);

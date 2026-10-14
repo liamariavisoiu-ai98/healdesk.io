@@ -166,6 +166,40 @@ describe("the paid path, with no apps/app", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test("the nonce cookie is set on the parent domain the two apps share, for /welcome only", async () => {
+    vi.stubEnv("HEALDESK_APP_URL", "https://app-internal.healdesk.io");
+    counter += 1;
+    const agreementId = (await signTestAgreement(SIGNATURE)).id;
+    const response = await POST(
+      new Request("https://healdesk.io/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-forwarded-for": `10.9.1.${counter}` },
+        body: JSON.stringify({ ...ORDER, agreementId }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    const cookie = response.headers.get("set-cookie") ?? "";
+    expect(cookie).toMatch(new RegExp(`^${WELCOME_NONCE_COOKIE}=[A-Za-z0-9_-]{32};`));
+    // healdesk.io's /welcome reads it, then app.healdesk.io's: the parent
+    // both share, never the internal host itself.
+    expect(cookie).toMatch(/; Domain=healdesk\.io(;|$)/);
+    expect(cookie).not.toContain("app-internal");
+    expect(cookie).toMatch(/; Path=\/welcome(;|$)/);
+    expect(cookie).toMatch(/; Max-Age=1800(;|$)/);
+    expect(cookie).toMatch(/; HttpOnly(;|$)/);
+    expect(cookie.toLowerCase()).toMatch(/; samesite=lax(;|$)/);
+    // Only its hash is in the record.
+    const nonce = cookie.split(";")[0]!.split("=")[1]!;
+    expect(JSON.stringify(sheets.records("checkout_intents"))).not.toContain(nonce);
+  });
+
+  test("on one host (localhost, where cookies ignore ports) the nonce cookie is host-only", async () => {
+    vi.stubEnv("HEALDESK_APP_URL", "http://localhost:3001");
+    const cookie = (await pay()).headers.get("set-cookie") ?? "";
+    expect(cookie).toContain(`${WELCOME_NONCE_COOKIE}=`);
+    expect(cookie).not.toMatch(/Domain=/i);
+  });
+
   test("the buyer's details never ride in Stripe metadata (design D1)", async () => {
     await pay();
     const params = fake.params[0]!;

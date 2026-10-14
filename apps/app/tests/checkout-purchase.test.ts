@@ -437,6 +437,24 @@ describeDb("provisioning from the imported records, and /welcome", () => {
       // The account the first subscription made still stands: never marked failed.
       expect((await findIntent(p.intent.ref))!.provisionFailedAt).toBeNull();
 
+      // Another purchase paid by the same Stripe customer: the clinic it
+      // already has is the answer (plan C1), a 200 replay that makes nothing
+      // and sends no welcome, and ops hears of the second subscription.
+      const again = purchase();
+      const sameCustomer = await provision(again, subscription());
+      expect(sameCustomer.status).toBe(200);
+      expect(sameCustomer.json).toMatchObject({ replayed: true, clinicId: first.json.clinicId });
+      expect((await getMigratorPool().query(`select 1 from clinics`)).rows).toHaveLength(1);
+      expect(
+        errors.some(
+          (line) =>
+            line.includes("ops alert") &&
+            line.includes("duplicate_subscription") &&
+            line.includes('"source":"customer"') &&
+            line.includes(first.json.clinicId as string),
+        ),
+      ).toBe(true);
+
       // No records, and nothing imported before: unknown.
       const nobody = purchase();
       const unknown = await provision(nobody, subscription(), {}, {});

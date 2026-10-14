@@ -224,6 +224,13 @@ export async function POST(request: Request): Promise<Response> {
     // such an effect, which is why it sits inside the `!result.replayed`
     // check (and its ledger row makes it once per clinic besides); anything
     // else a customer can perceive belongs there too.
+    // A replay found by the customer alone is a second subscription paid for
+    // a practice that already has its clinic (lib/provisioning.ts,
+    // clinicForStripe): nothing is made for it, and ops cancels and refunds.
+    if (result.duplicateSubscription) {
+      const clinicId = result.clinicId;
+      await afterResponse(() => notifyOps("duplicate_subscription", { clinicId, source: "customer" }));
+    }
     if (!result.replayed) {
       const clinicId = result.clinicId;
       await afterResponse(async () => {

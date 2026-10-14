@@ -489,6 +489,30 @@ export const CHECKOUT_INTENTS: Tab = {
   ],
 };
 
+/**
+ * When the owner last rotated each key, as recorded from /admin/map's "I
+ * rotated it today" (lib/admin/key-rotations.ts). Append-only: one row per
+ * press, and the newest row for a key is its last rotation. The key's id
+ * (`vercel.STRIPE_SECRET_KEY`), a date and who pressed it; never a value, a
+ * fingerprint or anything derived from one.
+ */
+export type KeyRotationRow = {
+  id: string;
+  keyId: string;
+  rotatedAt: Date;
+  recordedBy: string;
+};
+
+export const KEY_ROTATIONS: Tab = {
+  title: "key_rotations",
+  columns: [
+    col("id", "id", "text"),
+    col("key_id", "keyId", "text"),
+    col("rotated_at", "rotatedAt", "timestamp"),
+    col("recorded_by", "recordedBy", "text"),
+  ],
+};
+
 export const TABS: readonly Tab[] = [
   LEADS,
   LEAD_EVENTS,
@@ -498,6 +522,7 @@ export const TABS: readonly Tab[] = [
   DEMO_SESSIONS,
   AGREEMENTS,
   CHECKOUT_INTENTS,
+  KEY_ROTATIONS,
 ];
 
 // -----------------------------------------------------------------------------

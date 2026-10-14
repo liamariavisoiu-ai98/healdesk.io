@@ -227,7 +227,11 @@ type OperatorOp =
   | "disconnectCalendar"
   // The AWS host's standby switch (/admin/host): three counts, asked before
   // standby is dispatched.
-  | "hostStandbyCheck";
+  | "hostStandbyCheck"
+  // The system map (/admin/map): which of the host's keys are in place, yes
+  // or no per name, and a live seal-and-open with the credential key.
+  | "keyPresence"
+  | "getCredentialKeyStatus";
 
 /**
  * The operations a MACHINE asks for, with no browser behind them, and there is
@@ -797,6 +801,7 @@ async function callOps<T>(
   kind: CallKind,
   args: Record<string, unknown>,
   read: (value: unknown) => T,
+  timeoutMs?: number,
 ): Promise<OpsResult<T>> {
   if (!(await requireOperator())) {
     return {
@@ -806,7 +811,7 @@ async function callOps<T>(
     };
   }
 
-  return send(op, kind, read, args);
+  return send(op, kind, read, args, { timeoutMs });
 }
 
 async function send<T>(
@@ -3567,4 +3572,91 @@ export function hostStandbyCheck(): Promise<OpsResult<HostStandbyCheck>> {
       openTranscripts: count(data.openTranscripts, "hostStandbyCheck.openTranscripts"),
     };
   });
+}
+
+// -----------------------------------------------------------------------------
+// The system map
+// -----------------------------------------------------------------------------
+
+/**
+ * How long the map waits for the host. Shorter than the console's twelve
+ * seconds: the map draws every other bridge without this answer, and a host
+ * in standby should read as "can't check" while the page is still worth
+ * looking at, not after it.
+ */
+const MAP_TIMEOUT_MS = 9_000;
+
+/** An environment variable's name, as apps/app lists them. Anything else is not one of ours. */
+const ENV_NAME = /^[A-Z][A-Z0-9_]{1,63}$/;
+
+/**
+ * Which of the AWS host's keys and public ids are in place
+ * (apps/app lib/ops/key-presence.ts): yes or no per name from a list fixed
+ * on that side, and whether its Stripe key is a test or a live one. Never a
+ * value. A read.
+ */
+export type HostKeyPresence = {
+  present: Record<string, boolean>;
+  stripeMode: "test" | "live" | null;
+};
+
+export function keyPresence(): Promise<OpsResult<HostKeyPresence>> {
+  return callOps(
+    "keyPresence",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "keyPresence");
+      const raw = object(data.present, "keyPresence.present");
+      const names = Object.keys(raw);
+      if (names.length > 64) throw new ShapeError("keyPresence.present");
+      const present: Record<string, boolean> = {};
+      for (const name of names) {
+        if (!ENV_NAME.test(name)) throw new ShapeError("keyPresence.present");
+        present[name] = bool(raw[name], `keyPresence.present.${name}`);
+      }
+      const stripeMode =
+        data.stripeMode === null ? null : literal(data.stripeMode, ["test", "live"] as const, "keyPresence.stripeMode");
+      return { present, stripeMode };
+    },
+    MAP_TIMEOUT_MS,
+  );
+}
+
+/**
+ * Whether the host can seal and open a clinic's credentials right now
+ * (apps/app getCredentialKeyStatus): a live round trip through the KMS key,
+ * answered as ok or a one-word reason. Never the key's full ARN.
+ */
+export type CredentialKeyCheck = {
+  provider: "aws-kms" | "local";
+  keyConfigured: boolean;
+  ok: boolean;
+  /** Present when `ok` is false: a category from apps/app, never an AWS message. */
+  error: string | null;
+};
+
+export function credentialKeyStatus(): Promise<OpsResult<CredentialKeyCheck>> {
+  return callOps(
+    "getCredentialKeyStatus",
+    "read",
+    {},
+    (value) => {
+      const data = object(value, "getCredentialKeyStatus");
+      const selfCheck = object(data.selfCheck, "getCredentialKeyStatus.selfCheck");
+      const error = selfCheck.error;
+      return {
+        provider: literal(data.provider, ["aws-kms", "local"] as const, "getCredentialKeyStatus.provider"),
+        keyConfigured: bool(data.keyConfigured, "getCredentialKeyStatus.keyConfigured"),
+        ok: bool(selfCheck.ok, "getCredentialKeyStatus.selfCheck.ok"),
+        error:
+          error === undefined || error === null
+            ? null
+            : typeof error === "string" && /^[a-z_]{1,40}$/.test(error)
+              ? error
+              : "failed",
+      };
+    },
+    MAP_TIMEOUT_MS,
+  );
 }

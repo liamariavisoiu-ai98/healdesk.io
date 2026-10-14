@@ -113,6 +113,7 @@ import {
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { hostStandbyCheck } from "@/lib/ops/host-standby";
+import { keyPresence } from "@/lib/ops/key-presence";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
@@ -404,6 +405,11 @@ const OPERATIONS = [
   // whether anything real is on this host, as three counts across every
   // clinic (lib/ops/host-standby.ts). A read: no name, no id, no audit row.
   "hostStandbyCheck",
+  // The system map (/admin/map): which of this host's keys and public ids are
+  // in place, yes or no per name from a fixed list, and whether the Stripe
+  // key is a test or a live one (lib/ops/key-presence.ts). Never a value, a
+  // length or a prefix. A read: nothing written, no audit row.
+  "keyPresence",
   // The paying browser's way back (docs/design/checkout-records-on-vercel-2026-10-14.md):
   // apps/web's /welcome, which Stripe returns the buyer to since the purchase
   // is recorded on Vercel, asks whether this host has the purchase yet and has
@@ -1004,6 +1010,8 @@ export async function runOperation(
       return opTranscriptDeliveries(args, operator);
     case "hostStandbyCheck":
       return ok(await hostStandbyCheck(actorFor(operator), operator.request));
+    case "keyPresence":
+      return ok(keyPresence());
     case "welcomeHandoff":
       return opWelcomeHandoff(args);
     default: {
@@ -3775,10 +3783,8 @@ export type CredentialKeyStatus = CredentialKeyConfiguration & {
  * kms.ts and a category word — never the full ARN, which names the account,
  * and never an AWS error message.
  *
- * Nothing in apps/web calls this yet: its ops client has no function for it
- * and /admin no card. Until one does, it answers only a request signed with
- * the provision secret, and the worker's start-up log line is the check an
- * operator can read.
+ * /admin/map asks it on every load, to colour the bridge from this host to
+ * the key: the worker's start-up log line is the same check, made once.
  */
 async function opGetCredentialKeyStatus(): Promise<OpsOutcome> {
   return ok({

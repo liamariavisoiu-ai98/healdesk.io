@@ -7,10 +7,11 @@ consent screen, homepage and privacy policy check out. This page has the
 justifications ready to paste and the video's shot list. [README.md](./README.md)
 has the screenshots and how to take the two that need you.
 
-**The video needs `apps/app` deployed.** It must show Google's real consent
-screen for healdesk's real OAuth client, which only a deployed app can reach. As
-of 13 October 2026 nothing is deployed (`infra/aws/README.md`), so everything
-below can be prepared, but not recorded or submitted.
+**The video needs `apps/app` deployed, and since 14 October 2026 it is.** It
+must show Google's real consent screen for healdesk's real OAuth client, which
+only the deployed app can reach. `https://app.healdesk.io` has answered from AWS
+since 14 October, with synthetic data only, so the video can be recorded once the
+checklist below holds, starting with the OAuth client's values on the host.
 
 ## Before submitting
 

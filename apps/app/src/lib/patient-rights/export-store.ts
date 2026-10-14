@@ -1,13 +1,16 @@
 /**
- * Where a clinic's return bundle lands on the AWS host: one object in the
- * export bucket (infra/aws/exports.tf), because a Fargate task's disk goes
- * with the task. Only scripts/patient-export.ts uses this, as the one-off
- * patient-export task; nothing in the web tier or the worker writes there,
- * and their task role cannot.
+ * Where a bundle lands on the AWS host: one object in the export bucket
+ * (infra/aws/exports.tf), because a Fargate task's disk goes with the task.
+ * A clinic's return bundle, or one person's bundle named by a contact's id.
+ * Only scripts/patient-export.ts uses this, as the one-off patient-export
+ * task; nothing in the web tier or the worker writes there, and their task
+ * role cannot.
  *
- * The key names the clinic and a time, never a patient, and the run passes
- * it in (infra/aws/scripts/run-task.sh), so the operator knows where the
- * bundle went without reading the task's log. The upload names the bucket's
+ * The key names the clinic and a time, never a patient: a person's bundle is
+ * clinic-<clinic id>-patient-<time>.json, inside the task role's
+ * clinic-*.json grant, and never carries the contact's id either. The run
+ * passes it in (infra/aws/scripts/run-task.sh), so the operator knows where
+ * the bundle went without reading the task's log. The upload names the bucket's
  * own encryption (the bucket refuses any other) and refuses to overwrite an
  * object already there, so a re-run under the same key fails instead of
  * replacing a bundle someone may be downloading.
@@ -15,6 +18,7 @@
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const EXPORT_KEY = new RegExp(`^clinic-(${UUID})-(\\d{8}T\\d{6}Z)\\.json$`, "i");
+const PATIENT_EXPORT_KEY = new RegExp(`^clinic-(${UUID})-patient-(\\d{8}T\\d{6}Z)\\.json$`, "i");
 const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/;
 
 export type ExportTarget = { bucket: string; key: string };
@@ -35,14 +39,24 @@ export type PutObjectInput = {
 
 /**
  * The bucket and key a run asked for, checked: the key must be
- * clinic-<the clinic's id>-<UTC time>.json, so it can never carry anything
- * but the clinic it exports.
+ * clinic-<the clinic's id>-<UTC time>.json for the whole clinic, and
+ * clinic-<the clinic's id>-patient-<UTC time>.json for one person, so it can
+ * never carry anything but the clinic it exports, and says which it is.
  */
-export function exportTarget(clinicId: string, bucket: string, key: string): ExportTarget {
+export function exportTarget(
+  clinicId: string,
+  bucket: string,
+  key: string,
+  scope: "clinic" | "patient" = "clinic",
+): ExportTarget {
   if (!BUCKET.test(bucket)) throw new Error("HEALDESK_EXPORT_BUCKET is not a bucket name.");
-  const match = EXPORT_KEY.exec(key);
+  const match = (scope === "patient" ? PATIENT_EXPORT_KEY : EXPORT_KEY).exec(key);
   if (!match) {
-    throw new Error("HEALDESK_EXPORT_KEY must be clinic-<clinic id>-<YYYYMMDDTHHMMSSZ>.json.");
+    throw new Error(
+      scope === "patient"
+        ? "HEALDESK_EXPORT_KEY must be clinic-<clinic id>-patient-<YYYYMMDDTHHMMSSZ>.json for one person's bundle."
+        : "HEALDESK_EXPORT_KEY must be clinic-<clinic id>-<YYYYMMDDTHHMMSSZ>.json.",
+    );
   }
   if (match[1]!.toLowerCase() !== clinicId.toLowerCase()) {
     throw new Error("HEALDESK_EXPORT_KEY names another clinic than the one exported.");

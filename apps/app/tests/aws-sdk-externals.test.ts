@@ -7,6 +7,8 @@ import { describe, expect, test } from "vitest";
 
 import { sesClientConfig } from "@/lib/reporting/deliver";
 
+import nextConfig from "../next.config";
+
 /**
  * What else keeps the AWS SDKs reaching the production build as packages.
  *
@@ -27,18 +29,57 @@ import { sesClientConfig } from "@/lib/reporting/deliver";
  *     both see what it is;
  *   - kms.ts and deliver.ts carry no specifier constant and no bundler-ignore
  *     comment, the two halves of the arrangement that failed;
- *   - both SDKs are plain runtime dependencies: an optional, dev or peer
- *     dependency is each a way for an install to go without it.
+ *   - every SDK is a plain runtime dependency: an optional, dev or peer
+ *     dependency is each a way for an install to go without it;
+ *   - every @aws-sdk package src imports is in serverExternalPackages (S3,
+ *     the export bucket's, was not until 14 October 2026).
  *
  * These read the source. The CI step after `npm run build` reads what the
  * build actually produced.
  */
 
 const APP = fileURLToPath(new URL("..", import.meta.url));
-const SDKS = ["@aws-sdk/client-kms", "@aws-sdk/client-sesv2"] as const;
+const SDKS = ["@aws-sdk/client-kms", "@aws-sdk/client-sesv2", "@aws-sdk/client-s3"] as const;
+
+/** Every module specifier a file under src imports, statically or dynamically, by a literal. */
+function importedSpecifiers(): Map<string, string[]> {
+  const found = new Map<string, string[]>();
+  const note = (specifier: string, file: string) =>
+    found.set(specifier, [...(found.get(specifier) ?? []), relative(APP, file)]);
+  for (const entry of readdirSync(join(APP, "src"), { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !/\.tsx?$/.test(entry.name)) continue;
+    const file = join(entry.parentPath, entry.name);
+    const source = ts.createSourceFile(
+      file,
+      readFileSync(file, "utf8"),
+      ts.ScriptTarget.Latest,
+      true,
+      file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+    );
+    const visit = (node: ts.Node): void => {
+      if (
+        (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+        node.moduleSpecifier &&
+        ts.isStringLiteralLike(node.moduleSpecifier)
+      ) {
+        note(node.moduleSpecifier.text, file);
+      }
+      if (ts.isCallExpression(node)) {
+        const loads =
+          node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(node.expression) && node.expression.text === "require");
+        const [specifier] = node.arguments;
+        if (loads && specifier && ts.isStringLiteralLike(specifier)) note(specifier.text, file);
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(source);
+  }
+  return found;
+}
 
 describe("the AWS SDKs reach the production build as packages", () => {
-  test("both SDKs are plain runtime dependencies of @healdesk/app", () => {
+  test("every SDK is a plain runtime dependency of @healdesk/app", () => {
     const pkg = JSON.parse(readFileSync(join(APP, "package.json"), "utf8")) as Record<
       string,
       Record<string, string> | undefined
@@ -51,6 +92,28 @@ describe("the AWS SDKs reach the production build as packages", () => {
       expect(pkg.peerDependencies?.[name], name).toBeUndefined();
     }
   });
+
+  /**
+   * An AWS SDK left out of serverExternalPackages is bundled into the server
+   * chunks instead of traced in as a package: the arrangement the 6 October
+   * build fix ended for KMS and SES. export-store.ts imported S3 with
+   * nothing listing it. So every @aws-sdk package any file under src imports
+   * must be external and a plain dependency, whichever file it is and
+   * whenever it arrives.
+   */
+  test("every @aws-sdk package imported under src is external and a runtime dependency", () => {
+    const pkg = JSON.parse(readFileSync(join(APP, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+    };
+    const imported = [...importedSpecifiers().entries()].filter(([name]) =>
+      name.startsWith("@aws-sdk/"),
+    );
+    expect(imported.map(([name]) => name).sort()).toEqual([...SDKS].sort());
+    for (const [name, files] of imported) {
+      expect(nextConfig.serverExternalPackages, `${name} (${files.join(", ")})`).toContain(name);
+      expect(pkg.dependencies?.[name], name).toMatch(/^\^3\.\d+\.\d+$/);
+    }
+  }, 60_000);
 
   test("kms.ts and deliver.ts import their SDK by name, with no specifier constant", () => {
     const files = [

@@ -89,6 +89,6 @@ CREATE TRIGGER user_factors_not_ahead
   EXECUTE FUNCTION app_user_factor_not_ahead();--> statement-breakpoint
 
 COMMENT ON FUNCTION app_step_up_not_ahead() IS
-  'Refuses a step_ups row created or last active after now(), and a move of last_activity_at past now(): the idle and 8-hour limits are counted from them (0076).';--> statement-breakpoint
+  'Refuses a step_ups row created or last active after now(), and a move of last_activity_at past now(): the idle and 8-hour limits are counted from them (0077).';--> statement-breakpoint
 COMMENT ON FUNCTION app_user_factor_not_ahead() IS
-  'Refuses a user_factors row created or last used after now(), and a move of last_used_at past now() (0076).';
+  'Refuses a user_factors row created or last used after now(), and a move of last_used_at past now() (0077).';

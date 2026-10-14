@@ -874,7 +874,7 @@ describeDb("database audit (0031)", () => {
     }
   });
 
-  test("a step-up or a second factor is never dated ahead of now, for any role (0076)", async () => {
+  test("a step-up or a second factor is never dated ahead of now, for any role (0077)", async () => {
     // The idle and 8-hour limits count from step_ups' two times, so a row
     // dated ahead would open patient pages for as long as it said.
     const { rows: triggers } = await getMigratorPool().query<{ tgname: string }>(

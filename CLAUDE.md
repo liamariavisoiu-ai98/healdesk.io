@@ -145,7 +145,7 @@ chain: the clinic's BAA (accepted inline at checkout), Retell, Anthropic, the
 database provider and AWS. Meta and Stripe never sign one; they are handled by
 scoping, not paperwork (see "Product rules the code enforces").
 
-### `apps/app` is portable, applied on AWS, and not yet deployed
+### `apps/app` is portable, and runs on AWS
 
 Audited 2026-09-12; re-checked against the code 2026-09-30; the AWS host was
 written on 2026-10-07 and reworked after its review on 2026-10-12. The rules
@@ -165,18 +165,19 @@ running: one ARM64 web task of a quarter vCPU carrying the worker too
 (`worker_placement`), a `db.t4g.micro`, a NAT instance instead of a NAT
 gateway (`nat_mode`), and the WAF off (`enable_waf`); each is one variable
 from the shape first built (README, "Costs").
-`infra/aws/README.md` is the runbook. **Applied on 14 October 2026, not yet
-deployed.** `infra.yml` applied main three times that day (runs 38523739346,
+`infra/aws/README.md` is the runbook. **Applied and deployed on 14 October
+2026.** `infra.yml` applied main three times that day (runs 38523739346,
 38525449296, 38525919193): the first two stopped on what a mocked plan cannot
 see (an apostrophe in a security group description, Cloudflare comments over
 100 characters, an SNS retry policy over an hour, an SNS subscription to an
 endpoint that did not answer yet), each now pinned by a plan test, and the
-third found nothing left to change. The database, the load balancer, the NAT
-instance, the web service and the DNS records exist; no image has been
-pushed, no db-bootstrap or migration has run, and the external secrets cannot
-have been pasted before that day's apply created their parameters. The first
-`host.yml` run with `active` is the first deploy. Check the account before
-assuming anything else. What has been checked here is local:
+third found nothing left to change. The owner's `deploy-app.yml` run that
+morning (38527477622) built the images, ran db-bootstrap and the migrations
+and rolled the web tier; `host.yml` with `active` (38538369097) then applied
+and deployed main at 71a7a93, migrations through 0075, and subscribed the app
+to SES's events. It holds synthetic data only. Which external secrets are
+pasted is the owner's to say: check Parameter Store before relying on one.
+What has been checked here, beyond those runs, is local:
 `terraform validate`, `terraform test` against mocked providers, tflint,
 checkov, cfn-lint, actionlint, and the app image built for arm64 and booted
 under emulation (13 October 2026).
@@ -489,7 +490,7 @@ not by restoring that code.
 | Workspace | Target | Root directory | PHI |
 | --- | --- | --- | --- |
 | `apps/web` | Vercel project #1 | `apps/web` | No |
-| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`; applied 14 October 2026, not yet deployed (see above); `host.yml` turns it on or puts it in standby | `apps/app` | **Yes** |
+| `apps/app` | BAA host (AWS, `us-east-1`): ECS on Fargate service `healdesk-production-web` behind one load balancer, at `app.healdesk.io` and, for apps/web's signed calls only, `app-internal.healdesk.io`; defined in `infra/aws`; applied and deployed 14 October 2026 (see above); `host.yml` turns it on or puts it in standby | `apps/app` | **Yes** |
 | `apps/app` worker | Same cluster: by default a container in each web task; its own service `healdesk-production-worker` with `worker_placement = "separate"` | `apps/app` | **Yes** |
 | `apps/app` migrations and role creation | One-off tasks `healdesk-production-migrate` and `healdesk-production-db-bootstrap`, run by `deploy-app.yml` | `apps/app` | **Yes** |
 | `apps/app` voice endpoint (Retell custom-LLM WebSocket) | Same cluster, its own long-lived service `healdesk-production-voice`, created only with `enable_voice` (off by default) | `apps/app` | **Yes** |
@@ -498,7 +499,7 @@ not by restoring that code.
 The BAA host is the AWS account designated under the AWS BAA, in `us-east-1`
 (`docs/policies/aws-hipaa-account.md`). The database is Amazon RDS for
 PostgreSQL 17 under that agreement, the owner's choice of 7 October 2026 over
-Neon, defined in `infra/aws/rds.tf`; created 14 October 2026, empty until the first deploy, and removed in standby after a final snapshot it comes back from. Vercel is a BAA
+Neon, defined in `infra/aws/rds.tf`; created and migrated 14 October 2026, synthetic data only, and removed in standby after a final snapshot it comes back from. Vercel is a BAA
 host only on Enterprise.
 
 The voice endpoint cannot be a route handler or a serverless function. Retell

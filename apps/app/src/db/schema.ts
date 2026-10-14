@@ -928,6 +928,16 @@ export const conversations = pgTable(
     recoveryReason: recoveryReasonEnum("recovery_reason"),
 
     outcome: conversationOutcomeEnum("outcome"),
+    /**
+     * The urgent screen matched in this conversation (lib/assistant/turn.ts's
+     * screen, before the model): the fixed reply went and the clinic's urgent
+     * alert was raised. Written by the voice ingest and web chat beside
+     * `outcome`, which says `escalated_to_human` for an urgent hit and a
+     * handover alike, so the Conversations screen can tell them apart
+     * (drizzle/0076). A fact, never inferred afterwards; false for every row
+     * written before it.
+     */
+    urgent: boolean("urgent").notNull().default(false),
     treatmentInterest: text("treatment_interest"),
 
     /**

@@ -173,6 +173,11 @@ describeDb("the web chat", () => {
     const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder });
     expect(answer.mode === "chat" && answer.reply).toMatch(/call 911/);
     expect(seen).toHaveLength(0);
+    // Recorded as urgent, not only as escalated, so Conversations can tell it from a handover.
+    const { rows } = await inTenant(clinic.clinicId, (client) =>
+      client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
+    );
+    expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
   });
 
   test("a card number is cut from the transcript and never reaches the model", async () => {

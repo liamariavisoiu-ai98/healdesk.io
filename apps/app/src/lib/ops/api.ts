@@ -410,6 +410,14 @@ const OPERATIONS = [
   // composed here from BETTER_AUTH_URL when ready, never a name or an address.
   // It writes nothing, so it is not in MUTATING_OPERATIONS.
   "welcomeHandoff",
+  // The owner's direct-booking switch (HEALDESK_DIRECT_BOOKING_ENABLED, read
+  // by env.directBookingEnabled() and nowhere else), for the purchase funnel
+  // on apps/web, whose step 2 says whether AYA books straight into the
+  // calendar or the team confirms each booking. Machine to machine, like
+  // welcomeHandoff: a visitor's browser is behind the request on that side,
+  // and the answer is one boolean that is the same for everyone. A read, so
+  // not in MUTATING_OPERATIONS.
+  "bookingSwitch",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -1004,6 +1012,8 @@ export async function runOperation(
       return ok(await hostStandbyCheck(actorFor(operator), operator.request));
     case "welcomeHandoff":
       return opWelcomeHandoff(args);
+    case "bookingSwitch":
+      return ok({ directBooking: env.directBookingEnabled() });
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

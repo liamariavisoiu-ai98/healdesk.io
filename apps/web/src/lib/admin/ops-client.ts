@@ -242,7 +242,7 @@ type OperatorOp =
  * so the worst a forged call could do is mark one of apps/app's ledger rows,
  * and a forged call needs HEALDESK_PROVISION_SECRET.
  */
-type RelayOp = "emailEvent" | "welcomeHandoff";
+type RelayOp = "emailEvent" | "welcomeHandoff" | "bookingSwitch";
 
 type OpName = OperatorOp | RelayOp;
 
@@ -761,6 +761,59 @@ export function welcomeHandoff(ref: string, sessionId: string): Promise<OpsResul
 }
 
 const WELCOME_HANDOFF_TIMEOUT_MS = 4_000;
+
+// -----------------------------------------------------------------------------
+// The owner's direct-booking switch, for the purchase funnel
+// -----------------------------------------------------------------------------
+
+/**
+ * Whether the owner's direct-booking switch is on: HEALDESK_DIRECT_BOOKING_ENABLED,
+ * which only the owner sets, on apps/app, and which only apps/app's
+ * `env.directBookingEnabled()` reads. The funnel's step 2 says whether AYA
+ * books straight into the calendar or the team confirms each booking
+ * (lib/checkout/funnel.ts `bookingConsequence`), and asks here rather than
+ * reading a variable of its own, so there is one switch and the funnel can
+ * never say "books straight in" while apps/app takes requests.
+ *
+ * A relay op like welcomeHandoff: a visitor's browser is behind the request,
+ * and the answer is one boolean, the same for everyone. Fails closed: an
+ * unconfigured deployment, a host in standby, a timeout or anything unreadable
+ * is "off", which is the true sentence whenever apps/app cannot book anyway.
+ * Remembered for five minutes per instance, answers and failures alike, so the
+ * purchase pages cost apps/app at most one request an instance every five
+ * minutes, and a host in standby costs the page one short wait at most.
+ */
+export async function directBookingOpen(now: number = Date.now()): Promise<boolean> {
+  if (bookingSwitchMemo && now - bookingSwitchMemo.at < BOOKING_SWITCH_MEMO_MS) return bookingSwitchMemo.value;
+  if (!process.env.HEALDESK_PROVISION_SECRET || !process.env.HEALDESK_APP_URL) return false;
+  // One question in flight per instance, however many pages ask at once.
+  bookingSwitchAsking ??= send(
+    "bookingSwitch",
+    "read",
+    (value) => bool(object(value, "bookingSwitch").directBooking, "bookingSwitch.directBooking"),
+    {},
+    { context: false, timeoutMs: BOOKING_SWITCH_TIMEOUT_MS },
+  )
+    .then((result) => (result.ok ? result.data : false))
+    .catch(() => false)
+    .finally(() => {
+      bookingSwitchAsking = null;
+    });
+  const value = await bookingSwitchAsking;
+  bookingSwitchMemo = { value, at: now };
+  return value;
+}
+
+const BOOKING_SWITCH_TIMEOUT_MS = 2_500;
+const BOOKING_SWITCH_MEMO_MS = 5 * 60 * 1000;
+let bookingSwitchMemo: { value: boolean; at: number } | null = null;
+let bookingSwitchAsking: Promise<boolean> | null = null;
+
+/** Tests only: forget the remembered answer. */
+export function __resetBookingSwitchForTests(): void {
+  bookingSwitchMemo = null;
+  bookingSwitchAsking = null;
+}
 
 // -----------------------------------------------------------------------------
 // Transport

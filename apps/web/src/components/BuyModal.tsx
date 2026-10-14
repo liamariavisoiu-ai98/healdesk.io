@@ -86,7 +86,7 @@ import { site } from "@/lib/site";
  * modal are static, so they can't read the setup cookie themselves.
  */
 type ModeAnswer =
-  | { mode: "public"; salesTax?: boolean; offer?: ModeOffer }
+  | { mode: "public"; salesTax?: boolean; directBooking?: boolean; offer?: ModeOffer }
   | {
       mode: "pilot";
       link: "valid";
@@ -100,6 +100,7 @@ type ModeAnswer =
       };
       creditUntil: string | null;
       salesTax?: boolean;
+      directBooking?: boolean;
       offer?: ModeOffer;
     }
   | { mode: "pilot"; link: "none" | LinkNotice; replyBy: string };
@@ -313,6 +314,7 @@ export function BuyModalProvider({
               }
               lockedEmail={answer.mode === "pilot" ? answer.setup.email : undefined}
               salesTax={answer.salesTax === true}
+              directBooking={answer.directBooking === true}
               demo={demo?.checkout}
               setupOffer={setupOfferFrom(answer.offer)}
               onClose={close}

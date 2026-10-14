@@ -160,6 +160,7 @@ export function CheckoutFlow({
   lockedEmail,
   returnedFromPayment = false,
   salesTax = false,
+  directBooking = false,
   demo,
   setupOffer,
   onClose,
@@ -186,6 +187,12 @@ export function CheckoutFlow({
   returnedFromPayment?: boolean;
   /** STRIPE_AUTOMATIC_TAX, read on the server: "Plus sales tax where it applies". */
   salesTax?: boolean;
+  /**
+   * The owner's direct-booking switch, asked of apps/app on the server
+   * (lib/admin/ops-client.ts `directBookingOpen`): step 2's line on whether
+   * AYA books straight into the calendar. Off when not known.
+   */
+  directBooking?: boolean;
   /**
    * The buyer came from their personalised demo (components/checkout/
    * DemoPackageExtras.tsx): packages with estimates from their own numbers,
@@ -590,6 +597,7 @@ export function CheckoutFlow({
         onContinue={continueFromClinic}
         fromDemo={Boolean(demo)}
         offer={offer}
+        directBooking={directBooking}
         onClose={onClose}
         headingRef={headingRef}
         error={error?.step === 2 && error.field ? { field: error.field, message: error.message } : null}

@@ -381,13 +381,6 @@ export function clinicComplete(state: FunnelState): boolean {
   return clinicIssues(state).length === 0;
 }
 
-/**
- * Whether the owner's direct-booking switch is on (HEALDESK_DIRECT_BOOKING_ENABLED,
- * apps/app). It is off, and only the owner turns it on; until the funnel can
- * read it from apps/app, the funnel says what is true while it is off.
- */
-export const DIRECT_BOOKING_OPEN = false;
-
 export const BOOKING_REQUESTS_FOR_NOW =
   "For now your team confirms each booking AYA takes; live booking switches on once your calendar is connected and checked.";
 
@@ -406,11 +399,18 @@ export type BookingConsequence = {
  * words (the spec's "say which applies before you buy"). Any other system
  * books live once the calendar is connected and checked, and while the
  * owner's switch is off every booking is a request: the line says that, and
- * that it is for now.
+ * that it is for now. The switch is read on the server from apps/app, the one
+ * place it is set, and handed to the step.
  */
 export function bookingConsequence(
   id: BookingSystemId,
-  directBookingOpen: boolean = DIRECT_BOOKING_OPEN,
+  /**
+   * The owner's direct-booking switch (HEALDESK_DIRECT_BOOKING_ENABLED), as
+   * apps/app reports it to the page (lib/admin/ops-client.ts
+   * `directBookingOpen`). Off when not known: the requests line is then the
+   * true one.
+   */
+  directBookingOpen = false,
 ): BookingConsequence {
   if (bookingSyncFor(id) === "manual") {
     return { text: manualBookingNotice(bookingSystemName(id)), setup: null };

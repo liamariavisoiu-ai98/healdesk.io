@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { __resetBookingSwitchForTests } from "@/lib/admin/ops-client";
 import { __resetDemoCacheForTests, createDemoSession, updateDemoSession } from "@/lib/demo/sessions";
 import { replyByDate } from "@/lib/reply-by";
 import { issueSetupToken, SETUP_COOKIE, setupLinkExpiry } from "@/lib/setup-link";
@@ -144,5 +145,31 @@ describe("the mode answer in pilot mode", () => {
   test("the public answer is never cached either", async () => {
     vi.stubEnv("HEALDESK_CHECKOUT_MODE", "public");
     expect((await ask()).headers.get("cache-control")).toBe("no-store");
+  });
+});
+
+describe("the owner's direct-booking switch in the mode answer", () => {
+  beforeEach(() => {
+    __resetBookingSwitchForTests();
+  });
+
+  test("off when this deployment cannot ask apps/app", async () => {
+    expect(await (await ask()).json()).toMatchObject({ mode: "public", directBooking: false });
+  });
+
+  test("as apps/app's one reader says, asked without a session", async () => {
+    vi.stubEnv("HEALDESK_PROVISION_SECRET", "test-secret");
+    vi.stubEnv("HEALDESK_APP_URL", "http://app.internal.test");
+    const upstream = vi.fn(async () => Response.json({ data: { directBooking: true } }));
+    vi.stubGlobal("fetch", upstream);
+    try {
+      expect(await (await ask()).json()).toMatchObject({ mode: "public", directBooking: true });
+      const envelope = JSON.parse(String((upstream.mock.calls[0] as unknown as [string, RequestInit])[1].body)) as {
+        op: string;
+      };
+      expect(envelope.op).toBe("bookingSwitch");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

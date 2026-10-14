@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { CheckoutFlow, type CheckoutSeed } from "@/components/checkout/CheckoutFlow";
 import { type LinkNotice, SetupRequestForm } from "@/components/checkout/SetupRequestForm";
 import { Brand } from "@/components/Nav";
+import { directBookingOpen } from "@/lib/admin/ops-client";
 import { DEMO_COOKIE } from "@/lib/demo/attribution";
 import { demoCheckout, demoPrefill, gatePrefill } from "@/lib/demo/checkout";
 import { demoOfferEndsAt, demoSetupCredit, getDemoSession, isDemoSlug, type DemoSession } from "@/lib/demo/sessions";
@@ -143,6 +144,10 @@ export default async function GetStartedPage({
     siteCookie: (await cookies()).get(SITE_OFFER_COOKIE)?.value,
   });
 
+  const showsForm = gate.mode === "pilot" && !invited && !(demo && invitesToBuy(demo));
+  // Asked only of a page that shows the purchase: step 2 says it.
+  const directBooking = showsForm ? false : await directBookingOpen();
+
   return (
     <div className="min-h-screen">
       <header className="border-line/60 border-b">
@@ -160,7 +165,7 @@ export default async function GetStartedPage({
       </header>
 
       <main className="px-5 py-12 sm:px-8 sm:py-16">
-        {gate.mode === "pilot" && !invited && !(demo && invitesToBuy(demo)) ? (
+        {showsForm ? (
           // The form, and beside it from 1024px what sending it leads to
           // (owner, 12 October 2026): on its own the page read as a bare
           // column of fields. Below 1024px the card follows the form. The
@@ -201,6 +206,8 @@ export default async function GetStartedPage({
             setupOffer={setupOffer}
             // Stripe Tax is the server's setting; the page only says so.
             salesTax={process.env.STRIPE_AUTOMATIC_TAX === "true"}
+            // The owner's switch, as apps/app reports it; off when it cannot.
+            directBooking={directBooking}
           />
         )}
       </main>

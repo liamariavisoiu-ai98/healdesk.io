@@ -18,7 +18,6 @@ import {
   chosenPlan,
   clinicComplete,
   clinicIssues,
-  DIRECT_BOOKING_OPEN,
   firstIncompleteStep,
   type FunnelState,
   initialFunnel,
@@ -310,10 +309,10 @@ describe("no website", () => {
 });
 
 describe("the consequence of where bookings live", () => {
-  test("while the owner's switch is off, a live system books as requests for now", () => {
-    expect(DIRECT_BOOKING_OPEN).toBe(false);
+  test("while the owner's switch is off, or not known, a live system books as requests for now", () => {
     for (const id of ["google_calendar", "calendly", "calcom", "gohighlevel", "none"] as const) {
       expect(bookingConsequence(id).text, id).toBe(BOOKING_REQUESTS_FOR_NOW);
+      expect(bookingConsequence(id, false).text, id).toBe(BOOKING_REQUESTS_FOR_NOW);
     }
     expect(BOOKING_REQUESTS_FOR_NOW).toBe(
       "For now your team confirms each booking AYA takes; live booking switches on once your calendar is connected and checked.",

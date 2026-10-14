@@ -34,6 +34,11 @@ export type StepUpReminderPayload = NoticePayloads["step_up_reminder"];
  */
 const WAITING_ON: Record<ChannelWaitingOn, { task: string; short: string; label: string }> = {
   setup: { task: "finish its setup in healdesk", short: "finish its setup", label: "Finish setup" },
+  direct_line: {
+    task: "add your direct line in healdesk, the number calls go to whenever AYA can't answer",
+    short: "add your direct line",
+    label: "Add your direct line",
+  },
   forwarding: {
     task: "set call forwarding on your clinic's line; the steps for your carrier are in healdesk",
     short: "set call forwarding on your clinic's line",

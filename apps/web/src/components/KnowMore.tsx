@@ -111,8 +111,9 @@ const FAQS = [
       "We write bookings only to the Calendar you connect.",
       "Encrypted at rest, and in transit wherever we control both ends.",
       "Patient data is deleted on your instruction. Each transcript is emailed to you " +
-        "and not kept: our encrypted copy is deleted seven days after it is sent, and " +
-        "conversation records after 90 days. Our AI model provider keeps " +
+        "and not kept: our encrypted copy is deleted as soon as your mail server confirms " +
+        "delivery (or after 30 days if it is never delivered), and conversation records " +
+        "after 90 days. Our AI model provider keeps " +
         "conversation inputs for 30 days, or up to two years where its safety " +
         "systems flag them or the law requires it to keep them.",
     ],

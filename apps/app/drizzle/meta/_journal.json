@@ -512,6 +512,13 @@
       "when": 1791960928236,
       "tag": "0072_transcript_delete_on_delivery",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791962051963,
+      "tag": "0073_baa_release_1_5_0",
+      "breakpoints": true
     }
   ]
 }

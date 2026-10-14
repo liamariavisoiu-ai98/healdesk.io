@@ -722,7 +722,7 @@ describeDb("retention purge", () => {
       if (statesThePeriods(text)) promising.push(t.version);
     }
     // Pinned, so a change in what any version promises is seen here.
-    expect(promising.sort()).toEqual(["1.3.0", "1.4.0", "dpa/1.0.0"]);
+    expect(promising.sort()).toEqual(["1.3.0", "1.4.0", "1.5.0", "dpa/1.0.0"]);
     // A version the catalog does not hold has no text, and promises nothing:
     // the old rule purged any unknown version with the switch off.
     expect(purgeIsPromised("1.4.1")).toBe(false);

@@ -58,7 +58,7 @@ const VARS: BaaVariables = {
   attributionMode: "estimated",
   connectedPlatform: null,
   outboundMessaging: true,
-  // Read by BAA 1.3.0 on (1.4.0 is the current version), which renders nothing without them.
+  // Read by BAA 1.3.0 on (1.5.0 is the current version), which renders nothing without them.
   bookingSystem: "none",
   calendarAccount: "workspace_no_baa",
 };
@@ -790,8 +790,8 @@ describe("renderAgreementPdf", () => {
 
   test("names the file by version and date, and by nothing else", async () => {
     const pdf = await renderAgreementPdf(acceptance());
-    // The record's version, which is the current template's — 1.4.0 since its release.
-    expect(SIGNED.version).toBe("1.4.0");
+    // The record's version, which is the current template's — 1.5.0 since its release.
+    expect(SIGNED.version).toBe("1.5.0");
     expect(pdf.filename).toBe(`healdesk-baa-${SIGNED.version}-2026-08-18.pdf`);
     expect(pdf.filename).not.toContain("Radiance");
     expect(pdf.filename).not.toContain("Alex");

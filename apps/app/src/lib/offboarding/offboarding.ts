@@ -208,9 +208,9 @@ export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
 /**
  * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.2 and
  * earlier). export_or_ninety: from day 29 if the export was delivered by
- * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0
- * and 1.4.0, whose Term clause is 1.3.0's own; DPA 1.0.0). Every hourly run
- * destroys on either rule.
+ * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
+ * and 1.4.0 and 1.5.0, whose Term clause is 1.3.0's own; DPA 1.0.0). Every
+ * hourly run destroys on either rule.
  */
 export type DestructionRule = "thirty_days" | "export_or_ninety";
 
@@ -226,6 +226,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
  */
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
+    "1.5.0": "export_or_ninety",
     "1.4.0": "export_or_ninety",
     "1.3.0": "export_or_ninety",
     "1.2.2": "thirty_days",

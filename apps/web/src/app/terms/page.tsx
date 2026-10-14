@@ -173,6 +173,16 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  *     the line is "the first line of every transcript", which healdesk no
  *     longer holds (docs/counsel/state-disclosure.md, decision 3).
  *
+ * Revised on 14 October 2026 as LEGAL_VERSION 2026-10-14.1, for BAA 1.5.0
+ * (docs/counsel/agreement-changes.md § 15): the owner decided that day that
+ * a transcript's encrypted copy is deleted the moment delivery is confirmed.
+ * The annex's transcripts item says the copy goes as soon as the clinic's
+ * mail server confirms delivery, that a failed email is sent again until it
+ * is delivered but the copy is never kept past 30 days, and that one never
+ * confirmed goes 72 hours after it was sent, where it said the copy went
+ * seven days after the email was first accepted; and that a record of each
+ * transcript's delivery is kept without the words.
+ *
  * Revised to the owner's pricing sheet of 13 October 2026, as LEGAL_VERSION
  * 2026-10-13.4. The seven packages with fixed allowances are gone: a Practice
  * picks one of five packages and a usage step for each product in it, 100 to
@@ -836,10 +846,13 @@ export default function TermsPage() {
             <strong>Transcripts are emailed to the clinic, not kept.</strong> When a call or a
             website chat ends, its transcript is emailed to the address on the clinic&apos;s
             account, only over an encrypted connection. The one encrypted copy we hold so that a
-            failed email can be sent again is deleted seven days after the email is first
-            accepted for delivery, or seven days after it was queued if it never is; from then
-            on the email is the clinic&apos;s record. The record of each conversation, without
-            what was said, is deleted {TRANSCRIPT_RETENTION_DAYS} days after it took place.
+            failed email can be sent again is deleted as soon as the clinic&apos;s mail server
+            confirms delivery. An email that fails is sent again until it is delivered, but the
+            copy is never kept more than 30 days after the transcript was queued, and one whose
+            delivery is never confirmed is deleted 72 hours after it was sent; from then on the
+            email is the clinic&apos;s record. We keep a record that each transcript was
+            delivered, without what was said. The record of each conversation, without what was
+            said, is deleted {TRANSCRIPT_RETENTION_DAYS} days after it took place.
           </li>
           <li>
             <strong>Encryption.</strong> At rest in the database and object store, and in transit

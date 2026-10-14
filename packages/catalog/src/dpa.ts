@@ -592,6 +592,16 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * Practice shorten the period for transcripts is gone with the portal
    * setting it described. Edited in place, the DPA being unreleased; its
    * golden hashes and docs/dpa-v1.0.0.txt moved with it.
+   *
+   * Since 14 October 2026 the copy goes the moment delivery is confirmed (the
+   * owner's decision of that day; BAA 1.5.0 clause 11 says the same in its own
+   * words): it is held only until Practice's mail server confirms it has the
+   * email, kept and sent again after a failure or a return until it is
+   * delivered, deleted 72 hours after its last sending when neither delivery
+   * nor failure is ever confirmed, and never held more than 30 days after it
+   * was queued; a record of each transcript's delivery stays, without its
+   * words, with the conversation's record (drizzle/0072). Edited in place
+   * again, the goldens and docs/dpa-v1.0.0.txt with it.
    */
   {
     id: "minimum-necessary",
@@ -622,14 +632,19 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `its transcript to the email address on Practice's healdesk account, and to no other ` +
           `address, only over an encrypted connection, as the Safeguards clause provides. So that ` +
           `an email that fails or is returned can be sent again, healdesk holds one encrypted copy ` +
-          `of the transcript until seven days after the email was first accepted for delivery ` +
-          `or, if it never is, seven days after the transcript was queued for sending, and then ` +
-          `deletes it. Until then healdesk may send the email again when a send fails or the ` +
-          `email is returned, and when Practice asks. healdesk keeps no other copy of a ` +
-          `transcript, apart from the backups described below; what Anthropic keeps is what the ` +
-          `Subcontractors clause describes. Once healdesk's copy is deleted, the email is ` +
-          `Practice's own record of what was said, and Practice is responsible for keeping, ` +
-          `protecting and deleting it.`,
+          `of the transcript only until Practice's mail server confirms that it has received the ` +
+          `email, and then deletes the copy at once. If a send fails or the email is returned, ` +
+          `healdesk keeps the copy and sends the email again until it is delivered. If the email ` +
+          `is accepted for delivery but neither its delivery nor its failure is confirmed within ` +
+          `72 hours of its last sending, healdesk deletes the copy then. In no case does healdesk ` +
+          `hold the copy for more than 30 days after the transcript was queued for sending: a copy ` +
+          `whose email has not been delivered by then is deleted. While it holds the copy, ` +
+          `healdesk may also send the email again when Practice asks. healdesk keeps a record of ` +
+          `each transcript's delivery, without what was said or written in it, for as long as it ` +
+          `keeps the record of that conversation. It keeps no other copy of a transcript, apart ` +
+          `from the backups described below; what Anthropic keeps is what the Subcontractors ` +
+          `clause describes. Once healdesk's copy is deleted, the email is Practice's own record ` +
+          `of what was said, and Practice is responsible for keeping, protecting and deleting it.`,
       ) +
       "\n\n" +
       wrap(
@@ -837,11 +852,11 @@ const CLAUSES_1_0: readonly DpaClause[] = [
    * requests" and "Restoring"), then deleted. Until then the sentence said
    * only that the record held no number, while the runbook kept the message.
    *
-   * The second paragraph is BAA 1.4.0 clause 14's in this document's words
-   * (owner, 13 October 2026): a transcript is held only to deliver it, for
-   * the seven days the Minimum necessary clause states, and after them
-   * healdesk has none to give, correct or delete, so Practice answers from
-   * the email that carried it.
+   * The second paragraph is BAA 1.5.0 clause 14's in this document's words
+   * (owner, 13 and 14 October 2026): a transcript is held only to deliver it,
+   * for as long as the Minimum necessary clause allows, and once its copy is
+   * deleted healdesk has none to give, correct or delete, so Practice answers
+   * from the email that carried it.
    */
   {
     id: "requests",
@@ -867,11 +882,11 @@ const CLAUSES_1_0: readonly DpaClause[] = [
       ) +
       "\n\n" +
       wrap(
-        `healdesk holds a transcript only to deliver it to Practice, and only for the days the ` +
-          `clause headed "Minimum necessary, and who receives Client Information" allows. After ` +
-          `them healdesk has no transcript to give Practice, correct or delete: the email that ` +
-          `carried it is Practice's own record, and Practice answers a request about a ` +
-          `transcript from that email.`,
+        `healdesk holds a transcript only to deliver it to Practice, and only for as long as the ` +
+          `clause headed "Minimum necessary, and who receives Client Information" allows. Once ` +
+          `the copy is deleted, healdesk has no transcript to give Practice, correct or delete: ` +
+          `the email that carried it is Practice's own record, and Practice answers a request ` +
+          `about a transcript from that email.`,
       ) +
       "\n\n" +
       wrap(

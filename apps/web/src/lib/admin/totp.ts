@@ -44,6 +44,8 @@
 
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { pastedSetting } from "./pasted";
+
 /**
  * What every authenticator app assumes: SHA-1, six digits, thirty seconds.
  * SHA-1 is not a lapse. HMAC-SHA-1 has no weakness that matters to a
@@ -192,9 +194,11 @@ export type AdminTotpSecret =
  * message: callers get the key or the name of the problem.
  */
 export function adminTotpSecret(): AdminTotpSecret {
-  const raw = process.env[TOTP_SECRET_VARIABLE];
-  if (raw === undefined || raw.trim().length === 0) return { ok: false, problem: "unset" };
-  const normalised = raw.trim().toUpperCase();
+  // Quotes or a whole NAME=value line pasted as the value are undone first
+  // (lib/admin/pasted.ts); the length and alphabet checks below stay exact.
+  const raw = pastedSetting(TOTP_SECRET_VARIABLE);
+  if (raw === undefined || raw.length === 0) return { ok: false, problem: "unset" };
+  const normalised = raw.toUpperCase();
   if (normalised.length !== TOTP_SECRET_LENGTH) return { ok: false, problem: "malformed" };
   const key = base32Decode(normalised);
   if (key === null || key.length !== TOTP_SECRET_BYTES) return { ok: false, problem: "malformed" };

@@ -15,7 +15,7 @@
  */
 
 import { randomBytes, scryptSync } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   OPERATOR_COOKIE,
@@ -24,6 +24,7 @@ import {
   STEP_COOKIE_TTL_SECONDS,
   isAdminAccountConfigured,
   issueOperatorToken,
+  logAdminConfigProblems,
   issueStepToken,
   missingAdminConfig,
   operatorCookieOptions,
@@ -32,6 +33,7 @@ import {
   verifyOperatorToken,
   verifyStepToken,
 } from "./operator";
+import { adminTotpSecret } from "./totp";
 
 const EMAIL = "healdesk.io@gmail.com";
 const PASSWORD = "correct horse battery staple 9f2a";
@@ -84,6 +86,66 @@ describe("configuration", () => {
   it("treats a blank secret as unset", () => {
     process.env.HEALDESK_ADMIN_SECRET = "";
     expect(isAdminAccountConfigured()).toBe(false);
+  });
+});
+
+// What set-admin-password.ts writes into .env.local, and so what gets copied
+// into Vercel: quoted, every $ escaped for dotenv (14 October 2026, the
+// "Not configured." page with every variable set).
+function envLocalLine(hash: string): string {
+  return `HEALDESK_ADMIN_PASSWORD_HASH="${hash.replace(/\$/g, "\\$")}"`;
+}
+
+describe("values pasted from .env.local into Vercel", () => {
+  it("reads the hash as the script wrote it into .env.local, quoted and escaped", async () => {
+    const line = envLocalLine(hashFor(PASSWORD));
+    process.env.HEALDESK_ADMIN_PASSWORD_HASH = line.slice("HEALDESK_ADMIN_PASSWORD_HASH=".length);
+    expect(process.env.HEALDESK_ADMIN_PASSWORD_HASH).toMatch(/^"scrypt\\\$16384\\\$/);
+    expect(isAdminAccountConfigured()).toBe(true);
+    await expect(verifyAdminPassword(EMAIL, PASSWORD)).resolves.toBe(true);
+    await expect(verifyAdminPassword(EMAIL, PASSWORD + "!")).resolves.toBe(false);
+  });
+
+  it("reads the whole line pasted as the value, and single quotes", async () => {
+    process.env.HEALDESK_ADMIN_PASSWORD_HASH = envLocalLine(hashFor(PASSWORD));
+    await expect(verifyAdminPassword(EMAIL, PASSWORD)).resolves.toBe(true);
+    process.env.HEALDESK_ADMIN_PASSWORD_HASH = `'${hashFor(PASSWORD)}'`;
+    await expect(verifyAdminPassword(EMAIL, PASSWORD)).resolves.toBe(true);
+  });
+
+  it("reads a quoted address and a quoted authenticator secret", async () => {
+    process.env.HEALDESK_ADMIN_EMAIL = ` "${EMAIL}" `;
+    await expect(verifyAdminPassword(EMAIL, PASSWORD)).resolves.toBe(true);
+    process.env.HEALDESK_ADMIN_TOTP_SECRET = `HEALDESK_ADMIN_TOTP_SECRET="GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ"`;
+    expect(adminTotpSecret().ok).toBe(true);
+    expect(missingAdminConfig()).toEqual([]);
+  });
+
+  it("still refuses what was never a hash, quoted or not", () => {
+    for (const value of [`"not-a-hash"`, `"scrypt\\$16384\\$8\\$1\\$short"`, `"`, `''`]) {
+      process.env.HEALDESK_ADMIN_PASSWORD_HASH = value;
+      expect(isAdminAccountConfigured()).toBe(false);
+    }
+  });
+
+  it("logs which setting the page could not read, by name and never by value", () => {
+    const hash = hashFor(PASSWORD);
+    process.env.HEALDESK_ADMIN_PASSWORD_HASH = "scrypt-damaged";
+    delete process.env.HEALDESK_ADMIN_SECRET;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      logAdminConfigProblems();
+      logAdminConfigProblems();
+      expect(error).toHaveBeenCalledTimes(1);
+      const line = String(error.mock.calls[0]?.[0]);
+      expect(line).toContain("HEALDESK_ADMIN_PASSWORD_HASH (set, but not in a form this code reads)");
+      expect(line).toContain("HEALDESK_ADMIN_SECRET (not set on this deployment)");
+      expect(line).not.toContain("scrypt-damaged");
+      expect(line).not.toContain(hash);
+      expect(line).not.toContain(EMAIL);
+    } finally {
+      error.mockRestore();
+    }
   });
 });
 

@@ -139,6 +139,7 @@ import type { ScryptOptions } from "node:crypto";
 
 import { cookies } from "next/headers";
 
+import { pastedSetting } from "@/lib/admin/pasted";
 import { TOTP_SECRET_VARIABLE, adminTotpSecret } from "@/lib/admin/totp";
 
 /**
@@ -258,7 +259,7 @@ function signingKey(purpose: TokenPurpose): Buffer | null {
  * matching what people actually type is the correct trade.
  */
 export function adminEmail(): string | null {
-  const configured = process.env.HEALDESK_ADMIN_EMAIL;
+  const configured = pastedSetting("HEALDESK_ADMIN_EMAIL");
   if (configured === undefined) return null;
   const normalised = normaliseEmail(configured);
   return normalised.length > 0 ? normalised : null;
@@ -278,7 +279,7 @@ export function normaliseEmail(value: string): string {
 export function isAdminAccountConfigured(): boolean {
   return (
     adminEmail() !== null &&
-    parseScryptHash(process.env.HEALDESK_ADMIN_PASSWORD_HASH) !== null &&
+    parseScryptHash(pastedSetting("HEALDESK_ADMIN_PASSWORD_HASH")) !== null &&
     signingKey(OPERATOR_PURPOSE) !== null
   );
 }
@@ -297,12 +298,42 @@ export function isAdminAccountConfigured(): boolean {
 export function missingAdminConfig(): string[] {
   const missing: string[] = [];
   if (adminEmail() === null) missing.push("HEALDESK_ADMIN_EMAIL");
-  if (parseScryptHash(process.env.HEALDESK_ADMIN_PASSWORD_HASH) === null) {
+  if (parseScryptHash(pastedSetting("HEALDESK_ADMIN_PASSWORD_HASH")) === null) {
     missing.push("HEALDESK_ADMIN_PASSWORD_HASH");
   }
   if (signingKey(OPERATOR_PURPOSE) === null) missing.push("HEALDESK_ADMIN_SECRET");
   if (!adminTotpSecret().ok) missing.push(TOTP_SECRET_VARIABLE);
   return missing;
+}
+
+/**
+ * Says in the deployment's log which settings the sign-in page could not read,
+ * once per process, by name and never by value.
+ *
+ * The page itself names nothing in production (above), so before this a
+ * deployment with one unreadable setting showed "Not configured." and left no
+ * trace anywhere of which one: the owner, with every variable set in Vercel,
+ * had nothing to go on (14 October 2026). A name and whether it is set at all
+ * is operator detail of the kind a log is for; a value, or its length, never
+ * is.
+ */
+let loggedAdminConfig = false;
+
+export function logAdminConfigProblems(): void {
+  if (loggedAdminConfig) return;
+  const missing = missingAdminConfig();
+  if (missing.length === 0) return;
+  loggedAdminConfig = true;
+  const described = missing.map((name) =>
+    process.env[name] === undefined || process.env[name]?.trim() === ""
+      ? `${name} (not set on this deployment)`
+      : `${name} (set, but not in a form this code reads)`,
+  );
+  console.error(
+    `[healdesk] /admin cannot sign anyone in on this deployment: ${described.join("; ")}. ` +
+      "Set each for Production in the Vercel project, then redeploy: a variable " +
+      "reaches only deployments made after it was saved.",
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -486,7 +517,7 @@ export async function verifyAdminPassword(
   if (Buffer.byteLength(password, "utf8") > MAX_PASSWORD_BYTES) return false;
 
   const expectedEmail = adminEmail();
-  const stored = parseScryptHash(process.env.HEALDESK_ADMIN_PASSWORD_HASH);
+  const stored = parseScryptHash(pastedSetting("HEALDESK_ADMIN_PASSWORD_HASH"));
   if (expectedEmail === null || stored === null) return false;
 
   const emailMatches = equals(normaliseEmail(email), expectedEmail);

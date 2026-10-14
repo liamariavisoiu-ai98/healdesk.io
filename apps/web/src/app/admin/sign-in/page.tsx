@@ -5,6 +5,7 @@ import { SignInForm } from "@/components/admin/SignInForm";
 import { Brand } from "@/components/Nav";
 import {
   isAdminAccountConfigured,
+  logAdminConfigProblems,
   missingAdminConfig,
   requireOperator,
 } from "@/lib/admin/operator";
@@ -115,6 +116,9 @@ export default async function AdminSignInPage() {
 function NotConfigured() {
   const showSetup = process.env.NODE_ENV !== "production";
   const missing = showSetup ? missingAdminConfig() : [];
+  // Production names nothing on the page, so the log has to: which setting,
+  // set or not, never its value.
+  if (!showSetup) logAdminConfigProblems();
 
   return (
     <div className="border-line mt-8 rounded-md border bg-white p-5">
@@ -124,6 +128,11 @@ function NotConfigured() {
         with, so there is nothing to sign in to. The door stays shut rather than
         falling open.
       </p>
+      {showSetup ? null : (
+        <p className="text-muted mt-2 text-sm">
+          This deployment&apos;s runtime log names the setting it could not read.
+        </p>
+      )}
 
       {showSetup ? (
         <div className="border-line/60 mt-4 border-t pt-4">

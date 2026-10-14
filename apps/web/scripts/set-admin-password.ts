@@ -190,6 +190,16 @@ async function main(): Promise<void> {
   }
   console.log("\nRestart the web app for it to take effect.");
   console.log("Your authenticator (HEALDESK_ADMIN_TOTP_SECRET) is unchanged.");
+
+  // The file's line is escaped for dotenv (above) and quoted; Vercel's form
+  // takes the value as typed, so it gets the hash itself. It is a verifier,
+  // not the password: printing it here is what the .env.local line already is.
+  // The app also reads the escaped form (lib/admin/pasted.ts), but a value
+  // pasted as it is meant needs no forgiving.
+  console.log("\nFor Vercel (the healdesk.io project, Production, Sensitive), the value is");
+  console.log("this, exactly, with no quotes and no backslashes:\n");
+  console.log(`  ${encoded}\n`);
+  console.log("Then redeploy: a variable reaches only deployments made after it was saved.");
 }
 
 main().catch((error: unknown) => {

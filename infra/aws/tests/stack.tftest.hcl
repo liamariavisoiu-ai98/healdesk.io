@@ -957,7 +957,7 @@ run "production_defaults" {
   # --- the patient-rights operator scripts: ids only, no task role ---
   assert {
     condition = (
-      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact", "reapply-erasures"]) &&
+      toset(keys(aws_ecs_task_definition.ops_script)) == toset(["erase-person", "amend-contact", "reapply-erasures", "demo-clinic", "channels-link"]) &&
       jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/reapply-erasures.ts"] &&
       [for e in jsondecode(aws_ecs_task_definition.ops_script["reapply-erasures"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"] &&
       jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/ops-erase-person.ts"] &&
@@ -965,8 +965,8 @@ run "production_defaults" {
       [for e in jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "HEALDESK_IDENTIFIER_REF_KEY"] &&
       [for e in jsondecode(aws_ecs_task_definition.ops_script["amend-contact"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL"] &&
       alltrue([for k, t in aws_ecs_task_definition.ops_script : t.task_role_arn == null && t.family == "healdesk-production-${k}"]) &&
-      alltrue([for k, t in aws_ecs_task_definition.ops_script : {
-        for e in jsondecode(t.container_definitions)[0].environment : e.name => e.value
+      alltrue([for k in ["erase-person", "amend-contact", "reapply-erasures"] : {
+        for e in jsondecode(aws_ecs_task_definition.ops_script[k].container_definitions)[0].environment : e.name => e.value
       } == { NODE_ENV = "production", NODE_EXTRA_CA_CERTS = "/etc/ssl/rds/us-east-1-bundle.pem" }]) &&
       jsondecode(aws_ecs_task_definition.ops_script["erase-person"].container_definitions)[0].logConfiguration.options["awslogs-group"] == "/healdesk/production/erase-person"
     )
@@ -975,10 +975,29 @@ run "production_defaults" {
 
   assert {
     condition = (
-      alltrue([for f in ["erase-person", "amend-contact", "reapply-erasures"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
-      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : strcontains(jsonencode(st.resources), "erase-person") || strcontains(jsonencode(st.resources), "amend-contact") || strcontains(jsonencode(st.resources), "reapply-erasures") if contains(st.actions, "ecs:RunTask")])
+      alltrue([for f in ["erase-person", "amend-contact", "reapply-erasures", "demo-clinic", "channels-link"] : contains(one([for st in data.aws_iam_policy_document.github_deploy.statement : st if st.sid == "RegisterOurTaskDefinitions"]).resources, "arn:aws:ecs:us-east-1:865780386982:task-definition/healdesk-production-${f}:*")]) &&
+      !anytrue([for st in data.aws_iam_policy_document.github_deploy.statement : anytrue([for f in ["erase-person", "amend-contact", "reapply-erasures", "demo-clinic", "channels-link"] : strcontains(jsonencode(st.resources), f)]) if contains(st.actions, "ecs:RunTask")])
     )
     error_message = "The deploy role registers the operator scripts' revisions but may never run one."
+  }
+
+  # --- the demo clinic and the connect links: no task role, nothing beyond what each script reads ---
+  assert {
+    condition = (
+      jsondecode(aws_ecs_task_definition.ops_script["demo-clinic"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/demo-clinic.ts"] &&
+      [for e in jsondecode(aws_ecs_task_definition.ops_script["demo-clinic"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL", "RESEND_API_KEY"] &&
+      {
+        for e in jsondecode(aws_ecs_task_definition.ops_script["demo-clinic"].container_definitions)[0].environment : e.name => e.value
+      } == local.app_environment_common &&
+      jsondecode(aws_ecs_task_definition.ops_script["channels-link"].container_definitions)[0].command == ["node", "--import", "tsx", "scripts/channels-link.ts"] &&
+      [for e in jsondecode(aws_ecs_task_definition.ops_script["channels-link"].container_definitions)[0].secrets : e.name] == ["DATABASE_URL"] &&
+      {
+        for e in jsondecode(aws_ecs_task_definition.ops_script["channels-link"].container_definitions)[0].environment : e.name => e.value
+      } == { BETTER_AUTH_URL = "https://app.healdesk.io", NODE_ENV = "production", NODE_EXTRA_CA_CERTS = "/etc/ssl/rds/us-east-1-bundle.pem" } &&
+      alltrue([for k in ["demo-clinic", "channels-link"] : aws_ecs_task_definition.ops_script[k].task_role_arn == null]) &&
+      jsondecode(aws_ecs_task_definition.ops_script["channels-link"].container_definitions)[0].logConfiguration.options["awslogs-group"] == "/healdesk/production/channels-link"
+    )
+    error_message = "demo-clinic gets the mail settings, the runtime URL and Resend's key; channels-link the public origin and the runtime URL; neither a task role."
   }
 
   assert {
@@ -1847,7 +1866,7 @@ run "standby" {
       aws_s3_bucket.exports.bucket == "healdesk-production-exports-865780386982" &&
       aws_sns_topic.alarms.name == "healdesk-production-alarms" && aws_sns_topic_subscription.alarm_email.protocol == "email" &&
       length(aws_sesv2_email_identity.main) == 1 && length(aws_sns_topic.ses_events) == 1 &&
-      length(aws_cloudwatch_log_group.app) == 11 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
+      length(aws_cloudwatch_log_group.app) == 13 && aws_cloudwatch_log_group.rds_postgresql.name == "/aws/rds/instance/healdesk-production/postgresql" &&
       aws_budgets_budget.monthly.limit_amount == "250"
     )
     error_message = "Standby keeps the trail, Config, GuardDuty, the buckets, the alarm topic and its subscription, SES's identity and events topic, every log group and the budget."

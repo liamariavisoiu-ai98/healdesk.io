@@ -558,8 +558,15 @@
     {
       "idx": 79,
       "version": "7",
-      "when": 1791998540318,
-      "tag": "0079_address_change",
+      "when": 1791997752373,
+      "tag": "0079_channel_events",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792001825384,
+      "tag": "0080_address_change",
       "breakpoints": true
     }
   ]

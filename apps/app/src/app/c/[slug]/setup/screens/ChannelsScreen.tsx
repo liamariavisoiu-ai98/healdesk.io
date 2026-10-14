@@ -1,5 +1,6 @@
 "use client";
 
+import { SendStepsForm } from "../../SendStepsForm";
 import { ScreenShell } from "../ScreenShell";
 
 /**
@@ -9,7 +10,9 @@ import { ScreenShell } from "../ScreenShell";
  * calls to an assistant that cannot answer yet (spec, "The forwarding step").
  * A ready channel's one step (the website line, the forwarding, the Facebook
  * login) is named here in words; the screen that carries it out comes with
- * the channel itself, so this one links to none yet.
+ * the channel itself, so this one links to none yet. Once phone is ready on
+ * our side, its row carries AYA's number and "Email these steps" (O11), so
+ * the owner can send the forwarding to whoever looks after the line.
  */
 
 export type ChannelRow = {
@@ -26,6 +29,8 @@ export function ChannelsScreen(props: {
   backHref: string | null;
   rows: readonly ChannelRow[];
   callBookingUrl: string | null;
+  /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
+  phoneSteps?: { numberLabel: string } | null;
 }) {
   const phone = props.rows.some((row) => row.channel === "voice");
   return (
@@ -50,6 +55,9 @@ export function ChannelsScreen(props: {
               </span>
             </p>
             <p className="text-muted mt-1 text-sm">{row.line}</p>
+            {row.channel === "voice" && props.phoneSteps ? (
+              <SendStepsForm slug={props.slug} numberLabel={props.phoneSteps.numberLabel} />
+            ) : null}
           </li>
         ))}
       </ul>

@@ -1446,6 +1446,13 @@ export const emailDailyQuota = pgTable(
 /** What the forwarding test saw. Facts from the call; no caller in it. */
 export type ForwardingTestObservation = {
   arrivedAt: string;
+  /**
+   * When the test's window ended. Every call inside it is Healdesk's own,
+   * not only the first, so none of them is phone's first answer or billed
+   * minutes (lib/onboarding/forwarding-test.ts). Absent on an observation
+   * recorded before 0079.
+   */
+  windowUntil?: string;
   conversationId: string;
   callerIdPreserved: boolean;
   /** Which forward condition fired, where the carrier told us. */
@@ -4146,6 +4153,9 @@ export const stripeConnectStates = pgTable(
 /** The one thing a channel ready on our side is waiting for the clinic to do. */
 export const CHANNEL_WAITING_ON = [
   "setup",
+  // Phone's: the direct line, where every call AYA can't answer goes, is not
+  // on file (drizzle/0079). Its own state so the portal and L4 can name it.
+  "direct_line",
   "forwarding",
   "snippet",
   "meta_connect",
@@ -4204,13 +4214,21 @@ export const CHANNEL_EVENT_KINDS = [
   "resumed",
   "turned_off",
   "turned_on",
+  // Two of `live`'s inputs (lib/channels/events.ts, drizzle/0076): the
+  // channel's audit passed, which only an operator records until the
+  // practice questions exist (lib/channels/audit-seam.ts), and the first
+  // sign that the channel's runtime answers there: website chat's widget
+  // loading on the clinic's own site.
+  "audit_passed",
+  "runtime_seen",
 ] as const;
 export type ChannelEventKind = (typeof CHANNEL_EVENT_KINDS)[number];
 
 /**
  * What happened to a clinic's channels, append-only: ready on our side,
  * waiting on the clinic (and for what), live, the first answer, the header's
- * pause and resume, and the Settings switch.
+ * pause and resume, the Settings switch, and two of `live`'s inputs: the
+ * channel's audit passed, and its runtime first seen answering there.
  *
  * It is billing evidence. The plan starts on the clinic's first
  * `first_answer` and each later channel's price joins on its own, so the
@@ -4244,6 +4262,11 @@ export const channelEvents = pgTable(
     uniqueIndex("channel_events_first_answer_idx")
       .on(t.clinicId, t.channel)
       .where(sql`${t.kind} = 'first_answer'`),
+    // Each of `live`'s recorded inputs once per channel (drizzle/0079), so
+    // its definer records it with ON CONFLICT and takes no row lock.
+    uniqueIndex("channel_events_input_once_idx")
+      .on(t.clinicId, t.channel, t.kind)
+      .where(sql`${t.kind} in ('audit_passed', 'runtime_seen')`),
     index("channel_events_clinic_idx").on(t.clinicId, t.occurredAt),
     check(
       "channel_events_channel_check",
@@ -4375,7 +4398,7 @@ export type ClinicSettingsHistoryRow = typeof clinicSettingsHistory.$inferSelect
 
 /**
  * Where a change of the clinic's one address stands (plan Part D5, Annex X5
- * O5; drizzle/0079). `awaiting_confirmation`: asked for from Settings, with a
+ * O5; drizzle/0080). `awaiting_confirmation`: asked for from Settings, with a
  * single-use link sent to the new address. `pending`: confirmed (or entered
  * by the operator through ops' changeClinicEmail), and taking effect at
  * `effective_at`, 72 hours on. Then exactly one of `applied`, `stopped` (by
@@ -4412,7 +4435,7 @@ export type AddressChangeStopper = (typeof ADDRESS_CHANGE_STOPPERS)[number];
  * which move together when it takes effect (lib/sign-in/address-change.ts).
  * Business contact data, never a patient. Tenant RLS on the clinic it was
  * asked for; the confirmation link and the hourly job find a row across
- * tenants only through two SECURITY DEFINER functions (0079).
+ * tenants only through two SECURITY DEFINER functions (0080).
  *
  * The confirmation token is never stored, only its SHA-256, as sign-in links
  * keep theirs. The runtime role may move the state columns and never DELETE:

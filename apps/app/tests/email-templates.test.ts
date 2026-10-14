@@ -169,7 +169,6 @@ describe("the template registry", () => {
       (byPackage[pending.package] ??= []).push(kind);
     }
     expect(byPackage).toEqual({
-      WP1: ["channel_live"],
       F: [
         "booking_request",
         "request_still_open",
@@ -239,6 +238,7 @@ describe("the template registry", () => {
       "setting_changed",
       "channel_ready",
       "steps_sent",
+      "channel_live",
       "calendar_link",
       "calendar_election_recorded",
       "sign_in_help_link",

@@ -477,6 +477,9 @@ describeDb("delivery", () => {
           // up (plan Part D5): a sweep, not a switched job, because the clinic
           // was told the moment.
           "address-changes",
+          // Channel events (drizzle/0076): a sweep, not a switched job, over
+          // inputs the clinic and the operator set.
+          "channel-states",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;
@@ -489,6 +492,7 @@ describeDb("delivery", () => {
         if (job === "erasure-expiry") continue; // a sweep: empties and deletes only expired deletion records
         if (job === "address-changes") continue; // a sweep: applies only the changes whose 72 hours are up
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
+        if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -496,6 +500,7 @@ describeDb("delivery", () => {
       expect(jobs["welcome-email"]).toBe("ok");
       expect(jobs["erasure-expiry"]).toBe("ok");
       expect(jobs["address-changes"]).toBe("ok");
+      expect(jobs["channel-states"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

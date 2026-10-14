@@ -138,6 +138,15 @@ export const OPS_EVENTS = [
   // answered for a send within 72 hours (`unconfirmed`, which usually means
   // SES's events are not reaching the app). Ids only.
   "transcript_undelivered",
+  // Channel events (lib/channels/events.ts): a live channel's first answered
+  // conversation could not record its first answer and the plan start or
+  // step-up beside it, so billing for that channel has not begun; once an
+  // hour per clinic and channel, until a later conversation records it.
+  "first_answer_not_recorded",
+  // Website chat's widget opened from the clinic's own website while the
+  // channel waits on its line there: an operator looks at the site and
+  // confirms it, because an Origin header proves nothing. Once per clinic.
+  "web_widget_to_confirm",
   // A change of a clinic's one address (lib/sign-in/address-change.ts, plan
   // Part D5): due, and held back because Stripe would not take the new
   // email (`code` stripe or stripe_unconfigured), retried each hour; or

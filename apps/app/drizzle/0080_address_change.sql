@@ -199,11 +199,11 @@ GRANT EXECUTE ON FUNCTION app_address_changes_due() TO healdesk_app;--> statemen
 REVOKE ALL ON FUNCTION app_address_change_transition_guard() FROM PUBLIC;--> statement-breakpoint
 
 COMMENT ON TABLE sign_in_address_changes IS
-  'Changes of a clinic''s one address: its sign-in, the Stripe customer''s email and the agreement''s notice address, moved together 72 hours after confirmation (plan Part D5, O5; 0079). Business contact data. The runtime role moves the state only and never deletes; destruction keeps the row as the record of the notice address the practice gave.';--> statement-breakpoint
+  'Changes of a clinic''s one address: its sign-in, the Stripe customer''s email and the agreement''s notice address, moved together 72 hours after confirmation (plan Part D5, O5; 0080). Business contact data. The runtime role moves the state only and never deletes; destruction keeps the row as the record of the notice address the practice gave.';--> statement-breakpoint
 COMMENT ON FUNCTION app_address_change_by_token(bytea) IS
-  'The confirmation page''s cross-tenant lookup: the change and its clinic for the SHA-256 of a link''s token, ids only (0079).';--> statement-breakpoint
+  'The confirmation page''s cross-tenant lookup: the change and its clinic for the SHA-256 of a link''s token, ids only (0080).';--> statement-breakpoint
 COMMENT ON FUNCTION app_address_changes_due() IS
-  'The hourly job''s cross-tenant list: pending address changes whose 72 hours are up, and unconfirmed ones whose link ran out, ids and state only, by the database''s clock (0079).';--> statement-breakpoint
+  'The hourly job''s cross-tenant list: pending address changes whose 72 hours are up, and unconfirmed ones whose link ran out, ids and state only, by the database''s clock (0080).';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The audit: fails this migration, and any later one that widens it.
@@ -211,11 +211,11 @@ COMMENT ON FUNCTION app_address_changes_due() IS
 DO $$
 BEGIN
   IF has_table_privilege('healdesk_app'::name, 'sign_in_address_changes'::regclass, 'DELETE') THEN
-    RAISE EXCEPTION 'healdesk_app can delete sign_in_address_changes, which 0079 keeps.';
+    RAISE EXCEPTION 'healdesk_app can delete sign_in_address_changes, which 0080 keeps.';
   END IF;
   IF has_column_privilege('healdesk_app'::name, 'sign_in_address_changes'::regclass, 'new_email', 'UPDATE')
      OR has_column_privilege('healdesk_app'::name, 'sign_in_address_changes'::regclass, 'confirm_token_hash', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app can rewrite an address change''s address or link, which 0079 fixes.';
+    RAISE EXCEPTION 'healdesk_app can rewrite an address change''s address or link, which 0080 fixes.';
   END IF;
   IF NOT has_column_privilege('healdesk_app'::name, 'sign_in_address_changes'::regclass, 'status', 'UPDATE') THEN
     RAISE EXCEPTION 'healdesk_app cannot move an address change''s state.';

@@ -185,12 +185,11 @@ describe("the template registry", () => {
         "product_update",
       ],
       WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
-      B: ["assistant_ready", "practice_questions_failed"],
       WP5: ["ops_digest", "flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, and the calendar's two", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, and the practice questions' O8 and O9", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -229,6 +228,8 @@ describe("the template registry", () => {
       "steps_sent",
       "calendar_link",
       "calendar_election_recorded",
+      "assistant_ready",
+      "practice_questions_failed",
     ]);
   });
 

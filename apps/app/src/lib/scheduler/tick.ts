@@ -3,6 +3,7 @@ import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
+import { runPracticeQuestionsSweep } from "@/lib/engine/practice/job";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
@@ -121,6 +122,11 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // each row's lease makes the overlap harmless
   // (lib/conversations/transcript-outbox.ts).
   await record("transcript-emails", () => runTranscriptEmailsJob({ now }));
+  // The practice questions' sweep (lib/engine/practice/job.ts), behind the
+  // practice-questions switch: a run for a clinic whose inputs changed with
+  // none asked for, the review-past-due alert, and O8 for a complete tracker.
+  // The runs themselves go every minute from their own queue.
+  await record("practice-questions-sweep", () => runPracticeQuestionsSweep({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

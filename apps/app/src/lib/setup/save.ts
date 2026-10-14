@@ -7,6 +7,8 @@ import {
 } from "@healdesk/catalog";
 
 import type { ActorContext } from "@/lib/audit";
+import { requestPracticeQuestions } from "@/lib/engine/practice/store";
+import type { PracticeSection } from "@/lib/engine/practice/types";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import {
@@ -108,6 +110,8 @@ export async function saveSetupScreen(
         return { ok: false, field: "screen", message: "That step isn't part of your setup." };
       }
       await writeScreen(tx, state, screen, (input ?? {}) as Record<string, unknown>, ctx, now);
+      const section = PRACTICE_SCREENS[screen];
+      if (section) await requestPracticeQuestions(tx, { reason: "wizard", section, now });
       await recordScreen(tx, screen, "done", ctx.actorLabel, now);
       // Read again: an answer can change which screens follow (none today,
       // but the order must come from what was just saved, not before it).
@@ -135,6 +139,22 @@ export async function skipSetupScreen(
     return { ok: true, next: nextPath(state, ctx.slug, screen) };
   });
 }
+
+/**
+ * The screens whose answers the practice questions read (lib/engine/practice),
+ * and the section each is edited in afterwards: saving one asks for the
+ * questions to run again, two minutes after the last change.
+ */
+const PRACTICE_SCREENS: Partial<Record<SetupScreenId, PracticeSection>> = {
+  basics: "practice",
+  hours: "hours",
+  services: "prices",
+  question: "quick_answers",
+  tone: "how_aya_talks",
+  deposits: "prices",
+  direct_line: "safety_net",
+  urgent: "safety_net",
+};
 
 // -----------------------------------------------------------------------------
 // One screen's write

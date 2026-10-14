@@ -70,8 +70,8 @@ db_multi_az          = false
 
 # Public ids for the web tier. Empty keeps the matching feature off; fill them
 # in when the Meta app and Stripe Connect are configured for this host.
-meta_app_id              = ""
-meta_login_config_id     = ""
+meta_app_id              = "1069571902539667"
+meta_login_config_id     = "1119900017205430"
 meta_whatsapp_config_id  = ""
 stripe_connect_client_id = ""
 

@@ -166,6 +166,14 @@ export async function openAddressChange(tx: TenantTx): Promise<AddressChangeView
   return row ?? null;
 }
 
+/** Open the clinic's tenant and read its open change: Settings → Sign-in's view. */
+export async function loadOpenAddressChange(
+  clinicId: string,
+  actor: ActorContext,
+): Promise<AddressChangeView | null> {
+  return withTenant({ clinicId, actor }, (tx) => openAddressChange(tx));
+}
+
 /** The clinic's changes, newest first: the open one and what became of the rest. */
 export async function listAddressChanges(tx: TenantTx, limit = 10): Promise<AddressChangeView[]> {
   return tx.db
@@ -355,7 +363,13 @@ export type AddressLinkLookup =
       newEmailMasked: string;
       oldEmailMasked: string;
     }
-  | { ok: false; reason: AddressLinkProblem; effectiveAt?: Date | null };
+  | {
+      ok: false;
+      reason: AddressLinkProblem;
+      /** For a confirmed change still waiting: when it takes effect, and the clinic's zone. */
+      effectiveAt?: Date | null;
+      timeZone?: string;
+    };
 
 /** What a link would confirm, without confirming it: the GET that renders "Confirm". */
 export async function lookUpAddressLink(
@@ -366,15 +380,21 @@ export async function lookUpAddressLink(
   if (!found) return { ok: false, reason: "unknown" };
   return withTenant({ clinicId: found.clinicId, actor: JOB_ACTOR }, async (tx) => {
     const [row] = await tx.db
-      .select({ ...VIEW, clinicName: clinics.name })
+      .select({ ...VIEW, clinicName: clinics.name, timeZone: clinics.timezone })
       .from(signInAddressChanges)
       .innerJoin(clinics, eq(clinics.id, signInAddressChanges.clinicId))
       .where(eq(signInAddressChanges.id, found.id))
       .limit(1);
     if (!row) return { ok: false, reason: "unknown" } as const;
-    if (row.status === "pending" || row.status === "applied") {
-      return { ok: false, reason: "used", effectiveAt: row.effectiveAt } as const;
+    if (row.status === "pending") {
+      return {
+        ok: false,
+        reason: "used",
+        effectiveAt: row.effectiveAt,
+        timeZone: row.timeZone,
+      } as const;
     }
+    if (row.status === "applied") return { ok: false, reason: "used", effectiveAt: null } as const;
     if (row.status === "stopped" || row.status === "failed")
       return { ok: false, reason: "stopped" } as const;
     if (row.status === "expired" || (row.confirmExpiresAt && row.confirmExpiresAt <= now)) {

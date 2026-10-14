@@ -72,6 +72,25 @@ vi.mock("next/navigation", () => ({
   RedirectType: { replace: "replace", push: "push" },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => undefined }));
+// The guard shows nothing until the browser has asked the server
+// (PatientPageGuard); static markup has no browser, so it stands in as a
+// wrapper that says which step-up and render it was given.
+vi.mock("@/app/c/[slug]/PatientPageGuard", async () => {
+  const { createElement } = await import("react");
+  return {
+    PatientPageGuard: (props: {
+      slug: string;
+      stepUpId: string;
+      renderId: string;
+      children: unknown;
+    }) =>
+      createElement(
+        "div",
+        { "data-guard": props.slug, "data-step-up": props.stepUpId, "data-render": props.renderId },
+        props.children as never,
+      ),
+  };
+});
 
 const { default: BookingsPage } = await import("@/app/c/[slug]/bookings/page");
 const { decideBooking, markOutcome } = await import("@/app/c/[slug]/bookings/actions");
@@ -328,6 +347,9 @@ describeDb("Bookings", () => {
     browse(link, `/c/${a.clinicSlug}/bookings`);
     const before = await auditCount(a.clinicId);
     const html = await renderBookings(a.clinicSlug);
+    // Everything about a patient sits inside the guard, given this step-up.
+    expect(html).toContain(`data-step-up="${stepUpId}"`);
+    expect(html.indexOf("data-guard=")).toBeLessThan(html.indexOf("Maria Lopez"));
 
     const needs = html.slice(html.indexOf("Needs you"), html.indexOf('id="missed"'));
     expect(needs).toContain("Maria Lopez would like to book");

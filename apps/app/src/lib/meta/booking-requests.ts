@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 
-import { BOOKING_FIELDS, findClinicalContent, namesMetaTreatment, resolveBookingRequirements, type BookingField, type BookingFieldId } from "@healdesk/catalog";
+import { audienceFor, BOOKING_FIELDS, cleanBookingFieldValue, findClinicalContent, namesMetaTreatment, resolveBookingRequirements, type Audience, type BookingField, type BookingFieldId } from "@healdesk/catalog";
 import { GOOGLE_CALENDAR_PROVIDER, googleCalendarAdapter, toE164 } from "@healdesk/connectors";
 import { and, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
 
@@ -350,10 +350,15 @@ const LOCKED_COLUMN_FIELDS: ReadonlySet<string> = new Set(["first_name", "phone"
  * fields live in their own columns and are refused here so nothing collected
  * later can quietly rewrite a frozen number or window.
  *
- * Only the phone collects them (the voice tools and the post-call webhook): a
- * Meta request keeps the locked four and nothing else. So the everyday skin
- * and hair conditions are not counted here, and a caller's `service` may be
- * the clinic's own "Acne Facial".
+ * Only a call and a web chat collect them (the shared brain's capture, the
+ * voice tools and the post-call ingest): a Meta request keeps the locked four
+ * and nothing else. So the everyday skin and hair conditions are not counted
+ * here, and a caller's `service` may be the clinic's own "Acne Facial".
+ *
+ * A field with its own validation (the catalogue's cleanBookingFieldValue: a
+ * veterinary booking's animal name and species) is then held to it, and one
+ * that fails is refused as `invalid`: a name with a digit in it, a species
+ * not on the closed list.
  */
 export function cleanCollectedFields(
   requirements: readonly BookingField[],
@@ -381,7 +386,12 @@ export function cleanCollectedFields(
       refused.push({ field, reason: "clinical" });
       continue;
     }
-    accepted[field] = value;
+    const kept = cleanBookingFieldValue(field as BookingFieldId, value);
+    if (!kept) {
+      refused.push({ field, reason: "invalid" });
+      continue;
+    }
+    accepted[field] = kept;
   }
   return { accepted, refused };
 }
@@ -755,6 +765,8 @@ export async function resolveBookingPointer(token: string, request?: RequestCont
 export type BookingRequestView = {
   id: string;
   clinicId: string;
+  /** "clients" at a practice that cares for animals, "patients" elsewhere (audienceFor): the words Bookings uses. */
+  audience: Audience;
   /** The practice's IANA zone: every time on Bookings is said on the practice's clock, not the server's. */
   timeZone: string;
   channel: BookingChannel;
@@ -854,6 +866,7 @@ export async function readBookingRequestViews(
       bookedVia: bookingRequests.bookedVia,
       lastInboundAt: bookingRequests.lastInboundAt,
       lapsed,
+      specialty: clinics.specialty,
       timeZone: clinics.timezone,
       firstName: contacts.fullName,
       phone: contacts.phone,
@@ -885,6 +898,7 @@ export async function readBookingRequestViews(
   return rows.map((row) => ({
     id: row.id,
     clinicId: tx.clinicId,
+    audience: audienceFor(row.specialty),
     timeZone: row.timeZone,
     channel: row.channel,
     platform: row.platform,

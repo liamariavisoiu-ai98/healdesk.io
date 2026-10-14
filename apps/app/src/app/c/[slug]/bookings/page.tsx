@@ -1,4 +1,4 @@
-import { BOOKING_FIELDS } from "@healdesk/catalog";
+import { collectedFieldRows } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
@@ -16,7 +16,7 @@ import {
 } from "@/lib/portal/bookings";
 import { portalMoment, portalMoney } from "@/lib/portal/format";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
-import { requirePatientPage, withPatientPage } from "@/lib/portal/patient-page";
+import { patientGuardProps, requirePatientPage, withPatientPage } from "@/lib/portal/patient-page";
 import { formatPhone } from "@/lib/setup/help";
 
 import { PatientPageGuard } from "../PatientPageGuard";
@@ -90,7 +90,7 @@ export default async function BookingsPage({
 
   return (
     <PortalShell {...shell}>
-      <PatientPageGuard slug={page.portal.clinicSlug} expiresInMs={page.stepUp.expiresInMs}>
+      <PatientPageGuard {...patientGuardProps(page)}>
         <h1 className="text-2xl font-semibold">Bookings</h1>
         <p className="text-muted mt-2">
           What AYA booked, and what needs you. Opened on {page.stepUp.deviceLabel}; every open is
@@ -284,9 +284,6 @@ function Amendments({
   );
 }
 
-const labelFor = (id: string) =>
-  BOOKING_FIELDS.find((f) => f.id === id)?.label ?? id.replace(/_/g, " ");
-
 function RequestCard(props: {
   slug: string;
   view: BookingRequestView;
@@ -298,7 +295,11 @@ function RequestCard(props: {
 }) {
   const { view: r, zone, now } = props;
   const service = r.treatment ?? r.collectedFields.service ?? null;
-  const collected = Object.entries(r.collectedFields).filter(([id]) => id !== "service");
+  // In catalogue order, in the practice's words: a vet's "client", and its
+  // client's animal by name and species (collectedFieldRows).
+  const collected = collectedFieldRows(r.collectedFields, r.audience).filter(
+    (row) => row.id !== "service",
+  );
   const unconfirmedDirect = r.bookedVia === "agent_direct" && r.status === "requested";
   const mode =
     r.status === "requested" ? "decide" : r.status === "rescheduling" ? "rescheduling" : "confirm";
@@ -339,8 +340,8 @@ function RequestCard(props: {
           <Row label="Also works" value={r.alternativeWindows.join("; ")} />
         ) : null}
         {service ? <Row label="Asked about" value={service} /> : null}
-        {collected.map(([id, value]) => (
-          <Row key={id} label={labelFor(id)} value={value} />
+        {collected.map((row) => (
+          <Row key={row.id} label={row.label} value={row.value} />
         ))}
         {r.heldFor ? <Row label="AYA held" value={portalMoment(r.heldFor, zone, now)} /> : null}
       </dl>

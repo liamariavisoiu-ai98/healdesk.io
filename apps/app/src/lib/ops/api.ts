@@ -33,7 +33,9 @@ import {
   type AgreementStatus,
 } from "@/lib/agreements/search";
 import {
-  BOOKING_FIELDS,
+  audienceFor,
+  bookingFieldLabel,
+  bookingFieldsFor,
   cleanProfileText,
   CLINIC_PROFILE_LIMITS,
   EXCLUDED_FIELDS,
@@ -2374,7 +2376,13 @@ async function opGetOnboarding(
       confirmedAt: clinic.bookingRequirementsConfirmedAt?.toISOString() ?? null,
       source: clinic.bookingRequirementsSource,
       setupLinkOutstanding: booking.setupLinkOutstanding,
-      catalogue: BOOKING_FIELDS.map((f) => ({ id: f.id, label: f.label, locked: f.locked, phoneOnly: !f.metaEligible })),
+      // What this practice may choose from: the animal fields only at a vet.
+      catalogue: bookingFieldsFor(clinic.specialty).map((f) => ({
+        id: f.id,
+        label: bookingFieldLabel(f, audienceFor(clinic.specialty)),
+        locked: f.locked,
+        phoneOnly: !f.metaEligible,
+      })),
       neverAsked: [...EXCLUDED_FIELDS],
     },
     timezoneConfirmedAt: clinic.timezoneConfirmedAt?.toISOString() ?? null,

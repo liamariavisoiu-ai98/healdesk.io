@@ -39,16 +39,19 @@ export type StepUpPurpose = "patient_pages" | "sensitive_change";
 /**
  * The passkey that stepped up, and its device's name, which the access log
  * records; `at` is when the passkey was used, not when it was last checked.
- * `stepUpId` is the step_ups row, and `expiresInMs` how long it stays live if
- * nothing touches it again (15 minutes idle or the 8-hour limit, whichever is
- * sooner), counted from this check on the database's clock.
+ * `stepUpId` is the step_ups row. `expiresAt` is when it lapses if nothing
+ * touches it again (15 minutes idle or the 8-hour limit, whichever is
+ * sooner) and `checkedAt` when this check ran, both on the database's clock;
+ * `capped` says the 8-hour limit is the one that applies.
  */
 export type StepUp = {
   passkeyId: string;
   deviceLabel: string;
   at: Date;
   stepUpId: string;
-  expiresInMs: number;
+  expiresAt: Date;
+  checkedAt: Date;
+  capped: boolean;
 };
 
 /** The request header src/proxy.ts sets to the path being asked for, for `next`. */
@@ -92,6 +95,17 @@ export async function requireStepUp(
 export async function touchStepUp(ctx: PortalContext): Promise<StepUp | null> {
   const binding = await sessionBinding(ctx);
   const live = binding ? await findLiveStepUp(unsafeDb, binding, { touch: true }) : null;
+  return live ? asStepUp(live) : null;
+}
+
+/**
+ * The step-up live on this session now, without counting as activity: what a
+ * patient page asks when it is shown again (a tab coming back, Back and
+ * Forward) to find out whether it may still show what it holds.
+ */
+export async function stepUpStatus(ctx: PortalContext): Promise<StepUp | null> {
+  const binding = await sessionBinding(ctx);
+  const live = binding ? await findLiveStepUp(unsafeDb, binding, { touch: false }) : null;
   return live ? asStepUp(live) : null;
 }
 
@@ -150,6 +164,8 @@ function asStepUp(live: LiveStepUp): StepUp {
     deviceLabel: live.deviceLabel,
     at: live.createdAt,
     stepUpId: live.id,
-    expiresInMs: live.expiresInMs,
+    expiresAt: live.expiresAt,
+    checkedAt: live.checkedAt,
+    capped: live.capped,
   };
 }

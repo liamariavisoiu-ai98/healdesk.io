@@ -1,6 +1,7 @@
 import {
   ASSISTANT_LANGUAGE_NAMES,
-  ASSISTANT_LANGUAGES,
+  isScreenedLanguage,
+  SCREENED_LANGUAGES,
   ASSISTANT_TONE_OPTIONS,
   CARRIERS,
   CHANNEL_NAMES,
@@ -253,8 +254,9 @@ export async function readSettingsView(input: {
       tone: settings.tone,
       toneOptions: ASSISTANT_TONE_OPTIONS,
       greetings,
-      languages: [...settings.languages],
-      languageOptions: ASSISTANT_LANGUAGES.map((id) => ({
+      // Only the languages the screens read are offered, and shown as chosen.
+      languages: settings.languages.filter(isScreenedLanguage),
+      languageOptions: SCREENED_LANGUAGES.map((id) => ({
         id,
         label: ASSISTANT_LANGUAGE_NAMES[id],
       })),

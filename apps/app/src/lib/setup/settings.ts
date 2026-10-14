@@ -1,5 +1,6 @@
 import {
-  ASSISTANT_LANGUAGES,
+  isScreenedLanguage,
+  SCREENED_LANGUAGES,
   ASSISTANT_TONES,
   BOOKING_DETAILS,
   bookingSyncFor,
@@ -414,13 +415,18 @@ function validate(patch: SetupSettingsPatch): Partial<SetupSettings> {
   }
   if (patch.languages !== undefined) {
     const list = Array.isArray(patch.languages) ? [...new Set(patch.languages)] : [];
-    if (
-      list.length === 0 ||
-      !list.every((l) => (ASSISTANT_LANGUAGES as readonly string[]).includes(l))
-    ) {
+    if (list.length === 0) {
       throw new SetupSettingsError("languages", "Choose at least one language AYA answers in.");
     }
-    out.languages = ASSISTANT_LANGUAGES.filter((l) => list.includes(l));
+    // Only the languages AYA's safety checks read (SCREENED_LANGUAGES): a
+    // message in any other gets a fixed line, never an answer.
+    if (!list.every(isScreenedLanguage)) {
+      throw new SetupSettingsError(
+        "languages",
+        "AYA answers in English and Spanish, the languages its safety checks read.",
+      );
+    }
+    out.languages = SCREENED_LANGUAGES.filter((l) => list.includes(l));
   }
   for (const field of [
     "suggestAddOns",

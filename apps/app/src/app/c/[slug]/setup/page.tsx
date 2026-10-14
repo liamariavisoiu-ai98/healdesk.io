@@ -13,6 +13,7 @@ import { notFound, redirect } from "next/navigation";
 import type { ActorContext } from "@/lib/audit";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
+import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
@@ -408,6 +409,7 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           vetReferral={settings.vetReferralE164 ? formatPhone(settings.vetReferralE164) : ""}
           audience={audience}
           address={state.address}
+          teamAlerted={URGENT_ALERT_DELIVERED}
         />
       );
     }

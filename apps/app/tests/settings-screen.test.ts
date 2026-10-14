@@ -13,6 +13,7 @@ import { hashSessionToken } from "@/lib/factors/step-ups";
 import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
 import { SIGN_IN_ACTOR_LABEL } from "@/lib/portal/actor";
+import { SETTING_CHANNELS } from "@/lib/portal/settings";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -293,6 +294,13 @@ describeDb("Settings", () => {
     expect(await save("languages", ["en", "es"])).toMatchObject({
       toast: expect.stringContaining("AYA answers in English and Spanish"),
     });
+    // Only the languages the screens read: the review of 14 October.
+    expect(await save("languages", ["en", "fr"])).toEqual({
+      ok: false,
+      message: "AYA answers in English and Spanish, the languages its safety checks read.",
+    });
+    // Instagram, Messenger and WhatsApp answer in English: the setting applies to the phone and the website only.
+    expect(SETTING_CHANNELS.languages).toEqual(["web", "voice"]);
   });
 
   test("the direct line: set once freely; a change needs a step-up, keeps its history, emails the clinic masked, and is where the gate sends calls", async () => {

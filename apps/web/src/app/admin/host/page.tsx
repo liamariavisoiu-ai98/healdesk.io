@@ -135,8 +135,8 @@ export default async function HostPage() {
         </div>
         <p className="text-muted mt-4 max-w-[70ch] text-sm">
           US East, on-demand, 730 hours; fixed-rate lines are exact and usage lines are low-traffic guesses (infra/aws
-          README, Costs and Standby). Turning on takes about an hour (apply, the database from its snapshot, the deploy
-          and its image build); standby about twenty minutes. A month with both is billed by the hour for the time it
+          README, Costs and Standby). Turning on takes about half an hour to forty minutes (apply, the database from its
+          snapshot, the deploy and its image build); standby about twenty minutes. A month with both is billed by the hour for the time it
           was on.
         </p>
       </section>

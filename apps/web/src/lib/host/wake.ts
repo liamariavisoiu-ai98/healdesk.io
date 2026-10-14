@@ -109,7 +109,7 @@ export async function wakeHostForPaidInvoice(
         "account is made on the first delivery after the host answers.",
         "",
         dispatched.ok
-          ? "The host workflow (host.yml, mode active) has been started to turn it on. That takes about an hour: apply, database, deploy."
+          ? "The host workflow (host.yml, mode active) has been started to turn it on. That takes about half an hour to forty minutes: apply, database, deploy."
           : `The host workflow could not be started: ${dispatched.message} Turn it on from ${site.url}/admin/host or from GitHub (Actions, Host, mode active).`,
         "",
         `Follow it at ${site.url}/admin/host.`,

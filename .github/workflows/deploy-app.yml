@@ -57,7 +57,7 @@ name: Deploy apps/app (AWS)
 # the web service, where the worker runs and whether voice is on from which
 # services exist, and the platform to build for from the web task
 # definition's CPU architecture (task_cpu_architecture: ARM64 by default,
-# built here under emulation). The workflow swaps images and registers new
+# built here natively on an arm64 runner). The workflow swaps images and registers new
 # revisions; Terraform owns everything else about them.
 #
 # The voice service is waited for less than the others. Its replaced tasks
@@ -152,11 +152,15 @@ env:
 jobs:
   deploy:
     name: ${{ inputs.rollback_to != '' && 'rollback' || (inputs.restart_only && 'restart' || 'deploy') }}
-    # An x86_64 runner. The images are built for the platform the task
-    # definitions declare (see "Read the services"), under QEMU when that is
-    # arm64, so the native modules npm installs in the image are the ones
-    # Fargate runs.
-    runs-on: ubuntu-latest
+    # An arm64 runner, because the tasks run on arm64 (task_cpu_architecture,
+    # ARM64 by default): the images build natively. Until 14 October 2026 this
+    # was an x86_64 runner building them under QEMU, and the build took 18 of
+    # a deploy's 25 minutes. The images are still built for whatever platform
+    # the task definitions declare (see "Read the services"), so the native
+    # modules npm installs in the image are the ones Fargate runs; if that is
+    # ever X86_64 again, the build step emulates it here instead. GitHub's
+    # arm64 runners are free for a public repository.
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 120
     # Named explicitly so every script runs with -e and -o pipefail; the
     # default shell has no pipefail.
@@ -413,34 +417,70 @@ jobs:
         if: ${{ steps.run.outputs.mode == 'deploy' }}
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
 
+      # The build cache: BuildKit's own layer cache, kept between deploys by
+      # GitHub's cache (first-party, like everything else in this path), so a
+      # deploy that changes no dependency skips npm ci, and one that changes
+      # neither image under infra/aws rebuilds neither. Not a registry cache:
+      # every ECR tag here is immutable, so a fixed cache tag could be pushed
+      # once only. Main's deploys can restore only caches written by main's
+      # runs (GitHub scopes a cache to its branch and the default branch), so
+      # no other branch's build can seed this one. The key names the commit,
+      # so each deploy saves its own and restores the newest for the same
+      # platform; GitHub evicts the oldest past its 10 GB.
+      - name: Restore the build cache
+        id: build-cache
+        if: ${{ steps.run.outputs.mode == 'deploy' }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ steps.services.outputs.platform }}-${{ github.sha }}
+          restore-keys: |
+            buildx-${{ steps.services.outputs.platform }}-
+
       # One platform, no attestations: a single image manifest per tag, which
       # is what ECR's scan on push reads and what the lifecycle rule counts.
       # A re-run of the same commit finds its images already pushed and reuses
       # them, since an immutable tag cannot be pushed twice; so the tag names
       # one architecture's image, and changing task_cpu_architecture needs a
-      # new commit to deploy, not a re-run of an old one. An arm64 build on
-      # this x86_64 runner runs under QEMU, from Ubuntu's own package: slower
-      # (the app's npm ci and next build take several times longer) but with
-      # no third-party action in the path that builds the PHI host's image.
+      # new commit to deploy, not a re-run of an old one. A platform other
+      # than this runner's own is built under QEMU, from Ubuntu's own package,
+      # with no third-party action in the path that builds the PHI host's
+      # image. The builder is BuildKit in a container (docker-container),
+      # because the docker driver cannot export a cache.
       - name: Build and push the images
         id: images
         if: ${{ steps.run.outputs.mode == 'deploy' }}
         env:
           REGISTRY: ${{ steps.ecr.outputs.registry }}
           PLATFORM: ${{ steps.services.outputs.platform }}
+          CACHE: ${{ runner.temp }}/buildx-cache
         run: |
-          if [ "$PLATFORM" = linux/arm64 ] && [ "$(uname -m)" != aarch64 ]; then
+          case "$(uname -m)" in
+            aarch64) native=linux/arm64 ;;
+            x86_64) native=linux/amd64 ;;
+            *) native=unknown ;;
+          esac
+          if [ "$PLATFORM" != "$native" ]; then
+            case "$PLATFORM" in
+              linux/arm64) handler=qemu-aarch64 ;;
+              linux/amd64) handler=qemu-x86_64 ;;
+            esac
             sudo apt-get update -qq
             sudo apt-get install -y -qq qemu-user-static
-            if [ ! -e /proc/sys/fs/binfmt_misc/qemu-aarch64 ]; then
-              echo "::error::qemu-user-static installed, but no arm64 binfmt handler is registered: an arm64 image cannot be built on this runner."
+            if [ ! -e "/proc/sys/fs/binfmt_misc/$handler" ]; then
+              echo "::error::qemu-user-static installed, but no $handler binfmt handler is registered: a $PLATFORM image cannot be built on this $native runner."
               exit 1
             fi
+            echo "Building for $PLATFORM under emulation on a $native runner"
+          else
+            echo "Building for $PLATFORM natively"
           fi
-          echo "Building for $PLATFORM"
+          docker buildx create --name healdesk-build --driver docker-container --use --bootstrap >/dev/null
+          mkdir -p "$CACHE"
+          built=false
           build() {
             local output=$1 repo=$2 dockerfile=$3 context=$4
-            local ref="$REGISTRY/$repo:$IMAGE_TAG" digest
+            local ref="$REGISTRY/$repo:$IMAGE_TAG" digest name=${2##*/}
             if ! digest=$(aws ecr batch-get-image --repository-name "$repo" \
               --image-ids imageTag="$IMAGE_TAG" --query 'images[0].imageId.imageDigest' --output text); then
               echo "::warning::Could not check $repo for an image of this commit; building one."
@@ -449,14 +489,32 @@ jobs:
             if [[ "$digest" == sha256:* ]]; then
               echo "$ref is already in the registry; reusing it"
             else
+              # Each image's cache is written beside the one it read, then
+              # swapped in, so a cache only ever holds what the last build used.
               docker buildx build --platform "$PLATFORM" --provenance=false --sbom=false --pull \
+                --cache-from "type=local,src=$CACHE/$name" \
+                --cache-to "type=local,dest=$CACHE/$name.new,mode=max" \
                 --file "$dockerfile" --tag "$ref" --push "$context"
+              rm -rf "${CACHE:?}/$name"
+              mv "$CACHE/$name.new" "$CACHE/$name"
+              built=true
             fi
             echo "$output=$ref" >>"$GITHUB_OUTPUT"
           }
           build app_image healdesk/app apps/app/Dockerfile .
           build tls_proxy_image healdesk/tls-proxy infra/aws/images/tls-proxy/Dockerfile infra/aws/images/tls-proxy
           build db_admin_image healdesk/db-admin infra/aws/images/db-admin/Dockerfile .
+          echo "built=$built" >>"$GITHUB_OUTPUT"
+
+      # Only after a build that succeeded, and only when something was built:
+      # a re-run that reused this commit's images has nothing new to keep.
+      # A failure to save is a warning from the action, never a failed deploy.
+      - name: Save the build cache
+        if: ${{ steps.run.outputs.mode == 'deploy' && steps.images.outputs.built == 'true' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/buildx-cache
+          key: buildx-${{ steps.services.outputs.platform }}-${{ github.sha }}
 
       # The build can use a good part of the first session's hour (the action's
       # default); a fresh one covers the task definitions and the one-off

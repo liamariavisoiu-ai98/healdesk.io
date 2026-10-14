@@ -372,8 +372,9 @@ behind.
     `deploy-app.yml` with `bootstrap_db` and `migrate`: db-bootstrap generates the six internal
     values and creates the two roles, migrate runs the migrations and the queue install, and each
     service comes up to its `DesiredCount` tag. Once the liveness probe answers it applies once
-    more, subscribing the app to SES's events, which SNS refuses before then. About an hour, most
-    of it the arm64 image build under QEMU. A hand-started `deploy-app.yml` with `bootstrap_db` and
+    more, subscribing the app to SES's events, which SNS refuses before then. About half an hour
+    from standby, most of it the database coming back; about fifteen minutes when the host is
+    already on. A hand-started `deploy-app.yml` with `bootstrap_db` and
     `migrate` ticked does the middle step alone (a first deploy, every service at 0, is refused
     without either).
 11. **Vercel**: `HEALDESK_APP_URL=https://app-internal.healdesk.io` (the `internal_url` output) and
@@ -432,8 +433,10 @@ A full run, in order:
    (`web_desired`, `worker_desired`, `voice_desired`) after the migrations pass. A service at 0
    beside running ones (voice just switched on) is brought up the same way.
 3. Builds and pushes `healdesk/app` (repo root), `healdesk/tls-proxy` and `healdesk/db-admin` for
-   that architecture (`linux/arm64` by default, under QEMU from Ubuntu's own package on the x86
-   runner, which makes the app's build several times slower), tagged with the commit SHA. An image
+   that architecture (`linux/arm64` by default, natively on GitHub's arm64 runner,
+   `ubuntu-24.04-arm`; until 14 October 2026 it was built under QEMU on an x86 runner and took 18
+   minutes), with BuildKit's layer cache kept between deploys in GitHub's cache, so a deploy that
+   changes no dependency skips `npm ci`; tagged with the commit SHA. An image
    already pushed for the commit is reused, so the tag names one architecture's image: changing
    `task_cpu_architecture` needs a new commit to deploy.
 4. Fetches each family's latest revision (Terraform's configuration, or the last deploy's),
@@ -499,9 +502,9 @@ Actions minutes, most of them the arm64 build of a commit not built before.
 **How long.** Standby takes about twenty minutes: the guard, the first apply (a minute or two),
 then the second, in which the services drain (60 s), the final snapshot is taken and the
 instance deleted (most of it), and the rest goes in seconds; with `enable_voice` the voice service
-drains its calls first, up to an hour. Turning on takes about an hour: the apply (the database
+drains its calls first, up to an hour. Turning on takes about half an hour to forty minutes: the apply (the database
 from its snapshot, 10 to 20 minutes, the NAT instance's first boot, the load balancer), the deploy
-(the images, reused when this commit was built before and otherwise built under QEMU; db-bootstrap;
+(the images, reused when this commit was built before and otherwise built on the arm64 runner; db-bootstrap;
 the migrations; the rollout and its smoke test), and the last apply, which subscribes SES's events.
 
 **How the switch runs** (`host.yml`, every apply through `scripts/host-apply.sh`, so each is a
@@ -1072,7 +1075,7 @@ weeks; the next step up for each is one variable.
 | `enable_waf = true` (the per-IP rate limit at the edge; do this before a second web task) | +6.00 |
 | `web_cpu = 512` (half a vCPU per web task) | +5.91 |
 | `worker_placement = "separate"` (the worker in its own 0.5 vCPU / 1 GB task) | +14.42 on ARM64 |
-| `task_cpu_architecture = "X86_64"` (no QEMU in the build; every task about 25% dearer) | +2.12 for the web task as sized |
+| `task_cpu_architecture = "X86_64"` (the build then runs under QEMU on the arm64 runner; every task about 25% dearer) | +2.12 for the web task as sized |
 | `db_instance_class = "db.t4g.small"` (2 GiB) | +11.68 |
 | `nat_mode = "gateway"` (AWS's managed NAT; `nat_gateways = 2` survives losing an AZ) | +29.59 for one, +66.09 for two, plus $0.045 a GB |
 | `db_multi_az = true` | +the instance again (+11.68 on the micro) |

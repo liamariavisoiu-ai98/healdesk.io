@@ -1,4 +1,4 @@
-import { findClinicalContent } from "@healdesk/catalog";
+import { findClinicalContent, messageLanguage } from "@healdesk/catalog";
 
 import type { AssistantFacts } from "./facts";
 
@@ -25,12 +25,33 @@ import type { AssistantFacts } from "./facts";
  *     by the clinic's agreement, and a med spa's menu is made of them. The
  *     clinic's own service names are read past, because they were screened
  *     for its specialty when they were saved (a vet's "Senior diagnostics"
- *     is a service, not a diagnosis). A clinical reply becomes the offer of
- *     a consultation.
+ *     is a service, not a diagnosis), and so are its address and the
+ *     questions its booking requirements ask. The everyday words the screen
+ *     would misread are read past as well ("parking is free and safe",
+ *     "bring a list of any medications", "Unit 4"). And, beside the screen,
+ *     the plain words a model uses to give clinical advice without the
+ *     vocabulary (PLAIN_CLINICAL): aftercare and side effects called normal,
+ *     outcome claims, triage, and a dose given as a bare number. A clinical
+ *     reply becomes the offer of a consultation;
+ *   - is written in a language the screens do not read (messageLanguage):
+ *     English and Spanish are screened, any other is not sent.
  * A refused reply is replaced by a fixed line; nothing of it is sent.
+ *
+ * The limit of the never-say list: its entries are the clinic's own words, in
+ * English, and they are matched as written. A Spanish reply is refused when
+ * it contains an entry's English text, and not when it says the same thing
+ * in Spanish; the clinical screen, which reads Spanish, is what catches a
+ * Spanish promise of safety or results.
  */
 
-export type GuardRefusal = "never_say" | "price" | "payment_details" | "hipaa_claim" | "clinical" | "empty";
+export type GuardRefusal =
+  | "never_say"
+  | "price"
+  | "payment_details"
+  | "hipaa_claim"
+  | "clinical"
+  | "language"
+  | "empty";
 
 export type GuardVerdict = { ok: true } | { ok: false; reason: GuardRefusal };
 
@@ -55,7 +76,7 @@ function allowedAmounts(facts: Pick<AssistantFacts, "services">): Set<number> {
 }
 
 const DOLLARS = /\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(\s?k\b)?/gi;
-const SPOKEN_DOLLARS = /\b(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s?(?:dollars|usd|bucks)\b/gi;
+const SPOKEN_DOLLARS = /\b(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s?(?:dollars|usd|bucks|d[oó]lares)(?![\p{L}])/giu;
 
 /** The cents of each amount the reply names, "$1,200", "$99.50", "1200 dollars". */
 export function amountsIn(text: string): number[] {
@@ -87,31 +108,88 @@ function perUnitPrices(text: string): string {
   );
 }
 
-/** The reply with the clinic's own name and service names blanked: screened when saved, not here. */
-function withoutOwnNames(reply: string, facts: Pick<AssistantFacts, "services"> & Partial<Pick<AssistantFacts, "clinicName">>): string {
-  const names = [facts.clinicName ?? "", ...facts.services.map((s) => s.name)]
-    .map((name) => name.trim())
-    .filter((name) => name.length > 0)
+type ScreenFacts = Pick<AssistantFacts, "services"> &
+  Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements">>;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The reply with the clinic's own words blanked: its name, its service names,
+ * its address and the questions its booking requirements ask, all screened
+ * or written by the practice, not by the model.
+ */
+function withoutOwnWords(reply: string, facts: ScreenFacts): string {
+  const own = [
+    facts.clinicName ?? "",
+    facts.address ?? "",
+    ...facts.services.map((s) => s.name),
+    ...(facts.requirements ?? []).map((f) => f.ask),
+  ]
+    .map((words) => words.trim())
+    .filter((words) => words.length > 2)
     .sort((a, b) => b.length - a.length);
   let text = reply;
-  for (const name of names) {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    text = text.replace(new RegExp(escaped, "gi"), " ");
-  }
+  for (const words of own) text = text.replace(new RegExp(escapeRegExp(words), "gi"), " ");
   return text;
 }
 
-/** Whether a reply says anything clinical (the default screen; see the file header). */
-export function clinicalIn(reply: string, facts: Pick<AssistantFacts, "services"> & Partial<Pick<AssistantFacts, "clinicName">>): boolean {
-  return findClinicalContent({ reply: perUnitPrices(withoutOwnNames(reply, facts)) }).length > 0;
+/**
+ * Everyday words the clinical screen would misread, read past before it
+ * runs: an address unit ("Unit 4", "Suite 2"), safety that is not a claim
+ * about a treatment ("parking is free and safe", "keep your details safe"),
+ * and a medication list or an allergy asked for at intake. Each is a whole
+ * phrase, so "safe for you" and "stop your medications" are still read.
+ */
+const EVERYDAY: RegExp[] = [
+  /\b(unit|suite|ste|apt|apartment|building|bldg|floor)\.?\s*#?\d+[a-z]?\b/gi,
+  /\b(parking|car park|the lot|garage|neighbou?rhood|area|location|building|street|lobby)( is| are)?( free and| very| completely| totally)? safe\b/gi,
+  /\bfree and safe\b|\bsafe (and free )?(parking|place|spot|neighbou?rhood|area|lot|garage)\b/gi,
+  /\b(keep|kept|keeps|keeping|stay|stays|be) (your |their |it |them |everything |all )?(details |information |data |card |belongings )?safe\b|\bsafe travels\b|\bsafely (stored|kept)\b/gi,
+  /\b(a |the )?(list|names?) of (any |all |your |the )?(medications?|medicines|meds|allergies)\b/gi,
+  /\b(any|your) allergies (we|you|I|the team) should (note|know|pass on|be aware of)\b/gi,
+];
+
+function withoutEveryday(text: string): string {
+  return EVERYDAY.reduce((out, pattern) => out.replace(pattern, " "), text);
 }
 
-export function guardAssistantReply(
-  reply: string,
-  facts: Pick<AssistantFacts, "neverSay" | "services"> & Partial<Pick<AssistantFacts, "clinicName">>,
-): GuardVerdict {
+/**
+ * Clinical advice in plain words, which the vocabulary of the clinical
+ * screen does not hold: the review of 14 October found each of these passed.
+ * Post-model only, on a call or a web chat: a clinic's own text is never
+ * screened with them.
+ */
+const PLAIN_CLINICAL: RegExp[] = [
+  // Aftercare and side effects, called normal or told how long they last.
+  /\b(bruis\w*|swelling|swollen|redness|tenderness|soreness|sore|tingling|numbness|itch\w*|lumps?|bumps?|flaking|peeling|scabbing)\b[^.?!]{0,60}\b(is|are|it'?s)?\s?(normal|common|expected|typical|usual|temporary|go(es)? away|will fade|fades?|settles?|subsides?|resolves?|clears? up|for a (day|few days|week)|a day or two|a few days|about a week)\b/i,
+  /\b(ice it|apply ice|ice pack|cold compress|arnica)\b/i,
+  /\btake (some |an? )?(tylenol|ibuprofen|advil|motrin|aspirin|paracetamol|acetaminophen|antihistamines?|benadryl|painkillers?)\b/i,
+  /\b(avoid|no|skip|stay off|cut out|hold off on)\s(alcohol|drinking|exercise|the gym|workouts?|working out|sun|sunbathing|saunas?|hot tubs?|makeup|blood thinners|fish oil|retinol)\b/i,
+  /\b(don'?t|do not|avoid|try not to|no) (lie|lay|lying|laying) (down|flat)\b|\b(don'?t|do not|avoid|try not to) (touch|rub|massage|press on) (it|the area|your (face|lips|skin))\b/i,
+  // Outcome claims.
+  /\bresults? (last|lasts|will last|should last|can last|typically last|usually last)\b|\blasts? (about |around |up to |roughly )?(a|one|two|three|four|six|\d+) (weeks?|months?|years?)\b/i,
+  /\bworks? (best|well|really well|great|wonders) (on|for)\b|\b(very|highly|really|extremely|super) effective\b|\byou'?ll (see|notice) (results|a difference)\b|\b(see|notice) (results|a difference) (in|within|after)\b/i,
+  /\b(most|many) (people|patients|clients|women|men) (need|go straight back|see (results|a difference))\b|\bpainless\b|\bno downtime\b|\b(is |are )?approved for\b|\bneed (\d+|two|three|four|five|six|several|a few) (sessions|treatments|syringes|vials|units|rounds)\b/i,
+  // Triage.
+  /\b(that'?s|it'?s|this is|that is|which is) (completely |totally |perfectly |quite |very )?(normal|common|expected|typical) (after|with|for|following)\b|\bnothing to worry about\b|\b(should|will) (settle|subside|go down|calm down|resolve|clear up|heal|fade|go away)( on its own| by itself)?\b/i,
+  // A dose without its unit: "about 20", "20U", "2 syringes".
+  /(?<!\b(open|opens|opening|close|closes|closing|until|till|from|at|by|after|before|since|arrive|starts?|ends?|takes|lasts|wait|waits)\s)\b(about|around|roughly|approximately|typically|usually)\s\d+\b(?!\s*(%|percent|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|am|pm|a\.m\.|p\.m\.|o'?clock|people|patients|clients|spaces?|spots?|cars?|miles?|km|blocks?|dollars|bucks|usd|seconds?|-minute|-hour|:\d))/i,
+  /\b\d+\s?u\b(?!\.?\s?s\.)|\b\d+\s(syringes?|vials?|ccs?)\b/i,
+];
+
+/** Whether a reply says anything clinical (the default screen and PLAIN_CLINICAL; see the file header). */
+export function clinicalIn(reply: string, facts: ScreenFacts): boolean {
+  const text = withoutEveryday(perUnitPrices(withoutOwnWords(reply, facts)));
+  if (findClinicalContent({ reply: text }).length > 0) return true;
+  return PLAIN_CLINICAL.some((pattern) => pattern.test(text));
+}
+
+export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts): GuardVerdict {
   const text = normalise(reply);
   if (!text.trim()) return { ok: false, reason: "empty" };
+  // English entries matched as written, in a reply in either language (see the file header).
   for (const phrase of facts.neverSay) {
     const p = normalise(phrase).trim();
     if (p && text.includes(p)) return { ok: false, reason: "never_say" };
@@ -124,6 +202,7 @@ export function guardAssistantReply(
     return { ok: false, reason: "payment_details" };
   }
   if (HIPAA_CLAIM.test(reply)) return { ok: false, reason: "hipaa_claim" };
+  if (messageLanguage(reply) === "other") return { ok: false, reason: "language" };
   if (clinicalIn(reply, facts)) return { ok: false, reason: "clinical" };
   return { ok: true };
 }

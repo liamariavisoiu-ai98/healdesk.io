@@ -118,6 +118,83 @@ describe("the guard", () => {
     expect(guardAssistantReply("His symptoms sound like a diagnosis for the vet.", VET)).toEqual({ ok: false, reason: "clinical" });
   });
 
+  // The review of 14 October, ported from its probe: ordinary answers pass...
+  const GLOW = {
+    ...FACTS,
+    clinicName: "Glow Med Spa",
+    address: "12 Main Street, Unit 4, Austin",
+    neverSay: [],
+    services: [
+      { name: "Botox", priceFromUsd: 12, priceToUsd: 12, priceKind: "per_unit", unit: "unit", durationMinutes: 30, depositUsd: null },
+      { name: "Lip Filler", priceFromUsd: 650, priceToUsd: 650, priceKind: "exact", unit: null, durationMinutes: 45, depositUsd: 100 },
+      { name: "Laser Hair Removal", priceFromUsd: 150, priceToUsd: 400, priceKind: "range", unit: null, durationMinutes: 30, depositUsd: null },
+      { name: "Acne Facial", priceFromUsd: 199, priceToUsd: 199, priceKind: "exact", unit: null, durationMinutes: 60, depositUsd: null },
+    ],
+  } as AssistantFacts;
+
+  test.each([
+    "We're open Monday to Friday, 9am to 5pm, and Saturday 10 to 2.",
+    "Botox is $12 per unit.",
+    "Botox is $12 a unit.",
+    "Botox is 12 dollars a unit.",
+    "Lip Filler is $650, with a $100 deposit.",
+    "Laser Hair Removal is $150 to $400 depending on the area.",
+    "Yes, we offer the Acne Facial for $199.",
+    "We're at 12 Main Street, Unit 4, Austin.",
+    "We're at 400 Oak Ave, Suite 2.",
+    "Parking is free and safe behind the building.",
+    "Please bring a list of any medications you take to your consultation.",
+    "We have a 24-hour cancellation policy, and the deposit is non-refundable within 24 hours.",
+    "I can pass on a request for Tuesday at 3pm. The team will confirm it within a day.",
+    "Do you have any allergies we should note for the team?",
+    "The team will be in touch within a day. Is there anything else?",
+    "Sorry, I didn't catch that. Could you say it again?",
+    "Lip Filler takes about 45 minutes.",
+    "We're closed on Sundays.",
+    "We open around 9 on Saturdays.",
+    "It's about 10 minutes from downtown.",
+    "El botox cuesta $12 por unidad.",
+    "Abrimos de lunes a viernes de 9 a 5.",
+  ])("an ordinary answer passes: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: true });
+  });
+
+  // ...and clinical content in plain words, or in Spanish, is refused.
+  test.each([
+    "Botox is $12 a unit, and most foreheads need about 20.",
+    "It's $12 a unit; a typical forehead is 10 to 20, so around 20 is common.",
+    "Bruising is common and goes away in about a week.",
+    "Some swelling and redness for a day or two is normal.",
+    "If it's sore, ice it and take Tylenol, not ibuprofen.",
+    "Avoid alcohol and don't lie down for 4 hours after Botox.",
+    "Results last 3 to 4 months, and you'll see them in about two weeks.",
+    "It's painless and most people go straight back to work.",
+    "Lip Filler works really well for thin lips and lasts about a year.",
+    "Botox is approved for frown lines and it's very effective.",
+    "Arnica cream helps with bruising.",
+    "You'll need 2 syringes for fuller lips.",
+    "Most people need 6 sessions of Laser Hair Removal.",
+    "Laser Hair Removal works best on dark hair and light skin.",
+    "Botox is $12 a unit, 20U for the forehead.",
+    "That's normal after filler and should settle on its own.",
+    "Es seguro durante el embarazo y no tiene efectos secundarios.",
+    "La dosis habitual es de 20 unidades.",
+  ])("a clinical reply is refused: %j", (text) => {
+    expect(guardAssistantReply(text, GLOW)).toEqual({ ok: false, reason: "clinical" });
+  });
+
+  test("a reply in a language the screens do not read is never sent", () => {
+    expect(guardAssistantReply("C'est sans danger pendant la grossesse.", GLOW)).toEqual({ ok: false, reason: "language" });
+    expect(guardAssistantReply("Não tem efeitos colaterais, pode fazer.", GLOW)).toEqual({ ok: false, reason: "language" });
+  });
+
+  test("the never-say list is English words matched as written, in a Spanish reply too: that is its limit", () => {
+    const facts = { ...GLOW, neverSay: ["guaranteed results"] };
+    expect(guardAssistantReply("Ofrecemos guaranteed results.", facts)).toEqual({ ok: false, reason: "never_say" });
+    // The same promise in Spanish is the clinical screen's to catch.
+    expect(guardAssistantReply("Resultados garantizados.", facts)).toEqual({ ok: false, reason: "clinical" });
+  });
+
   test("a card number is cut; a phone number is not", () => {
     expect(cardNumberIn("card 4242-4242-4242-4242 thanks")).toEqual({ text: "card [card number removed] thanks", found: true });
     expect(cardNumberIn("call me on 415 555 0192")).toEqual({ text: "call me on 415 555 0192", found: false });
@@ -156,9 +233,11 @@ describe("the prompt", () => {
 
   test("its languages: the caller's, if it is one of them, and it stays in it", () => {
     expect(buildAssistantPrompt(FACTS, "web_chat")).toMatch(/Language: answer in English\./);
-    const several = buildAssistantPrompt({ ...FACTS, languages: ["en", "es", "vi"] }, "web_chat");
-    expect(several).toContain("Languages: you answer in English, Spanish and Vietnamese.");
+    const several = buildAssistantPrompt({ ...FACTS, languages: ["en", "es"] }, "web_chat");
+    expect(several).toContain("Languages: you answer in English and Spanish.");
     expect(several).toMatch(/stay in it/);
+    // The never-say list is the clinic's English words, matched as written: the prompt claims nothing more.
+    expect(several).not.toMatch(/every language/i);
   });
 
   test("Suggest add-on treatments: off keeps it to what was asked, on allows one", () => {
@@ -260,13 +339,89 @@ describe("answerTurn", () => {
     expect(open).toMatchObject({ source: "urgent", urgent: true });
     expect(open.reply).toContain("call the emergency vet now on (415) 555-0911");
     expect(open.reply).toContain("Otherwise, please call Paws Animal Clinic on (415) 555-0123.");
-    expect(open.reply).not.toMatch(/\b911\b/);
+    // 911 only for a person, after the emergency vet.
+    expect(open.reply).toContain("If a person is hurt or in danger, call 911 now.");
+    expect(open.reply.indexOf("emergency vet")).toBeLessThan(open.reply.indexOf("911"));
     const closed = await answerTurn({ facts: VET, channel: "voice", history: [], text: "my dog ate a whole bar of chocolate", responder, now: CLOSED });
     expect(closed.reply).toMatch(/hang up and call the emergency vet on/);
     expect(closed.reply).not.toContain("Otherwise, please call");
     // The same words at a med spa are not urgent: the set is the practice's own.
     const medSpa = await answerTurn({ facts: FACTS, channel: "web_chat", history: [], text: "my cat can't pee and keeps straining", responder: reply("Please call the practice."), now: OPEN });
     expect(medSpa.source).toBe("model");
+  });
+
+  test("a person's own emergency at a veterinary practice gets 911, not the emergency vet", async () => {
+    // The review of 14 October.
+    const voice = await answerTurn({ facts: VET, channel: "voice", history: [], text: "I swallowed a bottle of pills", responder: null, now: OPEN });
+    expect(voice).toMatchObject({ source: "urgent", urgent: true });
+    expect(voice.reply).toContain("hang up and call 911 now");
+    expect(voice.reply).not.toContain("emergency vet");
+    const chat = await answerTurn({ facts: VET, channel: "web_chat", history: [], text: "call 911, my husband collapsed", responder: null, now: OPEN });
+    expect(chat.reply).toContain("If this is an emergency, call 911 now.");
+    expect(chat.reply).not.toContain("emergency vet");
+    for (const text of ["she wants to die", "I took an overdose"]) {
+      const crisis = await answerTurn({ facts: VET, channel: "voice", history: [], text, responder: null, now: OPEN });
+      expect(crisis.reply, text).toContain("hang up and call 911 now");
+    }
+  });
+
+  test("a Spanish urgent message gets the Spanish reply, and never the model", async () => {
+    let asked = false;
+    const result = await answerTurn({
+      facts: { ...FACTS, languages: ["en", "es"] },
+      channel: "web_chat",
+      history: [],
+      text: "No puedo respirar",
+      responder: async () => {
+        asked = true;
+        return "{}";
+      },
+    });
+    expect(asked).toBe(false);
+    expect(result).toMatchObject({ source: "urgent", urgent: true });
+    expect(result.reply).toBe(
+      "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí. Si es una emergencia, llame al 911 ahora. Si no, llame a Radiance Med Spa al (415) 555-0123. Deje un número para que la clínica le llame.",
+    );
+  });
+
+  test("a message in another language never reaches the model: a fixed line in English and Spanish, with 911", async () => {
+    // The review of 14 October: these skipped the urgent screen.
+    for (const text of ["Je n'arrive pas à respirer", "Não consigo respirar", "我不能呼吸"]) {
+      let asked = false;
+      const result = await answerTurn({
+        facts: FACTS,
+        channel: "web_chat",
+        history: [],
+        text,
+        responder: async () => {
+          asked = true;
+          return "{}";
+        },
+      });
+      expect(asked, text).toBe(false);
+      expect(result.source, text).toBe("language");
+      expect(result.reply).toContain("I can only help in English or Spanish.");
+      expect(result.reply).toContain("If this is an emergency, call 911 now.");
+      expect(result.reply).toContain("Si es una emergencia, llame al 911 ahora.");
+      expect(result.reply).toContain("(415) 555-0123");
+    }
+  });
+
+  test("on a call, the urgent and refusal lines never give the published number, which forwards back to us", async () => {
+    // Urgent-help number set to the main line: the direct line instead.
+    const forwarded = { ...FACTS, urgentPhone: FACTS.phone, directLine: "+14155550177" };
+    const urgent = await answerTurn({ facts: forwarded, channel: "voice", history: [], text: "my lips are swelling", responder: null });
+    expect(urgent.reply).toContain(spokenPhone("+14155550177"));
+    expect(urgent.reply).not.toContain(spokenPhone("+14155550199"));
+    // Neither apart from the main line: no number at all.
+    const none = { ...FACTS, urgentPhone: FACTS.phone, directLine: null };
+    const noNumber = await answerTurn({ facts: none, channel: "voice", history: [], text: "my lips are swelling", responder: null });
+    expect(noNumber.reply).not.toContain(spokenPhone("+14155550199"));
+    expect(noNumber.reply).toContain("Otherwise, please call Radiance Med Spa.");
+    expect(refusalLine(none, "voice")).not.toContain(spokenPhone("+14155550199"));
+    expect(refusalLine(none, "voice")).toContain("they get back to people within a day");
+    // In writing, the published number is the one to call.
+    expect(refusalLine(none, "web_chat")).toContain("(415) 555-0199");
   });
 
   test("a model that declines is its own outcome: a fixed, honest line and the clinic's number, never the guard's", async () => {

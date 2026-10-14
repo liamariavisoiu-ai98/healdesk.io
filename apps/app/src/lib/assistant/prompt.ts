@@ -73,7 +73,7 @@ function languagesLine(facts: Pick<AssistantFacts, "languages">): string {
     return `Language: answer in English. If someone writes or speaks another language, say politely, in English, that you can only help in English, and that the practice's team can help otherwise.`;
   }
   const list = `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-  return `Languages: you answer in ${list}. Answer in the language the person uses, if it is one of these, and stay in it for the rest of the conversation. If they use another language, answer in English and say you can help in ${list}. Prices, numbers and the never-say list apply in every language.`;
+  return `Languages: you answer in ${list}. Answer in the language the person uses, if it is one of these, and stay in it for the rest of the conversation. If they use another language, answer in English and say you can help in ${list}. Quote prices exactly as listed, whatever the language.`;
 }
 
 function addOnsLine(facts: Pick<AssistantFacts, "suggestAddOns">): string {

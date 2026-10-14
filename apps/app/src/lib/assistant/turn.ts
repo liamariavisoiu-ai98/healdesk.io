@@ -1,4 +1,11 @@
-import { findUrgentContent, fixedUrgentReply, type UrgentFinding } from "@healdesk/catalog";
+import {
+  findUrgentContent,
+  fixedUrgentReply,
+  messageLanguage,
+  otherLanguageReply,
+  urgentSetFor,
+  type UrgentFinding,
+} from "@healdesk/catalog";
 
 import { isOpenAt } from "@/lib/clinic/opening-hours";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
@@ -25,7 +32,10 @@ export type { AssistantMessage, AssistantPrompt, AssistantResponder, ModelRefusa
  *      animal's at a veterinary practice) and answered with the catalog's
  *      fixed line (fixedUrgentReply): 911, or the emergency vet, then the
  *      clinic's own number. The adapter escalates (an alert to the clinic).
- *   3. Otherwise the model answers from the clinic's facts, as one JSON
+ *   3. A message in a language the screens do not read (messageLanguage:
+ *      neither English nor Spanish) gets a fixed line in English and
+ *      Spanish, with 911 and the clinic's number, and never the model.
+ *   4. Otherwise the model answers from the clinic's facts, as one JSON
  *      object, and the guard (guard.ts) reads its reply; a refused reply is
  *      replaced by a fixed line. A model that declines to answer at all (a
  *      refusal) gets its own fixed line and its own source, "refusal",
@@ -49,7 +59,7 @@ export type BookingCapture = {
 
 export const EMPTY_CAPTURE: BookingCapture = { wants: false, firstName: null, phone: null, window: null, altWindows: [], service: null, fields: {} };
 
-export type TurnSource = "model" | "urgent" | "guard" | "card" | "fallback" | "refusal";
+export type TurnSource = "model" | "urgent" | "guard" | "card" | "fallback" | "refusal" | "language";
 
 export type AssistantTurnResult = {
   /** What the assistant says next. */
@@ -74,31 +84,56 @@ function numberFor(channel: AssistantChannel, e164: string | null): string | nul
 }
 
 /**
+ * The number that reaches a person at the practice, for the channel. On a
+ * call never the published number, which forwards back to the assistant:
+ * the urgent-help number, then the direct line, and none when neither is set
+ * apart from it. In writing, the urgent-help number (lib/setup/urgent.ts),
+ * else the published one.
+ */
+function personNumber(
+  facts: Pick<AssistantFacts, "urgentPhone" | "phone" | "directLine">,
+  channel: AssistantChannel,
+): string | null {
+  if (channel !== "voice") return numberFor(channel, facts.urgentPhone ?? facts.phone);
+  const number = [facts.urgentPhone, facts.directLine].find((n) => n && n !== facts.phone) ?? null;
+  return numberFor(channel, number);
+}
+
+type ReplyFacts = Pick<
+  AssistantFacts,
+  "clinicName" | "urgentPhone" | "phone" | "directLine" | "vetReferralPhone" | "openingHours" | "timeZone"
+>;
+
+function openNow(facts: Pick<AssistantFacts, "openingHours" | "timeZone">, now: Date): boolean | null {
+  try {
+    return isOpenAt(facts.openingHours, now, facts.timeZone);
+  } catch {
+    return null; // a bad time zone: hours unknown, which counts as open
+  }
+}
+
+/**
  * The fixed urgent reply (@healdesk/catalog, fixedUrgentReply) with this
- * clinic's numbers written for the channel: its urgent-help number (else its
- * main one), and at a veterinary practice the emergency referral clinic, with
- * the practice's own number only while it is open. "I've told the team" only
- * once the urgent alert reaches the clinic (URGENT_ALERT_DELIVERED).
+ * clinic's numbers written for the channel (personNumber), in the language
+ * the person wrote in, and at a veterinary practice the emergency referral
+ * clinic, with the practice's own number only while it is open. "I've told
+ * the team" only once the urgent alert reaches the clinic
+ * (URGENT_ALERT_DELIVERED).
  */
 export function urgentReply(
-  facts: Pick<AssistantFacts, "clinicName" | "urgentPhone" | "phone" | "vetReferralPhone" | "openingHours" | "timeZone">,
+  facts: ReplyFacts,
   channel: AssistantChannel,
-  finding: Pick<UrgentFinding, "emergency">,
+  finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">>,
   now: Date,
 ): string {
-  let open: boolean | null = null;
-  try {
-    open = isOpenAt(facts.openingHours, now, facts.timeZone);
-  } catch {
-    open = null; // a bad time zone: hours unknown, which counts as open
-  }
   return fixedUrgentReply({
     channel,
     emergency: finding.emergency,
+    language: finding.language ?? "en",
     clinicName: facts.clinicName,
-    clinicNumber: numberFor(channel, facts.urgentPhone ?? facts.phone),
+    clinicNumber: personNumber(facts, channel),
     referralNumber: numberFor(channel, facts.vetReferralPhone),
-    clinicOpen: open,
+    clinicOpen: openNow(facts, now),
     teamAlerted: URGENT_ALERT_DELIVERED,
   });
 }
@@ -106,18 +141,31 @@ export function urgentReply(
 /**
  * What the person hears when the model declines to answer: honest that it
  * cannot help, and how to reach a person. On the website chat, the clinic's
- * published number; on a call, which already came in on that number, its
- * urgent-help number, which reaches a person and never forwards back here
- * (lib/setup/urgent.ts).
+ * published number; on a call, which already came in on that number, the
+ * number that reaches a person (personNumber), or none.
  */
-export function refusalLine(facts: Pick<AssistantFacts, "clinicName" | "phone" | "urgentPhone">, channel: AssistantChannel): string {
-  const number = numberFor(channel, channel === "voice" ? (facts.urgentPhone ?? facts.phone) : (facts.phone ?? facts.urgentPhone));
+export function refusalLine(
+  facts: Pick<AssistantFacts, "clinicName" | "phone" | "urgentPhone" | "directLine">,
+  channel: AssistantChannel,
+): string {
+  const number = channel === "voice" ? personNumber(facts, channel) : numberFor(channel, facts.phone ?? facts.urgentPhone);
   return (
     `Sorry, that's not something I can help with. ` +
     (number
       ? `The team at ${facts.clinicName} can: please call them on ${number}.`
       : `The team at ${facts.clinicName} can help, and they get back to people within a day.`)
   );
+}
+
+/** The fixed line for a message in a language no screen reads, in English and in Spanish. */
+export function languageLine(facts: ReplyFacts & Pick<AssistantFacts, "specialty">, channel: AssistantChannel): string {
+  return otherLanguageReply({
+    channel,
+    clinicName: facts.clinicName,
+    clinicNumber: personNumber(facts, channel),
+    referralNumber: numberFor(channel, facts.vetReferralPhone),
+    veterinary: urgentSetFor(facts.specialty) === "veterinary",
+  });
 }
 
 const CARD_LINE = "Please don't share card details with me: I've left that number out. The practice handles payment securely itself.";
@@ -212,12 +260,16 @@ export async function answerTurn(input: {
   const base = { personText, capture, handoff: false, end: false, urgent: false };
 
   const now = input.now ?? new Date();
-  const finding = findUrgentContent(personText, facts.specialty);
+  const finding = findUrgentContent(personText, facts.specialty, { clinicName: facts.clinicName });
   if (finding) {
     return { ...base, reply: urgentReply(facts, channel, finding, now), source: "urgent", urgent: true };
   }
   if (card.found) {
     return { ...base, reply: CARD_LINE, source: "card" };
+  }
+  // A language the screens cannot read: no model, a fixed line in English and Spanish.
+  if (messageLanguage(personText) === "other") {
+    return { ...base, reply: languageLine(facts, channel), source: "language" };
   }
   if (!input.responder) {
     return { ...base, reply: FAILURE_LINE, source: "fallback" };

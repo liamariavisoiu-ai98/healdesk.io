@@ -194,6 +194,24 @@ describeDb("the web chat", () => {
     expect(email).toContain("[card number removed]");
   });
 
+  test("a language saved before the screens read it is never answered in: the prompt offers only English and Spanish", async () => {
+    const clinic = await liveWebClinic("chat-languages");
+    // The database still accepts the older list; the engine reads it through SCREENED_LANGUAGES.
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, languages) values ($1, '{en,fr,es}')
+         on conflict (clinic_id) do update set languages = excluded.languages`,
+        [clinic.clinicId],
+      ),
+    );
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder, seen } = scripted(() => ({ reply: "We're open weekdays." }));
+    await sendWebChatMessage(clinic, start.token, "When are you open?", { responder });
+    expect(seen[0]!.system.stable).toContain("Languages: you answer in English and Spanish.");
+    expect(seen[0]!.system.stable).not.toContain("French");
+  });
+
   test("the guard replaces an off-menu price and a never-say phrase", async () => {
     const clinic = await liveWebClinic("chat-guard");
     const start = await startWebChat(clinic);

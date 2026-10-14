@@ -40,7 +40,7 @@ resource "aws_vpc_security_group_ingress_rule" "alb_http" {
 
 resource "aws_vpc_security_group_egress_rule" "alb_to_web" {
   security_group_id            = aws_security_group.alb.id
-  description                  = "To the web tasks' target port, for traffic and health checks"
+  description                  = "To the web tasks on their target port, for traffic and health checks"
   ip_protocol                  = "tcp"
   from_port                    = local.web_target_port
   to_port                      = local.web_target_port

@@ -180,17 +180,19 @@ resource "aws_sns_topic_subscription" "ses_events_app" {
   raw_message_delivery   = false
 
   # SNS retries an HTTPS delivery the app did not answer 2xx: a deploy, a
-  # restart or a database blip loses no event. Twenty tries over about an
-  # hour, then the event is dropped; the outbox's own retries do not depend
-  # on it, only the bounce does.
+  # restart or a database blip loses no event. Twelve tries over about
+  # three quarters of an hour, then the event is dropped; SNS refuses a
+  # policy whose retries add up to more than an hour (the first apply, 14
+  # October 2026, failed on twenty tries). The outbox's own retries do not
+  # depend on it, only the bounce does.
   delivery_policy = jsonencode({
     healthyRetryPolicy = {
-      minDelayTarget     = 5
+      minDelayTarget     = 10
       maxDelayTarget     = 600
-      numRetries         = 20
+      numRetries         = 12
       numNoDelayRetries  = 0
       numMinDelayRetries = 2
-      numMaxDelayRetries = 10
+      numMaxDelayRetries = 3
       backoffFunction    = "exponential"
     }
     throttlePolicy = {

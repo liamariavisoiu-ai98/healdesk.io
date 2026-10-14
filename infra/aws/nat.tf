@@ -62,7 +62,7 @@ resource "aws_vpc_security_group_egress_rule" "nat_https" {
   count = var.nat_mode == "instance" ? 1 : 0
 
   security_group_id = aws_security_group.nat[0].id
-  description       = "HTTPS out: the forwarded connections and the instance's own package updates"
+  description       = "HTTPS out: the forwarded connections and the package updates of the instance itself"
   ip_protocol       = "tcp"
   from_port         = 443
   to_port           = 443

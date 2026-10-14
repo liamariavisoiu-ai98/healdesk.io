@@ -218,6 +218,41 @@ variables {
 run "production_defaults" {
   command = plan
 
+  # --- what the vendors' APIs refuse and a mocked plan cannot see (the first
+  # apply, 14 October 2026, failed on all three) ---
+  assert {
+    condition = alltrue([
+      for d in concat(
+        [
+          aws_security_group.alb.description, aws_security_group.tasks.description, aws_security_group.rds.description,
+          aws_vpc_security_group_ingress_rule.alb_https.description, aws_vpc_security_group_ingress_rule.alb_http.description,
+          aws_vpc_security_group_egress_rule.alb_to_web.description, aws_vpc_security_group_ingress_rule.tasks_from_alb.description,
+          aws_vpc_security_group_egress_rule.tasks_https.description, aws_vpc_security_group_egress_rule.tasks_postgres.description,
+          aws_vpc_security_group_ingress_rule.rds_from_tasks.description,
+        ],
+        aws_security_group.nat[*].description, aws_security_group.endpoints[*].description,
+        aws_vpc_security_group_ingress_rule.nat_from_tasks[*].description, aws_vpc_security_group_egress_rule.nat_https[*].description,
+        aws_vpc_security_group_ingress_rule.endpoints_from_tasks[*].description,
+      ) : d == null || (length(d) < 256 && can(regex("^[a-zA-Z0-9. _:/()#,@+=&;{}!$*\\[\\]-]*$", d)))
+    ])
+    error_message = "EC2 refuses a security group or rule description over 255 characters or with a character outside a-zA-Z0-9. _-:/()#,@[]+=&;{}!$* (no apostrophe)."
+  }
+
+  assert {
+    condition     = length(cloudflare_dns_record.app.comment) <= 100 && length(cloudflare_dns_record.internal.comment) <= 100
+    error_message = "Cloudflare refuses a DNS record comment over 100 characters."
+  }
+
+  assert {
+    condition = (
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.numMaxDelayRetries *
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.maxDelayTarget +
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.numRetries *
+      jsondecode(aws_sns_topic_subscription.ses_events_app[0].delivery_policy).healthyRetryPolicy.minDelayTarget < 2400
+    )
+    error_message = "SNS refuses a delivery policy whose retries add up to more than an hour; the delays at the longest wait, plus one short delay per try, must leave room for the backoff."
+  }
+
   # --- web task: the app, the TLS sidecar and the shared worker, environment versus secrets ---
   assert {
     condition     = toset([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c.name]) == toset(["app", "tls-proxy", "worker"])

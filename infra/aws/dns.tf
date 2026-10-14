@@ -68,7 +68,7 @@ resource "cloudflare_dns_record" "app" {
   content = aws_lb.main.dns_name
   ttl     = 300
   proxied = false
-  comment = "Terraform infra/aws: the public origin. DNS only: proxying would decrypt patient traffic at Cloudflare."
+  comment = "infra/aws: the public origin. DNS only: a proxy would decrypt patient traffic at Cloudflare."
 }
 
 resource "cloudflare_dns_record" "internal" {
@@ -78,5 +78,5 @@ resource "cloudflare_dns_record" "internal" {
   content = aws_lb.main.dns_name
   ttl     = 300
   proxied = false
-  comment = "Terraform infra/aws: HEALDESK_APP_URL, apps/web's signed calls only. DNS only: proxying would decrypt them at Cloudflare."
+  comment = "infra/aws: HEALDESK_APP_URL, signed calls only. DNS only: a proxy would decrypt them."
 }

@@ -243,8 +243,13 @@ The catalogue ids are the plan's Annex X.
 
 ## 7. Engine and runtime (built by the plan; the runtime consumes it)
 
-- `respond(...)` and `recordTurn(...)`: `recordTurn` is the only writer to
-  `conversation_turns`.
+- **No turn is stored.** `recordTurn(...)` and `conversation_turns` are dropped
+  (owner, 13 October 2026): the transcript is emailed to the practice when the
+  conversation ends and healdesk keeps no copy of it, and BAA 1.5.0 deletes
+  the outbox's copy once delivery is confirmed
+  (`docs/design/transcript-email-2026-10-13.md`). One brain,
+  `apps/app/src/lib/assistant/*`, answers the call and the web chat
+  (`answerTurn`), on one model client the Meta front door shares.
 - **Channel events:**
   - `live`: setup done, runtime present, the channel's audit passed;
   - `first_answer`: the first inbound patient conversation answered on a live
@@ -258,8 +263,10 @@ The catalogue ids are the plan's Annex X.
   with the call's or conversation's own reference (signatures in §2).
 - **Also provided:**
   - the pre-model urgent matcher, keyed by specialty, with human and veterinary
-    sets;
-  - per-channel engine config (model, effort, `max_tokens`, streaming).
+    sets (`findUrgentContent(text, specialty)` in packages/catalog), and the
+    fixed urgent replies (`fixedUrgentReply`);
+  - per-channel engine config (model, effort, `max_tokens`, timeout), with no
+    streaming: the guard reads the whole reply.
 
 ## 8. New environment variables
 

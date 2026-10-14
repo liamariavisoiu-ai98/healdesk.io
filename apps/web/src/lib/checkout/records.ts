@@ -440,3 +440,41 @@ export async function agreementSpent(agreementId: string): Promise<boolean> {
   const intents = await indexRows(client, CHECKOUT_INTENTS, INTENT_INDEX_COLUMNS);
   return intents.some(({ cells }) => String(cells[4] ?? "") === agreementId && Boolean(cells[7]));
 }
+
+/** What /admin/setup shows of a purchase: the plan its latest press of Pay chose, and the billing period. */
+export type ChosenPackage = { plan: string; billingInterval: string | null };
+
+/**
+ * The package each purchase chose, by ref, from the latest press of Pay that
+ * opened a Session (or the latest at all when none has), for the setup
+ * requests' progress (plan Part A2: "opened · package · signed · paid"). One
+ * read of the index, then one row per purchase found; a ref with no press of
+ * Pay, or whose record does not open, is simply absent. Plan ids and the
+ * billing period only, which /admin already shows of every clinic.
+ */
+export async function packagesByRef(refs: readonly string[]): Promise<Map<string, ChosenPackage>> {
+  const out = new Map<string, ChosenPackage>();
+  const wanted = new Set(refs);
+  if (wanted.size === 0) return out;
+  const key = requireSecret();
+  const client = await store();
+  const latest = new Map<string, { row: number; attempt: number; live: boolean }>();
+  for (const { row, cells } of await indexRows(client, CHECKOUT_INTENTS, INTENT_INDEX_COLUMNS)) {
+    const ref = String(cells[1] ?? "");
+    if (!wanted.has(ref)) continue;
+    const attempt = Number(cells[2] ?? 0) || 0;
+    const live = !cells[6];
+    const seen = latest.get(ref);
+    const better =
+      !seen || (live && !seen.live) || (live === seen.live && (attempt > seen.attempt || (attempt === seen.attempt && row > seen.row)));
+    if (better) latest.set(ref, { row, attempt, live });
+  }
+  for (const [ref, { row }] of latest) {
+    const sealed = sealedOf(CHECKOUT_INTENTS, await readRow(client, CHECKOUT_INTENTS, row));
+    const opened = openSealedRecord(sealed, key);
+    const checked = opened === null ? null : checkIntentRecord(opened);
+    if (!checked || !checked.ok || checked.record.ref !== ref) continue;
+    out.set(ref, { plan: checked.intent.plan, billingInterval: checked.intent.billingInterval ?? null });
+  }
+  return out;
+}

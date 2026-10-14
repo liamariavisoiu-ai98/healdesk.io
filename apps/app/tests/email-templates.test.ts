@@ -40,6 +40,10 @@ import {
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
 import { addressConfirmReason } from "@/lib/email/templates/address_change_confirm";
+import {
+  ADDRESS_CHANGING_ENTRY,
+  addressMovingReason,
+} from "@/lib/email/templates/address_changing";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
@@ -333,6 +337,38 @@ describe("each template's output", () => {
       });
     });
   }
+});
+
+describe("O5 from ops' changeClinicEmail", () => {
+  const ops = (isToNewAddress: boolean) =>
+    ADDRESS_CHANGING_ENTRY.render(
+      { ...ADDRESS_CHANGING_ENTRY.fixture, isFromOperator: true, isToNewAddress },
+      {
+        ...contextFor("address_changing"),
+        reason: isToNewAddress
+          ? addressMovingReason("Radiance Med Spa")
+          : clinicReason("Radiance Med Spa"),
+      },
+    );
+
+  test("to the old address and to the new: the snapshots", () => {
+    expect(ops(false)).toMatchSnapshot();
+    expect(ops(true)).toMatchSnapshot();
+  });
+
+  test("both name the end of the objection window, how to object, and carry no stop link or token", () => {
+    for (const isToNewAddress of [false, true]) {
+      const r = ops(isToNewAddress);
+      expect(r.text).toContain("takes effect on Friday, October 9 at 10:32 AM EDT");
+      expect(r.text).toContain("reply to this email before Friday, October 9 at 10:32 AM EDT");
+      expect(r.text).not.toContain("Stop this change");
+      expect(linkProblems(r, "address_changing")).toEqual([]);
+      expect(copyProblems([r.subject, r.text].join("\n"))).toEqual([]);
+    }
+    expect(ops(true).text).toContain(
+      "You're receiving this because Radiance Med Spa is moving its healdesk address to this one.",
+    );
+  });
 });
 
 describe("the welcome email (B1)", () => {

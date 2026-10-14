@@ -14,6 +14,7 @@ import type { ActorContext } from "@/lib/audit";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
+import { readPhoneStepsNumber } from "@/lib/channels/state";
 import { requirePortal } from "@/lib/portal/access";
 import { portalActor } from "@/lib/portal/actor";
 import {
@@ -40,6 +41,7 @@ import type { SetupScreenId } from "@/lib/setup/screen-ids";
 import { skipCost } from "@/lib/setup/skip-costs";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { urgentHelpField } from "@/lib/setup/urgent";
+import { withTenant } from "@/lib/tenant";
 
 import { HelpPanel } from "../HelpPanel";
 
@@ -127,6 +129,13 @@ export default async function SetupPage({
   const { previous } = neighbours(state.screens, screen);
   const backHref = previous ? `${home}/setup?s=${previous}` : null;
   const audience = audienceFor(state.clinic.specialty);
+  // AYA's number, for the channel screen's "Email these steps", once phone is ready on our side.
+  const ayaNumber =
+    screen === "channels"
+      ? await withTenant({ clinicId: portal.clinicId, actor: who }, (tx) =>
+          readPhoneStepsNumber(tx.db, tx.clinicId),
+        )
+      : null;
 
   return (
     <main className="mx-auto min-h-screen max-w-xl px-4 py-10">
@@ -145,6 +154,7 @@ export default async function SetupPage({
           actor: who,
           steppedUp: actor.steppedUp,
           notice: screen === "calendar" ? notice : null,
+          phoneSteps: ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null,
         })}
       </section>
       <HelpPanel audience={audience} />
@@ -245,6 +255,8 @@ type Nav = {
   steppedUp: boolean;
   /** What Google's return, or a calendar button, said happened: the calendar step only. */
   notice: CalendarNotice | null;
+  /** AYA's number as printed, once phone is ready on our side: the channel screen only. */
+  phoneSteps: { numberLabel: string } | null;
 };
 
 function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
@@ -435,6 +447,7 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           slug={nav.slug}
           backHref={nav.backHref}
           callBookingUrl={helpContacts().callBookingUrl}
+          phoneSteps={nav.phoneSteps}
           rows={state.channels.map((c) => {
             const step = channelNextStep(c, finished);
             return {

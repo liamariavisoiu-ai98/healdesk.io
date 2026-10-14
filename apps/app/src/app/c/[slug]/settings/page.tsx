@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { readPhoneStepsNumber } from "@/lib/channels/state";
 import { requirePortal } from "@/lib/portal/access";
 import { readSignInFactors } from "@/lib/portal/devices";
 import { portalDay, portalMoment } from "@/lib/portal/format";
@@ -8,6 +9,8 @@ import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { readCalendarCard } from "@/lib/portal/settings-calendar";
 import { readSettingsView } from "@/lib/portal/settings-view";
 import { sessionBinding } from "@/lib/portal/step-up";
+import { formatPhone } from "@/lib/setup/help";
+import { withTenant } from "@/lib/tenant";
 
 import { PortalShell } from "../PortalShell";
 
@@ -78,6 +81,9 @@ export default async function SettingsPage({
     actor: page.actorContext,
     outcome: calendar,
   });
+  const ayaNumber = await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
+    readPhoneStepsNumber(tx.db, tx.clinicId),
+  );
   const factors = await readSignInFactors(portal.userId, await sessionBinding(portal));
   const tz = page.state.clinic.timezone;
   const settingsPath = `/c/${portal.clinicSlug}/settings`;
@@ -88,7 +94,10 @@ export default async function SettingsPage({
       <p className="text-muted mt-2">Every switch saves the moment you change it.</p>
       <FeedbackProvider>
         <div className="mt-6 grid gap-6">
-          <ChannelsCard view={view} />
+          <ChannelsCard
+            view={view}
+            phoneSteps={ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null}
+          />
           <TalkCard view={view} />
           <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />
           <PaymentsCard view={view} connectOutcome={typeof connect === "string" ? connect : null} />

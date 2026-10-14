@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -47,8 +47,7 @@ describe("analytics allowlist", () => {
     }
   });
 
-  it("keeps third-party scripts off the purchase-complete page and the console", () => {
-    expect(isAnalyticsExcludedPath("/get-started/done")).toBe(true);
+  it("keeps third-party scripts off the console and the personalised demos", () => {
     expect(isAnalyticsExcludedPath("/admin/ops")).toBe(true);
     expect(isAnalyticsExcludedPath("/demo/smith-dental-k7q2mz9xwa")).toBe(true);
     expect(isAnalyticsExcludedPath("/pricing")).toBe(false);
@@ -104,5 +103,12 @@ describe("the vendor client", () => {
     // wiring is read from the source: without this line nothing is scrubbed.
     const source = readFileSync(new URL("../components/analytics/PostHogProvider.tsx", import.meta.url), "utf8");
     expect(source).toMatch(/before_send: scrubEvent,/);
+  });
+});
+
+describe("the purchase-complete page", () => {
+  it("is /welcome alone: the orphaned /get-started/done, which Stripe no longer returns to, is gone", () => {
+    expect(existsSync(new URL("../app/get-started/done/page.tsx", import.meta.url))).toBe(false);
+    expect(existsSync(new URL("../app/welcome/route.ts", import.meta.url))).toBe(true);
   });
 });

@@ -124,11 +124,12 @@ export function track(event: EventName, props?: Record<string, unknown>): void {
 
 /** Paths where no third-party script may run, consent or not. */
 export function isAnalyticsExcludedPath(pathname: string): boolean {
-  // /get-started/done is the one page where a completed purchase, a clinic
-  // name and a specialty coexist; /admin is the operator's console. /demo/
-  // carries a personalised demo's slug in its URL, and the slug is the only
-  // key to that demo: a recorded pageview would hand a vendor a working link.
-  return pathname.startsWith("/get-started/done") || pathname.startsWith("/admin") || pathname.startsWith("/demo/");
+  // /admin is the operator's console. /demo/ carries a personalised demo's
+  // slug in its URL, and the slug is the only key to that demo: a recorded
+  // pageview would hand a vendor a working link. The purchase-complete page
+  // is /welcome, a route handler that renders outside the layout, so no
+  // vendor script ever loads there.
+  return pathname.startsWith("/admin") || pathname.startsWith("/demo/");
 }
 
 /**

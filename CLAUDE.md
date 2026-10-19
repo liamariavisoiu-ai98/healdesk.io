@@ -370,6 +370,15 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   the step, never the time. Never "live in two minutes".
 - **No opening dates.** A channel is sold only once it is ready; one that isn't
   comes off the product list and out of the copy (owner, 6 October 2026).
+- **Copy first, then the switch** (owner, 19 October 2026). Client-facing copy
+  states a feature of a channel that is sold as on before production does it,
+  phrased as design where a page describes behaviour ("AYA is designed to
+  ..."), and never the other way round: nothing is switched on and then the
+  wording changed. What production does not do yet is an item in
+  `LAUNCH_PROMISES` (`apps/web/src/lib/admin/seo/launch.ts`), shown at
+  `/admin/seo`; no clinic goes live while an item that blocks go-live is open.
+  Move an item to `on` in the commit that makes production do it, and add one
+  in the commit that adds a promise.
 - **Pricing is per product, in usage steps of 100** (owner's pricing sheet,
   13 October 2026; `packages/catalog/src/plans.ts` holds it). Five packages:
   AYA Voice, AYA Web Chat, AYA Meta Chat (which includes website chat), Voice +
@@ -512,6 +521,11 @@ https://claude.ai/code/artifact/6a71b399-b0bc-4317-9a18-21aebd2e9aca.
   prints**: `site` for the company, the catalog for prices, the registry for
   articles. `legalName` stays out of the markup, keeping the operating
   company on the Terms and Privacy pages only.
+- **`/admin/seo` shows the strategy as state** (owner-approved 19 October
+  2026): the owner's steps with ticks, ten checks run against the live site,
+  pages by stage, the roadmap, the AI-answer panel and the launch tracker.
+  Ticks and panel runs are append-only tabs in the marketing Sheet
+  (`lib/admin/seo/store.ts`); step ids are stable, so never reuse one.
 - **The sitemap carries real edit dates**, typed on each route in
   `lib/seo.ts` or taken from an article's `lastReviewed`, never the build
   time. IndexNow pings the sitemap's URLs after each production deployment

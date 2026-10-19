@@ -12,6 +12,7 @@ import type { BillingStatus, ChannelWaitingOn } from "@/db/schema";
 import type { BillingSummary } from "@/lib/billing/summary";
 import { isPaused, type ChannelStatus } from "@/lib/channels/state";
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
+import type { PracticeState } from "@/lib/engine/practice/state";
 import { actionLine, channelNextStep } from "@/lib/setup/channels";
 import { stepsLeft, wizardFinished } from "@/lib/setup/screens";
 import type { SetupState } from "@/lib/setup/state";
@@ -119,6 +120,8 @@ export function accountStateFrom(input: {
   depositsOn: boolean;
   paymentConnected: boolean;
   calendar: CalendarConnectionView | null;
+  /** Where the practice questions stand, as readPracticeState read it: the tracker's last two stages. */
+  practice: PracticeState;
   summary: BillingSummary | null;
   addressUndeliverable: boolean;
   now: Date;
@@ -126,7 +129,7 @@ export function accountStateFrom(input: {
   const { state, summary, now } = input;
   const finished = wizardFinished(state.screens, state.progress);
   const voice = state.channels.some((c) => c.channel === "voice");
-  const tracker = input.calendar ? buildTracker(state, input.calendar) : null;
+  const tracker = input.calendar ? buildTracker(state, input.calendar, input.practice) : null;
   const paused = isPaused({ pausedAt: input.pausedAt, pausedUntil: input.pausedUntil }, now);
   return {
     clinicId: state.clinic.id,

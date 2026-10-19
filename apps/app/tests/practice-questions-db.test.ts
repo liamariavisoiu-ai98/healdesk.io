@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
-import type { AssistantResponder } from "@/lib/assistant/turn";
 import { channelsWithAuditPassed } from "@/lib/channels/audit-seam";
 import {
   duePracticeRuns,
   runOnePracticeRun,
   sweepPracticeQuestions,
 } from "@/lib/engine/practice/job";
-import type { PracticeJudge } from "@/lib/engine/practice/judge";
 import {
+  afterPass,
   claimPracticeRun,
   practiceQuestionsGate,
   readPracticeInputs,
@@ -16,11 +15,14 @@ import {
   recordPracticeRun,
   requestPracticeQuestions,
 } from "@/lib/engine/practice/store";
+import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { runOperation, type Operator } from "@/lib/ops/api";
+import { readHomeFacts } from "@/lib/portal/home";
 import { saveKnowledge } from "@/lib/portal/knowledge";
 import { saveSetupScreen, type SaveContext } from "@/lib/setup/save";
 import { loadSetupState } from "@/lib/setup/state";
 import { buildTracker } from "@/lib/setup/tracker";
+import { readAccountState } from "@/lib/support/account-reader";
 import { withTenant } from "@/lib/tenant";
 
 import {
@@ -33,6 +35,7 @@ import {
 } from "./setup/db";
 import { inTenant } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
+import { practiceJudge, practiceModel } from "./setup/practice";
 
 /**
  * The practice questions against the database (plan Part G): a save asks for
@@ -41,8 +44,10 @@ import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic"
  * Anthropic), and records what it came to; a pass approves the version it
  * read and completes the tracker; a failure on the clinic's own data queues
  * O9; a judge's failure opens a review that ops lists and decides through the
- * envelope; the operator's approval stays as an override; the gate never
- * holds a live channel; and the runtime role can delete none of it.
+ * envelope, about that run's own cases at the version they read and nothing
+ * else; an override the retired script approval wrote is not a run of the
+ * questions; the gate never holds a live channel; and the runtime role can
+ * delete none of it.
  */
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
@@ -61,30 +66,8 @@ function ctx(): SaveContext {
   };
 }
 
-/** The model, faked: careful answers, with the listed price, or a wrong one when asked to. */
-function model(price = "$199"): AssistantResponder & { calls: number } {
-  const fn = (async ({ messages }) => {
-    fn.calls += 1;
-    const last = messages[messages.length - 1]!.content;
-    const said = (reply: string) => JSON.stringify({ reply, booking: { wants: false } });
-    if (/How much is Signature facial/.test(last)) return said(`Signature facial is ${price}.`);
-    if (/How much does/.test(last))
-      return said(
-        "There's no price for that one, but the team can go through it at a consultation.",
-      );
-    if (/poem/.test(last))
-      return said("I can only help with questions about the practice. What can I help with?");
-    if (/validate|lift|music|charge|fountain/.test(last))
-      return said("I don't have that information, but the team can get back to you.");
-    return said("That's one for the practice's clinicians; would you like a consultation?");
-  }) as AssistantResponder & { calls: number };
-  fn.calls = 0;
-  return fn;
-}
-
-const judge =
-  (verdict: "pass" | "fail"): PracticeJudge =>
-  async () => ({ verdict, reason: verdict === "pass" ? "Fine." : "It reassured." });
+const model = practiceModel;
+const judge = practiceJudge;
 
 async function setAnswers(price = 199): Promise<void> {
   expect(
@@ -341,6 +324,77 @@ describeDb("the practice questions, against the database", () => {
         ).rows[0],
     );
     expect(reused).toEqual({ all: true });
+  });
+
+  test("a pass reads the same everywhere: the tracker's last two stages are done on Home, in the support chat's get_account_state and on the console's clinic cards", async () => {
+    await setAnswers();
+    const stages = (rows: { id?: string; code?: string; state?: string; status?: string }[]) =>
+      rows
+        .map((r) => [r.id ?? r.code, r.state ?? r.status])
+        .filter(([id]) => id === "built" || id === "practice_questions");
+    // Each of the three, as its reader reads the clinic.
+    const home = async () => {
+      const state = await loadSetupState({
+        clinicId: clinic.clinicId,
+        userId: clinic.userId,
+        actor: ACTOR,
+      });
+      const facts = await readHomeFacts({
+        clinicId: clinic.clinicId,
+        address: state!.address,
+        actor: ACTOR,
+        channels: state!.channels,
+      });
+      const calendar = await getCalendarConnection(clinic.clinicId, { actor: ACTOR });
+      return stages(
+        buildTracker(state!, calendar, facts.practice, facts.goLive ?? undefined).stages,
+      );
+    };
+    const support = async () =>
+      stages(
+        (await readAccountState({
+          clinicId: clinic.clinicId,
+          userId: clinic.userId,
+          actor: ACTOR,
+        }))!.account.stageRows,
+      );
+    const cards = async () => {
+      const outcome = await runOperation("listClinicCards", {}, OPERATOR);
+      const card = (
+        outcome.body as {
+          data: {
+            cards: {
+              id: string;
+              tracker: { id: string; state: string }[];
+              trackerLeft: string[];
+            }[];
+          };
+        }
+      ).data.cards.find((c) => c.id === clinic.clinicId)!;
+      expect(card.trackerLeft.includes("Practice questions passed")).toBe(
+        card.tracker.find((s) => s.id === "practice_questions")!.state !== "done",
+      );
+      return stages(card.tracker);
+    };
+    const NOT_YET = [
+      ["built", "not_done"],
+      ["practice_questions", "not_done"],
+    ];
+    expect([await home(), await support(), await cards()]).toEqual([NOT_YET, NOT_YET, NOT_YET]);
+
+    const runId = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, runId, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("pass"),
+      }),
+    ).toBe("passed");
+    const DONE = [
+      ["built", "done"],
+      ["practice_questions", "done"],
+    ];
+    expect([await home(), await support(), await cards()]).toEqual([DONE, DONE, DONE]);
   });
 
   test("a wrong price the clinic's own answer states queues O9, naming the section and a count, tells ops, and approves nothing", async () => {
@@ -623,29 +677,296 @@ describeDb("the practice questions, against the database", () => {
     expect(await gate("voice")).toEqual({ open: true, why: "live" });
   });
 
-  test("the operator's approval stays as an override, recorded with the operator, which the tracker and the gate read", async () => {
+  test("an override the retired script approval wrote is not a run of the questions: the tracker, the gate and the sweep read past it", async () => {
     await setAnswers();
-    const outcome = await runOperation(
-      "approveAgentConfig",
-      { clinicId: clinic.clinicId, approvedBy: "Laura Owner" },
-      OPERATOR,
+    // Nothing waits: the run the answers asked for is out of the way.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update practice_question_runs set status = 'superseded', finished_at = now() where status = 'queued'`,
+      ),
     );
-    expect((outcome.body as { data: { status: string } }).data.status).toBe("updated");
-    const override = (await runs()).find((r) => r.reason === "override")!;
-    expect(override).toMatchObject({
-      status: "passed",
-      override_label: "Laura Owner (recorded by ops@healdesk.test)",
-    });
+    // What ops approveAgentConfig wrote until 19 October 2026: a passed run
+    // with the operator's label, the inputs as they stand, and no cases.
+    const read = (await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      readPracticeInputs(tx),
+    ))!;
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `insert into practice_question_runs (clinic_id, status, reason, requested_at, run_after, started_at, finished_at, input_version, override_label)
+         values ($1, 'passed', 'override', now(), now(), now(), now(), $2, 'Laura Owner (recorded by ops@healdesk.test)')`,
+        [clinic.clinicId, read.inputVersion],
+      ),
+    );
     const practice = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
       readPracticeState(tx),
     );
-    expect(practice.latest).toMatchObject({ status: "passed", overridden: true });
-    const events = (
-      await getMigratorPool().query(
-        `select metadata from security_events where event = 'agent_config_approved' order by occurred_at desc limit 1`,
-      )
-    ).rows;
-    expect(events[0]!.metadata).toMatchObject({ override: "practice_questions" });
+    expect(practice).toEqual({ pending: false, latest: null });
+    expect(
+      await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        practiceQuestionsGate(tx, "web"),
+      ),
+    ).toEqual({ open: false, why: "not_run" });
+    const state = await loadSetupState({
+      clinicId: clinic.clinicId,
+      userId: clinic.userId,
+      actor: ACTOR,
+    });
+    expect(
+      buildTracker(state!, CALENDAR, practice)
+        .stages.filter((s) => s.id === "built" || s.id === "practice_questions")
+        .map((s) => s.state),
+    ).toEqual(["not_done", "not_done"]);
+    // The sweep asks the questions themselves, as for a clinic never asked.
+    await sweepPracticeQuestions({ now: new Date() });
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([
+      { reason: "sweep" },
+    ]);
+  });
+
+  test("a run left in review with its review gone, as the retired script approval left one, is asked again by the sweep, once", async () => {
+    await setAnswers();
+    const runId = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, runId, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("fail"),
+      }),
+    ).toBe("in_review");
+    // What "Record approval" did until 19 October 2026: superseded the open
+    // review and recorded an override run, which counts for nothing now.
+    await inTenant(clinic.clinicId, async (c) => {
+      await c.query(`update audit_review_queue set status = 'superseded' where run_id = $1`, [
+        runId,
+      ]);
+      await c.query(
+        `insert into practice_question_runs (clinic_id, status, reason, requested_at, run_after, started_at, finished_at, override_label)
+         values ($1, 'passed', 'override', now(), now(), now(), clock_timestamp(), 'Laura Owner (recorded by ops@healdesk.test)')`,
+        [clinic.clinicId],
+      );
+    });
+    const gate = () =>
+      withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        practiceQuestionsGate(tx, "web"),
+      );
+    expect(await gate()).toEqual({ open: false, why: "in_review" });
+    // No one can decide it: the queue hides a superseded review, and refuses it.
+    const listed = (
+      (await runOperation("listPracticeReviews", {}, OPERATOR)).body as {
+        data: { reviews: { runId: string }[] };
+      }
+    ).data.reviews;
+    expect(listed.filter((r) => r.runId === runId)).toEqual([]);
+
+    // The inputs are the same, so only the stalled run makes the sweep ask.
+    await sweepPracticeQuestions({ now: new Date() });
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([
+      { reason: "sweep" },
+    ]);
+    await sweepPracticeQuestions({ now: new Date() });
+    expect((await runs()).filter((r) => r.status === "queued")).toHaveLength(1);
+    const again = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, again, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("pass"),
+      }),
+    ).toBe("passed");
+    expect(await gate()).toEqual({ open: true, why: "passed" });
+  });
+
+  test("a run that could not reach the model after all its attempts is asked again after its back-off, and ops is told once after three in a row", async () => {
+    await setAnswers();
+    const unreachable: typeof judge = () => async () => {
+      throw new Error("unreachable");
+    };
+    /** The clinic's queued run, tried until it gives up: three attempts, as the job's retries would. */
+    const errorOut = async (): Promise<void> => {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const id = await dueQueued();
+        const status = await runOnePracticeRun(clinic.clinicId, id, {
+          responder: model(),
+          metaResponder: null,
+          judge: unreachable("fail"),
+        });
+        expect(status, `attempt ${attempt}`).toBe(attempt < 3 ? "queued" : "error");
+      }
+    };
+    const queued = async () => (await runs()).filter((r) => r.status === "queued");
+    const alerts = async () =>
+      (
+        await getMigratorPool().query<{ n: number }>(
+          `select count(*)::int as n from ops_alerts
+            where event = 'practice_question_failed' and fields->>'clinicId' = $1 and fields->>'outcome' = 'errors_in_a_row'`,
+          [clinic.clinicId],
+        )
+      ).rows[0]!.n;
+    const hours = (n: number) => new Date(Date.now() + n * 60 * 60_000);
+
+    await errorOut();
+    // An error opens no review; Home says she answers them again shortly, and the sweep sees to it.
+    const [none] = await inTenant(
+      clinic.clinicId,
+      async (c) => (await c.query(`select count(*)::int as n from audit_review_queue`)).rows,
+    );
+    expect(none).toEqual({ n: 0 });
+    await sweepPracticeQuestions({ now: new Date() });
+    expect(await queued()).toEqual([]);
+    await sweepPracticeQuestions({ now: hours(1.1) });
+    expect(await queued()).toMatchObject([{ reason: "sweep" }]);
+
+    // The second in a row: six hours.
+    await errorOut();
+    await sweepPracticeQuestions({ now: hours(1.1) });
+    expect(await queued()).toEqual([]);
+    await sweepPracticeQuestions({ now: hours(6.1) });
+    expect(await queued()).toHaveLength(1);
+    expect(await alerts()).toBe(0);
+
+    // The third: a day, and ops is told, once for the streak.
+    await errorOut();
+    await sweepPracticeQuestions({ now: hours(6.1) });
+    expect(await queued()).toEqual([]);
+    expect(await alerts()).toBe(1);
+    await sweepPracticeQuestions({ now: hours(12) });
+    expect(await alerts()).toBe(1);
+    await sweepPracticeQuestions({ now: hours(24.1) });
+    expect(await queued()).toHaveLength(1);
+  });
+
+  test("a review's decision is about its own run: refused once what the questions read has changed, which asks for the run that replaces it", async () => {
+    await setAnswers();
+    const runId = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, runId, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("fail"),
+      }),
+    ).toBe("in_review");
+    const [review] = await inTenant(
+      clinic.clinicId,
+      async (c) =>
+        (
+          await c.query<{ id: string }>(`select id from audit_review_queue where run_id = $1`, [
+            runId,
+          ])
+        ).rows,
+    );
+    const decide = async (decision: "pass" | "fail") =>
+      (
+        (
+          await runOperation(
+            "decidePracticeReview",
+            { clinicId: clinic.clinicId, reviewId: review!.id, decision },
+            OPERATOR,
+          )
+        ).body as { data: { status: string; message?: string } }
+      ).data;
+
+    // The clinic changes a policy the cases read, and that change asks for a run.
+    await saveKnowledge(
+      { clinicId: clinic.clinicId, userId: clinic.userId, actorLabel: "Front desk Mac" },
+      "policies",
+      { policies: ["Cancel 48 hours ahead."] },
+      new Date(),
+    );
+    for (const decision of ["pass", "fail"] as const) {
+      expect(await decide(decision)).toEqual({
+        status: "refused",
+        message: expect.stringMatching(
+          /^What the practice questions read has changed since this run/,
+        ),
+      });
+    }
+    expect((await runs()).filter((r) => r.status === "queued")).toHaveLength(1);
+    // With nothing asked for (a writer that does not ask), the refusal asks.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update practice_question_runs set status = 'superseded', finished_at = now() where status = 'queued'`,
+      ),
+    );
+    expect((await decide("pass")).status).toBe("refused");
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([{ reason: "ops" }]);
+
+    // Nothing was passed, approved or recorded.
+    expect((await runs()).find((r) => r.id === runId)).toMatchObject({ status: "in_review" });
+    const [agent] = await inTenant(
+      clinic.clinicId,
+      async (c) => (await c.query(`select approved_at from agent_configs`)).rows,
+    );
+    expect(agent!.approved_at).toBeNull();
+    expect(await auditRows()).toEqual([]);
+    const [open] = await inTenant(
+      clinic.clinicId,
+      async (c) =>
+        (await c.query(`select status from audit_review_queue where id = $1`, [review!.id])).rows,
+    );
+    expect(open).toEqual({ status: "open" });
+  });
+
+  test("a review's decision needs a flagged run with its cases; a pass is never written without its run's audit-input version", async () => {
+    await setAnswers();
+    const runId = await dueQueued();
+    await runOnePracticeRun(clinic.clinicId, runId, {
+      responder: model(),
+      metaResponder: null,
+      judge: judge("fail"),
+    });
+    const [review] = await inTenant(
+      clinic.clinicId,
+      async (c) =>
+        (
+          await c.query<{ id: string }>(`select id from audit_review_queue where run_id = $1`, [
+            runId,
+          ])
+        ).rows,
+    );
+    const decide = async () =>
+      (
+        (
+          await runOperation(
+            "decidePracticeReview",
+            { clinicId: clinic.clinicId, reviewId: review!.id, decision: "pass" },
+            OPERATOR,
+          )
+        ).body as { data: { status: string; message?: string } }
+      ).data;
+    // A run that is not waiting on its review is not passed by it.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update practice_question_runs set status = 'error' where id = $1`, [runId]),
+    );
+    expect(await decide()).toEqual({
+      status: "refused",
+      message: "The run this review is about is no longer waiting on a review.",
+    });
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(`update practice_question_runs set status = 'in_review' where id = $1`, [runId]),
+    );
+    expect(
+      await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        afterPass(tx, {
+          runId,
+          inputVersion: null,
+          agentVersion: null,
+          slug: clinic.clinicSlug,
+          channels: ["web"],
+          now: new Date(),
+        }).then(
+          () => "recorded",
+          (error: Error) => error.message,
+        ),
+      ),
+    ).toBe("A pass of the practice questions needs its run and its audit-input version.");
+    expect(await auditRows()).toEqual([]);
+    // The flagged run's own cases, at its version: the pass records each channel's audit by the questions.
+    expect((await decide()).status).toBe("updated");
+    expect(await auditRows()).toEqual([
+      { channel: "voice", actor: "system", via: "practice_questions" },
+      { channel: "web", actor: "system", via: "practice_questions" },
+    ]);
+    expect(await auditPassed()).toEqual(["voice", "web"]);
   });
 
   test("the runtime role can delete no run, result or review, nor rewrite who an override names", async () => {
@@ -734,22 +1055,37 @@ describeDb(
       expect(await auditPassed()).toEqual(["voice"]);
     });
 
-    test("the operator's approval of the script records every bought channel's audit as attested, which counts for good", async () => {
+    test("what the retired attestation wrote passes nothing by itself: the channel counts once the questions pass it", async () => {
       await setAnswers();
-      await runOperation(
-        "approveAgentConfig",
-        { clinicId: clinic.clinicId, approvedBy: "Laura Owner" },
-        OPERATOR,
+      // What ops attestChannelAudit and approveAgentConfig wrote until 19 October 2026.
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `insert into channel_events (clinic_id, channel, kind, actor, detail)
+           values ($1, 'voice', 'audit_passed', 'ops', '{"via":"ops_attested"}'),
+                  ($1, 'web', 'audit_passed', 'ops', '{"via":"ops_attested"}')`,
+          [clinic.clinicId],
+        ),
       );
+      expect(await auditPassed()).toEqual([]);
+      const run = await dueQueued();
+      expect(
+        await runOnePracticeRun(clinic.clinicId, run, {
+          responder: model(),
+          metaResponder: null,
+          judge: judge("pass"),
+        }),
+      ).toBe("passed");
+      // One record per channel: the old one stands, and the pass is what counts.
       expect(await auditRows()).toEqual([
         { channel: "voice", actor: "ops", via: "ops_attested" },
         { channel: "web", actor: "ops", via: "ops_attested" },
       ]);
+      expect(await auditPassed()).toEqual(["voice", "web"]);
       await saveSetupScreen(ctx(), "question", {
         question: "Any offers?",
         answer: "Ten percent off in May.",
       });
-      expect(await auditPassed()).toEqual(["voice", "web"]);
+      expect(await auditPassed()).toEqual([]);
     });
   },
 );

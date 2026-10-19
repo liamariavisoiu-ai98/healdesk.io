@@ -6,12 +6,14 @@ import { SETUP_SCREENS } from "@/lib/setup/screen-ids";
 
 import { getMigratorPool } from "./db";
 import { inTenant, seedChannels } from "./factories";
+import { passPracticeQuestions } from "./practice";
 
 /**
  * A synthetic clinic with everything automatic go-live asks
  * (lib/onboarding/go-live.ts, drizzle/0090) but whatever a test leaves out,
- * written as the migrator, standing in for provisioning, the wizard, the
- * operator's attestation and the definers. Website chat is the channel that
+ * written as the migrator, standing in for provisioning, the wizard, a pass
+ * of the practice questions (tests/setup/practice.ts; since 19 October 2026
+ * nothing else passes a channel's audit) and the definers. Website chat is the channel that
  * meets Gate B: it needs no number of ours, only its line confirmed on the
  * clinic's site. The platform's attestations are tests/setup/platform.ts's.
  */
@@ -81,15 +83,8 @@ export async function readyWebChat(
   );
   if (rows.length === 0) await seedChannels(clinicId, [{ channel: "web" }]);
   if (web.setup !== false) await finishWizard(clinicId);
+  if (web.audit !== false) await passPracticeQuestions(clinicId, ["web"]);
   await inTenant(clinicId, async (client) => {
-    if (web.audit !== false) {
-      await client.query(
-        `insert into channel_events (clinic_id, channel, kind, actor, detail)
-         values ($1, 'web', 'audit_passed', 'ops', '{"via":"ops_attested"}')
-         on conflict do nothing`,
-        [clinicId],
-      );
-    }
     if (web.runtime !== false) {
       await client.query(
         `insert into channel_events (clinic_id, channel, kind, actor, detail)

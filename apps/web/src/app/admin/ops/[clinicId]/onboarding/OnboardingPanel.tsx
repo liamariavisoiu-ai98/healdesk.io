@@ -41,7 +41,6 @@ type Actions = {
     notes: string | null;
     depositPolicy: DepositPolicy | null;
   }) => Promise<OpsResult<SimpleOutcome>>;
-  approveAgent: (approvedBy: string) => Promise<OpsResult<SimpleOutcome>>;
   goLive: () => Promise<OpsResult<GoLiveOutcome>>;
   startForwardingTest: () => Promise<OpsResult<ForwardingTestOutcome>>;
   attachMeta: (input: { platform: MetaPlatform; externalId: string; accessToken: string; label?: string }) => Promise<OpsResult<SimpleOutcome>>;
@@ -55,9 +54,11 @@ type Actions = {
   setAutoConfirm: (on: boolean) => Promise<OpsResult<AutoConfirmOutcome>>;
   sendCalendarLink: () => Promise<OpsResult<CalendarLinkOutcome>>;
   disconnectCalendar: () => Promise<OpsResult<DisconnectCalendarOutcome>>;
-  // Channel events: the audit seam, until the practice questions exist, and
-  // website chat's line confirmed on the clinic's site.
-  attestAudit: (channel: ChannelId) => Promise<OpsResult<CareOutcome>>;
+  // Channel events: website chat's line confirmed on the clinic's site. No
+  // action passes a channel's audit or approves the script: the practice
+  // questions do, and a run they flag is decided in /admin/reviews. The
+  // console can only ask them again.
+  rerunPractice: () => Promise<OpsResult<CareOutcome>>;
   confirmWidget: () => Promise<OpsResult<CareOutcome>>;
 };
 
@@ -147,7 +148,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       </Section>
 
       <Section title={`Agent script${v.agent ? ` — version ${v.agent.version}${v.agent.approvedAt ? ", approved" : ", not approved"}` : ""}`}>
-        <AgentForm view={v} onSave={actions.saveAgent} onApprove={actions.approveAgent} />
+        <AgentForm view={v} onSave={actions.saveAgent} />
       </Section>
 
       <Section title="Deposits — Stripe Connect">
@@ -202,7 +203,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       </Section>
 
       <Section title="Channels">
-        <ChannelsCard view={v} onAttest={actions.attestAudit} onConfirmWidget={actions.confirmWidget} />
+        <ChannelsCard view={v} onRerun={actions.rerunPractice} onConfirmWidget={actions.confirmWidget} />
       </Section>
     </main>
   );
@@ -348,7 +349,7 @@ function serviceDetail(s: AgentService): string | null {
   return parts.length ? `Set by the clinic: ${parts.join(" · ")}` : null;
 }
 
-function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: Actions["saveAgent"]; onApprove: Actions["approveAgent"] }) {
+function AgentForm({ view, onSave }: { view: OnboardingView; onSave: Actions["saveAgent"] }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
   const agent = view.agent;
@@ -375,7 +376,7 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
               notes: String(f.get("notes") ?? "").trim() || null,
               depositPolicy: deposit,
             });
-            setProblem(describe(result) ?? "Saved as a new version. Approval is cleared until the clinic approves it again.");
+            setProblem(describe(result) ?? "Saved as a new version. Approval is cleared until the practice questions pass it again.");
           });
         }}
         className="mt-3 grid gap-3"
@@ -463,36 +464,25 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
         </div>
       </form>
 
-      <ApproveForm agent={agent} onApprove={onApprove} />
+      <Approval agent={agent} />
     </div>
   );
 }
 
-function ApproveForm({ agent, onApprove }: { agent: OnboardingView["agent"]; onApprove: Actions["approveAgent"] }) {
-  const [pending, start] = useTransition();
-  const [problem, setProblem] = useState<string | null>(null);
+/**
+ * Who approved this version, said and never offered. A version is approved
+ * only by a pass of the practice questions that read it, by themselves or by
+ * a decision on a run they flagged in /admin/reviews: "Record approval",
+ * which approved it by hand, was retired with its operation on 19 October 2026.
+ */
+function Approval({ agent }: { agent: OnboardingView["agent"] }) {
   if (!agent) return null;
   return (
-    <form
-      onSubmit={(event) => {
-        event.preventDefault();
-        const who = String(new FormData(event.currentTarget).get("approvedBy") ?? "").trim();
-        start(async () => {
-          setProblem(null);
-          setProblem(describe(await onApprove(who)) ?? "Approved.");
-        });
-      }}
-      className="border-line mt-5 flex flex-wrap items-end gap-3 border-t pt-4"
-    >
-      <label className="min-w-[220px] flex-1 text-sm">
-        <span className="text-muted block text-xs font-bold uppercase">Who at the clinic approved this version, and how</span>
-        <input name="approvedBy" placeholder="Dr Chen, read back on the call 14 Sep" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
-      </label>
-      <button type="submit" disabled={pending || Boolean(agent.approvedAt)} className="border-line-strong rounded-full border px-4 py-2 text-sm font-bold">
-        {agent.approvedAt ? `Approved by ${agent.approvedByLabel ?? "—"}` : "Record approval"}
-      </button>
-      {problem ? <span className="text-sm">{problem}</span> : null}
-    </form>
+    <p className="border-line text-muted mt-5 border-t pt-4 text-sm">
+      {agent.approvedAt
+        ? `Approved by ${agent.approvedByLabel ?? "—"}.`
+        : "Not approved yet. The practice questions approve this version when they pass it; a run they flag waits for you in Reviews (/admin/reviews)."}
+    </p>
   );
 }
 
@@ -573,7 +563,7 @@ function needWords(channel: ChannelId, input: ChannelLiveInput): string {
     case "leaving":
       return "The clinic has left: nothing goes live.";
     case "audit":
-      return "Its audit hasn't passed. Until the practice questions exist, check AYA's answers on this channel, then mark it below. Check in Talk to your AYA once it exists, or by calling from one of healdesk's test numbers (HEALDESK_TEST_NUMBERS): an ordinary call to a live channel is billed as its first answer.";
+      return "Its practice questions haven't passed. They run by themselves after each change the clinic makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one.";
     case "runtime":
       return channel === "voice"
         ? "No assistant number: enter it under Phone line once the Retell agent and number exist."
@@ -605,33 +595,70 @@ function needWords(channel: ChannelId, input: ChannelLiveInput): string {
 
 function ChannelsCard({
   view,
-  onAttest,
+  onRerun,
   onConfirmWidget,
 }: {
   view: OnboardingView;
-  onAttest: Actions["attestAudit"];
+  onRerun: Actions["rerunPractice"];
   onConfirmWidget: Actions["confirmWidget"];
 }) {
   if (view.channels === null) {
     return <p className="text-muted text-sm">apps/app sent no channel states: it predates channel events.</p>;
   }
   if (view.channels.length === 0) return <p className="text-muted text-sm">No channels bought.</p>;
+  const waitingOnAudit = view.channels.some((c) => !c.liveAt && c.missing.includes("audit"));
   return (
-    <ul className="grid gap-3">
-      {view.channels.map((c) => (
-        <ChannelRow key={c.channel} channel={c} onAttest={onAttest} onConfirmWidget={onConfirmWidget} />
-      ))}
-    </ul>
+    <div>
+      <ul className="grid gap-3">
+        {view.channels.map((c) => (
+          <ChannelRow key={c.channel} channel={c} onConfirmWidget={onConfirmWidget} />
+        ))}
+      </ul>
+      {waitingOnAudit ? <RerunPractice onRerun={onRerun} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Ask the practice questions again, beside the channels whose audit waits on
+ * them: after a fix on our side, or when a run could not finish. It asks;
+ * it never passes anything. The run waits its two minutes and runs one at a
+ * time, as any other, and a run it flags goes to Reviews.
+ */
+function RerunPractice({ onRerun }: { onRerun: Actions["rerunPractice"] }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <div className="border-line mt-4 flex flex-wrap items-center gap-3 border-t pt-4 text-sm">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const result = await onRerun();
+            if (!result.ok) return setMessage(result.message);
+            setMessage(
+              result.data.status === "updated"
+                ? "Asked: the practice questions run again for every channel in about two minutes. If they flag something, it waits in Reviews."
+                : result.data.message,
+            );
+          })
+        }
+        className="border-line rounded-full border px-4 py-2 text-sm font-bold disabled:opacity-40"
+      >
+        Ask the practice questions again
+      </button>
+      <span className="text-muted text-xs">For every channel at once. It asks them; it passes nothing.</span>
+      {message ? <p className="w-full">{message}</p> : null}
+    </div>
   );
 }
 
 function ChannelRow({
   channel: c,
-  onAttest,
   onConfirmWidget,
 }: {
   channel: NonNullable<OnboardingView["channels"]>[number];
-  onAttest: Actions["attestAudit"];
   onConfirmWidget: Actions["confirmWidget"];
 }) {
   const [pending, start] = useTransition();
@@ -667,16 +694,6 @@ function ChannelRow({
         </ul>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
-        {!c.auditPassed && !c.liveAt ? (
-          <button
-            type="button"
-            disabled={pending}
-            onClick={() => run(() => onAttest(c.channel))}
-            className="border-line rounded-full border px-4 py-2 text-sm font-bold disabled:opacity-40"
-          >
-            I checked AYA&rsquo;s answers: audit passed
-          </button>
-        ) : null}
         {c.channel === "web" && !c.liveAt && c.missing.includes("clinic_step") ? (
           <button
             type="button"

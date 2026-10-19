@@ -97,10 +97,17 @@ export function answersMissing(
   return missing;
 }
 
+/**
+ * The tracker, from the clinic's setup, its calendar and its practice
+ * questions. `practice` is required, never defaulted: every reader passes
+ * what readPracticeState (lib/engine/practice/store.ts) read, so Home, Talk
+ * to your AYA, the support chat's get_account_state and the console's clinic
+ * cards cannot read the same clinic differently.
+ */
 export function buildTracker(
   state: SetupState,
   calendar: CalendarConnectionView,
-  practice: PracticeState = NO_PRACTICE_STATE,
+  practice: PracticeState,
   goLive?: GoLiveSummary,
 ): Tracker {
   const stages = blockingStages(state, practice);
@@ -241,9 +248,7 @@ function practiceStage(practice: PracticeState, state: Pick<SetupState, "clinic"
     return {
       ...stage,
       state: "done",
-      detail: latest?.overridden
-        ? "Our team checked AYA's answers with you and approved them."
-        : practicePassedDetail(state),
+      detail: practicePassedDetail(state),
     };
   }
   if (practice.pending) {

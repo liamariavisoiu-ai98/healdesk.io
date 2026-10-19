@@ -70,6 +70,7 @@ import {
 } from "./setup/factories";
 import { finishWizard, readyForGoLive, readyWebChat, setAgreement } from "./setup/go-live";
 import { attestPlatform, setGateBCodeBuilt, withdrawPlatform } from "./setup/platform";
+import { passPracticeQuestions } from "./setup/practice";
 
 // What Gate B asks of the code is not built today, so every clinic's go-live
 // waits on it (gate_b_not_built). The tests that take a clinic live stand in
@@ -697,6 +698,53 @@ describeDb("automatic go-live against the database", () => {
     );
     expect(await codes(practice.clinicId)).toEqual(["gate_b"]);
 
+    // What the retired operator paths wrote (19 October 2026) counts in
+    // neither: an attestation with no run behind it, and the script
+    // approval's override, a passed run with no cases. Nor does an override
+    // hide a real pass recorded before it.
+    const attested = await ready("gl-parity-attested", { web: { audit: false } });
+    await inTenant(attested.clinicId, (c) =>
+      c.query(
+        `insert into channel_events (clinic_id, channel, kind, actor, detail) values ($1, 'web', 'audit_passed', 'ops', '{"via":"ops_attested"}')`,
+        [attested.clinicId],
+      ),
+    );
+    expect(await codes(attested.clinicId)).toEqual(["gate_b"]);
+    const overrideRun = (clinicId: string) =>
+      inTenant(clinicId, (c) =>
+        c.query(
+          `insert into practice_question_runs (clinic_id, status, reason, requested_at, run_after, started_at, finished_at, override_label)
+           values ($1, 'passed', 'override', now(), now(), now(), clock_timestamp(), 'Laura Owner (recorded by ops@healdesk.test)')`,
+          [clinicId],
+        ),
+      );
+    await overrideRun(attested.clinicId);
+    expect(await codes(attested.clinicId)).toEqual(["gate_b"]);
+    // The old row stays the channel's one record: once the questions pass it, it goes.
+    await passPracticeQuestions(attested.clinicId, ["web"]);
+    expect(await codes(attested.clinicId)).toEqual([]);
+    const before = await ready("gl-parity-override-after-pass");
+    expect(await codes(before.clinicId)).toEqual([]);
+    await overrideRun(before.clinicId);
+    expect(await codes(before.clinicId)).toEqual([]);
+    // Only the label marks an override, which the runtime role cannot write:
+    // a real run it renames 'override' (it may update reason) is still read.
+    await passedRun(before.clinicId, "web", "failed");
+    expect(await codes(before.clinicId)).toEqual(["gate_b"]);
+    const renamer = await getAppPool().connect();
+    try {
+      await renamer.query("begin");
+      await renamer.query(`select set_config('app.clinic_id', $1, true)`, [before.clinicId]);
+      const renamed = await renamer.query(
+        `update practice_question_runs set reason = 'override' where status = 'failed'`,
+      );
+      expect(renamed.rowCount).toBe(1);
+      await renamer.query("commit");
+    } finally {
+      renamer.release();
+    }
+    expect(await codes(before.clinicId)).toEqual(["gate_b"]);
+
     // The platform: one shared subject withdrawn is go-live's own code; a
     // channel's own is Gate B's. Restored after, for the tests below.
     const shared = await ready("gl-parity-platform");
@@ -752,6 +800,7 @@ describeDb("automatic go-live against the database", () => {
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       afterPass(tx, {
         runId,
+        inputVersion: "a".repeat(64),
         agentVersion: null,
         slug: c.slug,
         channels: ["web"],
@@ -893,11 +942,8 @@ describeDb("automatic go-live against the database", () => {
          on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
         [c.clinicId],
       );
-      await cl.query(
-        `insert into channel_events (clinic_id, channel, kind, actor, detail) values ($1, 'voice', 'audit_passed', 'ops', '{"via":"ops_attested"}')`,
-        [c.clinicId],
-      );
     });
+    await passPracticeQuestions(c.clinicId, ["voice"]);
     await finishWizard(c.clinicId);
     await withdrawPlatform(["retell", "anthropic"]);
     try {
@@ -1004,12 +1050,7 @@ describeDb("automatic go-live against the database", () => {
         where id = $1`,
       [c.clinicId],
     );
-    await inTenant(c.clinicId, (cl) =>
-      cl.query(
-        `insert into channel_events (clinic_id, channel, kind, actor, detail) values ($1, 'voice', 'audit_passed', 'ops', '{"via":"ops_attested"}')`,
-        [c.clinicId],
-      ),
-    );
+    await passPracticeQuestions(c.clinicId, ["voice"]);
     expect(await codes(c.clinicId)).toEqual(["gate_b"]);
     const view = await data("getOnboarding", { clinicId: c.clinicId });
     expect((view.goLive as { missing: string[] }).missing[0]).toBe(

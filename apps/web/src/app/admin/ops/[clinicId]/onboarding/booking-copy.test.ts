@@ -47,7 +47,6 @@ const ACTIONS: Actions = {
   reopenStep: NOT_IN_A_RENDER,
   savePhone: NOT_IN_A_RENDER,
   saveAgent: NOT_IN_A_RENDER,
-  approveAgent: NOT_IN_A_RENDER,
   goLive: NOT_IN_A_RENDER,
   startForwardingTest: NOT_IN_A_RENDER,
   attachMeta: NOT_IN_A_RENDER,
@@ -59,7 +58,7 @@ const ACTIONS: Actions = {
   setAutoConfirm: NOT_IN_A_RENDER,
   sendCalendarLink: NOT_IN_A_RENDER,
   disconnectCalendar: NOT_IN_A_RENDER,
-  attestAudit: NOT_IN_A_RENDER,
+  rerunPractice: NOT_IN_A_RENDER,
   confirmWidget: NOT_IN_A_RENDER,
 };
 
@@ -346,7 +345,7 @@ describe("the Meta front door shows the clinic's own platform switches beneath i
 });
 
 describe("the channels card", () => {
-  test("each channel says where it stands and what it still needs; the audit is offered only until it passed or the channel is live", () => {
+  test("each channel says where it stands and what it still needs; no audit is ever offered to pass by hand", () => {
     const said = page(null, null, [
       {
         channel: "voice",
@@ -385,12 +384,14 @@ describe("the channels card", () => {
     expect(card).toContain(
       "Nobody has confirmed the chat is on the clinic's website. Open the site, check the chat bubble is there (until you confirm, it tells visitors to call the practice), then confirm below. clinic_step",
     );
-    // The audit's words send the operator to the preview or a test number, never an ordinary call.
-    expect(card).toContain("calling from one of healdesk's test numbers (HEALDESK_TEST_NUMBERS)");
+    // The audit's words send the operator to the review queue, the one operator path (19 October 2026).
+    expect(card).toContain(
+      "Its practice questions haven't passed. They run by themselves after each change the clinic makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one. audit",
+    );
     expect(card).toContain("Instagram, Messenger & WhatsApp · live since 2026-10-11, no patient answered yet");
-    // Offered once: for website chat, whose audit hasn't passed and which isn't live.
-    expect(card.match(/audit passed/g)).toHaveLength(3);
-    expect(card.match(/I checked AYA’s answers/g)).toHaveLength(1);
+    // Said for the two whose audit passed; never offered as a button.
+    expect(card.match(/audit passed/g)).toHaveLength(2);
+    expect(card).not.toMatch(/I checked AYA’s answers/);
     // Website chat's line is confirmed by the operator who looked, never by a widget's Origin.
     expect(card.match(/The line is on their website/g)).toHaveLength(1);
   });

@@ -382,7 +382,6 @@ describe("Needs attention after go-live: the practice questions", () => {
       failedSection: null,
       failedCount: null,
       triggerSection: "prices",
-      overridden: false,
       reviewDueOn: "2026-10-14",
       ...over,
     },

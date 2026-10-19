@@ -12,7 +12,7 @@ import type { AnswerDecision } from "@/lib/billing/answering";
 import { getEntitlements } from "@/lib/billing/entitlements";
 import { decideReconcile } from "@/lib/billing/reconcile";
 import { readBillingGroupChannels } from "@/lib/billing/requests";
-import { attestChannelAudit } from "@/lib/channels/audit-seam";
+import { recordAuditPassed } from "@/lib/channels/audit-seam";
 import {
   CHANNEL_READY_EMAIL_DELAY_MS,
   channelInputs,
@@ -36,9 +36,10 @@ import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta
 import type { FrontDoorResponder } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
+import { runOnePracticeRun } from "@/lib/engine/practice/job";
 import { inForwardingTestWindow, startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
-import { runOperation, type Operator } from "@/lib/ops/api";
+import { parseEnvelope, runOperation, type Operator } from "@/lib/ops/api";
 import { saveSetupScreen, skipSetupScreen } from "@/lib/setup/save";
 import { SETUP_SCREENS } from "@/lib/setup/screen-ids";
 import { withTenant, type TenantTx } from "@/lib/tenant";
@@ -63,6 +64,7 @@ import {
 } from "./setup/factories";
 import { attestPlatform, setGateBCodeBuilt } from "./setup/platform";
 import { provisionPortalClinic } from "./setup/portal-clinic";
+import { passPracticeQuestions, practiceJudge, practiceModel } from "./setup/practice";
 
 /**
  * Channel events (lib/channels/events.ts, drizzle/0079): a channel's ready,
@@ -484,12 +486,17 @@ async function phoneClinic(
   await setDirectLine(c.clinicId);
   await setPhoneRuntime(c.clinicId);
   if (options.forwarding !== false) await observeForwarding(c.clinicId);
-  await attest(c.clinicId, "voice");
+  await passAudit(c.clinicId, "voice");
   return c;
 }
 
-function attest(clinicId: string, channel: Channel) {
-  return withTenant({ clinicId, actor: ACTOR }, (tx) => attestChannelAudit(tx, channel));
+/**
+ * The channel's audit passed, the only way it can be since 19 October 2026:
+ * a run of the practice questions that passed, as the job records one
+ * (tests/setup/practice.ts). Moves nothing on; the caller evaluates.
+ */
+function passAudit(clinicId: string, channel: Channel) {
+  return passPracticeQuestions(clinicId, [channel]);
 }
 
 function evaluate(clinicId: string, only?: Channel, now?: Date) {
@@ -685,7 +692,7 @@ describeDb("channel events against the database", () => {
     await setWeekdayHours(c.clinicId);
     await agent(c.clinicId);
     await finishSetup(c.clinicId);
-    await attest(c.clinicId, "web");
+    await passAudit(c.clinicId, "web");
     expect(await evaluate(c.clinicId, "web")).toMatchObject([
       { readied: true, waitingOn: "snippet", wentLive: false },
     ]);
@@ -716,18 +723,77 @@ describeDb("channel events against the database", () => {
     expect((await channelRow(c.clinicId, "web")).waiting_on).not.toBe("snippet");
   });
 
-  test("the audit seam fails closed: no attestation, no readiness; a second records nothing; an unbought channel is refused", async () => {
+  test("the audit seam fails closed: no pass of the practice questions, no readiness; a retired attestation's row is none; a second record is nothing; an unbought channel is refused", async () => {
     const c = await boughtClinic("ev-seam");
     await finishSetup(c.clinicId);
     await setPhoneRuntime(c.clinicId);
     expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({ readied: false });
     expect((await channelRow(c.clinicId, "voice")).ready_at).toBeNull();
-    expect(await attest(c.clinicId, "voice")).toEqual({ recorded: true });
-    expect(await attest(c.clinicId, "voice")).toEqual({ recorded: false });
-    expect((await eventsOf(c.clinicId, "voice")).filter((e) => e.kind === "audit_passed")).toEqual([
-      { channel: "voice", kind: "audit_passed", waiting_on: null, actor: "ops" },
+    // What ops attestChannelAudit wrote until 19 October 2026: no run behind it.
+    await inTenant(c.clinicId, (cl) =>
+      cl.query(
+        `insert into channel_events (clinic_id, channel, kind, actor, detail) values ($1, 'voice', 'audit_passed', 'ops', '{"via":"ops_attested"}')`,
+        [c.clinicId],
+      ),
+    );
+    expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({
+      readied: false,
+      missing: expect.arrayContaining(["audit"]),
+    });
+    expect((await channelRow(c.clinicId, "voice")).ready_at).toBeNull();
+    // The questions' own record: once per channel, by the definer, as the system.
+    const record = (channel: Channel) =>
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => recordAuditPassed(tx, channel));
+    expect(await record("web")).toEqual({ recorded: true });
+    expect(await record("web")).toEqual({ recorded: false });
+    expect((await eventsOf(c.clinicId, "web")).filter((e) => e.kind === "audit_passed")).toEqual([
+      { channel: "web", kind: "audit_passed", waiting_on: null, actor: "system" },
     ]);
-    await expect(attest(c.clinicId, "meta")).rejects.toThrow(/didn't buy/);
+    await expect(record("meta")).rejects.toThrow(/didn't buy/);
+    // A record is a pass only with a run of the questions that passed behind it.
+    expect((await evaluate(c.clinicId, "web"))[0]!.missing).toContain("audit");
+    await passAudit(c.clinicId, "voice");
+    expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({ readied: true });
+  });
+
+  test("ready on our side asks the audit as live does: a retired attestation's row readies nothing, in the database either (0097)", async () => {
+    const c = await boughtClinic("ev-ours", { channels: [{ channel: "voice" }] });
+    await setPhoneRuntime(c.clinicId);
+    await inTenant(c.clinicId, (cl) =>
+      cl.query(
+        `insert into channel_events (clinic_id, channel, kind, actor, detail) values ($1, 'voice', 'audit_passed', 'ops', '{"via":"ops_attested"}')`,
+        [c.clinicId],
+      ),
+    );
+    const sqlSays = async () =>
+      (
+        await inTenant(c.clinicId, (cl) =>
+          cl.query<{ ours: boolean; audit: boolean }>(
+            `select app_channel_ours_ok($1, 'voice') as ours, app_channel_audit_ok($1, 'voice') as audit`,
+            [c.clinicId],
+          ),
+        )
+      ).rows[0];
+    expect(await sqlSays()).toEqual({ ours: false, audit: false });
+    // The definer that readies a channel, asked by the runtime role, refuses.
+    const client = await getAppPool().connect();
+    try {
+      await client.query("begin");
+      await client.query(`select set_config('app.clinic_id', $1, true)`, [c.clinicId]);
+      const { rows } = await client.query<{ ok: boolean }>(
+        `select app_channel_mark_ready('voice', now(), 'probe') as ok`,
+      );
+      expect(rows[0]!.ok).toBe(false);
+      await client.query("commit");
+    } finally {
+      client.release();
+    }
+    expect((await channelRow(c.clinicId, "voice")).ready_at).toBeNull();
+    expect(await noticesOf(c.clinicId, "channel_ready")).toEqual([]);
+    // Once the questions pass it, both say ready, and so does the evaluation.
+    await passAudit(c.clinicId, "voice");
+    expect(await sqlSays()).toEqual({ ours: true, audit: true });
+    expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({ readied: true });
   });
 
   test("P2 (R3): the runtime role cannot write a channel's lifecycle or live's inputs, and the definers check what they record", async () => {
@@ -780,6 +846,11 @@ describeDb("channel events against the database", () => {
       await client.query("savepoint s");
       await expect(
         client.query(`select app_channel_record_input('voice', 'audit_passed', 'trust_me')`),
+      ).rejects.toMatchObject({ code: "22023" });
+      await client.query("rollback to savepoint s");
+      // The operator's attestation is retired (0097): no longer a way the definer records.
+      await expect(
+        client.query(`select app_channel_record_input('voice', 'audit_passed', 'ops_attested')`),
       ).rejects.toMatchObject({ code: "22023" });
       await client.query("rollback to savepoint s");
       await expect(
@@ -1375,9 +1446,8 @@ describeDb("channel events against the database", () => {
     await setWeekdayHours(c.clinicId);
     await agent(c.clinicId);
     await finishSetup(c.clinicId);
-    expect(await data("attestChannelAudit", { clinicId: c.clinicId, channel: "web" })).toEqual({
-      status: "updated",
-    });
+    await passAudit(c.clinicId, "web");
+    await evaluate(c.clinicId, "web");
     expect(await channelRow(c.clinicId, "web")).toMatchObject({
       waiting_on: "snippet",
       live_at: null,
@@ -1521,7 +1591,7 @@ describeDb("channel events against the database", () => {
     await setDirectLine(c.clinicId);
     await setPhoneRuntime(c.clinicId);
     await observeForwarding(c.clinicId);
-    await attest(c.clinicId, "voice");
+    await passAudit(c.clinicId, "voice");
     expect((await evaluate(c.clinicId, "voice"))[0]).toMatchObject({
       waitingOn: "setup",
       missing: ["setup"],
@@ -1541,7 +1611,7 @@ describeDb("channel events against the database", () => {
     );
   });
 
-  test("R4, the real flow with no shortcut: provisioned, the operator's steps, the wizard, the forwarding test, go-live", async () => {
+  test("R4, the real flow with no shortcut: provisioned, the operator's number, the wizard, the practice questions, the forwarding test, go-live", async () => {
     const clinic = await provisionPortalClinic("ev-real", { plan: "voice-webchat-1000-1000" });
     const id = clinic.clinicId;
     const ctx = {
@@ -1552,7 +1622,9 @@ describeDb("channel events against the database", () => {
     };
     const stepUp = async () => await channelRow(id, "voice");
 
-    // The operator: AYA's number once the Retell agent exists, and the audit.
+    // The operator: AYA's number once the Retell agent exists. Nothing an
+    // operator does passes the audit: phone is not ready on our side until
+    // the practice questions pass it.
     expect(
       await data("setPhoneSettings", {
         clinicId: id,
@@ -1563,14 +1635,10 @@ describeDb("channel events against the database", () => {
         carrier: "verizon",
       }),
     ).toMatchObject({ status: "updated" });
-    expect(await data("attestChannelAudit", { clinicId: id, channel: "voice" })).toEqual({
-      status: "updated",
-    });
-    // Ready before go-live, waiting on the clinic's setup.
-    expect(await stepUp()).toMatchObject({ waiting_on: "setup", live_at: null });
-    expect((await stepUp()).ready_at).not.toBeNull();
+    expect(await stepUp()).toMatchObject({ ready_at: null, live_at: null });
 
-    // The clinic: the wizard, with its hours, its prices checked and its direct line.
+    // The clinic: the wizard, with its hours, its prices checked, its
+    // most-asked question and its direct line.
     for (const screen of SETUP_SCREENS) {
       if (screen === "backup") continue;
       const input =
@@ -1588,10 +1656,17 @@ describeDb("channel events against the database", () => {
               closures: [],
             }
           : screen === "services"
-            ? { services: [{ name: "Consultation" }] }
-            : screen === "direct_line"
-              ? { directLine: DIRECT }
-              : null;
+            ? {
+                services: [
+                  { name: "Signature facial", priceKind: "exact", price: 199, durationMinutes: 60 },
+                  { name: "Consultation", priceKind: null },
+                ],
+              }
+            : screen === "question"
+              ? { question: "Is there parking?", answer: "Free parking behind the building." }
+              : screen === "direct_line"
+                ? { directLine: DIRECT }
+                : null;
       const saved =
         screen === "insurance"
           ? await saveSetupScreen(ctx, screen, { billsInsurance: false })
@@ -1602,9 +1677,36 @@ describeDb("channel events against the database", () => {
       if (!saved.ok && saved.message === "That step isn't part of your setup.") continue;
       expect(saved.ok, `${screen}: ${JSON.stringify(saved)}`).toBe(true);
     }
+    // Setup done, and still not ready: the answers asked for the practice questions.
+    expect(await stepUp()).toMatchObject({ ready_at: null, live_at: null });
+
+    // The practice questions: the run the wizard asked for, two minutes on,
+    // asked of a faked brain (never Anthropic). Its pass records each
+    // channel's audit and moves the channels on.
+    const queued = await inTenant(id, (c) =>
+      c.query<{ id: string }>(
+        `update practice_question_runs set run_after = now() - interval '1 second' where status = 'queued' returning id`,
+      ),
+    );
+    expect(queued.rows).toHaveLength(1);
+    expect(
+      await runOnePracticeRun(id, queued.rows[0]!.id, {
+        responder: practiceModel(),
+        metaResponder: null,
+        judge: practiceJudge("pass"),
+      }),
+    ).toBe("passed");
+    expect((await eventsOf(id, "voice")).filter((e) => e.kind === "audit_passed")).toEqual([
+      { channel: "voice", kind: "audit_passed", waiting_on: null, actor: "system" },
+    ]);
+
     // Phone now waits on the forwarding, O10 is queued, and the steps carry AYA's number.
     expect(await stepUp()).toMatchObject({ waiting_on: "forwarding", live_at: null });
-    expect(await noticesOf(id, "channel_ready")).toHaveLength(1);
+    // The pass passed both channels bought, so website chat waits on its line
+    // and has its own O10 beside phone's.
+    expect(
+      (await noticesOf(id, "channel_ready")).map((n) => n.dedupe_key.split(":")[1]).sort(),
+    ).toEqual(["voice", "web"]);
     expect(
       await withTenant({ clinicId: id, actor: ACTOR }, (tx) =>
         readPhoneStepsNumber(tx.db, tx.clinicId),
@@ -1655,37 +1757,40 @@ describeDb("channel events against the database", () => {
     expect(await noticesOf(c.clinicId, "channel_live")).toHaveLength(1);
   });
 
-  test("the console sees what each channel still needs, and the envelope's attestation refuses what isn't a bought channel", async () => {
+  test("the console sees what each channel still needs; the envelope refuses the retired attestation with a 410, before anything is read", async () => {
     const c = await boughtClinic("ev-ops");
-    expect(
-      await data("attestChannelAudit", { clinicId: c.clinicId, channel: "phone" }),
-    ).toMatchObject({ status: "error" });
-    expect(
-      await data("attestChannelAudit", { clinicId: c.clinicId, channel: "meta" }),
-    ).toMatchObject({
-      status: "error",
-      message: expect.stringMatching(/didn't buy/),
-    });
-    expect(await data("attestChannelAudit", { clinicId: c.clinicId, channel: "voice" })).toEqual({
-      status: "updated",
-    });
-    expect(await data("attestChannelAudit", { clinicId: c.clinicId, channel: "voice" })).toEqual({
-      status: "updated",
-    });
+    for (const op of ["attestChannelAudit", "approveAgentConfig"]) {
+      const parsed = parseEnvelope(
+        JSON.stringify({
+          op,
+          args: { clinicId: c.clinicId, channel: "voice", approvedBy: "Dr Chen" },
+        }),
+      );
+      expect(parsed.ok, op).toBe(false);
+      if (!parsed.ok) {
+        expect(parsed.outcome.status, op).toBe(410);
+        expect(parsed.outcome.body, op).toMatchObject({
+          code: "retired",
+          error: expect.stringMatching(/retired/),
+        });
+      }
+    }
     expect(
       (await eventsOf(c.clinicId, "voice")).filter((e) => e.kind === "audit_passed"),
-    ).toHaveLength(1);
-    const { rows } = await getMigratorPool().query(
-      `select count(*)::int as n from security_events where event = 'channel_audit_attested' and metadata->>'channel' = 'voice'`,
-    );
-    expect(rows[0]!.n).toBeGreaterThanOrEqual(1);
+    ).toHaveLength(0);
 
-    const view = await data("getOnboarding", { clinicId: c.clinicId });
-    const channels = view.channels as {
-      channel: string;
-      auditPassed: boolean;
-      missing: string[];
-    }[];
+    const channelsOf = async () =>
+      (await data("getOnboarding", { clinicId: c.clinicId })).channels as {
+        channel: string;
+        auditPassed: boolean;
+        missing: string[];
+      }[];
+    expect((await channelsOf()).find((x) => x.channel === "voice")).toMatchObject({
+      auditPassed: false,
+      missing: ["audit", "runtime", "setup", "hours", "direct_line", "clinic_step"],
+    });
+    await passAudit(c.clinicId, "voice");
+    const channels = await channelsOf();
     expect(channels.find((x) => x.channel === "voice")).toMatchObject({
       auditPassed: true,
       missing: ["runtime", "setup", "hours", "direct_line", "clinic_step"],
@@ -1698,7 +1803,7 @@ describeDb("channel events against the database", () => {
 
   test("the definers keep every writer to one lock order: two that move the same clinic at once both finish", async () => {
     const c = await phoneClinic("ev-order");
-    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => attestChannelAudit(tx, "web"));
+    await passAudit(c.clinicId, "web");
     const both = await Promise.all([evaluate(c.clinicId, "voice"), evaluate(c.clinicId, "web")]);
     expect(
       both

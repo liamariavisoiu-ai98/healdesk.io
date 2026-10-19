@@ -97,7 +97,6 @@ import {
   type BookingProjection,
 } from "@/lib/ops/calendar-ops";
 import { readMetaPlatformSwitches, setMetaPlatformEnabled } from "@/lib/channels/meta-platforms";
-import { AuditSeamError, attestChannelAudit } from "@/lib/channels/audit-seam";
 import {
   channelInputs,
   confirmWidgetOnSite,
@@ -108,7 +107,6 @@ import {
   type LiveInput,
 } from "@/lib/channels/events";
 import { readChannelStates } from "@/lib/channels/state";
-import { isChannel } from "@/lib/channels/switch";
 import { startForwardingTest } from "@/lib/onboarding/forwarding-test";
 import {
   ERASURE_STEP_OUTCOMES,
@@ -216,7 +214,6 @@ import {
 import { isSendableAddress } from "@/lib/reporting/deliver";
 import {
   AgentConfigError,
-  approveAgentConfig,
   getAgentConfig,
   updateAgentConfig,
   type AgentConfigInput,
@@ -227,7 +224,7 @@ import {
   listPracticeReviews,
   rerunPracticeQuestions,
 } from "@/lib/engine/practice/review";
-import { recordOperatorOverride, requestPracticeQuestions } from "@/lib/engine/practice/store";
+import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import { PRACTICE_SECTIONS, type PracticeSection } from "@/lib/engine/practice/types";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { completeStep, reopenStep } from "@/lib/onboarding/steps";
@@ -369,12 +366,12 @@ const OPERATIONS = [
   "reopenOnboardingStep",
   "setPhoneSettings",
   "updateAgentConfig",
-  "approveAgentConfig",
   "goLive",
   // The practice questions (lib/engine/practice, plan Part G and K): the
   // audit review queue, read and decided here, and a run asked for again
   // after a fix on our side. Synthetic cases and AYA's answers to them, ids
-  // and dates; never a patient.
+  // and dates; never a patient. A review's decision is the one way an
+  // operator passes a channel's audit (RETIRED_OPERATIONS, below).
   "listPracticeReviews",
   "decidePracticeReview",
   "rerunPracticeQuestions",
@@ -432,11 +429,6 @@ const OPERATIONS = [
   "startForwardingTest",
   "listClinicHealth",
   "recordClinicTouch",
-  // Channel events (lib/channels/events.ts): until the practice questions
-  // exist, an operator says a channel's audit passed, one of the four inputs
-  // it needs to go live (lib/channels/audit-seam.ts). Recorded, once per
-  // channel, and never a default.
-  "attestChannelAudit",
   // Website chat's line, confirmed on the clinic's site by an operator who
   // looked: never an Origin header, which anyone can send. Recorded once.
   "confirmWebWidget",
@@ -590,6 +582,42 @@ const OPERATIONS = [
 
 export type OpName = (typeof OPERATIONS)[number];
 
+/**
+ * Operations apps/app no longer does, each with the sentence that says why.
+ *
+ * Off the list above, so nothing can dispatch one, but not simply unknown:
+ * apps/web goes live on Vercel the moment main moves and apps/app only when
+ * the owner deploys, so for a while a console may still show a control whose
+ * operation is gone here. Unknown, it would read as this host being older
+ * than the console ("deploy it, then try again"), which is the wrong advice.
+ * Retired, it is a 410 with its own code before any database work, which
+ * that console shows as a refusal that changed nothing, and whose code its
+ * log names.
+ *
+ *   - approveAgentConfig: the operator's approval of the agent script,
+ *     recorded as a passed run of the practice questions with no cases, which
+ *     attested every bought channel's audit;
+ *   - attestChannelAudit: a channel's audit attested with no run behind it.
+ *
+ * Both cleared a channel's audit with no case asked, and counted for good.
+ * The spec has one shape (Stage 3, principle 7): the practice questions run
+ * by themselves; a pass approves the agent and passes each channel's audit;
+ * anything flagged goes to the review queue, whose decision (above,
+ * decidePracticeReview) passes that run's own cases. Retired on 19 October
+ * 2026, and what they wrote no longer counts (lib/channels/audit-seam.ts,
+ * drizzle/0097).
+ */
+export const RETIRED_OPERATIONS: Readonly<Record<string, string>> = {
+  approveAgentConfig:
+    "Approving the agent script by hand is retired: the practice questions approve it when they pass, and a run they flag waits in Reviews.",
+  attestChannelAudit:
+    "Attesting a channel's audit by hand is retired: only the practice questions pass it, by themselves or through a decision in Reviews.",
+};
+
+export function isRetiredOp(value: unknown): value is string {
+  return typeof value === "string" && Object.hasOwn(RETIRED_OPERATIONS, value);
+}
+
 /** The mutating half of the list. These, and only these, write an audit row. */
 const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "toggleJob",
@@ -600,7 +628,6 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "reopenOnboardingStep",
   "setPhoneSettings",
   "updateAgentConfig",
-  "approveAgentConfig",
   "goLive",
   "decidePracticeReview",
   "rerunPracticeQuestions",
@@ -635,7 +662,6 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "setAutoRenew",
   "startForwardingTest",
   "recordClinicTouch",
-  "attestChannelAudit",
   "confirmWebWidget",
   "attachMetaChannel",
   "setMetaFrontDoor",
@@ -731,6 +757,8 @@ export type OpsProblemCode =
   | "unauthorized"
   | "invalid_body"
   | "unknown_operation"
+  /** An operation apps/app no longer does (RETIRED_OPERATIONS): nothing ran. */
+  | "retired"
   | "invalid_args"
   | "failed";
 
@@ -846,8 +874,15 @@ export function parseEnvelope(
   const body = asRecord(parsed);
 
   // Narrowed FIRST: an unknown op must cost no database work, no decryption and
-  // no mail. Nothing is echoed back — not the op, not a "did you mean".
+  // no mail. Nothing is echoed back — not the op, not a "did you mean". A
+  // retired one says it is retired, in its own sentence, and does no more.
   const op = body.op;
+  if (isRetiredOp(op)) {
+    return {
+      ok: false,
+      outcome: opsProblem(RETIRED_OPERATIONS[op]!, 410, "retired"),
+    };
+  }
   if (!isOpName(op)) {
     return {
       ok: false,
@@ -1108,8 +1143,6 @@ export async function runOperation(
       return opSetPhoneSettings(args, operator);
     case "updateAgentConfig":
       return opUpdateAgentConfig(args, operator);
-    case "approveAgentConfig":
-      return opApproveAgentConfig(args, operator);
     case "goLive":
       return opGoLive(args, operator);
     case "listPracticeReviews":
@@ -1184,8 +1217,6 @@ export async function runOperation(
       return opListClinicHealth(operator);
     case "recordClinicTouch":
       return opRecordClinicTouch(args, operator);
-    case "attestChannelAudit":
-      return opAttestChannelAudit(args, operator);
     case "confirmWebWidget":
       return opConfirmWebWidget(args, operator);
     case "attachMetaChannel":
@@ -2928,52 +2959,6 @@ async function opUpdateAgentConfig(
   }
 }
 
-async function opApproveAgentConfig(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  const approvedBy = stringArg(args, "approvedBy", 200);
-  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies AgentConfigState);
-  if (!approvedBy) {
-    return ok({
-      status: "error",
-      message: "Name who at the clinic approved the script.",
-    } satisfies AgentConfigState);
-  }
-  try {
-    const row = await withTenant(
-      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      async (tx) => {
-        const label = `${approvedBy} (recorded by ${operator.email})`;
-        const approved = await approveAgentConfig(tx, label);
-        // The operator's approval stays as an override of the practice
-        // questions (plan Part G: "a pass approves the agent script"): it is
-        // recorded as a passed run with the operator's label, so the tracker
-        // and the go-live gate read it, and the record says a person did it.
-        await recordOperatorOverride(tx, { label });
-        return approved;
-      },
-    );
-    const auditRecorded = await audit(operator, "agent_config_approved", {
-      clinicSlug: clinic.slug,
-      version: row.version,
-      override: "practice_questions",
-    });
-    return ok({
-      status: "updated",
-      version: row.version,
-      approvedAt: row.approvedAt?.toISOString() ?? null,
-      auditRecorded,
-    } satisfies AgentConfigState);
-  } catch (error) {
-    if (error instanceof AgentConfigError) {
-      return ok({ status: "error", message: error.message } satisfies AgentConfigState);
-    }
-    throw error;
-  }
-}
-
 // -----------------------------------------------------------------------------
 // The practice questions' review queue (lib/engine/practice/review.ts)
 // -----------------------------------------------------------------------------
@@ -3744,40 +3729,6 @@ async function opRecordClinicTouch(
     (tx) => recordTouch(tx, { kind, summary, outcome: outcome as string | null, byLabel: operator.email }),
   );
   await audit(operator, "clinic_touch_recorded", { clinicSlug: clinic.slug, kind });
-  return care.updated();
-}
-
-/**
- * One bought channel's audit passed, as the operator attests it until the
- * practice questions exist (lib/channels/audit-seam.ts): recorded once, with
- * the operator's audit row, and the channel then moved on as far as its
- * other inputs allow. Refused for a channel the clinic did not buy, and for
- * a clinic that has left.
- */
-async function opAttestChannelAudit(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return care.error("No such clinic.");
-  const channel = stringArg(args, "channel", 8);
-  if (!isChannel(channel)) return care.error("The channel is web, meta or voice.");
-  if (clinic.offboardingStartedAt || clinic.destroyedAt) return care.error("This clinic has left.");
-  let recorded: boolean;
-  try {
-    recorded = await withTenant(
-      { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      async (tx) => {
-        const result = await attestChannelAudit(tx, channel);
-        await evaluateChannels(tx, { only: channel, actor: "ops" });
-        return result.recorded;
-      },
-    );
-  } catch (error) {
-    if (error instanceof AuditSeamError) return care.error(error.message);
-    throw error;
-  }
-  if (recorded) await audit(operator, "channel_audit_attested", { clinicSlug: clinic.slug, channel });
   return care.updated();
 }
 

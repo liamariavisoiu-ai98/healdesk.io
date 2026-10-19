@@ -4,7 +4,6 @@ import type { Channel } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import type { AnswerDecision } from "@/lib/billing/answering";
-import { attestChannelAudit } from "@/lib/channels/audit-seam";
 import { evaluateChannels } from "@/lib/channels/events";
 import {
   evaluateForwardingCall,
@@ -38,6 +37,7 @@ import {
   setWeekdayHours,
 } from "./setup/factories";
 import { attestPlatform } from "./setup/platform";
+import { passPracticeQuestions } from "./setup/practice";
 
 /**
  * Phone goes live without an operator (wave 2, R5): a call the carrier says
@@ -228,10 +228,11 @@ async function waitingOnForwarding(label: string) {
       where id = $1`,
     [c.clinicId, AYA, PUBLISHED],
   );
-  await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
-    await attestChannelAudit(tx, "voice");
-    await evaluateChannels(tx, { only: "voice" });
-  });
+  // The audit passes only on the practice questions (19 October 2026).
+  await passPracticeQuestions(c.clinicId, ["voice"]);
+  await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+    evaluateChannels(tx, { only: "voice" }),
+  );
   expect(await voiceRow(c.clinicId)).toMatchObject({ waiting_on: "forwarding", live_at: null });
   return c;
 }

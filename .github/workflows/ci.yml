@@ -12,7 +12,7 @@ name: CI
 # database-backed tests do not actually execute.
 
 # check/** branches run the same job off the main line: an integration of
-# several packages is pushed there, checked here in about 13 minutes instead
+# several packages is pushed there, checked here in about 5 minutes instead
 # of an hour on a loaded workstation, and only a green one moves to main.
 # workflow_dispatch reruns it on any branch. Nothing deploys from CI: the
 # deploy, host and infra workflows are manual, and apps/web/vercel.json keeps
@@ -24,7 +24,98 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  # apps/app's suite is most of the time (451 of about 620 seconds on 19
+  # October 2026) and runs one file at a time (fileParallelism: false, since
+  # the database suites share one database and truncate between files). So
+  # it runs as four parts, each on its own runner with its own two-role
+  # Postgres, built and migrated exactly as before. vitest's --shard gives
+  # each part a quarter of the test files; the test job below checks that
+  # the four parts together ran every file exactly once before it lets the
+  # guard count them.
+  app-tests:
+    name: app tests (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      # Every part runs to the end, so a red batch names all its failures at once.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: healdesk_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # sslmode=disable is correct here and nowhere else: the database is a
+      # service container on the same host, and src/db/index.ts warns loudly if
+      # this is ever set in production.
+      MIGRATION_DATABASE_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
+      TEST_MIGRATOR_URL: postgres://healdesk_migrator:ci@localhost:5432/healdesk_test?sslmode=disable
+      TEST_APP_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
+      DATABASE_URL: postgres://healdesk_app:ci@localhost:5432/healdesk_test?sslmode=disable
+      BETTER_AUTH_SECRET: ci-only-not-a-real-secret
+      HEALDESK_PROVISION_SECRET: ci-only-not-a-real-secret
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      # The two roles are the security model. Running the tests as one
+      # superuser would make every isolation assertion pass for the wrong
+      # reason — the runtime role must be provably NOBYPASSRLS.
+      - name: Provision database roles
+        env:
+          PGPASSWORD: postgres
+          MIGRATOR_PASSWORD: ci
+          APP_PASSWORD: ci
+        run: |
+          psql -h localhost -U postgres -d healdesk_test \
+            -v migrator_password=ci -v app_password=ci \
+            -f apps/app/scripts/provision-roles.sql
+
+      - name: Generate a KEK for the test suite
+        run: echo "HEALDESK_LOCAL_KEK=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - run: npm run db:migrate -w @healdesk/app
+
+      # One run, machine-readable. The previous version ran the suite twice —
+      # once for humans, once to grep the count out of coloured terminal output,
+      # which failed because the ANSI escapes sit between "Tests" and the number.
+      # Parsing a reporter's prose was the mistake; vitest emits JSON. The dot
+      # reporter runs beside it so a failing test is named in the log: with the
+      # JSON reporter alone a red run said only "exit code 1", and the report
+      # that named the test stayed on the runner.
+      - name: Test — apps/app, part ${{ matrix.shard }} of 4
+        run: npm test -w @healdesk/app -- --shard=${{ matrix.shard }}/4 --reporter=dot --reporter=json --outputFile.json=../../test-results-${{ matrix.shard }}.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.shard }}
+          path: test-results-${{ matrix.shard }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # Everything else the job always checked, beside the four parts: the types
+  # of all four workspaces, lint, the other workspaces' tests, the build and
+  # what the build carries. It keeps the database and the migrations, so a
+  # migration that cannot run from zero still fails here as well.
+  checks:
+    name: types, lint, other tests, build
     runs-on: ubuntu-latest
 
     services:
@@ -89,39 +180,6 @@ jobs:
       # noticing. Errors fail the job; warnings do not. Through turbo, so a
       # workspace that adds a lint script is covered without editing this file.
       - run: npm run lint
-
-      # One run, machine-readable. The previous version ran the suite twice —
-      # once for humans, once to grep the count out of coloured terminal output,
-      # which failed because the ANSI escapes sit between "Tests" and the number.
-      # Parsing a reporter's prose was the mistake; vitest emits JSON. The dot
-      # reporter runs beside it so a failing test is named in the log: with the
-      # JSON reporter alone a red run said only "exit code 1", and the report
-      # that named the test stayed on the runner.
-      - name: Test — apps/app
-        run: npm test -w @healdesk/app -- --reporter=dot --reporter=json --outputFile.json=../../test-results.json
-
-      # The point of the whole job. The step above fails on any failing test;
-      # this one fails when the database-backed suites SKIPPED — which is the
-      # silent case, because a suite that skips reports green. The suites that
-      # need no database now pass well over any floor on their own (1,297
-      # passed beside 779 skipped without one), so a pass count cannot tell;
-      # any skipped or todo test fails the job instead. Nothing in apps/app
-      # skips on purpose: the only conditional skip is describeDb.
-      # apps/app/tests/ci-db-guard.test.ts runs this script.
-      - name: Assert the security tests actually ran
-        run: |
-          node -e '
-            const r = require("./test-results.json");
-            const passed = r.numPassedTests ?? 0;
-            const pending = r.numPendingTests ?? 0;
-            const todo = r.numTodoTests ?? 0;
-            console.log(`passed: ${passed}, pending: ${pending}, todo: ${todo}`);
-            if (pending > 0 || todo > 0 || passed < 200) {
-              console.log("::error::" + passed + " tests passed, " + pending + " skipped, " + todo + " todo. The database-backed suites did not all run —");
-              console.log("::error::tenant isolation, RLS drift, BAA immutability and billing may not have executed.");
-              process.exit(1);
-            }
-          '
 
       - name: Test — packages/connectors
         run: npm test -w @healdesk/connectors
@@ -197,6 +255,114 @@ jobs:
             fi
           done
           exit "$failed"
+
+
+  # The one gate, named test as the single job before it was. It runs
+  # whatever happened to the jobs it needs, so a failed or cancelled part is
+  # a red test job rather than a skipped one that reads as nothing.
+  test:
+    name: test
+    needs: [app-tests, checks]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every part ran and passed
+        env:
+          APP_TESTS: ${{ needs.app-tests.result }}
+          CHECKS: ${{ needs.checks.result }}
+        run: |
+          echo "app tests: $APP_TESTS, checks: $CHECKS"
+          if [ "$APP_TESTS" != success ] || [ "$CHECKS" != success ]; then
+            echo "::error::A part of CI did not pass (app tests: $APP_TESTS, checks: $CHECKS). Its own job names the failure."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: test-results-*
+          path: reports
+          merge-multiple: true
+
+      # Four reports in, one out, shaped as the single run's was, so the guard
+      # below reads it unchanged. A part that ran no files, a file two parts
+      # both ran, or a test file no part ran fails here: summed counts alone
+      # would not show a part that lost its files, any more than a pass count
+      # showed suites that skipped.
+      - name: Merge the four parts' reports
+        working-directory: apps/app
+        run: |
+          npx vitest list --filesOnly --json=../../reports/files.json >/dev/null
+          node -e '
+            const fs = require("fs");
+            const path = require("path");
+            const rel = (f) => path.relative(process.cwd(), f);
+            const parts = [1, 2, 3, 4].map((n) => {
+              const file = `../../reports/test-results-${n}.json`;
+              if (!fs.existsSync(file)) { console.log(`::error::Part ${n} of 4 left no report.`); process.exit(1); }
+              return JSON.parse(fs.readFileSync(file, "utf8"));
+            });
+            const expected = new Set(JSON.parse(fs.readFileSync("../../reports/files.json", "utf8")).map((e) => rel(e.file)));
+            const seen = new Map();
+            parts.forEach((r, i) => {
+              const files = (r.testResults ?? []).map((t) => rel(t.name));
+              if (files.length === 0) { console.log(`::error::Part ${i + 1} of 4 ran no test files.`); process.exit(1); }
+              for (const f of files) seen.set(f, (seen.get(f) ?? 0) + 1);
+            });
+            const twice = [...seen].filter(([, n]) => n > 1).map(([f]) => f);
+            const missed = [...expected].filter((f) => !seen.has(f));
+            const unknown = [...seen.keys()].filter((f) => !expected.has(f));
+            if (twice.length || missed.length || unknown.length) {
+              for (const f of twice) console.log(`::error::${f} ran in more than one part.`);
+              for (const f of missed) console.log(`::error::${f} ran in no part.`);
+              for (const f of unknown) console.log(`::error::${f} ran, but vitest does not list it.`);
+              process.exit(1);
+            }
+            const sum = (k) => parts.reduce((n, r) => n + (r[k] ?? 0), 0);
+            const merged = {
+              numTotalTests: sum("numTotalTests"),
+              numPassedTests: sum("numPassedTests"),
+              numFailedTests: sum("numFailedTests"),
+              numPendingTests: sum("numPendingTests"),
+              numTodoTests: sum("numTodoTests"),
+              success: parts.every((r) => r.success),
+              testResults: parts.flatMap((r) => r.testResults ?? []),
+            };
+            fs.writeFileSync("../../test-results.json", JSON.stringify(merged));
+            console.log(`${expected.size} test files, each run once: ${merged.numPassedTests} passed, ${merged.numPendingTests} skipped, ${merged.numTodoTests} todo, ${merged.numFailedTests} failed`);
+            if (!merged.success || merged.numFailedTests > 0) { console.log("::error::A part reported a failed test."); process.exit(1); }
+          '
+
+      # The point of the whole job. The step above fails on any failing test;
+      # this one fails when the database-backed suites SKIPPED — which is the
+      # silent case, because a suite that skips reports green. The suites that
+      # need no database now pass well over any floor on their own (1,297
+      # passed beside 779 skipped without one), so a pass count cannot tell;
+      # any skipped or todo test fails the job instead. Nothing in apps/app
+      # skips on purpose: the only conditional skip is describeDb.
+      # apps/app/tests/ci-db-guard.test.ts runs this script.
+      - name: Assert the security tests actually ran
+        run: |
+          node -e '
+            const r = require("./test-results.json");
+            const passed = r.numPassedTests ?? 0;
+            const pending = r.numPendingTests ?? 0;
+            const todo = r.numTodoTests ?? 0;
+            console.log(`passed: ${passed}, pending: ${pending}, todo: ${todo}`);
+            if (pending > 0 || todo > 0 || passed < 200) {
+              console.log("::error::" + passed + " tests passed, " + pending + " skipped, " + todo + " todo. The database-backed suites did not all run —");
+              console.log("::error::tenant isolation, RLS drift, BAA immutability and billing may not have executed.");
+              process.exit(1);
+            }
+          '
 
   # The Terraform for the product host (infra/aws) is applied only by hand,
   # through infra.yml, so a formatting slip, a broken reference or a broken

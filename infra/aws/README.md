@@ -1188,8 +1188,9 @@ calls drop and the other answers the next.
    (`apps/app/src/lib/voice/test-calls.ts`); Retell is not asked for the caller's number. That
    protects healdesk's side only: Retell still carries any call its agent is given, and has no
    agreement yet, so no real clinic's Retell agent or call forwarding may point at Retell before
-   its agreement is signed. Real patients' calls wait for every link of the BAA
-   chain, Retell's included ("What still blocks real patient data"), and then step 6.
+   its agreement is signed. The demo clinic's calls are answered and kept like any call, so give
+   its Retell agent a number only you dial, never one a patient could find. Real patients' calls
+   wait for every link of the BAA chain, Retell's included ("What still blocks real patient data"), and then step 6.
 2. Generate the secret and paste it, in CloudShell: `openssl rand -hex 32`, then
    `bash put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET`. The script asks for a typed answer:
    `test` for a test call on the demo clinic only, while the agreements are not signed, or `yes`

@@ -681,6 +681,42 @@ describeDb("the live alerts' hooks", () => {
     expect(Object.keys(handover[0]!.payload).sort()).toEqual(KEYS_OF.handover);
   });
 
+  test("voice: an urgent alert that cannot be queued is told to ops, and the caller never hears the team was told", async () => {
+    const c = await seedClinic("alert-voice-urgent-miss");
+    await senderOn(c);
+    const transport = new FakeTransport();
+    const said: RetellOutbound[] = [];
+    const session = new RetellCallSession(c.clinicId, "call_alert_miss", (m) => said.push(m), {
+      responder: scripted(() => ({ reply: "model" })),
+      transport,
+      realCalls: true,
+    });
+    await session.open();
+    const opening = String((said.find((m) => m.response_type === "response") as { content?: unknown } | undefined)?.content ?? "");
+    await refusing("billing_notices", "new.kind = 'urgent'", () =>
+      session.handle(
+        JSON.stringify({
+          interaction_type: "response_required",
+          response_id: 1,
+          transcript: [{ role: "agent", content: opening }, { role: "user", content: URGENT_WORDS }],
+        }),
+      ),
+    );
+    await session.finish();
+    const urgentReply = said
+      .filter((m) => m.response_type === "response")
+      .map((m) => String((m as { content?: unknown }).content))
+      .find((r) => /911/.test(r));
+    // Still 911 and the clinic's number; never a promise that was not kept.
+    expect(urgentReply).toBeDefined();
+    expect(urgentReply).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(await queuedNotices(c.clinicId)).toEqual([]);
+    expect(transport.notices()).toEqual([]);
+    // Ops hears of it, to phone the clinic: ids and a channel, nothing said.
+    await vi.waitFor(async () => expect(await urgentMisses(c.clinicId)).toHaveLength(1), { timeout: 10_000 });
+    expect(await urgentMisses(c.clinicId)).toEqual([{ clinicId: c.clinicId, channel: "voice", conversationId: null }]);
+  });
+
   test("Meta: an urgent message queues one L12 per conversation, sent in-process once the answer has committed", async () => {
     const c = await seedClinic("alert-meta-urgent");
     const pageId = "990000000000001";

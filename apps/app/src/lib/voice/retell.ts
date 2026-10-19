@@ -11,7 +11,7 @@ import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { raiseHandover } from "@/lib/handovers/record";
 import { describeError, log } from "@/lib/log";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { notifyBookingAlert, urgentAlertNotQueued, withoutTeamTold } from "@/lib/notices/booking-alerts";
 import { notifyOps } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
@@ -196,6 +196,8 @@ export class RetellCallSession {
   private outbound = false;
   private urgent = false;
   private handoff = false;
+  /** The urgent alert this call raised is not known to be queued: no reply may say the team was told. */
+  private urgentUntold = false;
   private handoverAlerted = false;
   /** Alerts being sent after their commit; the call's record waits for them. */
   private sending: Promise<void>[] = [];
@@ -624,18 +626,20 @@ export class RetellCallSession {
     let urgentQueued = false;
     if (turn.urgent && !this.urgent) {
       this.urgent = true;
+      const writing = withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
+        notifyBookingAlert(tx, "urgent", { callId: this.callId, channel: "voice" }),
+      );
+      // A transaction that fails, now or after the deadline, never queued
+      // the row: ops is told, to phone the clinic. notifyBookingAlert tells
+      // ops itself when only its savepoint failed (it then returns false).
+      writing.catch(() => urgentAlertNotQueued(this.clinicId, { channel: "voice" }));
       try {
         // Bounded, so a database that hangs never holds the urgent reply.
-        await withDeadline(
-          withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
-            notifyBookingAlert(tx, "urgent", { callId: this.callId, channel: "voice" }),
-          ),
-          ALERT_DEADLINE_MS,
-        );
-        urgentQueued = true;
+        urgentQueued = await withDeadline(writing, ALERT_DEADLINE_MS);
       } catch (error) {
         log.error("retell urgent alert not raised", { clinicId: this.clinicId, error: describeError(error) });
       }
+      this.urgentUntold = !urgentQueued;
     }
     // L11: the caller asked for a person. Once per call, and not after an
     // urgent alert, which already has the clinic looking at it. Kept for
@@ -679,9 +683,11 @@ export class RetellCallSession {
       this.disclosurePlayedAt = null;
       this.openingOwed = true;
     }
-    let reply = turn.reply;
+    // The fixed urgent reply says the team was told; while the alert is not
+    // known to be queued, it must not (URGENT_ALERT_DELIVERED).
+    let reply = turn.urgent && this.urgentUntold ? withoutTeamTold(turn.reply) : turn.reply;
     if (this.openingOwed && !turn.urgent) {
-      reply = `${openingLine(facts, "voice")} ${turn.reply}`;
+      reply = `${openingLine(facts, "voice")} ${reply}`;
       this.openingOwed = false;
       this.disclosurePlayedAt = this.now();
     }

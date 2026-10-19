@@ -176,6 +176,11 @@ describeDb("the web chat", () => {
     const answer = await sendWebChatMessage(clinic, start.token, "I'm having a bad reaction to the filler", { responder });
     expect(answer.mode === "chat" && answer.reply).toMatch(/call 911/);
     expect(seen).toHaveLength(0);
+    // Recorded as urgent, not only as escalated, so Conversations can tell it from a handover.
+    const { rows } = await inTenant(clinic.clinicId, (client) =>
+      client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
+    );
+    expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
   });
 
   test("a card number is cut from the transcript and never reaches the model", async () => {
@@ -192,6 +197,24 @@ describeDb("the web chat", () => {
     const email = transport.transcripts()[0]!.message.text;
     expect(email).not.toContain("4242 4242");
     expect(email).toContain("[card number removed]");
+  });
+
+  test("a language saved before the screens read it is never answered in: the prompt offers only English and Spanish", async () => {
+    const clinic = await liveWebClinic("chat-languages");
+    // The database still accepts the older list; the engine reads it through SCREENED_LANGUAGES.
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, languages) values ($1, '{en,fr,es}')
+         on conflict (clinic_id) do update set languages = excluded.languages`,
+        [clinic.clinicId],
+      ),
+    );
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const { responder, seen } = scripted(() => ({ reply: "We're open weekdays." }));
+    await sendWebChatMessage(clinic, start.token, "When are you open?", { responder });
+    expect(seen[0]!.system.stable).toContain("Languages: you answer in English and Spanish.");
+    expect(seen[0]!.system.stable).not.toContain("French");
   });
 
   test("the guard replaces an off-menu price and a never-say phrase", async () => {

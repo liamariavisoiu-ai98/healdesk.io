@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import {
   BAA_TEMPLATES,
@@ -191,6 +191,60 @@ describeDb("database audit (0031)", () => {
              has_function_privilege('public', 'app_clinics_overview()', 'EXECUTE') as anyone
     `);
     expect(execute).toEqual([{ app: true, anyone: false }]);
+  });
+
+  test("a channel's lifecycle and live's recorded inputs are the channel definers' alone (0079)", async () => {
+    // The answer gate answers only a live channel and billing is charged from
+    // a channel's first answer, so neither may be written by the runtime role
+    // directly: only the four definers, which re-check what they record.
+    const { rows: columns } = await getMigratorPool().query<{ column: string; update: boolean }>(`
+      select a.attname as column, has_column_privilege('healdesk_app', a.attrelid, a.attnum, 'UPDATE') as update
+        from pg_attribute a
+       where a.attrelid = 'clinic_channels'::regclass
+         and a.attname in ('ready_at', 'live_at', 'first_answer_at', 'enabled', 'waiting_on')
+       order by a.attname
+    `);
+    expect(columns).toEqual([
+      { column: "enabled", update: true },
+      { column: "first_answer_at", update: false },
+      { column: "live_at", update: false },
+      { column: "ready_at", update: false },
+      { column: "waiting_on", update: true },
+    ]);
+    const { clinicId } = await seedClinic("lifecycle-guard");
+    await inTenant(clinicId, (c) =>
+      c.query(`insert into clinic_channels (clinic_id, channel) values ($1, 'voice')`, [clinicId]),
+    );
+    await asTenant(clinicId, async (c) => {
+      for (const kind of ["ready", "live", "first_answer", "audit_passed", "runtime_seen"]) {
+        await c.query("savepoint s");
+        await expect(
+          c.query(`insert into channel_events (clinic_id, channel, kind) values ($1, 'voice', $2)`, [clinicId, kind]),
+          kind,
+        ).rejects.toMatchObject({ code: "42501" });
+        await c.query("rollback to savepoint s");
+      }
+      await expect(
+        c.query(`insert into clinic_channels (clinic_id, channel, live_at) values ($1, 'web', now())`, [clinicId]),
+      ).rejects.toMatchObject({ code: "42501" });
+    });
+    const { rows: definers } = await getMigratorPool().query<{ name: string; definer: boolean; app: boolean; anyone: boolean }>(`
+      select p.proname as name, p.prosecdef as definer,
+             has_function_privilege('healdesk_app', p.oid, 'EXECUTE') as app,
+             has_function_privilege('public', p.oid, 'EXECUTE') as anyone
+        from pg_proc p
+       where p.proname in ('app_channel_record_input', 'app_channel_mark_ready', 'app_channel_mark_live',
+                           'app_channel_record_first_answer', 'app_channel_ours_ok', 'app_channel_live_ok')
+       order by p.proname
+    `);
+    expect(definers).toEqual([
+      { name: "app_channel_live_ok", definer: false, app: false, anyone: false },
+      { name: "app_channel_mark_live", definer: true, app: true, anyone: false },
+      { name: "app_channel_mark_ready", definer: true, app: true, anyone: false },
+      { name: "app_channel_ours_ok", definer: false, app: false, anyone: false },
+      { name: "app_channel_record_first_answer", definer: true, app: true, anyone: false },
+      { name: "app_channel_record_input", definer: true, app: true, anyone: false },
+    ]);
   });
 
   test("the runtime role cannot delete a clinic (0066)", async () => {
@@ -872,6 +926,72 @@ describeDb("database audit (0031)", () => {
       );
       expect(rows[0]!.ok, `booking_requests.${column}`).toBe(false);
     }
+  });
+
+  test("a step-up or a second factor is never dated ahead of now, for any role (0077)", async () => {
+    // The idle and 8-hour limits count from step_ups' two times, so a row
+    // dated ahead would open patient pages for as long as it said.
+    const { rows: triggers } = await getMigratorPool().query<{ tgname: string }>(
+      `select tgname from pg_trigger
+        where tgname in ('step_ups_not_ahead', 'user_factors_not_ahead') and not tgisinternal
+        order by tgname`,
+    );
+    expect(triggers.map((t) => t.tgname)).toEqual(["step_ups_not_ahead", "user_factors_not_ahead"]);
+
+    const { staffUserId } = await seedClinic("ahead");
+    const app = getAppPool();
+    const passkey = (extra: string, value: string) =>
+      app.query<{ id: string }>(
+        `insert into user_factors (user_id, kind, device_label, credential_id, public_key, counter, backed_up${extra})
+         values ($1, 'passkey', 'Front desk Mac', $2, '\\x01', 0, true${value}) returning id`,
+        [staffUserId, randomBytes(16).toString("base64url")],
+      );
+    // As the app writes them, now: accepted.
+    const factorId = (await passkey("", "")).rows[0]!.id;
+    for (const [extra, value] of [
+      [", created_at", ", now() + interval '30 days'"],
+      [", last_used_at", ", now() + interval '30 days'"],
+    ] as const) {
+      await expect(passkey(extra, value), extra).rejects.toMatchObject({ code: "42501" });
+    }
+    await expect(
+      app.query(`update user_factors set last_used_at = now() + interval '1 day' where id = $1`, [
+        factorId,
+      ]),
+    ).rejects.toMatchObject({ code: "42501" });
+    await app.query(`update user_factors set last_used_at = now() where id = $1`, [factorId]);
+
+    const stepUp = (times: string) =>
+      app.query<{ id: string }>(
+        `insert into step_ups (session_token_hash, user_id, factor_id, device_label${times ? ", created_at, last_activity_at" : ""})
+         values ($1, $2, $3, 'Front desk Mac'${times}) returning id`,
+        [randomBytes(32), staffUserId, factorId],
+      );
+    const stepUpId = (await stepUp("")).rows[0]!.id;
+    await expect(
+      stepUp(", now() + interval '30 days', now() + interval '30 days'"),
+    ).rejects.toMatchObject({ code: "42501" });
+    await expect(stepUp(", now(), now() + interval '7 hours'")).rejects.toMatchObject({
+      code: "42501",
+    });
+    await expect(
+      app.query(`update step_ups set last_activity_at = now() + interval '7 hours' where id = $1`, [
+        stepUpId,
+      ]),
+    ).rejects.toMatchObject({ code: "42501" });
+    // A touch, and a row dated in the past (it only lapses sooner), go through.
+    await app.query(`update step_ups set last_activity_at = greatest(last_activity_at, now()) where id = $1`, [
+      stepUpId,
+    ]);
+    await stepUp(", now() - interval '1 hour', now() - interval '1 hour'");
+    // No role is exempt: the migrator cannot date one ahead either.
+    await expect(
+      getMigratorPool().query(
+        `insert into step_ups (session_token_hash, user_id, factor_id, device_label, created_at, last_activity_at)
+         values ($1, $2, $3, 'Front desk Mac', now() + interval '1 day', now() + interval '1 day')`,
+        [randomBytes(32), staffUserId, factorId],
+      ),
+    ).rejects.toMatchObject({ code: "42501" });
   });
 
   test("the operator's second factor is not in this database (0074)", async () => {

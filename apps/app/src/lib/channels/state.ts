@@ -1,9 +1,10 @@
 import { CHANNELS, type Channel } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import {
   clinicChannels,
+  clinics,
   clinicSettings,
   type ChannelWaitingOn,
   type ClinicChannelRow,
@@ -119,4 +120,22 @@ export function channelsInService(states: readonly ChannelState[]): Channel[] {
 /** The channels ready on our side, whether live or still waiting on the clinic. */
 export function channelsReadyOnOurSide(states: readonly ChannelState[]): Channel[] {
   return states.filter((s) => s.readyAt !== null).map((s) => s.channel);
+}
+
+/**
+ * AYA's number, once phone is ready on our side for the clinic
+ * (lib/channels/events.ts sets `ready_at`), and null until then: the number
+ * and the forwarding steps are shown and sent on only once voice is ready,
+ * so nobody forwards calls to an assistant that cannot answer yet (spec,
+ * "The forwarding step, treated properly"). Null for a clinic that did not
+ * buy phone.
+ */
+export async function readPhoneStepsNumber(tx: Transaction, clinicId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({ readyAt: clinicChannels.readyAt, number: clinics.assistantNumberE164 })
+    .from(clinicChannels)
+    .innerJoin(clinics, eq(clinics.id, clinicChannels.clinicId))
+    .where(and(eq(clinicChannels.clinicId, clinicId), eq(clinicChannels.channel, "voice")))
+    .limit(1);
+  return row?.readyAt && row.number ? row.number : null;
 }

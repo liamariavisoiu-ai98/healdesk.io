@@ -157,6 +157,14 @@ export const DIRECT_KIND_REGISTRY = {
   ops_digest: direct("I2", "transactional", "plan", { linkEmail: false, locksOut: false }),
   /** I4: each flagged answer, and two flags in seven days, to ops. Ids and counts only. */
   flag_alert: direct("I4", "transactional", "plan", { linkEmail: false, locksOut: false }),
+  /**
+   * I3's support escalation: the portal's support chat asking for a person,
+   * to hello@ with the clinic's address as reply-to (lib/support/escalate.ts).
+   * The topic, fields from fixed lists and the account's state; never the
+   * chat's words. It carries no `clinic` tag: it goes to our own inbox, so a
+   * bounce from it says nothing about the clinic's address.
+   */
+  support_escalation: direct("I3", "transactional", "plan", { linkEmail: false, locksOut: false }),
 } as const;
 
 export type DirectKind = keyof typeof DIRECT_KIND_REGISTRY;

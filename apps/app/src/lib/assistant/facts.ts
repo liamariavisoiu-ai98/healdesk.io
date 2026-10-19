@@ -1,8 +1,9 @@
 import {
+  isScreenedLanguage,
   resolveBookingRequirements,
-  type AssistantLanguage,
   type AssistantTone,
   type BookingField,
+  type ScreenedLanguage,
 } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
@@ -67,11 +68,20 @@ export type AssistantFacts = {
   greeting: { phone: string; chat: string };
   /** How AYA speaks: "warm" (the default) or "clinical". */
   tone: AssistantTone;
-  /** The languages AYA answers in; English is always one of them. */
-  languages: AssistantLanguage[];
+  /**
+   * The languages AYA answers in: the clinic's choice, read through the
+   * languages the screens read (SCREENED_LANGUAGES), so a language saved
+   * before the screens existed is never answered in. English is always one.
+   */
+  languages: ScreenedLanguage[];
   /** "Suggest add-on treatments": on lets AYA suggest a complementary service during a booking. */
   suggestAddOns: boolean;
 };
+
+function screenedLanguages(chosen: readonly string[]): ScreenedLanguage[] {
+  const screened = chosen.filter(isScreenedLanguage);
+  return screened.includes("en") ? screened : ["en", ...screened];
+}
 
 function hoursLines(hours: OpeningHours | null): string[] {
   if (!hours) return [];
@@ -155,7 +165,7 @@ export async function assistantFacts(
       chat: settings.chatGreeting?.trim() || defaultChatGreeting(),
     },
     tone: settings.tone,
-    languages: settings.languages.length > 0 ? settings.languages : ["en"],
+    languages: screenedLanguages(settings.languages),
     suggestAddOns: settings.suggestAddOns,
   };
 }

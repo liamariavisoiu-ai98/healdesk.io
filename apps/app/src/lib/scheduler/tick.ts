@@ -1,4 +1,5 @@
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
+import { sweepChannelStates } from "@/lib/channels/events";
 import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
@@ -122,6 +123,18 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // each row's lease makes the overlap harmless
   // (lib/conversations/transcript-outbox.ts).
   await record("transcript-emails", () => runTranscriptEmailsJob({ now }));
+  // Channel events (lib/channels/events.ts): every production clinic's
+  // channels moved on as far as their inputs allow, ready, waiting on the
+  // clinic, live, for any input whose own event did not ask. Not a switched
+  // job: a pure function of rows the clinic and the operator set, like the
+  // sweeps above. Before the setup reminder, which reads what it wrote.
+  await record("channel-states", async () => {
+    const r = await sweepChannelStates(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.readied} ready, ${r.live} live${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // The practice questions' sweep (lib/engine/practice/job.ts), behind the
   // practice-questions switch: a run for a clinic whose inputs changed with
   // none asked for, the review-past-due alert, and O8 for a complete tracker.

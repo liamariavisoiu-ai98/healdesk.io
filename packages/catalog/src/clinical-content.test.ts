@@ -227,3 +227,63 @@ describe("the everyday skin and hair conditions, which only the Meta channels co
     ]);
   });
 });
+
+describe("findClinicalContent in Spanish", () => {
+  // The review of 14 October: with Spanish on, the reply guard passed these.
+  test.each([
+    ["Es seguro durante el embarazo y no tiene efectos secundarios.", "a safety claim"],
+    ["La dosis habitual es de 20 unidades.", "dosing"],
+    ["No tiene riesgos ni complicaciones.", "side effects or risks"],
+    ["Usted es una candidata ideal para el relleno.", "candidacy"],
+    ["Esos síntomas son normales.", "diagnosis, symptoms or triage"],
+    ["La recuperación toma dos días.", "recovery or aftercare"],
+    ["Deje de tomar anticoagulantes una semana antes.", "medication or interactions"],
+    ["Si tiene una infección, espere.", "a medical condition"],
+    ["Resultados garantizados.", "a results guarantee"],
+    ["Está clínicamente probado.", "an efficacy claim"],
+  ])("%j is clinical (%s)", (text, label) => {
+    expect(findClinicalContent({ reply: text })[0]?.label).toBe(label);
+  });
+
+  test.each([
+    "El botox cuesta $12 por unidad.",
+    "Abrimos de lunes a viernes, de 9 a 5.",
+    "¿Aceptan seguro? Sí, el equipo le puede explicar.",
+    "Quisiera una cita para el martes.",
+    "El estacionamiento es gratis.",
+  ])("%j is not clinical", (text) => {
+    expect(findClinicalContent({ reply: text })).toEqual([]);
+  });
+
+  test("an everyday condition in Spanish counts only where conditions do, on Meta", () => {
+    expect(findClinicalContent({ message: "Tengo mucho acné" }, { conditions: true })).not.toEqual([]);
+    expect(findClinicalContent({ message: "Tengo mucho acné" })).toEqual([]);
+  });
+});
+
+describe("third review: the inbound screen reads conditions, medicines and triage questions", () => {
+  // The Meta screen that runs before anything is stored, and the default one.
+  test.each([
+    ["estoy dando pecho", "pregnancy or breastfeeding"],
+    ["¿El relleno es peligroso?", "a safety claim"],
+    ["¿Es normal tener un bulto después del relleno?", "diagnosis, symptoms or triage"],
+    ["Tomo warfarina", "medication or interactions"],
+    ["Tengo diabetes", "a medical condition"],
+    ["Tengo lupus", "a medical condition"],
+    ["Tengo VIH", "a medical condition"],
+    ["I have diabetes", "a medical condition"],
+    ["I'm HIV positive", "a medical condition"],
+    ["Is it normal to have a lump after filler?", "diagnosis, symptoms or triage"],
+    ["my lip has a lump after filler", "a medical condition"],
+  ])("%j is clinical (%s)", (text, label) => {
+    expect(findClinicalContent({ message: text }, { conditions: true })[0]?.label).toBe(label);
+    expect(findClinicalContent({ message: text })[0]?.label).toBe(label);
+  });
+
+  test.each(["Hi, how much is Botox?", "Hola, ¿cuánto cuesta el botox?", "Can I book a lip filler consult?"])(
+    "%j is not clinical",
+    (text) => {
+      expect(findClinicalContent({ message: text }, { conditions: true })).toEqual([]);
+    },
+  );
+});

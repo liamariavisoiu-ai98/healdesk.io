@@ -22,7 +22,9 @@ vi.mock("next/headers", () => ({
 import * as opsClient from "@/lib/admin/ops-client";
 import {
   closeUnfinishedSetup,
+  attestChannelAudit,
   commitRefund,
+  confirmWebWidget,
   disconnectCalendar,
   extendSetupDeadline,
   fetchClinicBilling,
@@ -812,6 +814,66 @@ describe("the billing panel's writes", () => {
 // -----------------------------------------------------------------------------
 // The booking card (plan §10, C17)
 // -----------------------------------------------------------------------------
+
+describe("the channels card: each channel's go-live state, and the audit seam", () => {
+  test("getOnboarding's channels are read field by field; a code this console doesn't know is left out; an older apps/app's is null", async () => {
+    const withChannels = onboardingWith("Hi") as { data: Record<string, unknown> };
+    withChannels.data.channels = [
+      {
+        channel: "voice",
+        readyAt: "2026-10-14T15:00:00.000Z",
+        waitingOn: "forwarding",
+        liveAt: null,
+        firstAnswerAt: null,
+        auditPassed: true,
+        missing: ["clinic_step", "something_new"],
+      },
+      { channel: "web", readyAt: null, waitingOn: null, liveAt: null, firstAnswerAt: null, auditPassed: false, missing: ["audit"] },
+    ];
+    reply(withChannels);
+    const view = await fetchOnboarding(CLINIC);
+    if (!view.ok) throw new Error(view.message);
+    expect(view.data.channels).toEqual([
+      {
+        channel: "voice",
+        readyAt: "2026-10-14T15:00:00.000Z",
+        waitingOn: "forwarding",
+        liveAt: null,
+        firstAnswerAt: null,
+        auditPassed: true,
+        missing: ["clinic_step"],
+      },
+      { channel: "web", readyAt: null, waitingOn: null, liveAt: null, firstAnswerAt: null, auditPassed: false, missing: ["audit"] },
+    ]);
+
+    reply(onboardingWith("Hi"));
+    const older = await fetchOnboarding(CLINIC);
+    if (!older.ok) throw new Error(older.message);
+    expect(older.data.channels).toBeNull();
+  });
+
+  test("confirming website chat's line sends only the clinic, and reads a refusal as one", async () => {
+    reply({ data: { status: "updated" } });
+    expect(await confirmWebWidget(CLINIC)).toEqual({ ok: true, data: { status: "updated" } });
+    expect(sent.at(-1)).toEqual({ op: "confirmWebWidget", args: { clinicId: CLINIC } });
+    reply({ data: { status: "error", message: "The clinic didn't buy website chat." } });
+    expect(await confirmWebWidget(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "The clinic didn't buy website chat." },
+    });
+  });
+
+  test("attesting a channel's audit sends the clinic and the channel, and reads a refusal as one", async () => {
+    reply({ data: { status: "updated" } });
+    expect(await attestChannelAudit(CLINIC, "voice")).toEqual({ ok: true, data: { status: "updated" } });
+    expect(sent.at(-1)).toEqual({ op: "attestChannelAudit", args: { clinicId: CLINIC, channel: "voice" } });
+    reply({ data: { status: "error", message: "The clinic didn't buy that channel." } });
+    expect(await attestChannelAudit(CLINIC, "meta")).toEqual({
+      ok: true,
+      data: { status: "refused", message: "The clinic didn't buy that channel." },
+    });
+  });
+});
 
 describe("the booking card reads the derived mode, and switches only Auto-confirm", () => {
   test("getOnboarding's booking is read field by field, instants in the console's UTC form", async () => {

@@ -1,4 +1,10 @@
-import { urgentSetFor, type AssistantLanguage, type Channel } from "@healdesk/catalog";
+import {
+  isScreenedLanguage,
+  urgentSetFor,
+  type AssistantLanguage,
+  type Channel,
+  type ScreenedLanguage,
+} from "@healdesk/catalog";
 
 import type { PracticeCaseId, PracticeNotApplicable } from "./types";
 
@@ -24,7 +30,8 @@ import type { PracticeCaseId, PracticeNotApplicable } from "./types";
  *   6. a complication, answered by the fixed urgent line;
  *   7. an off-topic, hostile person;
  *   8. a question the profile cannot answer;
- *   9. a second language, where the clinic answers in one.
+ *   9. a second language, where the clinic answers in one the screens read
+ *      (Spanish, today).
  *
  * A veterinary practice gets the same nine about an animal (its owner asks;
  * its complication is the veterinary set's, answered with the emergency vet
@@ -35,7 +42,7 @@ import type { PracticeCaseId, PracticeNotApplicable } from "./types";
  * is never mistaken for one already passed.
  */
 
-export const PRACTICE_CASES_VERSION = "2026-10-14.1";
+export const PRACTICE_CASES_VERSION = "2026-10-19.1";
 
 /** The service fields a case reads. */
 export type PracticeService = {
@@ -174,18 +181,17 @@ export function unknownQuestion(knownText: string): string {
   ).text;
 }
 
-/** The language case's two turns, in each language AYA can answer in: the hours, then a price. */
-const LANGUAGE_TURNS: Readonly<
-  Record<Exclude<AssistantLanguage, "en">, readonly [string, string]>
-> = {
-  es: ["Hola, ¿a qué hora abren mañana?", "¿Y cuánto cuesta {service}?"],
-  fr: ["Bonjour, à quelle heure ouvrez-vous demain ?", "Et combien coûte {service} ?"],
-  pt: ["Olá, a que horas vocês abrem amanhã?", "E quanto custa {service}?"],
-  zh: ["你好，你们明天几点开门？", "{service}多少钱？"],
-  vi: ["Xin chào, ngày mai mấy giờ phòng khám mở cửa?", "Còn {service} giá bao nhiêu?"],
-  ko: ["안녕하세요, 내일 몇 시에 문을 여나요?", "{service}는 얼마인가요?"],
-  ru: ["Здравствуйте, во сколько вы открываетесь завтра?", "А сколько стоит {service}?"],
-};
+/**
+ * The language case's two turns, the hours and then a price, in each
+ * language AYA may answer in besides English: the languages the urgent and
+ * clinical screens read (@healdesk/catalog SCREENED_LANGUAGES). A message in
+ * any other language gets a fixed line and never the model (package A's
+ * messageLanguage), so a case in one would test only that line.
+ */
+const LANGUAGE_TURNS: Readonly<Record<Exclude<ScreenedLanguage, "en">, readonly [string, string]>> =
+  {
+    es: ["Hola, ¿a qué hora abren mañana?", "¿Y cuánto cuesta {service}?"],
+  };
 
 export const LANGUAGE_NAMES_IN_ENGLISH: Readonly<Record<AssistantLanguage, string>> = {
   en: "English",
@@ -293,7 +299,9 @@ export function practiceCases(profile: PracticeProfile, channel: Channel): Pract
     judged: true,
   });
 
-  const second = profile.languages.find((l): l is Exclude<AssistantLanguage, "en"> => l !== "en");
+  const second = profile.languages.find(
+    (l): l is Exclude<ScreenedLanguage, "en"> => l !== "en" && isScreenedLanguage(l),
+  );
   if (!second) {
     cases.push({
       id: "language",

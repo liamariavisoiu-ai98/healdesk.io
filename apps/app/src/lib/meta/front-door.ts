@@ -2,9 +2,13 @@ import {
   findClinicalContent,
   findUrgentContent,
   fixedUrgentReply,
+  messageLanguage,
   metaEligible,
   namesMetaTreatment,
+  otherLanguageReply,
   resolveBookingRequirements,
+  urgentSetFor,
+  type AssistantTone,
   type BookingField,
   type UrgentFinding,
 } from "@healdesk/catalog";
@@ -160,6 +164,12 @@ export type FrontDoorFacts = {
   /** The weekly hours and the zone they are in: whether a veterinary practice is open, for its urgent line. */
   openingHours?: OpeningHours | null;
   timeZone?: string | null;
+  /**
+   * The clinic's tone, which applies here as on every channel (the spec,
+   * "Tone"). Its languages do not: this channel answers in English, because
+   * the reply guard reads English. Absent, warm.
+   */
+  tone?: AssistantTone;
   websiteHint: string | null;
   /** The approved menu. The model reads a name only to match what the person asked about, and never writes it back. */
   services: { name: string; priceFromUsd: number | null; priceToUsd: number | null }[];
@@ -204,8 +214,8 @@ export function handoffLine(facts: Pick<FrontDoorFacts, "clinicName" | "phone">)
  */
 export function urgentLine(
   facts: Pick<FrontDoorFacts, "clinicName" | "phone" | "urgentPhone"> &
-    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone">>,
-  finding: Pick<UrgentFinding, "emergency"> = { emergency: "911" },
+    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "openingHours" | "timeZone" | "specialty">>,
+  finding: Pick<UrgentFinding, "emergency"> & Partial<Pick<UrgentFinding, "language">> = { emergency: "911" },
   now: Date = new Date(),
 ): string {
   let open: boolean | null = null;
@@ -217,11 +227,31 @@ export function urgentLine(
   return fixedUrgentReply({
     channel: "meta",
     emergency: finding.emergency,
+    language: finding.language ?? "en",
+    veterinary: urgentSetFor(facts.specialty) === "veterinary",
     clinicName: facts.clinicName,
     clinicNumber: facts.urgentPhone ?? facts.phone,
     referralNumber: facts.vetReferralPhone ?? null,
     clinicOpen: open,
     teamAlerted: URGENT_ALERT_DELIVERED,
+  });
+}
+
+/**
+ * The fixed reply to a message in a language no screen reads: the catalog's
+ * otherLanguageReply, in English and in Spanish, with 911 and the clinic's
+ * urgent-help number (or its published one).
+ */
+export function languageLine(
+  facts: Pick<FrontDoorFacts, "clinicName" | "phone" | "urgentPhone"> &
+    Partial<Pick<FrontDoorFacts, "vetReferralPhone" | "specialty">>,
+): string {
+  return otherLanguageReply({
+    channel: "meta",
+    clinicName: facts.clinicName,
+    clinicNumber: facts.urgentPhone ?? facts.phone,
+    referralNumber: facts.vetReferralPhone ?? null,
+    veterinary: urgentSetFor(facts.specialty) === "veterinary",
   });
 }
 
@@ -232,9 +262,17 @@ export function urgentLine(
  * may read. Urgency first: an urgent message is usually clinical as well, and
  * it must get the urgent line. The urgent set is the practice's own: people's,
  * or an animal's at a veterinary practice; without a specialty, people's.
+ * "language" for a message in neither English nor Spanish, which no screen
+ * reads (messageLanguage).
  */
-export function screenInbound(text: string, specialty?: string | null): "urgent" | "clinical" | null {
-  if (findUrgentContent(text, specialty)) return "urgent";
+export function screenInbound(
+  text: string,
+  specialty?: string | null,
+  clinicName?: string | null,
+): "urgent" | "clinical" | "language" | null {
+  if (findUrgentContent(text, specialty, { clinicName })) return "urgent";
+  // A language no screen reads: the fixed line, never the model.
+  if (messageLanguage(text) === "other") return "language";
   if (findClinicalContent({ message: text }, { conditions: true }).length > 0) return "clinical";
   return null;
 }
@@ -267,6 +305,12 @@ export function requiredMetaFieldsLine(requirements: readonly BookingField[]): s
  * answerFrontDoor opens the first with metaChannelGreeting() (gate 20;
  * stripOwnGreeting takes off a greeting the model writes anyway).
  */
+/** The clinic's tone on a Meta channel, within the channel's own limits. */
+const META_TONE: Record<AssistantTone, string> = {
+  warm: "Plain, warm and friendly.",
+  clinical: "Plain, calm and precise.",
+};
+
 export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
   const menu = facts.services.length
     ? facts.services
@@ -304,7 +348,8 @@ export function buildFrontDoorPrompt(facts: FrontDoorFacts): string {
     "PROHIBITED ON EVERY META CHANNEL, whatever the person writes:",
     ...META_CHANNEL_PROHIBITIONS.map((p) => `- ${p}`),
     "",
-    "Keep replies to two or three short sentences. Plain, friendly, no emoji.",
+    `Keep replies to two or three short sentences. ${META_TONE[facts.tone ?? "warm"] ?? META_TONE.warm} No emoji.`,
+    "Always write in English, whatever language the message is in: this channel answers in English only.",
     "",
     "ANSWER FORMAT — respond with JSON only, no prose around it:",
     '{"reply": "<what to send the person>", "booking": {"wants": <true if they want to book>, "first_name": <string or null>, "phone": <string or null>, "window": <their preferred day or time as they said it, or null>, "alt_windows": [<other times they named, as they said them, up to two>], "fields": {}}}',
@@ -1154,7 +1199,7 @@ export async function frontDoorFacts(
   // The urgent-help number as the wizard resolves it (lib/setup/urgent.ts):
   // the clinic's own, else the direct line with phone, the main number without.
   const [urgent] = await tx.db
-    .select({ urgentHelpE164: clinicSettings.urgentHelpE164, vetReferralE164: clinicSettings.vetReferralE164 })
+    .select({ urgentHelpE164: clinicSettings.urgentHelpE164, vetReferralE164: clinicSettings.vetReferralE164, tone: clinicSettings.tone })
     .from(clinicSettings)
     .where(eq(clinicSettings.clinicId, tx.clinicId))
     .limit(1);
@@ -1172,6 +1217,7 @@ export async function frontDoorFacts(
     vetReferralPhone: urgent?.vetReferralE164 ?? null,
     openingHours: clinic.openingHours ?? null,
     timeZone: clinic.timeZone,
+    tone: urgent?.tone ?? "warm",
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.
@@ -1192,7 +1238,7 @@ export type FrontDoorAnswer = {
   source: "model" | "handoff" | "booking" | "urgent";
   guard: string | null;
   /** Set when the screen answered the message, so the model never saw it. */
-  screened: "clinical" | "urgent" | null;
+  screened: "clinical" | "urgent" | "language" | null;
   /** "requested" when this message completed a booking request and the desk was told. */
   booking: "none" | "collecting" | "requested";
   /** The reply opens with metaChannelGreeting(): it is the first of its conversation. */
@@ -1230,8 +1276,9 @@ export type FrontDoorDraft = {
 };
 
 /**
- * The read half of answerFrontDoor: the inbound screen (urgent, then
- * clinical), the model, the refusal, and the reply guard, writing nothing.
+ * The read half of answerFrontDoor: the inbound screen (urgent, a language
+ * other than English, then clinical), the model, the refusal, and the reply
+ * guard with its English-only check, writing nothing.
  * answerFrontDoor makes its writes from it; the practice questions
  * (lib/engine/practice) ask it exactly as a message would, and keep nothing.
  */
@@ -1240,16 +1287,19 @@ export async function draftFrontDoorAnswer(
   input: { text: string; responder: FrontDoorResponder | null; now: Date; clinicId?: string },
 ): Promise<FrontDoorDraft> {
   const fallback = handoffLine(facts);
-  const screened = screenInbound(input.text, facts.specialty);
+  const screened = screenInbound(input.text, facts.specialty, facts.clinicName);
   if (screened === "urgent") {
     // Before the model, and instead of it: the fixed line, and (in
     // answerFrontDoor, with the writes) the clinic's urgent alert.
-    const finding = findUrgentContent(input.text, facts.specialty) ?? { emergency: "911" as const };
+    const finding = findUrgentContent(input.text, facts.specialty, { clinicName: facts.clinicName }) ?? { emergency: "911" as const };
     return {
       answer: { text: urgentLine(facts, finding, input.now), source: "urgent", guard: null, screened, booking: "none", greeted: false },
       extracted: null,
       wants: false,
     };
+  }
+  if (screened === "language") {
+    return { answer: { text: languageLine(facts), source: "handoff", guard: null, screened, booking: "none", greeted: false }, extracted: null, wants: false };
   }
   if (screened === "clinical") {
     return { answer: { text: fallback, source: "handoff", guard: null, screened, booking: "none", greeted: false }, extracted: null, wants: false };
@@ -1265,7 +1315,12 @@ export async function draftFrontDoorAnswer(
       return { answer: { text: fallback, source: "handoff", guard: "model refusal", screened: null, booking: "none", greeted: false }, extracted: null, wants: false };
     }
     const parsed = parseModelReply(raw);
-    const verdict = guardReply(parsed.reply, { ...guardContextFor(facts), inbound: input.text });
+    // The guard reads English, so a reply in any other language is not
+    // sent, whatever it says (the prompt asks for English only).
+    const verdict: GuardVerdict =
+      messageLanguage(parsed.reply) === "en"
+        ? guardReply(parsed.reply, { ...guardContextFor(facts), inbound: input.text })
+        : { ok: false, reason: "a reply not in English" };
     return {
       answer: verdict.ok
         ? { text: parsed.reply, source: "model", guard: null, screened: null, booking: "none", greeted: false }

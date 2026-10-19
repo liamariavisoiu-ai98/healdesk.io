@@ -1,3 +1,4 @@
+import { leansSpanish } from "./message-language";
 import { isSpecialtyId, regimeFor } from "./specialties";
 
 /**
@@ -35,90 +36,230 @@ import { isSpecialtyId, regimeFor } from "./specialties";
  *
  * There are two sets, chosen by the practice's specialty (urgentSetFor):
  * the set for people, below, for every practice HIPAA can reach, and the
- * veterinary set (VETERINARY_PATTERNS) for a practice whose patients are
+ * veterinary set (VETERINARY_FAMILIES) for a practice whose patients are
  * animals. The spec sells a veterinary practice only once that set and its
  * emergency referral number exist ("Veterinary practices are sold only once
  * the veterinary urgent set and an emergency referral number are in
  * place"), because an animal's emergency is not 911's: its fixed reply
- * (./urgent-replies.ts) gives the emergency vet the practice refers to.
+ * (./urgent-replies.ts) gives the emergency vet the practice refers to. A
+ * person's own emergency at a veterinary practice is still 911's: a crisis,
+ * a named person ("my husband collapsed"), the person speaking ("I can't
+ * breathe") or an ambulance asked for gets the reply for people
+ * (personEmergency below), and every veterinary reply says to call 911 if a
+ * person is hurt or in danger.
  *
- * It returns the family that matched and which emergency service the reply
- * points to, never the words: the text it reads is a patient's or a
- * client's, and what it matched must not reach a log, a row or a reply.
+ * Each family is written in English and in Spanish, the two languages the
+ * assistant answers in (assistant-settings.ts, SCREENED_LANGUAGES), and both
+ * are always read, whatever the clinic has switched on: a Spanish message to
+ * an English-only practice is screened all the same. A message in any other
+ * language is caught by messageLanguage (./message-language.ts) and never
+ * reaches the model.
+ *
+ * Two things are read past before matching: the practice's own name ("is
+ * Oakwood Animal Hospital open?" is not an emergency), and a question about
+ * the practice's emergency service ("do you offer emergency appointments?",
+ * "is it urgent to get my puppy vaccinated?"). Only those words go; anything
+ * else in the message is still read, so "do you take emergency appointments?
+ * he was hit by a car" is still urgent.
+ *
+ * It returns the family that matched, which emergency service the reply
+ * points to and the language the reply is written in, never the words: the
+ * text it reads is a patient's or a client's, and what it matched must not
+ * reach a log, a row or a reply.
  */
 
 /**
  * Which emergency service the fixed reply points to: 911 for a person, the
- * emergency vet for an animal. A veterinary practice's client in crisis
- * themselves is a person, so that family keeps 911 in the veterinary set.
+ * emergency vet for an animal.
  */
 export type UrgentEmergency = "911" | "veterinary";
 
-export type UrgentFinding = { label: string; emergency: UrgentEmergency };
+/** The language a finding's reply is written in: that of the words that matched. */
+export type UrgentLanguage = "en" | "es";
+
+export type UrgentFinding = { label: string; emergency: UrgentEmergency; language: UrgentLanguage };
 
 /** Which set a practice is screened with. */
 export type UrgentSet = "human" | "veterinary";
 
-type UrgentPattern = { pattern: RegExp; label: string };
+export type UrgentOptions = {
+  /** The practice's own name, read past: a veterinary hospital's name is not an emergency. */
+  clinicName?: string | null;
+};
 
-const URGENT_PATTERNS: UrgentPattern[] = [
-  {
-    // "Urgent", but not after "not" or "non": "nothing urgent, just a price"
-    // is not. 911 on its own, never inside a run of digits or a dashed number.
-    pattern:
-      /\b(emergenc(y|ies)|ambulance|paramedics?|urgent care)\b|\b(go(ing)? to|in|at|take (me|him|her|them) to) (the )?(hospital|ER|A&E)\b|(?<!\b(not|non|isn't|nothing)[\s-]?)\burgent(ly)?\b|(?<![\d-])\b911\b(?![\d-])/i,
-    label: "an emergency",
-  },
+/** One family, in each language it is written in. */
+type UrgentFamily = { label: string; en: RegExp; es?: RegExp };
+
+/**
+ * A pattern for words that may carry accents: Unicode-aware edges, because
+ * \b does not see "á" or "ñ" as part of a word.
+ */
+function es(body: string): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`, "iu");
+}
+
+// -----------------------------------------------------------------------------
+// The crisis family, one for both sets
+// -----------------------------------------------------------------------------
+
+/**
+ * Someone who wants to end their life or hurt themselves. Always a person:
+ * at a veterinary practice too, it gets 911. Recall first: a false positive
+ * costs one fixed reply with the numbers, a miss lets the model answer.
+ * What is not a crisis: an injury told as one ("I hurt myself skiing", "my
+ * dog hurt himself jumping off the bed"), which is hurt without intent, and
+ * the turns of phrase ("dying to", "to die for", "die of worry", "this
+ * traffic is killing me").
+ */
+const SELF_HARM_EN = new RegExp(
+  [
+    "\\bsuicid\\w*",
+    "\\bkill(ing|ed)? (my|him|her|them)sel(f|ves)\\b",
+    "\\bend(ing)? (my|his|her|their) (own )?life\\b",
+    "\\bend(ing)? it all\\b",
+    "\\b(want|wants|wanna|going|gonna|ready|plan(ning)?|need|thinking (of|about)) (to )?end(ing)? it\\b(?!\\s+(with|early|before|after|for|on|by|at|there|here|today|tomorrow|now with))",
+    "\\b(want|wants) to die\\b(?! (of|from) (worry|embarrassment|laughing|laughter|boredom|shame|cringe|cuteness))",
+    "\\bwanna die\\b(?! (of|from) (worry|embarrassment|laughing|laughter|boredom|shame|cringe|cuteness))",
+    "\\bbetter off (dead|without me)\\b",
+    "\\bwish (i|he|she) (was|were) dead\\b",
+    "\\bwish (i|he|she) could (just )?die\\b",
+    "\\b(don'?t|do not|doesn'?t|does not|no longer) want to (live|be alive|be here|exist|wake up)( any ?more)?\\b",
+    "\\bself[- ]harm\\w*",
+    "\\bcutting (my|him|her|them)sel(f|ves)\\b",
+    "\\b(want(s|ed)?|wanna|going|gonna|plan(s|ning)?|thinking (of|about)|threaten(s|ed|ing)?|tr(y|ies|ied|ying)|keep(s)?|might|will|could|about) (to )?hurt(ing)? (my|him|her|them)sel(f|ves)\\b",
+  ].join("|"),
+  "i",
+);
+const SELF_HARM_ES = es(
+  "suicid\\p{L}*|quitarme la vida|quiero morir(me)?|me quiero morir|me (quiero|voy a|pienso|quisiera) (matar|morir)|me mato|matarme|me voy a quitar la vida|(me )?(cort[ée]|cortarme|cort[áa]ndome) las (venas|mu[ñn]ecas)|me estoy cortando|(ya )?no quiero (seguir )?(vivir|estar aqu[íi]|existir)|hacerme da[ñn]o|lastimarme|acabar con (mi vida|todo)|terminar con (mi vida|todo)",
+);
+
+/** Medicines named in an overdose: the common over-the-counter and prescription ones. */
+const DRUGS =
+  "tylenol|advil|motrin|aleve|ibuprofen|acetaminophen|paracetamol|aspirin|excedrin|benadryl|nyquil|xanax|valium|klonopin|ativan|ambien|oxy|oxycodone|oxycontin|percocet|vicodin|hydrocodone|fentanyl|morphine|codeine|tramadol|adderall|lithium|seroquel|zoloft|prozac|lexapro|wellbutrin|trazodone|gabapentin|insulin|heroin|cocaine|meth";
+const PILLS = `pills|tablets|caps|capsules|meds|medications?|medicines?|sleeping pills|painkillers|${DRUGS}`;
+
+/**
+ * Too many pills: a person's overdose, unless the message is about an
+ * animal (personEmergency). By the generic words ("a bottle of pills"), by
+ * a medicine's name with a quantity ("30 tylenol", "a bunch of xanax"), and
+ * by someone named who took something.
+ */
+const OVERDOSE_EN = new RegExp(
+  [
+    "\\boverdos\\w*",
+    `\\b(took|taken|take|swallowed|ate|downed|had) (too many|so many|a (whole )?(bottle|handful|bunch|lot|pack|box|fistful) of|a lot of|lots of|all (of )?(my|the|her|his|their)|([5-9]|[1-9]\\d{1,2})) (\\w+ )?(${PILLS})\\b`,
+    "\\b(he|she|they|someone|somebody|my (son|daughter|husband|wife|partner|kid|child|boyfriend|girlfriend|friend|mom|mum|dad|mother|father|brother|sister|roommate)) (just )?(took|has taken|swallowed) something\\b",
+  ].join("|"),
+  "i",
+);
+const OVERDOSE_ES = es(
+  `sobredosis|(me |se )?(tom[ée]|tom[óo]|tragu[ée]|trag[óo]) (demasiadas|muchas|todas (las|mis|sus)|un frasco( entero)? de|una caja de|un mont[óo]n de|([5-9]|[1-9]\\d{1,2})) (pastillas|p[íi]ldoras|medicinas|medicamentos|tabletas|${DRUGS})`,
+);
+
+/**
+ * A poisoning, in the set for people. In the veterinary set it is the
+ * animal's (POISONING below). Not a joke about coffee.
+ */
+const POISONED_EN =
+  /\bpoison(ed|ing)\b(?! (myself|me|ourselves) with (coffee|caffeine|sugar|junk food|fast food|carbs|candy|soda|energy drinks|takeout|pizza))/i;
+const POISONED_ES = es("envenen\\p{L}*|intoxicad[oa]|intoxicaci[óo]n");
+
+function union(...patterns: RegExp[]): RegExp {
+  return new RegExp(patterns.map((p) => `(?:${p.source})`).join("|"), "iu");
+}
+
+/** The crisis family of the set for people; the veterinary set reuses its parts (personEmergency). */
+const CRISIS: UrgentFamily = {
+  label: "a crisis",
+  en: union(SELF_HARM_EN, OVERDOSE_EN, POISONED_EN),
+  es: union(SELF_HARM_ES, OVERDOSE_ES, POISONED_ES),
+};
+
+// -----------------------------------------------------------------------------
+// The set for people
+// -----------------------------------------------------------------------------
+
+const EMERGENCY_WORDS: UrgentFamily = {
+  // "Urgent", but not after "not" or "non": "nothing urgent, just a price"
+  // is not. 911 on its own, never inside a run of digits or a dashed number.
+  label: "an emergency",
+  en: /\b(emergenc(y|ies)|ambulance|paramedics?|urgent care)\b|\b(go(ing)? to|in|at|take (me|him|her|them|it) to|bring (him|her|them|it) (in )?to) (the |an |a )?((animal|pet|vet|veterinary|emergency) )?(hospital|ER|A&E|emergency room|emergency vet)\b|(?<!\b(not|non|isn't|nothing)[\s-]?)\burgent(ly)?\b|(?<![\d-])\b911\b(?![\d-])/i,
+  es: es(
+    "emergencias?|ambulancia|param[ée]dicos?|urgencias|(?<!(nada|no es|no) )urgente|(ir|voy|vamos|ll[ée]vame|llevarme|llevarlo|llevarla|lo llevo|la llevo) (al|a la|a) (hospital|sala de emergencias|urgencias)|(?<![\\d-])911(?![\\d-])",
+  ),
+};
+
+const HUMAN_FAMILIES: UrgentFamily[] = [
+  EMERGENCY_WORDS,
   {
     // Swallowing beside breathing: trouble swallowing after a toxin is the
     // spread of its effect that botulinum toxin's boxed warning names.
-    pattern:
-      /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to) breath(e|ing)?\b|\bshort(ness)? of breath\b|\bbreathless\b|\bthroat (is |feels )?(closing|tight\w*|swell\w*|swollen)\b|\bchest (pains?|tightness|pressure)\b|\b(heart attack|palpitations?|heart (is )?racing|racing heart)\b|\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to|hurts? to|painful to) swallow(ing)?\b|\b(trouble|difficulty|problems?|pain) (with |when |on )?swallowing\b|\bdysphagia\b/i,
     label: "breathing, the throat or the chest",
+    en: /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to) breath(e|ing)?\b|\b(isn'?t|is not|not|stopped|has stopped|quit|stops) breathing\b(?! easy| easily)|\bchok(e|es|ed|ing)\b|\bshort(ness)? of breath\b|\bbreathless\b|\bthroat (is |feels )?(closing|tight\w*|swell\w*|swollen)\b|\bchest (pains?|tightness|pressure)\b|\bchest (hurts|is hurting|feels (tight|heavy))\b|\b(heart attack|palpitations?|heart (is )?racing|racing heart)\b|\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to|hurts? to|painful to) swallow(ing)?\b|\b(trouble|difficulty|problems?|pain) (with |when |on )?swallowing\b|\bdysphagia\b/i,
+    es: es(
+      "no (puedo|puede|podía) respirar|no respira|dej[óo] de respirar|(dificultad|problemas?) para respirar|me cuesta respirar|me falta (el )?aire|falta de aire|(me|se) (est[áa] )?(ahogando|atragantando)|me ahogo|se atragant\\p{L}*|se me (est[áa] )?cerr(a|ando) la garganta|garganta (cerrada|hinchada|apretada)|dolor (en el|de) pecho|me duele (mucho |much[íi]simo )?el pecho|presi[óo]n en el pecho|ataque al coraz[óo]n|infarto|no (puedo|puede) tragar|(dificultad|problemas?|dolor) (para|al) tragar|me duele (al )?tragar",
+    ),
   },
-  { pattern: /\b(allergic reaction|anaphyla\w*|hives)\b/i, label: "an allergic reaction" },
-  { pattern: /\b(swell(ing|s|ed)|swell up|swollen)\b/i, label: "swelling" },
-  { pattern: /\b(bleed(ing|s)?|bled|ha?emorrhag\w*)\b/i, label: "bleeding" },
   {
-    pattern:
-      /\b(pus|oozing|abscess(es)?|fever(ish)?|infected|sepsis|blister(s|ed|ing)?|burns|burned|burnt)\b|\bburning (sensation|pain|feeling)\b/i,
+    label: "an allergic reaction",
+    en: /\b(allergic reaction|anaphyla\w*|hives)\b/i,
+    es: es("reacci[óo]n al[ée]rgica|anafila\\p{L}*|urticaria|ronchas"),
+  },
+  {
+    label: "swelling",
+    en: /\b(swell(ing|s|ed)|swell up|swollen)\b/i,
+    es: es("hinchad[oa]s?|hinchaz[óo]n|se (me )?(est[áa] )?hinch(a|ando|ó|o)|inflamad[oa]s?|inflamaci[óo]n"),
+  },
+  {
+    label: "bleeding",
+    en: /\b(bleed(ing|s)?|bled|ha?emorrhag\w*)\b/i,
+    es: es("sangrando|sangra|sangr[óo]|sangrado|hemorragia|no (para|deja) de sangrar|mucha sangre"),
+  },
+  {
     label: "an infection or a burn",
+    en: /\b(pus|oozing|abscess(es)?|fever(ish)?|infected|sepsis|blister(s|ed|ing)?|burns|burned|burnt)\b|\bburning (sensation|pain|feeling)\b/i,
+    es: es("pus|supura\\p{L}*|absceso|fiebre|infectad[oa]|ampollas?|quemad[oa]|quemaduras?|me quem[ée]"),
   },
   {
     // What a vascular occlusion after filler looks like, and sight.
-    pattern:
-      /\b(blanch\w*|mottl\w*|necro\w*|turn(ed|ing|s)? (white|blue|purple|black)|(lost|losing|loss of|blurr(y|ed)|double) (my |his |her )?(vision|sight)|vision loss|can'?t see (properly|clearly|anything|out of))\b/i,
     label: "a change in the skin or in sight",
+    en: /\b(blanch\w*|mottl\w*|necro\w*|turn(ed|ing|s)? (white|blue|purple|black)|(lost|losing|loss of|blurr(y|ed)|double) (my |his |her )?(vision|sight)|vision loss|can'?t see (properly|clearly|anything|out of))\b/i,
+    es: es(
+      "(se (me )?(est[áa] )?(poniendo|puso|ha puesto)|est[áa]) (blanc[oa]|azul|morad[oa]|negr[oa])|necros\\p{L}*|visi[óo]n borrosa|(perd[íi]|perdiendo|p[ée]rdida de) (la )?(visi[óo]n|vista)|no (puedo|veo) ver( bien)?|veo doble",
+    ),
   },
   {
-    pattern:
-      /\b(severe|extreme|excruciating|unbearable|intense|terrible|horrible|awful|worst|agoni[sz]ing) (pain|headache|cramps?|cramping)\b|\bin (a lot of|so much|lots of) pain\b|\bpain (is |keeps )?(getting )?(worse|unbearable)\b/i,
     label: "severe pain",
+    en: /\b(severe|extreme|excruciating|unbearable|intense|terrible|horrible|awful|worst|agoni[sz]ing) (pain|headache|cramps?|cramping)\b|\bin (a lot of|so much|lots of) pain\b|\bpain (is |keeps )?(getting )?(worse|unbearable)\b/i,
+    es: es("dolor (muy )?(fuerte|intenso|insoportable|terrible|horrible)|mucho dolor|me duele (much[íi]simo|mucho)"),
   },
   {
-    pattern:
-      /\b(faint(ed|ing)?|pass(ed|ing) out|black(ed)? out|unconscious|(lost|loss of|losing) consciousness|unresponsive|collaps(e|ed|ing)|seizures?|convuls\w*|(having|had|a) stroke|slurr(ed|ing)|numbness|can'?t feel (my|his|her|the|anything)|paraly[sz]\w*|dizz(y|iness)|light-?headed|vomit(ing|ed)?|throwing up)\b/i,
     label: "consciousness or the nerves",
+    en: /\b(faint(ed|ing)?|pass(ed|ing) out|black(ed)? out|unconscious|(lost|loss of|losing) consciousness|unresponsive|collaps(e|ed|ing)|seizures?|convuls\w*|(having|had|a) stroke|slurr(ed|ing)|numbness|can'?t feel (my|his|her|the|anything)|paraly[sz]\w*|dizz(y|iness)|light-?headed|vomit(ing|ed)?|throwing up)\b|\bwon'?t wake( up)?\b|\b(can'?t|cannot) wake (him|her|them|my \w+) up\b|\bnot waking up\b|\b(arm|face|leg|side|lips?|hand|tongue) (is |are |feels |went |has gone |going |keeps going )?numb\b/i,
+    es: es(
+      "desmay\\p{L}*|perd[íi] el conocimiento|inconsciente|no responde|no (despierta|reacciona)|no (puedo|logro|consigo) despertar(lo|la)?|convulsi\\p{L}*|derrame cerebral|mare(o|ada|ado|ando)s?|entumecid[oa]|no siento (el|la|los|las|mi|mis|nada)|paralizad[oa]|par[áa]lisis|vomit\\p{L}*|v[óo]mitos?",
+    ),
   },
   {
-    pattern:
-      /\b(wound|incision|stitch(es)?|sutures?) (has |have |is |are )?(opened|open|opening|split|burst|came out|come out|coming out|leak\w*|ooz\w*|bleed\w*)\b|\b(knocked[- ]out|broke(n)?|cracked|chipped) (a |my |his |her |their )?(front )?(tooth|teeth|jaw)\b|\b(tooth|teeth) (got )?(knocked out|broke|broken|cracked)\b/i,
     label: "a wound or an injury",
+    en: /\b(wound|incision|stitch(es)?|sutures?) (has |have |is |are )?(opened|open|opening|split|burst|came out|come out|coming out|leak\w*|ooz\w*|bleed\w*)\b|\b(knocked[- ]out|broke(n)?|cracked|chipped) (a |my |his |her |their )?(front )?(tooth|teeth|jaw)\b|\b(tooth|teeth) (got )?(knocked out|broke|broken|cracked)\b/i,
+    es: es(
+      "(la herida|la incisi[óo]n|los puntos|las suturas) (se )?(abri[óo]|abrieron|est[áa] abierta|soltaron|sangra)|se me (rompi[óo]|cay[óo]|parti[óo]) (un|el|la) (diente|muela)|diente (roto|partido)",
+    ),
   },
-  {
-    pattern:
-      /\b(suicid\w*|kill (my|him|her|them)sel(f|ves)|end (my|his|her) life|wants? to die|self[- ]harm\w*|hurt(ing)? (my|him|her|them)sel(f|ves)|overdos\w*|poison(ed|ing))\b/i,
-    label: "a crisis",
-  },
+  CRISIS,
   {
     // Someone with a reaction or a complication, in any tense ("I have a
     // reaction", "she has a complication", "I've had", "I get"); one called
     // bad with no verb at all ("bad reaction to the filler"); a body reacting
     // to something. Complications asked about in general ("are there any
     // complications?") are the clinical screen's, which hands off without 911.
-    pattern:
-      /\b(have|has|having|had|get|gets|getting|got|develop(s|ed|ing)?) (an? |some )?((really|very) )?(bad |severe |serious |allergic |strange |weird |nasty |terrible |awful |horrible )?(reaction|complication)s?\b|\b(bad|severe|serious|strange|weird|nasty|terrible|awful|horrible) (reaction|complication)s?\b|\breact(ed|ing) (badly|terribly|really badly|to (the|my|it|this|that))\b/i,
     label: "a reaction or a complication",
+    en: /\b(have|has|having|had|get|gets|getting|got|develop(s|ed|ing)?) (an? |some )?((really|very) )?(bad |severe |serious |allergic |strange |weird |nasty |terrible |awful |horrible )?(reaction|complication)s?\b|\b(bad|severe|serious|strange|weird|nasty|terrible|awful|horrible) (reaction|complication)s?\b|\breact(ed|ing) (badly|terribly|really badly|to (the|my|it|this|that))\b/i,
+    es: es(
+      "(tengo|tiene|tuve|tuvo|estoy teniendo|me dio|le dio) una (mala |fuerte |grave |seria )?(reacci[óo]n|complicaci[óo]n)|(mala|fuerte|grave) reacci[óo]n",
+    ),
   },
 ];
 
@@ -131,8 +272,9 @@ const URGENT_PATTERNS: UrgentPattern[] = [
  * words one of the things a vet treats as a poisoning ("ate a whole bar of
  * chocolate", "got into my ibuprofen", "licked antifreeze") or, after
  * swallowing alone, as an obstruction ("swallowed a sock", "ate a corn
- * cob"). Only the forms that report it happening: "can dogs eat grapes?" is
- * a question for the desk, and "loves eating bones" is not one bone
+ * cob"); or something unknown eaten ("ate something and is now shaking").
+ * Only the forms that report it happening: "can dogs eat grapes?" is a
+ * question for the desk, and "loves eating bones" is not one bone
  * swallowed.
  */
 const ATE_TOXIN =
@@ -143,109 +285,295 @@ const ATE_OBJECT = "(ate|eaten|swallowed|swallowing|ingested)";
 const OBJECT =
   "(batter(y|ies)|socks?|string|thread|ribbon|tinsel|hair ties?|toy|ball|bone|(chicken|cooked) bones|corn ?cobs?|fish(ing)? ?hooks?|needles?|coins?|magnets?|part of (a|the|his|her|its|their|my))";
 
-/**
- * The veterinary set (the v1 spec, "HIPAA and BAA position": a veterinary
- * practice is sold only once it exists). What a client writes or says when
- * their animal needs emergency care now: a poisoning or something swallowed,
- * bloat (gastric dilatation and volvulus), trouble breathing, a collapse or
- * a seizure, heavy bleeding, being hit by a car or attacked, a cat that
- * cannot pass urine, heatstroke, an eye injury, a difficult birth, a severe
- * allergic reaction, vomiting that will not stop, and severe pain.
- *
- * A closed list, and as blunt as the set for people: a false positive gives
- * a client the emergency vet's number and the practice's own, which is where
- * a question about a poisoning belongs anyway. What it will not do is fire
- * on the business of a veterinary front desk: vaccinations, a spay or a
- * neuter, a dental cleaning, nail trims, grooming, boarding, a microchip, a
- * puppy's first shots or a litter due in the spring. The tests
- * (./urgent-content.test.ts) hold both sides.
- *
- * The client's own crisis comes first and keeps 911: someone who writes that
- * they want to end their life is a person, whatever the practice treats.
- */
-const VETERINARY_PATTERNS: (UrgentPattern & { emergency?: UrgentEmergency })[] = [
+const POISONING: UrgentFamily = {
+  label: "a poisoning or something swallowed",
+  en: new RegExp(
+    `\\b(poison(ed|ing|ous)?|(?<!\\bnon[\\s-]?)toxic|toxins?|toxicity|anti-?freeze|rat bait|rodenticide|overdos\\w*)\\b` +
+      `|\\b${ATE_TOXIN}\\b(?:[\\s,]+[\\w'-]+){0,5}?[\\s,]+${TOXIN}\\b` +
+      `|\\b${ATE_OBJECT}\\b(?:\\s+[\\w'-]+){0,4}?\\s+${OBJECT}\\b` +
+      `|\\b(ate|eaten|swallowed|got into|licked|drank) something\\b` +
+      // "My dog took my pills": an animal does not take medicine as a person does.
+      `|\\b(took|has taken|got hold of|got into) (my|our|the|some|all (of )?(my|the|our)|a bunch of|a bottle of|[2-9]|\\d{2,3}) (\\w+ )?(${PILLS})\\b`,
+    "i",
+  ),
+  es: es(
+    "envenen\\p{L}*|intoxica\\p{L}*|veneno|anticongelante|raticida|t[óo]xic[oa]|sobredosis|(se )?tom[óo] (mis|las|unas|todas las|sus|[2-9]|\\d{2,3}) (pastillas|p[íi]ldoras|medicinas|medicamentos|tabletas)|(comi[óo]|se comi[óo]|trag[óo]|se trag[óo]|lami[óo]|bebi[óo]|ingiri[óo])( [\\p{L}]+){0,4}? (chocolate|uvas?|pasas|xilitol|chicle|cebollas?|ajo|lirios?|pastillas|p[íi]ldoras|medicamentos?|medicinas?|ibuprofeno|paracetamol|aspirina|anticongelante|veneno|raticida|marihuana|calcetines|calcet[íi]n|juguete|hueso|pila|bater[íi]a|algo)",
+  ),
+};
+
+/** The veterinary families, after the crisis and the person (personEmergency). In this order. */
+const VETERINARY_FAMILIES: UrgentFamily[] = [
   {
-    pattern:
-      /\b(suicid\w*|kill (my|him|her|them)sel(f|ves)|end (my|his|her) life|(i|I) (just )?want to die|self[- ]harm\w*|hurt(ing)? (my|them)sel(f|ves))\b/i,
-    label: "a crisis",
-    emergency: "911",
+    // The emergency words, and an animal taken to hospital ("should I take
+    // him to the animal hospital?"). Not a hospital's name: "is Oakwood
+    // Animal Hospital open?" asks about hours.
+    ...EMERGENCY_WORDS,
   },
+  POISONING,
   {
-    // The emergency words of the set for people, and an animal hospital.
-    pattern:
-      /\b(emergenc(y|ies)|(animal|pet|vet|veterinary) (hospital|ER)|ambulance|urgent care)\b|\b(go(ing)? to|in|at|take (him|her|them|it) to) (the )?(hospital|ER|emergency room)\b|(?<!\b(not|non|isn't|nothing)[\s-]?)\burgent(ly)?\b|(?<![\d-])\b911\b(?![\d-])/i,
-    label: "an emergency",
-  },
-  {
-    pattern: new RegExp(
-      `\\b(poison(ed|ing|ous)?|(?<!\\bnon[\\s-]?)toxic|toxins?|toxicity|anti-?freeze|rat bait|rodenticide)\\b` +
-        `|\\b${ATE_TOXIN}\\b(?:[\\s,]+[\\w'-]+){0,5}?[\\s,]+${TOXIN}\\b` +
-        `|\\b${ATE_OBJECT}\\b(?:\\s+[\\w'-]+){0,4}?\\s+${OBJECT}\\b`,
-      "i",
-    ),
-    label: "a poisoning or something swallowed",
-  },
-  {
-    pattern:
-      /\b(bloat(ed|ing)?|gdv|twisted (stomach|gut)|stomach (has )?twist\w*|(belly|stomach|abdomen|tummy) (is |looks |feels |seems |has gone |got )?(swollen|distended|hard|tight|bloated|huge|enlarged)|(swollen|distended|hard|bloated) (belly|stomach|abdomen|tummy)|retching|dry[- ]?heav\w*|trying to (vomit|throw up|be sick)|unproductive (vomiting|retching))\b/i,
     label: "bloat",
+    en: /\b(bloat(ed|ing)?|gdv|twisted (stomach|gut)|stomach (has )?twist\w*|(belly|stomach|abdomen|tummy) (is |looks |feels |seems |has gone |got )?(swollen|distended|hard|tight|bloated|huge|enlarged)|(swollen|distended|hard|bloated) (belly|stomach|abdomen|tummy)|retching|dry[- ]?heav\w*|trying to (vomit|throw up|be sick)|unproductive (vomiting|retching))\b/i,
+    es: es(
+      "(barriga|est[óo]mago|abdomen|panza|panzita) (muy )?(hinchad[oa]|inflamad[oa]|dur[oa]|distendid[oa])|torsi[óo]n (g[áa]strica|de est[óo]mago)|arcadas|intenta vomitar",
+    ),
   },
   {
-    pattern:
-      /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to|not|isn'?t|stopped) breath(e|ing)\b|\bbreathing (hard|heavily|fast|funny|strange(ly)?|weird(ly)?|badly|noisily)\b|\bshort(ness)? of breath\b|\b(gasping|wheezing|choking|choked)\b|\bpanting (heavily|hard|a lot|non-?stop|constantly)\b|\b(blue|white|grey|gray|pale|purple) (gums|tongue)\b|\b(gums|tongue) (is |are |looks? |have gone |has gone |turned )?(blue|white|grey|gray|pale|purple)\b/i,
+    // Not "not breathing easy about the cost".
     label: "breathing",
+    en: /\b(can'?t|cannot|can not|couldn'?t|hard to|trouble|difficulty|struggling to|unable to|not|isn'?t|stopped) breath(e|ing)\b(?! easy| easily)|\b(can'?t|cannot) (get|make) (my|the|our|his|her|this) [\w-]+ (to )?breathe\b|\bbreathing (hard|heavily|fast|funny|strange(ly)?|weird(ly)?|badly|noisily)\b|\bshort(ness)? of breath\b|\b(gasping|wheezing|choking|choked)\b|\bpanting (heavily|hard|a lot|non-?stop|constantly)\b|\b(blue|white|grey|gray|pale|purple) (gums|tongue)\b|\b(gums|tongue) (is |are |looks? |have gone |has gone |turned )?(blue|white|grey|gray|pale|purple)\b/i,
+    es: es(
+      "no (puede|puedo) respirar|(le cuesta|dificultad para) respirar|no respira|se (est[áa] )?ahogando|enc[íi]as (azules|blancas|p[áa]lidas|moradas)",
+    ),
   },
   {
-    pattern:
-      /\b(collaps(e|ed|es|ing)|unconscious|unresponsive|passed out|fainted|fainting|seizures?|seizing|convuls\w*|(having|had|has|having another) (a )?fits?|(is|was|keeps|started) fitting|paraly[sz]\w*|dying|can'?t (stand|stand up|get up|walk|move (his|her|its|their) (back |hind )?legs)|(won'?t|will not|unable to) (stand|get up|walk)|dragging (his|her|its|their) (back |hind )?legs|(back|hind) legs (have )?(gone|given out|stopped working|collapsed))\b/i,
     label: "a collapse or a seizure",
+    en: /\b(collaps(e|ed|es|ing)|unconscious|unresponsive|passed out|fainted|fainting|seizures?|seizing|convuls\w*|(having|had|has|having another) (a )?fits?|(is|was|keeps|started) fitting|paraly[sz]\w*|dying|(isn'?t|is not|not|stopped|won'?t|can'?t) (moving|move)|won'?t (wake|wake up)|(can'?t|cannot) wake (him|her|it|them|(my|the|our|this) [\w-]+) up|(can'?t|cannot) (get|make) (my|the|our|his|her|this) [\w-]+ (to )?(wake( up)?|respond|move)|can'?t (stand|stand up|get up|walk|move (his|her|its|their) (back |hind )?legs)|(won'?t|will not|unable to) (stand|get up|walk)|dragging (his|her|its|their) (back |hind )?legs|(back|hind) legs (have )?(gone|given out|stopped working|collapsed)|(shaking|trembling|twitching) (uncontrollably|all over|badly)|tremors)\b/i,
+    es: es(
+      "(se )?desplom\\p{L}*|colaps\\p{L}*|convulsi\\p{L}*|inconsciente|no se mueve|no (despierta|reacciona)|no (puedo|logro|consigo) despertar(lo|la)?|no se puede (levantar|parar|mover)|arrastra las patas|paralizad[oa]|par[áa]lisis|se (est[áa] )?muriendo|temblando (mucho|sin parar)",
+    ),
   },
   {
-    pattern:
-      /\b(bleed(ing|s)?|bled|ha?emorrhag\w*)\b|\bblood (in|from) (his|her|its|their|the) (urine|pee|wee|stool|poo|poop|vomit|mouth|nose|ears?|eyes?|bottom)\b|\b(bloody|blood in) (urine|pee|wee|stool|poo|poop|vomit|diarrh\w*|nose)\b|\b(vomiting|throwing up|coughing( up)?|peeing|pooping) blood\b/i,
     label: "bleeding",
+    en: /\b(bleed(ing|s)?|bled|ha?emorrhag\w*)\b|\bblood (in|from) (his|her|its|their|the) (urine|pee|wee|stool|poo|poop|vomit|mouth|nose|ears?|eyes?|bottom)\b|\b(bloody|blood in) (urine|pee|wee|stool|poo|poop|vomit|diarrh\w*|nose)\b|\b(vomiting|throwing up|coughing( up)?|peeing|pooping) blood\b/i,
+    es: es("sangrando|sangra mucho|sangrado|hemorragia|sangre en (la orina|las heces|el v[óo]mito|la popo)|vomitando sangre"),
   },
   {
-    pattern:
-      /\b(hit by a (car|truck|vehicle|bike|bus|van)|(was |got |been )?run over|struck by a (car|vehicle)|(car|road) accident|fell (off|from|out of) (a |the )?(balcony|window|roof|deck|stairs|bed|table|car)|(attacked|mauled|bitten) by (a |an |another |the |two )?(dog|dogs|coyote|cat|snake|animal)|dog ?fight|snake ?bite|broken (leg|bone|tail|jaw|paw|hip|pelvis)|(leg|bone|tail|jaw|paw|hip) (is |looks )?broken|(deep|open|big|bad|gaping) (wound|cut|gash)|impaled|electrocuted|(chewed|bit) (through )?(an |the |a )?(electric(al)? |power )?(cord|wire|cable)|scalded|burned|burnt)\b/i,
     label: "an accident or an injury",
+    en: /\b(hit by a (car|truck|vehicle|bike|bus|van)|(was |got |been )?run over|struck by a (car|vehicle)|(car|road) accident|fell (off|from|out of) (a |the )?(balcony|window|roof|deck|stairs|bed|table|car)|(attacked|mauled|savaged) by|bitten by (a |an |another |the |two |some )?[\w-]+|dog ?fight|snake ?bite|broken (leg|bone|tail|jaw|paw|hip|pelvis)|(leg|bone|tail|jaw|paw|hip) (is |looks )?broken|(deep|open|big|bad|gaping) (wound|cut|gash)|impaled|electrocuted|(chewed|bit) (through )?(an |the |a )?(electric(al)? |power )?(cord|wire|cable)|scalded|burned|burnt)\b/i,
+    es: es(
+      "atropell\\p{L}*|(lo|la|le) (mordi[óo]|atac[óo]) (otro|un|una)|atacad[oa] por|pata rota|(se )?cay[óo] (del|de la|desde el|desde la) (balc[óo]n|ventana|techo|terraza)|herida (profunda|abierta|grande)",
+    ),
   },
   {
     // A male cat that cannot pass urine dies of it within days.
-    pattern:
-      /\b(can'?t|cannot|unable to|isn'?t able to|not able to|trying to|straining to|struggling to|keeps trying to) (pee|urinate|wee|pass urine)\b|\b(not|hasn'?t|has not|hasn'?t been|isn'?t) (peeing|urinating|weeing|peed|urinated)\b|\bno (urine|pee)\b|\b(urinary|urethral|bladder) (blockage|obstruction)\b|\b(blocked|obstructed) (bladder|urethra|cat|tom)\b|\bstraining (in|to use) the (litter ?box|litter ?tray|tray)\b/i,
     label: "not passing urine",
+    en: /\b(can'?t|cannot|unable to|isn'?t able to|not able to|trying to|straining to|struggling to|keeps trying to) (pee|urinate|wee|pass urine)\b|\b(not|hasn'?t|has not|hasn'?t been|isn'?t) (peeing|urinating|weeing|peed|urinated)\b|\bno (urine|pee)\b|\b(urinary|urethral|bladder) (blockage|obstruction)\b|\b(blocked|obstructed) (bladder|urethra|cat|tom)\b|\bstraining (in|to use) the (litter ?box|litter ?tray|tray)\b/i,
+    es: es(
+      "no (puede|logra) (orinar|hacer pis|hacer pip[íi])|no (ha )?orinado|no orina|intenta orinar|(bloqueo|obstrucci[óo]n) urinari[ao]",
+    ),
   },
   {
-    pattern: /\b(heat ?stroke|heat exhaustion|over-?heat(ed|ing)|(left|locked|stuck) in (a|the) (hot )?car)\b/i,
     label: "heatstroke",
+    en: /\b(heat ?stroke|heat exhaustion|over-?heat(ed|ing)|(left|locked|stuck) in (a|the) (hot )?car)\b/i,
+    es: es("golpe de calor|insolaci[óo]n|sobrecalentad[oa]|(dejad[oa]|encerrad[oa]) en el (auto|carro|coche)"),
   },
   {
-    pattern:
-      /\b(eye injur\w*|injur(ed|y to) (his|her|its|their|the) eye|eye (is |has )?(popped|popping|bulging|out of (its|the) socket|hanging out|bleeding|punctured|swollen shut)|proptos\w*|scratch(ed)? (on )?(his|her|its|their|the) eye|something (stuck )?in (his|her|its|their) eye)\b/i,
     label: "an eye injury",
+    en: /\b(eye injur\w*|injur(ed|y to) (his|her|its|their|the) eye|eye (is |has )?(popped|popping|bulging|out of (its|the) socket|hanging out|bleeding|punctured|swollen shut)|proptos\w*|scratch(ed)? (on )?(his|her|its|their|the) eye|something (stuck )?in (his|her|its|their) eye)\b/i,
+    es: es("(el )?ojo (se le sali[óo]|salido|sangra|herido|lastimado)|lesi[óo]n en el ojo"),
   },
   {
-    pattern:
-      /\b(dystocia|(puppy|puppies|kitten|kittens|foal) (is |are |seems |looks )?stuck|(trouble|difficulty|problems?|struggling|straining|pushing) (with |to |for )?(give birth|giving birth|whelp\w*|deliver\w*|birthing|queening|labou?r)|(been )?in labou?r for|labou?r (is |has )?(not progressing|stalled|stopped)|retained (placenta|puppy|kitten))\b/i,
     label: "a difficult birth",
+    en: /\b(dystocia|(puppy|puppies|kitten|kittens|foal) (is |are |seems |looks )?stuck|(trouble|difficulty|problems?|struggling|straining|pushing) (with |to |for )?(give birth|giving birth|whelp\w*|deliver\w*|birthing|queening|labou?r)|(been )?in labou?r for|labou?r (is |has )?(not progressing|stalled|stopped)|retained (placenta|puppy|kitten))\b/i,
+    es: es("parto dif[íi]cil|(cachorro|gatito) atorado|lleva (horas )?(en trabajo de parto|pariendo)|no puede parir"),
   },
   {
-    pattern:
-      /\b(allergic reaction|anaphyla\w*|hives|(face|muzzle|snout|lips?|throat|tongue|neck|head) (is |are |has |looks |started )?(swell\w*|swollen|puffy|puffed up)|swollen (face|muzzle|snout|lips?|throat|tongue|neck|head)|stung by|(bee|wasp|hornet|scorpion) sting|(spider|insect) bite)\b/i,
     label: "an allergic reaction",
+    en: /\b(allergic reaction|anaphyla\w*|hives|(face|muzzle|snout|lips?|throat|tongue|neck|head) (is |are |has |looks |started )?(swell\w*|swollen|puffy|puffed up)|swollen (face|muzzle|snout|lips?|throat|tongue|neck|head)|stung by|(bee|wasp|hornet|scorpion) sting|(spider|insect) bite)\b/i,
+    es: es("reacci[óo]n al[ée]rgica|(cara|hocico|garganta|lengua) hinchad[oa]|picadura de (abeja|avispa|alacr[áa]n)"),
   },
   {
-    pattern:
-      /\b((can'?t|won'?t) stop|keeps|keep|constantly|non-?stop) (vomiting|throwing up|being sick|having diarrh\w*)\b|\b(vomiting|throwing up|being sick) (all|for) (day|night|hours|\d+ hours)\b|\b(vomited|threw up|been sick) (\d+|several|many|multiple|five|six|lots of) times\b/i,
     label: "vomiting that will not stop",
+    en: /\b((can'?t|won'?t) stop|keeps|keep|constantly|non-?stop) (vomiting|throwing up|being sick|having diarrh\w*)\b|\b(vomiting|throwing up|being sick) (all|for) (day|night|hours|\d+ hours)\b|\b(vomited|threw up|been sick) (\d+|several|many|multiple|five|six|lots of) times\b/i,
+    es: es("no (para|deja) de vomitar|vomitando (todo el d[íi]a|toda la noche|sin parar)"),
   },
   {
-    pattern:
-      /\b(screaming|crying|yelping|howling|whimpering|shaking) (in|with|from) pain\b|\bin (a lot of|so much|severe|terrible|extreme|agonising|agonizing) pain\b|\b(severe|extreme|excruciating|terrible) pain\b/i,
     label: "severe pain",
+    en: /\b(screaming|crying|yelping|howling|whimpering|shaking) (in|with|from) pain\b|\bin (a lot of|so much|severe|terrible|extreme|agonising|agonizing) pain\b|\b(severe|extreme|excruciating|terrible) pain\b/i,
+    es: es("(llorando|chillando|aullando|gritando) de dolor|mucho dolor"),
   },
 ];
+
+// -----------------------------------------------------------------------------
+// A person, or an animal, at a veterinary practice
+// -----------------------------------------------------------------------------
+
+/**
+ * A person named by their relation to the one writing: "my husband", "mi
+ * hijo". Not the owner of an animal: "my daughter's dog", "our kids' puppy",
+ * "el perro de mi hija" name the animal, whose emergency it is.
+ */
+const RELATION_EN =
+  /\b(my|our) (son|daughter|husband|wife|child|children|kid|kids|baby|toddler|mother|mom|mum|father|dad|partner|boyfriend|girlfriend|fianc[eé]e?|brother|sister|grandmother|grandma|grandfather|grandpa|friend|neighbou?r|roommate|coworker|colleague)\b(?!['’])/i;
+const RELATION_ES = es(
+  "(?<!(perr[oa]s?|perrit[oa]s?|gat[oa]s?|gatit[oa]s?|cachorr[oa]s?|mascotas?|conejos?|caballos?|loro|p[áa]jaro) de )mi (hij[oa]|espos[oa]|marido|mujer|beb[ée]|ni[ñn][oa]|madre|mam[áa]|padre|pap[áa]|novi[oa]|herman[oa]|abuel[oa]|amig[oa]|vecin[oa]|pareja)",
+);
+
+/** Someone who is plainly a person: "someone collapsed", "a man", "the receptionist fainted". */
+const HUMAN_NOUN_EN =
+  /\b(someone|somebody|a (man|woman|person|guy|lady|child|kid|baby|toddler|customer|client|stranger|worker)|an (employee|old (man|lady)|elderly (man|woman|person))|the (receptionist|front desk|vet tech|tech|technician|groomer|driver|mailman|delivery (man|guy|driver))|one of (your|the) (staff|employees|techs))\b/i;
+const HUMAN_NOUN_ES = es("alguien|una (persona|señora|mujer|niña)|un (señor|hombre|niño|beb[ée]|cliente)|la recepcionista");
+
+/**
+ * The person speaking, about an emergency in their own body: "I can't
+ * breathe", "I got bitten", "I'm having a heart attack", "my chest hurts",
+ * "my arm is numb". Not the words of someone upset about their animal: "my
+ * heart is pounding", "I can't stop shaking", "I'm in so much pain watching
+ * this".
+ */
+const FIRST_PERSON_EN = new RegExp(
+  [
+    "\\bI (can'?t|cannot|can not) (breathe|swallow|feel my (face|lips?|arm|legs?|hands?)|stop (bleeding|throwing up|vomiting))\\b",
+    "\\bI('m| am) (bleeding|choking|passing out|fainting|going to (pass out|faint)|not breathing|having (a |an )?(heart attack|stroke|seizure|allergic reaction|reaction|panic attack|asthma attack|chest pains?|trouble breathing|difficulty breathing|contractions))\\b",
+    "\\bI (just )?(swallowed|overdosed|fainted|collapsed|passed out)\\b",
+    "\\bI took (too many|an overdose|a (whole )?(bottle|handful|bunch) of|all (of )?my|([5-9]|[1-9]\\d{1,2}))\\b",
+    "\\bI (was|got|just got|have been|'ve been|just been) (bitten|stung|attacked|stabbed|shot|burned|hit)\\b",
+    "\\bmy (chest|heart) (hurts|is hurting|pains?|feels (tight|heavy))\\b",
+    "\\bmy (arm|face|lips?|tongue|throat|mouth|leg|hand|eye|eyes) (is |are |feels |went |has gone |keeps )?(numb|swelling|swollen|closing|tight|bleeding|burning)\\b",
+  ].join("|"),
+  "i",
+);
+const FIRST_PERSON_ES = es(
+  "no puedo (respirar|tragar)|me (estoy )?(ahogando|desmayando)|estoy sangrando|me desmay[ée]|tengo (una reacci[óo]n|dolor (en el|de) pecho)|me duele (mucho |much[íi]simo )?el pecho|me (tom[ée]|tragu[ée]) (demasiadas|muchas|todas|un frasco|[5-9]|[1-9]\\d{1,2})|me (mordi[óo]|pic[óo]|atac[óo])|no siento (los|las|el|la|mis|mi) (labios|cara|brazo|brazos|piernas?|manos?)",
+);
+
+/** Someone asking for 911 or an ambulance: a person, unless the message is about an animal. */
+const EMERGENCY_SERVICE = /(?<![\d-])\b911\b(?![\d-])|\b(ambulance|ambulancia|paramedics?|param[eé]dicos?)\b/i;
+
+/**
+ * Someone, unnamed, whose life is at risk: "he's not breathing", "she won't
+ * wake up". At a veterinary practice with no animal named it may be a
+ * person, so 911 leads; the veterinary reply carries the emergency vet too.
+ */
+const PRONOUN_LIFE =
+  /\b(he|she|they)('s| is| has| was| are|'re| have|'ve)? (just )?(not breathing|stopped breathing|isn'?t breathing|unconscious|unresponsive|not responding|passed out|won'?t wake( up)?|not waking up)\b/i;
+
+/** An animal named: the species and the commonest breeds, in both languages. */
+const ANIMAL_EN =
+  /\b(dogs?|doggy|doggie|doggo|pup|pups|puppy|puppies|cats?|kitty|kitten|kittens|pets?|rabbits?|bunny|bunnies|hamsters?|guinea pigs?|ferrets?|birds?|parrots?|budgies?|horses?|pony|ponies|tortoises?|turtles?|lizards?|chinchillas?|lab|labrador|retriever|terrier|poodle|beagle|bulldog|chihuahua|husky|shepherd|spaniel|collie|pug|dachshund|boxer|corgi|doodle|pit ?bull|tabby|tom ?cat|pooch)\b/i;
+const ANIMAL_ES = es("perr[oa]s?|perrit[oa]s?|gat[oa]s?|gatit[oa]s?|cachorr[oa]s?|mascotas?|conejos?|h[áa]mster|caballos?|loro|p[áa]jaro");
+/** What only an animal is poisoned by at home: a named pet with one of these is the animal ("Max ate antifreeze"). */
+const ANIMAL_TOXIN =
+  /\b(anti-?freeze|chocolate|xylitol|rat poison|rat bait|grapes?|raisins?|lil(y|ies)|anticongelante|xilitol|raticida|uvas|pasas|lirios?)\b/i;
+/** The person speaking or someone plainly a person, for an overdose with no animal named. */
+const PERSON_WORD = /\b(i|i'm|i've|me|he|she|they|someone|somebody)\b/i;
+
+/**
+ * Whether an urgent message at a veterinary practice is a person's own
+ * emergency, and so led by 911. Either way the reply at a veterinary
+ * practice carries both 911 and the emergency vet (./urgent-replies.ts), so
+ * this decides only which leads.
+ *
+ * A person's: a crisis; a person named by relation, not as an animal's
+ * owner ("my husband collapsed", never "my daughter's dog"); someone plainly
+ * a person ("someone collapsed in the waiting room", "the receptionist
+ * fainted"); the person speaking about an emergency in their own body ("I
+ * got bitten", "my chest hurts"). These hold even when an animal is named.
+ *
+ * Otherwise an animal named, or a poison only an animal meets at home,
+ * makes it the animal's. With neither: too many pills taken by "I", "he",
+ * "she" or someone is a person's, by a name ("Bella swallowed a bottle of
+ * pills") the animal's; 911 or an ambulance asked for is a person's; and
+ * someone unnamed not breathing or not waking ("he stopped breathing") is
+ * led by 911. Anything else at a veterinary practice is the animal's.
+ */
+function personEmergency(text: string): boolean {
+  if (SELF_HARM_EN.test(text) || SELF_HARM_ES.test(text)) return true;
+  if (RELATION_EN.test(text) || RELATION_ES.test(text)) return true;
+  if (HUMAN_NOUN_EN.test(text) || HUMAN_NOUN_ES.test(text)) return true;
+  if (FIRST_PERSON_EN.test(text) || FIRST_PERSON_ES.test(text)) return true;
+  if (ANIMAL_EN.test(text) || ANIMAL_ES.test(text) || ANIMAL_TOXIN.test(text)) return false;
+  if (OVERDOSE_EN.test(text) || OVERDOSE_ES.test(text)) return PERSON_WORD.test(text);
+  return EMERGENCY_SERVICE.test(text) || PRONOUN_LIFE.test(text);
+}
+
+// -----------------------------------------------------------------------------
+// What is read past
+// -----------------------------------------------------------------------------
+
+/** A question about the practice's emergency service, not a report of one. */
+const SERVICE_PHRASES: RegExp[] = [
+  /\b(emergency|urgent)\s+(appointments?|visits?|hours|slots?|services?|cases?|exams?|consult\w*|fees?|line|number|availability)\b/gi,
+  // "Do you see emergencies on weekends?", "Do you handle emergencies?"
+  /\b(do|does|can|could|will|would)( you| y'?all| they| the (clinic|practice|vet|hospital|office))? (see|take|handle|treat|accept|do|cover|offer) (any |after-?hours )?(emergenc(y|ies)|urgent (cases|care|visits)|walk-?ins)\b/gi,
+  // "Are you an emergency vet?", "Is this a 24/7 hospital?". Never "is this an emergency?".
+  /\b(are) (you|y'?all) (an? )?(emergency|urgent care|24[/ ]?7|after-?hours)( (vet|veterinarian|clinic|hospital|practice|center|centre|service))?\b/gi,
+  /\b(is) (this|it|the (clinic|practice|hospital|office)) (an? )?(emergency|urgent care|24[/ ]?7|after-?hours) (vet|veterinarian|clinic|hospital|practice|center|centre|service)\b/gi,
+  /\b(is it|how) urgent (is it )?to (get|book|have|do|schedule|bring|vaccinate|see)\b/gi,
+  new RegExp(
+    "(?<![\\p{L}\\p{N}])(?:(citas?|consultas?|horarios?|servicios?|atenci[óo]n|n[úu]mero) de (urgencias?|emergencias?)|(es|qu[ée] tan) urgente (vacunar|poner|llevar|traer|hacer|sacar))(?![\\p{L}\\p{N}])",
+    "giu",
+  ),
+];
+
+/** A cue that the person needs help now, which keeps even a service question urgent. */
+const DISTRESS =
+  /\b(help|hurry|asap|right now|immediately|(it'?s|it is|this is|we have|we'?ve got|I have|there'?s) an? (emergency|urgent))\b|(?<![\p{L}])(ayuda|r[áa]pido|ahora mismo|es una emergencia|es urgente)(?![\p{L}])/iu;
+
+function isQuestion(text: string): boolean {
+  const t = text.trim();
+  return /\?\s*$/.test(t) || /^[¿]/.test(t) || /^(do|does|can|could|will|would|are|is|what|when|how|which|where|hi|hello|hey|hola)\b/i.test(t);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * The message as the families read it: curly apostrophes made straight (how
+ * a phone keyboard writes "can't"), the practice's own name read past, and a
+ * question about its emergency service read past when nothing in the
+ * message says someone needs help now.
+ */
+/**
+ * The practice's name as a client shortens it: the whole name, a run of two
+ * or more of its words from its first ("Oakwood Emergency" for "Oakwood
+ * Emergency Animal Hospital"), and any run of three or more ("Urgent Pet
+ * Care" for "24/7 Urgent Pet Care"). Not two words from the middle, which
+ * are the words of an emergency as often as of a name ("take him to the
+ * animal hospital").
+ */
+function nameRuns(name: string): string[] {
+  const words = name.split(/\s+/).filter(Boolean);
+  const runs: string[] = [name];
+  for (let start = 0; start < words.length; start += 1) {
+    for (let end = start + 2; end <= words.length; end += 1) {
+      if (start === 0 || end - start >= 3) runs.push(words.slice(start, end).join(" "));
+    }
+  }
+  return [...new Set(runs)].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * A name of the practice's kind the client gives in a question about hours
+ * or a visit ("is Oakwood Emergency Animal Hospital open Sunday?"): a run of
+ * capitalised words carrying an emergency word.
+ */
+const PLACE_NAME =
+  /\b(?:[A-Z0-9][\w'&/.-]*\s+){0,4}(?:Emergency|Urgent|ER|24\/7)(?:\s+[A-Z][\w'&.-]*){0,4}(?=\s+(?:open|opens|closed|hours|located|on|in|at|near|today|tonight|tomorrow|now|this)\b|\s*\?)/g;
+const VISIT_QUESTION = /\b(open|opens|closed|close|hours|located|location|address|phone|number|website|parking|book|appointment)\b/i;
+
+/**
+ * The message as the families read it: curly apostrophes made straight (how
+ * a phone keyboard writes "can't"), the practice's own name read past, and a
+ * question about its emergency service, or about a place's hours, read past
+ * when nothing in the message says someone needs help now.
+ */
+function prepare(text: string, options: UrgentOptions): string {
+  let plain = text.replace(/[‘’ʼ]/g, "'");
+  const name = options.clinicName?.trim();
+  if (name && name.length >= 3) {
+    for (const run of nameRuns(name)) plain = plain.replace(new RegExp(escapeRegExp(run), "gi"), " ");
+  }
+  if (isQuestion(plain) && !DISTRESS.test(plain)) {
+    for (const phrase of SERVICE_PHRASES) plain = plain.replace(phrase, " ");
+    if (VISIT_QUESTION.test(plain)) plain = plain.replace(PLACE_NAME, " ");
+  }
+  return plain;
+}
+
+/**
+ * The first family that matches, and the language its reply is written in:
+ * Spanish when the Spanish words matched, or when the message leans Spanish
+ * ("Quiero suicidarme" matches the English root), English otherwise.
+ */
+function firstFamily(families: readonly UrgentFamily[], text: string): { label: string; language: UrgentLanguage } | null {
+  for (const family of families) {
+    if (family.en.test(text)) return { label: family.label, language: leansSpanish(text) ? "es" : "en" };
+    if (family.es?.test(text)) return { label: family.label, language: "es" };
+  }
+  return null;
+}
 
 /**
  * The set a practice is screened with: the veterinary set where its patients
@@ -258,32 +586,36 @@ export function urgentSetFor(specialty: string | null | undefined): UrgentSet {
 
 /** How many families each set has: the readiness check (agreement-kind.ts) reads it. */
 export const URGENT_FAMILY_COUNT: Readonly<Record<UrgentSet, number>> = {
-  human: URGENT_PATTERNS.length,
-  veterinary: VETERINARY_PATTERNS.length,
+  human: HUMAN_FAMILIES.length,
+  veterinary: VETERINARY_FAMILIES.length,
 };
 
 /**
  * Whether a message reports a complication or an urgent symptom, screened
- * with the practice's own set (urgentSetFor). Null means it does not, and the
- * message may go on to the clinical screen and the model. Curly apostrophes
- * are read as straight ones first, because that is how a phone keyboard
- * writes "can't". Called without a specialty it screens with the set for
- * people, as it always has.
+ * with the practice's own set (urgentSetFor), in English and in Spanish.
+ * Null means it does not, and the message may go on to the clinical screen
+ * and the model. Called without a specialty it screens with the set for
+ * people.
+ *
+ * At a veterinary practice a person's own emergency (personEmergency) is
+ * screened with the set for people as well, and gets 911; an animal's gets
+ * the emergency vet.
  */
 export function findUrgentContent(
   text: string | null | undefined,
   specialty?: string | null,
+  options: UrgentOptions = {},
 ): UrgentFinding | null {
   if (!text) return null;
-  const plain = text.replace(/[‘’ʼ]/g, "'");
+  const plain = prepare(text, options);
   if (urgentSetFor(specialty) === "veterinary") {
-    for (const { pattern, label, emergency } of VETERINARY_PATTERNS) {
-      if (pattern.test(plain)) return { label, emergency: emergency ?? "veterinary" };
+    if (personEmergency(plain)) {
+      const found = firstFamily(HUMAN_FAMILIES, plain) ?? firstFamily(VETERINARY_FAMILIES, plain);
+      return found ? { ...found, emergency: "911" } : null;
     }
-    return null;
+    const found = firstFamily(VETERINARY_FAMILIES, plain);
+    return found ? { ...found, emergency: "veterinary" } : null;
   }
-  for (const { pattern, label } of URGENT_PATTERNS) {
-    if (pattern.test(plain)) return { label, emergency: "911" };
-  }
-  return null;
+  const found = firstFamily(HUMAN_FAMILIES, plain);
+  return found ? { ...found, emergency: "911" } : null;
 }

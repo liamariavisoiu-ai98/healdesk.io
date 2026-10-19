@@ -29,6 +29,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
       responder,
       transport: depsForTests?.transport,
       now: depsForTests?.now,
+      origin: req.origin,
     });
     if (answer.mode === "invalid") return json({ error: answer.reason }, 400, req.origin);
     return json(answer, 200, req.origin);

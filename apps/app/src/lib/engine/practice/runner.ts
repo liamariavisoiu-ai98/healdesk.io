@@ -216,7 +216,13 @@ function assistantBrain(
     greeting: channel === "voice" ? facts.greeting.phone : facts.greeting.chat,
     figures: figuresOf(facts.services),
     vet,
-    urgentNumber: vet ? facts.vetReferralPhone : (facts.urgentPhone ?? facts.phone),
+    // As the fixed line reads it (lib/assistant/turn.ts personNumber): on a
+    // call never the published number, which forwards back to AYA.
+    urgentNumber: vet
+      ? facts.vetReferralPhone
+      : channel === "voice"
+        ? ([facts.urgentPhone, facts.directLine].find((n) => n && n !== facts.phone) ?? null)
+        : (facts.urgentPhone ?? facts.phone),
     profile: {
       clinicName: facts.clinicName,
       specialty: facts.specialty,
@@ -226,7 +232,7 @@ function assistantBrain(
     },
     factsSummary: summary,
     urgentExpected(text) {
-      const finding = findUrgentContent(text, facts.specialty);
+      const finding = findUrgentContent(text, facts.specialty, { clinicName: facts.clinicName });
       return finding ? urgentReply(facts, channel, finding, deps.now) : null;
     },
     async ask(history, text, _first, capture) {
@@ -293,7 +299,7 @@ function metaBrain(
     },
     factsSummary: summary,
     urgentExpected(text) {
-      const finding = findUrgentContent(text, facts.specialty);
+      const finding = findUrgentContent(text, facts.specialty, { clinicName: facts.clinicName });
       return finding ? urgentLine(facts, finding, deps.now) : null;
     },
     async ask(_history, text, first, capture) {
@@ -402,7 +408,8 @@ function fixedLine(answer: Answer): boolean {
     answer.source === "guard" ||
     answer.source === "refusal" ||
     answer.source === "handoff" ||
-    answer.source === "card"
+    answer.source === "card" ||
+    answer.source === "language"
   );
 }
 

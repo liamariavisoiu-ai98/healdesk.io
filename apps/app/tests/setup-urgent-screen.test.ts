@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
 import { UrgentScreen } from "@/app/c/[slug]/setup/screens/BehaviourScreens";
+import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 
 /**
  * Wizard 2.5, the urgent-help screen, in each practice's own words: a
@@ -22,9 +23,14 @@ const COMMON = {
   address: null,
 };
 
-function render(vet: boolean): string {
+function render(vet: boolean, teamAlerted = false): string {
   return renderToStaticMarkup(
-    createElement(UrgentScreen, { ...COMMON, vet, audience: vet ? "clients" : "patients" }),
+    createElement(UrgentScreen, {
+      ...COMMON,
+      vet,
+      audience: vet ? "clients" : "patients",
+      teamAlerted,
+    }),
   ).replace(/&#x27;|&rsquo;|’/g, "'");
 }
 
@@ -33,7 +39,8 @@ describe("the urgent-help screen", () => {
     const html = render(true);
     expect(html).toContain("When a client reports an emergency with their animal");
     expect(html).toContain("your emergency referral clinic, and your own number while you're open");
-    expect(html).not.toMatch(/\b911\b/);
+    // 911 only for a person, as the veterinary reply says.
+    expect(html).toContain("Anyone reporting that a person is hurt is told to call 911.");
     expect(html).not.toMatch(/\bpatients?\b/);
   });
 
@@ -41,5 +48,15 @@ describe("the urgent-help screen", () => {
     const html = render(false);
     expect(html).toContain("tells them to call 911");
     expect(html).not.toContain("emergency referral clinic");
+  });
+
+  test("it says AYA tells the team only once the urgent alert reaches it", () => {
+    // The review of 14 October: the screen promised an alert that only logs.
+    expect(URGENT_ALERT_DELIVERED).toBe(false);
+    expect(render(false)).not.toContain("tells your team");
+    expect(render(false)).toContain("and gives them the number below.");
+    expect(render(false, true)).toContain(
+      "gives them the number below, and tells your team at once.",
+    );
   });
 });

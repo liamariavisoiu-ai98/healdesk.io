@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
 import type { ChannelState } from "@/lib/channels/state";
@@ -10,6 +11,8 @@ import { portalDay, portalMoment, portalMoney } from "@/lib/portal/format";
 import { answeringStatus } from "@/lib/portal/header";
 import {
   isBuiltSection,
+  BOOKINGS_BY_EMAIL,
+  conversationsUntilBuilt,
   OPENS_AFTER_GO_LIVE,
   portalNav,
   sectionPath,
@@ -17,6 +20,14 @@ import {
 } from "@/lib/portal/nav";
 import type { SetupScreenId } from "@/lib/setup/screen-ids";
 import type { SetupState } from "@/lib/setup/state";
+
+import {
+  callsByName,
+  checkPatientScreens,
+  exportedFunctions,
+  hasUseServer,
+  patientScreenFiles,
+} from "./setup/patient-screens-check";
 
 /**
  * The portal's frame (plan Part F0 and F1), without a database: the six-item
@@ -68,6 +79,39 @@ describe("the menu", () => {
     expect(nav.find((i) => i.section === "home")).toMatchObject({ current: true });
     expect(sectionPath("glow", "home")).toBe("/c/glow");
     expect(sectionPath("glow", "billing")).toBe("/c/glow/billing");
+  });
+
+  test("once a channel is live, a patient screen not built yet stops saying it opens after go-live, and says where its contents go", () => {
+    const before = portalNav("glow", "home");
+    // A channel live: Conversations, built, links once opened (openPatientScreens);
+    // Bookings, not built yet, says where its requests go meanwhile.
+    const after = portalNav("glow", "home", ["conversations"], ["voice"]);
+    expect(before.find((i) => i.section === "bookings")).toMatchObject({ href: null, note: OPENS_AFTER_GO_LIVE });
+    for (const section of ["conversations", "bookings"] as const) {
+      const item = after.find((i) => i.section === section)!;
+      if (isBuiltSection(section)) {
+        if (section === "conversations") expect(item.href).toBe(sectionPath("glow", section));
+      } else {
+        expect(item.href).toBeNull();
+        expect(item.href === null && item.note).not.toBe(OPENS_AFTER_GO_LIVE);
+      }
+    }
+    if (!isBuiltSection("bookings")) {
+      expect(after.find((i) => i.section === "bookings")).toMatchObject({ note: BOOKINGS_BY_EMAIL });
+      // Before any channel is live it still promises the opening.
+      expect(portalNav("glow", "home", ["conversations"], []).find((i) => i.section === "bookings")).toMatchObject({
+        note: OPENS_AFTER_GO_LIVE,
+      });
+    }
+  });
+
+  test("what a not-yet-built Conversations would say, per channel: Meta's are never emailed", () => {
+    expect(conversationsUntilBuilt(["voice"])).toBe("Each call transcript is emailed to you");
+    expect(conversationsUntilBuilt(["voice", "web"])).toBe("Each call and website chat transcript is emailed to you");
+    expect(conversationsUntilBuilt(["meta"])).toBe("Instagram, Messenger and WhatsApp messages stay in those apps");
+    expect(conversationsUntilBuilt(["web", "meta"])).toBe(
+      "Each website chat transcript is emailed to you; Instagram, Messenger and WhatsApp messages stay in those apps",
+    );
   });
 
   test("a screen is in the menu only when its page exists, and every screen page is in the menu", () => {
@@ -282,26 +326,44 @@ function files(dir: string, out: string[] = []): string[] {
 describe("every portal file", () => {
   const portalFiles = files(PORTAL_DIR);
 
+  /** A portal file as the compiler reads it: comments and strings are never code. */
+  const parse = (file: string) =>
+    ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
+  const GUARDS = new Set(["requirePortal", "requirePatientPage", "contextFor", "portalFor"]);
+
   test("each page calls requirePortal(slug) itself, never trusting a layout", () => {
     const pages = portalFiles.filter((f) => f.endsWith("page.tsx"));
     expect(pages.length).toBeGreaterThan(3);
     for (const page of pages) {
-      expect(readFileSync(page, "utf8"), relative(PORTAL_DIR, page)).toMatch(/requirePortal\(/);
+      // requirePatientPage calls requirePortal first (lib/portal/patient-page.ts).
+      expect(
+        callsByName(parse(page), new Set(["requirePortal", "requirePatientPage"])),
+        relative(PORTAL_DIR, page),
+      ).toBe(true);
     }
   });
 
+  test("Conversations and Bookings open only through the patient-page guard", () => {
+    // The screens that show patients (spec: a passkey before any
+    // conversation or booking opens, and an access log naming the device).
+    // tests/setup/patient-screens-check.ts says what holds for every file
+    // under them, and tests/patient-screens-check.test.ts proves each rule
+    // bites.
+    const patientFiles = patientScreenFiles(PORTAL_DIR);
+    expect(checkPatientScreens(patientFiles)).toEqual([]);
+  }, 600_000);
+
   test("each server action calls requirePortal, except signing out, which needs no clinic", () => {
     const exempt = new Set(["signOut"]);
-    for (const file of portalFiles) {
-      const source = readFileSync(file, "utf8");
-      if (!/^["']use server["'];/m.test(source)) continue;
-      const exported = [...source.matchAll(/export async function (\w+)\([\s\S]*?\n\}/g)];
+    const actionFiles = portalFiles.filter((file) => hasUseServer(parse(file)));
+    expect(actionFiles.length).toBeGreaterThan(3);
+    for (const file of actionFiles) {
+      // Every export, however written: a function, an arrow, a default.
+      const exported = exportedFunctions(parse(file));
       expect(exported.length, relative(PORTAL_DIR, file)).toBeGreaterThan(0);
-      for (const [body, name] of exported) {
-        if (exempt.has(name!)) continue;
-        expect(body, `${relative(PORTAL_DIR, file)}: ${name}`).toMatch(
-          /requirePortal\(|contextFor\(|portalFor\(/,
-        );
+      for (const { name, node } of exported) {
+        if (exempt.has(name)) continue;
+        expect(callsByName(node, GUARDS), `${relative(PORTAL_DIR, file)}: ${name}`).toBe(true);
       }
     }
   });

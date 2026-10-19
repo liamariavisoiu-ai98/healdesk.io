@@ -114,6 +114,10 @@ export class RetellCallSession {
   private failures = 0;
   private latestResponseId = -1;
   private directLine: string | null = null;
+  /** The answer gate said answer: only then can this call be phone's first answer (lib/channels/events.ts). */
+  private gateAnswered = false;
+  /** AYA gave the caller a real answer at least once, not only the failure line. */
+  private answered = false;
   private closing = false;
   private finished: Promise<IngestResult | null> | null = null;
 
@@ -169,6 +173,7 @@ export class RetellCallSession {
       this.say(0, TRANSFER_LINE, { transferTo: decision.directLine });
       return;
     }
+    this.gateAnswered = decision.decision === "answer";
     this.disclosurePlayedAt = now;
     this.say(0, openingLine(this.facts, "voice"));
   }
@@ -245,6 +250,7 @@ export class RetellCallSession {
       }
     }
 
+    if (turn.source !== "fallback") this.answered = true;
     if (turn.source === "fallback") {
       this.failures += 1;
       if (this.failures >= 2 && this.directLine) {
@@ -293,6 +299,8 @@ export class RetellCallSession {
       endedAt,
       durationSeconds: Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)),
       isCallback: this.outbound,
+      answeredByAssistant: this.gateAnswered && this.answered,
+      urgent: this.urgent,
       disclosurePlayedAt: this.disclosurePlayedAt ?? undefined,
       transcriptTurns: this.turns.some((t) => t.speaker === "person") ? this.turns : undefined,
       ...this.requestFor(),

@@ -98,9 +98,6 @@ export async function POST(request: Request): Promise<Response> {
    * Exact still wins, because squashing can in principle collide two different
    * slugs ("a-bc" and "ab-c"), and the exact match is the one that cannot.
    *
-   * ⚠️ Nothing in the product currently ISSUES an id shaped like XX-XXX-XXXX.
-   * This route accepts one if it ever does; the placeholder on the form is
-   * ahead of the data until someone decides to mint them.
    */
   const squash = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
   const squashed = squash(wanted);

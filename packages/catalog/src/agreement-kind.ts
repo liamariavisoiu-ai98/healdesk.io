@@ -109,27 +109,31 @@ export function asksCoveredQuestion(id: SpecialtyId): boolean {
  * v1 spec: "Veterinary practices are sold only once the veterinary urgent set
  * and an emergency referral number are in place"). Each item is a thing that
  * must exist before a veterinary practice can buy, and is true only because
- * it does; tests/agreement-kind.test.ts ties each one to the code it names,
- * so none of them can be set true ahead of its substance:
+ * it does; tests in agreement-kind.test.ts tie each one to the code it
+ * names, so none of them can be set true ahead of its substance:
  *
  * - `urgentSet`: the veterinary urgent set (urgent-content.ts,
- *   `urgentSetFor("veterinary")`) and its fixed reply (urgent-replies.ts),
- *   which gives the emergency vet, never 911;
+ *   `urgentSetFor("veterinary")`), which tells a person's emergency from an
+ *   animal's, and its fixed reply (urgent-replies.ts), which gives the
+ *   emergency vet and, for a person, 911;
  * - `referralNumber`: the emergency referral number, captured at wizard 2.5
  *   and in Settings (clinic_settings.vet_referral_e164) and given by that
  *   reply on every channel;
- * - `clientWording`: "clients", never "patients" (audience.ts).
+ * - `clientWording`: "clients", never "patients" (audience.ts);
+ * - `vetPracticeCases`: the veterinary practice questions (plan Part G),
+ *   package B's. False until B delivers them, so no veterinary practice is
+ *   offered, whatever the DPA's flag says. B sets it true in the change that
+ *   adds the cases, with the test that ties it to them.
  *
- * The vet practice cases (plan Part G) are not an item here: they are package
- * B's, deferred with the practice questions. They are also required before
- * the DPA is released, alongside the counsel review: the owner checks them on
- * the launch checklist before flipping the DPA's release flag, which stays
- * the owner's alone (dpa.ts, `approvedByCounsel`). Nothing here releases it.
+ * The DPA's release flag stays the owner's alone (dpa.ts,
+ * `approvedByCounsel`): nothing here releases it, and readiness alone never
+ * offers a vet.
  */
 export const VETERINARY_READINESS = Object.freeze({
   urgentSet: true,
   referralNumber: true,
   clientWording: true,
+  vetPracticeCases: false,
 } as const);
 
 /** Every item of VETERINARY_READINESS is in place. */

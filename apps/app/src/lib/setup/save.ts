@@ -9,6 +9,7 @@ import {
 import type { ActorContext } from "@/lib/audit";
 import { requestPracticeQuestions } from "@/lib/engine/practice/store";
 import type { PracticeSection } from "@/lib/engine/practice/types";
+import { evaluateChannels } from "@/lib/channels/events";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import {
@@ -113,6 +114,9 @@ export async function saveSetupScreen(
       const section = PRACTICE_SCREENS[screen];
       if (section) await requestPracticeQuestions(tx, { reason: "wizard", section, now });
       await recordScreen(tx, screen, "done", ctx.actorLabel, now);
+      // Setup done, or the direct line on file, can be what a channel was
+      // waiting for (lib/channels/events.ts).
+      await evaluateChannels(tx, { now, actor: ctx.actorLabel });
       // Read again: an answer can change which screens follow (none today,
       // but the order must come from what was just saved, not before it).
       const after = (await readSetupState(tx, { userId: ctx.userId, now })) ?? state;
@@ -136,6 +140,7 @@ export async function skipSetupScreen(
       return { ok: false, field: "screen", message: "That step isn't part of your setup." };
     }
     await recordScreen(tx, screen, "skipped", ctx.actorLabel, now);
+    await evaluateChannels(tx, { now, actor: ctx.actorLabel });
     return { ok: true, next: nextPath(state, ctx.slug, screen) };
   });
 }

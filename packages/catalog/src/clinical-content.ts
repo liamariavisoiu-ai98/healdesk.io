@@ -29,7 +29,17 @@ import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
  * pregnant, which is the one claim the insurance excludes.
  */
 
-type ClinicalPattern = { pattern: RegExp; label: string; allowPriceUnits?: boolean; claim?: true };
+/**
+ * `es` is the same family in Spanish, the other language the assistant
+ * answers in (assistant-settings.ts, SCREENED_LANGUAGES), with Unicode-aware
+ * edges because \b does not see accented letters as part of a word. Both are
+ * always read: a Spanish phrase in any field is screened like an English one.
+ */
+type ClinicalPattern = { pattern: RegExp; es?: RegExp; label: string; allowPriceUnits?: boolean; claim?: true };
+
+function es(body: string): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}])(?:${body})(?![\\p{L}\\p{N}])`, "iu");
+}
 
 /**
  * `claim` marks the three patterns that are promises rather than clinical
@@ -38,17 +48,74 @@ type ClinicalPattern = { pattern: RegExp; label: string; allowPriceUnits?: boole
  * human medicine. See `ClinicalScreen`.
  */
 const CLINICAL_PATTERNS: ClinicalPattern[] = [
-  { pattern: /\b(safe|safely|safety)\b/i, label: "a safety claim", claim: true },
-  { pattern: /\b(side[- ]?effects?|risks?|complications?|contraindicat\w*)\b/i, label: "side effects or risks" },
-  { pattern: /\b(pregnan\w*|breastfeed\w*|nursing mothers?)\b/i, label: "pregnancy or breastfeeding" },
-  { pattern: /\b(dos(e|age|ing)|units?|mg\b|milligrams?|ml\b)\b/i, label: "dosing", allowPriceUnits: true },
-  { pattern: /\b(candidates?|candidacy|eligib\w*|suitable for|ideal for)\b/i, label: "candidacy" },
-  { pattern: /\b(diagnos\w*|symptom\w*|triage)\b/i, label: "diagnosis, symptoms or triage" },
-  { pattern: /\b(recover\w* (time|period)|downtime|healing|aftercare|post[- ]?op\w*)\b/i, label: "recovery or aftercare" },
-  { pattern: /\b(interact\w* with|blood thinners?|medications?|prescri\w*)\b/i, label: "medication or interactions" },
-  { pattern: /\b(condition|disease|disorder|infection|allerg\w*)\b/i, label: "a medical condition" },
-  { pattern: /\b(results? (are|is) guaranteed|guaranteed results?|permanent(ly)? (removal|results?))\b/i, label: "a results guarantee", claim: true },
-  { pattern: /\b(FDA[- ]approved|clinically proven|medically proven)\b/i, label: "an efficacy claim", claim: true },
+  {
+    pattern: /\b(safe|safely|safety|dangerous|harmful)\b/i,
+    // "Seguro" alone is also "insurance" and "sure": only the claim.
+    es: es("(es|son|ser[áa]|sea|muy|totalmente|completamente|100% ) ?segur[oa]s?|segur[oa]s? (para|durante|en el|en la)|sin riesgos?|seguridad|peligros[oa]s?|da[ñn]ino|da[ñn]ina"),
+    label: "a safety claim",
+    claim: true,
+  },
+  {
+    pattern: /\b(side[- ]?effects?|risks?|complications?|contraindicat\w*)\b/i,
+    es: es("efectos? (secundarios?|adversos?)|riesgos?|complicaci[óo]n(es)?|contraindica\\p{L}*"),
+    label: "side effects or risks",
+  },
+  {
+    pattern: /\b(pregnan\w*|breastfeed\w*|nursing mothers?)\b/i,
+    es: es("embaraz\\p{L}*|lactancia|lactando|lactante|amamant\\p{L}*|(dando|dar|doy) (el )?pecho"),
+    label: "pregnancy or breastfeeding",
+  },
+  {
+    pattern: /\b(dos(e|age|ing)|units?|mg\b|milligrams?|ml\b)\b/i,
+    es: es("dosis|unidad(es)?|miligramos?|mililitros?|jeringas?|viales?"),
+    label: "dosing",
+    allowPriceUnits: true,
+  },
+  {
+    pattern: /\b(candidates?|candidacy|eligib\w*|suitable for|ideal for)\b/i,
+    es: es("candidat[oa]s?|apt[oa]s? para|ideal para|adecuad[oa]s? para"),
+    label: "candidacy",
+  },
+  {
+    // "Is it normal to have a lump after filler?" asks for triage.
+    pattern: /\b(diagnos\w*|symptom\w*|triage)\b|\b(is|are) (it|this|that|these|they) normal\b/i,
+    es: es("diagn[óo]stic\\p{L}*|s[íi]ntomas?|es normal (tener|que|sentir)"),
+    label: "diagnosis, symptoms or triage",
+  },
+  {
+    pattern: /\b(recover\w* (time|period)|downtime|healing|aftercare|post[- ]?op\w*)\b/i,
+    es: es("recuperaci[óo]n|tiempo de (recuperaci[óo]n|inactividad)|cicatrizaci[óo]n|cuidados posteriores|post-?operatori\\p{L}*"),
+    label: "recovery or aftercare",
+  },
+  {
+    pattern:
+      /\b(interact\w* with|blood thinners?|medications?|prescri\w*|warfarin|coumadin|eliquis|xarelto|heparin|metformin|insulin|accutane|isotretinoin|prednisone|antibiotics?|antidepressants?)\b/i,
+    es: es(
+      "medicamentos?|medicinas?|anticoagulantes?|recet(ar|ado|ada|amos|an)|con receta|interact\\p{L}* con|warfarina|coumadin|eliquis|xarelto|heparina|metformina|insulina|isotretino\\p{L}*|prednisona|antibi[óo]ticos?|antidepresivos?",
+    ),
+    label: "medication or interactions",
+  },
+  {
+    // The condition named as well as the word: "I have diabetes", "I'm HIV positive", "a lump".
+    pattern:
+      /\b(condition|disease|disorder|infection|allerg\w*|diabet\w*|lupus|hiv|cancer|hepatitis|epilep\w*|asthma|hypertension|autoimmune|thyroid|lumps?|nodules?)\b/i,
+    es: es(
+      "condici[óo]n|enfermedad(es)?|trastornos?|infecci[óo]n(es)?|alergi\\p{L}*|al[ée]rgic\\p{L}*|diab[ée]t\\p{L}*|lupus|vih|sida|c[áa]ncer|hepatitis|epilep\\p{L}*|asma|hipertensi[óo]n|autoinmune|tiroides|bultos?|n[óo]dulos?",
+    ),
+    label: "a medical condition",
+  },
+  {
+    pattern: /\b(results? (are|is) guaranteed|guaranteed results?|permanent(ly)? (removal|results?))\b/i,
+    es: es("resultados (garantizados|permanentes)|garantiza(mos)? (los )?resultados"),
+    label: "a results guarantee",
+    claim: true,
+  },
+  {
+    pattern: /\b(FDA[- ]approved|clinically proven|medically proven)\b/i,
+    es: es("aprobado por la fda|(cl[íi]nica|cient[íi]fica|m[ée]dica)mente probad[oa]"),
+    label: "an efficacy claim",
+    claim: true,
+  },
 ];
 
 /**
@@ -97,6 +164,13 @@ const EVERYDAY_CONDITIONS: ClinicalPattern[] = [
     label: A_CONDITION,
   },
   { pattern: /\b(hyperhidrosis|excessive(ly)? sweat\w*|cold sores?|herpes|warts?|verruca(s|e)?|ingrown|fung(us|al))\b/i, label: A_CONDITION },
+  {
+    // The same conditions in Spanish, for a Spanish message on a Meta channel.
+    pattern: es(
+      "acn[ée]|granos|espinillas|brotes|ros[áa]cea|eccema|dermatitis|psoriasis|melasma|manchas|vit[íi]ligo|cicatri(z|ces)|queloides?|ca[íi]da del (cabello|pelo)|alopecia|calvicie|caspa|verrugas|herpes|hongos|sudoraci[óo]n excesiva",
+    ),
+    label: A_CONDITION,
+  },
 ];
 
 /**
@@ -135,7 +209,7 @@ export function serviceNameScreen(specialty: SpecialtyId | null | undefined): Cl
  * The blanking keeps the length, so the excerpt below still points at the
  * original text.
  */
-const PRICE_UNIT = /(?:\bper\s+|\/\s*)(?:units?|ml)\b/gi;
+const PRICE_UNIT = /(?:\bper\s+|\bpor\s+|\/\s*)(?:units?|unidad(?:es)?|ml)\b/gi;
 
 export type ClinicalFinding = { field: string; label: string; excerpt: string };
 
@@ -170,9 +244,9 @@ export function findClinicalContent(
   const findings: ClinicalFinding[] = [];
   for (const [field, value] of Object.entries(fields)) {
     if (!value) continue;
-    for (const { pattern, label, allowPriceUnits } of patterns) {
+    for (const { pattern, es: spanish, label, allowPriceUnits } of patterns) {
       const text = allowPriceUnits ? value.replace(PRICE_UNIT, (unit) => " ".repeat(unit.length)) : value;
-      const match = pattern.exec(text);
+      const match = pattern.exec(text) ?? spanish?.exec(text) ?? null;
       if (match) {
         const start = Math.max(0, match.index - 20);
         findings.push({ field, label, excerpt: value.slice(start, match.index + match[0].length + 20).trim() });

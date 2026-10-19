@@ -229,7 +229,7 @@ exports[`every branch of every billing template > canceled: service ended: websi
   "subject": "Your healdesk service has ended",
   "text": "Your healdesk service ended on Friday 6 November, and AYA has stopped answering.
 
-For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic's own line, dial these AT&T codes:
+For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic's own line, dial this AT&T code:
 
 - Cancel all-call forwarding: *73
 
@@ -1296,7 +1296,7 @@ Update your card: https://app.healdesk.test/
 
 Paying what you owe healdesk restores everything at once.
 
-If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these T-Mobile codes:
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial this T-Mobile code:
 
 - Cancel all-call forwarding: ##21#
 
@@ -1346,9 +1346,9 @@ Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
 Paying what you owe healdesk restores everything at once.
 
-If your clinic's line forwards to AYA, you can undo that while this is sorted out. After-hours forwarding runs on your carrier's schedule, so:
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial this Verizon code:
 
-- Ask the carrier to remove the forwarding; or dial *73 / *91 / *93, which cancel it on most US landlines.
+- Cancel all-call forwarding: *73
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

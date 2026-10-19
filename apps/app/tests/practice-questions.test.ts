@@ -1,4 +1,4 @@
-import { findUrgentContent } from "@healdesk/catalog";
+import { findUrgentContent, VETERINARY_READINESS } from "@healdesk/catalog";
 import { describe, expect, test, vi } from "vitest";
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
@@ -254,6 +254,22 @@ describe("the cases, templated from the clinic's own profile", () => {
     expect(findUrgentContent(byId(cases, "complication").turns[0]!, "veterinary")?.emergency).toBe(
       "veterinary",
     );
+  });
+
+  test("vet readiness's vetPracticeCases is these cases: every case asked of a veterinary practice is about an animal", () => {
+    expect(VETERINARY_READINESS.vetPracticeCases).toBe(true);
+    const cases = practiceCases(profile(VET), "web");
+    expect(cases.map((c) => c.id)).toEqual(practiceCases(profile(FACTS), "web").map((c) => c.id));
+    for (const id of ["clinical", "complication"] as const) {
+      expect(byId(cases, id).turns[0], id).toMatch(/\bdog\b/);
+    }
+    expect(
+      findUrgentContent(byId(cases, "complication").turns[0]!, "veterinary", {
+        clinicName: VET.clinicName,
+      })?.emergency,
+    ).toBe("veterinary");
+    // The person version would not have reached the emergency vet.
+    expect(findUrgentContent(byId(cases, "complication").turns[0]!, "med-spa")).toBeNull();
   });
 
   test("a second language the clinic serves is two turns in it; on Meta, whose front door answers in English, not applicable", () => {

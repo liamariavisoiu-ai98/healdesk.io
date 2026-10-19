@@ -431,7 +431,24 @@ export async function savePromotions(
   });
 }
 
-/** Validate the quick answers: question and answer each, screened, at most thirty. */
+const FLAG_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The tag a quick answer from "Flag this answer" carries (KnowledgeAnswer.flagId),
+ * kept when it is a flag's id and dropped otherwise. Every writer of the list
+ * passes it through here, Knowledge's form and the website drift list's
+ * adoption among them, so editing or re-saving the list never loses which
+ * answers were corrections.
+ */
+function flagTagOf(row: unknown): { flagId: string } | Record<string, never> {
+  const flagId = (row as { flagId?: unknown } | null)?.flagId;
+  return typeof flagId === "string" && FLAG_ID.test(flagId) ? { flagId: flagId.toLowerCase() } : {};
+}
+
+/**
+ * Validate the quick answers: question and answer each, screened, at most
+ * thirty, each keeping its "Flag this answer" tag (flagTagOf).
+ */
 export function validateQuickAnswers(raw: unknown): KnowledgeAnswer[] {
   if (!Array.isArray(raw)) throw new KnowledgeError("quickAnswers", "Send the list of answers.");
   const rows = raw.filter((row) => {
@@ -447,7 +464,10 @@ export function validateQuickAnswers(raw: unknown): KnowledgeAnswer[] {
       `Keep it to ${KNOWLEDGE_LIMITS.quickAnswers} quick answers.`,
     );
   }
-  return rows.map((row, i) => validateAnswer(row, `quickAnswers[${i}]`));
+  return rows.map((row, i) => ({
+    ...validateAnswer(row, `quickAnswers[${i}]`),
+    ...flagTagOf(row),
+  }));
 }
 
 export async function saveQuickAnswers(

@@ -20,8 +20,9 @@ import type { EmailTemplate } from "./types";
  * Counts only, from the claims function (lib/reporting/claims.ts), worded as
  * Home and the daily summary word them. It no longer asks for a reply about
  * anything that looked wrong on a call: replies reach hello@, which is kept
- * free of patient details, and the portal has no flag on a conversation yet,
- * so the email says nothing about flagging.
+ * free of patient details. In a week AYA handled anything, it points to
+ * Flag this answer on the conversation instead (Annex X6), in weekBlocks, so
+ * the week's first daily summary carries the same line.
  */
 
 export type WeeklyRecapPayload = {

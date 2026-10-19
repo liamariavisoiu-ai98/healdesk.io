@@ -1,5 +1,7 @@
 import {
   isDpaReleased,
+  MODEL_RETENTION_EXCEPTIONS,
+  MODEL_RETENTION_PUBLIC,
   OVERAGE_RATES_PROVISIONAL,
   TRANSCRIPT_RETENTION_DAYS,
   USAGE_ALERT_PERCENT,
@@ -75,16 +77,37 @@ describe("the terms describe v1 as the spec defines it", () => {
     expect(text).toContain("on calls the same line says the call is transcribed, and no call audio is kept");
   });
 
-  test("the model's 30-day retention is disclosed and liability is allocated once", () => {
-    // Anthropic's own retention page: 30 days, except flagged or legally
-    // required content, which it may keep for up to two years. The terms
-    // must carry the exception, or they overstate what happens.
+  test("the model's 30-day retention is disclosed as Anthropic documents it, and liability is allocated once", () => {
+    // Anthropic's documentation for the models the product calls
+    // (claude-opus-5-5 and claude-sonnet-5-5, not Covered Models): no more
+    // than 30 days under the standard retention of a HIPAA-ready
+    // organisation, two years for flagged content alone, and as long as the
+    // law requires for what the law requires (packages/catalog
+    // model-retention.ts; agreement-changes.md § 17). Section 9 prints the
+    // catalog's sentences; the annex its exceptions sentence.
+    expect(text).toContain(MODEL_RETENTION_PUBLIC);
     expect(text).toContain(
-      "it keeps conversation content for 30 days, for abuse detection and security, and then deletes it, except content",
+      "it keeps conversation content for no more than the 30 days of its standard retention, and then deletes it.",
     );
+    // "Conversation content", never "inputs": the provider keeps and deletes
+    // inputs and outputs alike.
     expect(text).toContain(
-      "which it may keep for up to two years; the service it provides under that agreement cannot run with shorter retention, and it never trains on that content",
+      "The AI model provider keeps conversation content for up to 30 days. Our model provider's own business associate agreement covers its service only under its standard retention, which we do not control",
     );
+    expect(text).not.toMatch(/keeps (conversation )?inputs/);
+    expect(text.split(MODEL_RETENTION_EXCEPTIONS).length - 1).toBe(2);
+    // What Anthropic says only of its Covered Models, a purpose it does not
+    // state, and a cap on law-required content it does not give.
+    expect(text).not.toContain("cannot run with shorter retention");
+    expect(text).not.toContain("cannot run with none");
+    expect(text).not.toContain("for abuse detection and security");
+    expect(text).not.toMatch(/covered models? require/i);
+    expect(text).not.toMatch(/law requires it to keep[^.]*two years/);
+    expect(text).not.toMatch(/never trains/);
+    // BAA 1.5.1, the version signed today, still carries the old clause, so
+    // the terms do not say the agreement states the same until the 1.6.0
+    // draft is released.
+    expect(text).not.toContain("The Business Associate Agreement states the same");
     expect(text).toContain("consistently with sections 13 and 14");
     expect(text).toContain("consistently with this section and section 13");
     expect(text).toContain("These limits do not apply to our wilful misconduct or gross negligence");
@@ -554,7 +577,6 @@ describe('"Business Associate Agreement" only where the BAA is meant', () => {
     { text: "Patient information and the Business Associate Agreement", why: "section 9's title: HIPAA's agreement" },
     { text: "Where your Practice is a covered entity under HIPAA, the Business Associate Agreement you sign at checkout is the agreement required by 45 CFR 164.502(e)", why: "section 9: HIPAA's own requirement" },
     { text: "is given to you on request, under the Business Associate Agreement.", why: "section 9: the BAA's subcontractor clause" },
-    { text: "The Business Associate Agreement states the same.", why: "section 9: the BAA's own statement of the model provider's retention" },
     { text: "which is the exception the Business Associate Agreement makes", why: "the annex: the BAA's telephone exception" },
     { text: "ours are in the Business Associate Agreement.", why: "the annex: HIPAA's obligations" },
     { text: "the way to check ours is to read the Business Associate Agreement", why: "the annex: HIPAA's obligations" },

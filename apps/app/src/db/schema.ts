@@ -943,7 +943,7 @@ export const contacts = pgTable(
       .on(t.clinicId, t.externalSource, t.externalContactId)
       .where(sql`${t.externalContactId} is not null`),
     // The key a patient's request names its contact by, with the clinic
-    // (patient_requests_contact_fk, drizzle/0091), so a request can only name
+    // (patient_requests_contact_fk, drizzle/0092), so a request can only name
     // a contact of its own clinic. id is unique already.
     unique("contacts_clinic_id_unique").on(t.clinicId, t.id),
   ],
@@ -2798,7 +2798,7 @@ export type PatientRequestKind = (typeof PATIENT_REQUEST_KINDS)[number];
  * (lib/patient-rights/patient-requests.ts).
  *
  * PHI while it names a contact: whose request it is, at which practice. So
- * tenant RLS, FORCEd, and the BAA gate (drizzle/0091). It holds no name, no
+ * tenant RLS, FORCEd, and the BAA gate (drizzle/0092). It holds no name, no
  * number, no address and nothing typed: the person is the contact it names,
  * read from `contacts` when the page opens, and the contact's own clock and
  * erasure govern them. Its foreign key (clinic_id, contact_id) is written by

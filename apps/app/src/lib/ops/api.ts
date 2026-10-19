@@ -2604,7 +2604,8 @@ async function opGetOnboarding(
           carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
           phoneSystemType: clinic.phoneSystemType,
           // The coverage mode, so After hours only gets its own codes (all-call
-          // forwarding at closing, off at opening) instead of the busy pair.
+          // forwarding at closing, off at opening) instead of the busy and
+          // no-answer codes.
           routing: coverageMode,
           destinationE164: clinic.assistantNumberE164,
         })

@@ -416,7 +416,7 @@ describeDb("delivery", () => {
           // switched job, because the practice was told AYA is paused until
           // it signs.
           "agreement-resigns",
-          // L32's reminders and ops alerts (drizzle/0091): a sweep, not a
+          // L32's reminders and ops alerts (drizzle/0092): a sweep, not a
           // switched job, because the BAA's five business days wait for no
           // switch.
           "patient-requests",

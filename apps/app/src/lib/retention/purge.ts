@@ -106,7 +106,7 @@ import type { TenantTx } from "@/lib/tenant";
  *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS);
  *   - a deposit: with its appointment, or, once its appointment is gone, the
  *     record clock after it was made (app_purge_deposit_payments, 0067);
- *   - a patient's request passed to the practice (L32, drizzle/0091): the
+ *   - a patient's request passed to the practice (L32, drizzle/0092): the
  *     record clock after it reached healdesk, marked received or not. The
  *     agreements state no period of their own for it; the record clock is
  *     the longest of the periods they do state, and outlasts the practice's
@@ -196,7 +196,7 @@ export type PurgeResult = {
   slotHoldsDeleted: number;
   /** Deposits whose appointment the record clock took (drizzle/0067). */
   depositsDeleted: number;
-  /** Patients' requests passed to the practice, past the record clock (drizzle/0091). */
+  /** Patients' requests passed to the practice, past the record clock (drizzle/0092). */
   patientRequestsDeleted: number;
 };
 

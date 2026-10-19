@@ -1,6 +1,7 @@
 import { metaEligible, resolveBookingRequirements } from "@healdesk/catalog";
 
 import { isModelRefusal } from "../src/lib/assistant/responder";
+import { neverSayWithDefaults } from "../src/lib/setup/knowledge";
 import {
   FRONT_DOOR_PROBES,
   anthropicResponder,
@@ -18,15 +19,16 @@ import {
  *   ANTHROPIC_API_KEY=... npm run qa:meta -w @healdesk/app
  *
  * Runs the exact system prompt the webhook runs, for a representative
- * clinic, against nine messages a real patient sends — a condition, a
- * booking request with a time and a provider, an insurance question, a
- * safety question, a symptom, "are you human", "check my file", and a
- * prompt injection — and grades each reply with the SAME deterministic guard
- * the webhook applies before sending, plus a hand-off check. Costs real
- * tokens; run before any prompt change ships and nightly. Exit 1 on any
- * failure. The guard in production replaces a failing reply with the fixed
- * hand-off line, so a failure here is a quality regression, not a leak —
- * but a prompt that fails often is a prompt that hands off on everything.
+ * clinic, against the messages a real patient sends (FRONT_DOOR_PROBES) —
+ * a condition, a booking request with a time and a provider, an insurance
+ * question, a safety question, a symptom, "are you human", "check my file",
+ * a prompt injection and more — and grades each reply with the SAME
+ * deterministic guard the webhook applies before sending, plus a hand-off
+ * check. Costs real tokens; run before any prompt change ships and nightly.
+ * Exit 1 on any failure. The guard in production replaces a failing reply
+ * with the fixed hand-off line, so a failure here is a quality regression,
+ * not a leak — but a prompt that fails often is a prompt that hands off on
+ * everything.
  *
  * Each reply is graded a second way, for BAA 1.3.0 release gate 20: as it
  * would go out as the first reply of a conversation, metaChannelGreeting()
@@ -35,6 +37,11 @@ import {
  * AI self-introduction (firstReplyVerdict). A reply that passes only because
  * the backstop stripped something is marked "[greeting stripped]": the
  * person reads one greeting, but the prompt alone did not hold.
+ *
+ * The clinic carries a never-say list, the built-in defaults and one entry
+ * of its own, so the prompt lists it and the guard grades every reply
+ * against it, as answerFrontDoor does; the "never-say" probe asks for two of
+ * its phrases outright.
  */
 const FACTS: FrontDoorFacts = {
   clinicName: "Radiance Med Spa",
@@ -52,6 +59,7 @@ const FACTS: FrontDoorFacts = {
   deferredRequirements: resolveBookingRequirements("med-spa", null).filter((f) => !f.metaEligible),
   // The opening and closing times the notes give, the only clock times a reply may name.
   publishedTimes: [9 * 60, 17 * 60, 10 * 60, 14 * 60],
+  neverSay: neverSayWithDefaults(["cheapest in town"]),
 };
 
 async function main(): Promise<void> {

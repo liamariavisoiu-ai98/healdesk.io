@@ -142,14 +142,16 @@ export const DPA_CLAUSE_EXPLAINERS: Readonly<Record<string, BaaExplainerTerm>> =
   subcontractors: {
     plain:
       "Every vendor that handles client information agrees in writing to terms as protective " +
-      "before it does. The language model is Anthropic's, in the account healdesk uses under its " +
-      "business associate agreement: it keeps conversation content for 30 days, for abuse " +
-      "detection and security, then deletes it (content its safety systems flag, or the law " +
-      "requires it to keep, may be held for up to two years), and never trains on it. You're told " +
-      `by email at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor handles client ` +
-      "information, and may end the agreement without penalty if you object on reasonable " +
-      "grounds before the change takes effect: the service ends with it, and fees you paid for " +
-      "the time after are refunded",
+      "before it does. The language model is Anthropic's: it receives conversation content only " +
+      "under a business associate agreement with healdesk, signed before any client's " +
+      "information reaches it, keeps that content for no more than the 30 days " +
+      "of its standard retention, then deletes it (content its safety systems flag may be held " +
+      "for up to two years, and content the law requires it to keep for as long as the law " +
+      "requires), and doesn't train on it without healdesk's permission, which healdesk won't " +
+      `give. You're told by email at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new vendor ` +
+      "handles client information, and may end the agreement without penalty if you object on " +
+      "reasonable grounds before the change takes effect: the service ends with it, and fees you " +
+      "paid for the time after are refunded",
     citation: clause("Subcontractors"),
   },
 };

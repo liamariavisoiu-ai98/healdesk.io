@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { audienceFor } from "@healdesk/catalog";
+import { audienceFor, CARRIER_SERVICE_NUMBERS } from "@healdesk/catalog";
 
 import type { ActorContext } from "@/lib/audit";
 import type { SendEmailOptions } from "@/lib/email/send";
@@ -10,7 +10,7 @@ import type { SetupState } from "@/lib/setup/state";
 import type { AccountState } from "./account-state";
 import { escalateToSupport } from "./escalate";
 import { supportLines } from "./lines";
-import type { ForwardingSteps } from "./forwarding";
+import type { ForwardingAnswer } from "./forwarding";
 import type { SupportLimiter } from "./limits";
 import type { SupportModelClient } from "./model";
 import { buildSupportPrompt } from "./prompt";
@@ -75,7 +75,7 @@ export type SupportChatContext = {
   /** The model, or null when no key is set. */
   client: SupportModelClient | null;
   readAccount: () => Promise<{ account: AccountState; state: SetupState } | null>;
-  readForwarding: () => Promise<ForwardingSteps | null>;
+  readForwarding: () => Promise<ForwardingAnswer | null>;
   email?: SendEmailOptions;
   now?: Date;
   newId?: () => string;
@@ -149,7 +149,10 @@ export async function handleSupportChat(
   }
 
   // AYA's number is let through once the forwarding steps have given it: the
-  // codes the chat repeats dial it.
+  // codes the chat repeats dial it. So are the carrier service numbers the
+  // steps print (CARRIER_SERVICE_NUMBERS): a traditional AT&T landline sets
+  // and undoes its busy and no-answer forwarding only by calling AT&T, and a
+  // step that read "call AT&T on [number hidden]" could not be followed.
   const numbers = [...allow.numbers];
   const outputAllow: ScreenAllow = { ...allow, numbers };
   const { state, account } = read;
@@ -169,7 +172,8 @@ export async function handleSupportChat(
       accountState: async () => account,
       forwardingSteps: async () => {
         const steps = await ctx.readForwarding();
-        if (steps) numbers.push(steps.ayaNumberE164);
+        // A closed account's answer is the undo steps alone, with no number of AYA's.
+        if (steps) numbers.push(...(steps.closed ? [] : [steps.ayaNumberE164]), ...CARRIER_SERVICE_NUMBERS);
         return steps;
       },
       linkTo: (setting) => (isLinkTarget(setting) ? linkTo(ctx.slug, setting) : null),

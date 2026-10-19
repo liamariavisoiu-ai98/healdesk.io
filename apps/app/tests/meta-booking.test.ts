@@ -51,6 +51,7 @@ describe("what the model may hand over", () => {
   test("a plain reply is read as a reply with no booking", () => {
     expect(parseModelReply("We're open 9 to 5. Call the practice to book.")).toEqual({
       reply: "We're open 9 to 5. Call the practice to book.",
+      handoff: false,
       booking: { wants: false, first_name: null, phone: null, window: null, alt_windows: [], fields: {} },
     });
   });

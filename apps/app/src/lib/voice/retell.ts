@@ -9,6 +9,7 @@ import { patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
+import { raiseHandover } from "@/lib/handovers/record";
 import { describeError, log } from "@/lib/log";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { notifyOps } from "@/lib/ops/notify";
@@ -535,13 +536,14 @@ export class RetellCallSession {
       }
     }
     // L11: the caller asked for a person. Once per call, and not after an
-    // urgent alert, which already has the clinic looking at it.
+    // urgent alert, which already has the clinic looking at it. Kept for
+    // Bookings' Needs you as well as alerted (lib/handovers/record.ts).
     if (turn.handoff && !this.handoverAlerted && !this.urgent) {
       this.handoverAlerted = true;
       try {
         await withDeadline(
           withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
-            notifyBookingAlert(tx, "handover", { callId: this.callId, channel: "voice" }),
+            raiseHandover(tx, { channel: "voice", callId: this.callId }),
           ),
           ALERT_DEADLINE_MS,
         );

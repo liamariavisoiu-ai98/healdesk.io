@@ -222,11 +222,21 @@ export const renderHandover: EmailTemplate<BookingAlertPayload> = (payload, ctx)
   compose(
     {
       subject: "Someone asked to speak with a person",
-      preheader: "AYA is telling them your team will get back to them.",
+      // On Meta AYA takes no details and promises no reply: the channel
+      // carries nothing clinical, and she points them to the phone. On a
+      // call or a chat it fires on the turn she hands over, before she has
+      // a name and number.
+      preheader:
+        payload.channel === "meta"
+          ? "Reply to them in your inbox, or they may call you."
+          : "AYA is telling them your team will get back to them.",
       blocks: [
         {
           type: "paragraph",
-          text: `Someone asked to speak with a person at ${clinicOf(ctx)}${viaChannel(payload.channel)}. AYA is taking a name and number and telling them your team will get back to them.`,
+          text:
+            payload.channel === "meta"
+              ? `Someone asked to speak with a person at ${clinicOf(ctx)}${viaChannel(payload.channel)}. AYA pointed them to your phone number.`
+              : `Someone asked to speak with a person at ${clinicOf(ctx)}${viaChannel(payload.channel)}. AYA is taking a name and number and telling them your team will get back to them.`,
         },
         ...whereTheDetailsAre(payload.channel),
         ...openAction(payload.portalUrl),

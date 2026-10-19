@@ -728,6 +728,19 @@ recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh o
 - `ops:erase-person` runs as a one-off task with `HEALDESK_ERASURE_CLINIC_ID`,
   `HEALDESK_ERASURE_CONTACT_ID`, `HEALDESK_ERASURE_REQUESTED_BY`, optionally
   `HEALDESK_ERASURE_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR`.
+  Someone who only asked AYA for a person in website chat and left a number has no
+  contact: the number is on their handover (drizzle/0091), and the id of their chat's
+  conversation (the address of that conversation in the practice's portal), or the
+  handover's own id, goes where a contact's id is asked for, here and in
+  `patient-export`'s `HEALDESK_EXPORT_CONTACT_ID`. Named so, the request reaches that
+  handover and its chat and nothing else: the number was typed by the visitor and may
+  be someone else's, so nothing is followed by it. When the chat also holds a booking
+  request, an appointment or a contact, both refuse: name the booking's contact instead. Erasing a
+  contact takes the website chats its booking requests were made in, with any handover
+  asked there whatever number was left for the call back, and each chat itself unless
+  another person's booking or an amendment still holds it (an amended chat goes with its
+  amendments at the record clock); exporting a contact carries those chats and the
+  handovers in them, the kept ones included.
 - `ops:amend-contact` runs as one only to clear fields, with `HEALDESK_AMEND_CLINIC_ID`,
   `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`, `HEALDESK_AMEND_REQUESTED_BY` and
   `HEALDESK_OPS_OPERATOR`.
@@ -758,8 +771,9 @@ every booking request whose key is already there, which is all of them, since
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
 person gave before the deletion and after it; 0064's `record_amendments_guard` likewise
-restamps every amendment's `recorded_at`. For such a load the owner disables all four
-by name, loads every table, `booking_request_keys` included, and enables them again, in
+restamps every amendment's `recorded_at`; and 0091's `handovers_guard` refuses every
+handover already marked handled and restamps every handover's `created_at`, which would
+restart its record clock. For such a load the owner disables all five by name, loads every table, `booking_request_keys` included, and enables them again, in
 one transaction:
 
 ```sql
@@ -768,11 +782,13 @@ ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests DISABLE TRIGGER erasure_requests_guard;
 ALTER TABLE record_amendments DISABLE TRIGGER record_amendments_guard;
+ALTER TABLE handovers DISABLE TRIGGER handovers_guard;
 -- the data-only load
 ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests ENABLE TRIGGER erasure_requests_guard;
 ALTER TABLE record_amendments ENABLE TRIGGER record_amendments_guard;
+ALTER TABLE handovers ENABLE TRIGGER handovers_guard;
 COMMIT;
 ```
 

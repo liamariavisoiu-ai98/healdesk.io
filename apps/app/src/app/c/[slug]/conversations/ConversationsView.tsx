@@ -10,6 +10,7 @@ import {
   type ConversationOutcome,
   type DayChip,
 } from "@/lib/portal/conversation-words";
+import { bookingRequestPath } from "@/lib/portal/booking-paths";
 import type { ConversationListItem } from "@/lib/portal/conversations";
 import { portalMoment } from "@/lib/portal/format";
 
@@ -39,7 +40,12 @@ export function ConversationsView(props: {
   slug: string;
   timeZone: string;
   initialRows: ConversationListItem[];
-  /** Where a booking request opens, or null while Bookings isn't in this build. */
+  /**
+   * Bookings, or null while it isn't in this build. A request opens there by
+   * its `?request=` focus (bookingRequestPath), which shows it, or what became
+   * of it, wherever it now sits; an id anchor would land nowhere for a
+   * declined or older request, and the step-up's return drops it.
+   */
   bookingsHref: string | null;
   limit: number;
 }) {
@@ -189,7 +195,7 @@ export function ConversationsView(props: {
               {row.bookingRequestId ? (
                 props.bookingsHref ? (
                   <a
-                    href={`${props.bookingsHref}#request-${row.bookingRequestId}`}
+                    href={bookingRequestPath(props.slug, row.bookingRequestId)}
                     className="inline-flex min-h-11 items-center font-semibold underline"
                   >
                     See the booking request

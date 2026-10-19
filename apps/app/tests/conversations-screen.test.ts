@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { auth } from "@/lib/auth";
@@ -98,7 +99,20 @@ vi.mock("next/navigation", () => ({
     throw new Error("NEXT_NOT_FOUND");
   },
   useRouter: () => ({ refresh: () => undefined }),
+  // The shell's Help carries the support chat, which reads the slug from the
+  // route; static markup has no router.
+  useParams: () => null,
 }));
+// The guard shows nothing until the browser has asked the server
+// (PatientPageGuard); static markup has no browser, so it stands in as a
+// wrapper around what it was given, as in bookings-screen.test.ts.
+vi.mock("@/app/c/[slug]/PatientPageGuard", async () => {
+  const { createElement } = await import("react");
+  return {
+    PatientPageGuard: (props: { children: unknown }) =>
+      createElement("div", { "data-guard": "" }, props.children as never),
+  };
+});
 vi.mock("@simplewebauthn/server", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@simplewebauthn/server")>();
   return { ...actual, verifyAuthenticationResponse: mocks.verifyAuthenticationResponse };
@@ -762,10 +776,18 @@ describeDb("Conversations", () => {
     );
 
     // The page itself reads the same way, behind the same step-up, with its own rows.
-    await ConversationsPage({ params: Promise.resolve({ slug: desk.clinic.slug }) });
+    const listed = renderToStaticMarkup(
+      await ConversationsPage({ params: Promise.resolve({ slug: desk.clinic.slug }) }),
+    );
     const lists = (await accessRows(desk)).filter((r) => r.resource_type === "conversation");
     expect(lists).toHaveLength(2);
     expect(lists[1]!.resource_ids).toEqual(found.rows.map((r) => r.id));
+    // Each request opens on Bookings by its focus, which shows it, or what
+    // became of it, wherever it now sits; never by an anchor (19 October audit).
+    for (const id of [requestId, chatRequest]) {
+      expect(listed).toContain(`href="/c/${desk.clinic.slug}/bookings?request=${id}"`);
+    }
+    expect(listed).not.toContain("#request-");
   });
 
   test("search by phone digits however they're typed, by part of a name, and by the day chips", async () => {
@@ -963,11 +985,15 @@ describeDb("Conversations", () => {
       ]),
     );
 
-    // The page reads it the same way.
-    await ConversationPage({
-      params: Promise.resolve({ slug: desk.clinic.slug, id: call.conversationId }),
-    });
+    // The page reads it the same way, and opens its request on Bookings by its focus.
+    const opened2 = renderToStaticMarkup(
+      await ConversationPage({
+        params: Promise.resolve({ slug: desk.clinic.slug, id: call.conversationId }),
+      }),
+    );
     expect(await accessRows(desk)).toHaveLength(6);
+    expect(opened2).toContain(`href="/c/${desk.clinic.slug}/bookings?request=${requestId}"`);
+    expect(opened2).not.toContain("#request-");
     // An id that is no conversation of anyone's: not found, and the attempt is logged by the id asked for.
     const nobody = crypto.randomUUID();
     await expect(

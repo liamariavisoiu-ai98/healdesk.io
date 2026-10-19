@@ -9,6 +9,7 @@ import {
   receiptSentence,
   REQUEST_STATUS_NAMES,
 } from "@/lib/portal/conversation-words";
+import { bookingRequestPath } from "@/lib/portal/booking-paths";
 import { readConversation } from "@/lib/portal/conversations";
 import { portalDay, portalMoment } from "@/lib/portal/format";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
@@ -123,7 +124,7 @@ export default async function ConversationPage({
                       <>
                         {" · "}
                         <a
-                          href={`${sectionPath(clinicSlug, "bookings")}#request-${detail.request.id}`}
+                          href={bookingRequestPath(clinicSlug, detail.request.id)}
                           className="font-semibold underline"
                         >
                           See it in Bookings

@@ -196,10 +196,11 @@ describe("a direct kind goes with its payload, and the payload is held to the al
    * failed, and ops is told once per kind and clinic.
    */
   test.runIf(hasTestDatabase)(
-    "a refusal that remains is counted as failed and told to ops, once per kind and clinic",
+    "a refusal that remains is counted as failed and told to ops, once a day per kind and clinic",
     async () => {
       await getMigratorPool().query(`truncate ops_alerts, email_events`);
       const transport = new FakeTransport();
+      const day1 = new Date("2026-10-19T09:00:00Z");
       const b3 = {
         kind: "order_confirmed_delayed",
         clinicId: null,
@@ -207,23 +208,46 @@ describe("a direct kind goes with its payload, and the payload is held to the al
         payload: { planId: "voice-500", interval: "month", replyByOn: "2026-10-07" },
         clinicName: "Glow @ Main Street",
       } as const;
-      for (let i = 0; i < 2; i += 1) {
-        await expect(sendEmail(email(b3), { transport })).rejects.toBeInstanceOf(
+      for (const now of [day1, new Date(day1.getTime() + 60_000), new Date("2026-10-20T09:00:00Z")]) {
+        await expect(sendEmail(email(b3), { transport, now })).rejects.toBeInstanceOf(
           PayloadNotAllowedError,
         );
       }
       const { rows: alerts } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
-        `select fields from ops_alerts where event = 'email_refused'`,
+        `select fields from ops_alerts where event = 'email_refused' order by raised_at`,
       );
+      // Once a day: the same refusal on a later day is heard again (it was once ever).
       expect(alerts.map((a) => a.fields)).toEqual([
-        { kind: "order_confirmed_delayed", clinicId: null },
+        { kind: "order_confirmed_delayed", clinicId: null, windowStart: "2026-10-19" },
+        { kind: "order_confirmed_delayed", clinicId: null, windowStart: "2026-10-20" },
       ]);
       const { rows: counted } = await getMigratorPool().query<{ status: string }>(
         `select status from email_events where kind = 'order_confirmed_delayed'`,
       );
-      expect(counted.map((r) => r.status)).toEqual(["failed", "failed"]);
+      expect(counted.map((r) => r.status)).toEqual(["failed", "failed", "failed"]);
     },
   );
+
+  /** I3 claims its own email_events row before sending, and counts its own failure. */
+  test.runIf(hasTestDatabase)("a refused I3 is not counted here: its own release counts it, once", async () => {
+    await getMigratorPool().query(`truncate ops_alerts, email_events`);
+    const transport = new FakeTransport();
+    await expect(
+      sendEmail(
+        email({
+          kind: "access_request",
+          clinicId: null,
+          idempotencyKey: `hd-access_request-${DELIVERY}-1`,
+          text: "t",
+          html: "<p>t</p>",
+          payload: { requestId: DELIVERY, code: "no_match", addressMasked: `a•••@${"x".repeat(130)}.test` },
+        }),
+        { transport },
+      ),
+    ).rejects.toBeInstanceOf(PayloadNotAllowedError);
+    const { rows } = await getMigratorPool().query(`select 1 from email_events`);
+    expect(rows).toEqual([]);
+  });
 
   test("a payload that passes goes, with a single-use token only in a link email's", async () => {
     const transport = new FakeTransport();

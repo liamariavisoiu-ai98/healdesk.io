@@ -11,7 +11,7 @@ import {
 import { notifyOpsOnce } from "@/lib/ops/notify";
 import { PhiRoutingError, ResendTransport } from "@/lib/reporting/resend-transport";
 
-import { countsAtSend, holdsNoLedgerRow, recordEmailEvent } from "./health";
+import { countsAtSend, recordEmailEvent } from "./health";
 import { isDirectKind, isEmailKind, KIND_SHAPE } from "./kind-rules";
 import {
   assertLinksAllowed,
@@ -113,9 +113,11 @@ export class EmailEnvelopeError extends Error {
 /**
  * A direct kind refused before sending would otherwise be a log line in its
  * caller, and the clinic simply never hears: so it is counted as failed for
- * the digest (lib/email/health.ts) and ops is told once per kind and clinic.
- * Not for I1 itself, whose refusal notifyOps would answer with another I1.
- * Never throws.
+ * the digest (lib/email/health.ts), as countsAtSend says sendEmail counts it
+ * (a kind that claims its own row, I3, counts its own failure), and ops is
+ * told once a UTC day per kind and clinic, the day in the alert's identity,
+ * so a refusal that comes back after a fix is heard again. Not for I1
+ * itself, whose refusal notifyOps would answer with another I1. Never throws.
  */
 async function refused(email: EmailToSend, error: unknown, now: Date): Promise<void> {
   if (!isDirectKind(email.kind) || email.kind === "ops_alert") return;
@@ -127,11 +129,15 @@ async function refused(email: EmailToSend, error: unknown, now: Date): Promise<v
     return;
   }
   try {
-    if (holdsNoLedgerRow(email.kind)) {
+    if (countsAtSend(email.kind)) {
       await recordEmailEvent({ app: "app", kind: email.kind, status: "failed", at: now });
     }
     const clinicId = email.clinicId && TAG_VALUE.test(email.clinicId) ? email.clinicId : null;
-    await notifyOpsOnce("email_refused", { kind: email.kind, clinicId });
+    await notifyOpsOnce("email_refused", {
+      kind: email.kind,
+      clinicId,
+      windowStart: now.toISOString().slice(0, 10),
+    });
   } catch {
     // The refusal itself is what the caller hears about.
   }

@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import { BAA_TEMPLATES, DPA_TEMPLATES, TRANSCRIPT_RETENTION_DAYS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
-import { eraseContact, purgeClinic, purgeIsPromised } from "@/lib/retention/purge";
+import { eraseContact, PURGE_COVERAGE, purgeClinic, purgeIsPromised } from "@/lib/retention/purge";
 import { JOB_RETENTION_PURGE, getJob, setJobEnabled } from "@/lib/scheduler/jobs";
 import { runRetentionPurgeJob, sweepRetention } from "@/lib/scheduler/retention-purge";
 import { runTick } from "@/lib/scheduler/tick";
@@ -728,5 +730,81 @@ describeDb("retention purge", () => {
     expect(purgeIsPromised("1.4.1")).toBe(false);
     expect(purgeIsPromised("9.9.9")).toBe(false);
     expect(purgeIsPromised(null)).toBe(false);
+  });
+
+  // The audit's R8 item 7: Part J and the plan's Verification ask for "the
+  // offboarding and purge catalog test", and only destruction had one. The
+  // drift it catches was real: meta_inbound_messages was never purged here,
+  // only by billing-housekeeping, which ships switched off.
+  test("every table with a clinic_id is purged nightly or left by the purge for a stated reason, and the purged side is what purgeClinic deletes", async () => {
+    const { rows } = await getMigratorPool().query<{ relname: string }>(
+      `select c.relname
+         from pg_class c
+         join pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = 'public'
+          and c.relkind in ('r', 'p')
+          and exists (select 1 from pg_attribute a
+                       where a.attrelid = c.oid and a.attname = 'clinic_id'
+                         and a.attnum > 0 and not a.attisdropped)`,
+    );
+    const catalog = rows.map((r) => r.relname).sort();
+    expect(catalog.length).toBeGreaterThan(20);
+    const purged = Object.keys(PURGE_COVERAGE.purged);
+    const notPurged = Object.keys(PURGE_COVERAGE.notPurged);
+    expect(purged.filter((t) => notPurged.includes(t))).toEqual([]);
+    expect([...purged, ...notPurged].sort()).toEqual(catalog);
+    for (const [table, why] of Object.entries(PURGE_COVERAGE.notPurged)) {
+      expect(why.length, table).toBeGreaterThan(20);
+    }
+
+    // The purged side, held to purgeClinic's own source: each table is
+    // deleted from there by name, or by the definer function that deletes it.
+    const source = readFileSync(
+      fileURLToPath(new URL("../src/lib/retention/purge.ts", import.meta.url)),
+      "utf8",
+    );
+    const body = source.slice(source.indexOf("export async function purgeClinic"), source.indexOf("export type ErasureRequest"));
+    const camel = (table: string) => table.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+    const BY_DEFINER: Record<string, RegExp> = {
+      booking_requests: /app_purge_booking_requests\(/,
+      deposit_payments: /app_purge_deposit_payments\(/,
+      record_amendments: /app_purge_amended_(appointments|conversations)\(/,
+    };
+    for (const table of purged) {
+      const evidence = BY_DEFINER[table] ?? new RegExp(`\\.delete\\(${camel(table)}\\)`);
+      expect(evidence.test(body), `${table}: purgeClinic deletes nothing from it`).toBe(true);
+    }
+    // And nothing on the other side is deleted there.
+    for (const table of notPurged) {
+      expect(new RegExp(`\\.delete\\(${camel(table)}\\)`).test(body), `${table}: purged, but listed as not`).toBe(false);
+    }
+  });
+
+  test("a handled Meta message's reference goes after seven days, or sooner on a shorter record clock, and only the clinic's own", async () => {
+    const c = await seedClinic("purge-meta-refs");
+    const other = await seedClinic("purge-meta-refs-other");
+    const now = new Date("2026-10-19T03:00:00Z");
+    const ago = (days: number) => new Date(now.getTime() - days * DAY);
+    for (const clinicId of [c.clinicId, other.clinicId]) {
+      await inTenant(clinicId, (client) =>
+        client.query(
+          `insert into meta_inbound_messages (clinic_id, platform, message_ref, received_at)
+           values ($1, 'whatsapp', $2, $3), ($1, 'instagram', $4, $5)`,
+          [clinicId, `v1:${randomBytes(32).toString("hex")}`, ago(8), `v1:${randomBytes(32).toString("hex")}`, ago(2)],
+        ),
+      );
+    }
+    const result = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => purgeClinic(tx, now));
+    expect(result.metaMessageRefsDeleted).toBe(1);
+    expect(await count(c.clinicId, "meta_inbound_messages")).toBe(1);
+    expect(await count(other.clinicId, "meta_inbound_messages")).toBe(2);
+
+    // A record clock of two days takes the two-day-old one too.
+    await getMigratorPool().query(`update clinics set retention_record_days = 2 where id = $1`, [c.clinicId]);
+    const shorter = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      purgeClinic(tx, new Date(now.getTime() + 2 * DAY)),
+    );
+    expect(shorter.metaMessageRefsDeleted).toBe(1);
+    expect(await count(c.clinicId, "meta_inbound_messages")).toBe(0);
   });
 });

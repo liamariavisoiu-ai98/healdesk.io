@@ -16,7 +16,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
  * as the route can tell) while `failing` is set.
  */
 
-const failing = vi.hoisted(() => ({ on: false }));
+const failing = vi.hoisted(() => ({ on: false, seed: false, b3: [] as string[] }));
 vi.mock("@/lib/provisioning", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/provisioning")>();
   return {
@@ -27,6 +27,27 @@ vi.mock("@/lib/provisioning", async (importOriginal) => {
     },
   };
 });
+
+// A bug on one stored payload: reading the setup seed throws before
+// provisioning is reached, every time, while `failing.seed` is set.
+vi.mock("@/lib/setup/seed", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/setup/seed")>();
+  return {
+    ...actual,
+    setupSeedFromIntent: (...args: Parameters<typeof actual.setupSeedFromIntent>) => {
+      if (failing.seed)
+        throw new TypeError("Cannot read properties of undefined (reading 'locations')");
+      return actual.setupSeedFromIntent(...args);
+    },
+  };
+});
+// B3, observed: which purchases it went to.
+vi.mock("@/lib/checkout/order-delayed", () => ({
+  sendOrderConfirmedDelayed: async (intent: { ref: string }) => {
+    failing.b3.push(intent.ref);
+    return "sent";
+  },
+}));
 
 const SECRET = "provision-dead-letter-test-secret";
 process.env.HEALDESK_PROVISION_SECRET = SECRET;
@@ -105,6 +126,8 @@ describeDb("/api/provision: the dead letter", () => {
     delete process.env.HEALDESK_OPS_EMAIL;
     delete process.env.HEALDESK_ADMIN_EMAIL;
     failing.on = false;
+    failing.seed = false;
+    failing.b3 = [];
   });
 
   afterAll(async () => {
@@ -135,6 +158,7 @@ describeDb("/api/provision: the dead letter", () => {
     expect((await alerts("provisioning_dead_lettered")).map((a) => a.fields)).toEqual([
       { requestId: p.intent.ref, attempts: 3 },
     ]);
+    expect(failing.b3).toEqual([p.intent.ref]);
     expect(await welcomeState(asPayer)).toMatchObject({ status: "failed" });
 
     // A fourth failure tells nobody again.
@@ -146,6 +170,32 @@ describeDb("/api/provision: the dead letter", () => {
     expect(await provision(p, sub)).toBe(201);
     expect((await findIntent(p.intent.ref))!.consumedAt).toBeInstanceOf(Date);
     expect(await welcomeState(asPayer)).toMatchObject({ status: "ready" });
+    quiet.mockRestore();
+    warn.mockRestore();
+  });
+
+  test("an error before provisioning, the same on every delivery, dead-letters on the third and sends B3", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const p = purchase();
+    const sub = `sub_test_${randomUUID().slice(0, 8)}`;
+
+    failing.seed = true;
+    expect(await provision(p, sub)).toBe(500);
+    expect(await provision(p, sub)).toBe(500);
+    expect(await alerts("provisioning_dead_lettered")).toEqual([]);
+    expect(failing.b3).toEqual([]);
+    expect(await provision(p, sub)).toBe(500);
+
+    const dead = (await findIntent(p.intent.ref))!;
+    expect(dead.paidSeenAt).toBeInstanceOf(Date);
+    expect(dead.provisionFailures).toBe(3);
+    expect(dead.provisionFailedAt).toBeInstanceOf(Date);
+    expect(dead.consumedAt).toBeNull();
+    expect((await alerts("provisioning_dead_lettered")).map((a) => a.fields)).toEqual([
+      { requestId: p.intent.ref, attempts: 3 },
+    ]);
+    expect(failing.b3).toEqual([p.intent.ref]);
     quiet.mockRestore();
     warn.mockRestore();
   });

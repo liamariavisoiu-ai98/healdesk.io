@@ -211,7 +211,14 @@ export async function POST(request: Request): Promise<Response> {
       await refuseIntent(intentRef, error);
       return problem(error.message, 422, error.field);
     }
-    throw error;
+    // Anything else before provisioning (a fault reading the purchase, or a
+    // bug on one stored payload that throws every time) is counted like a
+    // failure of provisioning itself, so a deterministic one dead-letters
+    // the order and the buyer gets B3, instead of a bare 500 that Stripe
+    // redelivers for three days with nobody told. Never echo the payload.
+    log.error("provisioning could not start", { error: describeError(error) });
+    await countRetryableFailure(intentRef);
+    return problem("Could not complete setup.", 500);
   }
 
   // 4. Provision.

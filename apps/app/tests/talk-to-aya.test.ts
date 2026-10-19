@@ -48,6 +48,9 @@ vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new mocks.NavigationSignal("notFound");
   },
+  // The Help panel's support chat (WP10) reads the slug with useParams; static
+  // markup has no router, as in bookings-screen.test.ts.
+  useParams: () => null,
 }));
 vi.mock("@/lib/auth", () => ({
   auth: {

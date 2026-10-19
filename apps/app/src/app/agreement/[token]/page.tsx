@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { lookUpResignLink } from "@/lib/agreements/resign";
+import { lookUpResignLink, type ResignClosedReason } from "@/lib/agreements/resign";
 
 import { ResignStep } from "./ResignStep";
 
@@ -34,10 +34,7 @@ export const dynamic = "force-dynamic";
  * is.
  */
 
-const PROBLEMS: Record<
-  "unknown" | "expired" | "signed" | "withdrawn",
-  { title: string; body: string }
-> = {
+const PROBLEMS: Record<ResignClosedReason, { title: string; body: string }> = {
   signed: {
     title: "This agreement is signed.",
     body: "Your business associate agreement is in force. A copy is in Billing, under Your agreement.",
@@ -49,6 +46,10 @@ const PROBLEMS: Record<
   expired: {
     title: "This link has expired.",
     body: "Sign in to healdesk and sign your updated agreement from Billing, under Your agreement.",
+  },
+  not_open: {
+    title: "This agreement isn't open for signing yet.",
+    body: "The agreement your practice signed stays in force, and AYA keeps answering under it. Nothing has been recorded.",
   },
   unknown: {
     title: "This link isn't valid.",

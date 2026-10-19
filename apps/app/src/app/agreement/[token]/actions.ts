@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 
-import { signAgreementResign } from "@/lib/agreements/resign";
+import { signAgreementResign, type ResignClosedReason } from "@/lib/agreements/resign";
 import { clientIp } from "@/lib/client-ip";
 
 /**
@@ -22,12 +22,14 @@ export type ResignActionResult =
     }
   | { ok: false; message: string; field?: string };
 
-const CLOSED: Record<"unknown" | "expired" | "signed" | "withdrawn", string> = {
+const CLOSED: Record<ResignClosedReason, string> = {
   unknown:
     "This link isn't valid any more. Sign it from Billing in healdesk, under Your agreement.",
   expired: "This link has expired. Sign it from Billing in healdesk, under Your agreement.",
   signed: "This agreement is signed already.",
   withdrawn: "There's nothing to sign: your data protection agreement stays in force.",
+  not_open:
+    "Your updated agreement isn't open for signing yet. Nothing has been recorded: the agreement your practice signed stays in force, and AYA keeps answering under it.",
 };
 
 export async function signResignAction(

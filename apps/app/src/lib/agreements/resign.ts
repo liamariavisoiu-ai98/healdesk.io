@@ -131,8 +131,11 @@ import { supersedeAgreement, SupersedeError } from "./kind";
  *
  * ## A newer BAA over an older one (`baa_version`, wave 2 R11)
  *
- * Switched off until the calendar fix (BAA_VERSION_RESIGNS_READY,
- * lib/agreements/baa-version-ready.ts): until then nothing below opens one.
+ * Behind a switch (BAA_VERSION_RESIGNS_READY, lib/agreements/
+ * baa-version-ready.ts). While it is off nothing below opens one, and one
+ * already open is held as it is (resignOpenToPractice): no L22 or reminder
+ * goes, no ops alert is raised, Billing shows none, and its link says it is
+ * not open yet and signs nothing.
  *
  * The same row, link, screen and reminders carry a practice under a Business
  * Associate Agreement to the current version of it (plan Part L:
@@ -258,6 +261,17 @@ export function resignPath(
 // -----------------------------------------------------------------------------
 // Opening, and AYA's pause
 // -----------------------------------------------------------------------------
+
+/**
+ * Whether a re-sign open in the table is open to the practice: it is chased,
+ * shown and signed. A BAA-version re-sign is only while its switch is on
+ * (BAA_VERSION_RESIGNS_READY): turned off again, one already open is held as
+ * it is, no reminder goes and its link says it is not open yet, so nothing
+ * that switch exists to stop happens through a row opened before.
+ */
+export function resignOpenToPractice(reason: AgreementResignReason): boolean {
+  return reason !== "baa_version" || baaVersionResignsReady();
+}
 
 /** The clinic's open re-sign, inside its tenant, or null. */
 export async function openResign(tx: TenantTx): Promise<AgreementResign | null> {
@@ -780,7 +794,9 @@ async function claimResignEmail(input: {
         and(eq(agreementResigns.id, input.resignId), eq(agreementResigns.clinicId, tx.clinicId)),
       )
       .limit(1);
-    if (!resign || resign.status !== "open") return { state: "closed" };
+    if (!resign || resign.status !== "open" || !resignOpenToPractice(resign.reason)) {
+      return { state: "closed" };
+    }
     const [clinic] = await tx.db
       .select({ name: clinics.name, specialty: clinics.specialty, timezone: clinics.timezone })
       .from(clinics)
@@ -830,6 +846,8 @@ async function claimResignEmail(input: {
  * the practice; for every other, `agreement_unsigned_7_days`. Not a switched
  * job, like the address changes': the practice was told it has an agreement
  * to sign, and a switch that ships off would leave it waiting with no word.
+ * A BAA-version re-sign while its own switch is off is passed over, and not
+ * counted in `open` (resignOpenToPractice).
  */
 export async function runAgreementResignsJob(
   input: { now?: Date } & SendEmailOptions = {},
@@ -841,6 +859,7 @@ export async function runAgreementResignsJob(
   const result = await unsafeDb.execute<{ clinic_id: string; id: string }>(
     sql`select clinic_id, id from app_open_agreement_resigns()`,
   );
+  let open = 0;
   let sent = 0;
   let alerted = 0;
   for (const row of result.rows) {
@@ -862,6 +881,9 @@ export async function runAgreementResignsJob(
       return { ...r, belowFloor };
     });
     if (!resign || resign.status !== "open") continue;
+    // Switched off: held as it is, unreminded, and no one alerted to chase it.
+    if (!resignOpenToPractice(resign.reason)) continue;
+    open += 1;
     const due = dueResignEmail(resign.startedAt, now);
     if (
       await sendAgreementToSign(
@@ -879,7 +901,7 @@ export async function runAgreementResignsJob(
       alerted += 1;
     }
   }
-  return { open: result.rows.length, sent, alerted, opened };
+  return { open, sent, alerted, opened };
 }
 
 /** Whether the agreement a re-sign replaces is a BAA version go-live no longer accepts. */
@@ -929,6 +951,13 @@ export async function belowFloorUnsigned(): Promise<{ count: number; oldest: Dat
 
 export type { ResignDocument };
 
+/**
+ * Why a link opens nothing: not a link of an open re-sign, expired, signed,
+ * withdrawn, or `not_open`, a BAA-version re-sign while its switch is off
+ * (resignOpenToPractice).
+ */
+export type ResignClosedReason = "unknown" | "expired" | "signed" | "withdrawn" | "not_open";
+
 export type ResignLink =
   | {
       ok: true;
@@ -943,7 +972,7 @@ export type ResignLink =
       /** Whether AYA is held paused until it is signed (openResignHoldsPause). */
       holdsPause: boolean;
     }
-  | { ok: false; reason: "unknown" | "expired" | "signed" | "withdrawn" };
+  | { ok: false; reason: ResignClosedReason };
 
 function textOf(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -1048,6 +1077,7 @@ async function readLink(tx: TenantTx, resignId: string, forUpdate: boolean) {
   if (!resign) return { ok: false as const, reason: "unknown" as const };
   if (resign.status === "signed") return { ok: false as const, reason: "signed" as const };
   if (resign.status === "withdrawn") return { ok: false as const, reason: "withdrawn" as const };
+  if (!resignOpenToPractice(resign.reason)) return { ok: false as const, reason: "not_open" as const };
   const [clinic] = await tx.db
     .select({
       name: clinics.name,
@@ -1144,7 +1174,7 @@ export type SignResignOutcome =
       copy: SignedCopyDelivery;
     }
   | { status: "refused"; message: string; field?: string }
-  | { status: "closed"; reason: "unknown" | "expired" | "signed" | "withdrawn" };
+  | { status: "closed"; reason: ResignClosedReason };
 
 /**
  * Sign the BAA from the re-sign screen, once.
@@ -1351,7 +1381,7 @@ export async function readOpenResign(
 } | null> {
   return withTenant({ clinicId, actor }, async (tx) => {
     const open = await openResign(tx);
-    return open
+    return open && resignOpenToPractice(open.reason)
       ? {
           id: open.id,
           startedAt: open.startedAt,

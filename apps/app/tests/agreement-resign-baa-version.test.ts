@@ -129,9 +129,11 @@ const { runOperation } = await import("@/lib/ops/api");
 const {
   baaOlderThanCurrent,
   lookUpResignLink,
+  readOpenResign,
   readResignToken,
   resignRequest,
   runAgreementResignsJob,
+  sendAgreementToSign,
   signAgreementResign,
 } = await import("@/lib/agreements/resign");
 const { renderResignPreview } = await import("@/lib/agreements/resign-preview");
@@ -429,6 +431,65 @@ describeDb("re-signing a newer BAA over an older one", () => {
     const dpa = await dpaPractice("bvoffdpa");
     await yes(dpa.clinicId);
     expect(await resigns(dpa.clinicId)).toMatchObject([{ reason: "now_covered", status: "open" }]);
+  });
+
+  test("turned off again, the switch holds a re-sign already open: no reminder, no alert, nothing shown and nothing signed until it is on", async () => {
+    const practice = await baaPractice("bvkill");
+    expect(await runAgreementResignsJob()).toMatchObject({ opened: 1, sent: 1, open: 1 });
+    const token = linkIn(l22For(practice.staffEmail)[0]!.text);
+    const [resign] = await resigns(practice.clinicId);
+
+    resignsSwitch.ready = false;
+    const day8 = new Date(Date.now() + 8 * DAY);
+    expect(await runAgreementResignsJob({ now: new Date(Date.now() + 4 * DAY) })).toMatchObject({
+      open: 0,
+      sent: 0,
+    });
+    expect(await runAgreementResignsJob({ now: day8 })).toMatchObject({
+      open: 0,
+      sent: 0,
+      alerted: 0,
+    });
+    expect(
+      await sendAgreementToSign({
+        clinicId: practice.clinicId,
+        resignId: resign!.id,
+        waitingDays: 3,
+      }),
+    ).toBe(false);
+    expect(l22For(practice.staffEmail)).toHaveLength(1);
+    const { rows: alerts } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from ops_alerts where fields->>'clinicId' = $1`,
+      [practice.clinicId],
+    );
+    expect(alerts[0]!.n).toBe(0);
+
+    // The link says it is not open yet, and signing it, even straight to the action, signs nothing.
+    expect(await lookUpResignLink(token)).toEqual({ ok: false, reason: "not_open" });
+    expect(
+      await signAgreementResign(token, {
+        signatoryName: "Laura Owner",
+        signatoryTitle: "Owner",
+        templateVersion: CURRENT_BAA_VERSION,
+      }),
+    ).toEqual({ status: "closed", reason: "not_open" });
+    expect(await readOpenResign(practice.clinicId, OPERATOR)).toBeNull();
+    expect((await resigns(practice.clinicId))[0]).toMatchObject({ status: "open" });
+    const { rows: inForce } = await getMigratorPool().query<{ terminated_at: Date | null }>(
+      `select terminated_at from baa_acceptances where id = $1`,
+      [practice.agreementId],
+    );
+    expect(inForce[0]!.terminated_at).toBeNull();
+
+    // On again: chased from where it stood, and signed.
+    resignsSwitch.ready = true;
+    expect(await runAgreementResignsJob({ now: day8 })).toMatchObject({
+      open: 1,
+      sent: 1,
+      alerted: 1,
+    });
+    expect(await readOpenResign(practice.clinicId, OPERATOR)).toMatchObject({ id: resign!.id });
+    expect((await signFromL22(practice.staffEmail)).status).toBe("signed");
   });
 
   test("the floor passed the version in force: the job opens the re-sign and sends L22 once, and AYA keeps answering", async () => {

@@ -410,7 +410,9 @@ function issuerDigit(digits: string): boolean {
  * number, is never read as a card. A run of 13 to 19 digits tested whole can
  * still pass by chance, one time in ten, as it always could ("415 555 0192
  * 94110"); it is cut, and the person asked not to share card details, the
- * safe way to be wrong.
+ * safe way to be wrong. Not across a comma or a full stop, though, when a
+ * phone number's shape is in it: "415-555-0192, 94117" is a number and a ZIP
+ * code, and cutting it would lose the number someone left to be called on.
  *
  * `crossing`, for the pass over a transcript's turns joined together
  * (cutCardNumbersAcrossTurns): only a number that spans one of these
@@ -428,6 +430,10 @@ function cardNumberSpans(text: string, crossing?: readonly number[]): Array<[num
     }));
     if (groups.reduce((n, g) => n + g.digits.length, 0) < 13) continue;
     const { breakBefore, inPhone } = shapes(text, groups);
+    // A comma or full stop inside the run: ordinary writing joins a phone
+    // number to what follows it that way ("415-555-0192, 94117"), so a run
+    // across one is never read as a card through a phone number's shape.
+    const punctuated = /[.,]/.test(run[0]);
     // Groups s to e, or only the first `digits.length` digits of group s.
     const passes = (digits: string, s: number, e: number, to: number, whole: boolean): boolean => {
       const from = groups[s]!.start;
@@ -435,7 +441,7 @@ function cardNumberSpans(text: string, crossing?: readonly number[]): Array<[num
         if (digits.length !== 15 && digits.length !== 16) return false;
         if (!crossing.some((at) => from < at && at < to)) return false;
       } else if (whole) {
-        return luhn(digits);
+        return luhn(digits) && !(punctuated && inPhone.slice(s, e + 1).some(Boolean));
       }
       return issuerDigit(digits) && !inPhone.slice(s, e + 1).some(Boolean) && luhn(digits);
     };

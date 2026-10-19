@@ -483,6 +483,10 @@ describe("the guard", () => {
       "Jo Smith, 415-555-0100, 03-14-1957, Thursday 10:30",
       "My number is 415 555 0192, 12/03/2026 at 10:30 please",
       "born 03/14/1990, phone 415-555-0192",
+      // 415555019294117 passes the Luhn check whole; the comma and the
+      // phone number's shape keep it a number and a ZIP code.
+      "My number is 415-555-0192, 94117",
+      "415 555 0192. 94117 is my zip",
       "2026-12-03 or 12.03.2026",
       "It's $1,250.00, or 1,250.50 dollars, or $12,500",
       "at 2.30pm, or 10 30 tomorrow, or 10:30",

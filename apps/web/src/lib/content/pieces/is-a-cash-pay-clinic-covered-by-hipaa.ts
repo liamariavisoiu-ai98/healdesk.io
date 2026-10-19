@@ -24,7 +24,7 @@ export const piece: Piece = {
         },
         {
           kind: "p",
-          text: "An organisation that meets neither the covered-entity definition nor the business-associate definition “does not have to comply with the HIPAA Rules”, in the words of HHS’s own summary. Neither definition turns on a practice’s specialty, its size or whether patients pay in cash. CMS, which administers the transaction standards, puts the test in one line: “Providers who submit HIPAA transactions, like claims, electronically are covered.”",
+          text: "An organisation that meets neither the covered-entity definition nor the business-associate definition “does not have to comply with the HIPAA Rules”, in the words of HHS’s own summary. Neither definition turns on a practice’s specialty, its size or whether patients pay in cash. CMS’s page for providers puts the test in one line: “Providers who submit HIPAA transactions, like claims, electronically are covered.”",
           cite: ["hhs-covered-entities", "cfr-160-103", "cms-covered-entities"],
         },
       ],
@@ -123,7 +123,7 @@ export const piece: Piece = {
       blocks: [
         {
           kind: "p",
-          text: "Several laws reach health data that HIPAA does not. Washington’s legislature found in 2023 that HIPAA “only covers health data collected by specific health care entities”, and wrote its own statute for the rest. Nevada and Connecticut enacted consumer health data provisions the same year, and the FTC Act applies whether or not a business is covered by HIPAA. Each law has its own exemptions, and those exemptions decide whether it reaches a given practice.",
+          text: "Several laws reach health data that HIPAA does not. Washington’s legislature found in 2023 that HIPAA “only covers health data collected by specific health care entities”, and that data collected by others “are not afforded the same protections”. Nevada and Connecticut enacted consumer health data provisions the same year, and the FTC Act applies whether or not a business is covered by HIPAA. Each law has its own exemptions, and those exemptions decide whether it reaches a given practice.",
           cite: ["rcw-19-373", "nrs-603a", "ct-743jj-2026", "ftc-health-guidance"],
         },
         { kind: "h3", text: "Washington: the My Health My Data Act" },

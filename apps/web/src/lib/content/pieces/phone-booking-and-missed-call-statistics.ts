@@ -95,7 +95,8 @@ export const piece: Piece = {
             "A figure often quoted beside these, that nearly three in four consumers would switch providers after a poor contact-centre experience, comes from CallMiner's 2020 US Churn Index. " +
             "CallMiner sells speech and conversation analytics, and the survey was carried out for it by 3Gem Research & Insights. " +
             "It asked 2,000 US adults who had contacted a provider in the previous 12 months, online in March 2020, and recorded what they said they would do. " +
-            "It covered providers in general and named banks and broadband providers as the industries with the highest churn. A bullet in the same release says 7 percent were likely to switch after a negative call, and the release does not reconcile that with its headline.",
+            "It covered providers in general and named banks and broadband providers as the industries with the highest churn. " +
+            "A bullet in the same release says 7 percent were likely to switch after a negative call, and the release does not reconcile that with its headline.",
           cite: ["callminer-2020"],
         },
       ],
@@ -200,7 +201,7 @@ export const piece: Piece = {
   ],
   aya: [
     "AYA is built to answer the calls a clinic forwards to it, in the coverage mode the clinic picks.",
-    "Its reports are designed to count the conversations it handled and the appointments it booked, and nothing it did not do itself.",
+    "Its reports are designed to count the conversations it handled and the appointments it booked.",
   ],
   sources: [
     {

@@ -24,7 +24,10 @@ import { CompliancePanel, type AttestationForm } from "./CompliancePanel";
  * Each attestation or withdrawal is entered with a fresh code from the
  * operator's authenticator, checked on this app before the signed request
  * goes (lib/admin/platform-compliance.ts). A withdrawal never takes a live
- * channel offline; it holds back what has not gone live yet. What Gate B
+ * channel offline; it holds back what has not gone live yet. A vendor's
+ * agreement withdrawn or past its expiry also stops AYA answering where that
+ * vendor serves, until a renewal is recorded (apps/app's answer gate,
+ * lib/compliance/vendor-coverage.ts). What Gate B
  * asks of the code is listed beside it, and while any of it is not built no
  * clinic goes live.
  *

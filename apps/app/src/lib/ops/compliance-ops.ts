@@ -34,7 +34,8 @@ import { audit, ok, stringArg, type Operator, type OpsOutcome } from "./api";
  * items apps/web holds open. No clinic, no patient. An attestation is
  * written outside any tenant (platform_compliance's trigger refuses one made
  * inside), audited as a security event naming only the subject, and never
- * takes a live channel offline when withdrawn.
+ * takes a live channel offline when withdrawn; a vendor's withdrawal stops
+ * AYA answering where that vendor serves (lib/compliance/vendor-coverage.ts).
  */
 
 type EntryView = {

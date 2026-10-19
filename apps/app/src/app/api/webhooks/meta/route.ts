@@ -6,6 +6,7 @@ import { recordUsage } from "@/lib/billing/usage";
 import { recordFirstAnswer } from "@/lib/channels/events";
 import { touchChatThread } from "@/lib/chat/threads";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
+import { hostCoversPatientData } from "@/lib/compliance/vendor-coverage";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
@@ -152,6 +153,10 @@ export async function POST(request: Request): Promise<Response> {
         // the rest of the batch, so it is not redelivered; it waits for the
         // practice's team in the app, as the pause line says.
         if (!(await clinicAcceptsPhi(tx.db, tx.clinicId))) return "uncovered" as const;
+        // AWS's or the database host's own agreement lapsed (the owner's
+        // decision of 19 October 2026, lib/compliance/vendor-coverage.ts):
+        // nothing new is kept where patient data lives, so the same as above.
+        if (!(await hostCoversPatientData(tx, now))) return "host_lapsed" as const;
         if (message.messageId && !(await claimMetaMessage(tx, message.platform, message.messageId))) {
           return null;
         }
@@ -164,6 +169,14 @@ export async function POST(request: Request): Promise<Response> {
       }
       if (thread === "uncovered") {
         log.warn("meta message not kept: no agreement covers the clinic's data", {
+          clinicId: owner.clinicId,
+          channel: message.platform,
+        });
+        skipped += 1;
+        continue;
+      }
+      if (thread === "host_lapsed") {
+        log.warn("meta message not kept: the host's agreement has lapsed", {
           clinicId: owner.clinicId,
           channel: message.platform,
         });

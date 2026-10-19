@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import {
+  assistantFallbackRefused,
   assistantMayAnswer,
   coverageModeOf,
   patientDataRefused,
@@ -10,7 +11,10 @@ import {
   type AnswerFacts,
   type PassThroughReason,
 } from "@/lib/billing/answering";
+import { unsafeDb } from "@/db";
 import { setOverageMode } from "@/lib/billing/entitlements";
+import { readPlatformCompliance } from "@/lib/compliance/platform";
+import { COVERAGE_VENDORS, NO_LAPSES, vendorLapses } from "@/lib/compliance/vendor-coverage";
 import { identifierRef } from "@/lib/identifier-ref";
 import { withTenant } from "@/lib/tenant";
 
@@ -22,6 +26,7 @@ import {
   truncateAll,
 } from "./setup/db";
 import { bindAgreementInEffect, inTenant, seedChannels, seedClinic, seedEntitled } from "./setup/factories";
+import { attestPlatform, withdrawPlatform } from "./setup/platform";
 
 /**
  * The answer gate (BD9, BD22, BD23, R1, R18, R20, R21, R25): the pure rules
@@ -63,6 +68,7 @@ function facts(
     isSynthetic: false,
     agreement: "in_effect",
     agreementCovers: true,
+    lapsedVendors: NO_LAPSES,
     billing: billing === null ? null : { ...base, ...billing },
     channelRow: { enabled: true, liveAt: new Date("2026-10-02T00:00:00Z") },
     pause: { pausedAt: null, pausedUntil: null },
@@ -124,6 +130,42 @@ describe("decideAnswer: every rule (BD22)", () => {
       "no agreement still says so before the kind",
       facts({ agreement: "none", agreementCovers: false }),
       "no_agreement",
+    ],
+    // 0b. The vendors' agreements (platform_compliance; the owner, 19 October 2026).
+    [
+      "the host's agreement not in force (AWS or the database host)",
+      facts({ lapsedVendors: { host: ["aws"], assistant: [] } }),
+      "host_agreement_lapsed",
+    ],
+    [
+      "the assistant's own vendor's agreement not in force (the model provider; Retell on voice)",
+      facts({ lapsedVendors: { host: [], assistant: ["retell"] } }),
+      "vendor_agreement_lapsed",
+    ],
+    [
+      "the host before the assistant's vendor",
+      facts({ lapsedVendors: { host: ["database_host"], assistant: ["anthropic"] } }),
+      "host_agreement_lapsed",
+    ],
+    [
+      "the practice's own agreement before the vendors'",
+      facts({ agreementCovers: false, lapsedVendors: { host: ["aws"], assistant: [] } }),
+      "agreement_insufficient",
+    ],
+    [
+      "the vendors before billing",
+      facts({ lapsedVendors: { host: [], assistant: ["anthropic"] }, billing: { status: "suspended" } }),
+      "vendor_agreement_lapsed",
+    ],
+    [
+      "the vendors do not matter on synthetic data",
+      facts({
+        lapsedVendors: { host: ["aws", "database_host"], assistant: ["anthropic", "retell"] },
+        isSynthetic: true,
+        billing: null,
+        channelRow: null,
+      }),
+      "answer",
     ],
     // 1. Billing (BD9, R8, R21).
     [
@@ -426,6 +468,54 @@ describe("decideAnswer: where a refusal goes", () => {
       expect(patientDataRefused(reason), reason).toBe(true);
     }
   });
+
+  test("a lapsed vendor's agreement: the host's keeps nothing, the assistant's only stops AYA", () => {
+    // The host's: nothing new is kept, so the contact form takes nothing and
+    // a call with no direct line is closed and not recorded.
+    expect(patientDataRefused("host_agreement_lapsed")).toBe(true);
+    expect(assistantFallbackRefused("host_agreement_lapsed")).toBe(true);
+    // The model provider's or Retell's: no AYA, not even as the safe script,
+    // but the contact form still takes messages, as the host covers them.
+    expect(patientDataRefused("vendor_agreement_lapsed")).toBe(false);
+    expect(assistantFallbackRefused("vendor_agreement_lapsed")).toBe(true);
+    expect(servicesEnded("host_agreement_lapsed")).toBe(false);
+    expect(servicesEnded("vendor_agreement_lapsed")).toBe(false);
+    // Like every refusal, a call with a direct line goes to it.
+    expect(decideAnswer(facts({ lapsedVendors: { host: [], assistant: ["anthropic"] } }))).toEqual({
+      decision: "pass_through",
+      reason: "vendor_agreement_lapsed",
+      fallback: "direct_line",
+      directLine: LINE,
+    });
+    for (const reason of ["unpaid", "suspended", "ai_paused", "allowance_cap"] as const) {
+      expect(assistantFallbackRefused(reason), reason).toBe(false);
+    }
+  });
+});
+
+describe("vendorLapses: which vendors a channel's path needs", () => {
+  const status = (attested: readonly string[]) =>
+    Object.fromEntries(
+      ["anthropic", "database_host", "aws", "retell", "launch_promises", "runtime_web", "runtime_meta", "runtime_voice", "voice_pass_through"].map((s) => [
+        s,
+        { subject: s, attested: attested.includes(s), lapsed: false, latest: null },
+      ]),
+    ) as unknown as Parameters<typeof vendorLapses>[0];
+
+  test("the host and the model provider on every channel, Retell on phone only, Meta never", () => {
+    const none = status([]);
+    expect(vendorLapses(none, "voice")).toEqual({ host: ["aws", "database_host"], assistant: ["anthropic", "retell"] });
+    expect(vendorLapses(none, "web")).toEqual({ host: ["aws", "database_host"], assistant: ["anthropic"] });
+    expect(vendorLapses(none, "meta")).toEqual({ host: ["aws", "database_host"], assistant: ["anthropic"] });
+    const all = status(COVERAGE_VENDORS);
+    for (const channel of ["voice", "web", "meta"] as const) {
+      expect(vendorLapses(all, channel)).toEqual(NO_LAPSES);
+    }
+    // Retell's lapse is phone's alone; the readiness flags are not vendors.
+    const noRetell = status(["anthropic", "aws", "database_host"]);
+    expect(vendorLapses(noRetell, "voice").assistant).toEqual(["retell"]);
+    expect(vendorLapses(noRetell, "web")).toEqual(NO_LAPSES);
+  });
 });
 
 describe("coverageModeOf (BD23)", () => {
@@ -509,6 +599,9 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // Every vendor's agreement in force, as a launched platform holds them;
+    // the vendors' own test withdraws and restores them.
+    await attestPlatform(COVERAGE_VENDORS);
   }, 60_000);
 
   beforeEach(() => {
@@ -780,5 +873,62 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
     const fine = await seedClinic("gate-voice-fine");
     expect(await voiceAnswerDecision(fine.clinicId, NOW)).toEqual({ decision: "answer" });
     expect(await opsAlertsFor(fine.clinicId)).toEqual([]);
+  });
+
+  test("a vendor's agreement, read from platform_compliance: withdrawn, expired or never recorded stops AYA where it serves, and a renewal resumes", async () => {
+    try {
+      const c = await seedClinic("gate-vendors");
+      await makeProduction(c.clinicId);
+      await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
+      await seedChannels(c.clinicId, [
+        { channel: "voice", liveAt: LIVE },
+        { channel: "web", liveAt: LIVE },
+      ]);
+      await setDirectLine(c.clinicId, LINE);
+      const ask = (channel: "voice" | "web") =>
+        assistantMayAnswer({ clinicId: c.clinicId, channel, now: NOW, actor });
+      const refused = (reason: string, channel: "voice" | "web") => ({
+        decision: "pass_through",
+        reason,
+        fallback: channel === "voice" ? "direct_line" : "contact_form",
+        directLine: channel === "voice" ? LINE : null,
+      });
+
+      expect(await ask("voice")).toEqual({ decision: "answer" });
+      expect(await ask("web")).toEqual({ decision: "answer" });
+
+      // Retell withdrawn: phone stops, website chat answers.
+      await withdrawPlatform(["retell"]);
+      expect(await ask("voice")).toEqual(refused("vendor_agreement_lapsed", "voice"));
+      expect(await ask("web")).toEqual({ decision: "answer" });
+      await attestPlatform(["retell"]);
+      expect(await ask("voice")).toEqual({ decision: "answer" });
+
+      // The model provider withdrawn: every channel stops.
+      await withdrawPlatform(["anthropic"]);
+      expect(await ask("voice")).toEqual(refused("vendor_agreement_lapsed", "voice"));
+      expect(await ask("web")).toEqual(refused("vendor_agreement_lapsed", "web"));
+      await attestPlatform(["anthropic"]);
+
+      // AWS past a recorded expiry, with no renewal: the host, everywhere.
+      await attestPlatform(["aws"], { effectiveOn: "2026-09-01", expiresOn: "2026-10-14" });
+      expect((await readPlatformCompliance(unsafeDb, NOW)).aws.lapsed).toBe(true);
+      expect(await ask("voice")).toEqual(refused("host_agreement_lapsed", "voice"));
+      expect(await ask("web")).toEqual(refused("host_agreement_lapsed", "web"));
+      // On its last day it still counts.
+      await attestPlatform(["aws"], { effectiveOn: "2026-09-01", expiresOn: "2026-10-15" });
+      expect(await ask("web")).toEqual({ decision: "answer" });
+
+      // No record at all is no coverage.
+      await getMigratorPool().query(`delete from platform_compliance where subject = 'database_host'`);
+      expect(await ask("web")).toEqual(refused("host_agreement_lapsed", "web"));
+
+      // Restored, and answering again.
+      await attestPlatform(COVERAGE_VENDORS);
+      expect(await ask("web")).toEqual({ decision: "answer" });
+    } finally {
+      // Every vendor in force for whatever runs after, whatever happened above.
+      await attestPlatform(COVERAGE_VENDORS);
+    }
   });
 });

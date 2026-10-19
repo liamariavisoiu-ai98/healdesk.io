@@ -2,6 +2,7 @@ import { and, gt, isNotNull, isNull, lte } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import { checkoutIntents } from "@/db/schema";
+import { watchVendorAgreements } from "@/lib/compliance/vendor-coverage";
 import { notifyOpsOnce } from "@/lib/ops/notify";
 import { replyByDay, replyByPassed } from "@/lib/reply-by";
 import { JOB_OPS_WATCH, runSwitchedJob, type JobOutcome } from "@/lib/scheduler/jobs";
@@ -27,6 +28,11 @@ import { listSupportRequests } from "./support-replies";
  *   - `support_reply_past_due`: L25's day has passed with no reply marked
  *     (lib/ops/support-replies.ts). Once per request. Hourly only: it reads
  *     every clinic's outbox.
+ *   - `vendor_agreement_expiring` and `vendor_agreement_lapsed`: a vendor's
+ *     business associate agreement 30 or 7 days from its recorded expiry,
+ *     or past it, which stops AYA where that vendor serves
+ *     (lib/compliance/vendor-coverage.ts). Once per vendor, phase and expiry.
+ *     Every run, as the purchases are: the platform's table is a few rows.
  *
  * Ids only: a purchase's ref travels as `requestId`, never the buyer.
  * notifyOpsOnce never throws, and keeps each alert to one email, ever, in the
@@ -110,9 +116,12 @@ export async function runOpsWatchJob(
     JOB_OPS_WATCH,
     async () => {
       const purchases = await watchPurchases(now);
+      // Every run: a lapse stops AYA at once, so ops hears of it within the minute.
+      const vendors = await watchVendorAgreements(unsafeDb, now);
       const notes = [
         `${purchases.paidWithoutClinic} paid without an account`,
         `${purchases.followUpsPastDue} order follow-ups past due`,
+        `${vendors.expiring} vendor agreements expiring, ${vendors.lapsed} lapsed`,
       ];
       if (options.supportReplies) {
         const support = await watchSupportReplies(now);

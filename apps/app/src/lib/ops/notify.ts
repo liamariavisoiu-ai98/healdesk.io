@@ -174,6 +174,14 @@ export const OPS_EVENTS = [
   // it (`refused`), or a week of hourly attempts passed (`expired`). The
   // address is cleared either way, so ops writes to the practice by hand.
   "destruction_notice_undelivered",
+  // A vendor's business associate agreement in the chain (the owner's
+  // decision of 19 October 2026; lib/compliance/vendor-coverage.ts), `code`
+  // naming the vendor (anthropic, retell, aws, database_host): its recorded
+  // expiry is 30 or 7 days away (`phase`, with `expiresOn`), once each; or it
+  // has lapsed, withdrawn on /admin/compliance or past that expiry, which
+  // stops AYA where that vendor serves and asks for an incident.
+  "vendor_agreement_expiring",
+  "vendor_agreement_lapsed",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

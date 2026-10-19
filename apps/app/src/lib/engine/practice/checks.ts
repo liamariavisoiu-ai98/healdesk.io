@@ -1,4 +1,4 @@
-import { amountsIn } from "@/lib/assistant/guard";
+import { amountsIn, spokenAmountsIn, wordsToNumber } from "@/lib/assistant/guard";
 
 import type { PracticeService } from "./cases";
 import type { PracticeCheck, PracticeSection } from "./types";
@@ -7,103 +7,18 @@ import type { PracticeCheck, PracticeSection } from "./types";
  * The deterministic checks (plan Part G): what can be read off an answer
  * without a model. Every function here is pure.
  *
- * Amounts are read the way the guard reads them ("$1,200", "99.50 dollars")
- * and the way a call says them aloud ("one hundred and fifty dollars", "twelve
- * dollars a unit"), which the guard does not read: the voice prompt asks for
- * numbers as a person says them, so a spoken price the guard let through is
- * still a price the practice questions check.
+ * Amounts are read exactly as the guard reads them (lib/assistant/guard.ts,
+ * amountsIn): written ("$1,200", "99.50 dollars") and said aloud ("one
+ * hundred and fifty dollars", "a hundred and fifty", "twelve a unit"). One
+ * reader, so a figure the practice questions see is a figure the live guard
+ * sees too.
  */
 
-const ONES: Readonly<Record<string, number>> = {
-  zero: 0,
-  one: 1,
-  two: 2,
-  three: 3,
-  four: 4,
-  five: 5,
-  six: 6,
-  seven: 7,
-  eight: 8,
-  nine: 9,
-  ten: 10,
-  eleven: 11,
-  twelve: 12,
-  thirteen: 13,
-  fourteen: 14,
-  fifteen: 15,
-  sixteen: 16,
-  seventeen: 17,
-  eighteen: 18,
-  nineteen: 19,
-};
-const TENS: Readonly<Record<string, number>> = {
-  twenty: 20,
-  thirty: 30,
-  forty: 40,
-  fifty: 50,
-  sixty: 60,
-  seventy: 70,
-  eighty: 80,
-  ninety: 90,
-};
-const NUMBER_WORD = `(?:${[...Object.keys(ONES), ...Object.keys(TENS), "hundred", "thousand", "and", "a"].join("|")})`;
-const SPOKEN = new RegExp(
-  `\\b(${NUMBER_WORD}(?:[\\s-]+${NUMBER_WORD})*)\\s+(?:dollars?|bucks)\\b`,
-  "gi",
-);
-
-/** A run of number words as a number: "one hundred and fifty" → 150; null when it is not one. */
-export function wordsToNumber(words: string): number | null {
-  const parts = words
-    .toLowerCase()
-    .split(/[\s-]+/)
-    .filter((w) => w && w !== "and");
-  if (parts.length === 0) return null;
-  let total = 0;
-  let current = 0;
-  let seen = false;
-  for (const [i, part] of parts.entries()) {
-    if (part === "a") {
-      // "a hundred", "a thousand"; a bare "a" is not a number.
-      // Only first: "ninety and a hundred" is two amounts, not one.
-      const next = parts[i + 1];
-      if (current !== 0 || total !== 0 || (next !== "hundred" && next !== "thousand")) return null;
-      current += 1;
-      continue;
-    }
-    if (part in ONES) {
-      current += ONES[part]!;
-      seen = true;
-    } else if (part in TENS) {
-      current += TENS[part]!;
-      seen = true;
-    } else if (part === "hundred") {
-      current = (current || 1) * 100;
-      seen = true;
-    } else if (part === "thousand") {
-      total += (current || 1) * 1000;
-      current = 0;
-      seen = true;
-    } else {
-      return null;
-    }
-  }
-  return seen ? total + current : null;
-}
-
-/** The cents of every amount said in words. */
-export function spokenAmountsIn(text: string): number[] {
-  const out: number[] = [];
-  for (const match of text.matchAll(SPOKEN)) {
-    const value = wordsToNumber(match[1]!);
-    if (value !== null) out.push(value * 100);
-  }
-  return out;
-}
+export { spokenAmountsIn, wordsToNumber };
 
 /** Every amount a reply names, in cents: written, and said. */
 export function practiceAmountsIn(text: string): number[] {
-  return [...amountsIn(text), ...spokenAmountsIn(text)];
+  return amountsIn(text);
 }
 
 function cents(value: number | null | undefined): number | null {

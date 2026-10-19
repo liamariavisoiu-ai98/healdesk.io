@@ -84,6 +84,51 @@ describe("the guard", () => {
     expect(amountsIn("$1,200.50 and 99 dollars")).toEqual([120050, 9900]);
   });
 
+  // The 19 October audit: the voice prompt asks for numbers as a person says
+  // them aloud, and the guard read only digits, so a spoken off-menu price
+  // ("two hundred dollars", "a hundred and fifty") went out unchecked.
+  test("a price said in words is read like any other: on the menu it passes, off it is refused", () => {
+    for (const text of [
+      "A consultation is a hundred and fifty dollars.",
+      "A consultation is one hundred and fifty.",
+      "The consultation is one fifty dollars.",
+      "Botox is twelve dollars a unit, with a fifty dollar deposit.",
+      "Botox is twelve dollars a unit.",
+    ]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: true });
+    }
+    // A listed figure by the unit with no currency word is read as a price,
+    // and passes that check; the dosing screen still refuses the wording.
+    expect(amountsIn("Botox is twelve a unit.")).toEqual([1200]);
+    expect(guardAssistantReply("Botox is twelve a unit.", FACTS)).toEqual({ ok: false, reason: "clinical" });
+    for (const text of [
+      "Lip filler is two hundred dollars.",
+      "Lip filler is six hundred and fifty.",
+      "Lip filler is a hundred and fifty to two hundred, depending on the area.",
+      "A consultation is a hundred and twenty dollars.",
+      "Botox is ten dollars a unit.",
+      "Botox is fourteen a unit.",
+      "Botox is 10 per unit.",
+      "Lip filler is two ninety-nine dollars.",
+      "El relleno cuesta seiscientos dólares.",
+    ]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: false, reason: "price" });
+    }
+    // Numbers that are not prices are not read as one.
+    for (const text of [
+      "We have over a hundred five-star reviews.",
+      "We serve about two hundred clients a month.",
+      "We're in suite two hundred.",
+      "We close at seventeen hundred on Fridays.",
+      "We've been open since two thousand ten.",
+      "We open at nine and close at five thirty.",
+    ]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: true });
+    }
+    expect(amountsIn("Two hundred dollars, or a hundred and fifty for the consultation.")).toEqual([20000, 15000]);
+    expect(amountsIn("twelve dollars and fifty cents, ciento cincuenta dólares")).toEqual([1250, 15000]);
+  });
+
   test("the never-say list, whatever the case, quotes or dashes", () => {
     expect(guardAssistantReply("You'll get Guaranteed   Results!", FACTS)).toEqual({ ok: false, reason: "never_say" });
     expect(guardAssistantReply("It's practically painless.", FACTS)).toEqual({ ok: false, reason: "never_say" });

@@ -403,7 +403,7 @@ describe("a channel's run, through the brain the channel answers with", () => {
     expect(runVerdict([outcome])).toEqual({ status: "in_review", count: 1 });
   });
 
-  test("on a call, a wrong price said in words, which the guard does not read, fails too", async () => {
+  test("on a call, a wrong price said in words fails too: the guard reads it now, so the caller never hears it", async () => {
     const outcome = await runPracticeChannel(
       { channel: "voice", facts: FACTS },
       KNOWLEDGE,
@@ -411,7 +411,8 @@ describe("a channel's run, through the brain the channel answers with", () => {
     );
     expect(byId(outcome.cases, "listed_price")).toMatchObject({
       status: "failed",
-      sources: ["model"],
+      sources: ["guard"],
+      attribution: { kind: "engine" },
     });
     expect(
       byId(outcome.cases, "disclosure").answered[0]!.startsWith(

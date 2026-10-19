@@ -14,7 +14,8 @@ import type { AssistantFacts } from "./facts";
  * Outbound, after the model, a reply is refused when it:
  *   - says anything on the never-say list (the clinic's own and the defaults);
  *   - names a dollar amount that is not one of the clinic's configured prices
- *     or deposits: an off-menu price becomes the offer of a consultation;
+ *     or deposits, written or said in words (amountsIn): an off-menu price
+ *     becomes the offer of a consultation;
  *   - asks for card or bank details;
  *   - calls the practice or healdesk "HIPAA compliant";
  *   - says anything clinical: the catalog's findClinicalContent, the default
@@ -78,7 +79,234 @@ function allowedAmounts(facts: Pick<AssistantFacts, "services">): Set<number> {
 const DOLLARS = /\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?(\s?k\b)?/gi;
 const SPOKEN_DOLLARS = /\b(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s?(?:dollars|usd|bucks|d[oó]lares)(?![\p{L}])/giu;
 
-/** The cents of each amount the reply names, "$1,200", "$99.50", "1200 dollars". */
+// -----------------------------------------------------------------------------
+// Amounts said in words
+// -----------------------------------------------------------------------------
+//
+// The voice prompt asks for numbers the way a person says them aloud
+// (prompt.ts), so a price on a call is as likely to be "two hundred dollars"
+// or "a hundred and fifty" as "$200". Each form below is a price the guard
+// reads, and checks against the menu like any other:
+//
+//   - number words before "dollars" or "bucks", with any "and fifty cents"
+//     after ("two hundred dollars", "a hundred and fifty dollars", "one
+//     fifty dollars", "twelve dollars and fifty cents");
+//   - a number with "hundred" or "thousand" in it, with no currency word,
+//     where it ends a clause or runs on into one ("the consultation is a
+//     hundred and fifty", "two hundred, or three with the deposit"), and not
+//     where a noun follows ("a hundred reviews", "two hundred clients"), a
+//     room or a suite leads ("suite two hundred"), or it is a time of the
+//     twenty-four hour clock ("we close at seventeen hundred");
+//   - a number, in digits or words, said by the unit ("twelve a unit", "12
+//     per unit", "six hundred a syringe");
+//   - Spanish number words before "dólares" ("ciento cincuenta dólares").
+//
+// A bare number with none of these ("it's fifty") is not read: it is as often
+// a count or a time as a price, and the prompt asks for prices as listed.
+
+const ONES: Readonly<Record<string, number>> = {
+  zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9,
+  ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15, sixteen: 16,
+  seventeen: 17, eighteen: 18, nineteen: 19,
+};
+const TENS: Readonly<Record<string, number>> = {
+  twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+};
+/** One number word, whole: the longest spellings first, so "fourteen" is never read as "four". */
+const NUMBER_WORD = `(?:${[...Object.keys(ONES), ...Object.keys(TENS), "hundred", "thousand", "and", "a"]
+  .sort((a, b) => b.length - a.length)
+  .join("|")})(?![\\p{L}])`;
+/** A run of number words, hyphens or spaces between: "one hundred and fifty", "twenty-five". */
+const NUMBER_RUN = `${NUMBER_WORD}(?:[\\s-]+${NUMBER_WORD})*`;
+
+/**
+ * A run of number words as a number: "one hundred and fifty" → 150, "a
+ * thousand" → 1000, "twenty-five" → 25. Said the way prices are said aloud,
+ * with the hundred left out, too: "one fifty" → 150, "two ninety-nine" →
+ * 299, "twelve fifty" → 1250. Null when the words are not one number ("one
+ * five", "ninety and a hundred"). "A" counts only as the first word, before
+ * "hundred" or "thousand".
+ */
+export function wordsToNumber(words: string): number | null {
+  const parts = words
+    .toLowerCase()
+    .split(/[\s-]+/)
+    .filter((w) => w && w !== "and");
+  if (parts.length === 0) return null;
+  let total = 0; // the thousands
+  let hundreds = 0; // the hundreds of the group being read
+  let small: number | null = null; // below a hundred, being read
+  let last: "unit" | "teen" | "tens" | "magnitude" | null = null;
+  let elided = false;
+  let seen = false;
+  for (const [i, part] of parts.entries()) {
+    if (part === "a") {
+      const next = parts[i + 1];
+      if (i !== 0 || (next !== "hundred" && next !== "thousand")) return null;
+      small = 1;
+      last = "unit";
+      continue;
+    }
+    if (part in ONES || part in TENS) {
+      const value = (ONES[part] ?? TENS[part])!;
+      const kind = part in TENS ? "tens" : value >= 10 ? "teen" : "unit";
+      seen = true;
+      if (small === null) {
+        small = value;
+      } else if (last === "tens" && kind === "unit" && value > 0) {
+        small += value; // "twenty five"
+      } else if (kind !== "unit" && hundreds === 0 && total === 0 && !elided && last !== "magnitude") {
+        // "one fifty", "two ninety-nine", "twelve fifty": the hundred left out.
+        hundreds = small * 100;
+        small = value;
+        elided = true;
+      } else {
+        return null;
+      }
+      last = kind;
+      continue;
+    }
+    if (part === "hundred") {
+      if (elided || hundreds !== 0) return null;
+      hundreds = (small ?? 1) * 100;
+      small = null;
+      last = "magnitude";
+      seen = true;
+      continue;
+    }
+    if (part === "thousand") {
+      if (elided) return null;
+      total += (hundreds + (small ?? 0) || 1) * 1000;
+      hundreds = 0;
+      small = null;
+      last = "magnitude";
+      seen = true;
+      continue;
+    }
+    return null;
+  }
+  return seen ? total + hundreds + (small ?? 0) : null;
+}
+
+/** A run read as a number, or, failing that, without a leading "a" or "and" ("a fifty dollar deposit"). */
+function runValue(run: string): number | null {
+  return wordsToNumber(run) ?? wordsToNumber(run.replace(/^\s*(?:a|and)[\s-]+/i, ""));
+}
+
+const WORD_DOLLARS = new RegExp(
+  `(?<![\\p{L}])(${NUMBER_RUN})\\s+(?:dollars?|bucks)(?![\\p{L}])(?:\\s+and\\s+(${NUMBER_RUN})\\s+cents?(?![\\p{L}]))?`,
+  "giu",
+);
+const PER_UNIT = new RegExp(
+  `(?<![$\\d.,\\p{L}])(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d{1,2})?|${NUMBER_RUN})\\s+(?:a|an|per|each|every)\\s+(?:units?|syringes?|vials?|ml|areas?)(?![\\p{L}])`,
+  "giu",
+);
+const MAGNITUDE_RUN = new RegExp(`(?<![\\p{L}])${NUMBER_RUN}`, "giu");
+/** What may follow a number said as a price with no currency word: the end of a clause, or a word that runs on. */
+const PRICE_ENDS = /^(?:\s*$|\s*[.,;:!?)\]—–]|\s+-\s|\s+(?:for|per|a|an|each|every|to|and|or|with|plus|including|depending|if|but|so|up|total|altogether)(?![\p{L}]))/iu;
+/** What leads a number that is a place, not a price. */
+const PLACE_LEADS = /(?:\b(?:room|suite|ste|unit|apt|apartment|floor|level|building|bldg|number|no\.?|highway|route|interstate|exit)|#)\s*$/i;
+/** A time word before a number: an hour of the twenty-four hour clock said as "seventeen hundred". */
+const TIME_LEADS = /\b(?:at|until|till|til|by|after|before|around|from|between|and)\s+$/i;
+const PRICE_AT = /\b(?:priced|starts?|starting|comes? in|runs?|costs?|charged|billed|is|it['’]s|that['’]s)\s+at\s+$/i;
+const CLOCK_HUNDRED =
+  /^(?:(?:oh|zero)[\s-]+(?:one|two|three|four|five|six|seven|eight|nine)|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty(?:[\s-]+(?:one|two|three))?)[\s-]+hundred$/i;
+/** A word before a year said aloud ("since two thousand ten", "back in nineteen ninety"). */
+const YEAR_LEADS = /\b(?:since|in|year|back in|until|till|founded|opened|established)\s+$/i;
+
+/** The run without a trailing "and" or "a", which belong to what follows ("a hundred and Lip filler"). */
+function trimRun(run: string): string {
+  return run.replace(/(?:[\s-]+(?:and|a))+$/i, "");
+}
+
+/** Every amount said in English number words, in cents, in the order they come. */
+function wordAmounts(text: string): number[] {
+  const found: { at: number; cents: number }[] = [];
+  const taken: [number, number][] = [];
+  for (const m of text.matchAll(WORD_DOLLARS)) {
+    const dollars = runValue(m[1]!);
+    if (dollars === null) continue;
+    const cents = m[2] ? (wordsToNumber(m[2]) ?? 0) : 0;
+    found.push({ at: m.index!, cents: dollars * 100 + (cents < 100 ? cents : 0) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(PER_UNIT)) {
+    if (taken.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
+    const said = m[1]!;
+    const value = /^\d/.test(said) ? Number(said.replace(/,/g, "")) : runValue(trimRun(said));
+    if (value === null || !Number.isFinite(value)) continue;
+    found.push({ at: m.index!, cents: Math.round(value * 100) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(MAGNITUDE_RUN)) {
+    const run = trimRun(m[0]);
+    if (!/hundred|thousand/i.test(run)) continue;
+    const start = m.index!;
+    const end = start + run.length;
+    if (taken.some(([a, b]) => start < b && end > a)) continue;
+    const before = text.slice(0, start);
+    const after = text.slice(end);
+    if (!PRICE_ENDS.test(after) || PLACE_LEADS.test(before)) continue;
+    if (CLOCK_HUNDRED.test(run.trim()) && TIME_LEADS.test(before) && !PRICE_AT.test(before)) continue;
+    const value = runValue(run);
+    if (value === null) continue;
+    if (value > 1900 && value < 2100 && YEAR_LEADS.test(before)) continue;
+    found.push({ at: start, cents: value * 100 });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.cents);
+}
+
+const ES_VALUES: Readonly<Record<string, number>> = {
+  cero: 0, un: 1, uno: 1, una: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8,
+  nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, "dieciséis": 16,
+  dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20, veintiuno: 21,
+  "veintiún": 21, veintiun: 21, veintiuna: 21, "veintidós": 22, veintidos: 22, "veintitrés": 23,
+  veintitres: 23, veinticuatro: 24, veinticinco: 25, "veintiséis": 26, veintiseis: 26,
+  veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30, cuarenta: 40, cincuenta: 50,
+  sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100, ciento: 100, doscientos: 200,
+  doscientas: 200, trescientos: 300, trescientas: 300, cuatrocientos: 400, cuatrocientas: 400,
+  quinientos: 500, quinientas: 500, seiscientos: 600, seiscientas: 600, setecientos: 700,
+  setecientas: 700, ochocientos: 800, ochocientas: 800, novecientos: 900, novecientas: 900,
+};
+const ES_WORD = `(?:${[...Object.keys(ES_VALUES), "mil", "y"].sort((a, b) => b.length - a.length).join("|")})(?![\\p{L}])`;
+const ES_DOLLARS = new RegExp(`(?<![\\p{L}])(${ES_WORD}(?:\\s+${ES_WORD})*)\\s+d[oó]lar(?:es)?(?![\\p{L}])`, "giu");
+
+/** Spanish number words as a number: "ciento cincuenta" → 150, "mil doscientos" → 1200. */
+function spanishToNumber(words: string): number | null {
+  let total = 0;
+  let current = 0;
+  let seen = false;
+  for (const part of words.toLowerCase().split(/\s+/)) {
+    if (!part || part === "y") continue;
+    if (part === "mil") {
+      total += (current || 1) * 1000;
+      current = 0;
+      seen = true;
+      continue;
+    }
+    const value = ES_VALUES[part];
+    if (value === undefined) return null;
+    current += value;
+    seen = true;
+  }
+  return seen ? total + current : null;
+}
+
+/** The cents of each amount said in words, English and Spanish: "two hundred dollars", "a hundred and fifty". */
+export function spokenAmountsIn(text: string): number[] {
+  const out = wordAmounts(text);
+  for (const m of text.matchAll(ES_DOLLARS)) {
+    const value = spanishToNumber(m[1]!);
+    if (value !== null) out.push(value * 100);
+  }
+  return out;
+}
+
+/**
+ * The cents of each amount the reply names: written ("$1,200", "$99.50",
+ * "1200 dollars") and said ("two hundred dollars", "a hundred and fifty",
+ * "twelve a unit").
+ */
 export function amountsIn(text: string): number[] {
   const out: number[] = [];
   for (const pattern of [DOLLARS, SPOKEN_DOLLARS]) {
@@ -89,7 +317,7 @@ export function amountsIn(text: string): number[] {
       out.push(Math.round((whole * thousands) * 100 + cents));
     }
   }
-  return out;
+  return [...out, ...spokenAmountsIn(text)];
 }
 
 const PAYMENT_ASK = /\b(card number|credit card|debit card|card details|cvv|cvc|security code|expir(y|ation) date|bank (account|details)|routing number)\b/i;
@@ -102,11 +330,12 @@ const HIPAA_CLAIM = /\bhipaa[- ]?(compliant|certified|approved)\b/i;
  * after an amount, so "how many units" is still dosing.
  */
 function perUnitPrices(text: string): string {
-  return text.replace(
-    /((?:\$\s?\d[\d,]*(?:\.\d{1,2})?)|\b\d[\d,]*(?:\.\d{1,2})?\s?(?:dollars|usd|bucks))\s+(?:a|an|each|every)\s+(units?|ml)\b/gi,
-    "$1 per $2",
-  );
+  return text.replace(PER_UNIT_PRICE, "$1 per $2");
 }
+const PER_UNIT_PRICE = new RegExp(
+  `((?:\\$\\s?\\d[\\d,]*(?:\\.\\d{1,2})?)|\\b\\d[\\d,]*(?:\\.\\d{1,2})?\\s?(?:dollars|usd|bucks)|(?<![\\p{L}])${NUMBER_RUN}\\s+(?:dollars?|bucks))\\s+(?:a|an|each|every)\\s+(units?|ml)(?![\\p{L}])`,
+  "giu",
+);
 
 type ScreenFacts = Pick<AssistantFacts, "services"> &
   Partial<Pick<AssistantFacts, "clinicName" | "address" | "requirements" | "providerNames">>;

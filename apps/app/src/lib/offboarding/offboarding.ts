@@ -31,6 +31,7 @@ import { recordSecurityEvent } from "@/lib/audit";
 import { billingRecipients } from "@/lib/billing/recipients";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
+import { revokeMetaAccess } from "@/lib/meta/revoke";
 import { listClinics } from "@/lib/ops/clinics";
 import { notifyOpsOnce } from "@/lib/ops/notify";
 import { queueSetupClosedEmail } from "@/lib/setup/closure-email";
@@ -782,6 +783,10 @@ export async function destroyDueClinics(
     } catch (error) {
       log.warn("calendar sweep before destruction failed", { clinicId: clinic.id, error: describeError(error) });
     }
+    // The same for Meta: a Page or WhatsApp account still subscribed (Meta
+    // refused every hourly try since the end) is taken off once more before
+    // the row and its token go (lib/meta/revoke.ts). Never throws.
+    await revokeMetaAccess([clinic.id], { actor });
     let result: DestructionResult;
     try {
       result = await withTenant({ clinicId: clinic.id, actor }, (tx) => destroyClinicData(tx));

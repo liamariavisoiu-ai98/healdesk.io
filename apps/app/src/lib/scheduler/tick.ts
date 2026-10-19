@@ -11,6 +11,7 @@ import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
+import { revokeMetaAccess } from "@/lib/meta/revoke";
 import {
   queueAfterCancellationNotices,
   runDestructionNotices,
@@ -122,6 +123,18 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
     return {
       status: r.failures ? "failed" : "ok",
       note: `${r.emptied} emptied, ${r.deleted} deleted${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
+  // Healdesk's access to the Meta accounts of every clinic whose service has
+  // ended (Terms §7), taken off each Page and WhatsApp account and its token
+  // erased (lib/meta/revoke.ts). The Stripe deletion and the operator's
+  // offboarding revoke at once; this catches the rest (a termination, a
+  // Meta refusal last hour). Not a switched job: the Terms promise it.
+  await record("meta-revoke", async () => {
+    const r = await revokeMetaAccess();
+    return {
+      status: r.failed ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.revoked} revoked${r.failed ? `, ${r.failed} left for the next run` : ""}`,
     };
   });
   // Every hour, on either rule: a clinic is due at day 29 (on BAA 1.3.0 or

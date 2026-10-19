@@ -85,6 +85,7 @@ import {
   type DestructionRule,
 } from "@/lib/offboarding/offboarding";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
+import { revokeMetaAccess } from "@/lib/meta/revoke";
 import {
   opDisconnectCalendar,
   opIssueCalendarLink,
@@ -3504,6 +3505,8 @@ async function opStartOffboarding(
   // Google access ends when offboarding starts, not at destruction (owner,
   // Q7): the calendar is disconnected and its grant revoked when unused.
   await sweepCalendarTerms([clinic.id], { actor: actorFor(operator) });
+  // So does Meta's (Terms §7; lib/meta/revoke.ts). Never throws.
+  await revokeMetaAccess([clinic.id], { actor: actorFor(operator) });
   return care.updated();
 }
 

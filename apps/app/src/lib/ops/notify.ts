@@ -41,6 +41,12 @@ export const OPS_EVENTS = [
   "support_reply_past_due",
   "practice_question_review_past_due",
   "agreement_unsigned_7_days",
+  // A practice on an older BAA whose agreement cannot be rendered again, so
+  // no re-sign can open for it; and one still answering under a BAA version
+  // below the floor, its re-sign unsigned at 7 days, for ops to phone
+  // (lib/agreements/resign.ts, wave 2 R11; owner, 19 October 2026).
+  "agreement_resign_unrenderable",
+  "agreement_below_floor_unsigned",
   "no_interactions_48_hours",
   "no_inbound_calls_14_days",
   // The Stripe build (packages B, C and D, 6 October 2026): each is a thing

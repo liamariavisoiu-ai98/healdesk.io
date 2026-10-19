@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import {
   agreementPlatformFor,
   BAA_ASSENT_LABEL,
+  BAA_TEMPLATES,
   CURRENT_BAA_VERSION,
+  currentDpaTemplate,
+  DPA_ASSENT_LABEL,
   getBaaTemplate,
   templateReadsCalendarAccount,
 } from "@healdesk/catalog";
@@ -43,6 +46,27 @@ import { attestPlatform } from "./setup/platform";
  * by redefining app_baa_version_acceptable() as the migrator, the way
  * tests/setup/platform.ts stands in for Gate B, and put back after.
  */
+
+/**
+ * Stand-ins for two catalogue facts a release decides: whether the DPA is
+ * released (the decision sends a "No" practice to it once it is), and a
+ * release overlap. Off unless a test turns them on.
+ */
+const stand = vi.hoisted(() => ({ dpaReleased: false, overlap: {} as Record<string, string> }));
+vi.mock("@healdesk/catalog", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@healdesk/catalog")>();
+  return {
+    ...actual,
+    agreementKindFor: (input: Parameters<typeof actual.agreementKindFor>[0]) =>
+      actual.agreementKindFor({
+        ...input,
+        dpaReleased: input.dpaReleased ?? (stand.dpaReleased ? true : undefined),
+      }),
+    get BAA_RELEASE_OVERLAP() {
+      return stand.overlap;
+    },
+  };
+});
 
 const sent = vi.hoisted(() => ({
   emails: [] as { to: string; kind: string; subject: string; text: string }[],
@@ -85,7 +109,9 @@ vi.mock("@/lib/email/agreement-copy", async (importOriginal) => {
 });
 
 const { signAgreement } = await import("@/lib/agreements");
+const { agreementKindForRequest } = await import("@healdesk/catalog/agreement-signing");
 const { startBaaVersionResigns } = await import("@/lib/agreements/baa-version");
+const { setCoveredEntity } = await import("@/lib/agreements/covered-entity");
 const {
   baaOlderThanCurrent,
   lookUpResignLink,
@@ -131,14 +157,33 @@ describe("which BAA versions are older than the current one", () => {
 });
 
 describeDb("re-signing a newer BAA over an older one", () => {
+  /** app_baa_version_acceptable() as the migrations left it, saved before any test stands in for a release. */
+  let floor = "";
+  /** The registered versions that definition accepts. */
+  let accepted: string[] = [];
+
   beforeAll(async () => {
     await runMigrations();
+    const { rows } = await getMigratorPool().query<{ def: string }>(
+      `select pg_get_functiondef('app_baa_version_acceptable(text)'::regprocedure) as def`,
+    );
+    floor = rows[0]!.def;
+    for (const template of BAA_TEMPLATES) {
+      const { rows: ok } = await getMigratorPool().query<{ ok: boolean }>(
+        `select app_baa_version_acceptable($1) as ok`,
+        [template.version],
+      );
+      if (ok[0]!.ok) accepted.push(template.version);
+    }
+    expect(accepted).not.toContain(OLD);
   }, 120_000);
 
   beforeEach(async () => {
     await truncateAll();
     await attestPlatform();
     await acceptOld(false);
+    stand.dpaReleased = false;
+    stand.overlap = {};
     sent.emails.length = 0;
     sent.copies = 0;
   });
@@ -149,11 +194,16 @@ describeDb("re-signing a newer BAA over an older one", () => {
   });
 
   /**
-   * The floor as a release leaves it: false is today's (1.5.1 and nothing
-   * else, drizzle/0081), true a release that kept 1.5.0 acceptable too.
+   * The floor: false puts back the migrations' own definition, saved in
+   * beforeAll, whatever a later release makes it; true stands in for a
+   * release that kept 1.5.0 acceptable too, beside everything that accepts.
    */
-  async function acceptOld(accepted: boolean): Promise<void> {
-    const list = accepted ? `'1.5.1', '${OLD}'` : `'1.5.1'`;
+  async function acceptOld(old: boolean): Promise<void> {
+    if (!old) {
+      await getMigratorPool().query(floor);
+      return;
+    }
+    const list = [...accepted, OLD].map((v) => `'${v}'`).join(", ");
     await getMigratorPool().query(
       `create or replace function app_baa_version_acceptable(version text) returns boolean
          language sql immutable set search_path = public, pg_temp
@@ -168,8 +218,14 @@ describeDb("re-signing a newer BAA over an older one", () => {
    */
   async function baaPractice(
     label: string,
-    options: { version?: string; synthetic?: boolean; live?: boolean } = {},
+    options: {
+      version?: string;
+      synthetic?: boolean;
+      live?: boolean;
+      covered?: boolean | null;
+    } = {},
   ) {
+    const covered = options.covered === undefined ? null : options.covered;
     const version = options.version ?? OLD;
     const clinic = await seedClinic(label);
     const legacy = !templateReadsCalendarAccount(getBaaTemplate(version)!);
@@ -180,7 +236,7 @@ describeDb("re-signing a newer BAA over an older one", () => {
         signatoryName: "Laura Owner",
         signatoryTitle: "Owner",
         signatoryEmail: clinic.staffEmail,
-        isCoveredEntity: null,
+        isCoveredEntity: covered,
         attributionMode: "estimated",
         platform: agreementPlatformFor("none"),
         ...(legacy ? {} : { bookingSystem: "none", calendarAccount: "workspace_no_baa" }),
@@ -200,10 +256,10 @@ describeDb("re-signing a newer BAA over an older one", () => {
     ]);
     await getMigratorPool().query(
       `update clinics
-          set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'baa', is_covered_entity = null,
+          set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'baa', is_covered_entity = $3,
               data_classification = $2, baa_signed_at = now() - interval '1 day'
         where id = $1`,
-      [clinic.clinicId, options.synthetic ? "synthetic" : "production"],
+      [clinic.clinicId, options.synthetic ? "synthetic" : "production", covered],
     );
     await seedEntitled(clinic.clinicId, { stripe: false });
     if (options.live !== false) {
@@ -259,7 +315,63 @@ describeDb("re-signing a newer BAA over an older one", () => {
     return sent.emails.filter((e) => e.kind === "agreement_to_sign" && e.to === to);
   }
 
-  test("the floor passed the version in force: the job opens the re-sign, pauses AYA and sends L22 once", async () => {
+  /**
+   * A second location of the practice, as add-location will make one
+   * (LOCATION_CLINICS_READY is false, so it is seeded as the billing tests
+   * seed one): in its organisation, billed on it, production, with phone
+   * live and a direct line of its own.
+   */
+  async function seedLocation(
+    practice: { clinicId: string; organizationId: string },
+    label: string,
+    kind: "baa" | "dpa" = "baa",
+  ) {
+    const { rows } = await getMigratorPool().query<{ id: string }>(
+      `insert into clinics (organization_id, slug, name, specialty, billing_clinic_id)
+       values ($1, $2, $3, 'med-spa', $4) returning id`,
+      [
+        practice.organizationId,
+        `${label}-${Date.now().toString(36)}`,
+        `${label} Clinic`,
+        practice.clinicId,
+      ],
+    );
+    const locationId = rows[0]!.id;
+    await getMigratorPool().query(
+      `update clinics
+          set regulatory_regime = 'hipaa-if-covered', agreement_kind = $2,
+              is_covered_entity = case when $2 = 'dpa' then false else null end,
+              data_classification = 'production', baa_signed_at = now() - interval '1 day'
+        where id = $1`,
+      [locationId, kind],
+    );
+    const live = new Date(Date.now() - 2 * DAY);
+    await seedChannels(locationId, [{ channel: "voice", liveAt: live, readyAt: live }]);
+    await inTenant(locationId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550199')
+           on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [locationId],
+      ),
+    );
+    return locationId;
+  }
+
+  /** Sign the open re-sign the latest L22 to `to` links to, as the screen does. */
+  async function signFromL22(to: string) {
+    const token = linkIn(l22For(to).at(-1)!.text);
+    const link = await lookUpResignLink(token);
+    if (!link.ok) throw new Error(`the link did not open: ${link.reason}`);
+    const signature = { signatoryName: "Laura Owner", signatoryTitle: "Owner" };
+    const shown = renderResignPreview(link.document, signature, effectiveDateOf(new Date()));
+    return signAgreementResign(token, {
+      ...signature,
+      displayedHash: sha256(shown.text),
+      templateVersion: link.document.templateVersion,
+    });
+  }
+
+  test("the floor passed the version in force: the job opens the re-sign and sends L22 once, and AYA keeps answering", async () => {
     const practice = await baaPractice("bvfloor");
 
     const first = await runAgreementResignsJob();
@@ -270,38 +382,64 @@ describeDb("re-signing a newer BAA over an older one", () => {
       reason: "baa_version",
       source: "release",
       from_agreement_id: practice.agreementId,
+      paused_at: null,
     });
-    const held = await pause(practice.clinicId);
-    expect(held.ai_paused_by_label).toBe(AGREEMENT_PAUSE_LABEL);
-    expect(resign!.paused_at?.getTime()).toBe(held.ai_paused_at!.getTime());
+    // Never a pause (owner, 19 October 2026): the version signed governs until the newer one is.
+    expect((await pause(practice.clinicId)).ai_paused_at).toBeNull();
 
     const [l22] = l22For(practice.staffEmail);
     expect(l22!.subject).toBe("Sign your updated agreement");
     expect(l22!.text).toContain(
       `version ${CURRENT_BAA_VERSION}, in place of version ${OLD}, which you signed`,
     );
-    expect(l22!.text).toContain("until the newer version is signed, AYA is paused:");
-    expect(l22!.text).toContain("Phone: calls go to your direct line ((415) 555-0123)");
+    expect(l22!.text).toContain("AYA keeps answering while you read it and sign it.");
+    expect(l22!.text).not.toContain("paused");
     expect(l22!.text).not.toContain("insurance");
     expect(readResignToken(linkIn(l22!.text))).toMatchObject({ ok: true, resignId: resign!.id });
 
-    // Calls go to the direct line, and the header cannot turn her back on.
+    // She answers, and the header works as always.
     const voice = await assistantMayAnswer({
       clinicId: practice.clinicId,
       channel: "voice",
       actor: OPERATOR,
     });
-    expect(voice).toMatchObject({ decision: "pass_through", directLine: DIRECT_LINE });
-    await expect(
-      withTenant({ clinicId: practice.clinicId, actor: OPERATOR }, (tx) =>
-        resumeAya(tx, { actorLabel: "Front desk Mac" }),
-      ),
-    ).rejects.toBeInstanceOf(PauseError);
+    expect(voice).toMatchObject({ decision: "answer" });
+    const header = { clinicId: practice.clinicId, actor: OPERATOR };
+    await withTenant(header, (tx) =>
+      pauseAya(tx, { choice: "hour", actorLabel: "Front desk Mac" }),
+    );
+    await withTenant(header, (tx) => resumeAya(tx, { actorLabel: "Front desk Mac" }));
 
     // The next hour opens nothing more and sends nothing again.
     expect(await runAgreementResignsJob()).toMatchObject({ opened: 0, open: 1 });
     expect(await resigns(practice.clinicId)).toHaveLength(1);
     expect(l22For(practice.staffEmail)).toHaveLength(1);
+  });
+
+  test("still unsigned below the floor at 7 days, ops is told once to phone the practice; within the floor, the usual alert", async () => {
+    const alerts = async (event: string, clinicId: string) => {
+      const { rows } = await getMigratorPool().query<{ n: number }>(
+        `select count(*)::int as n from ops_alerts where event = $1 and fields->>'clinicId' = $2`,
+        [event, clinicId],
+      );
+      return rows[0]!.n;
+    };
+    const below = await baaPractice("bvweekbelow");
+    await runAgreementResignsJob();
+    const day7 = new Date(Date.now() + 7 * DAY + 60_000);
+    await runAgreementResignsJob({ now: day7 });
+    await runAgreementResignsJob({ now: new Date(day7.getTime() + 60 * 60 * 1000) });
+    expect(await alerts("agreement_below_floor_unsigned", below.clinicId)).toBe(1);
+    expect(await alerts("agreement_unsigned_7_days", below.clinicId)).toBe(0);
+    expect((await pause(below.clinicId)).ai_paused_at).toBeNull();
+
+    // A version still acceptable (an overlap): the generic alert, and no pause either.
+    await acceptOld(true);
+    const within = await baaPractice("bvweekwithin");
+    await startBaaVersionResigns({ actorLabel: "ops@healdesk.test" });
+    await runAgreementResignsJob({ now: day7 });
+    expect(await alerts("agreement_unsigned_7_days", within.clinicId)).toBe(1);
+    expect(await alerts("agreement_below_floor_unsigned", within.clinicId)).toBe(0);
   });
 
   test("the screen signs the current BAA from the practice's answers, and the supersede puts it in force", async () => {
@@ -315,7 +453,7 @@ describeDb("re-signing a newer BAA over an older one", () => {
     expect(link).toMatchObject({
       reason: "baa_version",
       replaces: { kind: "baa", version: OLD },
-      holdsPause: true,
+      holdsPause: false,
     });
     expect(link.document).toEqual({
       clinicLegalName: "bvsign Med Spa LLC",
@@ -377,7 +515,7 @@ describeDb("re-signing a newer BAA over an older one", () => {
     });
   });
 
-  test("the broadcast starts a version still acceptable without a pause, and the job pauses it when the floor passes it", async () => {
+  test("the broadcast starts a version still acceptable, and AYA keeps answering when a later floor passes it", async () => {
     await acceptOld(true);
     const practice = await baaPractice("bvoverlap");
     // An overlap: go-live accepts 1.5.0, so the hourly job opens nothing.
@@ -388,7 +526,6 @@ describeDb("re-signing a newer BAA over an older one", () => {
       status: "started",
       version: CURRENT_BAA_VERSION,
       opened: 1,
-      paused: 0,
       emailed: 1,
       alreadyOpen: 0,
       failed: 0,
@@ -415,20 +552,22 @@ describeDb("re-signing a newer BAA over an older one", () => {
       alreadyOpen: 1,
     });
 
-    // The release that moves the floor past 1.5.0: the next hour pauses AYA,
-    // records the pause on the re-sign, and the header cannot lift it.
+    // The release that moves the floor past 1.5.0 pauses nothing either.
     await acceptOld(false);
-    expect(
-      await runAgreementResignsJob({ now: new Date(Date.now() + 60 * 60 * 1000) }),
-    ).toMatchObject({ paused: 1, opened: 0 });
-    const after = (await resigns(practice.clinicId))[0]!;
-    const held = await pause(practice.clinicId);
-    expect(held.ai_paused_by_label).toBe(AGREEMENT_PAUSE_LABEL);
-    expect(after.paused_at?.getTime()).toBe(held.ai_paused_at!.getTime());
-    await expect(
-      withTenant(header, (tx) => resumeAya(tx, { actorLabel: "Front desk Mac" })),
-    ).rejects.toBeInstanceOf(PauseError);
-    expect(await runAgreementResignsJob()).toMatchObject({ paused: 0 });
+    await runAgreementResignsJob({ now: new Date(Date.now() + 60 * 60 * 1000) });
+    expect((await resigns(practice.clinicId))[0]).toMatchObject({
+      status: "open",
+      paused_at: null,
+    });
+    expect((await pause(practice.clinicId)).ai_paused_at).toBeNull();
+    await withTenant(header, (tx) =>
+      pauseAya(tx, { choice: "hour", actorLabel: "Front desk Mac" }),
+    );
+    await withTenant(header, (tx) => resumeAya(tx, { actorLabel: "Front desk Mac" }));
+    expect(await lookUpResignLink(linkIn(l22!.text))).toMatchObject({
+      ok: true,
+      holdsPause: false,
+    });
   });
 
   test("a practice not answering yet is told its go-live waits, and pauses nothing", async () => {
@@ -464,14 +603,176 @@ describeDb("re-signing a newer BAA over an older one", () => {
     expect(await runAgreementResignsJob()).toMatchObject({ opened: 0, open: 0 });
     expect(await resigns(clinic.clinicId)).toEqual([]);
     expect(l22For(clinic.staffEmail)).toEqual([]);
+    // A person is told, once, however many hours it is asked again.
+    await runAgreementResignsJob();
+    const { rows } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from ops_alerts
+        where event = 'agreement_resign_unrenderable' and fields->>'clinicId' = $1`,
+      [clinic.clinicId],
+    );
+    expect(rows[0]!.n).toBe(1);
   });
 
-  test("the row's pause is set once, while open, and never moved", async () => {
+  /**
+   * A med spa under the DPA, signed "No" as it will be after the release (the
+   * stand-in every DPA test uses), bound, production, billed, with phone and
+   * website chat live and a direct line: the DPA→BAA re-sign's practice.
+   */
+  async function dpaPractice(label: string) {
+    const clinic = await seedClinic(label);
+    const signed = await signAgreement(
+      {
+        clinicLegalName: `${label} Med Spa LLC`,
+        specialty: "med-spa",
+        signatoryName: "Laura Owner",
+        signatoryTitle: "Owner",
+        signatoryEmail: clinic.staffEmail,
+        isCoveredEntity: false,
+        attributionMode: "estimated",
+        platform: agreementPlatformFor("none"),
+        bookingSystem: "none",
+        calendarAccount: "workspace_no_baa",
+        assentLabel: DPA_ASSENT_LABEL,
+        templateVersion: currentDpaTemplate().version,
+      },
+      {},
+      { dpaReleased: true },
+    );
+    await getMigratorPool().query(
+      `update baa_acceptances set accepted_at = now() - interval '1 day' where id = $1`,
+      [signed.agreementId],
+    );
+    await getMigratorPool().query(`select app_bind_agreement($1::uuid, $2)`, [
+      signed.agreementId,
+      clinic.organizationId,
+    ]);
+    await getMigratorPool().query(
+      `update clinics
+          set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = false,
+              data_classification = 'production', baa_signed_at = now() - interval '1 day'
+        where id = $1`,
+      [clinic.clinicId],
+    );
+    await seedEntitled(clinic.clinicId, { stripe: false });
+    const live = new Date(Date.now() - 2 * DAY);
+    await seedChannels(clinic.clinicId, [
+      { channel: "voice", liveAt: live, readyAt: live },
+      { channel: "web", liveAt: live, readyAt: live },
+    ]);
+    await inTenant(clinic.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, $2)
+           on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [clinic.clinicId, DIRECT_LINE],
+      ),
+    );
+    return clinic;
+  }
+
+  const yes = (clinicId: string) =>
+    setCoveredEntity({ clinicId, answer: "yes", actor: OPERATOR, actorLabel: "ops@healdesk.test" });
+
+  test("the DPA re-sign pauses every location of the organisation, which can't be turned back on from its own header and answers again when it is signed", async () => {
+    const practice = await dpaPractice("bvorg");
+    const location = await seedLocation(practice, "bvorgtwo", "dpa");
+    const header = { clinicId: location, actor: OPERATOR };
+
+    expect(await yes(practice.clinicId)).toMatchObject({ status: "recorded", covered: false });
+    // One re-sign, the account's: the agreement is the organisation's.
+    expect(await resigns(practice.clinicId)).toHaveLength(1);
+    expect(await resigns(location)).toEqual([]);
+    expect(await pause(location)).toMatchObject({ ai_paused_by_label: AGREEMENT_PAUSE_LABEL });
+
+    // The location's own gate reads its own pause: its calls go to its direct line.
+    const voice = await assistantMayAnswer({
+      clinicId: location,
+      channel: "voice",
+      actor: OPERATOR,
+    });
+    expect(voice).toMatchObject({ decision: "pass_through", directLine: "+14155550199" });
+    // And its header reads the account's re-sign, which the tenant policy hides from it.
+    await expect(
+      withTenant(header, (tx) => resumeAya(tx, { actorLabel: "Front desk iPad" })),
+    ).rejects.toBeInstanceOf(PauseError);
+
+    expect((await signFromL22(practice.staffEmail)).status).toBe("signed");
+    expect((await pause(practice.clinicId)).ai_paused_at).toBeNull();
+    expect((await pause(location)).ai_paused_at).toBeNull();
+    await withTenant(header, (tx) =>
+      pauseAya(tx, { choice: "hour", actorLabel: "Front desk iPad" }),
+    );
+  });
+
+  test("a location the practice paused itself stays paused its own way through the DPA re-sign", async () => {
+    const practice = await dpaPractice("bvorgown");
+    const location = await seedLocation(practice, "bvorgowntwo", "dpa");
+    await withTenant({ clinicId: location, actor: OPERATOR }, (tx) =>
+      pauseAya(tx, { choice: "indefinite", actorLabel: "Front desk iPad" }),
+    );
+    await yes(practice.clinicId);
+    expect(await pause(practice.clinicId)).toMatchObject({
+      ai_paused_by_label: AGREEMENT_PAUSE_LABEL,
+    });
+    expect(await pause(location)).toMatchObject({ ai_paused_by_label: "Front desk iPad" });
+
+    expect((await signFromL22(practice.staffEmail)).status).toBe("signed");
+    expect((await pause(practice.clinicId)).ai_paused_at).toBeNull();
+    expect(await pause(location)).toMatchObject({ ai_paused_by_label: "Front desk iPad" });
+  });
+
+  test("a BAA version's re-sign pauses no location either", async () => {
+    const practice = await baaPractice("bvorgbaa");
+    const location = await seedLocation(practice, "bvorgbaatwo");
+    expect(await runAgreementResignsJob()).toMatchObject({ opened: 1 });
+    expect((await pause(location)).ai_paused_at).toBeNull();
+    const voice = await assistantMayAnswer({
+      clinicId: location,
+      channel: "voice",
+      actor: OPERATOR,
+    });
+    expect(voice).toMatchObject({ decision: "answer" });
+  });
+
+  test("a practice that answered No and holds the BAA signs its newer version as a BAA once the DPA is released", async () => {
+    const practice = await baaPractice("bvno", { covered: false });
+    await runAgreementResignsJob();
+    stand.dpaReleased = true;
+    // The decision alone now sends a No practice to the DPA.
+    expect(agreementKindForRequest({ specialty: "med-spa", isCoveredEntity: false })).toBe("dpa");
+    const token = linkIn(l22For(practice.staffEmail)[0]!.text);
+    const link = await lookUpResignLink(token);
+    if (!link.ok) throw new Error(`the link did not open: ${link.reason}`);
+    expect(link.document.isCoveredEntity).toBe(false);
+    const outcome = await signFromL22(practice.staffEmail);
+    expect(outcome).toMatchObject({ status: "signed", version: CURRENT_BAA_VERSION });
+    const { rows } = await getMigratorPool().query<{ agreement_kind: string }>(
+      `select agreement_kind from clinics where id = $1`,
+      [practice.clinicId],
+    );
+    expect(rows[0]!.agreement_kind).toBe("baa");
+  });
+
+  test("the screen signs only the version it showed: a crafted older version is refused, overlap or not", async () => {
+    await acceptOld(true);
+    stand.overlap = { [OLD]: "2999-01-01T00:00:00Z" };
+    const practice = await baaPractice("bvcrafted");
+    await startBaaVersionResigns({ actorLabel: "ops@healdesk.test" });
+    const token = linkIn(l22For(practice.staffEmail)[0]!.text);
+    const crafted = await signAgreementResign(token, {
+      signatoryName: "Laura Owner",
+      signatoryTitle: "Owner",
+      templateVersion: OLD,
+    });
+    expect(crafted).toMatchObject({ status: "refused", field: "templateVersion" });
+    expect((await resigns(practice.clinicId))[0]).toMatchObject({ status: "open" });
+  });
+
+  test("a BAA version's re-sign never records a pause, and no row's pause moves once written", async () => {
     await acceptOld(true);
     const practice = await baaPractice("bvguard");
     await startBaaVersionResigns({ actorLabel: "ops@healdesk.test" });
     const [resign] = await resigns(practice.clinicId);
-    // As the runtime role, in the clinic's tenant, as the hourly job writes it.
+    // As the runtime role, in the clinic's tenant, as the job would write it.
     const asApp = async (text: string, values: unknown[]) => {
       const client = await getAppPool().connect();
       try {
@@ -486,31 +787,30 @@ describeDb("re-signing a newer BAA over an older one", () => {
         client.release();
       }
     };
-    const setPause = (at: string) =>
-      asApp(`update agreement_resigns set paused_at = $2::timestamptz where id = $1`, [
-        resign!.id,
-        at,
-      ]);
-    await setPause("2026-10-19T10:00:00Z");
-    await expect(setPause("2026-10-19T11:00:00Z")).rejects.toMatchObject({
-      message: expect.stringMatching(/recorded once/),
-    });
+    // The runtime role has no grant on paused_at at all.
+    await expect(
+      asApp(`update agreement_resigns set paused_at = now() where id = $1`, [resign!.id]),
+    ).rejects.toMatchObject({ code: "42501" });
+    // Nor does anyone move it: 0088's guard fixes it once a row is written.
+    await expect(
+      inTenant(practice.clinicId, (client) =>
+        client.query(`update agreement_resigns set paused_at = now() where id = $1`, [resign!.id]),
+      ),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/fixed once opened/) });
+    // And a BAA-version re-sign is never written paused, by anyone.
+    const other = await baaPractice("bvguardinsert");
+    await expect(
+      inTenant(other.clinicId, (client) =>
+        client.query(
+          `insert into agreement_resigns (clinic_id, from_agreement_id, reason, source, requested_by, paused_at)
+           values ($1, $2, 'baa_version', 'operator', 'ops@healdesk.test', now())`,
+          [other.clinicId, other.agreementId],
+        ),
+      ),
+    ).rejects.toMatchObject({ code: "23514" });
     // Why it opened is never the runtime role's to rewrite.
     await expect(
       asApp(`update agreement_resigns set reason = 'not_sure' where id = $1`, [resign!.id]),
     ).rejects.toMatchObject({ code: "42501" });
-    // And a closed re-sign gains no pause, for any role.
-    await inTenant(practice.clinicId, (client) =>
-      client.query(
-        `update agreement_resigns set status = 'withdrawn', resolved_at = now(), resolved_by = 'ops@healdesk.test'
-          where id = $1`,
-        [resign!.id],
-      ),
-    );
-    await expect(
-      inTenant(practice.clinicId, (client) =>
-        client.query(`update agreement_resigns set paused_at = null where id = $1`, [resign!.id]),
-      ),
-    ).rejects.toMatchObject({ message: expect.stringMatching(/recorded once/) });
   });
 });

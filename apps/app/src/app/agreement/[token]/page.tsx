@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
  * insurance electronically, or is not sure, signs the Business Associate
  * Agreement here, with its own answers; so does a practice under an older
  * version of the Business Associate Agreement, the current version (wave 2
- * R11), which says whether AYA is paused meanwhile as L22 did.
+ * R11). That one never pauses AYA (owner, 19 October 2026), and the screen
+ * says she keeps answering, as L22 does.
  *
  * On apps/app, not beside the funnel's signing on apps/web: the practice
  * exists, so this host is running, and everything the screen reads and writes

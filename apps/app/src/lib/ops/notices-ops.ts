@@ -203,7 +203,6 @@ export async function opStartBaaVersionResigns(operator: Operator): Promise<OpsO
   // a number it must refuse, and the re-signs' own rows name the versions.
   const auditRecorded = await audit(operator, "baa_version_resigns_started", {
     opened: result.opened,
-    paused: result.paused,
     emailed: result.emailed,
     alreadyOpen: result.alreadyOpen,
     failed: result.failed,

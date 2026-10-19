@@ -112,11 +112,11 @@ describe("the notices page", () => {
     );
   });
 
-  test("the updated agreement (L22) starts every older BAA on the current version, pausing only below the floor", () => {
+  test("the updated agreement (L22) starts every older BAA on the current version, and AYA keeps answering", () => {
     const { text } = render(EMPTY);
     expect(text).toContain("Updated agreement to sign (L22)");
     expect(text).toContain(
-      "AYA keeps answering while it signs, unless its version is below the floor go-live accepts.",
+      "AYA keeps answering while it signs, whatever its version: the agreement it signed governs until the newer one is.",
     );
     expect(text).toContain("Start the re-signs");
   });
@@ -126,7 +126,6 @@ describe("the notices page", () => {
       status: "started" as const,
       version: "1.6.0",
       opened: 3,
-      paused: 1,
       emailed: 2,
       alreadyOpen: 1,
       failed: 0,
@@ -134,12 +133,12 @@ describe("the notices page", () => {
     };
     expect(resignsSaid({ ok: true, data: base })).toEqual({
       ok: true,
-      text: "Started 3 practices on v1.6.0; AYA is paused for 1 until signed (below the floor); 1 not emailed yet (the hourly job sends it); 1 already had a re-sign open.",
+      text: "Started 3 practices on v1.6.0; 1 not emailed yet (the hourly job sends it); 1 already had a re-sign open.",
     });
     expect(
       resignsSaid({
         ok: true,
-        data: { ...base, opened: 0, paused: 0, emailed: 0, alreadyOpen: 0, auditRecorded: false },
+        data: { ...base, opened: 0, emailed: 0, alreadyOpen: 0, auditRecorded: false },
       }).text,
     ).toBe(
       "No practice on an older version was left to start on v1.6.0. It is NOT in the audit log: record it by hand.",

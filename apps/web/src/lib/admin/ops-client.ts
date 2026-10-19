@@ -4595,7 +4595,6 @@ export type BaaVersionResignOutcome =
       status: "started";
       version: string;
       opened: number;
-      paused: number;
       emailed: number;
       alreadyOpen: number;
       failed: number;
@@ -4614,7 +4613,6 @@ export function startBaaVersionResigns(): Promise<OpsResult<BaaVersionResignOutc
       status: "started" as const,
       version: text(data.version, "startBaaVersionResigns.version"),
       opened: count(data.opened, "startBaaVersionResigns.opened"),
-      paused: count(data.paused, "startBaaVersionResigns.paused"),
       emailed: count(data.emailed, "startBaaVersionResigns.emailed"),
       alreadyOpen: count(data.alreadyOpen, "startBaaVersionResigns.alreadyOpen"),
       failed: count(data.failed, "startBaaVersionResigns.failed"),

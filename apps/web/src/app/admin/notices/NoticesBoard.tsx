@@ -121,7 +121,6 @@ export function resignsSaid(result: OpsResult<BaaVersionResignOutcome>): {
       (d.opened === 0
         ? `No practice on an older version was left to start on v${d.version}`
         : `Started ${practices(d.opened)} on v${d.version}`) +
-      (d.paused ? `; AYA is paused for ${d.paused} until signed (below the floor)` : "") +
       (d.opened && d.emailed < d.opened
         ? `; ${d.opened - d.emailed} not emailed yet (the hourly job sends it)`
         : "") +
@@ -421,9 +420,9 @@ function BaaResignForm({ start }: { start: Actions["startBaaVersionResigns"] }) 
         For a release that keeps the older version acceptable for a while: every practice whose
         business associate agreement is older than the current version gets its re-sign and the
         email with its link, then reminders at 3 and 7 days, and we&rsquo;re told at 7. AYA keeps
-        answering while it signs, unless its version is below the floor go-live accepts. Once a
-        release moves the floor past a version, the hourly job starts those practices by itself and
-        pauses AYA for each still unsigned.
+        answering while it signs, whatever its version: the agreement it signed governs until the
+        newer one is. Once a release moves the floor past a version, the hourly job starts those
+        practices by itself, and we&rsquo;re told at 7 days to phone each one still unsigned.
       </p>
       <div>
         <button

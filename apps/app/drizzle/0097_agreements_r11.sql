@@ -11,13 +11,16 @@ CREATE TABLE "incident_affected_contacts" (
 ALTER TABLE "agreement_resigns" DROP CONSTRAINT "agreement_resigns_reason_check";--> statement-breakpoint
 ALTER TABLE "agreement_resigns" DROP CONSTRAINT "agreement_resigns_source_check";--> statement-breakpoint
 ALTER TABLE "site_rereads" DROP CONSTRAINT "site_rereads_reason_check";--> statement-breakpoint
+ALTER TABLE "incidents" ADD COLUMN "affected_recorded" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "incidents" ADD CONSTRAINT "incidents_clinic_id_unique" UNIQUE("clinic_id","id");--> statement-breakpoint
 ALTER TABLE "incident_affected_contacts" ADD CONSTRAINT "incident_affected_contacts_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "incident_affected_contacts" ADD CONSTRAINT "incident_affected_contacts_incident_fk" FOREIGN KEY ("clinic_id","incident_id") REFERENCES "public"."incidents"("clinic_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "incident_affected_contacts" ADD CONSTRAINT "incident_affected_contacts_contact_fk" FOREIGN KEY ("clinic_id","contact_id") REFERENCES "public"."contacts"("clinic_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "incident_affected_contacts_clinic_idx" ON "incident_affected_contacts" USING btree ("clinic_id","incident_id");--> statement-breakpoint
+ALTER TABLE "agreement_resigns" ADD CONSTRAINT "agreement_resigns_baa_version_unpaused_check" CHECK ("agreement_resigns"."reason" <> 'baa_version' or "agreement_resigns"."paused_at" is null);--> statement-breakpoint
 ALTER TABLE "agreement_resigns" ADD CONSTRAINT "agreement_resigns_reason_check" CHECK ("agreement_resigns"."reason" in ('now_covered', 'not_sure', 'baa_version'));--> statement-breakpoint
 ALTER TABLE "agreement_resigns" ADD CONSTRAINT "agreement_resigns_source_check" CHECK ("agreement_resigns"."source" in ('operator', 'portal', 'release'));--> statement-breakpoint
+ALTER TABLE "incidents" ADD CONSTRAINT "incidents_affected_recorded_check" CHECK ("incidents"."affected_recorded" >= 0);--> statement-breakpoint
 ALTER TABLE "site_rereads" ADD CONSTRAINT "site_rereads_reason_check" CHECK ("site_rereads"."reason" in ('missing', 'corrected', 'drift', 'ops', 'insurance'));--> statement-breakpoint
 
 -- =============================================================================
@@ -36,12 +39,12 @@ ALTER TABLE "site_rereads" ADD CONSTRAINT "site_rereads_reason_check" CHECK ("si
 --      left the version in force below the floor go-live accepts
 --      (app_baa_version_acceptable). app_supersede_agreement() (0051)
 --      already takes a BAA replacing an older BAA, and still refuses a DPA
---      replacing anything, so it is unchanged. The one change to the row's
---      rules: `paused_at` may be set once, from NULL, while the re-sign is
---      still open. A re-sign the broadcast opened on a version still
---      acceptable pauses nothing; if a later release moves the floor past
---      that version before it is signed, the hourly job pauses AYA then, and
---      records that pause on the row so signing lifts it and nothing else.
+--      replacing anything, so it is unchanged. A BAA-version re-sign never
+--      pauses AYA (owner, 19 October 2026): the version signed governs until
+--      the newer one is, so its paused_at is NULL by CHECK, and 0088's guard,
+--      which fixes paused_at once written, is unchanged. The DPA→BAA re-sign
+--      still pauses AYA, now at every location of the organisation, which
+--      two definers below let a location read and the job reach.
 --   2. site_rereads takes the misclassification check (`insurance`,
 --      lib/website/types.ts): a read for one purpose only, which the CHECK
 --      above now admits. Nothing else about the table changes.
@@ -52,50 +55,93 @@ ALTER TABLE "site_rereads" ADD CONSTRAINT "site_rereads_reason_check" CHECK ("si
 --      sits on a page behind step-up."). PHI by what it says, so tenant RLS,
 --      FORCEd, and the BAA gate; append-only but for removing a contact
 --      named in error; covered by destruction, and by erasure and the purge
---      through its foreign keys' cascade from contacts.
+--      through its foreign keys' cascade from contacts. Those cascades take
+--      a person off the list with their contact, so the incident keeps the
+--      count the operator recorded (incidents.affected_recorded, written
+--      with each change to the list): the record of how many a breach
+--      reached does not fall when one of them is erased.
 --
--- Safe to apply in place: three CHECKs widened, a unique key on columns
--- already unique, a new empty table, a trigger function and the destruction
--- check redefined, one more column grant. apps/app has only ever held
+-- Safe to apply in place: three CHECKs widened and two added that every row
+-- passes, a column with a default, a unique key on columns already unique, a
+-- new empty table, three new functions and the destruction check redefined.
+-- apps/app has only ever held
 -- synthetic and seed data (CLAUDE.md, "Until BAA coverage is in place").
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- 1. agreement_resigns: a pause gained once, while open
+-- 1. The organisation's re-sign, for every location of it
 -- -----------------------------------------------------------------------------
--- 0088's guard, with paused_at allowed to go from NULL to a value on a row
--- that is open and stays open. Never from one value to another, never back
--- to NULL, and never on a closed row (the second rule below, unchanged).
-CREATE OR REPLACE FUNCTION app_agreement_resign_transition_guard()
-RETURNS trigger
-LANGUAGE plpgsql
+-- The agreement is the organisation's: one re-sign covers every location,
+-- and a DPA→BAA re-sign pauses each of them, whose answer gate reads its own
+-- clinic_settings. A location cannot see the account's re-sign
+-- or its sibling clinics under the tenant policies, so these two definers
+-- answer for the caller's own tenant only (app.clinic_id must be the clinic
+-- asked about), in ids and contract facts, never a patient.
+--
+-- app_organisation_clinics: the clinic and every other clinic of its
+-- organisation not yet destroyed, the clinic first. clinics is not forced, so
+-- the definer, its owner, reads every row.
+CREATE OR REPLACE FUNCTION app_organisation_clinics(target_clinic uuid)
+RETURNS TABLE (clinic_id uuid)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
-BEGIN
-  IF NEW.clinic_id IS DISTINCT FROM OLD.clinic_id
-     OR NEW.from_agreement_id IS DISTINCT FROM OLD.from_agreement_id
-     OR NEW.reason IS DISTINCT FROM OLD.reason
-     OR NEW.source IS DISTINCT FROM OLD.source
-     OR NEW.requested_by IS DISTINCT FROM OLD.requested_by
-     OR NEW.started_at IS DISTINCT FROM OLD.started_at THEN
-    RAISE EXCEPTION 'agreement_resigns: which clinic, which agreement, why, who asked and when are fixed once opened.';
-  END IF;
-  IF NEW.paused_at IS DISTINCT FROM OLD.paused_at
-     AND NOT (OLD.paused_at IS NULL AND NEW.paused_at IS NOT NULL
-              AND OLD.status = 'open' AND NEW.status = 'open') THEN
-    RAISE EXCEPTION 'agreement_resigns: the pause is recorded once, while the re-sign is open, and never moved.';
-  END IF;
-  IF OLD.status <> 'open' AND ROW(NEW.*) IS DISTINCT FROM ROW(OLD.*) THEN
-    RAISE EXCEPTION 'agreement_resigns: a % re-sign is final.', OLD.status;
-  END IF;
-  IF OLD.status = 'open' AND NEW.status NOT IN ('open', 'signed', 'withdrawn') THEN
-    RAISE EXCEPTION 'agreement_resigns: open cannot become %.', NEW.status;
-  END IF;
-  RETURN NEW;
-END;
+  SELECT c.id
+    FROM clinics c
+    JOIN clinics t ON t.id = target_clinic AND t.organization_id = c.organization_id
+   WHERE app_current_clinic_id() IS NOT DISTINCT FROM target_clinic
+     AND c.destroyed_at IS NULL
+   ORDER BY (c.id = target_clinic) DESC, c.created_at, c.id
 $$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_organisation_clinics(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_organisation_clinics(uuid) TO healdesk_app;--> statement-breakpoint
 
-GRANT UPDATE (paused_at) ON agreement_resigns TO healdesk_app;--> statement-breakpoint
+-- app_organisation_open_resigns: the open re-signs of the organisation's
+-- clinics, with the version of the agreement each replaces and whether
+-- go-live still accepts it. agreement_resigns forces row-level security,
+-- which binds the definer too, so it walks the clinics setting the tenant
+-- for each, as 0088's app_open_agreement_resigns does, and gives the
+-- caller's setting back.
+CREATE OR REPLACE FUNCTION app_organisation_open_resigns(target_clinic uuid)
+RETURNS TABLE (
+  resign_id uuid,
+  clinic_id uuid,
+  reason text,
+  paused_at timestamptz,
+  started_at timestamptz,
+  from_version text,
+  from_version_acceptable boolean
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+#variable_conflict use_column
+DECLARE
+  previous text := current_setting('app.clinic_id', true);
+  c record;
+BEGIN
+  IF app_current_clinic_id() IS DISTINCT FROM target_clinic THEN
+    RAISE EXCEPTION 'app_organisation_open_resigns: clinic % is not the tenant of this transaction', target_clinic
+      USING ERRCODE = '42501';
+  END IF;
+  FOR c IN SELECT o.clinic_id AS id FROM app_organisation_clinics(target_clinic) o LOOP
+    PERFORM set_config('app.clinic_id', c.id::text, true);
+    RETURN QUERY
+      SELECT r.id, r.clinic_id, r.reason, r.paused_at, r.started_at, b.document_version,
+             coalesce(app_baa_version_acceptable(b.document_version), false)
+        FROM agreement_resigns r
+        LEFT JOIN baa_acceptances b ON b.id = r.from_agreement_id
+       WHERE r.clinic_id = c.id
+         AND r.status = 'open';
+  END LOOP;
+  PERFORM set_config('app.clinic_id', coalesce(previous, ''), true);
+END
+$$;--> statement-breakpoint
+REVOKE ALL ON FUNCTION app_organisation_open_resigns(uuid) FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_organisation_open_resigns(uuid) TO healdesk_app;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- 3. incident_affected_contacts: tenant-scoped, forced, behind the BAA gate
@@ -240,7 +286,7 @@ COMMENT ON TABLE incident_affected_contacts IS
 COMMENT ON COLUMN agreement_resigns.reason IS
   'now_covered or not_sure: a DPA practice''s answer stopped the DPA covering it. baa_version (0097): the BAA in force is older than the current version.';--> statement-breakpoint
 COMMENT ON COLUMN agreement_resigns.paused_at IS
-  'The header pause this re-sign put on AYA, or NULL when it put none (she was already paused, or a baa_version re-sign whose version go-live still accepts). Set once from NULL while open, when a release moves the floor past a version a re-sign is waiting on (0097); never moved.';--> statement-breakpoint
+  'The header pause a DPA→BAA re-sign put on AYA, or NULL when it put none (she was already paused). Always NULL for baa_version (0097): a newer BAA over an older one never pauses AYA (owner, 19 October 2026). Fixed once written (0088).';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
   'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Locks the clinic row, then refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: deposits included (0065), the transcript outbox (0069), handovers (0092), the flags on conversations (0093), the patient requests passed to it (0094) and the list of who an incident affected (0097), with suppressions, consent records, contact attempts, erasure requests, record amendments, the setup screens, slot holds, providers and provider services. Returns destroyed_at.';--> statement-breakpoint
 
@@ -264,8 +310,8 @@ BEGIN
   END IF;
   IF has_column_privilege('healdesk_app', 'agreement_resigns', 'reason', 'UPDATE')
      OR has_column_privilege('healdesk_app', 'agreement_resigns', 'from_agreement_id', 'UPDATE')
-     OR NOT has_column_privilege('healdesk_app', 'agreement_resigns', 'paused_at', 'UPDATE') THEN
-    RAISE EXCEPTION 'healdesk_app may record a re-sign''s pause, and never rewrite why it opened or what it replaces.';
+     OR has_column_privilege('healdesk_app', 'agreement_resigns', 'paused_at', 'UPDATE') THEN
+    RAISE EXCEPTION 'healdesk_app never rewrites why a re-sign opened, what it replaces, or the pause it recorded.';
   END IF;
 END;
 $$;

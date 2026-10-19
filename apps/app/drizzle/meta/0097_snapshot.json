@@ -1,5 +1,5 @@
 {
-  "id": "bf156744-39e8-4d48-b2ed-2b521de8319b",
+  "id": "a4b555b3-6fef-4701-b677-d113b321ef2c",
   "prevId": "6f157806-6698-4dc9-b37b-92d0a45f142b",
   "version": "7",
   "dialect": "postgresql",
@@ -360,6 +360,10 @@
         "agreement_resigns_signed_check": {
           "name": "agreement_resigns_signed_check",
           "value": "(\"agreement_resigns\".\"status\" = 'signed') = (\"agreement_resigns\".\"signed_at\" is not null and \"agreement_resigns\".\"superseding_agreement_id\" is not null)"
+        },
+        "agreement_resigns_baa_version_unpaused_check": {
+          "name": "agreement_resigns_baa_version_unpaused_check",
+          "value": "\"agreement_resigns\".\"reason\" <> 'baa_version' or \"agreement_resigns\".\"paused_at\" is null"
         }
       },
       "isRLSEnabled": false
@@ -7473,6 +7477,13 @@
           "notNull": true,
           "default": 0
         },
+        "affected_recorded": {
+          "name": "affected_recorded",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "not_reportable_at": {
           "name": "not_reportable_at",
           "type": "timestamp with time zone",
@@ -7594,6 +7605,10 @@
         "incidents_decision_check": {
           "name": "incidents_decision_check",
           "value": "not (\"incidents\".\"reported_at\" is not null and \"incidents\".\"not_reportable_at\" is not null)\n          and (\"incidents\".\"not_reportable_at\" is null) = (\"incidents\".\"not_reportable_reason\" is null)\n          and (\"incidents\".\"reported_at\" is null) = (\"incidents\".\"reports_sent\" = 0)\n          and \"incidents\".\"reports_sent\" >= 0"
+        },
+        "incidents_affected_recorded_check": {
+          "name": "incidents_affected_recorded_check",
+          "value": "\"incidents\".\"affected_recorded\" >= 0"
         }
       },
       "isRLSEnabled": false

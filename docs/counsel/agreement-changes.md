@@ -452,20 +452,25 @@ nothing and removes the argument.
   `apps/app/src/lib/agreements/resign.ts`). A practice under an older BAA
   re-signs the current one through the same link, screen and reminders (L22)
   as the DPA→BAA re-sign, and `app_supersede_agreement()` puts it in force.
-  Two levers, both the release's:
+  **A BAA-version re-sign never pauses AYA** (owner, 19 October 2026): the
+  BAA has no clause letting healdesk amend it alone (clause 20: the later
+  version replaces the earlier "from the effective date forward", once
+  signed), so the version signed governs until the newer one is, and the
+  practice keeps AYA answering under it. The signature is chased instead:
+  L22 and its reminders at 3 and 7 days, and at 7 days an ops alert, its own
+  (`agreement_below_floor_unsigned`) for a version below the floor, for a
+  person to phone the practice; the ops digest counts those still unsigned.
+  Only the DPA→BAA re-sign pauses AYA, at every location, because a practice
+  that now bills insurance electronically needs a BAA before AYA keeps
+  answering. Two levers, both the release's:
   - **The floor.** Once `app_baa_version_acceptable()` no longer accepts a
-    version, the hourly job opens every account's re-sign on it by itself
-    and, where AYA answers patients under it, pauses her until it is signed:
-    calls go to the direct line. The BAA has no clause letting healdesk amend
-    it alone (clause 20: the later version replaces the earlier "from the
-    effective date forward", once signed), and every floor raised so far was
-    raised because the older text no longer said what the product does.
+    version, the hourly job opens every account's re-sign on it by itself,
+    and go-live refuses an account that has not signed.
   - **The broadcast.** "Start the re-signs" on `/admin/notices` opens a
-    re-sign for every account on any older version, pausing nothing while
-    that version is still acceptable. For a release with real signers ("an
-    overlap and a re-signature", § 17.5, item 2): release, keep the old
-    version acceptable for the overlap, broadcast, then raise the floor in a
-    later migration; whoever has not signed by then is paused by the job.
+    re-sign for every account on any older version. For a release with real
+    signers ("an overlap and a re-signature", § 17.5, item 2): release, keep
+    the old version acceptable for the overlap, broadcast, then raise the
+    floor in a later migration.
   After a supersede the account's first location has no calendar election
   under the new agreement (drizzle/0057's guard; the calendar build's open
   item 2), so its bookings read as manual until one is recorded.

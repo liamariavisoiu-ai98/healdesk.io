@@ -138,7 +138,7 @@ describe("clinic blockers", () => {
     expect(blockers).toEqual([
       {
         level: "attention",
-        message: `Live under BAA v1.2.0, which has been superseded: its re-sign to v${CURRENT_BAA_VERSION} opens by itself (L22), and AYA is paused until it's signed.`,
+        message: `Live under BAA v1.2.0, which has been superseded: its re-sign to v${CURRENT_BAA_VERSION} opens by itself (L22). AYA keeps answering under v1.2.0 until it's signed; we're told at 7 days to phone the practice.`,
       },
     ]);
   });

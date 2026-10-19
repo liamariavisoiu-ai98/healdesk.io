@@ -483,38 +483,32 @@ describe("L22 for a newer business associate agreement (wave 2 R11)", () => {
         ...AGREEMENT_TO_SIGN_ENTRY.fixture,
         kind: "baa_version",
         version: "1.5.0",
-        isPaused: false,
         isRequired: false,
         ...over,
       },
       contextFor("agreement_to_sign", audience),
     );
 
-  test("paused below the floor, answering during an overlap, and a practice not answering yet: the snapshots", () => {
-    expect(render({ isPaused: true, isRequired: true })).toMatchSnapshot();
+  test("answering below the floor, a reminder, and a practice not answering yet: the snapshots", () => {
+    expect(render({ isRequired: true })).toMatchSnapshot();
     expect(render({ waitingDays: 3 })).toMatchSnapshot();
     expect(render({ channels: [], directLineE164: null, isRequired: true })).toMatchSnapshot();
   });
 
-  test("names both versions, and says AYA is paused only where the re-sign holds her", () => {
-    const paused = render({ isPaused: true, isRequired: true });
-    expect(paused.text).toContain(
-      `version ${CURRENT_BAA_VERSION}, in place of version 1.5.0, which you signed`,
-    );
-    expect(paused.text).toContain("An agreement only changes when you sign it");
-    expect(paused.text).toContain("until the newer version is signed, AYA is paused:");
-    expect(paused.text).toContain("Phone: calls go to your direct line ((415) 555-0100)");
-    expect(paused.text).toContain("AYA answers again the moment it's signed");
-    expect(paused.preheader).toBe("AYA is paused until it's signed.");
-
-    const answering = render({});
-    expect(answering.text).toContain("AYA keeps answering while you read it and sign it.");
-    expect(answering.text).not.toContain("paused");
-    expect(answering.text).not.toContain("answers again");
-    expect(answering.preheader).toBe("AYA keeps answering while you sign it.");
-
-    // Never the DPA's words about insurance.
-    for (const email of [paused, answering]) {
+  test("names both versions, and says AYA keeps answering while it's unsigned, below the floor or not", () => {
+    // A BAA-version re-sign never pauses AYA (owner, 19 October 2026).
+    for (const isRequired of [true, false]) {
+      const email = render({ isRequired });
+      expect(email.text).toContain(
+        `version ${CURRENT_BAA_VERSION}, in place of version 1.5.0, which you signed`,
+      );
+      expect(email.text).toContain("An agreement only changes when you sign it");
+      expect(email.text).toContain("AYA keeps answering while you read it and sign it.");
+      expect(email.text).not.toContain("paused");
+      expect(email.text).not.toContain("answers again");
+      expect(email.text).not.toContain("direct line");
+      expect(email.preheader).toBe("AYA keeps answering while you sign it.");
+      // Never the DPA's words about insurance.
       expect(email.text).not.toContain("insurance");
       expect(email.text).not.toContain("data protection agreement");
       expect(copyProblems([email.subject, email.text].join("\n"))).toEqual([]);
@@ -535,7 +529,6 @@ describe("L22 for a newer business associate agreement (wave 2 R11)", () => {
       ...AGREEMENT_TO_SIGN_ENTRY.fixture,
       kind: "baa_version" as const,
       version: "1.5.0",
-      isPaused: true,
       isRequired: true,
     };
     expect(() => assertPayloadAllowed(payload, "agreement_to_sign")).not.toThrow();

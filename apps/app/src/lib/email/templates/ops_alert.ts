@@ -109,6 +109,16 @@ const WORDING: Record<OpsEvent, Wording> = {
     title: "An updated agreement is unsigned",
     action: "A clinic has not signed its updated agreement after seven days. Call the clinic.",
   },
+  agreement_resign_unrenderable: {
+    title: "An updated agreement can't be sent to sign",
+    action:
+      "A clinic is on an older business associate agreement than the current one, and its agreement in force is missing what the current one is rendered from (its legal name, booking system or Google account), so no re-sign link could be sent. AYA keeps answering under the version it signed. Look at its agreement on the console's Agreements page and fix the record, so the hourly job can send it, and phone the practice.",
+  },
+  agreement_below_floor_unsigned: {
+    title: "A clinic is answering under a superseded agreement",
+    action:
+      "A clinic's business associate agreement is a version go-live no longer accepts, and its updated agreement is still unsigned seven days after we sent it. AYA keeps answering under the version it signed until it's signed. Phone the practice and ask them to sign it from the email or from Billing.",
+  },
   // The internal health flags (lib/ops/health-flags.ts): never shown to
   // the clinic. Once per clinic.
   no_interactions_48_hours: {

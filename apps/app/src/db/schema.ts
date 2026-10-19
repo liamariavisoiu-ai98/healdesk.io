@@ -1687,6 +1687,14 @@ export const incidents = pgTable(
      */
     reportedAt: timestamp("reported_at", { withTimezone: true }),
     reportsSent: integer("reports_sent").notNull().default(0),
+    /**
+     * How many people the operator recorded as affected (wave 2 R11;
+     * lib/incidents/affected.ts), written with each change to the list. A
+     * count, never who, kept on the incident because the list's rows go with
+     * their contacts (an erasure, the record clock), and the record of how
+     * many a breach reached must not fall with them.
+     */
+    affectedRecorded: integer("affected_recorded").notNull().default(0),
     notReportableAt: timestamp("not_reportable_at", { withTimezone: true }),
     /** Operator prose, PHI-scanned on the way in like the summary. */
     notReportableReason: text("not_reportable_reason"),
@@ -1709,6 +1717,7 @@ export const incidents = pgTable(
           and (${t.reportedAt} is null) = (${t.reportsSent} = 0)
           and ${t.reportsSent} >= 0`,
     ),
+    check("incidents_affected_recorded_check", sql`${t.affectedRecorded} >= 0`),
     // The key the list of people a breach affected names its incident by,
     // with the clinic (incident_affected_contacts). id is unique already.
     unique("incidents_clinic_id_unique").on(t.clinicId, t.id),
@@ -4949,11 +4958,10 @@ export type AgreementResignStatus = (typeof AGREEMENT_RESIGN_STATUSES)[number];
  *
  * Since drizzle/0097 a practice under an older version of the BAA re-signs
  * the current one through the same row, link, screen and reminders
- * (`baa_version`). It pauses AYA only where the version in force is below
- * the floor go-live accepts and AYA answers patients under it; a re-sign the
- * broadcast opened on a version still acceptable pauses nothing, and gains
- * its pause, once, if a later release moves the floor past it while it is
- * still open (the one change to `paused_at` the guard allows).
+ * (`baa_version`). That re-sign never pauses AYA (owner, 19 October 2026):
+ * the version signed governs until the newer one is, so its `paused_at` is
+ * always NULL (agreement_resigns_baa_version_unpaused_check), and 0088's
+ * guard still fixes `paused_at` once a row is written.
  *
  * Contract metadata, never a patient: no BAA gate. Tenant RLS on the clinic
  * that recorded the answer; the hourly job walks open rows through a SECURITY
@@ -5021,6 +5029,11 @@ export const agreementResigns = pgTable(
     check(
       "agreement_resigns_signed_check",
       sql`(${t.status} = 'signed') = (${t.signedAt} is not null and ${t.supersedingAgreementId} is not null)`,
+    ),
+    // A newer BAA over an older one never pauses AYA (owner, 19 October 2026).
+    check(
+      "agreement_resigns_baa_version_unpaused_check",
+      sql`${t.reason} <> 'baa_version' or ${t.pausedAt} is null`,
     ),
   ],
 );

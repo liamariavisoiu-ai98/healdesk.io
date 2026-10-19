@@ -455,10 +455,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                     <p className="font-semibold">Your updated agreement is waiting to be signed.</p>
                     <p className="text-muted mt-1">
                       Version {CURRENT_BAA_VERSION} replaces version {view.agreement.version}, and
-                      it only changes when you sign it.{" "}
-                      {resign.holdsPause
-                        ? "AYA is paused until it\u2019s signed."
-                        : "AYA keeps answering while you sign it."}
+                      it only changes when you sign it. AYA keeps answering while you sign it.
                     </p>
                     <AgreementResignButton slug={portal.clinicSlug} open />
                   </div>

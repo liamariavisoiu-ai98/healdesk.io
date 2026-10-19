@@ -29,12 +29,11 @@ import type { EmailTemplate } from "./types";
  *
  * The same email carries a practice under an older version of the business
  * associate agreement to the current one (`kind: "baa_version"`, wave 2
- * R11): it names the two versions, and says AYA is paused only where the
- * re-sign holds her paused (`isPaused`, lib/agreements/resign-pause.ts: the
- * version in force is below the floor go-live accepts and she answers
- * patients under it). Otherwise she keeps answering while the practice
- * signs, and a practice not yet answering is told whether its go-live waits
- * on the signature (`isRequired`).
+ * R11): it names the two versions, and says AYA keeps answering while it is
+ * unsigned, since a BAA-version re-sign never pauses her (owner, 19 October
+ * 2026; lib/agreements/resign-pause.ts): the version signed governs until the
+ * newer one is. A practice not yet answering is told whether its go-live
+ * waits on the signature (`isRequired`).
  */
 
 export type AgreementToSignPayload = {
@@ -57,8 +56,6 @@ export type AgreementToSignPayload = {
   kind?: "baa_version";
   /** For `baa_version`: the version of the BAA in force, which the current one replaces. */
   version?: string;
-  /** For `baa_version`: whether the re-sign holds AYA paused until it is signed. */
-  isPaused?: boolean;
   /** For `baa_version`: whether go-live waits on it (the version is below the floor). */
   isRequired?: boolean;
 };
@@ -139,7 +136,6 @@ const renderBaaVersion: EmailTemplate<AgreementToSignPayload> = (payload, ctx) =
   }
   const reminder = payload.waitingDays > 0;
   const answering = channels.length > 0;
-  const paused = payload.isPaused === true;
 
   const why = `There's a newer version of the business associate agreement between ${clinic} and healdesk: version ${CURRENT_BAA_VERSION}, in place of version ${from}, which you signed. An agreement only changes when you sign it, so the newer version needs your signature.`;
 
@@ -152,18 +148,7 @@ const renderBaaVersion: EmailTemplate<AgreementToSignPayload> = (payload, ctx) =
     },
   ];
   if (reminder) blocks.push({ type: "paragraph", text: why });
-  if (answering && paused) {
-    blocks.push(
-      {
-        type: "paragraph",
-        text: `Version ${from} no longer describes how AYA works, so until the newer version is signed, AYA is paused:`,
-      },
-      {
-        type: "list",
-        items: channels.map((c) => fallbackLine(c, payload.directLineE164)),
-      },
-    );
-  } else if (answering) {
+  if (answering) {
     blocks.push({
       type: "paragraph",
       text: "AYA keeps answering while you read it and sign it.",
@@ -183,7 +168,7 @@ const renderBaaVersion: EmailTemplate<AgreementToSignPayload> = (payload, ctx) =
     { type: "action", label: "Sign your updated agreement", url: payload.signUrl },
     {
       type: "paragraph",
-      text: `Read it to the end, type your name and sign. Your plan and your settings stay as they are${answering && paused ? ", and AYA answers again the moment it's signed" : ""}. The link works for ${payload.validDays} days; after that, sign it from Billing in healdesk, under Your agreement.`,
+      text: `Read it to the end, type your name and sign. Your plan and your settings stay as they are. The link works for ${payload.validDays} days; after that, sign it from Billing in healdesk, under Your agreement.`,
     },
     {
       type: "paragraph",
@@ -196,14 +181,11 @@ const renderBaaVersion: EmailTemplate<AgreementToSignPayload> = (payload, ctx) =
       subject: reminder
         ? "Your updated agreement is waiting to be signed"
         : "Sign your updated agreement",
-      preheader:
-        answering && paused
-          ? "AYA is paused until it's signed."
-          : answering
-            ? "AYA keeps answering while you sign it."
-            : payload.isRequired === true
-              ? "AYA starts answering once it's signed."
-              : `Version ${CURRENT_BAA_VERSION} of your agreement, to sign.`,
+      preheader: answering
+        ? "AYA keeps answering while you sign it."
+        : payload.isRequired === true
+          ? "AYA starts answering once it's signed."
+          : `Version ${CURRENT_BAA_VERSION} of your agreement, to sign.`,
       blocks,
     },
     ctx,

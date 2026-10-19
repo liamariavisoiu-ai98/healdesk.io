@@ -13,6 +13,7 @@ import {
   stripeConnectEvents,
   transcriptEmails,
 } from "@/db/schema";
+import { belowFloorUnsigned } from "@/lib/agreements/resign";
 import { MAX_NOTICE_ATTEMPTS } from "@/lib/email/outbox";
 import { dailyEmailCount, quotaDay } from "@/lib/email/quota";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
@@ -139,6 +140,7 @@ const QUEUES = [
   "booking_requests",
   "orders_without_account",
   "support_replies",
+  "agreements_below_floor",
   "ops_alerts_unsent",
 ] as const;
 
@@ -253,6 +255,15 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
       owed.reduce<Date | null>((o, r) => (!o || r.askedAt < o ? r.askedAt : o), null),
     );
     tally.unread += failures;
+  });
+
+  // Accounts still answering under a BAA version below the floor, their
+  // re-sign unsigned (wave 2 R11): AYA keeps answering under it until it is
+  // signed (owner, 19 October 2026), so the digest keeps them in view for a
+  // call, beside the 7-day alert. Counts and the oldest's age only.
+  await tally.read("agreements_below_floor", async () => {
+    const { count: n, oldest } = await belowFloorUnsigned();
+    tally.queue("agreements_below_floor", n, oldest);
   });
 
   // Each clinic's own rows, in its own tenant.

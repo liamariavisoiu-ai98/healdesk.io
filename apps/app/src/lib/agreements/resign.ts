@@ -65,7 +65,7 @@ import { clinicSignIn } from "@/lib/sign-in/address-change";
 import { withTenant, TENANT_GUC, type TenantTx } from "@/lib/tenant";
 
 import { agreementInEffect } from "./in-effect";
-import { openResignHoldsPause } from "./resign-pause";
+import { openResignHoldsPause, organisationOpenResigns, resignHoldsPause } from "./resign-pause";
 import type { ResignDocument } from "./resign-preview";
 import { supersedeAgreement, SupersedeError } from "./kind";
 
@@ -142,18 +142,18 @@ import { supersedeAgreement, SupersedeError } from "./kind";
  *     baa-version.ts): the broadcast a release uses when it keeps the older
  *     version acceptable for a while, so practices can move before the floor
  *     does.
- *   - **Whether AYA pauses** is openResignHoldsPause's rule: only where the
- *     version in force is below the floor and AYA answers patients under it.
- *     The BAA has no clause letting healdesk amend it alone: the version
- *     signed governs until a later one is signed ("This agreement replaces
- *     any earlier version of it ... from the effective date forward"), and
- *     each floor raised so far was raised because the older text no longer
- *     said what the product does. So AYA does not keep answering under a
- *     text the release itself set aside; calls go to the direct line until it
- *     is signed. A version still acceptable, during a release overlap or
- *     because the release kept the floor, pauses nothing. If the floor later
- *     moves past a version a re-sign is still waiting on, the hourly job
- *     pauses AYA then and records it on the row, once (drizzle/0097).
+ *   - **AYA never pauses for it** (owner, 19 October 2026; resignHoldsPause,
+ *     lib/agreements/resign-pause.ts, the one place that decides). The BAA
+ *     has no clause letting healdesk amend it alone: the version signed
+ *     governs until a later one is signed ("This agreement replaces any
+ *     earlier version of it ... from the effective date forward"), so the
+ *     practice keeps AYA answering under it. The signature is chased
+ *     instead: L22, its reminders at 3 and 7 days, and at 7 days an ops
+ *     alert, its own for a version below the floor
+ *     (`agreement_below_floor_unsigned`), for a person to phone the practice;
+ *     the ops digest counts those still unsigned. Go-live still refuses a
+ *     version below the floor, so a practice not yet live signs first. Only
+ *     the DPA→BAA re-sign pauses AYA, at every location of the organisation.
  *   - **The document** is the current BAA rendered from the practice's own
  *     answers: its legal name and signatory from the BAA in force, its
  *     specialty and covered-entity answer from the clinic's record, and the
@@ -275,21 +275,27 @@ export async function openAgreementResign(
     reason: AgreementResignReason;
     source: AgreementResignSource;
     requestedBy: string;
-    /** Whether AYA pauses while it is open: always for the DPA, by the floor for a BAA version. */
+    /** Whether AYA pauses while it is open (resignHoldsPause): the DPA's does, a BAA version's never. */
     pause?: boolean;
     now?: Date;
   },
 ): Promise<{ resignId: string; opened: boolean }> {
   const now = input.now ?? new Date();
-  // One opening at a time per clinic: the partial unique index would refuse
-  // a second, and this makes the second wait and find the first instead.
+  // One opening at a time per organisation, whose agreement it is: the
+  // partial unique index would refuse a second on one clinic, and this makes
+  // a second on any of its clinics wait and find the first instead.
+  const [own] = await tx.db
+    .select({ organizationId: clinics.organizationId })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
   await tx.db.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${`agreement-resign:${tx.clinicId}`}, 0))`,
+    sql`select pg_advisory_xact_lock(hashtextextended(${`agreement-resign:${own?.organizationId ?? tx.clinicId}`}, 0))`,
   );
-  const existing = await openResign(tx);
-  if (existing) return { resignId: existing.id, opened: false };
+  const existing = (await organisationOpenResigns(tx))[0];
+  if (existing) return { resignId: existing.resignId, opened: false };
 
-  const pausedAt = input.pause === false ? null : await holdAyaPaused(tx, now);
+  const pausedAt = input.pause === false ? null : await holdOrganisationPaused(tx, now);
   const [row] = await tx.db
     .insert(agreementResigns)
     .values({
@@ -309,6 +315,56 @@ export async function openAgreementResign(
     metadata: { reason: input.reason, source: input.source, paused: pausedAt !== null },
   });
   return { resignId: row!.id, opened: true };
+}
+
+// -----------------------------------------------------------------------------
+// The organisation: every location the agreement covers
+// -----------------------------------------------------------------------------
+
+const LOCATION_ACTOR: ActorContext = { type: "service", serviceName: "agreement-resign" };
+
+/**
+ * Run `fn` for the clinic and each other clinic of its organisation, the
+ * clinic first, each in its own tenant inside the caller's transaction, so a
+ * pause on every location is written with the re-sign that holds it or not
+ * at all. A location's writes are audited in its own tenant; the caller's
+ * tenant is set back after each.
+ */
+async function forEachOrganisationClinic(
+  tx: TenantTx,
+  fn: (clinic: TenantTx) => Promise<void>,
+): Promise<void> {
+  const rows = await tx.db.execute<{ clinic_id: string }>(
+    sql`select clinic_id from app_organisation_clinics(${tx.clinicId}::uuid)`,
+  );
+  const ids = rows.rows.map((r) => r.clinic_id);
+  if (!ids.includes(tx.clinicId)) ids.unshift(tx.clinicId);
+  for (const clinicId of ids) {
+    if (clinicId === tx.clinicId) {
+      await fn(tx);
+      continue;
+    }
+    await tx.db.execute(sql`select set_config(${TENANT_GUC}, ${clinicId}, true)`);
+    const audit = new AuditRecorder(clinicId, LOCATION_ACTOR);
+    await fn({ db: tx.db, audit, clinicId });
+    await audit.flush(tx.db);
+    await tx.db.execute(sql`select set_config(${TENANT_GUC}, ${tx.clinicId}, true)`);
+  }
+}
+
+/**
+ * Pause AYA on the clinic and every other location of its organisation
+ * (holdAyaPaused on each): the answer gate reads each location's own pause.
+ * Returns the pause it put on the clinic itself, the one its re-sign row
+ * records, or null when that clinic was already paused that way.
+ */
+async function holdOrganisationPaused(tx: TenantTx, now: Date): Promise<Date | null> {
+  let own: Date | null = null;
+  await forEachOrganisationClinic(tx, async (clinic) => {
+    const paused = await holdAyaPaused(clinic, now);
+    if (clinic.clinicId === tx.clinicId) own = paused;
+  });
+  return own;
 }
 
 /**
@@ -331,18 +387,36 @@ async function holdAyaPaused(tx: TenantTx, now: Date): Promise<Date | null> {
   return after.aiPausedAt;
 }
 
-/** Lift the pause `resign` put on AYA, if it is still that pause. */
+/**
+ * Lift the pause `resign` put on AYA, on the clinic and every other location
+ * of its organisation, where it is still that pause: the one its row
+ * records, or, on a location, a pause healdesk put there for an agreement
+ * since the re-sign began (AGREEMENT_PAUSE_LABEL, with no end). A pause the
+ * practice set itself stays its own. Returns whether it lifted any.
+ */
 async function releaseAyaPause(
   tx: TenantTx,
-  resign: Pick<AgreementResign, "pausedAt">,
+  resign: Pick<AgreementResign, "pausedAt" | "startedAt">,
   actorLabel: string,
   now: Date,
 ): Promise<boolean> {
-  if (!resign.pausedAt) return false;
-  const current = await getClinicSettings(tx);
-  if (current.aiPausedAt?.getTime() !== resign.pausedAt.getTime()) return false;
-  await updateClinicSettingsRecordingPause(tx, { aiPaused: false }, actorLabel, now);
-  return true;
+  let lifted = false;
+  await forEachOrganisationClinic(tx, async (clinic) => {
+    const current = await getClinicSettings(clinic);
+    const recorded =
+      clinic.clinicId === tx.clinicId &&
+      resign.pausedAt !== null &&
+      current.aiPausedAt?.getTime() === resign.pausedAt.getTime();
+    const ours =
+      current.aiPausedAt !== null &&
+      current.aiPausedUntil === null &&
+      current.aiPausedByLabel === AGREEMENT_PAUSE_LABEL &&
+      current.aiPausedAt.getTime() >= resign.startedAt.getTime();
+    if (!recorded && !ours) return;
+    await updateClinicSettingsRecordingPause(clinic, { aiPaused: false }, actorLabel, now);
+    lifted = true;
+  });
+  return lifted;
 }
 
 /**
@@ -395,26 +469,15 @@ export async function baaVersionAcceptable(tx: TenantTx, version: string): Promi
   return result.rows[0]?.ok === true;
 }
 
-/** Whether a re-sign from this BAA version pauses AYA here: below the floor, at a clinic she answers patients for. */
-async function baaVersionPauses(tx: TenantTx, version: string): Promise<boolean> {
-  const [clinic] = await tx.db
-    .select({ classification: clinics.dataClassification })
-    .from(clinics)
-    .where(eq(clinics.id, tx.clinicId))
-    .limit(1);
-  return clinic?.classification === "production" && !(await baaVersionAcceptable(tx, version));
-}
-
 export type BaaVersionResignOpening =
-  | { status: "opened"; resignId: string; fromVersion: string; paused: boolean }
+  | { status: "opened"; resignId: string; fromVersion: string }
   | { status: "already_open"; resignId: string }
   | { status: "current" | "no_agreement" | "dpa" | "location" | "demo" | "unrenderable" };
 
 /**
  * Open the clinic's re-sign from the BAA in force to the current version, if
- * the BAA in force is older; pause AYA with it where openResignHoldsPause's
- * rule says she does not answer under that version. Inside the clinic's
- * tenant; L22 goes after commit. A location re-signs through its account
+ * the BAA in force is older. It never pauses AYA (resignHoldsPause). Inside
+ * the clinic's tenant; L22 goes after commit. A location re-signs through its account
  * (the agreement is the organisation's), a DPA through its covered-entity
  * answer (setCoveredEntity), and healdesk's own demo clinic never.
  */
@@ -438,27 +501,30 @@ export async function openBaaVersionResign(
   if (!agreement) return { status: "no_agreement" };
   if (agreement.agreementKind !== "baa") return { status: "dpa" };
   if (!baaOlderThanCurrent(agreement.documentVersion)) return { status: "current" };
-  // A re-sign whose link could not render the agreement would pause AYA with
-  // no way to sign it: the console's card says the version is superseded,
-  // and this is logged for a person to look at instead.
+  // A re-sign whose link could not render the agreement could never be
+  // signed: AYA keeps answering under the version in force, and a person is
+  // told instead, to fix the record and phone the practice.
   const signIn = await clinicSignIn(tx);
   if (
     !signIn ||
     !(await baaResignDocument(tx, agreement.variables, clinic, signIn.email))
   ) {
-    log.error("agreement re-sign not opened: the agreement in force cannot be rendered again", {
+    // Once per agreement: the hourly job asks again every hour, and ops
+    // needs telling once, not every hour (notifyOpsOnce keys on the fields).
+    await notifyOpsOnce("agreement_resign_unrenderable", {
       clinicId: tx.clinicId,
       agreementId: agreement.agreementId,
     });
     return { status: "unrenderable" };
   }
-  const pause = await baaVersionPauses(tx, agreement.documentVersion);
+  // Never a pause (owner, 19 October 2026; resignHoldsPause): the version
+  // signed governs until the newer one is, and AYA keeps answering under it.
   const opened = await openAgreementResign(tx, {
     fromAgreementId: agreement.agreementId,
     reason: "baa_version",
     source: input.source,
     requestedBy: input.requestedBy,
-    pause,
+    pause: resignHoldsPause({ reason: "baa_version" }),
     now: input.now,
   });
   if (!opened.opened) return { status: "already_open", resignId: opened.resignId };
@@ -474,50 +540,13 @@ export async function openBaaVersionResign(
       fromVersion: agreement.documentVersion,
       toVersion: CURRENT_BAA_VERSION,
       source: input.source,
-      paused: pause,
     },
   });
   return {
     status: "opened",
     resignId: opened.resignId,
     fromVersion: agreement.documentVersion,
-    paused: pause,
   };
-}
-
-/**
- * A `baa_version` re-sign opened while its version was still acceptable, and
- * left unsigned until a release moved the floor past it: AYA pauses now, and
- * the row records the pause, once, so signing lifts it (drizzle/0097 lets
- * paused_at go from NULL to a value on an open row and nowhere else).
- * Returns whether it paused her.
- */
-async function holdPauseForFloor(tx: TenantTx, resignId: string, now: Date): Promise<boolean> {
-  const [resign] = await tx.db
-    .select()
-    .from(agreementResigns)
-    .where(and(eq(agreementResigns.id, resignId), eq(agreementResigns.clinicId, tx.clinicId)))
-    .for("update")
-    .limit(1);
-  if (!resign || resign.status !== "open" || resign.reason !== "baa_version" || resign.pausedAt) {
-    return false;
-  }
-  const agreement = await agreementInEffect(tx);
-  if (agreement?.agreementId !== resign.fromAgreementId) return false;
-  if (!(await baaVersionPauses(tx, agreement.documentVersion))) return false;
-  const pausedAt = await holdAyaPaused(tx, now);
-  if (!pausedAt) return false;
-  await tx.db
-    .update(agreementResigns)
-    .set({ pausedAt })
-    .where(and(eq(agreementResigns.id, resign.id), eq(agreementResigns.status, "open")));
-  tx.audit.record({
-    action: "update",
-    resourceType: "agreement_resign",
-    resourceId: resign.id,
-    metadata: { paused: true, fromVersion: agreement.documentVersion },
-  });
-  return true;
 }
 
 /**
@@ -605,7 +634,6 @@ export async function sendAgreementToSign(
         ? {
             kind: "baa_version" as const,
             version: claim.fromVersion,
-            isPaused: claim.holdsPause,
             isRequired: claim.required,
           }
         : {}),
@@ -674,8 +702,6 @@ type ResignEmailClaim =
       directLineE164: string | null;
       /** The version in force a `baa_version` re-sign replaces. */
       fromVersion: string;
-      /** Whether the re-sign holds AYA paused (openResignHoldsPause). */
-      holdsPause: boolean;
       /** Whether go-live waits on it: the version in force is below the floor. */
       required: boolean;
     };
@@ -718,7 +744,6 @@ async function claimResignEmail(input: {
         ),
       );
     const agreement = await agreementInEffect(tx);
-    const holdsPause = await openResignHoldsPause(tx);
     const required = agreement ? !(await baaVersionAcceptable(tx, agreement.documentVersion)) : true;
     const deliveryId = await claimDelivery(tx, {
       kind: "agreement_to_sign",
@@ -735,7 +760,6 @@ async function claimResignEmail(input: {
       channels: PAUSE_LINE_ORDER.filter((c) => live.some((l) => l.channel === c)),
       directLineE164: settings.directLineE164,
       fromVersion: agreement?.documentVersion ?? "",
-      holdsPause,
       required,
     };
   });
@@ -744,13 +768,16 @@ async function claimResignEmail(input: {
 /**
  * The hourly job: for each open re-sign, the L22 email now due (the first, if
  * it never went; else the reminder of the day reached), and at 7 days one ops
- * alert, ever, for that re-sign. Not a switched job, like the address
- * changes': the practice was told AYA is paused until it signs, and a switch
- * that ships off would leave it waiting with no word.
+ * alert, ever, for that re-sign: for a BAA version below the floor go-live
+ * accepts, its own (`agreement_below_floor_unsigned`), since AYA keeps
+ * answering under that version until it is signed and a person should phone
+ * the practice; for every other, `agreement_unsigned_7_days`. Not a switched
+ * job, like the address changes': the practice was told it has an agreement
+ * to sign, and a switch that ships off would leave it waiting with no word.
  */
 export async function runAgreementResignsJob(
   input: { now?: Date } & SendEmailOptions = {},
-): Promise<{ open: number; sent: number; alerted: number; opened: number; paused: number }> {
+): Promise<{ open: number; sent: number; alerted: number; opened: number }> {
   const now = input.now ?? new Date();
   // A release that moved the floor past an account's BAA opens its re-sign,
   // whose first L22 the walk below sends.
@@ -760,21 +787,23 @@ export async function runAgreementResignsJob(
   );
   let sent = 0;
   let alerted = 0;
-  let paused = 0;
   for (const row of result.rows) {
     const resign = await withTenant({ clinicId: row.clinic_id, actor: JOB_ACTOR }, async (tx) => {
-      // And one still waiting on a version the floor has since passed pauses AYA now.
-      if (await holdPauseForFloor(tx, row.id, now)) paused += 1;
       const [r] = await tx.db
         .select({
           startedAt: agreementResigns.startedAt,
           fromAgreementId: agreementResigns.fromAgreementId,
           status: agreementResigns.status,
+          reason: agreementResigns.reason,
         })
         .from(agreementResigns)
         .where(eq(agreementResigns.id, row.id))
         .limit(1);
-      return r ?? null;
+      if (!r) return null;
+      // Below the floor: a version go-live no longer accepts, still in force.
+      const belowFloor =
+        r.reason === "baa_version" ? await fromVersionBelowFloor(tx, r.fromAgreementId) : false;
+      return { ...r, belowFloor };
     });
     if (!resign || resign.status !== "open") continue;
     const due = dueResignEmail(resign.startedAt, now);
@@ -787,14 +816,55 @@ export async function runAgreementResignsJob(
       sent += 1;
     }
     if (due === 7) {
-      await notifyOpsOnce("agreement_unsigned_7_days", {
-        clinicId: row.clinic_id,
-        agreementId: resign.fromAgreementId,
-      });
+      await notifyOpsOnce(
+        resign.belowFloor ? "agreement_below_floor_unsigned" : "agreement_unsigned_7_days",
+        { clinicId: row.clinic_id, agreementId: resign.fromAgreementId },
+      );
       alerted += 1;
     }
   }
-  return { open: result.rows.length, sent, alerted, opened, paused };
+  return { open: result.rows.length, sent, alerted, opened };
+}
+
+/** Whether the agreement a re-sign replaces is a BAA version go-live no longer accepts. */
+async function fromVersionBelowFloor(tx: TenantTx, agreementId: string): Promise<boolean> {
+  const result = await tx.db.execute<{ version: string | null }>(
+    sql`select document_version as version from baa_acceptances where id = ${agreementId}::uuid`,
+  );
+  const version = result.rows[0]?.version;
+  return typeof version === "string" && !(await baaVersionAcceptable(tx, version));
+}
+
+/**
+ * The digest's line (lib/ops/digest.ts): accounts still answering under a BAA
+ * version below the floor, their re-sign unsigned, and when the oldest
+ * opened. Ids and dates only; each read in its own tenant.
+ */
+export async function belowFloorUnsigned(): Promise<{ count: number; oldest: Date | null }> {
+  const result = await unsafeDb.execute<{ clinic_id: string; id: string }>(
+    sql`select clinic_id, id from app_open_agreement_resigns()`,
+  );
+  let count = 0;
+  let oldest: Date | null = null;
+  for (const row of result.rows) {
+    const startedAt = await withTenant({ clinicId: row.clinic_id, actor: JOB_ACTOR }, async (tx) => {
+      const [r] = await tx.db
+        .select({
+          startedAt: agreementResigns.startedAt,
+          reason: agreementResigns.reason,
+          fromAgreementId: agreementResigns.fromAgreementId,
+        })
+        .from(agreementResigns)
+        .where(eq(agreementResigns.id, row.id))
+        .limit(1);
+      if (!r || r.reason !== "baa_version") return null;
+      return (await fromVersionBelowFloor(tx, r.fromAgreementId)) ? r.startedAt : null;
+    });
+    if (!startedAt) continue;
+    count += 1;
+    if (!oldest || startedAt < oldest) oldest = startedAt;
+  }
+  return { count, oldest };
 }
 
 // -----------------------------------------------------------------------------
@@ -1050,6 +1120,17 @@ export async function signAgreementResign(
   const before = await lookUpResignLink(token, now);
   if (!before.ok) return { status: "closed", reason: before.reason };
 
+  // The version is the screen's own document's, which the server chose: a
+  // browser that names another (an older one still inside a release
+  // overlap) is refused, never signed.
+  if (input.templateVersion !== before.document.templateVersion) {
+    return {
+      status: "refused",
+      message:
+        "The agreement has been updated. Please reload the page and read it again — nothing has been recorded.",
+      field: "templateVersion",
+    };
+  }
   const request = resignRequest(before.document, {
     signatoryName: typeof input.signatoryName === "string" ? input.signatoryName : "",
     signatoryTitle:
@@ -1057,19 +1138,23 @@ export async function signAgreementResign(
         ? input.signatoryTitle
         : undefined,
     displayedHash: typeof input.displayedHash === "string" ? input.displayedHash : undefined,
-    templateVersion: typeof input.templateVersion === "string" ? input.templateVersion : "",
+    templateVersion: before.document.templateVersion,
   });
+  // A re-sign of the BAA in force stays a BAA whatever the covered-entity
+  // answer: a practice that answered "No" and holds a BAA keeps it once the
+  // DPA is released, since a BAA is never replaced by a DPA.
+  const options = before.reason === "baa_version" ? { reacceptsBaa: true } : {};
   let prepared: ReturnType<typeof prepareSigning>;
   try {
-    validateSignRequest(request);
+    validateSignRequest(request, options);
     // Never BAA→DPA: the agreement a covered or unsure practice signs is the BAA.
-    if (agreementKindForRequest(request) !== "baa") {
+    if (agreementKindForRequest(request, options) !== "baa") {
       return {
         status: "refused",
         message: "This practice signs the business associate agreement.",
       };
     }
-    prepared = prepareSigning(request, effectiveDateOf(now), {});
+    prepared = prepareSigning(request, effectiveDateOf(now), options);
   } catch (error) {
     if (error instanceof AgreementError) {
       return { status: "refused", message: error.message, field: error.field };

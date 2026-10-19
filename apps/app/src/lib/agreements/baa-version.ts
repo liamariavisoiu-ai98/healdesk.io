@@ -19,10 +19,10 @@ import { baaOlderThanCurrent, openBaaVersionResign, sendAgreementToSign } from "
  * only once the floor has passed a version (lib/agreements/resign.ts).
  *
  * For each account still in service whose BAA in force is older than the
- * current one: a re-sign opens (`operator`), AYA pauses with it only where
- * openResignHoldsPause's rule says she does not answer under that version,
- * and L22 goes once it has committed, with its link; the hourly job sends its
- * reminders at 3 and 7 days. An account whose re-sign is already open, of
+ * current one: a re-sign opens (`operator`), AYA keeps answering under the
+ * version it signed (a BAA-version re-sign never pauses her: owner, 19
+ * October 2026), and L22 goes once it has committed, with its link; the
+ * hourly job sends its reminders at 3 and 7 days and tells ops at 7. An account whose re-sign is already open, of
  * either kind, is counted and left alone, so sending it again reaches only
  * the accounts that had none. Contract metadata; never a patient.
  */
@@ -33,8 +33,6 @@ export type BaaVersionResignSummary = {
   version: string;
   /** Re-signs opened now. */
   opened: number;
-  /** Of those, how many hold AYA paused until signed (below the floor, answering patients). */
-  paused: number;
   /** Of those, how many had L22 sent now (the hourly job sends any that did not go). */
   emailed: number;
   /** Accounts that already had a re-sign open. */
@@ -70,7 +68,6 @@ export async function startBaaVersionResigns(input: {
     status: "started",
     version: CURRENT_BAA_VERSION,
     opened: 0,
-    paused: 0,
     emailed: 0,
     alreadyOpen: 0,
     failed: 0,
@@ -92,7 +89,6 @@ export async function startBaaVersionResigns(input: {
       if (outcome.status === "already_open") summary.alreadyOpen += 1;
       if (outcome.status !== "opened") continue;
       summary.opened += 1;
-      if (outcome.paused) summary.paused += 1;
       // After commit (X1.4): the re-sign its link names exists now.
       if (
         await sendAgreementToSign({

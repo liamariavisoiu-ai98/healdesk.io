@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`L22 for a newer business associate agreement (wave 2 R11) > paused below the floor, answering during an overlap, and a practice not answering yet: the snapshots 1`] = `
+exports[`L22 for a newer business associate agreement (wave 2 R11) > answering below the floor, a reminder, and a practice not answering yet: the snapshots 1`] = `
 {
   "html": "<!doctype html>
 <html lang="en">
@@ -18,13 +18,12 @@ exports[`L22 for a newer business associate agreement (wave 2 R11) > paused belo
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA is paused until it&#39;s signed.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">AYA keeps answering while you sign it.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">There&#39;s a newer version of the business associate agreement between Radiance Med Spa and healdesk: version 1.5.1, in place of version 1.5.0, which you signed. An agreement only changes when you sign it, so the newer version needs your signature.</p>
-<p style="margin:0 0 16px;">Version 1.5.0 no longer describes how AYA works, so until the newer version is signed, AYA is paused:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Phone: calls go to your direct line ((415) 555-0100)</li><li>Website chat: shows a contact form</li></ul>
+<p style="margin:0 0 16px;">AYA keeps answering while you read it and sign it.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/agreement/AZ3kQm7tR2xV9cK4pL8wN3sJ6hF1dB5gZ0yAeU2iOqXvTkMRk8mW2cQ9vB4nL7pS1dF6hJ3kG8tY5uE0aZxCvBnM1qW" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Sign your updated agreement</a></p>
-<p style="margin:0 0 16px;">Read it to the end, type your name and sign. Your plan and your settings stay as they are, and AYA answers again the moment it&#39;s signed. The link works for 14 days; after that, sign it from Billing in healdesk, under Your agreement.</p>
+<p style="margin:0 0 16px;">Read it to the end, type your name and sign. Your plan and your settings stay as they are. The link works for 14 days; after that, sign it from Billing in healdesk, under Your agreement.</p>
 <p style="margin:0 0 16px;">If you have a question about what changed, reply to this email.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
@@ -34,18 +33,15 @@ exports[`L22 for a newer business associate agreement (wave 2 R11) > paused belo
 </div>
 </body>
 </html>",
-  "preheader": "AYA is paused until it's signed.",
+  "preheader": "AYA keeps answering while you sign it.",
   "subject": "Sign your updated agreement",
   "text": "There's a newer version of the business associate agreement between Radiance Med Spa and healdesk: version 1.5.1, in place of version 1.5.0, which you signed. An agreement only changes when you sign it, so the newer version needs your signature.
 
-Version 1.5.0 no longer describes how AYA works, so until the newer version is signed, AYA is paused:
-
-- Phone: calls go to your direct line ((415) 555-0100)
-- Website chat: shows a contact form
+AYA keeps answering while you read it and sign it.
 
 Sign your updated agreement: https://app.healdesk.test/agreement/AZ3kQm7tR2xV9cK4pL8wN3sJ6hF1dB5gZ0yAeU2iOqXvTkMRk8mW2cQ9vB4nL7pS1dF6hJ3kG8tY5uE0aZxCvBnM1qW
 
-Read it to the end, type your name and sign. Your plan and your settings stay as they are, and AYA answers again the moment it's signed. The link works for 14 days; after that, sign it from Billing in healdesk, under Your agreement.
+Read it to the end, type your name and sign. Your plan and your settings stay as they are. The link works for 14 days; after that, sign it from Billing in healdesk, under Your agreement.
 
 If you have a question about what changed, reply to this email.
 
@@ -58,7 +54,7 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
-exports[`L22 for a newer business associate agreement (wave 2 R11) > paused below the floor, answering during an overlap, and a practice not answering yet: the snapshots 2`] = `
+exports[`L22 for a newer business associate agreement (wave 2 R11) > answering below the floor, a reminder, and a practice not answering yet: the snapshots 2`] = `
 {
   "html": "<!doctype html>
 <html lang="en">
@@ -115,7 +111,7 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
-exports[`L22 for a newer business associate agreement (wave 2 R11) > paused below the floor, answering during an overlap, and a practice not answering yet: the snapshots 3`] = `
+exports[`L22 for a newer business associate agreement (wave 2 R11) > answering below the floor, a reminder, and a practice not answering yet: the snapshots 3`] = `
 {
   "html": "<!doctype html>
 <html lang="en">

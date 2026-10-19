@@ -1,48 +1,78 @@
 import { sql } from "drizzle-orm";
 
+import type { AgreementResignReason } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
 
 /**
- * Whether the clinic's open re-sign holds AYA paused (lib/agreements/
- * resign.ts): the one rule the header's switch (lib/channels/pause.ts), L22
- * and the re-sign screen all read, so none of them can say AYA is paused
- * while the header lets her answer, or the reverse.
+ * Whether a re-sign holds AYA paused (lib/agreements/resign.ts): the one rule
+ * the header's switch (lib/channels/pause.ts), L22, Billing and the re-sign
+ * screen all read, so none of them can say AYA is paused while the header
+ * lets her answer, or the reverse. The rule is `resignHoldsPause`, a pure
+ * function, and the one place it is decided.
  *
- * It does when:
- *
- *   - the re-sign replaces a Data Protection Agreement (`now_covered`,
- *     `not_sure`): from the answer that opened it no agreement covers the
- *     practice, and app_clinic_accepts_phi() refuses its data;
- *   - or the re-sign put a pause on AYA (`paused_at`), opening or since;
- *   - or it replaces a BAA whose version go-live no longer accepts
- *     (app_baa_version_acceptable, below the floor a release raised) at a
- *     clinic AYA answers patients for (production). Under the BAA's own
- *     terms the version signed governs until a later one is signed ("This
- *     agreement replaces any earlier version of it ... from the effective
- *     date forward"; healdesk cannot amend it alone), and a release raises
- *     the floor only when the older text no longer says what the product
- *     does, so AYA does not answer under it. A pause the practice set itself
- *     before the re-sign opened (paused_at stays NULL) is held by this rule
- *     too, and stays the practice's own when the agreement is signed.
- *
- * A re-sign on a BAA version go-live still accepts (the broadcast's, during
- * a release overlap) holds nothing: the practice signs when it is ready, and
- * the header works as always. Inside the clinic's tenant: every table read
- * is the tenant's own.
+ * A re-sign is the organisation's, since the agreement is, so the rule is
+ * asked of every open re-sign of the clinic's organisation, read through a
+ * definer (app_organisation_open_resigns, drizzle/0097): a location cannot
+ * see its account's re-sign under the tenant policy, and its own header and
+ * answer gate must hold to it as the account's do.
  */
+
+/** An open re-sign of the clinic's organisation, any location's. */
+export type OrganisationResign = {
+  resignId: string;
+  clinicId: string;
+  reason: AgreementResignReason;
+  pausedAt: Date | null;
+  startedAt: Date;
+  /** The version of the agreement it replaces, and whether go-live still accepts it. */
+  fromVersion: string | null;
+  fromVersionAcceptable: boolean;
+};
+
+/**
+ * The rule. A re-sign holds AYA paused when it replaces a Data Protection
+ * Agreement (`now_covered`, `not_sure`): from the answer that opened it no
+ * agreement covers the practice, and app_clinic_accepts_phi() refuses its
+ * data, so a practice that now bills insurance electronically has its BAA
+ * before AYA answers again (WP9). It does so at every location of the
+ * organisation, whose answer gate each reads its own pause.
+ *
+ * A re-sign of a newer BAA over an older one (`baa_version`) never pauses AYA
+ * (owner, 19 October 2026). The version signed governs until the newer one
+ * is signed (the BAA's Notices and interpretation clause: the later version
+ * "replaces any earlier version of it ... from the effective date forward",
+ * and healdesk cannot amend it alone), so the practice keeps AYA answering
+ * under it. The signature is chased instead: L22 and its reminders at 3 and
+ * 7 days, and ops told at 7 days, separately when the version is below the
+ * floor go-live accepts, to phone the practice (lib/agreements/resign.ts).
+ */
+export function resignHoldsPause(resign: Pick<OrganisationResign, "reason">): boolean {
+  return resign.reason !== "baa_version";
+}
+
+/** The open re-signs of the clinic's organisation, through app_organisation_open_resigns. */
+export async function organisationOpenResigns(tx: TenantTx): Promise<OrganisationResign[]> {
+  const result = await tx.db.execute<{
+    resign_id: string;
+    clinic_id: string;
+    reason: AgreementResignReason;
+    paused_at: Date | string | null;
+    started_at: Date | string;
+    from_version: string | null;
+    from_version_acceptable: boolean;
+  }>(sql`select * from app_organisation_open_resigns(${tx.clinicId}::uuid)`);
+  return result.rows.map((r) => ({
+    resignId: r.resign_id,
+    clinicId: r.clinic_id,
+    reason: r.reason,
+    pausedAt: r.paused_at === null ? null : new Date(r.paused_at),
+    startedAt: new Date(r.started_at),
+    fromVersion: r.from_version,
+    fromVersionAcceptable: r.from_version_acceptable === true,
+  }));
+}
+
+/** Whether any open re-sign of the clinic's organisation holds AYA paused at this clinic. */
 export async function openResignHoldsPause(tx: TenantTx): Promise<boolean> {
-  const result = await tx.db.execute<{ holds: boolean }>(sql`
-    select exists (
-      select 1
-        from agreement_resigns r
-        join clinics c on c.id = r.clinic_id
-        left join baa_acceptances b on b.id = r.from_agreement_id
-       where r.clinic_id = ${tx.clinicId}
-         and r.status = 'open'
-         and (r.reason <> 'baa_version'
-              or r.paused_at is not null
-              or (c.data_classification = 'production'
-                  and not coalesce(app_baa_version_acceptable(b.document_version), false)))
-    ) as holds`);
-  return result.rows[0]?.holds === true;
+  return (await organisationOpenResigns(tx)).some(resignHoldsPause);
 }

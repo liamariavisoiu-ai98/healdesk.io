@@ -357,7 +357,6 @@ describe("the notices", () => {
       status: "started",
       version: "1.6.0",
       opened: 2,
-      paused: 1,
       emailed: 2,
       alreadyOpen: 0,
       failed: 0,

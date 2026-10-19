@@ -203,7 +203,7 @@ describe("the Payments clause", () => {
   });
 });
 
-describe.each(["1.3.0", "1.4.0", "1.5.0"])("%s's render guard", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0", "1.6.0"])("%s's render guard", (version) => {
   test("refuses verified reporting, the phase-two read-back it does not describe", () => {
     const template = getBaaTemplate(version)!;
     expect(template.clauses.map((c) => c.id)).not.toContain("data-sources-verified");
@@ -222,7 +222,7 @@ describe.each(["1.3.0", "1.4.0", "1.5.0"])("%s's render guard", (version) => {
   });
 });
 
-describe.each(["1.3.0", "1.4.0", "1.5.0"])("every %s document", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0", "1.6.0"])("every %s document", (version) => {
   test("names other clauses only by headings it has, and fits 78 columns", () => {
     const template = getBaaTemplate(version)!;
     for (const { label, variables } of everyDocument()) {

@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { PatientModelId } from "@healdesk/catalog";
 
 import type { SupportPrompt } from "./prompt";
 import { SUPPORT_TOOLS } from "./tools";
@@ -24,9 +25,14 @@ import { SUPPORT_TOOLS } from "./tools";
  * No server-side refusal fallback, as on the patient channels: a refusal
  * ends the turn with the fixed line that gives the support phone and
  * hello@healdesk.io (turn.ts).
+ *
+ * The model is one of PATIENT_MODEL_IDS (@healdesk/catalog
+ * model-retention.ts), as every model on this key is: the terms and the
+ * agreements describe Anthropic's retention for those models only, and a
+ * Covered Model (Claude Fable or Mythos) keeps content at least 30 days.
  */
 
-export const SUPPORT_MODEL = "claude-opus-5-5";
+export const SUPPORT_MODEL: PatientModelId = "claude-opus-5-5";
 export const SUPPORT_MAX_TOKENS = 2_000;
 const TIMEOUT_MS = 30_000;
 

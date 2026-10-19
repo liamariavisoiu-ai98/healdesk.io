@@ -3,10 +3,13 @@ import type { Piece } from "@/lib/content/types";
 /**
  * Piece 11: conditional call forwarding, by carrier and phone system. Every
  * code and menu path is as the carrier's or system's own page gave it on
- * 19 October 2026. Started from packages/catalog/src/forwarding.ts, which is
- * what onboarding shows; where a carrier's page differs from that table, the
- * page here follows the carrier and the difference was reported, not fixed
- * here.
+ * 19 October 2026. packages/catalog/src/forwarding.ts, which words the steps
+ * onboarding, Settings, the support chat and the emails show, was corrected
+ * against the same pages that day, and the two agree: when a carrier changes
+ * a code, change both. This page reports more than the product dials: codes
+ * a carrier documents for another purpose (Verizon's *90 and *92, which
+ * forward to a number Verizon fixes) and codes from a page that is not the
+ * carrier's own (Google's for AT&T mobile lines), each said for what it is.
  *
  * Left out because their own help pages could not be opened that day:
  * Spectrum's full star-code guide (spectrum.net needs cookies and script),
@@ -15,9 +18,9 @@ import type { Piece } from "@/lib/content/types";
  * for mobile lines are given only as Google's help page states them.
  *
  * Verizon's star-code page gives *42 for variable busy/no-answer forwarding
- * and its Calling Features User Guide (p. 8) gives *41; the page prints both.
- * The guide also says *90 and *92 forward to a number fixed by the Business
- * Office, which forwarding.ts ("*90{n}", "*92{n}") does not reflect.
+ * and its Calling Features User Guide (p. 8) gives *41; this page prints
+ * both, as the catalog's step does, and the test call settles which works on
+ * a given line.
  */
 export const piece: Piece = {
   slug: "conditional-call-forwarding",
@@ -52,8 +55,8 @@ export const piece: Piece = {
           head: ["Kind", "Forwards a call when", "Start of the code to switch it on (carrier); full codes below"],
           rows: [
             ["Unconditional (all calls)", "Always, at once", "*72 (Verizon home phone, AT&T Phone, Xfinity Voice); **21* (T-Mobile)"],
-            ["Busy", "The line is already in use", "*90 (Verizon home phone, AT&T Phone); **67* (T-Mobile)"],
-            ["No answer", "Nobody picks up within the set rings or seconds", "*92 (AT&T Phone, Verizon home phone); **61* (T-Mobile)"],
+            ["Busy", "The line is already in use", "*90 (AT&T Phone, Comcast Business); **67* (T-Mobile)"],
+            ["No answer", "Nobody picks up within the set rings or seconds", "*92 (AT&T Phone, Comcast Business); **61* (T-Mobile)"],
             [
               "Not reachable",
               "The phone is off, out of signal range or offline",
@@ -65,7 +68,7 @@ export const piece: Piece = {
               "*71 (Verizon mobile, Spectrum Voice); *42 or *41 (Verizon home phone, whose star-code page and user guide differ)",
             ],
           ],
-          cite: ["verizon-home", "verizon-guide", "verizon-article", "att-phone", "xfinity-qr", "tmobile-codes", "spectrum"],
+          cite: ["verizon-home", "verizon-guide", "verizon-article", "att-phone", "xfinity-qr", "comcast-managed", "tmobile-codes", "spectrum"],
         },
       ],
     },
@@ -91,8 +94,8 @@ export const piece: Piece = {
             [
               "Overflow and after hours",
               "Calls staff miss or cannot take while open, and all calls while closed",
-              "Busy and no answer, plus not reachable on a mobile line",
-              "Busy forwarding may need call waiting switched off",
+              "Busy and no answer, plus not reachable where the line has a code for it, such as T-Mobile's **62* or AT&T Phone's *372 for an outage on the line",
+              "Busy forwarding may need call waiting switched off; Verizon documents its mobile *71 for busy and unanswered calls only",
             ],
             [
               "After hours only",
@@ -101,6 +104,7 @@ export const piece: Piece = {
               "On a landline that means two codes every day unless the line can schedule it",
             ],
           ],
+          cite: ["tmobile-codes", "att-business", "verizon-article"],
         },
       ],
     },
@@ -157,7 +161,8 @@ export const piece: Piece = {
             "Verizon's two home-phone sources disagree on the code for variable busy and no-answer forwarding, which takes a new destination number each time it is switched on. " +
             "The star-code page lists *42, while the calling features user guide linked from that page says to dial *41, and both cancel it with *43. " +
             "Neither source says which of the two is current, and the test call described below shows whether a code took effect on the line. " +
-            "For *90 and *92, the guide says the destination is fixed by Verizon's local Business Office and changed by a service order, and that in most cases this forwarding is always on.",
+            "For *90 and *92, the guide says the destination is fixed by Verizon's local Business Office and changed by a service order, and that in most cases this forwarding is always on. " +
+            "The guide also says busy and no-answer forwarding is not available in North Carolina, and that the option taking a new number each time is not available in all areas.",
           cite: ["verizon-home", "verizon-guide"],
         },
         {
@@ -175,8 +180,9 @@ export const piece: Piece = {
           text:
             "AT&T's wireless call troubleshooting page gives #21# to turn forwarding off on a mobile phone. " +
             "It does not list codes for busy, no-answer or unreachable forwarding on an AT&T mobile line. " +
+            "AT&T's wireless call forwarding page says the settings can be changed only from the phone itself, not online, and that forwarding overrides the line's voicemail. " +
             "Google's Voice help page, in an example for AT&T Wireless customers, gives *67*number# for busy, *61*number# for no answer and *62*number# for unreachable, cancelled with ##67#, ##61# and ##62#.",
-          cite: ["att-wireless", "google-voice-carriers"],
+          cite: ["att-wireless", "att-wireless-forwarding", "google-voice-carriers"],
         },
       ],
     },
@@ -190,8 +196,10 @@ export const piece: Piece = {
             "Spectrum's own page on its Voice service gives *72 followed by the number to forward all calls, *71 to forward only unanswered or busy calls, and *73 to turn off either. " +
             "Spectrum's full calling-features guide could not be opened for this page, so these codes are worth confirming on the line itself. " +
             "Xfinity's quick reference for Xfinity Voice lists *72 and *73 for call forwarding, and *63 and *83 for selective call forwarding. " +
-            "Its advanced call forwarding has no star code and is set in the Voice settings on xfinity.com, and none of the three is included with the Xfinity Voice Unlimited Saver plan.",
-          cite: ["spectrum", "xfinity-qr"],
+            "Its advanced call forwarding has no star code and is set in the Voice settings on xfinity.com, and none of the three is included with the Xfinity Voice Unlimited Saver plan. " +
+            "Xfinity's call forwarding page adds that forwarding is not available with the Local With More plan either. " +
+            "The same page describes advanced call forwarding as forwarding all incoming calls to up to four numbers in addition to the home phone, so it is not conditional forwarding.",
+          cite: ["spectrum", "xfinity-qr", "xfinity-forwarding"],
         },
         {
           kind: "p",
@@ -300,8 +308,21 @@ export const piece: Piece = {
             "On Verizon home phones the cancel codes are *73, *91, *93 and *43, on AT&T Phone *73#, *91#, *93# and *373#, and on Comcast Business *73, *91 and *93. " +
             "Verizon mobile and Spectrum Voice use *73 for both kinds, and Verizon notes that its confirmation may sound like a busy signal. " +
             "T-Mobile uses ##21#, ##61#, ##62# and ##67#, and ##004# resets its call forwarding to the default. " +
+            "On AT&T Phone for Business, busy and no-answer forwarding is also what sends missed calls to voicemail. " +
+            "AT&T's help restores voicemail by setting both to Forward to Voice Mail in Voicemail Settings in the online account. " +
+            "Where Verizon fixed the forwarding number, its guide says changing that number takes a service order request. " +
             "On a cloud phone system, the rule is removed or changed in the same screen that created it.",
-          cite: ["verizon-home", "att-phone", "comcast-managed", "verizon-article", "verizon-faq", "spectrum", "tmobile-codes"],
+          cite: [
+            "verizon-home",
+            "verizon-guide",
+            "att-phone",
+            "att-business",
+            "comcast-managed",
+            "verizon-article",
+            "verizon-faq",
+            "spectrum",
+            "tmobile-codes",
+          ],
         },
       ],
     },
@@ -314,10 +335,11 @@ export const piece: Piece = {
           text:
             "Verizon says there is no monthly fee for call forwarding on most of its mobile plans, though a fee may apply on certain older plans. " +
             "Without unlimited minutes, Verizon bills forwarded calls according to the plan, as if they had been answered on the mobile phone. " +
+            "Verizon's calling features guide says calls forwarded from a home phone are subject to local or toll charges, and that a toll-restricted line cannot forward calls to a toll number. " +
             "AT&T says additional local and long-distance charges may apply when a traditional home phone forwards a call. " +
-            "Xfinity does not include call forwarding with its Xfinity Voice Unlimited Saver plan. " +
+            "Xfinity says call forwarding is not available with its Xfinity Voice Unlimited Saver and Local With More plans. " +
             "Spectrum says call forwarding is included with Spectrum Voice at no additional cost.",
-          cite: ["verizon-faq", "att-traditional", "xfinity-qr", "spectrum"],
+          cite: ["verizon-faq", "verizon-guide", "att-traditional", "xfinity-qr", "xfinity-forwarding", "spectrum"],
         },
       ],
     },
@@ -417,6 +439,14 @@ export const piece: Piece = {
       checked: "2026-10-19",
     },
     {
+      id: "att-wireless-forwarding",
+      title: "Use call forwarding",
+      publisher: "AT&T",
+      url: "https://www.att.com/support/article/wireless/KM1011513/",
+      kind: "vendor",
+      checked: "2026-10-19",
+    },
+    {
       id: "tmobile-codes",
       title: "Self-service & short codes",
       publisher: "T-Mobile",
@@ -445,6 +475,14 @@ export const piece: Piece = {
       title: "Xfinity Voice features quick reference guide",
       publisher: "Xfinity",
       url: "https://www.xfinity.com/support/articles/phone-quick-reference-guide",
+      kind: "vendor",
+      checked: "2026-10-19",
+    },
+    {
+      id: "xfinity-forwarding",
+      title: "Use the Xfinity Voice Call Forwarding feature",
+      publisher: "Xfinity",
+      url: "https://www.xfinity.com/support/articles/forward-calls-with-call-forwarding",
       kind: "vendor",
       checked: "2026-10-19",
     },

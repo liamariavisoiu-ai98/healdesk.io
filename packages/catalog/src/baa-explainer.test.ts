@@ -217,6 +217,41 @@ describe("1.5.0's notes", () => {
   });
 });
 
+describe("1.6.0's notes", () => {
+  test("say Anthropic's retention as the 1.6.0 draft's clause does; the rest are 1.5.0's", () => {
+    // Anthropic's documentation for the models the product calls
+    // (model-retention.ts; agreement-changes.md §16): no more than the 30 days
+    // of its standard retention, the two years for flagged content alone, and
+    // the law's own period for what the law requires.
+    const note = clauseExplainer("1.6.0", "subcontractors")!.plain;
+    expect(note).toContain(
+      "keeps that content for no more than the 30 days of its standard retention, then deletes " +
+        "it (content its safety systems flag may be held for up to two years, and content the " +
+        "law requires it to keep for as long as the law requires), and doesn't train on it " +
+        "without healdesk's permission, which healdesk won't give",
+    );
+    expect(note).not.toMatch(/abuse detection|law requires it to keep, may be held|never trains/);
+    expect(note).toContain(
+      "only under a business associate agreement with healdesk, signed before any patient's " +
+        "information reaches it",
+    );
+    const clause = getBaaTemplate("1.6.0")!
+      .clauses.find((c) => c.id === "subcontractors")!
+      .body({} as never)
+      .replace(/\s+/g, " ");
+    expect(clause).toContain("for no more than the 30 days of its standard retention");
+    expect(clause).toContain("which it may keep for as long as the law requires");
+    expect(clause).toContain(`at least ${SUBPROCESSOR_NOTICE_HOURS} hours`);
+    // 1.5.0's note stays what 1.5.0's frozen clause says.
+    expect(clauseExplainer("1.5.0", "subcontractors")!.plain).toMatch(/for abuse detection and security/);
+    for (const id of ["data-sources-none", "minimum-necessary"]) {
+      expect(clauseExplainer("1.6.0", id), id).toBe(clauseExplainer("1.5.0", id));
+    }
+    expect(baaExplainerTerms("1.6.0")).toBe(baaExplainerTerms("1.3.0"));
+    expect(baaExplainerFor("1.6.0").terms).toBe(baaExplainerFor("1.3.0").terms);
+  });
+});
+
 describe("looking a note up", () => {
   test("takes the version's own note first, then the shared one, and none for a clause without one", () => {
     expect(clauseExplainer("1.3.0", "subcontractors")).toBe(

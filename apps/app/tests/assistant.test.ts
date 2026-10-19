@@ -1,5 +1,10 @@
-import { NEVER_SAY_DEFAULTS, URGENT_LEAVE_NUMBER_LINE, URGENT_TEAM_TOLD_LINE } from "@healdesk/catalog";
-import { describe, expect, test } from "vitest";
+import {
+  NEVER_SAY_DEFAULTS,
+  PATIENT_MODEL_IDS,
+  URGENT_LEAVE_NUMBER_LINE,
+  URGENT_TEAM_TOLD_LINE,
+} from "@healdesk/catalog";
+import { describe, expect, test, vi } from "vitest";
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
 import {
@@ -13,7 +18,7 @@ import {
   neverSayIn,
 } from "@/lib/assistant/guard";
 import { assistantTurnContext, buildAssistantPrompt, priceText } from "@/lib/assistant/prompt";
-import { MODEL_CONFIG, modelRequest, readModelResponse } from "@/lib/assistant/responder";
+import { assistantModel, MODEL_CONFIG, modelRequest, readModelResponse } from "@/lib/assistant/responder";
 import {
   answerTurn,
   EMPTY_CAPTURE,
@@ -476,6 +481,77 @@ describe("the model request", () => {
     expect(refused).toEqual({ refused: true, category: "bio" });
     const answered = readModelResponse("web_chat", { ...base, content: [{ type: "text", text: " Hello ", citations: null }], stop_reason: "end_turn", stop_details: null } as never);
     expect(answered).toBe("Hello");
+  });
+
+  /**
+   * The terms, BAA 1.6.0 and the DPA state Anthropic's retention for the
+   * models in PATIENT_MODEL_IDS only (packages/catalog model-retention.ts).
+   * A Covered Model keeps content at least 30 days, so an override naming one
+   * must not move a patient channel onto it unnoticed.
+   */
+  describe("the models it may run on", () => {
+    const withEnv = (name: string, value: string | undefined, run: () => void) => {
+      const before = process.env[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+      try {
+        run();
+      } finally {
+        if (before === undefined) delete process.env[name];
+        else process.env[name] = before;
+      }
+    };
+
+    test("every channel's default is a patient model", () => {
+      for (const [channel, config] of Object.entries(MODEL_CONFIG)) {
+        expect(PATIENT_MODEL_IDS, channel).toContain(config.model);
+      }
+    });
+
+    test("an override that names a patient model is used", () => {
+      withEnv("HEALDESK_VOICE_MODEL", " claude-opus-5-5 ", () => {
+        expect(assistantModel("voice")).toBe("claude-opus-5-5");
+        expect(modelRequest({ channel: "voice", system, messages: [] }).model).toBe("claude-opus-5-5");
+      });
+      withEnv("HEALDESK_CHAT_MODEL", "claude-sonnet-5-5", () => {
+        expect(assistantModel("web_chat")).toBe("claude-sonnet-5-5");
+      });
+    });
+
+    test("an override outside the list, a Covered Model above all, falls back to the default and is warned about once, without the conversation", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        withEnv("HEALDESK_VOICE_MODEL", "claude-fable-5", () => {
+          const request = modelRequest({
+            channel: "voice",
+            system,
+            messages: [{ role: "user", content: "My name is Jane and I had filler on Monday" }],
+          });
+          expect(request.model).toBe("claude-sonnet-5-5");
+          expect(assistantModel("voice")).toBe("claude-sonnet-5-5");
+        });
+        withEnv("HEALDESK_CHAT_MODEL", "claude-mythos-5-1", () => {
+          expect(assistantModel("web_chat")).toBe("claude-opus-5-5");
+        });
+        const lines = warn.mock.calls.map((call) => String(call[0]));
+        expect(lines.filter((line) => line.includes("HEALDESK_VOICE_MODEL"))).toHaveLength(1);
+        expect(lines.filter((line) => line.includes("HEALDESK_CHAT_MODEL"))).toHaveLength(1);
+        for (const line of lines) {
+          expect(line).toContain("outside PATIENT_MODEL_IDS");
+          expect(line).not.toMatch(/Jane|filler/);
+        }
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    test("an empty override is no override", () => {
+      withEnv("HEALDESK_CHAT_MODEL", "  ", () => {
+        expect(assistantModel("web_chat")).toBe("claude-opus-5-5");
+      });
+      // The Meta front door reads no variable at all.
+      expect(MODEL_CONFIG.meta.modelEnv).toBeNull();
+    });
   });
 });
 

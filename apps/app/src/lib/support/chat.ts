@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { audienceFor } from "@healdesk/catalog";
+import { audienceFor, CARRIER_SERVICE_NUMBERS } from "@healdesk/catalog";
 
 import type { ActorContext } from "@/lib/audit";
 import type { SendEmailOptions } from "@/lib/email/send";
@@ -149,7 +149,10 @@ export async function handleSupportChat(
   }
 
   // AYA's number is let through once the forwarding steps have given it: the
-  // codes the chat repeats dial it.
+  // codes the chat repeats dial it. So are the carrier service numbers the
+  // steps print (CARRIER_SERVICE_NUMBERS): a traditional AT&T landline sets
+  // and undoes its busy and no-answer forwarding only by calling AT&T, and a
+  // step that read "call AT&T on [number hidden]" could not be followed.
   const numbers = [...allow.numbers];
   const outputAllow: ScreenAllow = { ...allow, numbers };
   const { state, account } = read;
@@ -169,7 +172,7 @@ export async function handleSupportChat(
       accountState: async () => account,
       forwardingSteps: async () => {
         const steps = await ctx.readForwarding();
-        if (steps) numbers.push(steps.ayaNumberE164);
+        if (steps) numbers.push(steps.ayaNumberE164, ...CARRIER_SERVICE_NUMBERS);
         return steps;
       },
       linkTo: (setting) => (isLinkTarget(setting) ? linkTo(ctx.slug, setting) : null),

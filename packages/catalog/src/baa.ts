@@ -18,6 +18,7 @@ import {
   type CalendarTermsKind,
 } from "./calendar-terms";
 import { DIRECT_BOOKING_CLAUSE_BODY, DIRECT_BOOKING_CLAUSE_HEADING } from "./direct-booking-addendum";
+import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import type { BookingSync } from "./platforms";
 import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
 import { wrap } from "./wrap";
@@ -84,6 +85,10 @@ import { wrap } from "./wrap";
  * docs/counsel/agreement-changes.md §15 recommends counsel review it. It
  * replaced 1.4.0 outright: no clinic had signed 1.4.0, so it is no longer
  * signable and the go-live floor (MIN_ACCEPTABLE_BAA_VERSION) is 1.5.0.
+ * 1.6.0, drafted on 2026-10-19 and not released, is 1.5.0 with Anthropic's
+ * retention said as Anthropic's documentation says it for the models the
+ * product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §16): it sits
+ * after 1.5.0 with approvedByCounsel false until the owner releases it.
  * 1.4.0, released on 2026-10-13, which is 1.3.0, the calendar-dependent
  * version, with its three transcript passages said as the product then
  * worked (§14), 1.3.0, released on 2026-10-12 after Claude's own audit of
@@ -4444,6 +4449,94 @@ function validate150(v: BaaVariables): void {
   validateFrom130(v, "1.5.0");
 }
 
+/**
+ * ⚖️ 1.6.0, DRAFTED 19 October 2026 and NOT RELEASED: 1.5.0 with the
+ * Subcontractors clause's paragraph on Anthropic said as Anthropic's own
+ * documentation says it for the models the product calls
+ * (docs/counsel/agreement-changes.md §16; packages/catalog
+ * model-retention.ts). Against 1.5.0, that one paragraph changes and nothing
+ * else does; every other clause is 1.5.0's own object, in 1.5.0's order, and
+ * the preamble differs only in its version line:
+ *
+ *   subcontractors   1.5.0 says Anthropic keeps conversation content "for 30
+ *                    days, for abuse detection and security", that content
+ *                    the law requires it to keep may be kept "for up to two
+ *                    years", and that its service "cannot run with shorter
+ *                    retention". Anthropic's pages say none of that of
+ *                    claude-opus-5-5 or claude-sonnet-5-5: under the
+ *                    standard retention of a HIPAA-ready organisation
+ *                    content is kept no more than 30 days, with no purpose
+ *                    stated; the two years belong to flagged content alone;
+ *                    the law-required exception has no stated limit; and
+ *                    "cannot run with shorter retention" is true only of
+ *                    its Covered Models (Fable and Mythos), which the product
+ *                    does not call. 1.6.0 states MODEL_RETENTION_AGREEMENT
+ *                    instead, and keeps the rest of the paragraph: Anthropic
+ *                    named, its agreement a promise about when it is signed
+ *                    (release gate 17: it is not signed yet), and healdesk's
+ *                    own covenant not to train on PHI. The flow-down and
+ *                    notice paragraphs are 1.5.0's, word for word.
+ *
+ * The Term clause still lets Anthropic keep "what the Subcontractors clause
+ * describes, only for the purposes and periods that clause states", and the
+ * state-law clause still excepts what that clause "says it may keep for
+ * abuse detection and security, or because a law requires it". Both stay
+ * true of the new paragraph, whose exceptions are content flagged as
+ * violating Anthropic's usage policy and content the law requires it to
+ * keep, so neither changes (§16 lists them for counsel).
+ *
+ * Not at BAA_TEMPLATES[0] and approvedByCounsel false, so checkout does not
+ * offer it, signing refuses it (signableTemplate), provisioning refuses it,
+ * and isBaaVersionAcceptable and app_baa_version_acceptable refuse it at
+ * go-live. Releasing it is the owner's decision (§16): move it to [0] with
+ * the flag true, decide the floor and the overlap, and mirror both in a
+ * migration, as 0073 did for 1.5.0. Its text and golden hashes
+ * (apps/app/tests/baa-golden.test.ts) may still change until then; from the
+ * release on, never.
+ */
+const SUBCONTRACTORS_1_6: BaaClause = {
+  id: "subcontractors",
+  heading: HEADINGS_1_3.subcontractors,
+  appliesWhen: ALWAYS,
+  body: () =>
+    wrap(
+      `healdesk uses subcontractors to deliver the Services — telephony, speech ` +
+        `recognition, language models, hosting and email among them. healdesk will ` +
+        `ensure that any subcontractor that creates, receives, maintains or transmits ` +
+        `PHI on healdesk's behalf agrees in writing, before it does so, to the same ` +
+        `restrictions and conditions this agreement places on healdesk, and to comply ` +
+        `with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and ` +
+        `164.504(e)(5). healdesk remains answerable to Practice for its ` +
+        `subcontractors' acts and omissions with that PHI.`,
+    ) +
+    "\n\n" +
+    wrap(
+      `Language models are used to understand a patient and answer them during a ` +
+        `conversation. healdesk's language-model provider is Anthropic. Anthropic receives the ` +
+        `content of each conversation, to generate the assistant's replies, only under a ` +
+        `business associate agreement with healdesk signed before any patient's information ` +
+        `reaches it. ${MODEL_RETENTION_AGREEMENT} healdesk may not use PHI to train, fine-tune ` +
+        `or evaluate any model, its own or a third party's.`,
+    ) +
+    "\n\n" +
+    wrap(subprocessorNoticeClauseBody()),
+};
+
+/** 1.5.0's clauses in 1.5.0's order, with the Subcontractors clause above in place of its own. */
+const CLAUSES_1_6: readonly BaaClause[] = CLAUSES_1_5.map((clause) =>
+  clause.id === SUBCONTRACTORS_1_6.id ? SUBCONTRACTORS_1_6 : clause,
+);
+
+/** 1.3.0's preamble, naming version 1.6.0. */
+function preamble160(v: BaaVariables): string {
+  return preambleFrom130(v, "1.6.0");
+}
+
+/** 1.3.0's render guard, its refusals naming version 1.6.0. */
+function validate160(v: BaaVariables): void {
+  validateFrom130(v, "1.6.0");
+}
+
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
   // read [0], so a version stays at [0] until its successor is approved for
@@ -4461,6 +4554,20 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     preamble: preamble150,
     clauses: CLAUSES_1_5,
     validate: validate150,
+  },
+  // ⚖️ Drafted on 2026-10-19 and NOT released: 1.5.0 with Anthropic's
+  // retention said as Anthropic's documentation says it for the models the
+  // product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §16).
+  // After the release it follows, as a draft is (isBaaVersionAcceptable), and
+  // never offered, signed or accepted at go-live while approvedByCounsel is
+  // false. Releasing it is the owner's call: it then moves to [0].
+  {
+    version: "1.6.0",
+    publishedOn: "2026-10-19",
+    approvedByCounsel: false,
+    preamble: preamble160,
+    clauses: CLAUSES_1_6,
+    validate: validate160,
   },
   // Released on 2026-10-13 and offered until 1.5.0 replaced it on
   // 2026-10-14, outright and with no overlap: no clinic signed it, and it
@@ -4657,7 +4764,8 @@ export function isBaaVersionAcceptable(version: string): boolean {
 }
 
 /**
- * The calendar clause ids of 1.3.0, which 1.4.0 and 1.5.0 carry as the same objects.
+ * The calendar clause ids of 1.3.0, which 1.4.0, 1.5.0 and the 1.6.0 draft
+ * carry as the same objects.
  * An acceptance whose `appliedClauses`
  * holds one of them carries calendar terms for the location provisioned
  * against it; one that holds none (every earlier version) leaves the location

@@ -747,8 +747,8 @@ exports[`each template's output > canceled, for clients: the snapshot 1`] = `
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Calls still pass through to your direct line until 6 December.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk service ended on Friday 6 November, and AYA has stopped answering.</p>
-<p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic&#39;s own line, dial this AT&amp;T code:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding: *73</li></ul>
+<p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. Follow these AT&amp;T steps, dialling each code from the clinic&#39;s own line:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding on AT&amp;T Phone: *73#</li><li>Cancel all-call forwarding on a traditional AT&amp;T landline: *73</li><li>Turn off forwarding on an AT&amp;T mobile line: #21#</li></ul>
 <p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
 <p style="margin:0 0 16px;">We&#39;ll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.</p>
 <p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
@@ -764,9 +764,11 @@ exports[`each template's output > canceled, for clients: the snapshot 1`] = `
   "subject": "Your healdesk service has ended",
   "text": "Your healdesk service ended on Friday 6 November, and AYA has stopped answering.
 
-For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic's own line, dial this AT&T code:
+For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. Follow these AT&T steps, dialling each code from the clinic's own line:
 
-- Cancel all-call forwarding: *73
+- Cancel all-call forwarding on AT&T Phone: *73#
+- Cancel all-call forwarding on a traditional AT&T landline: *73
+- Turn off forwarding on an AT&T mobile line: #21#
 
 Your website chat shows a contact form until you remove the healdesk snippet from your website.
 
@@ -804,8 +806,8 @@ exports[`each template's output > canceled, for patients: the snapshot 1`] = `
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Calls still pass through to your direct line until 6 December.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
 <p style="margin:0 0 16px;">Your healdesk service ended on Friday 6 November, and AYA has stopped answering.</p>
-<p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic&#39;s own line, dial this AT&amp;T code:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding: *73</li></ul>
+<p style="margin:0 0 16px;">For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. Follow these AT&amp;T steps, dialling each code from the clinic&#39;s own line:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel all-call forwarding on AT&amp;T Phone: *73#</li><li>Cancel all-call forwarding on a traditional AT&amp;T landline: *73</li><li>Turn off forwarding on an AT&amp;T mobile line: #21#</li></ul>
 <p style="margin:0 0 16px;">Your website chat shows a contact form until you remove the healdesk snippet from your website.</p>
 <p style="margin:0 0 16px;">We&#39;ll email you when your export of conversation records and the booking log is ready. Download it by Sunday 6 December.</p>
 <p style="margin:0 0 16px;">We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest. Billing records are kept, as tax law requires.</p>
@@ -821,9 +823,11 @@ exports[`each template's output > canceled, for patients: the snapshot 1`] = `
   "subject": "Your healdesk service has ended",
   "text": "Your healdesk service ended on Friday 6 November, and AYA has stopped answering.
 
-For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic's own line, dial this AT&T code:
+For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. Follow these AT&T steps, dialling each code from the clinic's own line:
 
-- Cancel all-call forwarding: *73
+- Cancel all-call forwarding on AT&T Phone: *73#
+- Cancel all-call forwarding on a traditional AT&T landline: *73
+- Turn off forwarding on an AT&T mobile line: #21#
 
 Your website chat shows a contact form until you remove the healdesk snippet from your website.
 
@@ -1067,9 +1071,9 @@ exports[`each template's output > channel_ready, for clients: the snapshot 1`] =
 <p style="margin:0 0 16px;">AYA is ready to answer Radiance Med Spa&#39;s calls. One step is left, and it&#39;s yours: forward your main line to her, so the calls your team can&#39;t take reach her.</p>
 <p style="margin:0 0 4px;"><strong>Forward calls to:</strong> (512) 555-0142</p>
 <p style="margin:0 0 16px;">The steps for Verizon:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Forward when the line is busy: *905125550142</li><li>Forward when nobody answers (after 3–4 rings): *925125550142</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>On a Verizon home phone (Fios Digital Voice or a traditional line), forward calls when the line is busy or nobody answers. Verizon&#39;s star-code page gives *42 for this and its Calling Features User Guide gives *41: dial *42 and the number, and if a test call doesn&#39;t reach your assistant, dial *43, then *41 and the number instead: *425125550142</li><li>On a Verizon mobile line, forward the calls you don&#39;t answer within three or four rings, or can&#39;t take because you&#39;re on another call. Verizon documents this code only for those calls, not for a phone that is switched off, so leave the phone on while you&#39;re closed, or make the test call with it switched off: *715125550142</li><li>Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.</li><li>Then test it: call your main number from a phone that isn&#39;t on the clinic&#39;s account and let it ring unanswered. Your assistant should answer. Test once while you&#39;re closed too.</li></ul>
 <p style="margin:0 0 16px;">To undo it at any time:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy and no-answer forwarding on a Verizon home phone: *43</li><li>If Verizon pointed your home phone&#39;s busy and no-answer forwarding at your assistant by service order instead, *43 doesn&#39;t undo it: ask Verizon to set it back to where it went before.</li><li>Cancel forwarding on a Verizon mobile line: *73</li></ul>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup?s=channels" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See the steps in healdesk</a></p>
 <p style="margin:0 0 16px;">Forwarding is easier with someone on the line. Book a five-minute call and we&#39;ll do it with you.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
@@ -1090,13 +1094,16 @@ Forward calls to: (512) 555-0142
 
 The steps for Verizon:
 
-- Forward when the line is busy: *905125550142
-- Forward when nobody answers (after 3–4 rings): *925125550142
+- On a Verizon home phone (Fios Digital Voice or a traditional line), forward calls when the line is busy or nobody answers. Verizon's star-code page gives *42 for this and its Calling Features User Guide gives *41: dial *42 and the number, and if a test call doesn't reach your assistant, dial *43, then *41 and the number instead: *425125550142
+- On a Verizon mobile line, forward the calls you don't answer within three or four rings, or can't take because you're on another call. Verizon documents this code only for those calls, not for a phone that is switched off, so leave the phone on while you're closed, or make the test call with it switched off: *715125550142
+- Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.
+- Then test it: call your main number from a phone that isn't on the clinic's account and let it ring unanswered. Your assistant should answer. Test once while you're closed too.
 
 To undo it at any time:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy and no-answer forwarding on a Verizon home phone: *43
+- If Verizon pointed your home phone's busy and no-answer forwarding at your assistant by service order instead, *43 doesn't undo it: ask Verizon to set it back to where it went before.
+- Cancel forwarding on a Verizon mobile line: *73
 
 See the steps in healdesk: https://app.healdesk.test/c/radiance-med-spa/setup?s=channels
 
@@ -1138,9 +1145,9 @@ exports[`each template's output > channel_ready, for patients: the snapshot 1`] 
 <p style="margin:0 0 16px;">AYA is ready to answer Radiance Med Spa&#39;s calls. One step is left, and it&#39;s yours: forward your main line to her, so the calls your team can&#39;t take reach her.</p>
 <p style="margin:0 0 4px;"><strong>Forward calls to:</strong> (512) 555-0142</p>
 <p style="margin:0 0 16px;">The steps for Verizon:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Forward when the line is busy: *905125550142</li><li>Forward when nobody answers (after 3–4 rings): *925125550142</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>On a Verizon home phone (Fios Digital Voice or a traditional line), forward calls when the line is busy or nobody answers. Verizon&#39;s star-code page gives *42 for this and its Calling Features User Guide gives *41: dial *42 and the number, and if a test call doesn&#39;t reach your assistant, dial *43, then *41 and the number instead: *425125550142</li><li>On a Verizon mobile line, forward the calls you don&#39;t answer within three or four rings, or can&#39;t take because you&#39;re on another call. Verizon documents this code only for those calls, not for a phone that is switched off, so leave the phone on while you&#39;re closed, or make the test call with it switched off: *715125550142</li><li>Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.</li><li>Then test it: call your main number from a phone that isn&#39;t on the clinic&#39;s account and let it ring unanswered. Your assistant should answer. Test once while you&#39;re closed too.</li></ul>
 <p style="margin:0 0 16px;">To undo it at any time:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy and no-answer forwarding on a Verizon home phone: *43</li><li>If Verizon pointed your home phone&#39;s busy and no-answer forwarding at your assistant by service order instead, *43 doesn&#39;t undo it: ask Verizon to set it back to where it went before.</li><li>Cancel forwarding on a Verizon mobile line: *73</li></ul>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/setup?s=channels" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See the steps in healdesk</a></p>
 <p style="margin:0 0 16px;">Forwarding is easier with someone on the line. Book a five-minute call and we&#39;ll do it with you.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
@@ -1161,13 +1168,16 @@ Forward calls to: (512) 555-0142
 
 The steps for Verizon:
 
-- Forward when the line is busy: *905125550142
-- Forward when nobody answers (after 3–4 rings): *925125550142
+- On a Verizon home phone (Fios Digital Voice or a traditional line), forward calls when the line is busy or nobody answers. Verizon's star-code page gives *42 for this and its Calling Features User Guide gives *41: dial *42 and the number, and if a test call doesn't reach your assistant, dial *43, then *41 and the number instead: *425125550142
+- On a Verizon mobile line, forward the calls you don't answer within three or four rings, or can't take because you're on another call. Verizon documents this code only for those calls, not for a phone that is switched off, so leave the phone on while you're closed, or make the test call with it switched off: *715125550142
+- Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.
+- Then test it: call your main number from a phone that isn't on the clinic's account and let it ring unanswered. Your assistant should answer. Test once while you're closed too.
 
 To undo it at any time:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy and no-answer forwarding on a Verizon home phone: *43
+- If Verizon pointed your home phone's busy and no-answer forwarding at your assistant by service order instead, *43 doesn't undo it: ask Verizon to set it back to where it went before.
+- Cancel forwarding on a Verizon mobile line: *73
 
 See the steps in healdesk: https://app.healdesk.test/c/radiance-med-spa/setup?s=channels
 
@@ -3487,9 +3497,9 @@ exports[`each template's output > steps_sent, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Radiance Med Spa asked us to send you these steps. They forward the practice&#39;s main line to AYA, its AI assistant from healdesk, so the calls the front desk can&#39;t take are answered. It takes a few minutes, from the practice&#39;s own phone.</p>
 <p style="margin:0 0 4px;"><strong>Forward calls to:</strong> (512) 555-0142</p>
 <p style="margin:0 0 16px;">The steps for AT&amp;T:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Forward when the line is busy: *905125550142</li><li>Forward when nobody answers (after 3–4 rings): *925125550142</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>On AT&amp;T Phone, AT&amp;T&#39;s digital home and business service, forward calls when the line is busy, pressing # after the number: *905125550142#</li><li>On AT&amp;T Phone, forward calls nobody answers, pressing # after the number: *925125550142#</li><li>On AT&amp;T Phone, forward calls while service on your line is disrupted (AT&amp;T&#39;s Safe Call Forwarding): *3725125550142#</li><li>On a traditional AT&amp;T landline, busy and no-answer forwarding has no code: call AT&amp;T on 800.288.2020 and ask for Call Forwarding - Busy Line and Call Forwarding - Don&#39;t Answer, to: +15125550142</li><li>On an AT&amp;T mobile line, AT&amp;T lets forwarding be changed only from the phone itself and gives no code for busy or unanswered calls: in the phone&#39;s own call-forwarding settings, if they offer forwarding when busy, unanswered or unreachable (AT&amp;T&#39;s device help for your phone shows where; some phones offer only all-call forwarding), forward those calls to: +15125550142</li><li>Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.</li><li>Then test it: call your main number from a phone that isn&#39;t on the clinic&#39;s account and let it ring unanswered. Your assistant should answer. Test once while you&#39;re closed too.</li></ul>
 <p style="margin:0 0 16px;">To undo it at any time:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding on AT&amp;T Phone: *91#</li><li>Cancel no-answer forwarding on AT&amp;T Phone: *93#</li><li>Cancel Safe Call Forwarding on AT&amp;T Phone: *373#</li><li>On AT&amp;T Phone, those codes don&#39;t bring back AT&amp;T voicemail for missed calls: to send unanswered and busy calls to voicemail again, sign in to your AT&amp;T account, open Voicemail Settings and set No Answer and Busy Call Forwarding to Forward to Voice Mail.</li><li>On a traditional AT&amp;T landline, call AT&amp;T on 800.288.2020 to remove busy and no-answer forwarding, or to set it back to your voicemail if that&#39;s where it went before.</li><li>On an AT&amp;T mobile line, turn the forwarding off in the phone&#39;s own call-forwarding settings (AT&amp;T lets forwarding be changed only from the phone itself).</li></ul>
 <p style="margin:0 0 16px;">Easier with someone on the line? Book a five-minute call and we&#39;ll do it with you.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
 <p style="margin:0 0 16px;">Questions? Reply to this email and a person at healdesk answers.</p>
@@ -3510,13 +3520,22 @@ Forward calls to: (512) 555-0142
 
 The steps for AT&T:
 
-- Forward when the line is busy: *905125550142
-- Forward when nobody answers (after 3–4 rings): *925125550142
+- On AT&T Phone, AT&T's digital home and business service, forward calls when the line is busy, pressing # after the number: *905125550142#
+- On AT&T Phone, forward calls nobody answers, pressing # after the number: *925125550142#
+- On AT&T Phone, forward calls while service on your line is disrupted (AT&T's Safe Call Forwarding): *3725125550142#
+- On a traditional AT&T landline, busy and no-answer forwarding has no code: call AT&T on 800.288.2020 and ask for Call Forwarding - Busy Line and Call Forwarding - Don't Answer, to: +15125550142
+- On an AT&T mobile line, AT&T lets forwarding be changed only from the phone itself and gives no code for busy or unanswered calls: in the phone's own call-forwarding settings, if they offer forwarding when busy, unanswered or unreachable (AT&T's device help for your phone shows where; some phones offer only all-call forwarding), forward those calls to: +15125550142
+- Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.
+- Then test it: call your main number from a phone that isn't on the clinic's account and let it ring unanswered. Your assistant should answer. Test once while you're closed too.
 
 To undo it at any time:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy forwarding on AT&T Phone: *91#
+- Cancel no-answer forwarding on AT&T Phone: *93#
+- Cancel Safe Call Forwarding on AT&T Phone: *373#
+- On AT&T Phone, those codes don't bring back AT&T voicemail for missed calls: to send unanswered and busy calls to voicemail again, sign in to your AT&T account, open Voicemail Settings and set No Answer and Busy Call Forwarding to Forward to Voice Mail.
+- On a traditional AT&T landline, call AT&T on 800.288.2020 to remove busy and no-answer forwarding, or to set it back to your voicemail if that's where it went before.
+- On an AT&T mobile line, turn the forwarding off in the phone's own call-forwarding settings (AT&T lets forwarding be changed only from the phone itself).
 
 Easier with someone on the line? Book a five-minute call and we'll do it with you.
 
@@ -3557,9 +3576,9 @@ exports[`each template's output > steps_sent, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">Radiance Med Spa asked us to send you these steps. They forward the practice&#39;s main line to AYA, its AI assistant from healdesk, so the calls the front desk can&#39;t take are answered. It takes a few minutes, from the practice&#39;s own phone.</p>
 <p style="margin:0 0 4px;"><strong>Forward calls to:</strong> (512) 555-0142</p>
 <p style="margin:0 0 16px;">The steps for AT&amp;T:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Forward when the line is busy: *905125550142</li><li>Forward when nobody answers (after 3–4 rings): *925125550142</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>On AT&amp;T Phone, AT&amp;T&#39;s digital home and business service, forward calls when the line is busy, pressing # after the number: *905125550142#</li><li>On AT&amp;T Phone, forward calls nobody answers, pressing # after the number: *925125550142#</li><li>On AT&amp;T Phone, forward calls while service on your line is disrupted (AT&amp;T&#39;s Safe Call Forwarding): *3725125550142#</li><li>On a traditional AT&amp;T landline, busy and no-answer forwarding has no code: call AT&amp;T on 800.288.2020 and ask for Call Forwarding - Busy Line and Call Forwarding - Don&#39;t Answer, to: +15125550142</li><li>On an AT&amp;T mobile line, AT&amp;T lets forwarding be changed only from the phone itself and gives no code for busy or unanswered calls: in the phone&#39;s own call-forwarding settings, if they offer forwarding when busy, unanswered or unreachable (AT&amp;T&#39;s device help for your phone shows where; some phones offer only all-call forwarding), forward those calls to: +15125550142</li><li>Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.</li><li>Then test it: call your main number from a phone that isn&#39;t on the clinic&#39;s account and let it ring unanswered. Your assistant should answer. Test once while you&#39;re closed too.</li></ul>
 <p style="margin:0 0 16px;">To undo it at any time:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding on AT&amp;T Phone: *91#</li><li>Cancel no-answer forwarding on AT&amp;T Phone: *93#</li><li>Cancel Safe Call Forwarding on AT&amp;T Phone: *373#</li><li>On AT&amp;T Phone, those codes don&#39;t bring back AT&amp;T voicemail for missed calls: to send unanswered and busy calls to voicemail again, sign in to your AT&amp;T account, open Voicemail Settings and set No Answer and Busy Call Forwarding to Forward to Voice Mail.</li><li>On a traditional AT&amp;T landline, call AT&amp;T on 800.288.2020 to remove busy and no-answer forwarding, or to set it back to your voicemail if that&#39;s where it went before.</li><li>On an AT&amp;T mobile line, turn the forwarding off in the phone&#39;s own call-forwarding settings (AT&amp;T lets forwarding be changed only from the phone itself).</li></ul>
 <p style="margin:0 0 16px;">Easier with someone on the line? Book a five-minute call and we&#39;ll do it with you.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
 <p style="margin:0 0 16px;">Questions? Reply to this email and a person at healdesk answers.</p>
@@ -3580,13 +3599,22 @@ Forward calls to: (512) 555-0142
 
 The steps for AT&T:
 
-- Forward when the line is busy: *905125550142
-- Forward when nobody answers (after 3–4 rings): *925125550142
+- On AT&T Phone, AT&T's digital home and business service, forward calls when the line is busy, pressing # after the number: *905125550142#
+- On AT&T Phone, forward calls nobody answers, pressing # after the number: *925125550142#
+- On AT&T Phone, forward calls while service on your line is disrupted (AT&T's Safe Call Forwarding): *3725125550142#
+- On a traditional AT&T landline, busy and no-answer forwarding has no code: call AT&T on 800.288.2020 and ask for Call Forwarding - Busy Line and Call Forwarding - Don't Answer, to: +15125550142
+- On an AT&T mobile line, AT&T lets forwarding be changed only from the phone itself and gives no code for busy or unanswered calls: in the phone's own call-forwarding settings, if they offer forwarding when busy, unanswered or unreachable (AT&T's device help for your phone shows where; some phones offer only all-call forwarding), forward those calls to: +15125550142
+- Your assistant gets a call only if nothing else answers it first. If an answering machine, a voicemail box or a closed-hours greeting on your line picks up before the forwarding does, the call stops there, so switch it off or set it to answer later than the forwarding.
+- Then test it: call your main number from a phone that isn't on the clinic's account and let it ring unanswered. Your assistant should answer. Test once while you're closed too.
 
 To undo it at any time:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy forwarding on AT&T Phone: *91#
+- Cancel no-answer forwarding on AT&T Phone: *93#
+- Cancel Safe Call Forwarding on AT&T Phone: *373#
+- On AT&T Phone, those codes don't bring back AT&T voicemail for missed calls: to send unanswered and busy calls to voicemail again, sign in to your AT&T account, open Voicemail Settings and set No Answer and Busy Call Forwarding to Forward to Voice Mail.
+- On a traditional AT&T landline, call AT&T on 800.288.2020 to remove busy and no-answer forwarding, or to set it back to your voicemail if that's where it went before.
+- On an AT&T mobile line, turn the forwarding off in the phone's own call-forwarding settings (AT&T lets forwarding be changed only from the phone itself).
 
 Easier with someone on the line? Book a five-minute call and we'll do it with you.
 
@@ -3976,8 +4004,8 @@ exports[`each template's output > suspended, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">AYA has stopped answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Your data is kept, and you can still sign in to healdesk.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <p style="margin:0 0 16px;">Paying what you owe healdesk restores everything at once.</p>
-<p style="margin:0 0 16px;">If your clinic&#39;s line forwards to AYA, you can undo that while this is sorted out. From the clinic&#39;s own line, dial these Verizon codes:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<p style="margin:0 0 16px;">If your clinic&#39;s line forwards to AYA, you can undo that while this is sorted out. Follow these Verizon steps, dialling each code from the clinic&#39;s own line:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy and no-answer forwarding on a Verizon home phone: *43</li><li>If Verizon pointed your home phone&#39;s busy and no-answer forwarding at your assistant by service order instead, *43 doesn&#39;t undo it: ask Verizon to set it back to where it went before.</li><li>Cancel forwarding on a Verizon mobile line: *73</li></ul>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -3996,10 +4024,11 @@ Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
 Paying what you owe healdesk restores everything at once.
 
-If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these Verizon codes:
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. Follow these Verizon steps, dialling each code from the clinic's own line:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy and no-answer forwarding on a Verizon home phone: *43
+- If Verizon pointed your home phone's busy and no-answer forwarding at your assistant by service order instead, *43 doesn't undo it: ask Verizon to set it back to where it went before.
+- Cancel forwarding on a Verizon mobile line: *73
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -4034,8 +4063,8 @@ exports[`each template's output > suspended, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">AYA has stopped answering on every channel: forwarded calls pass straight through to your direct line, and website chat becomes a contact form. Your data is kept, and you can still sign in to healdesk.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_testplatform/test_invoice" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Pay the invoice</a></p>
 <p style="margin:0 0 16px;">Paying what you owe healdesk restores everything at once.</p>
-<p style="margin:0 0 16px;">If your clinic&#39;s line forwards to AYA, you can undo that while this is sorted out. From the clinic&#39;s own line, dial these Verizon codes:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy forwarding: *91</li><li>Cancel no-answer forwarding: *93</li></ul>
+<p style="margin:0 0 16px;">If your clinic&#39;s line forwards to AYA, you can undo that while this is sorted out. Follow these Verizon steps, dialling each code from the clinic&#39;s own line:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Cancel busy and no-answer forwarding on a Verizon home phone: *43</li><li>If Verizon pointed your home phone&#39;s busy and no-answer forwarding at your assistant by service order instead, *43 doesn&#39;t undo it: ask Verizon to set it back to where it went before.</li><li>Cancel forwarding on a Verizon mobile line: *73</li></ul>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -4054,10 +4083,11 @@ Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
 Paying what you owe healdesk restores everything at once.
 
-If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these Verizon codes:
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. Follow these Verizon steps, dialling each code from the clinic's own line:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy and no-answer forwarding on a Verizon home phone: *43
+- If Verizon pointed your home phone's busy and no-answer forwarding at your assistant by service order instead, *43 doesn't undo it: ask Verizon to set it back to where it went before.
+- Cancel forwarding on a Verizon mobile line: *73
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

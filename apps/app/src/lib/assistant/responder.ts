@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { isPatientModelId, type PatientModelId } from "@healdesk/catalog";
 
 import { log } from "@/lib/log";
 
@@ -20,6 +21,15 @@ import type { AssistantChannel } from "./facts";
  *     instead of silence;
  *   - the Meta front door: claude-opus-5-5, 800 tokens, adaptive thinking,
  *     the SDK's own timeout and retries, as it always had.
+ * An override names one of PATIENT_MODEL_IDS (@healdesk/catalog
+ * model-retention.ts) or is ignored, with a warning and the channel's
+ * default: the terms, BAA 1.6.0 and the DPA state Anthropic's retention for
+ * those models only. Its Covered Models (Claude Fable and Mythos, 5 and 5.1)
+ * keep content for at least 30 days, so an environment variable naming one
+ * would quietly make "no more than 30 days" false in a signed agreement.
+ * Moving a channel onto one needs the wording, the terms and a new BAA
+ * version first (docs/counsel/agreement-changes.md §16).
+ *
  * Every channel runs at low effort. Opus 5.5 and Sonnet 5.5 think adaptively
  * whether or not the request says so, and low effort keeps that short; the
  * Meta channel asks for it explicitly, as it did on its own client. No
@@ -66,9 +76,9 @@ export type AssistantResponder = (request: {
 export type ModelChannel = AssistantChannel | "meta";
 
 type ChannelConfig = {
-  /** The environment variable that may name another model; null when the model is fixed. */
+  /** The environment variable that may name another patient model; null when the model is fixed. */
   modelEnv: string | null;
-  model: string;
+  model: PatientModelId;
   maxTokens: number;
   /** Milliseconds; undefined keeps the SDK's default. */
   timeoutMs: number | undefined;
@@ -110,10 +120,29 @@ export const MODEL_CONFIG: Readonly<Record<ModelChannel, ChannelConfig>> = {
   },
 };
 
-export function assistantModel(channel: ModelChannel): string {
+/** Each refused override is warned about once per process, not on every turn. */
+const warnedOverrides = new Set<string>();
+
+/**
+ * The model one channel runs on: the override its environment variable
+ * names, if that is a patient model, and the channel's default otherwise.
+ */
+export function assistantModel(channel: ModelChannel): PatientModelId {
   const config = MODEL_CONFIG[channel];
-  const configured = config.modelEnv ? process.env[config.modelEnv] : undefined;
-  return configured?.trim() || config.model;
+  const configured = config.modelEnv ? process.env[config.modelEnv]?.trim() : undefined;
+  if (!configured) return config.model;
+  if (isPatientModelId(configured)) return configured;
+  const key = `${channel}:${configured}`;
+  if (!warnedOverrides.has(key)) {
+    warnedOverrides.add(key);
+    // The variable's name, never a conversation: the value is an operator's
+    // setting, and the channel's default answers instead.
+    log.warn(
+      `${config.modelEnv} names a model outside PATIENT_MODEL_IDS (@healdesk/catalog); using ${config.model}`,
+      { channel, source: config.modelEnv },
+    );
+  }
+  return config.model;
 }
 
 /**

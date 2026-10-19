@@ -26,6 +26,7 @@ import {
   type CalendarAccount,
   type CalendarTermsKind,
 } from "./calendar-terms";
+import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import { isSpecialtyId, regimeFor, type SpecialtyId } from "./specialties";
 import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
 import { wrap } from "./wrap";
@@ -86,9 +87,16 @@ import { wrap } from "./wrap";
  *     and "calendar election" is defined as 1.3.0's clause 1 defines it; the
  *     election form that names this agreement is dpa-calendar-election.ts,
  *     built from calendar-terms.ts's pieces;
- *   - Anthropic's retention is 1.2.1's sentence, word for word, from
- *     "retains conversation content for 30 days" to "never trains on that
- *     content" (`ANTHROPIC_RETENTION`);
+ *   - Anthropic's retention is MODEL_RETENTION_AGREEMENT
+ *     (model-retention.ts), the sentences BAA 1.6.0's Subcontractors clause
+ *     states, word for word: no more than the 30 days of its standard
+ *     retention, two years for flagged content alone, the law's own period
+ *     for what the law requires, and no training without healdesk's
+ *     permission. Until 19 October 2026 it was 1.2.1's sentence, which gave
+ *     law-required content two years, the 30 days a purpose and the service
+ *     "cannot run with shorter retention", none of which Anthropic says of
+ *     the models the product calls (agreement-changes.md §16); the DPA was
+ *     unreleased, so it was corrected in place and its hashes regenerated;
  *   - the party, its notice address and Delaware law are `AGREEMENT_PARTY`,
  *     as BAA 1.2.2 prints them: hello@healdesk.io is the notice email.
  *
@@ -292,16 +300,6 @@ function dpaCalendarBody(v: DpaVariables): string {
     wrap(CALENDAR_LOCATION_PARAGRAPH),
   ].join("\n\n");
 }
-
-/**
- * Anthropic's retention, as BAA 1.2.1 states it. dpa.test.ts asserts that
- * 1.2.1's rendered subcontractors clause contains this exact run of words.
- */
-export const ANTHROPIC_RETENTION =
-  "retains conversation content for 30 days, for abuse detection and security, and then " +
-  "deletes it, except content its automated trust-and-safety systems flag or the law requires " +
-  "it to keep, which it may retain for up to two years; its covered service cannot run with " +
-  "shorter retention. Anthropic never trains on that content";
 
 // -----------------------------------------------------------------------------
 // The clause library, version 1.0.0
@@ -674,8 +672,9 @@ const CLAUSES_1_0: readonly DpaClause[] = [
 
   /**
    * 1.2.1's three paragraphs in this document's words: the flow-down, the
-   * model provider with 1.2.1's retention sentence, and the list on request
-   * and the notice, which are the shared sentence (24 hours' notice of a new
+   * model provider with BAA 1.6.0's retention sentences (MODEL_RETENTION_AGREEMENT,
+   * since 19 October 2026; 1.2.1's before), and the list on request and the
+   * notice, which are the shared sentence (24 hours' notice of a new
    * subcontractor). Client Information reaches Anthropic in the
    * same HIPAA-ready account as PHI does, which is why the BAA is named.
    */
@@ -699,9 +698,8 @@ const CLAUSES_1_0: readonly DpaClause[] = [
           `conversation. healdesk's language-model provider is Anthropic, which receives the ` +
           `content of each conversation to generate the assistant's replies, in the same account ` +
           `healdesk uses for the practices HIPAA covers, under a business associate agreement ` +
-          `with healdesk. In that account Anthropic ${ANTHROPIC_RETENTION}, and healdesk may not ` +
-          `use Client Information to train, fine-tune or evaluate any model, its own or a third ` +
-          `party's.`,
+          `with healdesk. ${MODEL_RETENTION_AGREEMENT} healdesk may not use Client Information ` +
+          `to train, fine-tune or evaluate any model, its own or a third party's.`,
       ) +
       "\n\n" +
       wrap(subprocessorNoticeClauseBody()),

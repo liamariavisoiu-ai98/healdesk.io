@@ -22,7 +22,7 @@ Mindbody, which does not read Google Calendar, so the calendar clause is the
 one under which healdesk connects nothing; and a personal Google account,
 which that clause does not depend on. From the title line on, the sample is
 exactly what packages/catalog/src/dpa.test.ts freezes as dpa/1.0.0 / sample
-(SHA-256 a84117ed3b31091e8c8d02dd9744262e7bfb29aa72b60ec19b24ddfc08ff9e55).
+(SHA-256 88d592a2db0ac50faa80a819a1d6bd1dc0558d9fa31aaad14807a0a8eda43cc0).
 The clauses that render only for some practices follow in Appendix A, numbered
 as they render; nothing else in the text varies. Appendix B is the calendar
 election that names this agreement, which its Definitions clause and its
@@ -428,12 +428,14 @@ EFFECTIVE 6 October 2026
   conversation. healdesk's language-model provider is Anthropic, which
   receives the content of each conversation to generate the assistant's
   replies, in the same account healdesk uses for the practices HIPAA covers,
-  under a business associate agreement with healdesk. In that account
-  Anthropic retains conversation content for 30 days, for abuse detection and
-  security, and then deletes it, except content its automated trust-and-safety
-  systems flag or the law requires it to keep, which it may retain for up to
-  two years; its covered service cannot run with shorter retention. Anthropic
-  never trains on that content, and healdesk may not use Client Information to
+  under a business associate agreement with healdesk. Under that agreement
+  Anthropic keeps conversation content for no more than the 30 days of its
+  standard retention, and then deletes it. Two exceptions apply even then:
+  content its automated trust-and-safety systems flag as violating its usage
+  policy, which it may keep for up to two years, and content the law requires
+  it to keep, which it may keep for as long as the law requires. Anthropic
+  does not use that content to train its models without healdesk's permission,
+  which healdesk will not give. healdesk may not use Client Information to
   train, fine-tune or evaluate any model, its own or a third party's.
 
   healdesk will give Practice its current list of its subcontractors on

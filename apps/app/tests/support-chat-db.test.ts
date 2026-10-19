@@ -259,6 +259,8 @@ describeDb("the support chat, on a real clinic", () => {
     });
     const steps = await read();
     expect(steps).toMatchObject({ ayaNumberE164: "+15125550142", carrier: "Verizon" });
-    expect(steps!.steps.map((s) => s.dial)).toEqual(["*905125550142", "*925125550142"]);
+    // Verizon's home-phone and mobile codes, then the two steps with nothing
+    // to dial (a machine answering first, and the test call).
+    expect(steps!.steps.map((s) => s.dial)).toEqual(["*425125550142", "*715125550142", "", ""]);
   });
 });

@@ -1,3 +1,4 @@
+import { contactFormOfferSafely } from "@/lib/chat/contact-form";
 import { json, preflight, widgetRequest } from "@/lib/chat/widget-http";
 import { startWebChat } from "@/lib/chat/web-chat";
 import { describeError, log } from "@/lib/log";
@@ -18,7 +19,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
     return json(await startWebChat(req.clinic, new Date(), req.origin), 200, req.origin);
   } catch (error) {
     log.error("web chat start failed", { clinicId: req.clinic.clinicId, error: describeError(error) });
-    return json({ mode: "contact_form", reason: "unavailable" }, 200, req.origin);
+    // Our endpoint failed: the widget shows the contact form, which still
+    // takes a message while the agreement covers the clinic.
+    return json({ mode: "contact_form", reason: "unavailable", form: await contactFormOfferSafely(req.clinic) }, 200, req.origin);
   }
 }
 

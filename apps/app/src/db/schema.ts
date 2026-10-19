@@ -1694,11 +1694,25 @@ export const bookingRequests = pgTable(
      * route idempotent on a retried tool call. Frozen after insert.
      */
     vendorCallId: text("vendor_call_id"),
+    /**
+     * How the request was taken: by AYA in a conversation, or on the
+     * website's contact form while website chat was not answering (L20,
+     * package F): a first name, a number and one of a fixed set of times,
+     * nothing else. A contact-form request is always web chat's, with no
+     * conversation (CHECK). Frozen after insert: the runtime role has no
+     * UPDATE on it, and the no-rewrite trigger refuses it to the owner too.
+     */
+    source: text("source").$type<BookingRequestSource>().notNull().default("assistant"),
     /** The person's last inbound message on the thread — the start of Meta's 24-hour window. */
     lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("booking_requests_source_known", sql`${t.source} in ('assistant', 'contact_form')`),
+    check(
+      "booking_requests_source_shape",
+      sql`${t.source} = 'assistant' or (${t.channel} = 'web_chat' and ${t.conversationId} is null and ${t.vendorCallId} is null)`,
+    ),
     uniqueIndex("booking_requests_token_idx").on(t.tokenHash),
     index("booking_requests_clinic_idx").on(t.clinicId, t.createdAt),
     uniqueIndex("booking_requests_vendor_call_idx")
@@ -1716,6 +1730,8 @@ export const bookingRequests = pgTable(
 export type ProposedSlot = { at: string; label: string; source: "calendar" | "desk" };
 /** See bookingRequests.bookedVia. 0041 dropped 'callback' from the CHECK: healdesk places no calls. */
 export type BookedVia = "desk" | "agent_direct";
+/** See bookingRequests.source: AYA took it, or the website's contact form did while AYA was not answering. */
+export type BookingRequestSource = "assistant" | "contact_form";
 
 /**
  * The id and token hash of every booking request ever written, kept after

@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { setCancelAt } from "@/lib/billing/entitlements";
 import { transition } from "@/lib/billing/state-machine";
 import { assertPayloadAllowed } from "@/lib/email/lint";
-import { sendLiveAlert } from "@/lib/reporting/alerts";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { renewalNoticeDue, sendRenewalReminders } from "@/lib/scheduler/annual-renewal-reminder";
@@ -315,37 +314,6 @@ describeDb("delivery", () => {
     });
   });
 
-  describe("live alerts", () => {
-    test("one alert per conversation, with a count and no patient", async () => {
-      const c = await seedClinic("alert");
-      await makeProduction(c.clinicId, new Date("2026-08-01T00:00:00Z"));
-      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" }),
-      );
-      const { conversationId } = await seedConversation(c.clinicId, { startedAt: new Date(), booked: true });
-
-      const transport = new FakeTransport();
-      expect(await sendLiveAlert(c.clinicId, "booked", conversationId, transport)).toBe("sent");
-      expect(await sendLiveAlert(c.clinicId, "booked", conversationId, transport)).toBe("skipped");
-      expect(transport.sent).toHaveLength(1);
-      const { message } = transport.sent[0]!;
-      expect(message.phiClass).toBe("none");
-      expect(message.text).not.toMatch(/\+1555|Synthetic/);
-      expect(message.text).not.toContain(conversationId);
-    });
-
-    test("a synthetic clinic never gets one", async () => {
-      const c = await seedClinic("alert-synthetic");
-      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" }),
-      );
-      const { conversationId } = await seedConversation(c.clinicId, { startedAt: new Date(), booked: true });
-      const transport = new FakeTransport();
-      expect(await sendLiveAlert(c.clinicId, "escalated", conversationId, transport)).toBe("skipped");
-      expect(transport.sent).toHaveLength(0);
-    });
-  });
-
   describe("connection health", () => {
     test("finds the dead, the stale and the stuck, and mails ops one digest", async () => {
       const stale = await seedClinic("health-stale");
@@ -472,6 +440,9 @@ describeDb("delivery", () => {
           // The practice questions' sweep (drizzle/0080), hourly behind the
           // practice-questions switch; the runs go every minute from their queue.
           "practice-questions-sweep",
+          // L8, "Request still open" (drizzle/0082), hourly behind its switch:
+          // each clinic's goes at its own opening hour.
+          "requests-still-open",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.

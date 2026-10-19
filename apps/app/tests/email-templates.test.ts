@@ -160,16 +160,6 @@ describe("the template registry", () => {
     }
     expect(byPackage).toEqual({
       WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
-      F: [
-        "booking_request",
-        "request_still_open",
-        "request_missed",
-        "deposit_to_collect",
-        "handover",
-        "urgent",
-        "website_message",
-        "calendar_check",
-      ],
       WP4: ["daily_summary", "weekly_recap"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
       WP9: ["agreement_to_sign"],
@@ -189,7 +179,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, and the practice questions' O8 and O9", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the support chat's L25 and I3, and the practice questions' O8 and O9", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -230,6 +220,14 @@ describe("the template registry", () => {
       "ai_paused",
       "calendar_link",
       "calendar_election_recorded",
+      "booking_request",
+      "request_still_open",
+      "request_missed",
+      "deposit_to_collect",
+      "handover",
+      "urgent",
+      "website_message",
+      "calendar_check",
       "support_request",
       "support_escalation",
       "assistant_ready",

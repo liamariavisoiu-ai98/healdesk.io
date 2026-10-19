@@ -3,6 +3,11 @@ import { billingNotices } from "@/db/schema";
 import { PLAN_NOTICE_KINDS, type PlanNoticeKind } from "@/lib/email/kinds";
 import type { AssistantReadyPayload } from "@/lib/email/templates/assistant_ready";
 import type { AiPausedPayload } from "@/lib/email/templates/ai_paused";
+import type {
+  BookingAlertPayload,
+  DepositAlertPayload,
+  RequestsStillOpenPayload,
+} from "@/lib/email/templates/booking_alert";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
@@ -65,14 +70,23 @@ export type PlanNoticePayloads = {
   ai_paused: AiPausedPayload;
 
   // Registered ahead of their packages; each package names its payload here.
-  booking_request: OwedPayload;
-  request_still_open: OwedPayload;
-  request_missed: OwedPayload;
-  deposit_to_collect: OwedPayload;
-  handover: OwedPayload;
-  urgent: OwedPayload;
-  website_message: OwedPayload;
-  calendar_check: OwedPayload;
+  // The live alerts (package F), queued by lib/notices/booking-alerts.ts.
+  /** Dedupe `booking_request:request:<id>`: once per request (booking-alerts.ts, dedupeKey). */
+  booking_request: BookingAlertPayload;
+  /** Dedupe `request_still_open:<clinic-local date>`: once per opening day, with the count. */
+  request_still_open: RequestsStillOpenPayload;
+  /** Dedupe `request_missed:request:<id>`: once per request that expires. */
+  request_missed: BookingAlertPayload;
+  /** Dedupe on the appointment, the request or the conversation it is about. */
+  deposit_to_collect: DepositAlertPayload;
+  /** Dedupe on the conversation, or the call while it is still going: once each. */
+  handover: BookingAlertPayload;
+  /** Dedupe on the conversation, or the call while it is still going: once each. */
+  urgent: BookingAlertPayload;
+  /** Dedupe `website_message:request:<id>`: once per message left (lib/chat/contact-form.ts). */
+  website_message: BookingAlertPayload;
+  /** Dedupe `calendar_check:request:<id>`: once per request. */
+  calendar_check: BookingAlertPayload;
   daily_summary: OwedPayload;
   weekly_recap: OwedPayload;
   outage_started: OwedPayload;

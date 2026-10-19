@@ -117,6 +117,10 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "version",
   // L15: the Meta app switched Off ("instagram"), an id, never a name.
   "platform",
+  // L25 and I3: a support-chat escalation's topic and what is wrong, each an
+  // id from lib/support/escalation-fields.ts's fixed lists, never words.
+  "topic",
+  "symptom",
 ]);
 
 /** The class a key's value must belong to, or null when the key is not on the list. */

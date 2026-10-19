@@ -46,6 +46,7 @@ const WEEKDAYS = [["09:00", "17:00"]] as [string, string][];
 const FACTS: AssistantFacts = {
   clinicId: "c0ffee00-0000-4000-8000-000000000001",
   clinicName: "Radiance Med Spa",
+  providerNames: [],
   specialty: "med-spa",
   timeZone: "America/New_York",
   phone: "+14155550199",

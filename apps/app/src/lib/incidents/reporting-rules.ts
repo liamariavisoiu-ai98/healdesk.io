@@ -41,6 +41,8 @@ export const REPORTING_RULES: Readonly<
   Record<AgreementKind, Readonly<Record<string, ReportingRule>>>
 > = {
   baa: {
+    // The 1.6.0 draft (drizzle/0091): its Reporting clause is 1.5.1's own.
+    "1.6.0": "sixty_calendar_days",
     "1.5.1": "sixty_calendar_days",
     "1.5.0": "sixty_calendar_days",
     "1.4.0": "sixty_calendar_days",
@@ -61,6 +63,8 @@ export const SUBCONTRACTOR_NOTICE_RULES: Readonly<
   Record<AgreementKind, Readonly<Record<string, SubcontractorNoticeRule>>>
 > = {
   baa: {
+    // The 1.6.0 draft: its Subcontractors notice paragraph is 1.5.1's.
+    "1.6.0": "twenty_four_hours",
     "1.5.1": "twenty_four_hours",
     "1.5.0": "twenty_four_hours",
     "1.4.0": "twenty_four_hours",

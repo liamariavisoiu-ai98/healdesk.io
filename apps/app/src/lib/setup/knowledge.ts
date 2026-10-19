@@ -13,6 +13,7 @@ import { eq, sql } from "drizzle-orm";
 
 import type { Transaction } from "@/db";
 import { agentConfigs, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
+import { neverSayBlocksDisclosure } from "@/lib/assistant/guard";
 import { MAX_AGENT_SERVICES, MAX_DEPOSIT_USD } from "@/lib/onboarding/agent-config";
 import type { TenantTx } from "@/lib/tenant";
 
@@ -313,13 +314,20 @@ export async function saveMostAsked(
   });
 }
 
-/** The never-say list with the clinical defaults first, then the clinic's own, de-duplicated. */
+/**
+ * The never-say list with the clinical defaults first, then the clinic's own,
+ * de-duplicated: the list every conversation reads, on a call, a web chat and
+ * the Meta front door alike. An entry that would stop the assistant saying it
+ * is an AI assistant, or pointing to 911, is left out (guard.ts,
+ * neverSayBlocksDisclosure): validateNeverSay refuses one now, and this keeps
+ * one saved before it from reaching the prompt or the guard.
+ */
 export function neverSayWithDefaults(own: readonly string[] = []): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const phrase of [...NEVER_SAY_DEFAULTS, ...own]) {
     const clean = cleanText(phrase, NEVER_SAY_LIMITS.chars);
-    if (!clean || seen.has(clean.toLowerCase())) continue;
+    if (!clean || seen.has(clean.toLowerCase()) || neverSayBlocksDisclosure(clean)) continue;
     seen.add(clean.toLowerCase());
     out.push(clean);
     if (out.length >= NEVER_SAY_LIMITS.entries) break;
@@ -461,7 +469,10 @@ export async function saveQuickAnswers(
  * Validate the never-say list as the clinic edits it: trimmed, de-duplicated,
  * at most NEVER_SAY_LIMITS. Not screened: it is clinical on purpose. An empty
  * list is allowed (the engine's own guards still hold); "Restore the
- * defaults" puts the clinical defaults back (neverSayWithDefaults).
+ * defaults" puts the clinical defaults back (neverSayWithDefaults). An entry
+ * that would stop AYA saying it is an AI assistant when asked, or pointing to
+ * 911, is refused by name (guard.ts, neverSayBlocksDisclosure), so the clinic
+ * sees why rather than finding it quietly left out.
  */
 export function validateNeverSay(raw: unknown): string[] {
   if (!Array.isArray(raw)) throw new KnowledgeError("neverSay", "Send the list of phrases.");
@@ -470,6 +481,12 @@ export function validateNeverSay(raw: unknown): string[] {
   for (const entry of raw) {
     const text = cleanText(entry, NEVER_SAY_LIMITS.chars);
     if (!text || seen.has(text.toLowerCase())) continue;
+    if (neverSayBlocksDisclosure(text)) {
+      throw new KnowledgeError(
+        "neverSay",
+        `"${text}" can't go on the list: AYA always has to be able to say it's an AI assistant and not a person, and to tell someone to call 911.`,
+      );
+    }
     seen.add(text.toLowerCase());
     out.push(text);
   }

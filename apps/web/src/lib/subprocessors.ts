@@ -164,10 +164,19 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     scope: "product",
   },
   {
+    // The retention is Anthropic's documentation for the models the product
+    // calls (packages/catalog model-retention.ts, checked 19 October 2026):
+    // no more than 30 days under standard retention, two years for flagged
+    // content alone, and the law's own period for what the law requires. It
+    // said "which its covered models require" until then, which is true only
+    // of Anthropic's Covered Models (agreement-changes.md § 17). It says
+    // "conversation content", as the agreements do, where it said "inputs",
+    // and states training as the catalog's sentences do: not without our
+    // permission, which we do not give.
     name: "Anthropic (the product)",
     category: "ai-model",
     purpose: "The language model behind every channel of the product, in a HIPAA-ready Anthropic organisation used only for the product",
-    data: "Conversation text and the clinic's public service information. Under the BAA Anthropic keeps inputs for 30 days, which its covered models require, except content its trust-and-safety systems flag or the law requires it to keep, which it may hold for up to two years. No training on any of it",
+    data: "Conversation text and the clinic's public service information. Under the BAA, once signed, Anthropic keeps conversation content for no more than the 30 days of its standard retention, except content its trust-and-safety systems flag, which it may hold for up to two years, and content the law requires it to keep, for as long as the law requires. No training on it without our permission, which we do not give",
     region: "United States",
     handlesPhi: true,
     baa: { state: "pending" },

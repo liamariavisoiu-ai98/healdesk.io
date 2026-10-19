@@ -49,7 +49,11 @@ on a call. The owner released 1.5.1, which is 1.5.0 with clause 11's items
 § 16), on the owner's own instruction and without external counsel; no
 clinic had signed 1.5.0, so 1.5.1 replaced it outright: it is the only
 version offered (`docs/baa-v1.5.1.txt`) and the go-live floor, and § 16
-recommends that counsel review it. The
+recommends that counsel review it. The same day BAA 1.6.0 was drafted, not
+released: 1.5.1 with Anthropic's retention said as Anthropic's
+documentation says it for the models the product calls, correcting finding
+A3's misquote (`agreement-changes.md` § 17, `docs/baa-v1.6.0.txt`); its
+`approvedByCounsel` is false until the owner releases it. The
 reasoning: no clinic is live and no real patient data has been processed;
 the regulatory skeleton of the BAA is checkable against the text of 45 CFR
 164.504(e) and was checked; the open points that a lawyer would settle are

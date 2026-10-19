@@ -23,7 +23,11 @@ import type { TenantTx } from "@/lib/tenant";
  * Only an approved script's services, notes and hours are public facts, as on
  * the front door. The never-say list is the clinic's own plus the built-in
  * defaults, and goes into every conversation on every channel (CLAUDE.md,
- * "Guardrails"). The clinic cannot edit the prompt, only these facts.
+ * "Guardrails"): the Meta front door reads the same list, built the same way
+ * and with or without an approved script (frontDoorFacts), and refuses it
+ * with the same matcher (guard.ts, neverSayIn). The rest of these facts are
+ * a call's and a web chat's. The clinic cannot edit the prompt, only these
+ * facts.
  *
  * The clinic's Behaviour switches come with them (the v1 spec, "Every switch
  * in the portal"): its tone, its languages, "Suggest add-on treatments" and

@@ -9,6 +9,7 @@ import {
   STATE_LAW_CLAUSE_HEADING,
   stateLawClauseBody,
   stateLawClauseBody140,
+  stateLawClauseBody160,
   type BaaVariables,
 } from "./baa";
 import { buildBaaSelections } from "./baa-selections";
@@ -209,6 +210,50 @@ describe("1.5.1's state-law clause", () => {
   });
 });
 
+describe("1.6.0's state-law clause", () => {
+  test("differs from 1.4.0's (and 1.5.1's) only in its two exceptions to deletion, which name no purpose", () => {
+    // 1.6.0's Subcontractors clause gives Anthropic's retention no purpose,
+    // because Anthropic's documentation gives none for the models the product
+    // calls (agreement-changes.md §17). 1.4.0's cross-references, which 1.5.0
+    // and 1.5.1 carry, said "for abuse detection and security", and left the
+    // standard retention outside the only exception; 1.6.0's except what that
+    // clause says, for its periods.
+    const template = getBaaTemplate("1.6.0")!;
+    for (const { label, variables } of everyDocument()) {
+      const clause = template.clauses.find((c) => c.id === "state-law")!;
+      const sync =
+        BOOKING_SYSTEMS.find((s) => s.id === variables.bookingSystem)!.readsGoogleCalendar === "yes"
+          ? "live"
+          : "manual";
+      expect(clause.body(variables), label).toBe(
+        stateLawClauseBody160({ subject: "patient information", sync }),
+      );
+    }
+    for (const subject of ["patient information", "Client Information"] as const) {
+      for (const sync of ["live", "manual"] as const) {
+        const label = `${subject}/${sync}`;
+        const was = unwrap(stateLawClauseBody140({ subject, sync }));
+        const now = unwrap(stateLawClauseBody160({ subject, sync }));
+        expect(now, label).not.toMatch(/abuse detection|purpose and period|used for nothing else\. healdesk keeps/);
+        expect(now, label).toContain(
+          'The only exception is what the clause headed "Subcontractors" says a subcontractor may keep, for the periods that clause states, and that is kept for those periods only. healdesk keeps only a record of the request',
+        );
+        expect(now, label).toContain(
+          "The only exception to a subcontractor's duty to delete is what that clause says it may keep, for the periods that clause states.",
+        );
+        const strip = (text: string) =>
+          text
+            .replace(/says a subcontractor may keep[^;]*?(?= healdesk keeps only a record)/, "")
+            .replace(/(duty to delete is what that clause) says it may keep[^.]*\./, "$1");
+        expect(strip(now), label).toBe(strip(was));
+        for (const line of stateLawClauseBody160({ subject, sync }).split("\n")) {
+          expect(line.length, line).toBeLessThanOrEqual(78);
+        }
+      }
+    }
+  });
+});
+
 describe("the Payments clause", () => {
   test("names no patient, so the DPA shares it word for word", () => {
     expect(PAYMENTS_CLAUSE_BODY).not.toMatch(/patient|PHI/i);
@@ -217,7 +262,7 @@ describe("the Payments clause", () => {
   });
 });
 
-describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1"])("%s's render guard", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "1.6.0"])("%s's render guard", (version) => {
   test("refuses verified reporting, the phase-two read-back it does not describe", () => {
     const template = getBaaTemplate(version)!;
     expect(template.clauses.map((c) => c.id)).not.toContain("data-sources-verified");
@@ -236,7 +281,7 @@ describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1"])("%s's render guard", (versio
   });
 });
 
-describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1"])("every %s document", (version) => {
+describe.each(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "1.6.0"])("every %s document", (version) => {
   test("names other clauses only by headings it has, and fits 78 columns", () => {
     const template = getBaaTemplate(version)!;
     for (const { label, variables } of everyDocument()) {

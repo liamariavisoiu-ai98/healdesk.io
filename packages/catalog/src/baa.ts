@@ -18,6 +18,7 @@ import {
   type CalendarTermsKind,
 } from "./calendar-terms";
 import { DIRECT_BOOKING_CLAUSE_BODY, DIRECT_BOOKING_CLAUSE_HEADING } from "./direct-booking-addendum";
+import { MODEL_RETENTION_AGREEMENT } from "./model-retention";
 import type { BookingSync } from "./platforms";
 import { subprocessorNoticeClauseBody } from "./subprocessor-notice";
 import { wrap } from "./wrap";
@@ -84,6 +85,10 @@ import { wrap } from "./wrap";
  * docs/counsel/agreement-changes.md §16 recommends counsel review it. It
  * replaced 1.5.0 outright: no clinic had signed 1.5.0, so it is no longer
  * signable and the go-live floor (MIN_ACCEPTABLE_BAA_VERSION) is 1.5.1.
+ * 1.6.0, drafted on 2026-10-19 and not released, is 1.5.1 with Anthropic's
+ * retention said as Anthropic's documentation says it for the models the
+ * product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §17): it sits
+ * after 1.5.1 with approvedByCounsel false until the owner releases it.
  * 1.5.0, released on 2026-10-14, which is 1.4.0 with the transcript's one
  * encrypted copy held only until the practice's mail server confirms
  * delivery (§15), 1.4.0, released on 2026-10-13, which is 1.3.0, the
@@ -2571,9 +2576,10 @@ const STATE_LAW_HEADINGS: Record<
  *
  * Released with BAA 1.3.0 on 2026-10-12, and frozen from then with its golden
  * hashes: a new wording is a new function beside this one, never an edit to
- * it. BAA 1.4.0's wording, which the DPA renders since 13 October 2026, is
- * `stateLawClauseBody140`, beside it; both are built by `stateLawClause`,
- * which changes the 1.3.0 text in nothing (the 1.3.0 golden hashes hold it).
+ * it. BAA 1.4.0's wording is `stateLawClauseBody140`, beside it, and BAA
+ * 1.6.0's, which the DPA renders since 19 October 2026, is
+ * `stateLawClauseBody160`; all three are built by `stateLawClause`, which
+ * changes the 1.3.0 text in nothing (the 1.3.0 golden hashes hold it).
  */
 export function stateLawClauseBody(input: StateLawClauseInput): string {
   return stateLawClause(input, "kept");
@@ -2596,14 +2602,43 @@ export function stateLawClauseBody(input: StateLawClauseInput): string {
  *
  * Everything else is 1.3.0's, word for word (packages/catalog's baa.test.ts
  * holds the two together). Frozen with BAA 1.4.0's golden hashes from its
- * release on 2026-10-13; the DPA renders it as it stands until the DPA is
- * released, and from then a new wording is a new function here too.
+ * release on 2026-10-13, and carried unchanged by 1.5.0 and 1.5.1. The DPA
+ * rendered it until 19 October 2026, when it moved to
+ * `stateLawClauseBody160`, BAA 1.6.0's.
  */
 export function stateLawClauseBody140(input: StateLawClauseInput): string {
   return stateLawClause(input, "emailed");
 }
 
-/** What `stateLawClauseBody` and `stateLawClauseBody140` take. */
+/**
+ * The same clause in BAA 1.6.0's words, and the DPA's since 19 October 2026:
+ * 1.4.0's, with its two cross-references to the Subcontractors clause said as
+ * that clause now says Anthropic's retention (model-retention.ts;
+ * agreement-changes.md §17). 1.4.0's item c excepts from deletion what that
+ * clause "says a subcontractor may keep for abuse detection and security, or
+ * because a law requires it", kept "for that purpose and period only, and
+ * used for nothing else", and its subcontractor paragraph says the same.
+ * Anthropic's documentation gives the models the product calls no purpose
+ * for their standard retention, and 1.6.0's Subcontractors clause gives none,
+ * so those words named a purpose nobody states, and left the standard
+ * retention itself (no more than 30 days) outside the only exception, though
+ * healdesk's erasure has no Anthropic step (apps/app's erasure.ts). Here the
+ * exception is what that clause says a subcontractor may keep, for the
+ * periods that clause states: the standard retention, flagged content and
+ * what the law requires, each for its own period, and "used for nothing
+ * else", which would promise of Anthropic's flagged content what its
+ * documentation does not, is gone with the purpose it qualified.
+ *
+ * Everything else is 1.4.0's (and so 1.5.1's), word for word (baa.test.ts
+ * holds the two together). BAA 1.6.0 and the DPA are both unreleased: their
+ * text may move until each is released, and from then a new wording is a new
+ * function.
+ */
+export function stateLawClauseBody160(input: StateLawClauseInput): string {
+  return stateLawClause(input, "emailed", "periods");
+}
+
+/** What `stateLawClauseBody`, `stateLawClauseBody140` and `stateLawClauseBody160` take. */
 export type StateLawClauseInput = {
   subject: StateLawSubject;
   kind?: "baa" | "dpa";
@@ -2611,11 +2646,18 @@ export type StateLawClauseInput = {
 };
 
 /**
- * Both wordings of the clause. `transcripts` is the only difference between
- * them: "kept" is BAA 1.3.0's, "emailed" is BAA 1.4.0's and the DPA's. Not
- * exported, so no caller can reach a wording by a flag rather than by name.
+ * Every wording of the clause. `transcripts` is "kept" in BAA 1.3.0 and
+ * "emailed" from 1.4.0 on; `exception`, what a subcontractor may keep after a
+ * deletion, is "purpose" (abuse detection and security, or a law) to 1.5.1
+ * and "periods" (whatever the Subcontractors clause states, for its periods)
+ * in 1.6.0 and the DPA. Not exported, so no caller can reach a wording by a
+ * flag rather than by name.
  */
-function stateLawClause(input: StateLawClauseInput, transcripts: "kept" | "emailed"): string {
+function stateLawClause(
+  input: StateLawClauseInput,
+  transcripts: "kept" | "emailed",
+  exception: "purpose" | "periods" = "purpose",
+): string {
   const S = input.subject;
   const kind = input.kind ?? (S === "patient information" ? "baa" : "dpa");
   const baa = kind === "baa";
@@ -2784,8 +2826,11 @@ function stateLawClause(input: StateLawClauseInput, transcripts: "kept" | "email
         `backups expire, within ${BACKUP_RETENTION_DAYS} days after that. healdesk will have each ` +
         `subcontractor that holds the information delete it in time for Practice to meet the ` +
         `deadline the law sets. The only exception is what ${headed(HEADINGS_1_3.subcontractors)} ` +
-        `says a subcontractor may keep for abuse detection and security, or because a law ` +
-        `requires it. That is kept for that purpose and period only, and used for nothing else. ` +
+        (exception === "purpose"
+          ? `says a subcontractor may keep for abuse detection and security, or because a law ` +
+            `requires it. That is kept for that purpose and period only, and used for nothing else. `
+          : `says a subcontractor may keep, for the periods that clause states, and that is kept ` +
+            `for those periods only. `) +
         `healdesk keeps only a record of the request, for no longer than it needs one to make ` +
         `sure the information stays deleted, and uses it for nothing else;`,
       `d. give Practice the information it holds that Practice needs for any risk assessment, ` +
@@ -2827,7 +2872,9 @@ function stateLawClause(input: StateLawClauseInput, transcripts: "kept" | "email
         `object. healdesk will bind each subcontractor that handles ${S}, by the written agreement ` +
         `that clause requires, to meet the obligations this clause places on healdesk for that ` +
         `information. The only exception to a subcontractor's duty to delete is what that clause ` +
-        `says it may keep for abuse detection and security, or because a law requires it. ` +
+        (exception === "purpose"
+          ? `says it may keep for abuse detection and security, or because a law requires it. `
+          : `says it may keep, for the periods that clause states. `) +
         (live
           ? `Practice's Google Calendar, its payment processor and its Instagram, Messenger and ` +
             `WhatsApp accounts are Practice's own services, which Practice connects, where it uses ` +
@@ -2917,6 +2964,24 @@ function calendarClause(kind: CalendarTermsKind): BaaClause {
       "\n\n" +
       wrap(CALENDAR_LOCATION_PARAGRAPH),
   };
+}
+
+/**
+ * The Term clause's paragraph on the copies that outlast destruction, which
+ * 1.3.0's Term clause renders with "purposes and periods" and 1.6.0's with
+ * "periods" (above TERM_1_6). Built here so the two differ in that phrase
+ * alone; the 1.3.0 golden hashes hold 1.3.0's bytes.
+ */
+function copiesOutlastingDestruction(anthropicKeeps: "purposes and periods" | "periods"): string {
+  return wrap(
+    `Two kinds of copy outlast that deadline, and this agreement says why. healdesk cannot ` +
+      `delete one practice's information from a database backup, so copies in backups are ` +
+      `destroyed as those backups expire, within ${BACKUP_RETENTION_DAYS} days after the ` +
+      `destruction above. Anthropic may keep what the Subcontractors clause describes, only ` +
+      `for the ${anthropicKeeps} that clause states. Until these copies are destroyed this ` +
+      `agreement protects them. healdesk uses and discloses its backup copies only to restore ` +
+      `its systems, and destroys Practice's PHI again in anything it restores.`,
+  );
 }
 
 /**
@@ -3764,15 +3829,7 @@ const CLAUSES_1_3: readonly BaaClause[] = [
           `subcontractor that holds PHI for Practice delete it by the same time.`,
       ) +
       "\n\n" +
-      wrap(
-        `Two kinds of copy outlast that deadline, and this agreement says why. healdesk cannot ` +
-          `delete one practice's information from a database backup, so copies in backups are ` +
-          `destroyed as those backups expire, within ${BACKUP_RETENTION_DAYS} days after the ` +
-          `destruction above. Anthropic may keep what the Subcontractors clause describes, only ` +
-          `for the purposes and periods that clause states. Until these copies are destroyed this ` +
-          `agreement protects them. healdesk uses and discloses its backup copies only to restore ` +
-          `its systems, and destroys Practice's PHI again in anything it restores.`,
-      ) +
+      copiesOutlastingDestruction("purposes and periods") +
       "\n\n" +
       wrap(
         `Where returning or destroying any other PHI is not feasible, healdesk will tell Practice ` +
@@ -4582,6 +4639,162 @@ function validate151(v: BaaVariables): void {
   validateFrom130(v, "1.5.1");
 }
 
+// -----------------------------------------------------------------------------
+// 1.6.0 (a draft): Anthropic's retention as Anthropic documents it
+// -----------------------------------------------------------------------------
+
+/**
+ * ⚖️ 1.6.0, DRAFTED 19 October 2026 and NOT RELEASED: 1.5.1 with the
+ * Subcontractors clause's paragraph on Anthropic said as Anthropic's own
+ * documentation says it for the models the product calls
+ * (docs/counsel/agreement-changes.md §17; packages/catalog
+ * model-retention.ts), and the two clauses that point at that paragraph
+ * pointing at what it now says. Against 1.5.1, those three clauses change
+ * and nothing else does; every other clause is 1.5.1's own object, in
+ * 1.5.1's order, and the preamble differs only in its version line. The
+ * draft was first built on 1.5.0, the version current when it was written;
+ * 1.5.1, released the same day, changes only the Minimum necessary clause,
+ * which 1.6.0 carries as 1.5.1's own object, so it says what 1.5.1 says
+ * about the website chat:
+ *
+ *   subcontractors   1.5.1 (1.3.0's object, unchanged since) says Anthropic
+ *                    keeps conversation content "for 30 days, for abuse
+ *                    detection and security", that content the law requires
+ *                    it to keep may be kept "for up to two years", and that
+ *                    its service "cannot run with shorter retention".
+ *                    Anthropic's pages say none of that of claude-opus-5-5
+ *                    or claude-sonnet-5-5: under the standard retention of a
+ *                    HIPAA-ready organisation content is kept no more than
+ *                    30 days, with no purpose stated; the two years belong
+ *                    to flagged content alone; the law-required exception
+ *                    has no stated limit; and "cannot run with shorter
+ *                    retention" is true only of its Covered Models (Fable
+ *                    and Mythos), which the product does not call. 1.6.0
+ *                    states MODEL_RETENTION_AGREEMENT instead, which
+ *                    attributes the 30 days to Anthropic's standard
+ *                    retention rather than to a business associate
+ *                    agreement nobody at healdesk has read, and says why the
+ *                    window exists: Anthropic offers its service under such
+ *                    an agreement only with that retention, which healdesk
+ *                    does not control. It keeps the rest of the paragraph:
+ *                    Anthropic named, its agreement a promise about when it
+ *                    is signed (release gate 17: it is not signed yet), and
+ *                    healdesk's own covenant not to train on PHI. The
+ *                    flow-down and notice paragraphs are 1.5.1's, word for
+ *                    word.
+ *   state-law        stateLawClauseBody160: item c's exception to deletion,
+ *                    and the subcontractor paragraph's, are what the
+ *                    Subcontractors clause says a subcontractor may keep,
+ *                    for the periods that clause states, where 1.5.1's are
+ *                    what it may keep "for abuse detection and security, or
+ *                    because a law requires it", kept "for that purpose and
+ *                    period only, and used for nothing else". The new
+ *                    paragraph gives no purpose, and its standard retention
+ *                    was outside 1.5.1's exception.
+ *   term             1.5.1's (1.3.0's) but for one phrase: Anthropic may
+ *                    keep what the Subcontractors clause describes "only for
+ *                    the periods that clause states", where 1.5.1 says "the
+ *                    purposes and periods", purposes the new paragraph does
+ *                    not state.
+ *
+ * Not at BAA_TEMPLATES[0] and approvedByCounsel false, so checkout does not
+ * offer it, signing refuses it (signableTemplate), provisioning refuses it,
+ * and isBaaVersionAcceptable and app_baa_version_acceptable refuse it at
+ * go-live. Releasing it is the owner's decision (§17): move it to [0] with
+ * the flag true, decide the floor and the overlap, and mirror both in a
+ * migration, as 0081 did for 1.5.1. Its text and golden hashes
+ * (apps/app/tests/baa-golden.test.ts) may still change until then; from the
+ * release on, never.
+ */
+const SUBCONTRACTORS_1_6: BaaClause = {
+  id: "subcontractors",
+  heading: HEADINGS_1_3.subcontractors,
+  appliesWhen: ALWAYS,
+  body: () =>
+    wrap(
+      `healdesk uses subcontractors to deliver the Services — telephony, speech ` +
+        `recognition, language models, hosting and email among them. healdesk will ` +
+        `ensure that any subcontractor that creates, receives, maintains or transmits ` +
+        `PHI on healdesk's behalf agrees in writing, before it does so, to the same ` +
+        `restrictions and conditions this agreement places on healdesk, and to comply ` +
+        `with the HIPAA Security Rule, under a contract meeting 45 CFR 164.314(a) and ` +
+        `164.504(e)(5). healdesk remains answerable to Practice for its ` +
+        `subcontractors' acts and omissions with that PHI.`,
+    ) +
+    "\n\n" +
+    wrap(
+      `Language models are used to understand a patient and answer them during a ` +
+        `conversation. healdesk's language-model provider is Anthropic. Anthropic receives the ` +
+        `content of each conversation, to generate the assistant's replies, only under a ` +
+        `business associate agreement with healdesk signed before any patient's information ` +
+        `reaches it. ${MODEL_RETENTION_AGREEMENT} healdesk may not use PHI to train, fine-tune ` +
+        `or evaluate any model, its own or a third party's.`,
+    ) +
+    "\n\n" +
+    wrap(subprocessorNoticeClauseBody()),
+};
+
+/**
+ * 1.4.0's (and 1.5.1's) state-law clause with its two cross-references to
+ * the Subcontractors clause said as that clause now says Anthropic's
+ * retention: what it says a subcontractor may keep, for the periods it
+ * states (stateLawClauseBody160, which the DPA shares).
+ */
+const STATE_LAW_1_6: BaaClause = {
+  id: "state-law",
+  heading: STATE_LAW_CLAUSE_HEADING,
+  appliesWhen: ALWAYS,
+  body: (v) =>
+    stateLawClauseBody160({ subject: "patient information", kind: "baa", sync: bookingSyncOf(v) }),
+};
+
+/** 1.3.0's Term clause, the object 1.4.0, 1.5.0 and 1.5.1 carry. */
+const TERM_1_3: BaaClause = CLAUSES_1_5_1.find((clause) => clause.id === "term")!;
+
+/**
+ * 1.3.0's Term clause with Anthropic's copies kept "only for the periods
+ * that clause states", not "the purposes and periods": 1.6.0's
+ * Subcontractors clause states no purpose. Every other sentence is 1.3.0's,
+ * and the replacement refuses to render if 1.3.0's paragraph is not there.
+ */
+const TERM_1_6: BaaClause = {
+  id: TERM_1_3.id,
+  heading: TERM_1_3.heading,
+  appliesWhen: TERM_1_3.appliesWhen,
+  body: (v) => {
+    const text = TERM_1_3.body(v);
+    const was = copiesOutlastingDestruction("purposes and periods");
+    if (text.split(was).length !== 2) {
+      throw new Error("1.6.0's Term clause: 1.3.0's paragraph on surviving copies is not there.");
+    }
+    return text.replace(was, copiesOutlastingDestruction("periods"));
+  },
+};
+
+/** 1.5.1's clauses in 1.5.1's order, with the three clauses above in place of its own. */
+const CLAUSES_1_6: readonly BaaClause[] = CLAUSES_1_5_1.map((clause) => {
+  switch (clause.id) {
+    case SUBCONTRACTORS_1_6.id:
+      return SUBCONTRACTORS_1_6;
+    case STATE_LAW_1_6.id:
+      return STATE_LAW_1_6;
+    case TERM_1_6.id:
+      return TERM_1_6;
+    default:
+      return clause;
+  }
+});
+
+/** 1.3.0's preamble, naming version 1.6.0. */
+function preamble160(v: BaaVariables): string {
+  return preambleFrom130(v, "1.6.0");
+}
+
+/** 1.3.0's render guard, its refusals naming version 1.6.0. */
+function validate160(v: BaaVariables): void {
+  validateFrom130(v, "1.6.0");
+}
+
 export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // Newest RELEASED first — CURRENT_BAA_VERSION and currentBaaTemplate() both
   // read [0], so a version stays at [0] until its successor is approved for
@@ -4599,6 +4812,23 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
     preamble: preamble151,
     clauses: CLAUSES_1_5_1,
     validate: validate151,
+  },
+  // ⚖️ Drafted on 2026-10-19 and NOT released: 1.5.1 with Anthropic's
+  // retention said as Anthropic's documentation says it for the models the
+  // product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §17).
+  // After the release it follows, as a draft is (isBaaVersionAcceptable), and
+  // never offered, signed or accepted at go-live while approvedByCounsel is
+  // false. Releasing it is the owner's call: it then moves to [0]. Until it
+  // does, checkout offers 1.5.1's retention clause, so apps/web's launch
+  // tracker (lib/admin/seo/launch.ts, baa-1-6-0-retention) holds the release
+  // as an item that blocks go-live.
+  {
+    version: "1.6.0",
+    publishedOn: "2026-10-19",
+    approvedByCounsel: false,
+    preamble: preamble160,
+    clauses: CLAUSES_1_6,
+    validate: validate160,
   },
   // Released on 2026-10-14 and offered until 1.5.1 replaced it on
   // 2026-10-19, outright and with no overlap: no clinic signed it, and it
@@ -4821,7 +5051,8 @@ export function isBaaVersionAcceptable(version: string): boolean {
 }
 
 /**
- * The calendar clause ids of 1.3.0, which 1.4.0, 1.5.0 and 1.5.1 carry as the same objects.
+ * The calendar clause ids of 1.3.0, which 1.4.0, 1.5.0, 1.5.1 and the 1.6.0
+ * draft carry as the same objects.
  * An acceptance whose `appliedClauses`
  * holds one of them carries calendar terms for the location provisioned
  * against it; one that holds none (every earlier version) leaves the location

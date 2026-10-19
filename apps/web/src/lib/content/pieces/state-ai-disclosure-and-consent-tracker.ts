@@ -12,7 +12,11 @@ import type { Piece } from "@/lib/content/types";
  * intermediate certificate was supplied, with verification left on.
  * Pennsylvania's palegis.us served the statute PDF directly. The Colorado
  * order in X.AI LLC v. Weiser was read in CourtListener's RECAP copy, and
- * later filings in that case could not be checked.
+ * later filings in that case could not be checked. Sullivan v. Gray and
+ * Lane v. Allstate were read in the Caselaw Access Project's copies
+ * (static.case.law), since CourtListener's opinion pages challenged
+ * automated loads. nysenate.gov refused automated loads (403), so New
+ * York's two bills were read on the Assembly's bill pages.
  */
 
 export const piece: Piece = {
@@ -23,9 +27,10 @@ export const piece: Piece = {
     "Call-recording consent statutes and AI-disclosure laws that can reach a clinic's AI assistant, for 20 states, each linked to its text and dated.",
   answer:
     "For 20 states, this tracker names the statute on consent to record or intercept a phone call and any AI-disclosure law that can reach an AI assistant on a clinic's phone or chat. " +
-    "California, Texas, Utah and Maine have disclosure laws that can reach one, while several 2025 and 2026 chatbot laws in other states exclude customer service.",
-  stage: "draft",
+    "California, Texas, Utah, Maine and Colorado have disclosure laws that can reach one, while several 2025 and 2026 companion chatbot laws exclude customer service.",
+  stage: "live",
   legal: true,
+  review: "Every statement was checked against the primary texts on 19 October 2026 by an independent AI review, not by a lawyer.",
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
   sections: [
@@ -54,7 +59,7 @@ export const piece: Piece = {
             [
               "Texas",
               `One party. [Penal Code § 16.02(c)(4)](https://tcss.legis.texas.gov/resources/PE/htm/PE.16.htm) makes it a defence that the person is a party, or that "one of the parties to the communication has given prior consent".`,
-              `[Bus. & Com. Code § 552.051(f)](https://tcss.legis.texas.gov/resources/BC/htm/BC.552.htm) (TRAIGA): the provider must disclose AI "used in relation to health care service or treatment", from 1 January 2026. [Health & Safety Code § 183.005](https://tcss.legis.texas.gov/resources/HS/htm/HS.183.htm): AI used for diagnosis, from 1 September 2025.`,
+              `[Bus. & Com. Code § 552.051(f)](https://tcss.legis.texas.gov/resources/BC/htm/BC.552.htm) (TRAIGA), from 1 January 2026: where AI is "used in relation to health care service or treatment", the provider "shall provide the disclosure under Subsection (b)", a subsection addressed to governmental agencies. [Health & Safety Code § 183.005](https://tcss.legis.texas.gov/resources/HS/htm/HS.183.htm): AI used for diagnosis, from 1 September 2025.`,
               "19 October 2026",
             ],
             [
@@ -66,7 +71,7 @@ export const piece: Piece = {
             [
               "New York",
               `One party. [Penal Law § 250.00](https://www.nysenate.gov/legislation/laws/PEN/250.00) defines wiretapping as recording by a non-party "without the consent of either the sender or receiver".`,
-              `None found. [General Business Law Article 47](https://www.nysenate.gov/legislation/laws/GBS/1700), on AI companions, excludes systems used "solely for customer service". [S7263A](https://www.nysenate.gov/legislation/bills/2025/S7263), on chatbots impersonating licensed professionals, is not law.`,
+              `None found. [General Business Law Article 47](https://www.nysenate.gov/legislation/laws/GBS/1700), on AI companions, excludes systems used "solely for customer service". [S7263A](https://nyassembly.gov/leg/?default_fld=&leg_video=&bn=S07263&term=2025&Summary=Y&Actions=Y), on chatbots impersonating licensed professionals, is not law.`,
               "19 October 2026",
             ],
             [
@@ -101,7 +106,7 @@ export const piece: Piece = {
             ],
             [
               "Maryland",
-              `All parties. [Cts. & Jud. Proc. § 10-402(c)(3)](https://mgaleg.maryland.gov/mgawebsite/Laws/StatuteText?article=gcj&section=10-402&enactments=false) allows interception where "all of the parties to the communication have given prior consent".`,
+              `All parties. [Cts. & Jud. Proc. § 10-402(c)(3)](https://mgaleg.maryland.gov/mgawebsite/Laws/StatuteText?article=gcj&section=10-402&enactments=false) makes interception lawful where the person "is a party to the communication and where all of the parties to the communication have given prior consent".`,
               "None found.",
               "19 October 2026",
             ],
@@ -125,13 +130,13 @@ export const piece: Piece = {
             ],
             [
               "Michigan",
-              `All parties, by the statute's text. [MCL § 750.539c](https://legislature.mi.gov/Laws/MCL?objectName=mcl-750-539c) bars eavesdropping on a private conversation "without the consent of all parties thereto", and [§ 750.539a](https://legislature.mi.gov/Laws/MCL?objectName=mcl-750-539a) defines eavesdropping by "the private discourse of others". Whether that reaches a participant is taken up in [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state).`,
+              `All parties, by the statute's text. [MCL § 750.539c](https://legislature.mi.gov/Laws/MCL?objectName=mcl-750-539c) bars eavesdropping on a private conversation "without the consent of all parties thereto", and [§ 750.539a](https://legislature.mi.gov/Laws/MCL?objectName=mcl-750-539a) defines eavesdropping by "the private discourse of others". In [Sullivan v. Gray](https://static.case.law/mich-app/117/html/0476-01.html) (1982), the Court of Appeals held that this does not reach a participant, since an eavesdropper "must be a third party not otherwise involved in the conversation".`,
               "None found.",
               "19 October 2026",
             ],
             [
               "Nevada",
-              `Except as the statute provides otherwise, [NRS 200.620](https://www.leg.state.nv.us/NRS/NRS-200.html) allows intercepting a wire communication only with one party's prior consent and an emergency in which obtaining a court order first is impractical.`,
+              `All parties, by court decision. Except as the statute provides otherwise, [NRS 200.620](https://www.leg.state.nv.us/NRS/NRS-200.html) allows intercepting a wire communication only with one party's prior consent and an emergency in which obtaining a court order first is impractical. In [Lane v. Allstate](https://static.case.law/nev/114-2/html/1176-01.html) (1998), the Nevada Supreme Court held that a party who taped his own calls violated it, finding an intent to prohibit taping "with the consent of only one party".`,
               "None found.",
               "19 October 2026",
             ],
@@ -156,7 +161,7 @@ export const piece: Piece = {
             [
               "Colorado",
               `One party. [C.R.S. §§ 18-9-303 and 18-9-304](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-18.pdf) (2024 edition) bar interception without the consent of a sender or receiver, or of "at least one of the principal parties".`,
-              `[C.R.S. § 6-1-1704](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-06.pdf) (SB 24-205), from 30 June 2026 under [SB 25B-004](https://leg.colorado.gov/laws/session-laws/SB25B-004/3/download): "a deployer or other developer" making available an AI system "intended to interact with consumers" must ensure each consumer is told it is AI, unless that would be obvious to a reasonable person. Part 17 defines a "deployer" as one that uses a high-risk AI system. On 27 April 2026, in [X.AI LLC v. Weiser](https://storage.courtlistener.com/recap/gov.uscourts.cod.253513/gov.uscourts.cod.253513.24.0.pdf), a federal court ordered the Attorney General not to begin enforcing SB 24-205, or legislation replacing it enacted that session, for violations up to 14 days after it rules on xAI's preliminary-injunction motion. [SB 26-189](https://leg.colorado.gov/bill_files/116489/download) repeals and re-enacts Part 17 from 1 January 2027 and covers only consequential decisions. [HB 26-1263](https://leg.colorado.gov/laws/session-laws/HB26-1263/208/download), from 1 January 2027: operators of public conversational AI services must disclose that they are AI. Software primarily designed for customer service, or used by or for a HIPAA covered entity or business associate, is excluded.`,
+              `[C.R.S. § 6-1-1704](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-06.pdf) (SB 24-205), from 30 June 2026 under [SB 25B-004](https://leg.colorado.gov/laws/session-laws/SB25B-004/3/download): "a deployer or other developer" making available an AI system "intended to interact with consumers" must ensure each consumer is told it is AI, unless that would be obvious to a reasonable person. Part 17 defines a "deployer" as a person doing business in Colorado that deploys a high-risk AI system, and a "developer" as one that develops or intentionally and substantially modifies any AI system. On 27 April 2026, in [X.AI LLC v. Weiser](https://storage.courtlistener.com/recap/gov.uscourts.cod.253513/gov.uscourts.cod.253513.24.0.pdf), a magistrate judge's minute order granted the parties' joint stipulated motion. It orders the Attorney General not to begin enforcing SB 24-205, or legislation replacing or amending it enacted that session, for violations up to 14 days after the court rules on xAI's preliminary-injunction motion. [SB 26-189](https://leg.colorado.gov/bill_files/116489/download) repeals and re-enacts Part 17 from 1 January 2027 and covers only consequential decisions. [HB 26-1263](https://leg.colorado.gov/laws/session-laws/HB26-1263/208/download), from 1 January 2027: operators of public conversational AI services must disclose that they are AI. Software primarily designed for customer service, or used by or for a HIPAA covered entity or business associate, is excluded. HB 26-1263 adds its duty as section 6-1-1708, a number SB 26-189's re-enacted Part 17 gives to another rule, and neither act refers to the other, so their codification is unsettled.`,
               "19 October 2026",
             ],
             [
@@ -198,7 +203,9 @@ export const piece: Piece = {
             "ct-sb-5",
             "mi-750-539c",
             "mi-750-539a",
+            "sullivan",
             "nv-200-620",
+            "lane",
             "or-165-540",
             "or-sb-1546",
             "or-sb-1546-overview",
@@ -239,16 +246,16 @@ export const piece: Piece = {
             'California: AB 489 (Statutes of 2025, chapter 615) and SB 243 (chapter 677), on companion chatbots, took effect on 1 January 2026. SB 243 excludes "a bot that is used only for customer service".',
             "California: SB 1119 (Statutes of 2026, chapter 190), signed on 10 September 2026, amends SB 243's section 22602 to delete its added duties toward users known to be minors, and adds child-safety duties from 1 July 2027. It leaves SB 243's definition, with its customer-service exclusion, unchanged.",
             "California: AB 1979, AB 1609 and SB 690 were signed in September 2026 and take effect on 1 January 2027. AB 1979 bars health facilities, clinics and physicians' offices from using AI to independently perform clinical functions reserved for licensed people, and it requires no disclosure.",
-            "California: SB 690 is not an AI law. It lets only the Attorney General sue a private actor under Penal Code § 637.2 over a pen register or trap-and-trace device alleged on a website or app, and its text names only § 638.51.",
+            "California: SB 690 is not an AI law, and it amends Penal Code § 637.2. Its new § 637.2(d)(1) lets only the Attorney General sue a private actor for a violation of § 638.51, the pen register and trap-and-trace rule, alleged to arise on a website or app.",
             "Texas: the Responsible Artificial Intelligence Governance Act (HB 149, Acts 2025, chapter 1174) took effect on 1 January 2026, and Health and Safety Code § 183.005 (SB 1188) on 1 September 2025.",
             "Utah: the generative AI disclosure chapter, Title 13, Chapter 77, took effect on 7 May 2025. SB 226 moved the repeal date of the AI Policy Act, Chapter 72, to 1 July 2027. Sections 13-77-101 and 13-77-102 were amended in 2026 (Laws of Utah 2026, chapter 95), effective 6 May 2026.",
             "Maine: Public Law 2025, chapter 294 took effect on 24 September 2025, and the Revisor of Statutes has moved it from § 1500-Y to § 1500-DD of Title 10.",
             'Colorado: SB 26-189, signed on 14 May 2026, repeals and re-enacts Part 17 of Article 1 of Title 6, the 2024 AI act, from 1 January 2027. Its notices apply where automated decision-making technology materially influences a consequential decision, a term that excludes "routine scheduling".',
-            "Colorado: HB 26-1263, approved on 29 May 2026, adds the conversational AI disclosure described in the table, from 1 January 2027.",
-            "Colorado: SB 25B-004 moved the start of SB 24-205's duties, including the section 6-1-1704 disclosure, to 30 June 2026. On 27 April 2026, in X.AI LLC v. Weiser, a federal court ordered the Attorney General not to begin enforcing SB 24-205 or its replacement for violations up to 14 days after a ruling on a preliminary-injunction motion.",
+            "Colorado: HB 26-1263, approved on 29 May 2026, adds the conversational AI disclosure described in the table, from 1 January 2027. How it is codified beside SB 26-189's re-enacted Part 17 is unsettled.",
+            "Colorado: SB 25B-004 moved the start of SB 24-205's duties, including the section 6-1-1704 disclosure, to 30 June 2026. On 27 April 2026, in X.AI LLC v. Weiser, a magistrate judge's minute order granted the parties' joint stipulated motion. It orders the Attorney General not to begin enforcing SB 24-205, or legislation replacing or amending it enacted that session, for violations up to 14 days after a ruling on a preliminary-injunction motion.",
             "Connecticut: Public Act 26-15 (SB 5), approved on 27 May 2026, adds AI companion rules from 1 January 2027, enforced only by the Attorney General. Its definition excludes a chatbot used only for customer service or support and not marketed as a companion.",
             "Washington: HB 2225, on AI companion chatbots, was signed on 24 March 2026 and takes effect on 1 January 2027. Oregon: SB 1546, on AI companions, became chapter 85 of its 2026 session laws.",
-            "Florida: SB 482 died in messages on 13 March 2026. New York: S7263A was committed to the Rules Committee on 5 June 2026 and is not law. S9051B, on AI companions and minors, passed both houses in June 2026, and the Senate's page showed no delivery to the Governor on 19 October 2026.",
+            "Florida: SB 482 died in messages on 13 March 2026. New York: S7263A was committed to the Rules Committee on 5 June 2026 and is not law. S9051B, on AI companions and minors, passed both houses in June 2026, and the Assembly's record of its actions showed no delivery to the Governor on 19 October 2026.",
             "Federal: Executive Order 14365 of 11 December 2025 directs the Attorney General to set up a task force to challenge state AI laws inconsistent with its policy. The Justice Department set up its AI Litigation Task Force on 9 January 2026.",
           ],
           cite: [
@@ -289,7 +296,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "What each disclosure law requires, and whom it binds, is set out in [Does an AI receptionist have to say it is an AI?](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai). " +
+            "What each disclosure law requires, and whom it binds, is set out in [AI disclosure rules for AI receptionists](/guides/does-an-ai-receptionist-have-to-say-it-is-an-ai). " +
             "What the all-party statutes say about recording and transcription, and what they leave open, is covered in [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state).",
         },
       ],
@@ -303,6 +310,7 @@ export const piece: Piece = {
           text:
             "Each row was checked on 19 October 2026 against the statute's own text, read on the state legislature's site wherever that site could be opened. " +
             "The Colorado court order was read in CourtListener's copy of the federal docket, and later filings in that case could not be checked. " +
+            "The Michigan and Nevada decisions were read in the Caselaw Access Project's copies, and New York's bills on the Assembly's site, which unlike the Senate's pages allowed automated access that day. " +
             "California's sections and bills were read in the Legislature's published database, which its leginfo pages display, because those pages refused automated access that day. " +
             "Colorado's recording statutes come from the General Assembly's 2024 printout of Title 18, the latest edition found on its site.",
         },
@@ -310,7 +318,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "A row states what the statute's text says and whom it binds, and it does not say whether any practice meets it. " +
-            "Whether live transcription with no audio kept counts as recording or interception is not settled by these texts, as [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state) sets out. " +
+            "Whether live transcription with no audio kept is recording, and whether an AI vendor is a third party, are not settled by these texts, as [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state) sets out. " +
             '"None found" and "No general law found" record what the searches for this tracker turned up, and they do not mean that no such law exists. ' +
             "Each row carries the date it was last checked against the primary text. " +
             "Corrections, with the statute or bill that supports them, go to [hello@healdesk.io](mailto:hello@healdesk.io).",
@@ -319,9 +327,9 @@ export const piece: Piece = {
     },
   ],
   aya: [
-    "AYA is built to say the same opening line on every call it answers, in every state, rather than choosing a disclosure by the caller's area code.",
+    "AYA is designed to say the same opening line on every call it answers, in every state, rather than choosing a disclosure by the caller's area code.",
     "That line says it is an AI assistant, not a human, and that the call is transcribed with no audio recording kept.",
-    "Website chats are built to open with a line saying the visitor is chatting with an AI assistant, and the clinic cannot switch either line off.",
+    "Website chats are designed to open with a line saying the visitor is chatting with an AI assistant, and the clinic cannot switch either line off.",
   ],
   sources: [
     {
@@ -499,17 +507,17 @@ export const piece: Piece = {
     },
     {
       id: "ny-s9051",
-      title: "Senate Bill S9051B (2025-2026), actions",
-      publisher: "New York State Senate",
-      url: "https://www.nysenate.gov/legislation/bills/2025/S9051",
+      title: "Senate Bill S9051B (2025-2026), summary and actions",
+      publisher: "New York State Assembly",
+      url: "https://nyassembly.gov/leg/?default_fld=&leg_video=&bn=S09051&term=2025&Summary=Y&Actions=Y",
       kind: "government",
       checked: "2026-10-19",
     },
     {
       id: "ny-s7263",
-      title: "Senate Bill S7263A (2025-2026), actions",
-      publisher: "New York State Senate",
-      url: "https://www.nysenate.gov/legislation/bills/2025/S7263",
+      title: "Senate Bill S7263A (2025-2026), summary and actions",
+      publisher: "New York State Assembly",
+      url: "https://nyassembly.gov/leg/?default_fld=&leg_video=&bn=S07263&term=2025&Summary=Y&Actions=Y",
       kind: "government",
       checked: "2026-10-19",
     },
@@ -636,11 +644,27 @@ export const piece: Piece = {
       checked: "2026-10-19",
     },
     {
+      id: "sullivan",
+      title: "Sullivan v. Gray, 117 Mich. App. 476 (1982)",
+      publisher: "Michigan Court of Appeals (Caselaw Access Project copy)",
+      url: "https://static.case.law/mich-app/117/html/0476-01.html",
+      kind: "court",
+      checked: "2026-10-19",
+    },
+    {
       id: "nv-200-620",
       title: "Nevada Revised Statutes chapter 200, § 200.620",
       publisher: "Nevada Legislature",
       url: "https://www.leg.state.nv.us/NRS/NRS-200.html",
       kind: "statute",
+      checked: "2026-10-19",
+    },
+    {
+      id: "lane",
+      title: "Lane v. Allstate Insurance Co., 114 Nev. 1176 (1998)",
+      publisher: "Supreme Court of Nevada (Caselaw Access Project copy)",
+      url: "https://static.case.law/nev/114-2/html/1176-01.html",
+      kind: "court",
       checked: "2026-10-19",
     },
     {

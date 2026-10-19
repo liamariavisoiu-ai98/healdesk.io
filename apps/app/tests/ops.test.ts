@@ -468,8 +468,8 @@ describeDb("ops: booking hand-off and direct booking", () => {
   test("the OnboardingView's forwarding codes follow the coverage mode, not clinics.call_routing", async () => {
     const { clinicId } = await seedClinic("ops-coverage");
     // call_routing still says 'conditional', as it does for After hours only;
-    // read from it, the console printed the busy and no-answer pair (*91, *93)
-    // for a line forwarded in full at closing.
+    // read from it, the console printed the busy and no-answer codes for a
+    // line forwarded in full at closing.
     await getMigratorPool().query(
       `update clinics set phone_system_type = 'landline', carrier = 'verizon',
               call_routing = 'conditional', assistant_number_e164 = '+14155550100'
@@ -488,7 +488,8 @@ describeDb("ops: booking hand-off and direct booking", () => {
     expect(clinic.coverageMode).toBe("after_hours_only");
     expect(clinic.callRouting).toBe("conditional");
     const forwarding = view.forwarding as { steps: { dial: string }[]; undo: { dial: string }[] };
-    expect(forwarding.steps.map((s) => s.dial)).toEqual(["*724155550100", "*73"]);
+    // *72 and AYA's number at closing, *73 at opening, then the test call, which has nothing to dial.
+    expect(forwarding.steps.map((s) => s.dial)).toEqual(["*724155550100", "*73", ""]);
     expect(forwarding.undo.map((s) => s.dial)).toEqual(["*73"]);
 
     // All calls reads as 'always' for the console's phone form, whatever call_routing says.

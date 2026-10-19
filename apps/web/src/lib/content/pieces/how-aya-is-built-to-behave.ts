@@ -254,7 +254,7 @@ export const piece: Piece = {
             "healdesk signs a business associate agreement and handles patient data under it. " +
             "A practice accepts the agreement at checkout, and under 45 CFR 164.502(e) a covered entity may let a business associate handle patient information only with satisfactory assurances documented in a written agreement. " +
             "healdesk processes no real patient information for a practice until every agreement in the chain is in place, its own with the practice and one with each provider that will handle the data. " +
-            "A data protection agreement for practices that HIPAA does not cover has been drafted and is not yet offered. " +
+            "A med spa, hair restoration, massage or chiropractic practice that bills no insurance electronically is designed to sign healdesk's data protection agreement instead, with HIPAA Security Rule safeguards. " +
             "The guide [Is a cash-pay clinic covered by HIPAA?](/guides/is-a-cash-pay-clinic-covered-by-hipaa) sets out whether HIPAA covers a cash-pay practice.",
           cite: ["terms", "ecfr-164-502"],
         },

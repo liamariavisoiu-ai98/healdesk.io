@@ -589,6 +589,7 @@ describe("Instagram, Messenger and WhatsApp, through the front door's read half"
     deferredRequirements: [],
     address: "1 Main St",
     publishedTimes: [],
+    neverSay: [],
   };
   const metaModel: FrontDoorResponder = async (_system, text) => {
     const said = (reply: string) =>

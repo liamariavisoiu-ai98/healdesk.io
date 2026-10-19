@@ -24,8 +24,49 @@ import { completeStep, readOnboarding, reopenStep } from "./steps";
  * published number is the carrier substituting the forwarding line. That
  * reopens the step on its own — the carrier changed something, and the
  * clinic should hear about it before calls stop counting as answered.
+ *
+ * One such call is expected, and neither rule reads it: the carrier's
+ * activation call (isForwardingActivationCall).
  */
 export const FORWARDING_TEST_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * The carrier's activation call. On a Verizon home phone and a traditional
+ * AT&T landline, switching all-call forwarding on makes the carrier ring the
+ * forwarding number from the clinic's own line, and forwarding starts only
+ * once that call is answered, so the catalog's step tells the clinic to stay
+ * on until AYA answers and then hang up (packages/catalog/src/forwarding.ts,
+ * STAY_THEN_HANG_UP). It carries the clinic's own number as caller ID by
+ * design, and nobody speaks on it; under After hours only it comes every
+ * evening at closing. Read as caller-ID loss, it reopened `test_call_passed`
+ * every day, switching the Go live gate off again and hiding a real loss
+ * among daily false alarms, and inside a test window it used the window up
+ * before the real test call arrived. It is not a call that would have rung
+ * out either. So a call from the clinic's own number in which the caller
+ * never spoke (the Retell process's `abandoned`, with no caller turn) is
+ * none of those. A forwarded caller whose ID was lost and who hung up
+ * without a word looks the same, and nothing is missed by passing over it:
+ * the next call in which a caller speaks is judged as before.
+ */
+export function isForwardingActivationCall(
+  clinic: { publishedPhoneE164: string | null },
+  event: Pick<VoiceCallEvent, "callerPhone" | "outcome" | "transcriptTurns">,
+): boolean {
+  return (
+    callerIsClinicNumber(clinic, event) &&
+    event.outcome === "abandoned" &&
+    !event.transcriptTurns?.some((turn) => turn.speaker === "person")
+  );
+}
+
+function callerIsClinicNumber(
+  clinic: { publishedPhoneE164: string | null },
+  event: Pick<VoiceCallEvent, "callerPhone">,
+): boolean {
+  return Boolean(
+    event.callerPhone && clinic.publishedPhoneE164 && event.callerPhone === clinic.publishedPhoneE164,
+  );
+}
 
 export async function startForwardingTest(tx: TenantTx, now: Date = new Date()): Promise<Date> {
   const until = new Date(now.getTime() + FORWARDING_TEST_WINDOW_MS);
@@ -71,7 +112,7 @@ export function inForwardingTestWindow(
   );
 }
 
-export type ForwardingOutcome = "ignored" | "passed" | "failed" | "caller_id_lost";
+export type ForwardingOutcome = "ignored" | "activation_call" | "passed" | "failed" | "caller_id_lost";
 
 function condition(event: VoiceCallEvent): ForwardingTestObservation["condition"] {
   if (event.clinicLineBusy) return "busy";
@@ -80,22 +121,32 @@ function condition(event: VoiceCallEvent): ForwardingTestObservation["condition"
   return "unknown";
 }
 
-/** Pure: is this call the test, and what did it show? */
+/**
+ * Pure: is this call the test, and what did it show? The carrier's
+ * activation call is never the test, and leaves an open window open for the
+ * call that is.
+ */
 export function evaluateForwardingCall(
   clinic: ForwardingClinicFacts,
   event: VoiceCallEvent,
   conversationId: string,
-): { isTest: boolean; callerIsClinic: boolean; observation: ForwardingTestObservation | null } {
-  const callerIsClinic = Boolean(
-    event.callerPhone && clinic.publishedPhoneE164 && event.callerPhone === clinic.publishedPhoneE164,
-  );
+): {
+  isTest: boolean;
+  callerIsClinic: boolean;
+  activationCall: boolean;
+  observation: ForwardingTestObservation | null;
+} {
+  const callerIsClinic = callerIsClinicNumber(clinic, event);
+  const activationCall = isForwardingActivationCall(clinic, event);
   const until = clinic.forwardingTestUntil?.getTime();
   const at = event.startedAt.getTime();
-  const isTest = until !== undefined && at <= until && at >= until - FORWARDING_TEST_WINDOW_MS;
-  if (!isTest) return { isTest: false, callerIsClinic, observation: null };
+  const isTest =
+    !activationCall && until !== undefined && at <= until && at >= until - FORWARDING_TEST_WINDOW_MS;
+  if (!isTest) return { isTest: false, callerIsClinic, activationCall, observation: null };
   return {
     isTest: true,
     callerIsClinic,
+    activationCall,
     observation: {
       arrivedAt: event.startedAt.toISOString(),
       windowUntil: new Date(until!).toISOString(),
@@ -115,6 +166,8 @@ export async function observeForwardingCall(
 ): Promise<ForwardingOutcome> {
   const verdict = evaluateForwardingCall(clinic, event, conversationId);
   const now = new Date();
+
+  if (verdict.activationCall) return "activation_call";
 
   if (verdict.observation) {
     await tx.db

@@ -35,9 +35,14 @@ import { getRetellPhoneNumber, isE164, retellApiKey, type RetellApiOptions } fro
 
 const remembered = new Map<string, string>();
 
-/** The direct line read for this clinic on a call that started normally; null forgets it. */
-export function rememberDirectLine(clinicId: string, line: string | null): void {
-  if (isE164(line)) remembered.set(clinicId, line);
+/**
+ * The direct line read for this clinic on a call that started normally; null
+ * forgets it. A line equal to the clinic's published number, which forwards
+ * to AYA, is forgotten too: settings refuse one when it is set, but not when
+ * the published number changes later.
+ */
+export function rememberDirectLine(clinicId: string, line: string | null, publishedPhone: string | null = null): void {
+  if (isE164(line) && line !== publishedPhone) remembered.set(clinicId, line);
   else remembered.delete(clinicId);
 }
 

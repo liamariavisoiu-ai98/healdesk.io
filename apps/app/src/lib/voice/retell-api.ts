@@ -102,4 +102,13 @@ export async function setRetellFallbackNumber(number: string, fallback: string |
     options,
   );
   if (!response.ok) throw new RetellApiError(response.status);
+  // A field Retell renamed or ignores would answer 200 and set nothing, and
+  // the sync would report success every hour: the answer must carry it.
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new Error("Retell answered with a body that is not JSON");
+  }
+  if (parse(body)?.fallbackNumber !== fallback) throw new Error("Retell did not keep the fallback number");
 }

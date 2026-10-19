@@ -45,7 +45,7 @@ const down = async () => {
 
 type Fetched = { url: string; method: string; body: string | null; auth: string | null };
 
-function fakeRetell(numbers: Record<string, { fallback_number?: string | null }>, options: { status?: number } = {}) {
+function fakeRetell(numbers: Record<string, { fallback_number?: string | null }>, options: { status?: number; ignoresPatch?: boolean } = {}) {
   const calls: Fetched[] = [];
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -55,7 +55,7 @@ function fakeRetell(numbers: Record<string, { fallback_number?: string | null }>
     const number = decodeURIComponent(url.split("/").pop()!);
     const known = numbers[number];
     if (!known) return new Response("{}", { status: 404 });
-    if (init?.method === "PATCH") {
+    if (init?.method === "PATCH" && !options.ignoresPatch) {
       known.fallback_number = (JSON.parse(String(init.body)) as { fallback_number: string }).fallback_number;
       return Response.json({ phone_number: number, ...known });
     }
@@ -150,6 +150,42 @@ describe("a call that cannot read the database", () => {
     expect(responses()).toEqual([expect.objectContaining({ content: "", end_call: true })]);
   });
 
+  test("a database that hangs rather than refuses still falls through, within the deadline", async () => {
+    rememberDirectLine(CLINIC, DIRECT);
+    const hang = () => new Promise<never>(() => {});
+    const { s, responses } = session({ gate: hang, startDeadlineMs: 30, fallbackLine: (input) => fallbackLineFor(input, { key: null }) });
+    await s.open();
+    await s.handle(details(AYA));
+    await s.finish();
+    expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
+  });
+
+  test("a caller who speaks before the transfer is said gets it on the newest request, and again after", async () => {
+    const retell = fakeRetell({ [AYA]: { fallback_number: DIRECT } });
+    let release: () => void = () => {};
+    const slow = new Promise<void>((resolve) => (release = resolve));
+    const { s, responses } = session({
+      fallbackLine: async (input) => {
+        await slow;
+        return fallbackLineFor(input, { key: KEY, fetch: retell.fetcher });
+      },
+    });
+    await s.open();
+    await s.handle(details(AYA));
+    await s.handle(JSON.stringify({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "hello?" }] }));
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(responses()).toEqual([expect.objectContaining({ response_id: 1, transfer_number: DIRECT })]);
+    await s.handle(JSON.stringify({ interaction_type: "response_required", response_id: 2, transcript: [{ role: "user", content: "hello??" }] }));
+    expect(responses()[1]).toMatchObject({ response_id: 2, content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT });
+    await s.finish();
+  });
+
+  test("never remembers a line equal to the clinic's published number", async () => {
+    rememberDirectLine(CLINIC, DIRECT, DIRECT);
+    expect(await fallbackLineFor({ clinicId: CLINIC, calledNumber: AYA }, { key: null })).toBeNull();
+  });
+
   test("a lookup that throws closes the call rather than leaving it silent", async () => {
     const { s, responses } = session({ fallbackLine: down });
     await s.open();
@@ -191,6 +227,11 @@ describe("the Retell API", () => {
     const retell = fakeRetell({});
     expect(await getRetellPhoneNumber(AYA, { key: KEY, fetch: retell.fetcher })).toBeNull();
     expect(retell.calls[0]!.url).toBe("https://api.retellai.com/get-phone-number/%2B15125550142");
+  });
+
+  test("a fallback Retell answers 200 to but does not keep is a failure, not a success", async () => {
+    const retell = fakeRetell({ [AYA]: { fallback_number: null } }, { ignoresPatch: true });
+    await expect(setRetellFallbackNumber(AYA, DIRECT, { key: KEY, fetch: retell.fetcher })).rejects.toThrow(/did not keep/);
   });
 
   test("refuses a fallback equal to the number itself, and a malformed one", async () => {
@@ -243,11 +284,23 @@ describe("the hourly fallback sync", () => {
     const missing = fakeRetell({});
     const one = await syncRetellFallbacks({ key: KEY, fetch: missing.fetcher, list: async () => [clinic], directLineOf: async () => DIRECT });
     expect(one).toMatchObject({ status: "failed", failures: 1 });
+    expect(notified).toEqual([{ event: "retell_fallback_unsynced", fields: { clinicId: CLINIC, code: "missing" } }]);
+  });
+
+  test("a refused key stops the run with one alert, not one per clinic", async () => {
     const refused = fakeRetell({}, { status: 401 });
-    await syncRetellFallbacks({ key: KEY, fetch: refused.fetcher, list: async () => [clinic], directLineOf: async () => DIRECT });
-    expect(notified).toEqual([
-      { event: "retell_fallback_unsynced", fields: { clinicId: CLINIC, code: "missing" } },
-      { event: "retell_fallback_unsynced", fields: { clinicId: CLINIC, code: "rejected" } },
-    ]);
+    const many = [1, 2, 3, 4].map((n) => ({ id: `0c1d2e3f-0000-4000-8000-00000000f42${n}`, assistantNumber: `+1512555020${n}`, publishedPhone: null }));
+    const result = await syncRetellFallbacks({ key: KEY, fetch: refused.fetcher, list: async () => many, directLineOf: async () => DIRECT });
+    expect(result).toMatchObject({ status: "failed", failures: 1 });
+    expect(refused.calls).toHaveLength(1);
+    expect(notified).toEqual([{ event: "retell_fallback_unsynced", fields: { code: "key_refused" } }]);
+  });
+
+  test("Retell not answering stops the run after three numbers, with one alert", async () => {
+    const down503 = fakeRetell({}, { status: 503 });
+    const many = [1, 2, 3, 4, 5].map((n) => ({ id: `0c1d2e3f-0000-4000-8000-00000000f43${n}`, assistantNumber: `+1512555030${n}`, publishedPhone: null }));
+    const result = await syncRetellFallbacks({ key: KEY, fetch: down503.fetcher, list: async () => many, directLineOf: async () => DIRECT });
+    expect(result.failures).toBe(3);
+    expect(notified.map((n) => n.fields.code)).toEqual(["unreachable", "unreachable", "retell_unreachable"]);
   });
 });

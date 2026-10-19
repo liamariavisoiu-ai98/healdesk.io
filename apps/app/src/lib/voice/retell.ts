@@ -101,7 +101,23 @@ export type RetellSessionDeps = {
   fallbackLine?: FallbackLookup;
   /** How long a call that cannot start waits for Retell's call details, which name the number called. */
   callDetailsWaitMs?: number;
+  /** How long the gate and the clinic's facts may take before the call falls through. */
+  startDeadlineMs?: number;
 };
+
+/**
+ * A database that hangs rather than refuses (a blackholed route, a stalled
+ * failover, a full pool) would otherwise hold the caller in silence for as
+ * long as the connection takes to give up, which the pool does not bound.
+ */
+const START_DEADLINE_MS = 3_000;
+
+class StartDeadline extends Error {
+  constructor() {
+    super("the call's start passed its deadline");
+    this.name = "StartDeadline";
+  }
+}
 
 /** Retell sends call details straight after our config; this only bounds a call where it never does. */
 const CALL_DETAILS_WAIT_MS = 1_500;
@@ -147,6 +163,13 @@ export class RetellCallSession {
   /** AYA gave the caller a real answer at least once, not only the failure line. */
   private answered = false;
   private closing = false;
+  /**
+   * The last thing said that ended the call or put it through. Retell keeps
+   * only the latest response, so a caller who speaks before it is said, or
+   * over it, would otherwise lose the transfer; every later request while
+   * closing is answered with it again.
+   */
+  private final: { content: string; endCall: boolean; transferTo: string | null } | null = null;
   private finished: Promise<IngestResult | null> | null = null;
 
   constructor(
@@ -164,6 +187,7 @@ export class RetellCallSession {
 
   private say(responseId: number, content: string, options: { endCall?: boolean; transferTo?: string | null } = {}): void {
     this.turns.push({ speaker: "assistant", text: content });
+    if (options.endCall || options.transferTo) this.final = { content, endCall: Boolean(options.endCall), transferTo: options.transferTo ?? null };
     this.send({
       response_type: "response",
       response_id: responseId,
@@ -179,9 +203,23 @@ export class RetellCallSession {
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
     let decision: AnswerDecision | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
-      this.facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+      // Read into locals, so a start that finishes after its deadline
+      // changes nothing on a call that has already fallen through.
+      const started = (async () => {
+        const d = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
+        decision ??= d;
+        const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+        return { decision: d, facts };
+      })();
+      const deadline = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new StartDeadline()), this.deps.startDeadlineMs ?? START_DEADLINE_MS);
+      });
+      started.catch(() => {});
+      const result = await Promise.race([started, deadline]);
+      decision = result.decision;
+      this.facts = result.facts;
     } catch (error) {
       log.error("retell call could not start", { clinicId: this.clinicId, error: describeError(error) });
       this.closing = true;
@@ -189,10 +227,12 @@ export class RetellCallSession {
       const known = decision?.decision === "pass_through" ? decision.directLine : null;
       this.sending.push(this.fallThrough(known));
       return;
+    } finally {
+      clearTimeout(timer);
     }
     this.directLine = this.facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
     // Kept for a later call that cannot read the database (fallback-line.ts).
-    if (this.facts) rememberDirectLine(this.clinicId, this.facts.directLine);
+    if (this.facts) rememberDirectLine(this.clinicId, this.facts.directLine, this.facts.phone);
 
     if (!this.facts || (decision.decision === "pass_through" && servicesEnded(decision.reason))) {
       this.closing = true;
@@ -233,13 +273,17 @@ export class RetellCallSession {
       }
     }
     if (this.outbound) return;
+    // The latest request, if the caller has spoken while this was found.
+    const responseId = Math.max(this.latestResponseId, 0);
     if (found && found.line !== this.calledNumber) {
-      this.say(0, TROUBLE_TRANSFER_LINE, { transferTo: found.line });
+      this.say(responseId, TROUBLE_TRANSFER_LINE, { transferTo: found.line });
     } else {
       found = null;
-      this.say(0, CLOSED_LINE, { endCall: true });
+      this.say(responseId, CLOSED_LINE, { endCall: true });
     }
-    await notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: found ? `transferred_${found.source}` : "closed" });
+    // Not awaited: with the database hanging, the alert's own write could
+    // hold the call's record, and the process's drain, until it gave up.
+    void notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: found ? `transferred_${found.source}` : "closed" });
   }
 
   /** One message from Retell. Never throws: a fault is logged and the caller hears a fixed line. */
@@ -284,15 +328,30 @@ export class RetellCallSession {
       // record the refusal as a security event.
       this.outbound = true;
       this.closing = true;
+      this.final = { content: "", endCall: true, transferTo: null };
       this.send({ response_type: "response", response_id: Math.max(this.latestResponseId, 0), content: "", content_complete: true, end_call: true });
     }
   }
 
   private async respond(event: RetellEvent): Promise<void> {
-    if (this.closing || !this.facts) return;
     const responseId = typeof event.response_id === "number" ? event.response_id : NaN;
     if (!Number.isInteger(responseId) || responseId < 0) return;
     this.latestResponseId = Math.max(this.latestResponseId, responseId);
+    if (this.closing) {
+      // Answer again with the transfer or the goodbye, on the newest id.
+      if (this.final && responseId === this.latestResponseId) {
+        this.send({
+          response_type: "response",
+          response_id: responseId,
+          content: this.final.content,
+          content_complete: true,
+          end_call: this.final.endCall,
+          ...(this.final.transferTo ? { transfer_number: this.final.transferTo } : {}),
+        });
+      }
+      return;
+    }
+    if (!this.facts) return;
 
     if (event.interaction_type === "reminder_required") {
       this.say(responseId, REMINDER_LINE);

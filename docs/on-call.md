@@ -18,7 +18,8 @@ switch off during an incident, switch off the assistant, never the clinic's line
 Inside our endpoint every failure ends in a transfer to the clinic's direct line
 wherever the line can be known (`lib/voice/retell.ts`): the answer gate passing the
 call through, the model failing twice, a turn that throws, and a call that cannot
-start because the database cannot be read. For that last one the line is known
+start because the database cannot be read, or has not answered within three seconds
+(a database that hangs rather than refuses). For that last one the line is known
 without the database (`lib/voice/fallback-line.ts`): first from the process's memory
 of the clinic's last call, then from the fallback number Retell holds for the
 clinic's AYA number. Each such call raises `voice_call_start_failed`, whose code says
@@ -32,7 +33,8 @@ clinic's published number. It clears the fallback of a number whose clinic has n
 usable direct line, since a line left there could only be a previous holder's, and it
 leaves alone a number two clinics both name. `retell_fallback_unsynced` names a clinic
 whose number it could not set (`duplicate`, `missing`, `rejected`, `unreachable`,
-`database`). Offboarding forgets a clinic's AYA number, so the sync cannot clear that
+`database`); a refused key (`key_refused`) or three numbers in a row timing out
+(`retell_unreachable`) stops the run with one alert for every clinic. Offboarding forgets a clinic's AYA number, so the sync cannot clear that
 number's fallback: release the number in Retell, or clear its fallback, when a clinic
 leaves. Until the key is pasted the job reports `skipped` and none of what
 follows in this section works.

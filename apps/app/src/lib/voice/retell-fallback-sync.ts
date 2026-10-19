@@ -100,9 +100,15 @@ export async function syncRetellFallbacks(
 
   const clinics = await (options.list ?? clinicsWithNumbers)();
   summary.clinics = clinics.length;
+  // A refused key, or Retell not answering, is one failure for every
+  // clinic: one alert and an early stop, rather than one email per clinic
+  // and minutes of timeouts holding up the rest of the tick.
+  let refused = false;
+  let unreachableInARow = 0;
   const holders = new Map<string, number>();
   for (const c of clinics) if (c.assistantNumber) holders.set(c.assistantNumber, (holders.get(c.assistantNumber) ?? 0) + 1);
   for (const clinic of clinics) {
+    if (refused || unreachableInARow >= 3) break;
     let code = "database";
     try {
       if (!clinic.assistantNumber) {
@@ -116,6 +122,7 @@ export async function syncRetellFallbacks(
       const wanted = wantedFallback({ ...clinic, directLine: await directLineOf(clinic.id) });
       code = "unreachable";
       const number = await getRetellPhoneNumber(clinic.assistantNumber, { ...options, key });
+      unreachableInARow = 0;
       if (!number) {
         code = "missing";
         throw new Error("Retell has no such number");
@@ -130,9 +137,21 @@ export async function syncRetellFallbacks(
       if (error instanceof RetellApiError && error.status >= 400 && error.status < 500) code = "rejected";
       summary.failures += 1;
       log.error("retell fallback not synced", { clinicId: clinic.id, code, error: describeError(error) });
+      if (error instanceof RetellApiError && (error.status === 401 || error.status === 403)) {
+        refused = true;
+        continue;
+      }
+      if (code === "unreachable") {
+        unreachableInARow += 1;
+        if (unreachableInARow >= 3) continue;
+      } else {
+        unreachableInARow = 0;
+      }
       await notifyOps("retell_fallback_unsynced", { clinicId: clinic.id, code });
     }
   }
+  if (refused) await notifyOps("retell_fallback_unsynced", { code: "key_refused" });
+  if (unreachableInARow >= 3) await notifyOps("retell_fallback_unsynced", { code: "retell_unreachable" });
   summary.status = summary.failures ? "failed" : "ok";
   summary.note = `${summary.clinics} numbers, ${summary.set} set, ${summary.unchanged} unchanged${summary.failures ? `, ${summary.failures} failed` : ""}`;
   return summary;

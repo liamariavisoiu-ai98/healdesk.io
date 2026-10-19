@@ -130,8 +130,9 @@ export async function syncRetellFallbacks(
       if (number.fallbackNumber !== wanted) {
         code = "not_kept";
         await setRetellFallbackNumber(clinic.assistantNumber, wanted, { ...options, key });
-        summary.set += 1;
-      } else {
+        // A duplicate counts once, as the failure below.
+        if (!duplicate) summary.set += 1;
+      } else if (!duplicate) {
         summary.unchanged += 1;
       }
       if (duplicate) {

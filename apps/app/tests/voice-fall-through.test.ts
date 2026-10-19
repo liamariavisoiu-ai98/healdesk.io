@@ -192,9 +192,30 @@ describe("a call that cannot read the database", () => {
     });
     await s.open();
     await s.handle(details(AYA));
-    await s.finish();
+    await new Promise((r) => setTimeout(r, 150));
     expect(responses()).toEqual([expect.objectContaining({ content: TRANSFER_LINE, transfer_number: DIRECT })]);
+    await s.finish();
     expect(notified).toEqual([]);
+  });
+
+  test("a caller who hangs up during a slow start is recorded as having heard nothing", async () => {
+    tenant.result = { clinicId: CLINIC, directLine: DIRECT, phone: null };
+    const events: { disclosurePlayedAt?: Date }[] = [];
+    const { s, responses } = session({
+      startDeadlineMs: 20,
+      gate: () => new Promise((resolve) => setTimeout(() => resolve({ decision: "answer" } as never), 80)),
+      fallbackLine: async () => null,
+      ingest: async (event) => {
+        events.push(event);
+        return {} as never;
+      },
+    });
+    await s.open();
+    await s.handle(details(AYA));
+    await s.finish();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.disclosurePlayedAt).toBeUndefined();
+    expect(responses().some((r) => r.content === TRANSFER_LINE || /AI assistant/.test(r.content))).toBe(false);
   });
 
   test("a caller who speaks before the transfer is said gets it on the newest request, and again after", async () => {
@@ -312,7 +333,7 @@ describe("the hourly fallback sync", () => {
     const retell = fakeRetell({ [AYA]: { fallback_number: DIRECT } });
     const other = { ...clinic, id: "0c1d2e3f-0000-4000-8000-00000000f412" };
     const result = await syncRetellFallbacks({ key: KEY, fetch: retell.fetcher, list: async () => [clinic, other], directLineOf: async () => DIRECT });
-    expect(result).toMatchObject({ status: "failed", failures: 2, set: 1 });
+    expect(result).toMatchObject({ status: "failed", failures: 2, set: 0, unchanged: 0 });
     expect(retell.calls.filter((c) => c.method === "PATCH").map((c) => JSON.parse(c.body!))).toEqual([{ fallback_number: null }]);
     expect(notified.map((n) => n.fields.code)).toEqual(["duplicate", "duplicate"]);
   });

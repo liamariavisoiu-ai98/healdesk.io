@@ -185,6 +185,8 @@ export class RetellCallSession {
   /** AYA gave the caller a real answer at least once, not only the failure line. */
   private answered = false;
   private closing = false;
+  /** The record has begun: a late start must not rewrite what it reads. */
+  private recording = false;
   /**
    * The last thing said that ended the call or put it through. Retell keeps
    * only the latest response, so a caller who speaks before it is said, or
@@ -283,6 +285,10 @@ export class RetellCallSession {
     // Call details may already have said this is an outbound call, which
     // callDetails has ended (v1 is inbound only): nothing more is said.
     if (this.outbound) return;
+    // The slow start's grace runs from its deadline, beside the lookup
+    // below, never after it: the caller is already waiting.
+    const lateStart = late ? withDeadline(late, LATE_START_GRACE_MS) : null;
+    lateStart?.catch(() => {});
     let found: { line: string; source: string } | null = known ? { line: known, source: "gate" } : null;
     if (!found) {
       await Promise.race([
@@ -296,12 +302,13 @@ export class RetellCallSession {
       }
     }
     if (this.outbound) return;
-    if (!found && late) {
+    if (!found && lateStart) {
       // Nowhere holds a line, and the start was slow rather than failed:
       // give it longer to answer the call normally before closing.
       try {
-        const result = await withDeadline(late, LATE_START_GRACE_MS);
-        if (this.outbound) return;
+        const result = await lateStart;
+        // Hung up meanwhile: the record has begun, and nothing was heard.
+        if (this.outbound || this.recording) return;
         log.warn("retell call started late", { clinicId: this.clinicId });
         this.closing = false;
         this.begin(result);
@@ -506,6 +513,7 @@ export class RetellCallSession {
   }
 
   private async record(): Promise<IngestResult | null> {
+    this.recording = true;
     this.closing = true;
     await Promise.all(this.sending);
     const endedAt = this.now();

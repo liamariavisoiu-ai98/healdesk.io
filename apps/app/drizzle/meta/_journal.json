@@ -582,6 +582,13 @@
       "when": 1792396881328,
       "tag": "0082_live_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792396935749,
+      "tag": "0083_operator_notices",
+      "breakpoints": true
     }
   ]
 }

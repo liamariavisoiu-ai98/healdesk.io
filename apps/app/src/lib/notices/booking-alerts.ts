@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 
-import type { Channel } from "@healdesk/catalog";
+import { fixedUrgentReply, type Channel, type UrgentLanguage } from "@healdesk/catalog";
 import { and, eq } from "drizzle-orm";
 
 import { bookingRequests, clinics, conversations } from "@/db/schema";
 import type { BookingAlertPayload } from "@/lib/email/templates/booking_alert";
 import { describeError, log } from "@/lib/log";
+import { notifyOps } from "@/lib/ops/notify";
 import { sectionPath, type PortalSection } from "@/lib/portal/nav";
 import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import type { TenantTx } from "@/lib/tenant";
@@ -48,8 +49,43 @@ export type BookingAlertKind =
  * while this is true (@healdesk/catalog, fixedUrgentReply), so the line never
  * promises an alert that was not sent, and the wizard's urgent screen says
  * AYA "tells your team at once".
+ *
+ * One turn's alert can still fail to queue (the database errs on the
+ * insert): notifyBookingAlert then returns false and tells ops
+ * (urgentAlertNotQueued), and a caller whose reply has not gone yet drops
+ * the line from it (withoutTeamTold).
  */
 export const URGENT_ALERT_DELIVERED = true;
+
+/** Every language the fixed urgent reply is written in: a new one fails the typecheck until it is here. */
+const URGENT_LANGUAGES: Readonly<Record<UrgentLanguage, true>> = { en: true, es: true };
+
+/**
+ * "I've told the team" in each of those languages, as the catalog's own
+ * builder writes it: the one line `teamAlerted` adds, so this can never
+ * drift from fixedUrgentReply.
+ */
+const TEAM_TOLD_LINES: readonly string[] = (Object.keys(URGENT_LANGUAGES) as UrgentLanguage[])
+  .map((language) => {
+    const input = { channel: "meta", emergency: "911", clinicName: "the clinic", clinicNumber: null, language } as const;
+    const told = fixedUrgentReply({ ...input, teamAlerted: true });
+    const untold = fixedUrgentReply({ ...input, teamAlerted: false });
+    return told.startsWith(untold) ? told.slice(untold.length) : "";
+  })
+  .filter((line) => line.length > 0);
+
+/**
+ * A fixed urgent reply built while URGENT_ALERT_DELIVERED held, as it reads
+ * once that turn's alert turned out not to be queued: the same lines
+ * without "I've told the team", in whichever language it was written. For a
+ * caller that learns the alert failed after the reply was built and before
+ * it is sent. Anything else comes back unchanged.
+ */
+export function withoutTeamTold(reply: string): string {
+  let out = reply;
+  for (const line of TEAM_TOLD_LINES) out = out.split(line).join("");
+  return out;
+}
 
 /** What the alert points at. Ids only: the portal shows the rest behind sign-in and step-up. */
 export type BookingAlertRef = {
@@ -119,21 +155,26 @@ const REQUEST_CHANNEL: Readonly<Record<"voice" | "meta" | "web_chat", Channel>> 
  * It never throws, and never breaks the caller's transaction: the reads and
  * the insert run in a savepoint, so a failure here rolls back only itself
  * and the booking, deposit or conversation it reports on is still recorded.
+ * It returns whether the alert's row is queued (inserted now, or already
+ * there under the same key), so a caller still building its reply can keep
+ * it true. An urgent alert that is not queued is also told to ops
+ * (urgentAlertNotQueued), whether or not the caller looks at the result.
  */
 export async function notifyBookingAlert(
   tx: TenantTx,
   kind: BookingAlertKind,
   ref: BookingAlertRef,
-): Promise<void> {
+): Promise<boolean> {
+  let queued = false;
   try {
-    await tx.db.transaction(async (savepoint) => {
+    queued = await tx.db.transaction(async (savepoint) => {
       const scoped: TenantTx = { ...tx, db: savepoint };
       const [clinic] = await savepoint
         .select({ slug: clinics.slug })
         .from(clinics)
         .where(eq(clinics.id, tx.clinicId))
         .limit(1);
-      if (!clinic) return;
+      if (!clinic) return false;
       const alert: BookingAlertPayload = {
         portalUrl: alertUrl(tx.clinicId, clinic.slug, kind),
         channel: ref.channel ?? (await channelOf(scoped, ref)),
@@ -144,11 +185,12 @@ export async function notifyBookingAlert(
       const key = dedupeKey(kind, ref);
       switch (kind) {
         case "deposit_to_collect":
+          // Inserted now, or already queued under this key: queued either way.
           await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, {
             ...alert,
             isPossiblyPaid: ref.mayBePaid === true,
           });
-          return;
+          return true;
         case "request_still_open":
           // A count, not one request: queued by the opening-hour job
           // (lib/scheduler/requests-still-open.ts) through queueRequestsStillOpen.
@@ -156,12 +198,14 @@ export async function notifyBookingAlert(
             clinicId: tx.clinicId,
             kind,
           });
-          return;
+          return false;
         default:
           await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, alert);
+          return true;
       }
     });
   } catch (error) {
+    queued = false;
     try {
       log.error("booking alert not queued", {
         clinicId: tx.clinicId,
@@ -172,6 +216,36 @@ export async function notifyBookingAlert(
       // Nothing reaches the caller; see above.
     }
   }
+  // Not awaited: ops is told on a connection of its own, so the caller's
+  // transaction is never held for an email, and neither its rollback nor
+  // its commit can lose the alert.
+  if (!queued && kind === "urgent") void urgentAlertNotQueued(tx.clinicId, ref);
+  return queued;
+}
+
+/**
+ * An urgent message (L12) whose alert could not be queued: the clinic has
+ * not been emailed and /api/health cannot see it (it reads only the rows
+ * that exist), so ops is told at once, to phone the clinic. Ids and a
+ * channel only, never anything the person said. notifyOps works without the
+ * database, deduplicating in memory, so this still goes when the database
+ * is what failed.
+ *
+ * notifyBookingAlert raises it for a savepoint that failed. A caller whose
+ * whole transaction failed after the alert was queued in it, or never
+ * reached notifyBookingAlert because its transaction could not start (a
+ * call whose database went away mid-call), raises it itself once that
+ * transaction has ended. Never throws.
+ */
+export async function urgentAlertNotQueued(
+  clinicId: string,
+  ref: Pick<BookingAlertRef, "conversationId" | "channel">,
+): Promise<void> {
+  await notifyOps("urgent_alert_not_queued", {
+    clinicId,
+    channel: ref.channel ?? null,
+    conversationId: ref.conversationId ?? null,
+  });
 }
 
 /**

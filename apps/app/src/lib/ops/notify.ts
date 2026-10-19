@@ -188,6 +188,11 @@ export const OPS_EVENTS = [
   // stops AYA where that vendor serves and asks for an incident.
   "vendor_agreement_expiring",
   "vendor_agreement_lapsed",
+  // An urgent message's alert to the clinic (L12) could not be queued, so
+  // the clinic has not been emailed and /api/health cannot see it: raised by
+  // lib/notices/booking-alerts.ts (urgentAlertNotQueued), with the clinic,
+  // the channel and the conversation when it has one. Ids only.
+  "urgent_alert_not_queued",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

@@ -618,7 +618,13 @@ async function evaluate(
   }
 }
 
-/** The channel's result: error over failed over review over passed. */
+/**
+ * The channel's result: error over failed over review over passed. Passed
+ * means every case asked passed; a case not applicable is not asked. One the
+ * runtime cannot ask yet (the booking cases) still holds go-live, through
+ * Gate B (lib/compliance/gate-b.ts, casesNotAskable), rather than here: the
+ * cases that were asked still approve the script the channel would read.
+ */
 export function channelStatus(cases: readonly PracticeCaseResult[]): PracticeResultStatus {
   if (cases.some((c) => c.status === "error")) return "error";
   if (cases.some((c) => c.status === "failed")) return "failed";

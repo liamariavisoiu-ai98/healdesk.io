@@ -17,6 +17,7 @@ import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors"
 import { and, eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
+import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -1390,6 +1391,11 @@ export async function answerFrontDoor(
   // The clinic's switch for this platform (Settings). The webhook skips such
   // a message before it gets here; this holds for any other caller.
   if (!(await metaPlatformOn(tx, input.platform))) return null;
+  // The PHI gate: a practice whose data no agreement covers (its re-sign to
+  // the BAA unsigned) is answered by nobody, and nothing of the message
+  // reaches the model or is kept. The webhook stops such a message before it
+  // gets here; this holds for any other caller.
+  if (!(await clinicAcceptsPhi(tx.db, tx.clinicId))) return null;
   const now = input.now ?? new Date();
   const thread: ThreadInput | null = input.thread ? { platform: input.platform, externalId: input.thread.externalId, senderId: input.thread.senderId, connectionId: input.thread.connectionId } : null;
 

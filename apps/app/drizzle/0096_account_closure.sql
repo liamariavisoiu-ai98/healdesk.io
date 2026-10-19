@@ -271,10 +271,17 @@ BEGIN
       DELETE FROM account a WHERE a.user_id = uid;
       DELETE FROM invitation i WHERE i.inviter_id = uid;
       DELETE FROM member mb WHERE mb.user_id = uid;
-      DELETE FROM verification v
-       USING "user" u
-       WHERE u.id = uid
-         AND position(lower(u.email) IN lower(v.identifier || ' ' || v.value)) > 0;
+      -- Better Auth's own rows for the person. As lib/auth.ts configures it
+      -- (passwords off, no social sign-in, no OTP or magic-link plugin), the
+      -- only ones that name a user are core's reset-password:<token> and
+      -- delete-account-<token>, each holding that user's id, whole, as its
+      -- value (better-auth 1.6.26, api/routes/password.mjs and
+      -- update-user.mjs; identifiers stored plain). So they are matched on
+      -- the id, exactly, never on the address, which can sit inside another
+      -- person's (a@b.com inside xa@b.com). A plugin that keys its rows by
+      -- the address (email-otp's <type>-otp-<email>) would need its exact
+      -- form added here before it is turned on.
+      DELETE FROM verification v WHERE v.value = uid;
       -- Kept as the tombstone the audit log's actor id points at: a
       -- non-routable address (RFC 2606's .invalid), no name, no picture.
       UPDATE "user" u

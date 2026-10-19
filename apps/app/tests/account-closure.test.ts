@@ -197,10 +197,16 @@ async function seedAccount(clinicId: string, userId: string, email: string): Pro
      values ($1, $2, 'credential', $2, now(), now())`,
     [`acc_${randomUUID().slice(0, 8)}`, userId],
   );
+  // Better Auth's rows for a user, in the two forms its core writes with
+  // lib/auth.ts's configuration: the token in the identifier, the user's id
+  // as the value.
+  await seedVerification(`reset-password:${randomBytes(12).toString("hex")}`, userId);
+  await seedVerification(`delete-account-${randomBytes(12).toString("hex")}`, userId);
+  // A device recovery link (0095), bound to the sign-in's address as it is.
   await pool.query(
-    `insert into verification (id, identifier, value, expires_at, created_at, updated_at)
-     values ($1, $2, 'token', now() + interval '1 hour', now(), now())`,
-    [`ver_${randomUUID().slice(0, 8)}`, email],
+    `insert into device_recoveries (user_id, token_hash, address_hash, landing, issued_by, expires_at)
+     values ($1, $2, app_address_hash($1), '/c/closing/protect', 'ops@healdesk.test', now() + interval '1 hour')`,
+    [userId, randomBytes(32)],
   );
   const agreement = randomUUID();
   await pool.query(
@@ -209,6 +215,15 @@ async function seedAccount(clinicId: string, userId: string, email: string): Pro
     [agreement, email, clinicId],
   );
   await portalActions(clinicId, userId);
+}
+
+/** One Better Auth verification row, as the migrator. */
+async function seedVerification(identifier: string, value: string): Promise<void> {
+  await getMigratorPool().query(
+    `insert into verification (id, identifier, value, expires_at, created_at, updated_at)
+     values ($1, $2, $3, now() + interval '1 hour', now(), now())`,
+    [`ver_${randomUUID().slice(0, 8)}`, identifier, value],
+  );
 }
 
 /** Offboard, deliver the export, and move the clock past the pass-through: due for destruction, then closure. */
@@ -294,16 +309,14 @@ describeDb("closing the account once the data is destroyed and nothing is left t
       ["user_factors", "user_id"],
       ["sign_in_links", "user_id"],
       ["step_ups", "user_id"],
+      ["device_recoveries", "user_id"],
+      ["verification", "value"],
     ] as const) {
       const left = await pool.query(`select 1 from ${table} where ${column} = $1`, [
         leaving.staffUserId,
       ]);
       expect(left.rows, table).toHaveLength(0);
     }
-    expect(
-      (await pool.query(`select 1 from verification where identifier = $1`, [leaving.staffEmail]))
-        .rows,
-    ).toHaveLength(0);
     // The person with a grant on the other location keeps their sign-in.
     const kept = await pool.query<{ email: string }>(`select email from "user" where id = $1`, [
       both.userId,
@@ -753,6 +766,34 @@ describeDb("closing the account once the data is destroyed and nothing is left t
     );
     expect(left).toEqual([named]);
     expect(left).not.toContain(loose);
+  });
+
+  test("the closure deletes the person's Better Auth rows by their id, never another person's whose address contains theirs", async () => {
+    // The review's N4: the rows were matched by the address as a substring of
+    // the identifier and value, so closing a@b.com deleted xa@b.com's, and
+    // the forms Better Auth writes here, which hold the user's id and no
+    // address, were never matched at all.
+    const leaving = await seedClinic("close-near");
+    const staying = await seedClinic("xclose-near");
+    expect(staying.staffEmail).toContain(leaving.staffEmail);
+    const own = `reset-password:${randomBytes(12).toString("hex")}`;
+    await seedVerification(own, leaving.staffUserId);
+    const theirs = [
+      `reset-password:${randomBytes(12).toString("hex")}`,
+      `sign-in-otp-${staying.staffEmail}`,
+    ];
+    await seedVerification(theirs[0]!, staying.staffUserId);
+    await seedVerification(theirs[1]!, `${randomBytes(8).toString("hex")}:0`);
+
+    await leaveAndWait(leaving.clinicId);
+    await destroyDueClinics();
+    expect((await closeAccountsDue()).closed.map((x) => x.clinicId)).toContain(leaving.clinicId);
+
+    const { rows } = await getMigratorPool().query<{ identifier: string }>(
+      `select identifier from verification where identifier = any($1::text[]) order by identifier`,
+      [[own, ...theirs]],
+    );
+    expect(rows.map((r) => r.identifier)).toEqual([...theirs].sort());
   });
 
   test("accepting an invitation for an organisation with a closed location completes, and grants the closed location nothing", async () => {

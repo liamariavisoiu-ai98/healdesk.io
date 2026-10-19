@@ -11,7 +11,6 @@ CREATE TABLE "incident_affected_contacts" (
 ALTER TABLE "agreement_resigns" DROP CONSTRAINT "agreement_resigns_reason_check";--> statement-breakpoint
 ALTER TABLE "agreement_resigns" DROP CONSTRAINT "agreement_resigns_source_check";--> statement-breakpoint
 ALTER TABLE "site_rereads" DROP CONSTRAINT "site_rereads_reason_check";--> statement-breakpoint
-ALTER TABLE "contacts" ADD CONSTRAINT "contacts_clinic_id_unique" UNIQUE("clinic_id","id");--> statement-breakpoint
 ALTER TABLE "incidents" ADD CONSTRAINT "incidents_clinic_id_unique" UNIQUE("clinic_id","id");--> statement-breakpoint
 ALTER TABLE "incident_affected_contacts" ADD CONSTRAINT "incident_affected_contacts_clinic_id_clinics_id_fk" FOREIGN KEY ("clinic_id") REFERENCES "public"."clinics"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "incident_affected_contacts" ADD CONSTRAINT "incident_affected_contacts_incident_fk" FOREIGN KEY ("clinic_id","incident_id") REFERENCES "public"."incidents"("clinic_id","id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
@@ -23,9 +22,9 @@ ALTER TABLE "site_rereads" ADD CONSTRAINT "site_rereads_reason_check" CHECK ("si
 
 -- =============================================================================
 -- Agreements (wave 2, package R11; plan Part L, Annex X5 L22 and L29). The
--- statements above were generated from schema.ts, with the two unique keys
--- moved ahead of the foreign keys that reference them; everything below is
--- the part drizzle cannot express.
+-- statements above were generated from schema.ts, with incidents' unique
+-- key moved ahead of the foreign key that references it (contacts' is
+-- 0094's); everything below is the part drizzle cannot express.
 --
 -- Three things, each its own section:
 --
@@ -55,7 +54,7 @@ ALTER TABLE "site_rereads" ADD CONSTRAINT "site_rereads_reason_check" CHECK ("si
 --      named in error; covered by destruction, and by erasure and the purge
 --      through its foreign keys' cascade from contacts.
 --
--- Safe to apply in place: two CHECKs widened, two unique keys on columns
+-- Safe to apply in place: three CHECKs widened, a unique key on columns
 -- already unique, a new empty table, a trigger function and the destruction
 -- check redefined, one more column grant. apps/app has only ever held
 -- synthetic and seed data (CLAUDE.md, "Until BAA coverage is in place").
@@ -150,31 +149,12 @@ REVOKE ALL ON FUNCTION app_incident_affected_guard() FROM PUBLIC;--> statement-b
 -- -----------------------------------------------------------------------------
 -- Destruction: the list goes with the clinic's data
 -- -----------------------------------------------------------------------------
--- 0092's definition (handovers) with incident_affected_contacts added to the
--- rows destruction must have deleted before the clinic is stamped destroyed.
--- destroyClinicData deletes the list before the contacts it names
+-- 0094's definition (patient_requests) with incident_affected_contacts added
+-- to the rows destruction must have deleted before the clinic is stamped
+-- destroyed. destroyClinicData deletes the list before the contacts it names
 -- (lib/offboarding/offboarding.ts); the foreign key's cascade would take it
 -- with them anyway, and this check is what says so to a destruction that
 -- reached neither.
---
--- Written through EXECUTE so that it carries, as literal checks, the two
--- tables wave 2's batch C adds when they exist (conversation_flags,
--- patient_requests; their own migrations redefine this function and land
--- before this one), and leaves them out where they do not: a plpgsql body
--- naming a table that does not exist fails on its first call. Whichever
--- lands, the function stored is plain text the destruction-coverage test
--- (tests/booking-request-destruction.test.ts) reads, one EXISTS per table.
-DO $migration$
-DECLARE
-  extra text := '';
-BEGIN
-  IF to_regclass('public.conversation_flags') IS NOT NULL THEN
-    extra := extra || E'\n     OR EXISTS (SELECT 1 FROM conversation_flags cf WHERE cf.clinic_id = target_clinic)';
-  END IF;
-  IF to_regclass('public.patient_requests') IS NOT NULL THEN
-    extra := extra || E'\n     OR EXISTS (SELECT 1 FROM patient_requests pq WHERE pq.clinic_id = target_clinic)';
-  END IF;
-  EXECUTE format($fn$
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
 RETURNS timestamptz
 LANGUAGE plpgsql
@@ -182,13 +162,13 @@ VOLATILE
 SECURITY DEFINER
 SET search_path = public, pg_temp
 SET TimeZone = 'UTC'
-AS $body$
+AS $$
 DECLARE
   tenant uuid := app_current_clinic_id();
   done timestamptz;
 BEGIN
   IF tenant IS NULL OR target_clinic IS DISTINCT FROM tenant THEN
-    RAISE EXCEPTION 'app_mark_clinic_destroyed: clinic %% is not the tenant of this transaction', target_clinic
+    RAISE EXCEPTION 'app_mark_clinic_destroyed: clinic % is not the tenant of this transaction', target_clinic
       USING ERRCODE = '42501';
   END IF;
 
@@ -199,7 +179,7 @@ BEGIN
   PERFORM 1 FROM clinics c WHERE c.id = target_clinic FOR UPDATE;
 
   IF NOT app_destruction_due(target_clinic) THEN
-    RAISE EXCEPTION 'Clinic %% is not due for destruction; refusing to mark it destroyed.', target_clinic
+    RAISE EXCEPTION 'Clinic % is not due for destruction; refusing to mark it destroyed.', target_clinic
       USING ERRCODE = 'check_violation',
             HINT = 'Destruction is due by the rule of the agreement the service ended under (app_destruction_due), by the database''s clock.';
   END IF;
@@ -228,8 +208,10 @@ BEGIN
      OR EXISTS (SELECT 1 FROM deposit_payments dp WHERE dp.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM transcript_emails te WHERE te.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM handovers ho WHERE ho.clinic_id = target_clinic)
-     OR EXISTS (SELECT 1 FROM incident_affected_contacts ia WHERE ia.clinic_id = target_clinic)%s THEN
-    RAISE EXCEPTION 'Clinic %% still holds rows that destruction deletes; refusing to mark it destroyed.', target_clinic
+     OR EXISTS (SELECT 1 FROM conversation_flags cf WHERE cf.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM patient_requests pq WHERE pq.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM incident_affected_contacts ia WHERE ia.clinic_id = target_clinic) THEN
+    RAISE EXCEPTION 'Clinic % still holds rows that destruction deletes; refusing to mark it destroyed.', target_clinic
       USING ERRCODE = 'check_violation',
             HINT = 'destroyClinicData deletes them first, in the same transaction, and then stamps it.';
   END IF;
@@ -241,10 +223,7 @@ BEGIN
   RETURNING c.destroyed_at INTO done;
   RETURN done;
 END
-$body$
-$fn$, extra);
-END
-$migration$;--> statement-breakpoint
+$$;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- Comments
@@ -256,7 +235,7 @@ COMMENT ON COLUMN agreement_resigns.reason IS
 COMMENT ON COLUMN agreement_resigns.paused_at IS
   'The header pause this re-sign put on AYA, or NULL when it put none (she was already paused, or a baa_version re-sign whose version go-live still accepts). Set once from NULL while open, when a release moves the floor past a version a re-sign is waiting on (0097); never moved.';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
-  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Locks the clinic row, then refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: deposits included (0065), the transcript outbox (0069), handovers (0092) and the list of who an incident affected (0097), with suppressions, consent records, contact attempts, erasure requests, record amendments, the setup screens, slot holds, providers and provider services. Returns destroyed_at.';--> statement-breakpoint
+  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Locks the clinic row, then refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: deposits included (0065), the transcript outbox (0069), handovers (0092), the flags on conversations (0093), the patient requests passed to it (0094) and the list of who an incident affected (0097), with suppressions, consent records, contact attempts, erasure requests, record amendments, the setup screens, slot holds, providers and provider services. Returns destroyed_at.';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The posture, re-asserted: a later widening fails here, not in production.

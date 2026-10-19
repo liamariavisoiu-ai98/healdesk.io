@@ -1,7 +1,7 @@
 import { isCarrier, type Channel } from "@healdesk/catalog";
 import { and, eq, like, sql } from "drizzle-orm";
 
-import { clinics, reportDeliveries } from "@/db/schema";
+import { clinicChannels, clinics, reportDeliveries } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
@@ -17,6 +17,7 @@ import { describeError, log } from "@/lib/log";
 import { claimDelivery, recordDelivery } from "@/lib/reporting/recipients";
 import { emailCallUrl } from "@/lib/setup/help";
 import { readSetupSettings } from "@/lib/setup/settings";
+import { snippetOpen, widgetScriptUrl } from "@/lib/setup/snippet";
 import { withTenant } from "@/lib/tenant";
 
 /**
@@ -31,14 +32,21 @@ import { withTenant } from "@/lib/tenant";
  *   - recorded on the ledger, report_deliveries, one row a send, keyed by
  *     the clinic's day and a counter, so a retry of the same row sends once.
  *
- * Phone only for now: the forwarding steps exist only once voice is ready
- * for the clinic, and AYA's number is then the voice runtime's to give
- * (`ayaNumberE164`, null until then). The wizard's forwarding screen and
- * Settings → Channels show "Email these to my office manager" from that day;
- * website chat's "Email to my web person" joins with the widget's line.
+ * Two channels have a step someone else can take:
  *
- * Business contact data only: an address the clinic chose and the
- * practice's own phone steps. Nothing about a patient.
+ *   - phone, the forwarding steps, which exist only once voice is ready for
+ *     the clinic, and AYA's number is then the voice runtime's to give
+ *     (`ayaNumberE164`, null until then): "Email these to my office manager"
+ *     on the wizard's forwarding screen and in Settings → Channels;
+ *   - website chat, the line to paste, once the channel is open (ready on our
+ *     side, lib/setup/snippet.ts), the same day the screens show it: "Email to
+ *     my web person" beside the line in both places.
+ *
+ * The limit and the stop list are the clinic's, across both: three a day in
+ * all, and an address that stopped them gets neither.
+ *
+ * Business contact data only: an address the clinic chose, the practice's
+ * own phone steps and its website line. Nothing about a patient.
  */
 
 export const STEPS_PER_DAY = 3;
@@ -69,19 +77,20 @@ export async function sendStepsOn(
     channel: Channel;
     to: unknown;
     actor: ActorContext;
-    /** AYA's number once voice is ready for the clinic; null until then. */
-    ayaNumberE164: string | null;
+    /** Phone's: AYA's number once voice is ready for the clinic; null until then. */
+    ayaNumberE164?: string | null;
   },
   options: SendEmailOptions = {},
 ): Promise<StepsSentResult> {
   const now = options.now ?? new Date();
-  if (input.channel !== "voice") {
+  if (input.channel === "meta") {
     return {
       status: "refused",
-      message: "The line for your website can be sent on once website chat is ready.",
+      message:
+        "Instagram, Messenger and WhatsApp connect with your own Facebook login, so there are no steps to send on.",
     };
   }
-  if (!input.ayaNumberE164) {
+  if (input.channel === "voice" && !input.ayaNumberE164) {
     return {
       status: "refused",
       message: "Phone isn't ready for call forwarding yet, so there are no steps to send.",
@@ -102,6 +111,7 @@ export async function sendStepsOn(
       const [clinic] = await tx.db
         .select({
           name: clinics.name,
+          slug: clinics.slug,
           specialty: clinics.specialty,
           timezone: clinics.timezone,
           carrier: clinics.carrier,
@@ -113,6 +123,21 @@ export async function sendStepsOn(
         .limit(1);
       if (!clinic || clinic.offboardingStartedAt) {
         return { refused: "This account has closed, so nothing can be sent on." } as const;
+      }
+      if (input.channel === "web") {
+        // The line goes on only once the screens show it: website chat bought
+        // and ready on our side, so nobody pastes a line that loads nothing.
+        const [web] = await tx.db
+          .select({ readyAt: clinicChannels.readyAt })
+          .from(clinicChannels)
+          .where(and(eq(clinicChannels.clinicId, tx.clinicId), eq(clinicChannels.channel, "web")))
+          .limit(1);
+        if (!snippetOpen(web)) {
+          return {
+            refused:
+              "Website chat isn't ready yet, so there's no line to send. It appears here when it is.",
+          } as const;
+        }
       }
       const [stopped] = await tx.db
         .select({ id: reportDeliveries.id })
@@ -178,17 +203,20 @@ export async function sendStepsOn(
       recordDelivery(tx, deliveryId, result),
     );
   try {
-    const payload: StepsSentPayload = {
-      channel: "voice",
-      ayaNumberE164: input.ayaNumberE164,
-      carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
-      phoneSystem:
-        clinic.phoneSystem === "voip" || clinic.phoneSystem === "landline"
-          ? clinic.phoneSystem
-          : "unknown",
-      routing,
-      callUrl: emailCallUrl(),
-    };
+    const payload: StepsSentPayload =
+      input.channel === "web"
+        ? { channel: "web", scriptUrl: widgetScriptUrl(), clinicSlug: clinic.slug }
+        : {
+            channel: "voice",
+            ayaNumberE164: input.ayaNumberE164!,
+            carrier: isCarrier(clinic.carrier) ? clinic.carrier : null,
+            phoneSystem:
+              clinic.phoneSystem === "voip" || clinic.phoneSystem === "landline"
+                ? clinic.phoneSystem
+                : "unknown",
+            routing,
+            callUrl: emailCallUrl(),
+          };
     assertPayloadAllowed(payload, KIND);
     const stopUrl = stepsStopUrl(input.clinicId, deliveryId);
     const rendered = renderStepsSent(payload, {

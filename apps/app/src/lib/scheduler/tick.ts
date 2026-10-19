@@ -18,6 +18,7 @@ import {
 import { runMetaTokenWatch } from "@/lib/meta/token-watch";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
+import { sweepPatientRequests } from "@/lib/patient-rights/patient-requests";
 import { runOpsDigestJob } from "@/lib/ops/digest";
 import { runHealthFlagsJob } from "@/lib/ops/health-flags";
 import { runOpsWatchJob } from "@/lib/ops/watch";
@@ -275,6 +276,18 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
     return {
       status: "ok",
       note: `${r.open} open, ${r.sent} sent, ${r.alerted} past 7 days, ${r.opened} opened by a release, ${r.paused} paused by one`,
+    };
+  });
+  // L32's reminders, on the second and fourth business days, and its ops
+  // alerts, on the fourth and once the fifth has passed, for each patient's
+  // request passed to a practice that nobody there has marked received
+  // (lib/patient-rights/patient-requests.ts). Not a switched job, like the
+  // re-sign reminders: the BAA's five business days wait for no switch.
+  await record("patient-requests", async () => {
+    const r = await sweepPatientRequests(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.open} open, ${r.reminded} reminded, ${r.dueSoon} due tomorrow, ${r.pastDue} past due${r.failures ? `, ${r.failures} failed` : ""}`,
     };
   });
   // Phase two, like the monthly report.

@@ -20,6 +20,12 @@
  * appointments booked, calls answered that would have rung out, deposits
  * collected, booked value. Never revenue. Change the product before changing
  * a line.
+ *
+ * Nor does a line keep what the product does not: the words of an
+ * Instagram, Messenger or WhatsApp conversation are never stored (Meta signs
+ * no BAA), so the portal's Conversations shows only when each person wrote
+ * and what came of it, and the thread itself stays in the clinic's own inbox
+ * on that platform (outcomes.test.ts).
  */
 export type Outcome = {
   id: string;
@@ -47,7 +53,7 @@ export const OUTCOMES: readonly Outcome[] = [
     time: "now",
     line: "Instagram, Messenger and WhatsApp answered in the same voice as the phone.",
     detail:
-      "Someone messages your Instagram at 9:40 on a Sunday night to ask what a first consultation costs. AYA answers from your own price list, in the tone you set, and offers times to come in. She keeps it non-clinical, because Meta carries no BAA, and the whole thread is waiting in Conversations when your team opens on Monday.",
+      "Someone messages your Instagram at 9:40 on a Sunday night to ask what a first consultation costs. AYA answers from your own price list, in the tone you set, and offers times to come in. She keeps it non-clinical, because Meta carries no BAA, and we keep none of the words: the thread stays in your own Instagram inbox, and Conversations shows when they wrote and any booking request she took, ready when your team opens on Monday.",
     still: "/outcomes/one-voice.webp",
   },
   {

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { setupLine, WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 import { loadSetupState } from "@/lib/setup/state";
 import { publicOrigin, publicUrl } from "@/lib/public-url";
 
@@ -183,6 +184,20 @@ describeDb("the setup wizard's pages", () => {
     }
   }, 60_000);
 
+  test("2.1: the chat greeting is website chat's, and a Meta clinic is told its channels open with their own line", async () => {
+    // It was labelled "When someone opens a chat or sends a message", though
+    // no Instagram, Messenger or WhatsApp reply ever says it.
+    as(everything);
+    const meta = text(await wizard({ s: "tone" }));
+    expect(meta).toContain(GREETING_LABELS.chat);
+    expect(meta).toContain(META_GREETING_NOTE);
+    expect(meta).not.toContain("sends a message");
+    as(voiceWeb);
+    const web = text(await wizard({ s: "tone" }));
+    expect(web).toContain(GREETING_LABELS.chat);
+    expect(web).not.toContain(META_GREETING_NOTE);
+  });
+
   describe("2.4: deposits and the payment account", () => {
     test("a chat package may connect Stripe; doing it later in Settings → Payments is the default", async () => {
       process.env.STRIPE_SECRET_KEY = "sk_test_wizard";
@@ -316,10 +331,85 @@ describeDb("the setup wizard's pages", () => {
           `<script src="${publicUrl("/widget/v1.js")}" data-clinic="${voiceWeb.clinicSlug}" async></script>`,
         );
         expect(words).toContain("Copy the line");
+        // "Send this to my web person" (spec), beside the line.
+        expect(words).toContain("Email to my web person");
+        expect(words).toContain("Send the line");
         expect(words).not.toContain(process.env.HEALDESK_APP_URL ?? "app-internal");
+        expect(brokenLinks(html, voiceWeb.clinicSlug)).toEqual([]);
         expect(await axeViolations(html)).toEqual([]);
       } finally {
         await setChannel(voiceWeb, "web", `ready_at = null, waiting_on = null`);
+      }
+    });
+
+    test("the website line's panel is Settings' own, and its email goes through the action the phone steps use", async () => {
+      const fs = await import("node:fs");
+      // One component in both places, so the line and its words never differ.
+      for (const file of [
+        "src/app/c/[slug]/setup/screens/ChannelsScreen.tsx",
+        "src/app/c/[slug]/settings/SettingsCards.tsx",
+      ]) {
+        const source = fs.readFileSync(file, "utf8");
+        expect(source, file).toMatch(/import \{ WebsiteLinePanel \} from "\.\.\/(\.\.\/)?WebsiteLinePanel"/);
+        expect(source, file).toContain("<WebsiteLinePanel slug=");
+      }
+      expect(fs.readFileSync("src/app/c/[slug]/SendStepsForm.tsx", "utf8")).toContain(
+        "sendStepsAction(props.slug",
+      );
+
+      const { sendStepsAction } = await import("@/app/c/[slug]/steps-actions");
+      as(voiceWeb);
+      steps.sendStepsOn.mockResolvedValueOnce({ status: "sent", to: "web@agency.test" });
+      expect(await sendStepsAction(voiceWeb.clinicSlug, "web", "web@agency.test")).toEqual({
+        ok: true,
+        message: "Sent to web@agency.test.",
+      });
+      // Website chat's line needs no number: lib/notices/steps-sent.ts checks
+      // the channel is open itself.
+      expect(steps.sendStepsOn).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          clinicId: voiceWeb.clinicId,
+          channel: "web",
+          to: "web@agency.test",
+          ayaNumberE164: null,
+        }),
+      );
+      // A browser can send anything: a channel with no step to send is refused here.
+      steps.sendStepsOn.mockClear();
+      expect(
+        await sendStepsAction(voiceWeb.clinicSlug, "meta" as "web", "web@agency.test"),
+      ).toEqual({ ok: false, message: "There's nothing to send for that." });
+      expect(steps.sendStepsOn).not.toHaveBeenCalled();
+    });
+
+    test("a live channel says since when, and a paused one until when (plan Part E step 4)", async () => {
+      // Until 19 October 2026 the words were a bare "Live" and "Paused".
+      as(voiceWeb);
+      // Inside the tenant: the tables force row-level security, the migrator's included.
+      const pause = (set: string) =>
+        inTenant(voiceWeb.clinicId, (c) =>
+          c.query(`update clinic_settings set ${set} where clinic_id = $1`, [voiceWeb.clinicId]),
+        );
+      await setChannel(
+        voiceWeb,
+        "web",
+        `ready_at = '2026-10-14T15:00:00Z', live_at = '2026-10-14T15:00:00Z'`,
+      );
+      try {
+        expect(text(await wizard({ s: "channels" }))).toMatch(
+          /Website chat Live since 14 October(?: 2026)? /,
+        );
+        await pause(`ai_paused_at = now(), ai_paused_until = '2099-03-02T19:00:00Z'`);
+        expect(text(await wizard({ s: "channels" }))).toMatch(
+          /Website chat Paused until \d{1,2}(?::\d{2})? [ap]m [A-Z]{2,5} on Monday 2 March 2099 /,
+        );
+        await pause(`ai_paused_until = null`);
+        expect(text(await wizard({ s: "channels" }))).toContain(
+          "Website chat Paused until you switch AYA back on",
+        );
+      } finally {
+        await pause(`ai_paused_at = null, ai_paused_until = null`);
+        await setChannel(voiceWeb, "web", `ready_at = null, live_at = null, waiting_on = null`);
       }
     });
 

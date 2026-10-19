@@ -67,7 +67,8 @@ const REGISTERED_AHEAD: Record<
   guarantee_claim_received: ["L30", "normal", null, "any_hour"],
   guarantee_finding: ["L30", "normal", null, "any_hour"],
   suspended_for_cause: ["L31", "critical", null, "any_hour"],
-  patient_request: ["L32", "normal", null, "any_hour"],
+  // Daytime: a five-business-day clock, and reminders due at a clinic-local day's first run.
+  patient_request: ["L32", "normal", null, "daytime"],
   product_update: ["L33", "normal", "product_updates", "daytime"],
   pass_through_ending: ["E3", "normal", null, "daytime"],
   export_ready: ["E4", "normal", null, "daytime"],

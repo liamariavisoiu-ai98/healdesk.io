@@ -121,8 +121,9 @@ export const NOTICE_KIND_REGISTRY = {
   // how a change nobody at the clinic made gets noticed.
   setting_changed: kind("O4", "transactional", "normal", null, "any_hour", "plan"),
   // O10: a channel ready on our side and still waiting on the clinic an
-  // hour later (lib/notices/channel-ready.ts, the seam the voice runtime
-  // calls). It waits for daytime: it is a step to take, not an alert.
+  // hour later, phone's forwarding or website chat's line
+  // (lib/notices/channel-ready.ts, which lib/channels/events.ts calls). It
+  // waits for daytime: it is a step to take, not an alert.
   channel_ready: kind("O10", "transactional", "normal", null, "daytime", "plan"),
 
   // The rest of Annex X5, registered together (14 October 2026) so the CHECK
@@ -188,8 +189,11 @@ export const NOTICE_KIND_REGISTRY = {
   // L31: suspended for a legal or security reason. Critical, like billing's
   // `suspended`: calls go to the direct line from then on.
   suspended_for_cause: kind("L31", "transactional", "critical", null, "any_hour", "plan"),
-  // L32: a pointer to a patient's request, which ops records by hand.
-  patient_request: kind("L32", "transactional", "normal", null, "any_hour", "plan"),
+  // L32: a pointer to a patient's request, which ops records by hand. It
+  // waits for daytime: its clock is five business days, its reminders fall
+  // due at the first hourly run of a clinic-local day, and a pointer at 3 am
+  // helps nobody (lib/patient-rights/patient-requests.ts).
+  patient_request: kind("L32", "transactional", "normal", null, "daytime", "plan"),
   // L33: changes to features the clinic already has. Transactional, never
   // promotional, with its own one-click switch.
   product_update: kind("L33", "transactional", "normal", "product_updates", "daytime", "plan"),

@@ -4,12 +4,14 @@ import { useState, type FormEvent } from "react";
 
 import {
   CHANNEL_NAMES,
+  CORRECTION_WORDS,
   OUTCOME_NAMES,
   OUTCOME_STYLES,
   phoneText,
   type ConversationOutcome,
   type DayChip,
 } from "@/lib/portal/conversation-words";
+import { bookingRequestPath } from "@/lib/portal/booking-paths";
 import type { ConversationListItem } from "@/lib/portal/conversations";
 import { portalMoment } from "@/lib/portal/format";
 
@@ -20,10 +22,13 @@ import { digestOf, downloadJson } from "./download";
 
 /**
  * The Conversations list (plan Part F4): a search by name or phone digits,
- * the Today / Yesterday / This week chips, and the rows. The first rows come
- * with the page; a search or a chip asks the server again
- * (findConversationsAction), behind the step-up and logged, and never puts
- * what was typed in the address bar.
+ * the Today / Yesterday / This week chips, the Flagged filter, and the rows.
+ * The first rows come with the page; a search or a chip asks the server
+ * again (findConversationsAction), behind the step-up and logged, and never
+ * puts what was typed in the address bar. A flagged row says when it was
+ * flagged and whether its correction is live (spec: "Flagged conversations
+ * get their own view in the portal so the clinic can see that its
+ * corrections landed").
  *
  * One column, every target at least 44px tall, and the count announced in a
  * polite region when the rows change (Part F8).
@@ -39,7 +44,12 @@ export function ConversationsView(props: {
   slug: string;
   timeZone: string;
   initialRows: ConversationListItem[];
-  /** Where a booking request opens, or null while Bookings isn't in this build. */
+  /**
+   * Bookings, or null while it isn't in this build. A request opens there by
+   * its `?request=` focus (bookingRequestPath), which shows it, or what became
+   * of it, wherever it now sits; an id anchor would land nowhere for a
+   * declined or older request, and the step-up's return drops it.
+   */
   bookingsHref: string | null;
   limit: number;
 }) {
@@ -49,15 +59,18 @@ export function ConversationsView(props: {
   const [problem, setProblem] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
   const [filtered, setFiltered] = useState(false);
+  const [flagged, setFlagged] = useState(false);
+  const [shownFlagged, setShownFlagged] = useState(false);
 
-  async function run(next: { q: string; day: DayChip | null }): Promise<void> {
+  async function run(next: { q: string; day: DayChip | null; flagged: boolean }): Promise<void> {
     setWorking(true);
     setProblem(null);
     try {
       const found = await findConversationsAction(props.slug, next);
       if (found.ok) {
         setRows(found.rows);
-        setFiltered(next.q.trim() !== "" || next.day !== null);
+        setShownFlagged(next.flagged);
+        setFiltered(next.q.trim() !== "" || next.day !== null || next.flagged);
       } else {
         setProblem(found.message);
       }
@@ -70,19 +83,26 @@ export function ConversationsView(props: {
 
   function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    void run({ q, day });
+    void run({ q, day, flagged });
   }
 
   function chip(next: DayChip): void {
     const chosen = day === next ? null : next;
     setDay(chosen);
-    void run({ q, day: chosen });
+    void run({ q, day: chosen, flagged });
+  }
+
+  function toggleFlagged(): void {
+    const next = !flagged;
+    setFlagged(next);
+    void run({ q, day, flagged: next });
   }
 
   function clear(): void {
     setQ("");
     setDay(null);
-    void run({ q: "", day: null });
+    setFlagged(false);
+    void run({ q: "", day: null, flagged: false });
   }
 
   const now = new Date();
@@ -129,7 +149,18 @@ export function ConversationsView(props: {
               {c.label}
             </button>
           ))}
-          {filtered || q || day ? (
+          <button
+            type="button"
+            aria-pressed={flagged}
+            disabled={working}
+            onClick={toggleFlagged}
+            className={`min-h-11 rounded-full border px-4 text-sm font-semibold disabled:opacity-50 ${
+              flagged ? "border-ink bg-ink text-white" : "border-line bg-white"
+            }`}
+          >
+            Flagged
+          </button>
+          {filtered || q || day || flagged ? (
             <button
               type="button"
               onClick={clear}
@@ -145,9 +176,11 @@ export function ConversationsView(props: {
 
       <p role="status" aria-live="polite" className="text-muted mt-6 text-sm">
         {rows.length === 0
-          ? filtered
-            ? "No conversations match."
-            : "No conversations yet."
+          ? shownFlagged
+            ? "No flagged conversations. Open one and use Flag this answer when AYA gets something wrong."
+            : filtered
+              ? "No conversations match."
+              : "No conversations yet."
           : `${rows.length === 1 ? "1 conversation" : `${rows.length} conversations`}${
               rows.length >= props.limit ? `, the newest ${props.limit}` : ""
             }, newest first.`}
@@ -179,17 +212,35 @@ export function ConversationsView(props: {
               )}
               {row.amended ? <span className="text-muted text-sm"> · Amended</span> : null}
             </p>
+            {row.flag ? (
+              <p className="mt-1 text-sm">
+                <span className="font-semibold">
+                  Flagged {portalMoment(new Date(row.flag.flaggedAt), props.timeZone, now)}
+                </span>
+                {" · "}
+                <span className={row.flag.correction === "live" ? "text-green" : "text-muted"}>
+                  {CORRECTION_WORDS[row.flag.correction]}
+                </span>
+              </p>
+            ) : null}
             <p className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-              <a
-                href={`/c/${props.slug}/conversations/${row.id}`}
-                className="inline-flex min-h-11 items-center font-semibold underline"
-              >
-                Open
-              </a>
+              {row.openable ? (
+                <a
+                  href={`/c/${props.slug}/conversations/${row.id}`}
+                  className="inline-flex min-h-11 items-center font-semibold underline"
+                >
+                  Open
+                </a>
+              ) : (
+                <span className="text-muted inline-flex min-h-11 items-center">
+                  {CHANNEL_NAMES[row.channel]} keeps only each person&rsquo;s latest conversation,
+                  so this one can&rsquo;t be opened.
+                </span>
+              )}
               {row.bookingRequestId ? (
                 props.bookingsHref ? (
                   <a
-                    href={`${props.bookingsHref}#request-${row.bookingRequestId}`}
+                    href={bookingRequestPath(props.slug, row.bookingRequestId)}
                     className="inline-flex min-h-11 items-center font-semibold underline"
                   >
                     See the booking request

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { GREETING_LABELS } from "@/lib/setup/greetings";
 import type { SetupStripeView } from "@/lib/setup/payments";
 
 import { Choice, Field, ScreenShell } from "../ScreenShell";
@@ -26,6 +27,8 @@ export type GreetingProps = {
   /** The greeting as it stands: the clinic's own, or the default. */
   text: string;
   isDefault: boolean;
+  /** Said beside it: for the chat greeting, that the Meta channels don't use it. */
+  note?: string | null;
 };
 
 export function ToneScreen(
@@ -67,17 +70,16 @@ export function ToneScreen(
       {props.greetings.map((g) => (
         <div key={g.kind} className="grid gap-2">
           <h2 className="text-sm font-semibold">
-            {g.kind === "phone"
-              ? "When AYA answers a call"
-              : "When someone opens a chat or sends a message"}
+            {g.kind === "phone" ? GREETING_LABELS.phone : GREETING_LABELS.chat}
           </h2>
           <p className="text-muted rounded-xl border border-line bg-paper-2 px-4 py-3 text-sm">
             {g.lockedLine}
             <span className="mt-1 block text-xs">
-              Always said first, on every {g.kind === "phone" ? "call" : "conversation"}. It
+              Always said first, on every {g.kind === "phone" ? "call" : "website chat"}. It
               can&rsquo;t be changed.
             </span>
           </p>
+          {g.note ? <p className="text-muted text-sm">{g.note}</p> : null}
           {editing[g.kind] ? (
             <Field
               label={g.kind === "phone" ? "Then AYA says" : "Then AYA writes"}

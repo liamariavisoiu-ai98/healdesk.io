@@ -11,6 +11,7 @@ import {
   conversations,
   handovers,
   metaBookingDrafts,
+  patientRequests,
   reconciliationExceptions,
   recordAmendments,
   slotHolds,
@@ -106,7 +107,15 @@ import type { TenantTx } from "@/lib/tenant";
  *     never deleted;
  *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS);
  *   - a deposit: with its appointment, or, once its appointment is gone, the
- *     record clock after it was made (app_purge_deposit_payments, 0067).
+ *     record clock after it was made (app_purge_deposit_payments, 0067);
+ *   - a patient's request passed to the practice (L32, drizzle/0094): the
+ *     record clock after it reached healdesk, marked received or not. The
+ *     agreements state no period of their own for it; the record clock is
+ *     the longest of the periods they do state, and outlasts the practice's
+ *     own windows for answering the person (30 days for access, 60 for an
+ *     amendment, under HIPAA), while it may still want to see what was asked.
+ *     Its contact is not kept for it: when the contact's own clock takes it,
+ *     the request keeps no one (its foreign key sets contact_id to NULL).
  *
  * A handover (someone asked for a person, drizzle/0092) is part of the
  * record of the conversation it was asked in, and holds nothing of its own:
@@ -196,6 +205,8 @@ export type PurgeResult = {
   depositsDeleted: number;
   /** Handovers past the record clock that their conversation or thread did not take with it (drizzle/0092). */
   handoversDeleted: number;
+  /** Patients' requests passed to the practice, past the record clock (drizzle/0094). */
+  patientRequestsDeleted: number;
 };
 
 const promised = new Map<string, boolean>();
@@ -263,6 +274,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     slotHoldsDeleted: 0,
     depositsDeleted: 0,
     handoversDeleted: 0,
+    patientRequestsDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -501,6 +513,17 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ id: handovers.id });
   result.handoversDeleted = oldHandovers.length;
 
+  // 3b. Patients' requests passed to the practice (L32), the record clock
+  //     after each reached healdesk, before the contacts, whose delete would
+  //     otherwise clear each one's contact_id first for nothing.
+  const requestsPassed = await tx.db
+    .delete(patientRequests)
+    .where(
+      and(eq(patientRequests.clinicId, tx.clinicId), lt(patientRequests.receivedAt, recordBefore)),
+    )
+    .returning({ id: patientRequests.id });
+  result.patientRequestsDeleted = requestsPassed.length;
+
   // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
   //    the contact without touching updated_at, and a person a request names
@@ -601,7 +624,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.chatThreadsDeleted +
     result.slotHoldsDeleted +
     result.depositsDeleted +
-    result.handoversDeleted;
+    result.handoversDeleted +
+    result.patientRequestsDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -620,6 +644,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         slotHolds: result.slotHoldsDeleted,
         deposits: result.depositsDeleted,
         handovers: result.handoversDeleted,
+        patientRequests: result.patientRequestsDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

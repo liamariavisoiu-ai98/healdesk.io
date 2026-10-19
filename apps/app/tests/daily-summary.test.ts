@@ -319,7 +319,9 @@ describe("L13 and L14 templates", () => {
       ).toEqual([]);
       expect(linkProblems(r, "weekly_recap")).toEqual([]);
       expect(r.subject).toBe("Your week with AYA");
-      expect(r.text).not.toMatch(/flag|reply to this email with anything/i);
+      // A correction goes through Flag this answer (plan Annex X6), never a reply.
+      expect(r.text).not.toMatch(/reply to this email with anything/i);
+      expect(r.text).toContain("Something look wrong? Open the conversation and use Flag this answer.");
       // Part of the service: no stop link of its own.
       expect(r.text).not.toContain("Stop these emails");
     }

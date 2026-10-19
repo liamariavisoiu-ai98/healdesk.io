@@ -4,30 +4,38 @@ import { useId, useState } from "react";
 
 import { portalMetaOutcome } from "@/lib/meta/portal-return";
 import type { MetaConnectView } from "@/lib/meta/reconnect";
-import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import type { ForwardingView } from "@/lib/setup/forwarding";
+import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
 
+import { ForwardingStepsPanel } from "../../ForwardingStepsPanel";
+import { ForwardingTestPanel } from "../../ForwardingTestPanel";
+import { CopyButton } from "../../CopyButton";
 import { MetaConnectButtons } from "../../MetaConnectButtons";
 import { sendPhoneStepsAction } from "../../steps-actions";
+import { WebsiteLinePanel } from "../../WebsiteLinePanel";
 import { ScreenShell } from "../ScreenShell";
 
 /**
  * Step 4 · Your channels (plan Part E): each bought channel with its status
- * word and what it needs, never a date, and, where the channel is ready for
- * it, the one step itself:
+ * ("Live since …", "Paused until …") and what it needs, never an opening
+ * date, and, where the channel is ready for it, the one step itself:
  *
  *   - Website chat: the line to paste, once the channel is open (ready on our
- *     side), with a Copy button (lib/setup/snippet.ts);
+ *     side), with a Copy button and "Email to my web person"
+ *     (lib/setup/snippet.ts), in the panel Settings → Channels shows too
+ *     (WebsiteLinePanel);
  *   - Instagram, Messenger & WhatsApp: "Connect with Facebook", the Meta
  *     login (/api/meta/login), and "Connect WhatsApp", Meta's embedded
  *     sign-up (/c/[slug]/whatsapp), each until it is connected, and
  *     Reconnect where Meta dropped it (MetaConnectButtons.tsx);
  *   - Phone: nothing about forwarding until voice is ready for the clinic
  *     (lib/setup/forwarding.ts); then AYA's number, the codes for the
- *     clinic's carrier and coverage mode with a carrier picker, the undo
- *     codes, "Email these to my office manager" (O11, the action Settings
- *     uses) and "Book a five-minute call and we'll do it with you", with
- *     equal weight.
+ *     clinic's phone system, carrier and coverage mode with a picker for
+ *     each (ForwardingStepsPanel), the undo codes, "Email these to my
+ *     office manager" (O11, the action Settings uses) and "Book a
+ *     five-minute call and we'll do it with you", with equal weight; then
+ *     "Waiting for call forwarding" with "Test it now" (ForwardingTestPanel)
+ *     until a forwarded call lands.
  *
  * Every step sits in the screen's `lead`, outside its form, because the
  * Facebook button and the email are forms of their own.
@@ -36,7 +44,7 @@ import { ScreenShell } from "../ScreenShell";
 export type ChannelRow = {
   channel: "web" | "meta" | "voice";
   name: string;
-  /** The status word, without a date. */
+  /** The status, with its time where it has one (lib/setup/channels.ts, channelStatusLabel). */
   status: string;
   /** What happens next, in one or two sentences. */
   line: string;
@@ -46,6 +54,8 @@ export type ChannelRow = {
   meta?: MetaConnectView | null;
   /** Phone, once ready for the clinic: the forwarding steps. */
   forwarding?: ForwardingView | null;
+  /** Phone, once ready for the clinic: "Test it now" and what it saw. */
+  forwardingTest?: ForwardingTestView | null;
   /** Phone, ready but for the direct line: where to set it. */
   directLineHref?: string | null;
 };
@@ -83,17 +93,19 @@ export function ChannelsScreen(props: {
               <li key={row.channel} className="border-line rounded-xl border bg-white px-4 py-3">
                 <p className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold">{row.name}</span>
-                  <span className="bg-paper-2 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold">
+                  {/* Wraps rather than overflows: "Paused until …" carries a whole moment. */}
+                  <span className="bg-paper-2 max-w-full rounded-full px-3 py-1 text-xs font-semibold">
                     {row.status}
                   </span>
                 </p>
                 <p className="text-muted mt-1 text-sm">{row.line}</p>
-                {row.snippet ? <Snippet snippet={row.snippet} /> : null}
+                {row.snippet ? <WebsiteLinePanel slug={props.slug} snippet={row.snippet} /> : null}
                 {row.meta ? <MetaConnectButtons slug={props.slug} from="setup" view={row.meta} /> : null}
                 {row.forwarding ? (
                   <Forwarding
                     slug={props.slug}
                     forwarding={row.forwarding}
+                    test={row.forwardingTest ?? null}
                     callBookingUrl={props.callBookingUrl}
                   />
                 ) : row.directLineHref ? (
@@ -133,76 +145,18 @@ export function ChannelsScreen(props: {
   );
 }
 
-/** Copy to the clipboard, saying so politely; selecting the text is the fallback. */
-function CopyButton({ text, label, targetId }: { text: string; label: string; targetId: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <>
-      <button
-        type="button"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(text);
-            setCopied(true);
-          } catch {
-            const field = document.getElementById(targetId);
-            if (field instanceof HTMLTextAreaElement) field.select();
-            setCopied(false);
-          }
-        }}
-        className="border-line min-h-11 rounded-full border px-5 text-sm font-semibold"
-      >
-        {label}
-      </button>
-      <span role="status" aria-live="polite" className="text-muted ml-2 text-sm">
-        {copied ? "Copied" : ""}
-      </span>
-    </>
-  );
-}
-
-function Snippet({ snippet }: { snippet: string }) {
-  const id = useId();
-  return (
-    <div className="mt-3 grid gap-2 text-sm">
-      <label htmlFor={id} className="font-semibold">
-        The line for your website
-      </label>
-      <textarea
-        id={id}
-        readOnly
-        rows={2}
-        value={snippet}
-        className="border-line bg-paper-2 w-full rounded-xl border px-3 py-2 font-mono text-xs"
-      />
-      <p className="text-muted">
-        Paste it once, just before <code>&lt;/body&gt;</code>, on every page of your website, or
-        send it to whoever looks after your site. AYA is designed to start answering there once
-        it&rsquo;s in.
-      </p>
-      <p>{WEB_CHAT_COUNTS_LINE}</p>
-      <p>
-        <CopyButton text={snippet} label="Copy the line" targetId={id} />
-      </p>
-    </div>
-  );
-}
-
 function Forwarding({
   slug,
   forwarding,
+  test,
   callBookingUrl,
 }: {
   slug: string;
   forwarding: ForwardingView;
+  test: ForwardingTestView | null;
   callBookingUrl: string | null;
 }) {
-  const pickerId = useId();
   const numberId = useId();
-  const [carrier, setCarrier] = useState(forwarding.carrier);
-  const shown =
-    forwarding.carriers.find((c) => c.id === carrier) ??
-    forwarding.carriers[forwarding.carriers.length - 1]!;
   return (
     <div className="mt-3 grid gap-3 text-sm">
       <div>
@@ -214,54 +168,7 @@ function Forwarding({
           <CopyButton text={forwarding.ayaNumberE164} label="Copy the number" targetId={numberId} />
         </p>
       </div>
-      {forwarding.phoneSystem === "voip" ? null : (
-        <div className="grid gap-1">
-          <label htmlFor={pickerId} className="font-semibold">
-            Who provides your main line
-          </label>
-          <select
-            id={pickerId}
-            value={carrier}
-            onChange={(event) => setCarrier(event.target.value as typeof carrier)}
-            className="border-line min-h-11 rounded-xl border bg-white px-3"
-          >
-            {forwarding.carriers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      <div>
-        <p className="font-semibold">The steps</p>
-        <ol className="mt-1 grid list-decimal gap-1 pl-5">
-          {shown.steps.map((step) => (
-            <li key={`${step.label}${step.dial}`}>
-              {step.label}
-              {step.dial ? <strong className="ml-1 font-mono">{step.dial}</strong> : null}
-            </li>
-          ))}
-        </ol>
-      </div>
-      <div>
-        <p className="font-semibold">To undo it at any time</p>
-        <ul className="mt-1 grid gap-1">
-          {shown.undo.map((step) => (
-            <li key={`${step.label}${step.dial}`}>
-              {step.label}
-              {step.dial ? <strong className="ml-1 font-mono">{step.dial}</strong> : null}
-            </li>
-          ))}
-        </ul>
-      </div>
-      {shown.notes.length > 0 ? (
-        <ul className="text-muted grid list-disc gap-1 pl-5">
-          {shown.notes.map((note) => (
-            <li key={note}>{note}</li>
-          ))}
-        </ul>
-      ) : null}
+      <ForwardingStepsPanel slug={slug} view={forwarding} />
       <div className="grid gap-3 sm:grid-cols-2">
         <EmailSteps slug={slug} />
         {callBookingUrl ? (
@@ -278,6 +185,7 @@ function Forwarding({
           </div>
         ) : null}
       </div>
+      {test ? <ForwardingTestPanel slug={slug} initial={test} /> : null}
     </div>
   );
 }

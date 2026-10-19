@@ -518,6 +518,8 @@ const GREETING_REFUSED: Record<GreetingRefusal, string> = {
   language: `Write the greeting in ${SCREENED_LANGUAGES.map((l) => ASSISTANT_LANGUAGE_NAMES[l]).join(" or ")}, the languages AYA's safety checks read.`,
   booking_confirmation:
     "The greeting can't say an appointment is booked: the team confirms every booking.",
+  human_claim:
+    "The greeting can't say AYA is a person or not an AI: it comes right after the line that says she's an AI assistant.",
   empty: "Write the greeting as text.",
 };
 

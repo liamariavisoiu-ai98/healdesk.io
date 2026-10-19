@@ -1,6 +1,6 @@
 {
-  "id": "8dc3384d-3acb-4ce2-8a27-c136ea79f182",
-  "prevId": "1633fa76-e619-461c-b48b-6d72561f154d",
+  "id": "51995c6a-dea0-4e69-912e-a3f5ad9f4073",
+  "prevId": "a4c6d705-c4c6-4f08-9780-fa9877685f41",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5321,6 +5321,220 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.conversation_flags": {
+      "name": "conversation_flags",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "conversation_id": {
+          "name": "conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "thread_conversation_id": {
+          "name": "thread_conversation_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "thread_party_ref": {
+          "name": "thread_party_ref",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conversation_started_at": {
+          "name": "conversation_started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "flagged_at": {
+          "name": "flagged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "corrected_at": {
+          "name": "corrected_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "conversation_flags_conversation_idx": {
+          "name": "conversation_flags_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"conversation_flags\".\"conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_flags_thread_conversation_idx": {
+          "name": "conversation_flags_thread_conversation_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "thread_conversation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"conversation_flags\".\"thread_conversation_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "conversation_flags_flagged_idx": {
+          "name": "conversation_flags_flagged_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "flagged_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "conversation_flags_clinic_id_clinics_id_fk": {
+          "name": "conversation_flags_clinic_id_clinics_id_fk",
+          "tableFrom": "conversation_flags",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "conversation_flags_conversation_fk": {
+          "name": "conversation_flags_conversation_fk",
+          "tableFrom": "conversation_flags",
+          "tableTo": "conversations",
+          "columnsFrom": [
+            "clinic_id",
+            "conversation_id"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "conversation_flags_thread_fk": {
+          "name": "conversation_flags_thread_fk",
+          "tableFrom": "conversation_flags",
+          "tableTo": "chat_threads",
+          "columnsFrom": [
+            "clinic_id",
+            "channel",
+            "thread_party_ref"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "channel",
+            "party_ref"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "conversation_flags_source_check": {
+          "name": "conversation_flags_source_check",
+          "value": "\"conversation_flags\".\"source\" in ('call_or_chat', 'meta_thread')"
+        },
+        "conversation_flags_target_check": {
+          "name": "conversation_flags_target_check",
+          "value": "(\"conversation_flags\".\"source\" = 'call_or_chat' and \"conversation_flags\".\"conversation_id\" is not null and \"conversation_flags\".\"thread_conversation_id\" is null and \"conversation_flags\".\"thread_party_ref\" is null)\n        or (\"conversation_flags\".\"source\" = 'meta_thread' and \"conversation_flags\".\"conversation_id\" is null and \"conversation_flags\".\"thread_conversation_id\" is not null and \"conversation_flags\".\"thread_party_ref\" is not null\n            and \"conversation_flags\".\"channel\" in ('instagram', 'messenger', 'whatsapp'))"
+        },
+        "conversation_flags_channel_check": {
+          "name": "conversation_flags_channel_check",
+          "value": "\"conversation_flags\".\"channel\" in ('voice', 'web_chat', 'instagram', 'messenger', 'whatsapp', 'sms', 'web_form')"
+        },
+        "conversation_flags_outcome_check": {
+          "name": "conversation_flags_outcome_check",
+          "value": "\"conversation_flags\".\"outcome\" is null or \"conversation_flags\".\"outcome\" in ('answered', 'booked', 'request', 'handover', 'urgent')"
+        },
+        "conversation_flags_party_ref_check": {
+          "name": "conversation_flags_party_ref_check",
+          "value": "\"conversation_flags\".\"thread_party_ref\" is null or char_length(\"conversation_flags\".\"thread_party_ref\") between 1 and 200"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.conversations": {
       "name": "conversations",
       "schema": "",
@@ -5720,6 +5934,242 @@
         "deposit_payments_status_check": {
           "name": "deposit_payments_status_check",
           "value": "\"deposit_payments\".\"status\" in ('creating', 'open', 'paid', 'expired', 'failed', 'cancelled', 'refunded')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.device_recoveries": {
+      "name": "device_recoveries",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token_hash": {
+          "name": "token_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "address_hash": {
+          "name": "address_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "landing": {
+          "name": "landing",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_by": {
+          "name": "issued_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "claimed_at": {
+          "name": "claimed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "session_token_hash": {
+          "name": "session_token_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "used_at": {
+          "name": "used_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "factor_id": {
+          "name": "factor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "revoked_reason": {
+          "name": "revoked_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "device_recoveries_token_hash_idx": {
+          "name": "device_recoveries_token_hash_idx",
+          "columns": [
+            {
+              "expression": "token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "device_recoveries_one_open_idx": {
+          "name": "device_recoveries_one_open_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"device_recoveries\".\"used_at\" is null and \"device_recoveries\".\"revoked_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "device_recoveries_user_idx": {
+          "name": "device_recoveries_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "device_recoveries_session_idx": {
+          "name": "device_recoveries_session_idx",
+          "columns": [
+            {
+              "expression": "session_token_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"device_recoveries\".\"session_token_hash\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "device_recoveries_user_id_user_id_fk": {
+          "name": "device_recoveries_user_id_user_id_fk",
+          "tableFrom": "device_recoveries",
+          "tableTo": "user",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "device_recoveries_factor_id_user_factors_id_fk": {
+          "name": "device_recoveries_factor_id_user_factors_id_fk",
+          "tableFrom": "device_recoveries",
+          "tableTo": "user_factors",
+          "columnsFrom": [
+            "factor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "device_recoveries_token_hash_length": {
+          "name": "device_recoveries_token_hash_length",
+          "value": "octet_length(\"device_recoveries\".\"token_hash\") = 32"
+        },
+        "device_recoveries_address_hash_length": {
+          "name": "device_recoveries_address_hash_length",
+          "value": "octet_length(\"device_recoveries\".\"address_hash\") = 32"
+        },
+        "device_recoveries_session_hash_length": {
+          "name": "device_recoveries_session_hash_length",
+          "value": "\"device_recoveries\".\"session_token_hash\" is null or octet_length(\"device_recoveries\".\"session_token_hash\") = 32"
+        },
+        "device_recoveries_landing_check": {
+          "name": "device_recoveries_landing_check",
+          "value": "\"device_recoveries\".\"landing\" like '/c/%/protect' and \"device_recoveries\".\"landing\" not like '//%' and \"device_recoveries\".\"landing\" !~ '[\\\\[:cntrl:][:space:]]' and char_length(\"device_recoveries\".\"landing\") <= 200"
+        },
+        "device_recoveries_issued_by_check": {
+          "name": "device_recoveries_issued_by_check",
+          "value": "char_length(\"device_recoveries\".\"issued_by\") between 1 and 200"
+        },
+        "device_recoveries_window_check": {
+          "name": "device_recoveries_window_check",
+          "value": "\"device_recoveries\".\"expires_at\" > \"device_recoveries\".\"created_at\" and \"device_recoveries\".\"expires_at\" <= \"device_recoveries\".\"created_at\" + interval '24 hours'"
+        },
+        "device_recoveries_claim_check": {
+          "name": "device_recoveries_claim_check",
+          "value": "\"device_recoveries\".\"session_token_hash\" is null or \"device_recoveries\".\"claimed_at\" is not null"
+        },
+        "device_recoveries_use_check": {
+          "name": "device_recoveries_use_check",
+          "value": "\"device_recoveries\".\"used_at\" is null or \"device_recoveries\".\"session_token_hash\" is not null"
+        },
+        "device_recoveries_factor_check": {
+          "name": "device_recoveries_factor_check",
+          "value": "\"device_recoveries\".\"factor_id\" is null or \"device_recoveries\".\"used_at\" is not null"
+        },
+        "device_recoveries_revoked_check": {
+          "name": "device_recoveries_revoked_check",
+          "value": "(\"device_recoveries\".\"revoked_at\" is null) = (\"device_recoveries\".\"revoked_reason\" is null) and (\"device_recoveries\".\"revoked_at\" is null or \"device_recoveries\".\"used_at\" is null) and (\"device_recoveries\".\"revoked_reason\" is null or \"device_recoveries\".\"revoked_reason\" in ('replaced', 'someone_left', 'operator_signed_out', 'operator_ended', 'address_changed'))"
         }
       },
       "isRLSEnabled": false
@@ -7556,6 +8006,172 @@
         "overage_invoices_status_check": {
           "name": "overage_invoices_status_check",
           "value": "\"overage_invoices\".\"status\" in ('pending', 'invoiced', 'failed', 'skipped')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.patient_requests": {
+      "name": "patient_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "contact_id": {
+          "name": "contact_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "contact_named": {
+          "name": "contact_named",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reply_by": {
+          "name": "reply_by",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_by": {
+          "name": "recorded_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorded_at": {
+          "name": "recorded_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "clock_timestamp()"
+        },
+        "acknowledged_at": {
+          "name": "acknowledged_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "acknowledged_by": {
+          "name": "acknowledged_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "patient_requests_open_idx": {
+          "name": "patient_requests_open_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reply_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"patient_requests\".\"acknowledged_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "patient_requests_contact_idx": {
+          "name": "patient_requests_contact_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"patient_requests\".\"contact_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "patient_requests_clinic_id_clinics_id_fk": {
+          "name": "patient_requests_clinic_id_clinics_id_fk",
+          "tableFrom": "patient_requests",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "patient_requests_kind_check": {
+          "name": "patient_requests_kind_check",
+          "value": "\"patient_requests\".\"kind\" in ('access', 'amendment', 'accounting', 'deletion', 'other')"
+        },
+        "patient_requests_recorded_by_check": {
+          "name": "patient_requests_recorded_by_check",
+          "value": "char_length(btrim(\"patient_requests\".\"recorded_by\")) between 1 and 320"
+        },
+        "patient_requests_received_check": {
+          "name": "patient_requests_received_check",
+          "value": "\"patient_requests\".\"received_at\" <= \"patient_requests\".\"recorded_at\""
+        },
+        "patient_requests_contact_check": {
+          "name": "patient_requests_contact_check",
+          "value": "\"patient_requests\".\"contact_id\" is null or \"patient_requests\".\"contact_named\""
+        },
+        "patient_requests_reply_by_check": {
+          "name": "patient_requests_reply_by_check",
+          "value": "\"patient_requests\".\"reply_by\" between (\"patient_requests\".\"received_at\" at time zone 'UTC')::date + 4 and (\"patient_requests\".\"received_at\" at time zone 'UTC')::date + 8"
+        },
+        "patient_requests_acknowledged_check": {
+          "name": "patient_requests_acknowledged_check",
+          "value": "(\"patient_requests\".\"acknowledged_at\" is null) = (\"patient_requests\".\"acknowledged_by\" is null)\n        and (\"patient_requests\".\"acknowledged_by\" is null or char_length(btrim(\"patient_requests\".\"acknowledged_by\")) between 1 and 200)"
         }
       },
       "isRLSEnabled": false
@@ -11940,7 +12556,7 @@
         },
         "webauthn_challenges_basis_check": {
           "name": "webauthn_challenges_basis_check",
-          "value": "(\"webauthn_challenges\".\"purpose\" = 'register') = (\"webauthn_challenges\".\"enrol_basis\" is not null) and (\"webauthn_challenges\".\"enrol_basis\" is null or \"webauthn_challenges\".\"enrol_basis\" in ('first_passkey', 'step_up', 'code'))"
+          "value": "(\"webauthn_challenges\".\"purpose\" = 'register') = (\"webauthn_challenges\".\"enrol_basis\" is not null) and (\"webauthn_challenges\".\"enrol_basis\" is null or \"webauthn_challenges\".\"enrol_basis\" in ('first_passkey', 'step_up', 'code', 'recovery', 'paying_browser'))"
         },
         "webauthn_challenges_challenge_format": {
           "name": "webauthn_challenges_challenge_format",

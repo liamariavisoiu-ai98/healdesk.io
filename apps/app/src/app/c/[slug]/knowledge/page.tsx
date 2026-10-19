@@ -188,13 +188,14 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
           <Section
             id="quick-answers"
             title="Quick answers"
-            intro="Questions and your answers, for temporary things like parking during building work."
+            intro="Questions and your answers, for temporary things like parking during building work. A correction added with Flag this answer in Conversations lands here, marked as one."
           >
             <QuickAnswersForm
               slug={portal.clinicSlug}
               initial={knowledge.quickAnswers.map((a) => ({
                 question: a.question,
                 answer: a.answer,
+                ...(a.flagId ? { flagId: a.flagId } : {}),
               }))}
             />
           </Section>

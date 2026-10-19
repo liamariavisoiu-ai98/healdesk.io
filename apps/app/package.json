@@ -24,6 +24,7 @@
     "ops:erase-person": "tsx --env-file-if-exists=.env.local scripts/ops-erase-person.ts",
     "ops:amend-record": "tsx --env-file-if-exists=.env.local scripts/ops-amend-record.ts",
     "ops:amend-contact": "tsx --env-file-if-exists=.env.local scripts/ops-amend-contact.ts",
+    "ops:patient-request": "tsx --env-file-if-exists=.env.local scripts/ops-patient-request.ts",
     "ops:incident-affected": "tsx --env-file-if-exists=.env.local scripts/ops-incident-affected.ts",
     "qa:meta": "tsx --env-file-if-exists=.env.local scripts/meta-qa-gate.ts",
     "channels-link": "tsx --env-file-if-exists=.env.local scripts/channels-link.ts",

@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { clinics, type ForwardingTestObservation } from "@/db/schema";
 import type { TenantTx } from "@/lib/tenant";
+import { forwardedFromLine, type ForwardedFrom } from "@/lib/voice/forwarded-from";
 import type { VoiceCallEvent } from "@/lib/voice/ingest";
 
 import { completeStep, readOnboarding, reopenStep } from "./steps";
@@ -27,6 +28,18 @@ import { completeStep, readOnboarding, reopenStep } from "./steps";
  *
  * One such call is expected, and neither rule reads it: the carrier's
  * activation call (isForwardingActivationCall).
+ *
+ * And with no window open: a call the carrier says it forwarded from the
+ * clinic's own published line (its Diversion or History-Info header,
+ * lib/voice/forwarded-from.ts), with the caller's number kept, is the same
+ * proof the test looks for, so it is recorded the same way and phone's
+ * clinic step is met by itself (spec, "Confirming it worked": waiting for
+ * forwarding "until Healdesk receives a first forwarded call. Then it flips
+ * to live by itself"). It is recorded without a window, so it makes no call
+ * a test call: being forwarded is a different fact from being a first
+ * answer, and the first-answer exclusions (lib/channels/events.ts) are
+ * unchanged. A call with neither header proves nothing, because AYA's own
+ * number can also be dialled directly.
  */
 export const FORWARDING_TEST_WINDOW_MS = 5 * 60 * 1000;
 
@@ -86,6 +99,8 @@ export async function startForwardingTest(tx: TenantTx, now: Date = new Date()):
 export type ForwardingClinicFacts = {
   forwardingTestUntil: Date | null;
   publishedPhoneE164: string | null;
+  /** What is recorded now; a forwarded call never overwrites a passed observation. */
+  forwardingTestObserved?: ForwardingTestObservation | null;
 };
 
 /**
@@ -112,19 +127,27 @@ export function inForwardingTestWindow(
   );
 }
 
-export type ForwardingOutcome = "ignored" | "activation_call" | "passed" | "failed" | "caller_id_lost";
+export type ForwardingOutcome =
+  | "ignored"
+  | "activation_call"
+  | "passed"
+  | "failed"
+  | "caller_id_lost"
+  | "forwarded"
+  | "forwarded_caller_id_lost";
 
-function condition(event: VoiceCallEvent): ForwardingTestObservation["condition"] {
+function condition(event: VoiceCallEvent, hop: ForwardedFrom | null): ForwardingTestObservation["condition"] {
   if (event.clinicLineBusy) return "busy";
   if (event.rangAtClinicFirst) return "no_answer";
   if (event.rangAtClinicFirst === false) return "all";
-  return "unknown";
+  return hop?.condition ?? "unknown";
 }
 
 /**
  * Pure: is this call the test, and what did it show? The carrier's
  * activation call is never the test, and leaves an open window open for the
- * call that is.
+ * call that is. Outside a window, `forwarded` is what a call the carrier
+ * forwarded from the clinic's own line showed, or null for any other call.
  */
 export function evaluateForwardingCall(
   clinic: ForwardingClinicFacts,
@@ -135,25 +158,36 @@ export function evaluateForwardingCall(
   callerIsClinic: boolean;
   activationCall: boolean;
   observation: ForwardingTestObservation | null;
+  forwarded: ForwardingTestObservation | null;
 } {
   const callerIsClinic = callerIsClinicNumber(clinic, event);
   const activationCall = isForwardingActivationCall(clinic, event);
+  const hop = forwardedFromLine(event.forwardedFrom, clinic.publishedPhoneE164);
   const until = clinic.forwardingTestUntil?.getTime();
   const at = event.startedAt.getTime();
   const isTest =
     !activationCall && until !== undefined && at <= until && at >= until - FORWARDING_TEST_WINDOW_MS;
-  if (!isTest) return { isTest: false, callerIsClinic, activationCall, observation: null };
+  const seen = {
+    arrivedAt: event.startedAt.toISOString(),
+    conversationId,
+    callerIdPreserved: Boolean(event.callerPhone) && !callerIsClinic,
+    condition: condition(event, hop),
+  };
+  if (!isTest) {
+    return {
+      isTest: false,
+      callerIsClinic,
+      activationCall,
+      observation: null,
+      forwarded: hop && !activationCall ? { ...seen, via: "forwarded_call" } : null,
+    };
+  }
   return {
     isTest: true,
     callerIsClinic,
     activationCall,
-    observation: {
-      arrivedAt: event.startedAt.toISOString(),
-      windowUntil: new Date(until!).toISOString(),
-      conversationId,
-      callerIdPreserved: Boolean(event.callerPhone) && !callerIsClinic,
-      condition: condition(event),
-    },
+    observation: { ...seen, windowUntil: new Date(until!).toISOString() },
+    forwarded: null,
   };
 }
 
@@ -195,10 +229,46 @@ export async function observeForwardingCall(
     return "failed";
   }
 
+  if (verdict.forwarded) {
+    const recorded = clinic.forwardingTestObserved ?? null;
+    if (verdict.forwarded.callerIdPreserved && recorded?.callerIdPreserved !== true) {
+      await recordForwarded(tx, verdict.forwarded, now);
+      await completeStep(tx, "test_call_passed", { at: event.startedAt, note: "forwarded call observed" });
+      return "forwarded";
+    }
+    // The carrier put the clinic's own number in place of the caller's: the
+    // finding the test exists to surface, recorded where nothing is yet so
+    // the clinic sees why phone still waits. A caller who withheld their
+    // number shows nothing about the carrier, so it records nothing.
+    if (verdict.callerIsClinic && recorded === null) {
+      await recordForwarded(tx, verdict.forwarded, now);
+      return "forwarded_caller_id_lost";
+    }
+  }
+
   if (verdict.callerIsClinic) {
     return (await reopenIfStamped(tx)) ? "caller_id_lost" : "ignored";
   }
   return "ignored";
+}
+
+async function recordForwarded(tx: TenantTx, observation: ForwardingTestObservation, now: Date): Promise<void> {
+  await tx.db
+    .update(clinics)
+    .set({ forwardingTestObserved: observation, updatedAt: now })
+    .where(eq(clinics.id, tx.clinicId));
+  tx.audit.record({
+    action: "update",
+    resourceType: "clinic_forwarding_test",
+    resourceId: tx.clinicId,
+    metadata: {
+      observed: true,
+      via: "forwarded_call",
+      callerIdPreserved: observation.callerIdPreserved,
+      condition: observation.condition,
+      conversationId: observation.conversationId,
+    },
+  });
 }
 
 async function reopenIfStamped(tx: TenantTx): Promise<boolean> {

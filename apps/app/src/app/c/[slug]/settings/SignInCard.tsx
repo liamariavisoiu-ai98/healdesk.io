@@ -327,8 +327,8 @@ function SomeoneLeft(props: { slug: string; devices: DeviceView[] }) {
           ) : null}
           {everyDevice ? (
             <p className="mt-2 font-semibold text-red-800">
-              With every device removed and the backup reset, adding a device again may need a call
-              to us.
+              With every device removed and the backup reset, adding a device again may need our
+              help: we call your clinic back, then email its address a link that adds one.
             </p>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">

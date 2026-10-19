@@ -416,6 +416,11 @@ describeDb("delivery", () => {
           // switched job, because the practice was told AYA is paused until
           // it signs.
           "agreement-resigns",
+          // The website re-reads (the website_drift migration): the missing
+          // and corrected reads and the minute queue's backstop, behind
+          // site-reads; the monthly drift check, behind website-drift.
+          "site-reads",
+          "website-drift",
         ].sort(),
       );
       // Every job that has not been switched on says so rather than working;

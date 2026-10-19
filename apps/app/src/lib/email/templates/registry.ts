@@ -69,6 +69,7 @@ import { TERMS_NOTICE_ENTRY } from "./terms_notice";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
 import { WEEKLY_RECAP_ENTRY } from "./weekly_recap";
+import { WEBSITE_CHANGES_ENTRY } from "./website_changes";
 import { WELCOME_ENTRY } from "./welcome";
 
 /**
@@ -193,6 +194,8 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   weekly_recap: WEEKLY_RECAP_ENTRY,
   // WP9, the DPA's completion (plan Part L): L22 and its reminders.
   agreement_to_sign: AGREEMENT_TO_SIGN_ENTRY,
+  // WP11, the drift list (M7): L23.
+  website_changes: WEBSITE_CHANGES_ENTRY,
 };
 
 /**
@@ -304,6 +307,7 @@ export const PENDING_TEMPLATES: Record<
     | "daily_summary"
     | "weekly_recap"
     | "agreement_to_sign"
+    | "website_changes"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -312,8 +316,6 @@ export const PENDING_TEMPLATES: Record<
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
   guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
-  // WP11: the drift list.
-  website_changes: { owner: "plan", package: "WP11", ships: "M7 (L23)" },
   // L32, a patient's request recorded from a trusted shell: its own table
   // (patient_requests, behind the BAA gate) and the Home pointer. Not part of
   // WP7's operator notices, which are templated above.

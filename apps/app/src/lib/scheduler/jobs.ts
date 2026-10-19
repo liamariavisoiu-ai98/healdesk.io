@@ -167,6 +167,24 @@ export const JOB_OPS_DIGEST = "ops-digest";
  */
 export const JOB_OPS_WATCH = "ops-watch";
 /**
+ * The signed website re-reads (lib/website, the website_drift migration).
+ *
+ * `site-reads`, seeded ON: every minute from its own `site-reads` queue, and
+ * hourly from the tick, each clinic's due read sent to apps/web's signed
+ * /api/clinic-site, one at a time per clinic; and hourly, a read asked for
+ * where a clinic has a website and no profile (or one of another website)
+ * and its own save did not ask. On, because it reads only what a clinic's
+ * setup asked for and mails nothing; it reads nothing until HEALDESK_WEB_URL
+ * is set.
+ *
+ * `website-drift`, seeded OFF: hourly from the tick, the monthly check of
+ * each live clinic's website against its purchase-time baseline, which
+ * raises "Changes on your website" in Knowledge and L23. Owner: the owner
+ * switches it on, before the first clinic's 30th live day (plan M7).
+ */
+export const JOB_SITE_READS = "site-reads";
+export const JOB_WEBSITE_DRIFT = "website-drift";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

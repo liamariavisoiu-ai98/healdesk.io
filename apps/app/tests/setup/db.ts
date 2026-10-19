@@ -114,7 +114,9 @@ export async function truncateAll(): Promise<void> {
       ('requests-still-open', 'Hourly; at each clinic''s opening hour, only while its daily summary is off, queues one email counting the booking requests taken before that opening that are still waiting for the desk', false),
       ('health-flags', 'Hourly; raises to ops, once each, a clinic with no interaction on any channel 48 hours after its first channel went live, and a live phone channel with no inbound call for 14 days. Internal: never shown to the clinic', false),
       ('ops-digest', 'Daily at 07 UTC, or the first hour after it, once a UTC day: emails ops every queue with the age of its oldest item, email health per kind, connection health and Resend''s daily count. Ids and counts only', false),
-      ('ops-watch', 'Every minute from the billing-minute queue, and hourly from the tick: raises to ops, once each, a paid order with no account ten minutes after its payment reached the host, an order follow-up (B3) past its day, and, hourly, a support reply (L25) past its day with none marked', false)
+      ('ops-watch', 'Every minute from the billing-minute queue, and hourly from the tick: raises to ops, once each, a paid order with no account ten minutes after its payment reached the host, an order follow-up (B3) past its day, and, hourly, a support reply (L25) past its day with none marked', false),
+      ('site-reads', 'Every minute, from the site-reads queue, and hourly from the tick: reads a clinic''s website again through apps/web''s signed route when it has a website and no profile, after it corrects its website, and when the drift check or an operator asks; reads nothing until HEALDESK_WEB_URL is set', false),
+      ('website-drift', 'Hourly; asks for a read of each live clinic''s website 30 days after its last one, compares it with the purchase-time baseline per Knowledge section, and queues "Changes on your website" (L23) when it finds any. Off until the owner switches it on, before the first clinic''s 30th live day', false)
     on conflict (name) do update set enabled = (excluded.name = 'heartbeat'), updated_by = null
   `);
 }

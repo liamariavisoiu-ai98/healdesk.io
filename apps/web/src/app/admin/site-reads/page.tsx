@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
-import { fetchSiteReadFailures, type SiteReadFailureRow } from "@/lib/admin/ops-client";
+import {
+  fetchSiteReadFailures,
+  requestSiteReread,
+  type SiteReadFailureRow,
+} from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
+
+import { RereadButton, type Reread } from "./RereadButton";
 
 /**
  * /admin/site-reads: the purchases whose website could not be read at
@@ -20,11 +27,20 @@ import { isHostUnreachable } from "@/lib/host/state";
  * look at why. A practice's public website is business data; nothing here
  * is a patient.
  *
- * No JavaScript: a read, with links out.
+ * A read, with links out, and "Read it again" for a clinic still without a
+ * profile: apps/app queues a signed re-read (ops requestSiteReread), which
+ * its site-reads job sends back to /api/clinic-site here.
  */
 
 export const metadata: Metadata = { title: "Site reads" };
 export const dynamic = "force-dynamic";
+
+async function reread(clinicId: string): ReturnType<Reread> {
+  "use server";
+  const result = await requestSiteReread(clinicId);
+  revalidatePath("/admin/site-reads");
+  return result;
+}
 
 function utc(iso: string | null): string {
   return iso ? `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC` : "";
@@ -98,6 +114,9 @@ function FailureRow({ row }: { row: SiteReadFailureRow }) {
         >
           Onboarding →
         </a>
+      ) : null}
+      {row.clinicId && !row.profileSince && row.website ? (
+        <RereadButton clinicId={row.clinicId} reread={reread} />
       ) : null}
     </div>
   );

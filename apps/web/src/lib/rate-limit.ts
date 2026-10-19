@@ -76,12 +76,15 @@ export type RateLimitResult = {
  * ceiling so a busy demo week cannot use up the homepage's "call me".
  * `voice-demo-webcall:global:day` (9 October 2026) caps the homepage's own
  * browser calls to AYA (api/voice-demo/retell), under a third ceiling for
- * the same reason.
+ * the same reason. `site-read:signed:day` (19 October 2026) caps the signed
+ * re-reads apps/app asks for (a missing profile, a corrected website, the
+ * monthly drift check), each a model call like the checkout's.
  */
 export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
   "chat:global:day",
   "callback:global:day",
   "site-read:global:day",
+  "site-read:signed:day",
   "webcall:global:day",
   "voice-demo-webcall:global:day",
   "own-demo:global:day",
@@ -94,9 +97,12 @@ export const GLOBAL_CAP_KEYS: ReadonlySet<string> = new Set([
  * would let the form mail a stranger once per warm instance a day. The key
  * after the prefix is a digest of the address, never the address. The
  * acknowledgement of a setup request (P2) needs none of this: its own rows in
- * the Sheet say whether the address asked today (createSetupRequest).
+ * the Sheet say whether the address asked today (createSetupRequest). The
+ * signed re-reads' per-clinic limit (`site-read:clinic:<clinic id>`) goes
+ * through it too, so a clinic's reads a day are four, not four per warm
+ * instance; the key after the prefix is the clinic's id.
  */
-export const SHARED_KEY_PREFIXES: readonly string[] = ["contact-ack:"];
+export const SHARED_KEY_PREFIXES: readonly string[] = ["contact-ack:", "site-read:clinic:"];
 
 export function isGlobalCapKey(key: string): boolean {
   return GLOBAL_CAP_KEYS.has(key) || SHARED_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));

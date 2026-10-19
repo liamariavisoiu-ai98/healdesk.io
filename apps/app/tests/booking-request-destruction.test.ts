@@ -216,6 +216,8 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   practice_question_runs: "what approved the agent's words (lib/engine/practice): synthetic cases, never deleted by the runtime role, no patient",
   practice_question_results: "the synthetic cases and AYA's answers to them, per channel and input version; no patient",
   audit_review_queue: "ops-only decisions on those synthetic runs, and who made them; no patient",
+  site_rereads: "each read of the clinic's own public website after purchase (lib/website): business data like agent_configs, never deleted by the runtime role, no patient",
+  website_changes: "what those reads found on the clinic's website and whether it confirmed or ignored each: its own published business data, no patient",
   report_deliveries: "the ledger of every email sent to the clinic",
   report_recipients: "the clinic's own addresses for its email",
   sign_in_address_changes:

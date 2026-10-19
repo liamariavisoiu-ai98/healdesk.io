@@ -1355,6 +1355,26 @@ describe("the practice questions' review queue (/admin/reviews)", () => {
     expect(await opsClient.rerunPracticeQuestions(CLINIC)).toEqual({ ok: true, data: { status: "updated", auditRecorded: true } });
     expect(sent[2]).toEqual({ op: "rerunPracticeQuestions", args: { clinicId: CLINIC } });
   });
+
+  test("a website re-read sends only the clinic, and reads back the read's id or a refusal", async () => {
+    const READ = "0b1c2d3e-4f50-4617-8899-aabbccddeeff";
+    reply({ data: { status: "queued", rereadId: READ, auditRecorded: true } });
+    expect(await opsClient.requestSiteReread(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "queued", rereadId: READ, auditRecorded: true },
+    });
+    expect(sent[0]).toEqual({ op: "requestSiteReread", args: { clinicId: CLINIC } });
+
+    reply({ data: { status: "refused", message: "This clinic has no website to read." } });
+    expect(await opsClient.requestSiteReread(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "This clinic has no website to read." },
+    });
+
+    // A read id that is not one is a shape error, never a guessed link.
+    reply({ data: { status: "queued", rereadId: "glowmedspa.com", auditRecorded: true } });
+    expect((await opsClient.requestSiteReread(CLINIC)).ok).toBe(false);
+  });
 });
 
 describe("dated promises (WP5): the setup-replies relay and the support marks", () => {

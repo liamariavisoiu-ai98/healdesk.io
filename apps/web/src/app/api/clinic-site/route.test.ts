@@ -341,11 +341,27 @@ describe("POST /api/clinic-site signed by apps/app", () => {
     expect(response.headers.get("set-cookie")).toBeNull();
   });
 
-  test("does not spend the browsers' daily cap", async () => {
+  test("does not spend the browsers' daily cap, and counts its own in the marketing Sheet", async () => {
     const sheets = new FakeSheets();
     __setSheetsClientForTests(sheets);
     await signed({ clinicId: CLINIC_ID, website: "glowmedspa.com" });
-    expect(counters(sheets)).toEqual([]);
+    expect(
+      counters(sheets)
+        .map((row) => row.key)
+        .sort(),
+    ).toEqual([`site-read:clinic:${CLINIC_ID}`, "site-read:signed:day"]);
+  });
+
+  test("its per-clinic limit holds across instances, not four per warm instance", async () => {
+    const sheets = new FakeSheets();
+    __setSheetsClientForTests(sheets);
+    for (let i = 0; i < 4; i += 1) {
+      expect((await signed({ clinicId: CLINIC_ID, website: "glowmedspa.com" })).status).toBe(200);
+    }
+    // A cold start: memory gone, the Sheet still there.
+    __resetRateLimiterForTests();
+    expect((await signed({ clinicId: CLINIC_ID, website: "glowmedspa.com" })).status).toBe(429);
+    expect(read).toHaveBeenCalledTimes(4);
   });
 
   test.each([

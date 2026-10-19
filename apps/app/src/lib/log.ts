@@ -104,6 +104,8 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   "runId",
   "reviewId",
   "section",
+  // A website re-read's random id (site_rereads, lib/website), never the website.
+  "rereadId",
   // Counters.
   "count",
   "written",

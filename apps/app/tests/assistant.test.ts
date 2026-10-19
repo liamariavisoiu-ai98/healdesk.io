@@ -14,6 +14,7 @@ import {
   parseModelAnswer,
   languageTerms,
   refusalLine,
+  SCREENED_TURN,
   type AssistantResponder,
 } from "@/lib/assistant/turn";
 import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
@@ -725,6 +726,44 @@ describe("answerTurn", () => {
     const first = mergeCapture(EMPTY_CAPTURE, { wants: true, firstName: "Dana", window: "Thursday" });
     const second = mergeCapture(first, { firstName: null, phone: "415 555 0192" });
     expect(second).toMatchObject({ wants: true, firstName: "Dana", window: "Thursday", phone: "415 555 0192" });
+  });
+
+  // The 19 October audit: the screens short-circuited only the turn a
+  // message came in on. Both adapters keep every turn in the history, the
+  // urgent one included, and the whole history went to the model on every
+  // later turn.
+  test("an urgent message, or one in a language no screen reads, never reaches the model on a later turn either", async () => {
+    for (const [said, answered] of [
+      ["my lips are swelling and it's getting hard to breathe", "urgent"],
+      ["Je n'arrive pas à respirer", "language"],
+    ] as const) {
+      const first = await answerTurn({ facts: FACTS, channel: "voice", history: [], text: said, responder: null });
+      expect(first.source, said).toBe(answered);
+      const history = [
+        { speaker: "assistant" as const, text: "Hi, I'm an AI assistant." },
+        { speaker: "person" as const, text: first.personText },
+        { speaker: "assistant" as const, text: first.reply },
+      ];
+      const seen: Parameters<AssistantResponder>[0][] = [];
+      const next = await answerTurn({
+        facts: FACTS,
+        channel: "voice",
+        history,
+        text: "When are you open?",
+        responder: async (request) => {
+          seen.push(request);
+          return JSON.stringify({ reply: "Weekdays nine to five." });
+        },
+      });
+      expect(next.source).toBe("model");
+      const sent = JSON.stringify(seen[0]!.messages);
+      expect(sent, said).not.toContain(said);
+      expect(seen[0]!.messages).toEqual([
+        { role: "user", content: SCREENED_TURN },
+        { role: "assistant", content: first.reply },
+        { role: "user", content: "When are you open?" },
+      ]);
+    }
   });
 
   test("the model sees alternating turns, starting with the person", () => {

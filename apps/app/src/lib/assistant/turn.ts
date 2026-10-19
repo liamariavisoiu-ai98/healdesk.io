@@ -35,6 +35,9 @@ export type { AssistantMessage, AssistantPrompt, AssistantResponder, ModelRefusa
  *   3. A message in a language the screens do not read (messageLanguage:
  *      neither English nor Spanish) gets a fixed line in English and
  *      Spanish, with 911 and the clinic's number, and never the model.
+ *      Neither it nor an urgent message reaches the model on a later turn
+ *      either: the history the model is sent is screened again
+ *      (messagesFor, screenedBeforeModel).
  *   4. Otherwise the model answers from the clinic's facts, as one JSON
  *      object, and the guard (guard.ts) reads its reply; a refused reply is
  *      replaced by a fixed line. A model that declines to answer at all (a
@@ -253,17 +256,54 @@ export function mergeCapture(previous: BookingCapture, next: Partial<BookingCapt
   };
 }
 
-/** The conversation as the model sees it: alternating, starting with the person. */
-export function messagesFor(history: readonly TranscriptTurn[], personText: string): AssistantMessage[] {
+/**
+ * What the model reads in place of an earlier message the screens answered
+ * before it: never the message's words. The fixed line that answered it
+ * stays, so the model does not contradict it.
+ */
+export const SCREENED_TURN =
+  "(This message was answered by the practice's fixed line for urgent messages or a language the assistant cannot read, so its words are not shown to you. Do not ask what it said.)";
+
+/**
+ * Whether the screens answer this message before the model, as answerTurn
+ * does on the turn it comes in: a complication or an urgent symptom, or a
+ * language no screen reads. Asked again of every earlier turn each time the
+ * model is called (messagesFor), so a message the model was never shown is
+ * never shown to it on a later turn either.
+ */
+export function screenedBeforeModel(
+  text: string,
+  facts: Pick<AssistantFacts, "specialty" | "clinicName" | "address" | "services"> & Partial<Pick<AssistantFacts, "providerNames">>,
+): boolean {
+  if (findUrgentContent(text, facts.specialty, { clinicName: facts.clinicName })) return true;
+  return messageLanguage(text, { knownTerms: languageTerms(facts) }) === "other";
+}
+
+/**
+ * The conversation as the model sees it: alternating, starting with the
+ * person. An earlier message of the person's that `screened` says the
+ * screens answered is replaced by SCREENED_TURN (spec, "Guardrails": the
+ * match happens before the model sees the message, and short-circuits the
+ * model entirely). The history itself keeps it, for the transcript the
+ * clinic is sent.
+ */
+export function messagesFor(
+  history: readonly TranscriptTurn[],
+  personText: string,
+  screened: (text: string) => boolean = () => false,
+): AssistantMessage[] {
   const out: AssistantMessage[] = [];
-  for (const turn of [...history, { speaker: "person" as const, text: personText }]) {
-    const role = turn.speaker === "person" ? "user" : "assistant";
-    if (out.length === 0 && role === "assistant") continue; // the opening line is in the system prompt
-    const last = out[out.length - 1];
-    if (last && last.role === role) last.content = `${last.content}\n${turn.text}`;
-    else out.push({ role, content: turn.text });
-  }
+  for (const turn of history) push(out, turn.speaker, turn.speaker === "person" && screened(turn.text) ? SCREENED_TURN : turn.text);
+  push(out, "person", personText);
   return out;
+}
+
+function push(out: AssistantMessage[], speaker: TranscriptTurn["speaker"], text: string): void {
+  const role = speaker === "person" ? "user" : "assistant";
+  if (out.length === 0 && role === "assistant") return; // the opening line is in the system prompt
+  const last = out[out.length - 1];
+  if (last && last.role === role) last.content = `${last.content}\n${text}`;
+  else out.push({ role, content: text });
 }
 
 export async function answerTurn(input: {
@@ -302,7 +342,11 @@ export async function answerTurn(input: {
   const system = { stable: buildAssistantPrompt(facts, channel), turn: assistantTurnContext(facts, now, opening) };
   let raw: Awaited<ReturnType<AssistantResponder>>;
   try {
-    raw = await input.responder({ system, messages: messagesFor(input.history, personText), channel });
+    raw = await input.responder({
+      system,
+      messages: messagesFor(input.history, personText, (text) => screenedBeforeModel(text, facts)),
+      channel,
+    });
   } catch {
     return { ...base, reply: FAILURE_LINE, source: "fallback" };
   }

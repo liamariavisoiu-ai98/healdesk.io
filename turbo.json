@@ -80,6 +80,9 @@
         "HEALDESK_CHAT_MODEL",
         "HEALDESK_VOICE_MODEL",
         "HEALDESK_RETELL_LLM_SECRET",
+        // The engine's own Retell key: signs the call-ended webhook and reads
+        // a call back for the voice backstop (lib/voice/backstop.ts).
+        "HEALDESK_RETELL_API_KEY",
 
         // The "have AYA call me" demo, on Retell. The first three are required
         // for a call to be placed at all. The webhook key signs the agent's

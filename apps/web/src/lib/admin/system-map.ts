@@ -535,9 +535,29 @@ export const KEYS: readonly KeyDef[] = [
     },
   },
   {
+    id: "aws.HEALDESK_RETELL_API_KEY",
+    env: "HEALDESK_RETELL_API_KEY",
+    home: "aws",
+    label: "Retell key (engine): signs call-ended messages and reads a call back",
+    // Optional, not later: the live line runs without it, and only the
+    // backstop for a call the voice task never recorded is off. As "later"
+    // it would show the whole voice line off while calls were being answered.
+    // Pasted with the line password, from the clinics' own Retell workspace
+    // (under Retell's agreement, never the demo line's, whose keys are on
+    // Vercel), the key with the webhook badge; each clinic's agent webhook is
+    // https://app.healdesk.io/api/webhooks/retell/<clinic id>.
+    need: "optional",
+    rotation: {
+      kind: "every",
+      days: 180,
+      how: `Make a new key in Retell (Settings, API Keys) and give it the webhook badge. ${AWS_HOW("HEALDESK_RETELL_API_KEY")} Then delete the old one.`,
+      impact: "Retell's call-ended messages are refused until the restart, and Retell retries them only for a few seconds: a call lost by a crash in that window stays unrecorded.",
+    },
+  },
+  {
     // Not a secret: Terraform sets it on the web task whenever enable_voice is
-    // on (infra/aws/locals.tf), because the secret above is given to the web
-    // task, and so reads as present, before the voice service exists.
+    // on (infra/aws/locals.tf), because HEALDESK_RETELL_LLM_SECRET is given to
+    // the web task, and so reads as present, before the voice service exists.
     id: "aws.HEALDESK_VOICE_ENABLED",
     env: "HEALDESK_VOICE_ENABLED",
     home: "aws",
@@ -737,6 +757,8 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_DIRECT_BOOKING_ENABLED:
     "Your switch for AYA booking by herself rather than asking the clinic. No channel calls the booking engine yet, so today it changes only the buy page's wording and reports; never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
+  HEALDESK_VOICE_REAL_CALLS:
+    "Your switch out of the voice line's test mode: until it is exactly 1, calls are answered and recorded for the demo clinic alone, the backstop for a lost call included.",
   // One-off jobs (apps/app/scripts), started by hand inside AWS.
   HEALDESK_EXPORT_BUCKET: "The export job's bucket: a name.",
   HEALDESK_EXPORT_KEY: "The export file's name in that bucket; not a key.",
@@ -1149,11 +1171,11 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries: "What the caller says, and every word AYA says back",
     example:
       "While Maria talks, Retell streams each sentence to the engine over a private line whose address carries a password; the engine decides every word AYA says back, and takes Maria's request for Thursday at 3pm for the clinic to confirm.",
-    keys: ["aws.HEALDESK_RETELL_LLM_SECRET", "aws.HEALDESK_VOICE_ENABLED"],
+    keys: ["aws.HEALDESK_RETELL_LLM_SECRET", "aws.HEALDESK_VOICE_ENABLED", "aws.HEALDESK_RETELL_API_KEY"],
     phi: true,
     build: "built",
     buildNote:
-      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, and nothing of it is kept, so the line password may be pasted before the agreements. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, and nothing of it is kept, so the line password may be pasted before the agreements. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. If the voice task crashes mid-call, Retell's signed call-ended message (each clinic's agent webhook, https://app.healdesk.io/api/webhooks/retell/<clinic id>) queues a backstop that, ten minutes later, reads the call back from Retell and records it with its words, emailed to the clinic, and its minutes, unless the live line already did; in test mode it does so for the demo clinic alone. What the caller asked for is not rebuilt: the clinic reads it in the transcript, and the call makes no booking request.",
   },
   {
     id: "retell-clinic",

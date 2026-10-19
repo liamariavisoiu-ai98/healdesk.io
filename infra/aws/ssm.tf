@@ -25,7 +25,8 @@
 #     infra/aws/scripts/put-external-secrets.sh (the parameters_to_fill
 #     output lists them). Several stay "__unset__" on purpose until the vendor
 #     chain is complete (META_*, ANTHROPIC_API_KEY, and
-#     HEALDESK_RETELL_LLM_SECRET until enable_voice is turned on).
+#     HEALDESK_RETELL_LLM_SECRET and HEALDESK_RETELL_API_KEY until
+#     enable_voice is turned on).
 #
 # Three things follow from the write-only form, and each is pinned below:
 #   - an in-place change to any other argument makes the provider put the
@@ -72,6 +73,10 @@ locals {
   # HEALDESK_RETELL_LLM_SECRET is the path segment that admits Retell's
   # WebSocket (src/voice/server.ts): the same value goes into every clinic's
   # Retell agent URL, and while it is unset every call is refused.
+  # HEALDESK_RETELL_API_KEY is the engine's Retell key (the one with the
+  # webhook badge): it signs Retell's call-ended webhook to
+  # /api/webhooks/retell/<clinic id> and lets the worker read a call back, the
+  # backstop for a call the voice task never recorded (lib/voice/backstop.ts).
   external_parameter_names = [
     "HEALDESK_PROVISION_SECRET",
     "STRIPE_SECRET_KEY",
@@ -81,6 +86,7 @@ locals {
     "META_VERIFY_TOKEN",
     "ANTHROPIC_API_KEY",
     "HEALDESK_RETELL_LLM_SECRET",
+    "HEALDESK_RETELL_API_KEY",
     "GOOGLE_OAUTH_CLIENT_ID",
     "GOOGLE_OAUTH_CLIENT_SECRET",
   ]

@@ -269,6 +269,16 @@ describe("assess", () => {
     expect(view.todos.some((t) => t.kind === "waiting" && t.key === "aws.META_APP_SECRET")).toBe(true);
   });
 
+  test("the backstop's Retell key missing leaves the live voice line working, with only the backstop off", () => {
+    const live = allGood();
+    (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_RETELL_API_KEY = false;
+    const view = assess(live);
+
+    expect(key(view, "aws.HEALDESK_RETELL_API_KEY").state).toBe("optional-off");
+    for (const id of ["retell-app", "patients-retell", "retell-clinic"]) expect(bridge(view, id).status, id).toBe("working");
+    expect(view.todos.some((t) => t.kind === "add-key" && t.key === "aws.HEALDESK_RETELL_API_KEY")).toBe(false);
+  });
+
   test("a pasted voice secret alone is not voice: the line stays off until enable_voice is on", () => {
     const live = allGood();
     (live.host as Extract<HostReach, { state: "answered" }>).present.HEALDESK_VOICE_ENABLED = false;

@@ -3,17 +3,31 @@ import { billingNotices } from "@/db/schema";
 import { PLAN_NOTICE_KINDS, type PlanNoticeKind } from "@/lib/email/kinds";
 import type { AssistantReadyPayload } from "@/lib/email/templates/assistant_ready";
 import type { AiPausedPayload } from "@/lib/email/templates/ai_paused";
+import type {
+  BookingAlertPayload,
+  DepositAlertPayload,
+  RequestsStillOpenPayload,
+} from "@/lib/email/templates/booking_alert";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
 import type { ExportReadyPayload } from "@/lib/email/templates/export_ready";
 import type { ExportReminderPayload } from "@/lib/email/templates/export_reminder";
 import type { PassThroughEndingPayload } from "@/lib/email/templates/pass_through_ending";
+import type {
+  GuaranteeClaimReceivedPayload,
+  GuaranteeFindingPayload,
+} from "@/lib/email/templates/guarantee_claim";
+import type { IncidentReportPayload } from "@/lib/email/templates/incident_report";
 import type { PracticeQuestionsFailedPayload } from "@/lib/email/templates/practice_questions_failed";
+import type { ProductUpdatePayload } from "@/lib/email/templates/product_update";
 import type { SettingChangedPayload } from "@/lib/email/templates/setting_changed";
 import type { SetupClosedPayload } from "@/lib/email/templates/setup_closed";
 import type { SetupReminderPayload } from "@/lib/email/templates/setup_reminder";
+import type { SubprocessorNoticePayload } from "@/lib/email/templates/subprocessor_notice";
 import type { SupportRequestPayload } from "@/lib/email/templates/support_request";
+import type { SuspendedForCausePayload } from "@/lib/email/templates/suspended_for_cause";
+import type { TermsNoticePayload } from "@/lib/email/templates/terms_notice";
 
 /**
  * The plan's own outbox kinds (lib/email/kinds.ts, owner "plan"): their
@@ -67,15 +81,40 @@ export type PlanNoticePayloads = {
    */
   ai_paused: AiPausedPayload;
 
+  // The operator's notices from /admin (WP7, lib/notices/operator-notices.ts).
+  /** Dedupe `terms_notice:<version>`: once per practice per Terms version. */
+  terms_notice: TermsNoticePayload;
+  /** Dedupe `subprocessor_notice:<provider>:<startsAt>`: once per practice per addition. */
+  subprocessor_notice: SubprocessorNoticePayload;
+  /** Dedupe `incident_report:<incident id>:<n>`: each report and update once. */
+  incident_report: IncidentReportPayload;
+  /** Dedupe `guarantee_claim_received:<claimReceivedOn>`: once per claim. */
+  guarantee_claim_received: GuaranteeClaimReceivedPayload;
+  /** Dedupe `guarantee_finding:<claimReceivedOn>`: one finding per claim. */
+  guarantee_finding: GuaranteeFindingPayload;
+  /** Dedupe `suspended_for_cause:<suspendedAt>`: once per suspension. */
+  suspended_for_cause: SuspendedForCausePayload;
+  /** Dedupe `product_update:<code>`: once per practice per update. */
+  product_update: ProductUpdatePayload;
+
   // Registered ahead of their packages; each package names its payload here.
-  booking_request: OwedPayload;
-  request_still_open: OwedPayload;
-  request_missed: OwedPayload;
-  deposit_to_collect: OwedPayload;
-  handover: OwedPayload;
-  urgent: OwedPayload;
-  website_message: OwedPayload;
-  calendar_check: OwedPayload;
+  // The live alerts (package F), queued by lib/notices/booking-alerts.ts.
+  /** Dedupe `booking_request:request:<id>`: once per request (booking-alerts.ts, dedupeKey). */
+  booking_request: BookingAlertPayload;
+  /** Dedupe `request_still_open:<clinic-local date>`: once per opening day, with the count. */
+  request_still_open: RequestsStillOpenPayload;
+  /** Dedupe `request_missed:request:<id>`: once per request that expires. */
+  request_missed: BookingAlertPayload;
+  /** Dedupe on the appointment, the request or the conversation it is about. */
+  deposit_to_collect: DepositAlertPayload;
+  /** Dedupe on the conversation, or the call while it is still going: once each. */
+  handover: BookingAlertPayload;
+  /** Dedupe on the conversation, or the call while it is still going: once each. */
+  urgent: BookingAlertPayload;
+  /** Dedupe `website_message:request:<id>`: once per message left (lib/chat/contact-form.ts). */
+  website_message: BookingAlertPayload;
+  /** Dedupe `calendar_check:request:<id>`: once per request. */
+  calendar_check: BookingAlertPayload;
   daily_summary: OwedPayload;
   weekly_recap: OwedPayload;
   outage_started: OwedPayload;
@@ -84,14 +123,7 @@ export type PlanNoticePayloads = {
   website_changes: OwedPayload;
   /** Dedupe `support_request:<escalation id>`: once per escalation (lib/support/escalate.ts). */
   support_request: SupportRequestPayload;
-  terms_notice: OwedPayload;
-  subprocessor_notice: OwedPayload;
-  incident_report: OwedPayload;
-  guarantee_claim_received: OwedPayload;
-  guarantee_finding: OwedPayload;
-  suspended_for_cause: OwedPayload;
   patient_request: OwedPayload;
-  product_update: OwedPayload;
   /**
    * After cancellation (lib/offboarding/after-cancellation.ts). Dedupe
    * `pass_through_ending:<7|1>`: once a week ahead and once a day ahead.

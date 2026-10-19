@@ -4,7 +4,6 @@ import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import { setCancelAt } from "@/lib/billing/entitlements";
 import { transition } from "@/lib/billing/state-machine";
 import { assertPayloadAllowed } from "@/lib/email/lint";
-import { sendLiveAlert } from "@/lib/reporting/alerts";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { renewalNoticeDue, sendRenewalReminders } from "@/lib/scheduler/annual-renewal-reminder";
@@ -315,37 +314,6 @@ describeDb("delivery", () => {
     });
   });
 
-  describe("live alerts", () => {
-    test("one alert per conversation, with a count and no patient", async () => {
-      const c = await seedClinic("alert");
-      await makeProduction(c.clinicId, new Date("2026-08-01T00:00:00Z"));
-      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" }),
-      );
-      const { conversationId } = await seedConversation(c.clinicId, { startedAt: new Date(), booked: true });
-
-      const transport = new FakeTransport();
-      expect(await sendLiveAlert(c.clinicId, "booked", conversationId, transport)).toBe("sent");
-      expect(await sendLiveAlert(c.clinicId, "booked", conversationId, transport)).toBe("skipped");
-      expect(transport.sent).toHaveLength(1);
-      const { message } = transport.sent[0]!;
-      expect(message.phiClass).toBe("none");
-      expect(message.text).not.toMatch(/\+1555|Synthetic/);
-      expect(message.text).not.toContain(conversationId);
-    });
-
-    test("a synthetic clinic never gets one", async () => {
-      const c = await seedClinic("alert-synthetic");
-      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        addRecipient(tx, { email: "desk@example-clinic.test", addedBy: "test" }),
-      );
-      const { conversationId } = await seedConversation(c.clinicId, { startedAt: new Date(), booked: true });
-      const transport = new FakeTransport();
-      expect(await sendLiveAlert(c.clinicId, "escalated", conversationId, transport)).toBe("skipped");
-      expect(transport.sent).toHaveLength(0);
-    });
-  });
-
   describe("connection health", () => {
     test("finds the dead, the stale and the stuck, and mails ops one digest", async () => {
       const stale = await seedClinic("health-stale");
@@ -458,7 +426,7 @@ describeDb("delivery", () => {
           // Its switch widens it: off, it still runs for the clinics whose
           // agreement states the export rule (C19, 12 October 2026).
           "offboarding-destroy",
-          // After cancellation (drizzle/0082): E6 to the address captured at
+          // After cancellation (drizzle/0085): E6 to the address captured at
           // destruction, right after it and hourly until it goes; and E3, E4
           // and E5 queued for every clinic whose service has ended. Sweeps,
           // not switched jobs.
@@ -478,10 +446,17 @@ describeDb("delivery", () => {
           // The practice questions' sweep (drizzle/0080), hourly behind the
           // practice-questions switch; the runs go every minute from their queue.
           "practice-questions-sweep",
+          // L8, "Request still open" (drizzle/0082), hourly behind its switch:
+          // each clinic's goes at its own opening hour.
+          "requests-still-open",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.
           "erasure-expiry",
+          // A change of a clinic's address takes effect when its 72 hours are
+          // up (plan Part D5): a sweep, not a switched job, because the clinic
+          // was told the moment.
+          "address-changes",
           // Channel events (drizzle/0076): a sweep, not a switched job, over
           // inputs the clinic and the operator set.
           "channel-states",
@@ -497,6 +472,7 @@ describeDb("delivery", () => {
         if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
         if (job === "welcome-email") continue; // a sweep: retries only a welcome provisioning recorded as owed
         if (job === "erasure-expiry") continue; // a sweep: empties and deletes only expired deletion records
+        if (job === "address-changes") continue; // a sweep: applies only the changes whose 72 hours are up
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
@@ -508,6 +484,7 @@ describeDb("delivery", () => {
       expect(jobs["booking-request-expiry"]).toBe("ok");
       expect(jobs["welcome-email"]).toBe("ok");
       expect(jobs["erasure-expiry"]).toBe("ok");
+      expect(jobs["address-changes"]).toBe("ok");
       expect(jobs["channel-states"]).toBe("ok");
       expect(jobs["ai-pause"]).toBe("ok");
       expect(jobs["destruction-notices"]).toBe("ok");

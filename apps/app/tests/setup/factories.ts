@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type { BookingSystemId, CalendarAccount } from "@healdesk/catalog";
 
@@ -803,4 +803,53 @@ export async function inTenant<T>(
   } finally {
     client.release();
   }
+}
+
+/**
+ * A desk token for a booking request, for the tests that still decide one by
+ * its single-use link. The link reached the desk only in notifyDesk's email,
+ * which package F retired (the clinic now gets L7, a pointer into Bookings,
+ * and package E moves the decision to the request's id), so nothing hands the
+ * token out any more. This mints a fresh one and stores its hash, as the
+ * migrator, with the row's frozen-column trigger off for that one statement,
+ * inside one transaction, so no other session ever sees the trigger off.
+ * The newest request when `requestId` is omitted.
+ */
+export async function mintDeskToken(clinicId: string, requestId?: string): Promise<string> {
+  const token = randomBytes(32).toString("base64url");
+  const hash = createHash("sha256").update(token, "utf8").digest();
+  await inTenant(clinicId, async (client) => {
+    const { rows } = requestId
+      ? { rows: [{ id: requestId }] }
+      : await client.query<{ id: string }>(
+          `select id from booking_requests order by created_at desc limit 1`,
+        );
+    const id = rows[0]?.id;
+    if (!id) throw new Error("mintDeskToken: no booking request to mint a token for");
+    await client.query(`alter table booking_requests disable trigger user`);
+    await client.query(`update booking_requests set token_hash = $2 where id = $1`, [id, hash]);
+    await client.query(`alter table booking_requests enable trigger user`);
+  });
+  return token;
+}
+
+/** The outbox rows queued for a clinic, oldest first: kind, dedupe key and payload. */
+export async function queuedNotices(
+  clinicId: string,
+  kinds?: readonly string[],
+): Promise<{ kind: string; dedupe_key: string; payload: Record<string, unknown>; sent_at: Date | null }[]> {
+  return inTenant(clinicId, async (client) => {
+    const { rows } = await client.query<{
+      kind: string;
+      dedupe_key: string;
+      payload: Record<string, unknown>;
+      sent_at: Date | null;
+    }>(
+      `select kind, dedupe_key, payload, sent_at from billing_notices
+        where clinic_id = $1 ${kinds ? "and kind = any($2::text[])" : ""}
+        order by created_at, id`,
+      kinds ? [clinicId, [...kinds]] : [clinicId],
+    );
+    return rows;
+  });
 }

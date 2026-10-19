@@ -183,7 +183,7 @@ import { withTenant } from "@/lib/tenant";
  * not claim to.
  *
  * The clinic's one address is read before anything is deleted and written
- * beside the destroyed stamp (clinics.destruction_notice_address, 0082), so
+ * beside the destroyed stamp (clinics.destruction_notice_address, 0085), so
  * E6, "Your data has been destroyed", goes to the address the account had
  * when its data went, whatever becomes of the sign-in after
  * (lib/offboarding/after-cancellation.ts sends it and clears the address).

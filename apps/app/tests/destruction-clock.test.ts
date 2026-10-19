@@ -985,7 +985,7 @@ describeDb("the destruction clock in the database", () => {
     // patient is back, the clinic is not destroyed, and nothing says the
     // export was delivered. On the DPA's rule that is not due before day 89,
     // so the check alone passes it over. A backup that old holds no address
-    // captured for E6 either: only a destroyed clinic can hold one (0082).
+    // captured for E6 either: only a destroyed clinic can hold one (0085).
     await getMigratorPool().query(
       `update clinics set destroyed_at = null, export_delivered_at = null,
               destruction_notice_address = null where id = $1`,

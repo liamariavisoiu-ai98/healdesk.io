@@ -1,5 +1,5 @@
 {
-  "id": "07502743-6968-4f5d-86da-53111546ba23",
+  "id": "7d4ab586-6587-4f08-8532-52d447d56b79",
   "prevId": "fd69b6a1-46cc-403b-bb6b-c144df0e149b",
   "version": "7",
   "dialect": "postgresql",
@@ -1960,6 +1960,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'assistant'"
+        },
         "last_inbound_at": {
           "name": "last_inbound_at",
           "type": "timestamp with time zone",
@@ -2140,7 +2147,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "booking_requests_source_known": {
+          "name": "booking_requests_source_known",
+          "value": "\"booking_requests\".\"source\" in ('assistant', 'contact_form')"
+        },
+        "booking_requests_source_shape": {
+          "name": "booking_requests_source_shape",
+          "value": "\"booking_requests\".\"source\" = 'assistant' or (\"booking_requests\".\"channel\" = 'web_chat' and \"booking_requests\".\"conversation_id\" is null and \"booking_requests\".\"vendor_call_id\" is null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.calendar_elections": {
@@ -4287,12 +4303,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "destruction_notice_address": {
-          "name": "destruction_notice_address",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
         "billing_clinic_id": {
           "name": "billing_clinic_id",
           "type": "uuid",
@@ -4472,10 +4482,6 @@
         "clinics_website_check": {
           "name": "clinics_website_check",
           "value": "\"clinics\".\"website\" is null or (char_length(\"clinics\".\"website\") between 4 and 200 and \"clinics\".\"website\" !~ '[[:space:][:cntrl:]]')"
-        },
-        "clinics_destruction_notice_address_check": {
-          "name": "clinics_destruction_notice_address_check",
-          "value": "\"clinics\".\"destruction_notice_address\" is null or (\"clinics\".\"destroyed_at\" is not null and char_length(\"clinics\".\"destruction_notice_address\") between 3 and 254 and \"clinics\".\"destruction_notice_address\" ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')"
         }
       },
       "isRLSEnabled": false

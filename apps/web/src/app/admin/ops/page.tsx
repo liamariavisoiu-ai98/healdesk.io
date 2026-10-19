@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
 import {
+  fetchClinicCards,
   fetchClinicHealth,
   fetchClinics,
   fetchJobs,
@@ -70,7 +71,14 @@ export const dynamic = "force-dynamic";
 export default async function OpsPage() {
   if (!(await requireOperator())) redirect("/admin/sign-in");
 
-  const [clinics, jobs, health] = await Promise.all([fetchClinics(), fetchJobs(), fetchClinicHealth()]);
+  // The cards' channel states, tracker and agreement label are a fourth read,
+  // settled on its own like the other three (listClinicCards).
+  const [clinics, jobs, health, cards] = await Promise.all([
+    fetchClinics(),
+    fetchJobs(),
+    fetchClinicHealth(),
+    fetchClinicCards(),
+  ]);
 
   // The AWS host in standby: one notice, not three failed sections.
   if ([clinics, jobs, health].every(isHostUnreachable)) {
@@ -82,6 +90,7 @@ export default async function OpsPage() {
       clinics={clinics}
       jobs={jobs}
       health={health}
+      cards={cards}
       actions={{ toggleJob, issueConnectLink, recordTouch }}
     />
   );

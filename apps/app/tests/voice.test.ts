@@ -17,7 +17,7 @@ import {
 } from "@/lib/voice/ingest";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedContact } from "./setup/factories";
+import { inTenant, queuedNotices, seedClinic, seedContact } from "./setup/factories";
 
 /**
  * The two classifications the monthly report is built on.
@@ -379,14 +379,21 @@ describeDb("the post-call ingest", () => {
     // A retried hand-over answers with the same request.
     const again = await ingestCall(booked(c.clinicId, "call_rt_1"), undefined, { transport });
     expect(again).toMatchObject({ duplicate: true, conversationId: retell.conversationId, bookingRequestId: first });
-    // Every engine alert was raised when the request was committed: nothing is mailed for that call.
+    // Every engine alert was raised when the request was committed: nothing
+    // is mailed or queued for that call.
     expect(mailed).toEqual([]);
+    expect(await queuedNotices(c.clinicId, ["booking_request"])).toEqual([]);
     // The control: a call the engine logged nothing on is the ingest's to
-    // deliver, and it does mail this clinic's desk.
+    // deliver, and it queues the clinic's L7 alert for it, once, while the
+    // report recipient is mailed nothing (notifyDesk is retired).
     const unkeyed = await ingestCall(booked(c.clinicId, "call_desk_1"), undefined, { transport });
     expect(unkeyed.bookingRequestId).not.toBeNull();
-    expect(mailed).toHaveLength(1);
-    expect(mailed[0]!.subject).toMatch(/^New booking request via /);
+    await ingestCall(booked(c.clinicId, "call_desk_1"), undefined, { transport });
+    expect(mailed).toEqual([]);
+    const alerts = await queuedNotices(c.clinicId, ["booking_request"]);
+    expect(alerts.map((a) => [a.dedupe_key, a.payload.channel, a.payload.bookingRequestId])).toEqual([
+      [`booking_request:request:${unkeyed.bookingRequestId}`, "voice", unkeyed.bookingRequestId],
+    ]);
 
     const rows = await inTenant(c.clinicId, async (client) => ({
       requests: (await client.query<{ id: string; conversation_id: string | null }>(`select id, conversation_id from booking_requests`)).rows,
@@ -410,7 +417,7 @@ describeDb("the post-call ingest", () => {
     );
   });
 
-  test("a synthetic clinic in setup: a booked call becomes one request for the desk, unkeyed, and the desk is mailed", async () => {
+  test("a synthetic clinic in setup: a booked call becomes one request for the desk, unkeyed, and the clinic's alert is queued", async () => {
     // Every paying clinic is synthetic until ops put it live; its calls still
     // reach its desk as requests.
     const synthetic = await seedClinic("voice-synthetic");
@@ -436,13 +443,12 @@ describeDb("the post-call ingest", () => {
     );
     expect(ingested.bookingRequestId).not.toBeNull();
     const stored = await inTenant(synthetic.clinicId, (client) =>
-      client.query<{ status: string; vendor_call_id: string | null; preferred_window: string; desk_notified_at: Date | null }>(
-        `select status, vendor_call_id, preferred_window, desk_notified_at from booking_requests`,
+      client.query<{ status: string; vendor_call_id: string | null; preferred_window: string }>(
+        `select status, vendor_call_id, preferred_window from booking_requests`,
       ),
     );
     expect(stored.rows).toEqual([expect.objectContaining({ status: "requested", vendor_call_id: null, preferred_window: "Thursday afternoon" })]);
-    expect(stored.rows[0]!.desk_notified_at).not.toBeNull();
-    expect(mailed).toHaveLength(1);
-    expect(mailed[0]!.subject).toMatch(/^New booking request via /);
+    expect(mailed).toEqual([]);
+    expect((await queuedNotices(synthetic.clinicId, ["booking_request"])).map((a) => a.payload.channel)).toEqual(["voice"]);
   });
 });

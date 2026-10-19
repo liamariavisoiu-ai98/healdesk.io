@@ -48,7 +48,7 @@ import { destructionPlan, destructionPlanIn, type DestructionPlan } from "./offb
  *     undownloaded, while no download is recorded.
  *   - E6, `data_destroyed`: on destruction, to the address destroyClinicData
  *     captured in its own transaction (clinics.destruction_notice_address,
- *     drizzle/0082), which is cleared once E6 is sent, once it fails for
+ *     drizzle/0085), which is cleared once E6 is sent, once it fails for
  *     good, and in any case DESTRUCTION_NOTICE_DAYS after the destruction.
  *
  * ## How the export is triggered on this host

@@ -5,9 +5,9 @@ import {
   type BookingField,
   type ScreenedLanguage,
 } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { agentConfigs, clinicChannels, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
+import { agentConfigs, clinicChannels, clinicProviders, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
 import { DAY_KEYS, DAY_LABELS, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { neverSayWithDefaults, readKnowledge } from "@/lib/setup/knowledge";
@@ -76,7 +76,10 @@ export type AssistantFacts = {
   languages: ScreenedLanguage[];
   /** "Suggest add-on treatments": on lets AYA suggest a complementary service during a booking. */
   suggestAddOns: boolean;
+  /** The practice's providers, as it names them: words the language check reads as no language. */
+  providerNames: string[];
 };
+
 
 function screenedLanguages(chosen: readonly string[]): ScreenedLanguage[] {
   const screened = chosen.filter(isScreenedLanguage);
@@ -125,6 +128,10 @@ export async function assistantFacts(
 
   const settings = await readSetupSettings(tx.db, tx.clinicId);
   const bought = await tx.db.select({ channel: clinicChannels.channel }).from(clinicChannels).where(eq(clinicChannels.clinicId, tx.clinicId));
+  const providers = await tx.db
+    .select({ name: clinicProviders.displayName })
+    .from(clinicProviders)
+    .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
 
   return {
     clinicId: tx.clinicId,
@@ -167,5 +174,6 @@ export async function assistantFacts(
     tone: settings.tone,
     languages: screenedLanguages(settings.languages),
     suggestAddOns: settings.suggestAddOns,
+    providerNames: providers.map((p) => p.name),
   };
 }

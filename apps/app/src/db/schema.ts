@@ -2545,7 +2545,7 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
 
 /**
  * An amendment Practice directed to a record that must stay as it was made
- * (clause 14(b) of BAA 1.5.0, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
+ * (clause 14(b) of BAA 1.5.1, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
  * Clients' requests clause; release gate 8, PT-17). A booking request's
  * facts never change (the no-rewrite trigger, 0039 and 0041), a conversation
  * is the record of what was said, and an appointment is the booking as the

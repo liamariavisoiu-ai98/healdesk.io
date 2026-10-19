@@ -58,7 +58,6 @@ import {
 import {
   ClinicSettingsError,
   getClinicSettings,
-  updateClinicSettings,
   type ClinicSettings,
   type ClinicSettingsPatch,
 } from "@/lib/billing/settings";
@@ -77,6 +76,7 @@ import {
   retryOverageInvoice,
 } from "@/lib/billing/support";
 import { usageSnapshot } from "@/lib/billing/usage";
+import { updateClinicSettingsRecordingPause } from "@/lib/channels/pause";
 import { isPaused, type ChannelStatus } from "@/lib/channels/state";
 import { scrub } from "@/lib/log";
 import { listClinics as listClinicOverviews } from "@/lib/ops/clinics";
@@ -928,11 +928,10 @@ export async function opSetClinicSettings(
   try {
     result = await withTenant(
       { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
-      async (tx) => {
-        const before = await getClinicSettings(tx);
-        const after = await updateClinicSettings(tx, patch, OPS_PAUSE_LABEL);
-        return { before, after };
-      },
+      // Through the pause's own wrapper, so a pause from the console is
+      // recorded and emailed (L15) as one from the header is: the clinic
+      // learns of a pause nobody there made (lib/channels/pause.ts).
+      (tx) => updateClinicSettingsRecordingPause(tx, patch, OPS_PAUSE_LABEL),
     );
   } catch (error) {
     if (error instanceof ClinicSettingsError) return refusal(error.message);

@@ -76,7 +76,7 @@ import {
  * delivery is confirmed (lib/conversations/transcript-outbox.ts). What is
  * shown is the record without the words: the channel, the time, the outcome,
  * the person as the clinic's records name them, any booking request it
- * produced, any amendment the practice directed (BAA 1.5.0 clause 14(b):
+ * produced, any amendment the practice directed (BAA 1.5.1 clause 14(b):
  * every screen that shows the record carries it), and the transcript's
  * delivery receipt.
  *

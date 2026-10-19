@@ -38,7 +38,7 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *
  * Each booking request, appointment and conversation carries its amendments
  * beside it (`amendments`, oldest first; lib/patient-rights/amendments.ts),
- * as clause 14(b) of the agreement in force promises (BAA 1.5.0, unchanged
+ * as clause 14(b) of the agreement in force promises (BAA 1.5.1, unchanged
  * since 1.3.0): "Every later export of that record, and every screen of
  * healdesk's that shows it, then carries the amendment." So does the whole
  * clinic's bundle. The portal's export (M5) must do the same, and so must
@@ -47,7 +47,7 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  * Each bundle also carries the deposits the clinic took through its own
  * Stripe account for the person's appointments (the whole clinic's, in its
  * bundle): the amount, when and how it was paid, and the Stripe session the
- * clinic can find it by. Destruction deletes them (clause 17 of BAA 1.5.0,
+ * clinic can find it by. Destruction deletes them (clause 17 of BAA 1.5.1,
  * as of 1.3.0, lets only two records survive), so the return bundle is the
  * clinic's copy.
  *
@@ -363,7 +363,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
 /**
  * Amendment where the record can be changed: a real correction.
  *
- * BAA 1.5.0's clause 14(b), as of 1.3.0: "healdesk corrects a person's
+ * BAA 1.5.1's clause 14(b), as of 1.3.0: "healdesk corrects a person's
  * contact details in its own copy." A contact's name, number and address are
  * those details, so the row changes, and the audit row says which fields
  * changed and who asked, never what they said: a "prior" that carried the

@@ -13,9 +13,9 @@ import {
   type UrgentFinding,
 } from "@healdesk/catalog";
 import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { agentConfigs, clinicChannels, clinics, clinicSettings } from "@/db/schema";
+import { agentConfigs, clinicChannels, clinicProviders, clinics, clinicSettings } from "@/db/schema";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -72,7 +72,7 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * the pre-v1 request taker until they do.
  *
  * Every message is screened before the model sees it, as clause 16 of the
- * agreement in force says (BAA 1.5.0, unchanged since 1.3.0: "healdesk checks
+ * agreement in force says (BAA 1.5.1, unchanged since 1.3.0: "healdesk checks
  * each message a person sends there for clinical content before the language
  * model sees it, and keeps no message there and no summary of one";
  * docs/counsel/agreement-changes.md §12.14, gate 4, PT-12). The screen, like
@@ -170,6 +170,8 @@ export type FrontDoorFacts = {
    * the reply guard reads English. Absent, warm.
    */
   tone?: AssistantTone;
+  /** The practice's providers, as it names them: words the language check reads as no language. */
+  providerNames?: string[];
   websiteHint: string | null;
   /** The approved menu. The model reads a name only to match what the person asked about, and never writes it back. */
   services: { name: string; priceFromUsd: number | null; priceToUsd: number | null }[];
@@ -269,12 +271,30 @@ export function screenInbound(
   text: string,
   specialty?: string | null,
   clinicName?: string | null,
+  knownTerms: readonly (string | null | undefined)[] = [],
 ): "urgent" | "clinical" | "language" | null {
   if (findUrgentContent(text, specialty, { clinicName })) return "urgent";
-  // A language no screen reads: the fixed line, never the model.
-  if (messageLanguage(text) === "other") return "language";
+  // A language no screen reads: the fixed line, never the model. The
+  // practice's own words (its menu, its people, its city) are no language.
+  if (messageLanguage(text, { knownTerms: [clinicName, ...knownTerms] }) === "other") return "language";
   if (findClinicalContent({ message: text }, { conditions: true }).length > 0) return "clinical";
   return null;
+}
+
+/**
+ * The practice's own words, for the language check: its name, address and
+ * city, every service it has configured and its providers.
+ */
+export function frontDoorTerms(
+  facts: Pick<FrontDoorFacts, "clinicName" | "services"> &
+    Partial<Pick<FrontDoorFacts, "serviceNames" | "address" | "providerNames">>,
+): string[] {
+  return [
+    facts.clinicName,
+    facts.address ?? "",
+    ...(facts.serviceNames ?? facts.services.map((s) => s.name)),
+    ...(facts.providerNames ?? []),
+  ].filter((term) => term.trim().length > 0);
 }
 
 /** The disclosure module's name for each platform. */
@@ -1204,6 +1224,10 @@ export async function frontDoorFacts(
     .where(eq(clinicSettings.clinicId, tx.clinicId))
     .limit(1);
   const bought = await tx.db.select({ channel: clinicChannels.channel }).from(clinicChannels).where(eq(clinicChannels.clinicId, tx.clinicId));
+  const providers = await tx.db
+    .select({ name: clinicProviders.displayName })
+    .from(clinicProviders)
+    .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
   const urgentPhone = urgentHelpNumber({
     channels: bought,
     settings: { urgentHelpE164: urgent?.urgentHelpE164 ?? null, directLineE164: settings.directLineE164 },
@@ -1218,6 +1242,7 @@ export async function frontDoorFacts(
     openingHours: clinic.openingHours ?? null,
     timeZone: clinic.timeZone,
     tone: urgent?.tone ?? "warm",
+    providerNames: providers.map((p) => p.name),
     websiteHint: null,
     // Only an approved script's services are public facts. Refusing a name
     // needs no approval, so the guard gets every one configured.
@@ -1287,7 +1312,7 @@ export async function draftFrontDoorAnswer(
   input: { text: string; responder: FrontDoorResponder | null; now: Date; clinicId?: string },
 ): Promise<FrontDoorDraft> {
   const fallback = handoffLine(facts);
-  const screened = screenInbound(input.text, facts.specialty, facts.clinicName);
+  const screened = screenInbound(input.text, facts.specialty, facts.clinicName, frontDoorTerms(facts));
   if (screened === "urgent") {
     // Before the model, and instead of it: the fixed line, and (in
     // answerFrontDoor, with the writes) the clinic's urgent alert.
@@ -1318,7 +1343,7 @@ export async function draftFrontDoorAnswer(
     // The guard reads English, so a reply in any other language is not
     // sent, whatever it says (the prompt asks for English only).
     const verdict: GuardVerdict =
-      messageLanguage(parsed.reply) === "en"
+      messageLanguage(parsed.reply, { knownTerms: frontDoorTerms(facts) }) === "en"
         ? guardReply(parsed.reply, { ...guardContextFor(facts), inbound: input.text })
         : { ok: false, reason: "a reply not in English" };
     return {

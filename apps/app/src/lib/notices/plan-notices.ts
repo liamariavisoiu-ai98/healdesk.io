@@ -2,6 +2,7 @@ import type { Transaction } from "@/db";
 import { billingNotices } from "@/db/schema";
 import { PLAN_NOTICE_KINDS, type PlanNoticeKind } from "@/lib/email/kinds";
 import type { AssistantReadyPayload } from "@/lib/email/templates/assistant_ready";
+import type { AiPausedPayload } from "@/lib/email/templates/ai_paused";
 import type { CalendarStatePayload } from "@/lib/email/templates/calendar_state";
 import type { ChannelLivePayload } from "@/lib/email/templates/channel_live";
 import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
@@ -56,6 +57,12 @@ export type PlanNoticePayloads = {
   practice_questions_failed: PracticeQuestionsFailedPayload;
   /** Dedupe `channel_live:<channel>`: once per channel, which goes live once. */
   channel_live: ChannelLivePayload;
+  /**
+   * Dedupe `pause:<paused at>` for the header's pause, `off:<channel>[:<app>]:<off at>`
+   * for a channel switched Off, each with `:24h` for its reminder
+   * (lib/channels/pause.ts): once per pause, and once more a day into it.
+   */
+  ai_paused: AiPausedPayload;
 
   // Registered ahead of their packages; each package names its payload here.
   booking_request: OwedPayload;
@@ -68,7 +75,6 @@ export type PlanNoticePayloads = {
   calendar_check: OwedPayload;
   daily_summary: OwedPayload;
   weekly_recap: OwedPayload;
-  ai_paused: OwedPayload;
   outage_started: OwedPayload;
   outage_ended: OwedPayload;
   guarantee_miss: OwedPayload;

@@ -753,8 +753,8 @@ describeDb("provisioning records the regime and the kind (0051)", () => {
   }
 
   test("a BAA clinic is stored with its regime, its kind and the answer it signed", async () => {
-    // The current version and the go-live floor (1.5.0 since 14 October
-    // 2026, which replaced 1.4.0 outright as 1.4.0 had replaced 1.3.0), so
+    // The current version and the go-live floor (1.5.1 since 19 October
+    // 2026, which replaced 1.5.0 outright as 1.5.0 had replaced 1.4.0), so
     // the row carries the two calendar answers and the clause they chose, as
     // signing stores them, and provisioning records the location's terms
     // from it.

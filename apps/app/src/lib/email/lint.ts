@@ -118,6 +118,8 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   // O9: the Knowledge section or Settings card to fix (lib/engine/practice
   // PRACTICE_SECTIONS), a closed vocabulary that never names the service.
   "section",
+  // L15: the Meta app switched Off ("instagram"), an id, never a name.
+  "platform",
   // L25 and I3: a support-chat escalation's topic and what is wrong, each an
   // id from lib/support/escalation-fields.ts's fixed lists, never words.
   "topic",

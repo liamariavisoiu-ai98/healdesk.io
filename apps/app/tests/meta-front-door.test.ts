@@ -156,6 +156,23 @@ describe("the guard", () => {
     expect(guardContextFor({ ...facts, neverSay: [] })).not.toHaveProperty("neverSay");
   });
 
+  test("answers \"are you a real person?\" honestly: the question's words are not an echo, and no list entry can refuse the answer", () => {
+    // The disclosure when someone asks is the model's, after the greeting:
+    // refused, it would become the hand-off line, which never says AI.
+    const facts = { clinicName: "Radiance", services: [], serviceNames: SERVICES, publishedTimes: [540, 1020] };
+    const listed = guardContextFor({ ...facts, neverSay: neverSayWithDefaults(["automated assistant", "AI", "cheapest in town"]) });
+    for (const [inbound, reply] of [
+      ["Are you a real person?", "No, I'm an automated assistant, not a real person. Call the practice and someone on the team can help."],
+      ["Am I talking to a human or a robot?", "I'm an AI assistant, not a human. Call the practice and someone on the team can help."],
+      ["is this a chatbot or a person", "Yes, I'm an automated assistant, not a person. Call the practice and someone on the team can help."],
+    ] as const) {
+      expect(guardReply(reply, { ...listed, inbound }), reply).toEqual({ ok: true });
+    }
+    // A claim to be human is still refused, and so is the person's own word that is not about who answers.
+    expect(guardReply("Yes, I'm a real person here at the practice.", { ...listed, inbound: "Are you a real person?" })).toEqual({ ok: false, reason: "a human claim" });
+    expect(guardReply("I'm an automated assistant; call the practice about your eczema.", { ...listed, inbound: "Are you a real person? I have eczema" })).not.toEqual({ ok: true });
+  });
+
   test("the prompt forbids the four things, carries the Meta prohibitions, and lists only approved public facts", () => {
     // A plastic-surgery practice collects a surname, the service and the visit
     // type on the phone; none of those may be asked on this channel.

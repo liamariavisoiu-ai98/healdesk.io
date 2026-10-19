@@ -38,10 +38,12 @@ import type { AssistantFacts } from "./facts";
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
  * The limit of the never-say list: its entries are the clinic's own words, in
- * English, and they are matched as written. A Spanish reply is refused when
- * it contains an entry's English text, and not when it says the same thing
- * in Spanish; the clinical screen, which reads Spanish, is what catches a
- * Spanish promise of safety or results.
+ * English, and they are matched as written, from the start of a word, past
+ * the clinic's own name and address (neverSayIn). A Spanish reply is refused
+ * when it contains an entry's English text, and not when it says the same
+ * thing in Spanish; the clinical screen, which reads Spanish, is what catches
+ * a Spanish promise of safety or results. No entry may stop the assistant
+ * saying it is an AI assistant, or pointing to 911 (NEVER_SAY_PROTECTED).
  */
 
 export type GuardRefusal =
@@ -212,27 +214,83 @@ export function clinicalIn(reply: string, facts: ScreenFacts): boolean {
   return PLAIN_CLINICAL.some((pattern) => pattern.test(text));
 }
 
+/** A never-say entry or a reply in the form the list is matched in: normalise(), then a hyphen read as a space. */
+function listForm(text: string): string {
+  return normalise(text).replace(/-/g, " ").replace(/\s+/g, " ");
+}
+
 /**
- * Whether a reply contains an entry of a never-say list: case, curly quotes,
- * dashes and runs of whitespace (a line break among them) normalised on both
- * sides, then matched as a substring. One function for every channel: the
- * Meta front door's guard calls it too (lib/meta/front-door.ts, guardReply),
- * so a phrase refused on a call is refused on Instagram, Messenger and
+ * The clinic's own public words, which a never-say entry is read past: its
+ * name, and each part of its address split at commas and line breaks, the
+ * street also without its number. "Painless Laser Studio" must still be able
+ * to say who and where it is with the default "painless" on its list, as the
+ * Meta guard's other word checks read past the same words (front-door.ts,
+ * withoutOwnWords), and its request-received line must keep the person's name.
+ */
+export function clinicOwnWords(facts: { clinicName?: string | null; address?: string | null }): string[] {
+  const words = [facts.clinicName ?? ""];
+  for (const part of (facts.address ?? "").split(/[,\n]+/)) {
+    words.push(part, part.trim().replace(/^\d+[a-z]?\s+/i, ""));
+  }
+  return [...new Set(words.map((w) => w.trim()).filter((w) => w !== ""))];
+}
+
+/**
+ * Whether a reply contains an entry of a never-say list. Both sides are
+ * normalised (case, curly quotes, dashes, a hyphen read as a space, runs of
+ * whitespace, a line break among them), the clinic's own name and address
+ * are read past (clinicOwnWords), and an entry matches where a word starts:
+ * "cure" is not in "secure", nor "AI" in "available", while "painless" is
+ * still in "painlessly" and "guarantee" in "guaranteed", the forms the
+ * prompt's "in any form" means. One function for every channel: the Meta
+ * front door's guard calls it too (lib/meta/front-door.ts, guardReply), so
+ * a phrase refused on a call is refused on Instagram, Messenger and
  * WhatsApp, and the two cannot drift apart.
  */
-export function neverSayIn(reply: string, list: readonly string[]): boolean {
-  const text = normalise(reply);
+export function neverSayIn(reply: string, list: readonly string[], ownWords: readonly string[] = []): boolean {
+  let text = ` ${listForm(reply)} `;
+  for (const own of ownWords.map((w) => listForm(w).trim()).filter(Boolean).sort((a, b) => b.length - a.length)) {
+    text = text.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(own)}(?![\\p{L}\\p{N}])`, "gu"), " ");
+  }
   return list.some((phrase) => {
-    const p = normalise(phrase).trim();
-    return p !== "" && text.includes(p);
+    const p = listForm(phrase).trim();
+    return p !== "" && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(p)}`, "u").test(text);
   });
+}
+
+/**
+ * What the assistant must always be free to say, whatever a never-say list
+ * holds: that it is an AI assistant and not a person, in the words the
+ * opening lines (lib/compliance/disclosure.ts) and the prompts' rule for
+ * when someone asks use, and that an emergency is for 911. The opening line
+ * is the code's and goes out whatever the list holds; an answer to "are you
+ * a real person?" is the model's, and an entry such as "assistant" would
+ * otherwise turn it into a fixed line that does not say AI at all. Some
+ * state laws want the disclosure whenever a person asks.
+ */
+export const NEVER_SAY_PROTECTED: readonly string[] = [
+  "I'm an AI assistant, not a person.",
+  "I am an AI assistant, not a human.",
+  "I'm an automated assistant, not a human.",
+  "I am an automated assistant, not a person.",
+  "Call 911.",
+];
+
+/**
+ * Whether a never-say entry would stop the assistant saying one of
+ * NEVER_SAY_PROTECTED: refused when the clinic saves it (validateNeverSay),
+ * and left out when the list is read for a conversation, on every channel
+ * (neverSayWithDefaults), for one saved before this check.
+ */
+export function neverSayBlocksDisclosure(entry: string): boolean {
+  return NEVER_SAY_PROTECTED.some((sentence) => neverSayIn(sentence, [entry]));
 }
 
 export function guardAssistantReply(reply: string, facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts): GuardVerdict {
   const text = normalise(reply);
   if (!text.trim()) return { ok: false, reason: "empty" };
   // English entries matched as written, in a reply in either language (see the file header).
-  if (neverSayIn(reply, facts.neverSay)) return { ok: false, reason: "never_say" };
+  if (neverSayIn(reply, facts.neverSay, clinicOwnWords(facts))) return { ok: false, reason: "never_say" };
   const allowed = allowedAmounts(facts);
   for (const cents of amountsIn(reply)) {
     if (!allowed.has(cents)) return { ok: false, reason: "price" };

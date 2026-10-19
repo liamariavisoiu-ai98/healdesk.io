@@ -173,7 +173,7 @@ export const piece: Piece = {
         {
           kind: "p",
           text:
-            "AT&T's page opened for this guide gives #21# to turn forwarding off on a mobile phone. " +
+            "AT&T's wireless call troubleshooting page gives #21# to turn forwarding off on a mobile phone. " +
             "It does not list codes for busy, no-answer or unreachable forwarding on an AT&T mobile line. " +
             "Google's Voice help page, in an example for AT&T Wireless customers, gives *67*number# for busy, *61*number# for no answer and *62*number# for unreachable, cancelled with ##67#, ##61# and ##62#.",
           cite: ["att-wireless", "google-voice-carriers"],

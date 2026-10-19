@@ -16,7 +16,7 @@ import { assertNoTreatmentName, TreatmentNameError } from "@healdesk/connectors"
 import { eq } from "drizzle-orm";
 
 import { agentConfigs, clinicChannels, clinics, clinicSettings } from "@/db/schema";
-import { neverSayIn } from "@/lib/assistant/guard";
+import { clinicOwnWords, neverSayIn } from "@/lib/assistant/guard";
 import { callModel, isModelRefusal, type ModelRefusal } from "@/lib/assistant/responder";
 import { getClinicSettings } from "@/lib/billing/settings";
 import { metaPlatformOn } from "@/lib/channels/meta-platforms";
@@ -140,7 +140,10 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * text, and the name the model took from the thread, only. The greeting and
  * the fixed lines (hand-off, collecting, request received, urgent, language)
  * are the code's, and go out whatever the list holds: an entry can never
- * take out the AI disclosure or the 911 line.
+ * take out the AI disclosure or the 911 line. Nor can it stop the model
+ * answering "are you a real person?" honestly: an entry that would match
+ * "I'm an automated assistant" or "call 911" is refused when it is saved
+ * and left out when the list is read (guard.ts, NEVER_SAY_PROTECTED).
  *
  * Nothing the person wrote is stored, except the booking fields once the
  * model has extracted them and this file has cleaned them (a name that is
@@ -462,7 +465,8 @@ export type GuardContext = {
   ownFacts?: string;
   /**
    * The never-say list (FrontDoorFacts.neverSay): a reply containing any
-   * entry is refused, matched as a call and a web chat match it (neverSayIn).
+   * entry is refused, matched as a call and a web chat match it (neverSayIn),
+   * past the clinic's own name and address (clinicOwnWords).
    */
   neverSay?: readonly string[];
 };
@@ -490,9 +494,13 @@ export function guardContextFor(
  * facts, is theirs: a reply that says it back may be naming their
  * condition, their treatment or their reason ("your chemo", "your diabetes
  * questions"), which no list of conditions is ever complete enough to catch.
+ * The words of asking whether a person or a machine is answering ("are you a
+ * real person?", "am I talking to a human?") are allowed too, so the honest
+ * answer, "I'm an automated assistant, not a real person", is not refused as
+ * an echo and turned into a hand-off line that never says AI.
  */
 const ECHO_ALLOWED = new Set(
-  `about above after again also always another anyone anything anytime around away back been before being below best better between both bring call called calling calls came cancel cant card cash change check clinic clinics close closed closes come comes coming contact cost costs could didnt does doesnt doing done dont down each early either else email even ever every everything evening evenings fine first free from front full give glad good great have having hear hello help here hers hiya hold hope hour hours howdy info information into just keep kind know last late later like line link list little live location located long look looking lot lots made make many maybe mean message messages might mind more morning mornings most much must name near nearby need needed never next nice none number numbers offer offered offers okay once only open opened opening opens other ours over parking pass people phone please plus possible pretty price prices pricing quick quickly quite rather ready really reply right same say says send sent should since some someone something soon sorry sounds speak start started still such sure take talk team tell than thank thanks that thats their them then there these they thing things think this those though through time times today together tomorrow tonight took tried trying under until upon used using very visit wait want wanted wants week weekday weekdays weekend weekends well went were what whats when where whether which while will wish with within without wondering work works would yeah year years your youre yours address appointment appointments book booked booking bookings building cards consultation consultations deposit deposits directions doctor doctors entrance floor garage hello lobby office online practice practices receptionist service services staff street suite website weekly monday mondays tuesday tuesdays wednesday wednesdays thursday thursdays friday fridays saturday saturdays sunday sundays january february march april june july august september october november december afternoon afternoons night nights lunch lunchtime noon midday month months daily available availability asap whenever anytime client clients patient patients customer customers private insurance payment payments`.split(
+  `about above after again also always another anyone anything anytime around away back been before being below best better between both bring call called calling calls came cancel cant card cash change check clinic clinics close closed closes come comes coming contact cost costs could didnt does doesnt doing done dont down each early either else email even ever every everything evening evenings fine first free from front full give glad good great have having hear hello help here hers hiya hold hope hour hours howdy info information into just keep kind know last late later like line link list little live location located long look looking lot lots made make many maybe mean message messages might mind more morning mornings most much must name near nearby need needed never next nice none number numbers offer offered offers okay once only open opened opening opens other ours over parking pass people phone please plus possible pretty price prices pricing quick quickly quite rather ready really reply right same say says send sent should since some someone something soon sorry sounds speak start started still such sure take talk team tell than thank thanks that thats their them then there these they thing things think this those though through time times today together tomorrow tonight took tried trying under until upon used using very visit wait want wanted wants week weekday weekdays weekend weekends well went were what whats when where whether which while will wish with within without wondering work works would yeah year years your youre yours address appointment appointments book booked booking bookings building cards consultation consultations deposit deposits directions doctor doctors entrance floor garage hello lobby office online practice practices receptionist service services staff street suite website weekly monday mondays tuesday tuesdays wednesday wednesdays thursday thursdays friday fridays saturday saturdays sunday sundays january february march april june july august september october november december afternoon afternoons night nights lunch lunchtime noon midday month months daily available availability asap whenever anytime client clients patient patients customer customers private insurance payment payments person real human robot machine automated assistant chatbot`.split(
     " ",
   ),
 );
@@ -602,8 +610,10 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
   if (reason) return { ok: false, reason };
   // The clinic's never-say list, last of all, so a reply refused above keeps
-  // its own reason in the audit row. The label only, never the phrase.
-  if (context.neverSay && neverSayIn(reply, context.neverSay)) return { ok: false, reason: "a never-say phrase" };
+  // its own reason in the audit row. The label only, never the phrase. Past
+  // the clinic's own name and address, as a call and a web chat read it, so
+  // "Painless Laser Studio" can still say who it is.
+  if (context.neverSay && neverSayIn(reply, context.neverSay, clinicOwnWords(context))) return { ok: false, reason: "a never-say phrase" };
   return { ok: true };
 }
 

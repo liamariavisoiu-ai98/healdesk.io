@@ -7,7 +7,7 @@ import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
 import { assistantFacts } from "@/lib/assistant/facts";
 import { updateClinicSettings } from "@/lib/billing/settings";
 import { metaChannelGreeting, type Channel } from "@/lib/compliance/disclosure";
-import { EMPTY_BOOKING_FIELDS, missingPieces } from "@/lib/meta/booking-requests";
+import { EMPTY_BOOKING_FIELDS, missingPieces, requestReceivedLine } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   FRONT_DOOR_PROBES,
@@ -17,6 +17,7 @@ import {
   collectingLine,
   firstReplyVerdict,
   frontDoorFacts,
+  guardContextFor,
   guardReply,
   handoffLine,
   languageLine,
@@ -1310,9 +1311,11 @@ describeDb("the screen and the greeting, end to end", () => {
       { platform: "whatsapp", externalId: "555000982" },
     ];
     const c = await doorOpen("never-say-door", channels);
-    // Two of the clinic's entries are words the code's own lines use: the
-    // list reads the model's text only, so no entry can take out the AI
-    // disclosure in the greeting or the 911 in the urgent line.
+    // Two of the clinic's entries are words the code's own lines use, saved
+    // as a list saved before validateNeverSay refused them would be. The
+    // greeting and the urgent line are the code's and go out whole, and the
+    // list as a conversation reads it leaves both entries out, so the model
+    // may still say it is an AI assistant or point to 911 (NEVER_SAY_PROTECTED).
     await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
       await saveNeverSay(tx, ["cheapest in town", "AI assistant", "911"]);
       await approveAgentConfig(tx, "Dr Chen");
@@ -1347,14 +1350,15 @@ describeDb("the screen and the greeting, end to end", () => {
       ).toEqual([`${greeting} We're open weekdays 9 to 5 — call the practice to book.`, handoff, urgent]);
     }
     // The urgent message never reached the model; each prompt carried the
-    // list under its heading, the defaults first.
+    // list under its heading, the defaults first, without the two entries.
     expect(responder).toHaveBeenCalledTimes(channels.length * 2);
+    expect(facts.neverSay).toEqual([...NEVER_SAY_DEFAULTS, "cheapest in town"]);
     for (const system of systems) {
       const lines = system.split("\n");
       const at = lines.indexOf(NEVER_SAY_HEADING);
       expect(at).toBeGreaterThan(0);
-      expect(lines.slice(at + 1, at + 1 + facts.neverSay.length)).toEqual(
-        [...NEVER_SAY_DEFAULTS, "cheapest in town", "AI assistant", "911"].map((p) => `- ${p}`),
+      expect(lines.slice(at + 1, at + 2 + facts.neverSay.length)).toEqual(
+        [...[...NEVER_SAY_DEFAULTS, "cheapest in town"].map((p) => `- ${p}`), expect.not.stringMatching(/^- /)],
       );
     }
 
@@ -1367,6 +1371,82 @@ describeDb("the screen and the greeting, end to end", () => {
       ]),
     );
     expect(JSON.stringify(audit)).not.toMatch(/cheapest|compare/i);
+  }, 60_000);
+
+  test("asked whether it is a real person later in the conversation, the model's honest answer goes out, whatever the clinic's list held", async () => {
+    // An entry that would stop the answer, saved before validateNeverSay
+    // refused one: left out when the list is read, so the prompt does not
+    // contradict its own rule and the guard does not refuse the answer.
+    const pageId = "910000000000084";
+    const c = await doorOpen("never-say-human", [{ platform: "messenger", externalId: pageId }]);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await saveNeverSay(tx, ["automated assistant", "cheapest in town"]);
+      await approveAgentConfig(tx, "Dr Chen");
+    });
+    const honest = "No, I'm an automated assistant, not a real person. Call the practice and someone on the team can help with anything personal.";
+    const systems: string[] = [];
+    const responder = vi.fn<FrontDoorResponder>(async (system, text) => {
+      systems.push(system);
+      return modelJson(/real person/.test(text) ? honest : "We're open weekdays 9 to 5 — call the practice to book.");
+    });
+    const thread = { platform: "messenger" as const, externalId: pageId, senderId: "user-h1", connectionId: null };
+    const first = (await answerSent(c.clinicId, { platform: "messenger", text: "What are your opening hours?", responder, thread }))!;
+    expect(first).toMatchObject({ source: "model", greeted: true });
+    // Not the first reply, so no greeting carries the disclosure: the answer must.
+    const second = (await answerSent(c.clinicId, { platform: "messenger", text: "Are you a real person?", responder, thread }))!;
+    expect(second).toMatchObject({ source: "model", guard: null, greeted: false, text: honest });
+    expect(second.text).toContain("automated assistant");
+    for (const system of systems) {
+      expect(system).toContain("If asked, say you are an automated assistant.");
+      const lines = system.split("\n");
+      const at = lines.indexOf(NEVER_SAY_HEADING);
+      expect(lines.slice(at + 1, at + 2 + NEVER_SAY_DEFAULTS.length + 1)).toEqual([
+        ...[...NEVER_SAY_DEFAULTS, "cheapest in town"].map((p) => `- ${p}`),
+        expect.not.stringMatching(/^- /),
+      ]);
+    }
+    expect(await frontDoorAudit(c.clinicId)).toEqual([
+      { platform: "messenger", source: "model", greeted: true },
+      { platform: "messenger", source: "model" },
+    ]);
+  }, 60_000);
+
+  test("a completed request whose first name the list refuses gets the request-received line without the name; a clinic named after a default keeps it", async () => {
+    // The second guard call in answerFrontDoor: the name the model took from
+    // the thread goes back only through the guard, with the list.
+    const pageId = "910000000000085";
+    const c = await doorOpen("never-say-received", [{ platform: "messenger", externalId: pageId }]);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await saveNeverSay(tx, ["best"]);
+      await approveAgentConfig(tx, "Dr Chen");
+    });
+    const responder = vi.fn<FrontDoorResponder>(async () =>
+      modelJson("Thanks, I'll pass that on.", { wants: true, first_name: "Bestine", phone: "+14155550185", window: "Saturday afternoon" }),
+    );
+    const thread = { platform: "messenger" as const, externalId: pageId, senderId: "user-r1", connectionId: null };
+    const answer = (await answerSent(c.clinicId, {
+      platform: "messenger",
+      text: "I'd like to book. I'm Bestine, 415 555 0185, Saturday afternoon.",
+      responder,
+      thread,
+    }))!;
+    expect(answer).toMatchObject({ source: "booking", booking: "requested", greeted: true });
+    expect(answer.text).toBe(`${greetingFor(c.clinicName, "messenger")} ${requestReceivedLine(c.clinicName, null)}`);
+    expect(answer.text).not.toMatch(/Bestine/);
+    // The request itself exists: only the line said back leaves the name out.
+    expect((await inTenant(c.clinicId, (client) => client.query(`select preferred_window from booking_requests`))).rows).toEqual([
+      { preferred_window: "Saturday afternoon" },
+    ]);
+
+    // A clinic whose own name holds a default entry ("painless"): its name is
+    // read past, so the line keeps the person's name, and the entry still holds.
+    const facts = (await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => frontDoorFacts(tx)))!;
+    // The list is what left the name out: without it, the named line passes.
+    expect(guardReply(requestReceivedLine(c.clinicName, "Bestine"), guardContextFor(facts))).toEqual({ ok: false, reason: "a never-say phrase" });
+    expect(guardReply(requestReceivedLine(c.clinicName, "Bestine"), guardContextFor({ ...facts, neverSay: [] }))).toEqual({ ok: true });
+    const painless = guardContextFor({ ...facts, clinicName: "Painless Laser Studio" });
+    expect(guardReply(requestReceivedLine("Painless Laser Studio", "Maria"), painless)).toEqual({ ok: true });
+    expect(guardReply("It's painless; call the practice to book.", painless)).toEqual({ ok: false, reason: "a never-say phrase" });
   }, 60_000);
 
   test("mid-request, a reply carrying a never-say entry becomes the fixed ask and the request carries on; an entry the clinic takes off no longer refuses", async () => {

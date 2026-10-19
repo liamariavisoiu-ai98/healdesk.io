@@ -1,8 +1,17 @@
-import { URGENT_LEAVE_NUMBER_LINE, URGENT_TEAM_TOLD_LINE } from "@healdesk/catalog";
+import { NEVER_SAY_DEFAULTS, URGENT_LEAVE_NUMBER_LINE, URGENT_TEAM_TOLD_LINE } from "@healdesk/catalog";
 import { describe, expect, test } from "vitest";
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
-import { amountsIn, cardNumberIn, guardAssistantReply, guardedLine, neverSayIn } from "@/lib/assistant/guard";
+import {
+  amountsIn,
+  cardNumberIn,
+  clinicOwnWords,
+  guardAssistantReply,
+  guardedLine,
+  NEVER_SAY_PROTECTED,
+  neverSayBlocksDisclosure,
+  neverSayIn,
+} from "@/lib/assistant/guard";
 import { assistantTurnContext, buildAssistantPrompt, priceText } from "@/lib/assistant/prompt";
 import { MODEL_CONFIG, modelRequest, readModelResponse } from "@/lib/assistant/responder";
 import {
@@ -15,8 +24,10 @@ import {
   refusalLine,
   type AssistantResponder,
 } from "@/lib/assistant/turn";
+import { requestReceivedLine } from "@/lib/meta/booking-requests";
 import { guardContextFor, guardReply } from "@/lib/meta/front-door";
 import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
+import { neverSayWithDefaults } from "@/lib/setup/knowledge";
 import { spokenPhone } from "@/lib/voice/spoken";
 
 /**
@@ -291,6 +302,53 @@ describe("the guard", () => {
     expect(neverSayIn("We open at 9.", ["", "   "])).toBe(false);
   });
 
+  test("the never-say matcher reads a hyphen as a space, either way round", () => {
+    expect(neverSayIn("We're the cheapest-in-town option.", ["cheapest in town"])).toBe(true);
+    expect(neverSayIn("It's risk free.", ["risk-free"])).toBe(true);
+    expect(neverSayIn("It's risk – free.", ["risk-free"])).toBe(true);
+  });
+
+  test("the never-say matcher matches where a word starts: not inside another word, still in a longer form of it", () => {
+    // Inside a word is not the entry: the Meta prompt sends people to a
+    // "secure" channel in nearly every reply.
+    expect(neverSayIn("This channel isn't secure, so please call the practice.", ["cure"])).toBe(false);
+    for (const reply of ["We're available weekdays.", "She said so.", "Email us again."]) {
+      expect(neverSayIn(reply, ["AI"]), reply).toBe(false);
+    }
+    // A longer form of the entry, which the prompt's "in any form" means.
+    expect(neverSayIn("It's done painlessly.", ["painless"])).toBe(true);
+    expect(neverSayIn("Results are guaranteed.", ["guarantee"])).toBe(true);
+    expect(neverSayIn("We're the cheapest around.", ["cheap"])).toBe(true);
+    expect(neverSayIn("That would cure it.", ["cure"])).toBe(true);
+  });
+
+  test("the never-say matcher reads past the clinic's own name and address, and nothing else", () => {
+    const own = clinicOwnWords({ clinicName: "Painless Laser Studio", address: "12 Painless Way, Suite 4\nSpringfield" });
+    expect(own).toEqual(["Painless Laser Studio", "12 Painless Way", "Painless Way", "Suite 4", "Springfield"]);
+    expect(neverSayIn("Painless Laser Studio is on Painless Way.", ["painless"], own)).toBe(false);
+    expect(neverSayIn("Painless Laser Studio’s team can help.", ["painless"], own)).toBe(false);
+    expect(neverSayIn("At Painless Laser Studio it's painless.", ["painless"], own)).toBe(true);
+    expect(neverSayIn("Painless Laser Studio is on Painless Way.", ["painless"])).toBe(true);
+    expect(clinicOwnWords({})).toEqual([]);
+  });
+
+  test("no never-say entry may stop the assistant saying it is an AI assistant when asked, or pointing to 911", () => {
+    for (const entry of ["automated assistant", "assistant", "AI assistant", "AI", "Automated", "not a person", "human", "911", "call 911", "I'm an AI"]) {
+      expect(neverSayBlocksDisclosure(entry), entry).toBe(true);
+    }
+    for (const entry of ["cheapest in town", "best-kept secret", "virtual receptionist", "emergency appointments", "humane"]) {
+      expect(neverSayBlocksDisclosure(entry), entry).toBe(false);
+    }
+    // None of the built-in defaults is one of them, so no clinic loses a default.
+    expect(NEVER_SAY_DEFAULTS.filter(neverSayBlocksDisclosure)).toEqual([]);
+    // And each protected sentence passes both channels' guards with the list read as a conversation reads it.
+    const list = neverSayWithDefaults(["automated assistant", "AI", "911", "cheapest in town"]);
+    expect(list).toEqual([...NEVER_SAY_DEFAULTS, "cheapest in town"]);
+    for (const sentence of NEVER_SAY_PROTECTED) {
+      expect(neverSayIn(sentence, list), sentence).toBe(false);
+    }
+  });
+
   test("one never-say matcher on every channel: a reply a call or a web chat refuses for the list, the Meta front door refuses too", () => {
     // CLAUDE.md, "Guardrails": the list goes into every conversation on
     // every channel, so the channels cannot disagree about what is on it.
@@ -303,6 +361,24 @@ describe("the guard", () => {
     // And what neither list holds, neither refuses for it.
     expect(guardAssistantReply("We're open weekdays 9 to 5.", { ...FACTS, neverSay: list })).toEqual({ ok: true });
     expect(guardReply("We're open weekdays 9 to 5; call the practice to book.", meta)).toEqual({ ok: true });
+
+    // The same matcher's edges, on both: an entry inside another word is not
+    // the entry, a hyphen is a space, and the clinic's own name is read past.
+    const cure = guardContextFor({ clinicName: FACTS.clinicName, services: [], publishedTimes: [540, 1020], neverSay: ["cure"] });
+    expect(guardAssistantReply("This chat is secure.", { ...FACTS, neverSay: ["cure"] })).toEqual({ ok: true });
+    expect(guardReply("This channel isn't secure, so please call the practice.", cure)).toEqual({ ok: true });
+    const hyphen = guardContextFor({ clinicName: FACTS.clinicName, services: [], publishedTimes: [540, 1020], neverSay: list });
+    expect(guardAssistantReply("We're the cheapest-in-town option.", { ...FACTS, neverSay: list })).toEqual({ ok: false, reason: "never_say" });
+    expect(guardReply("We're the cheapest-in-town option. Call the practice.", hyphen)).toEqual({ ok: false, reason: "a never-say phrase" });
+    const painless = { clinicName: "Painless Laser Studio", address: "12 Main Street", neverSay: neverSayWithDefaults() };
+    const painlessMeta = guardContextFor({ ...painless, services: [], publishedTimes: [540, 1020] });
+    expect(guardAssistantReply("Painless Laser Studio is at 12 Main Street, with free parking.", { ...FACTS, ...painless })).toEqual({ ok: true });
+    expect(guardReply("Painless Laser Studio is at 12 Main Street, with free parking. Call the practice for anything else.", painlessMeta)).toEqual({ ok: true });
+    // The request-received line keeps the person's name.
+    expect(guardReply(requestReceivedLine("Painless Laser Studio", "Maria"), painlessMeta)).toEqual({ ok: true });
+    // The entry itself is still refused, on both.
+    expect(guardAssistantReply("At Painless Laser Studio, it's painless.", { ...FACTS, ...painless })).toEqual({ ok: false, reason: "never_say" });
+    expect(guardReply("Painless Laser Studio says it's painless; call the practice.", painlessMeta)).toEqual({ ok: false, reason: "a never-say phrase" });
   });
 
   test("a card number is cut; a phone number is not", () => {

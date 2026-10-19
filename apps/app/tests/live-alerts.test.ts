@@ -501,6 +501,7 @@ describeDb("the live alerts' hooks", () => {
       const session = new RetellCallSession(clinicId, callId, (m) => said.push(m), {
         responder,
         transport,
+        realCalls: true,
       });
       await session.open();
       await session.handle(

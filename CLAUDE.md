@@ -274,7 +274,12 @@ under emulation (13 October 2026).
   clinic first (`docs/design/web-chat-and-voice-2026-10-13.md`).
 
 What stands between this and real patients is the BAA chain above, and for
-voice, `enable_voice` with its secret and a test call.
+voice, `enable_voice` with its secret, a test call, and then `voice_real_calls`.
+The secret and `enable_voice` may come before the agreements, for a test call
+only (owner, 19 October 2026): until `voice_real_calls` sets
+`HEALDESK_VOICE_REAL_CALLS=1`, the voice endpoint answers only the demo clinic
+(`app_clinic_is_demo()`) and sends any other clinic's caller to its direct line,
+or refuses the call, recording nothing (`lib/voice/test-calls.ts`).
 
 ---
 

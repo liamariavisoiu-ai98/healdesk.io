@@ -62,6 +62,11 @@ voice_desired = 1
 voice_cpu     = 256
 voice_memory  = 1024
 
+# Real patients' calls: off until every business associate agreement in the
+# chain is signed, Retell's included. Off, the voice endpoint answers only the
+# made-up demo clinic, for a test call (owner, 19 October 2026).
+voice_real_calls = false
+
 # Database.
 postgres_version     = "17.11"
 db_instance_class    = "db.t4g.micro"

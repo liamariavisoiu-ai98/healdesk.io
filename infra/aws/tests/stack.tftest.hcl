@@ -1340,6 +1340,15 @@ run "voice_on" {
     error_message = "With enable_voice on, the web task must say so in HEALDESK_VOICE_ENABLED, which the ops API's keyPresence reports."
   }
 
+  # Test mode by default: only the demo clinic's calls are answered.
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions] :
+      !strcontains(td, "HEALDESK_VOICE_REAL_CALLS")
+    ])
+    error_message = "With voice_real_calls off, neither the voice task nor the web task may carry HEALDESK_VOICE_REAL_CALLS: the endpoint must stay in test mode."
+  }
+
   assert {
     condition = (
       one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).secrets ==
@@ -1485,6 +1494,52 @@ run "voice_on_plain_http_longest_environment" {
     )
     error_message = "Without alb_to_task_tls the voice task has no sidecar and its group is HTTP:3001 on the process; the group's name fits AWS's 32 characters at the longest environment."
   }
+}
+
+# Real patients' calls, the switch for once every agreement is signed: the
+# voice task gets the flag the endpoint reads, and the web task the same, for
+# /admin/map; the worker, which answers no call, does not.
+run "voice_real_calls_on" {
+  command = plan
+
+  variables {
+    enable_voice     = true
+    voice_real_calls = true
+  }
+
+  assert {
+    condition = alltrue([
+      for td in [aws_ecs_task_definition.web.container_definitions, aws_ecs_task_definition.voice[0].container_definitions] :
+      contains([for e in one([for c in jsondecode(td) : c if c.name == "app"]).environment : "${e.name}=${e.value}"], "HEALDESK_VOICE_REAL_CALLS=1")
+    ])
+    error_message = "With voice_real_calls on, the voice task and the web task must carry HEALDESK_VOICE_REAL_CALLS=1."
+  }
+
+  assert {
+    condition     = !strcontains(jsonencode([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "worker"]), "HEALDESK_VOICE_REAL_CALLS")
+    error_message = "The worker answers no call and must not carry HEALDESK_VOICE_REAL_CALLS."
+  }
+}
+
+run "refuses_real_calls_without_voice" {
+  command = plan
+
+  variables {
+    voice_real_calls = true
+  }
+
+  expect_failures = [var.voice_real_calls]
+}
+
+run "refuses_real_calls_through_app_environment" {
+  command = plan
+
+  variables {
+    enable_voice    = true
+    app_environment = { HEALDESK_VOICE_REAL_CALLS = "1" }
+  }
+
+  expect_failures = [var.app_environment]
 }
 
 run "refuses_a_voice_size_fargate_does_not_offer_and_a_fifth_task" {

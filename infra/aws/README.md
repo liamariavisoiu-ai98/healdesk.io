@@ -189,7 +189,7 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/GOOGLE_OAUTH_CLIENT_ID`, `app/GOOGLE_OAUTH_CLIENT_SECRET` | The owner, from the Google OAuth client whose redirect URI is `https://app.healdesk.io/api/calendar/google/callback` (the calendar's Google connection, on main since its C8). Until both are set, apps/app sends no clinic to Google: the connect page says calendar connection is not available yet | web, worker |
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
-| `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). Until then leave it `__unset__`, and the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
+| `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). It may be pasted before the agreements for a test call on the demo clinic only, which the voice process enforces until `voice_real_calls` is on ("Turning it on"). Unset (`__unset__`), the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
 | `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
@@ -247,7 +247,9 @@ same conversation code.
   with `enable_voice`, `HEALDESK_VOICE_ENABLED=1`, which tells `/admin/map` the voice endpoint
   exists (the pasted secret cannot: the web tier holds every `app/` parameter; like any task
   change, it reaches the running web tasks with the next full deploy); the voice task
-  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. An empty variable is left out,
+  (`enable_voice`) adds only `PORT=3001` and `HOSTNAME=0.0.0.0`. With `voice_real_calls`, both
+  the web and the voice task get `HEALDESK_VOICE_REAL_CALLS=1`: the voice process answers real
+  patients only with it, and `/admin/map` reads it from the web tier. An empty variable is left out,
   not set to `""`.
 - **Never set on web, worker or voice**, enforced by preconditions that fail the plan and by the
   deploy workflow's shape check: `MIGRATION_DATABASE_URL`, `HEALDESK_LOCAL_KEK`,
@@ -1145,7 +1147,8 @@ is a process and a service of its own. Turning it on creates:
   `GET http://127.0.0.1:3001/health`. It gets the web tier's plain environment without the
   web-only names (`KEEP_ALIVE_TIMEOUT`, the SES events topic, the Meta and Connect ids,
   `HEALDESK_VOICE_ENABLED`), on
-  `PORT=3001` and `HOSTNAME=0.0.0.0`; the web tier's secrets, `HEALDESK_RETELL_LLM_SECRET` among
+  `PORT=3001` and `HOSTNAME=0.0.0.0`, with `HEALDESK_VOICE_REAL_CALLS=1` only under
+  `voice_real_calls`; the web tier's secrets, `HEALDESK_RETELL_LLM_SECRET` among
   them; the app task role; log group `/healdesk/production/voice`. Beside it, the `tls-proxy`
   sidecar exactly as in the web task, except its health check, which asks for `/health`: the
   image's own check asks for the web tier's liveness path, which the voice process answers 404.
@@ -1175,17 +1178,25 @@ calls drop and the other answers the next.
 
 **Turning it on**, in order:
 
-1. Real calls wait for the Retell link of the BAA chain ("What still blocks real patient data");
-   until then, synthetic test calls only.
+1. The rule (owner, 19 October 2026): the secret may be pasted, and `enable_voice` turned on,
+   before the business associate agreements are signed, for a test call on a made-up clinic and
+   nothing else. The code holds it, not this page: until `voice_real_calls` is on, the voice
+   process answers only the demo clinic, the one `scripts/demo-clinic.ts` makes and
+   `app_clinic_is_demo()` names (entitlements `demo`, no Stripe ids, synthetic data). A call for
+   any other clinic is put through to that clinic's direct line, or closed with a fixed line where
+   it has none, before the assistant says a word, and nothing of it is recorded
+   (`apps/app/src/lib/voice/test-calls.ts`). Real patients' calls wait for every link of the BAA
+   chain, Retell's included ("What still blocks real patient data"), and then step 6.
 2. Generate the secret and paste it, in CloudShell: `openssl rand -hex 32`, then
-   `bash put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET`. The script asks for a typed `yes`,
-   as for the other patient-facing keys, and refuses anything under 32 characters or holding a
-   character a URL path would need escaped. Keep the value for step 4, and nowhere else (no ticket,
-   no chat).
+   `bash put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET`. The script asks for a typed answer:
+   `test` for a test call on the demo clinic only, while the agreements are not signed, or `yes`
+   once every agreement in the chain is; either saves the same parameter, and the script prints
+   what the answer allows. It refuses anything under 32 characters or holding a character a URL
+   path would need escaped. Keep the value for step 4, and nowhere else (no ticket, no chat).
 3. `enable_voice = true` in `production.tfvars`, merge, run `infra.yml` with `plan` and then
    `apply`, then a full `deploy-app.yml`: it finds the voice service at 0 and brings it up to
    `voice_desired`. `voice-below-desired` is in ALARM in between.
-4. In each clinic's Retell agent, configure a custom LLM whose WebSocket URL is the
+4. In each clinic's Retell agent (in test mode, the demo clinic's only), configure a custom LLM whose WebSocket URL is the
    `voice_websocket_url` output with its placeholders filled:
    `wss://app.healdesk.io/llm-websocket/<HEALDESK_RETELL_LLM_SECRET>/<clinic id>`, where the clinic
    id is the clinic's UUID in lower case. Retell appends the call id. The secret is the same for
@@ -1193,7 +1204,14 @@ calls drop and the other answers the next.
    balancer, the sidecar nor the process logs it.
 5. Check: a test call hears the assistant's opening line, and `/healdesk/production/voice` shows
    `voice endpoint ready` (and no `every call is refused` warning, which means the secret is still
-   unset).
+   unset). In test mode it also shows `voice endpoint in test mode`, and a call for any clinic but
+   the demo clinic logs `retell call refused`. Without `ANTHROPIC_API_KEY`, which still waits for
+   Anthropic's agreement, AYA has no model, so after the opening line the test call hears only the
+   fixed fallback lines; that is enough to check Retell's protocol fields.
+6. Real calls, only once every agreement in the chain is signed: `voice_real_calls = true` in
+   `production.tfvars`, merge, run `infra.yml` with `apply`, then a full `deploy-app.yml` (not
+   `restart_only`: the flag is in the task definition). Then each real clinic's agent may get the
+   address. Turning it back off is the same three steps with `false`.
 
 **Rotating the secret**: paste a new value, run `restart_only`, then update every agent's URL;
 calls to an agent not yet updated are refused in between, so do it in a quiet hour.
@@ -1259,10 +1277,14 @@ data only until every link of the chain is in place.
 | Clinic to Google | The clinic's own calendar under its own Google agreement; confirmed per clinic |
 
 Nothing in the code checks vendor BAAs, so configuration holds the chain: leave
-`META_APP_SECRET`, `META_VERIFY_TOKEN`, `ANTHROPIC_API_KEY` and
-`HEALDESK_RETELL_LLM_SECRET` `__unset__`, and `enable_voice` off, until it is complete
-(`put-external-secrets.sh` asks for a typed `yes` before each). With them unset, the Meta webhook
-answers 503, the front door has no model to call and the voice endpoint refuses every call. (The
+`META_APP_SECRET`, `META_VERIFY_TOKEN` and `ANTHROPIC_API_KEY` `__unset__`, and
+`voice_real_calls` off, until it is complete (`put-external-secrets.sh` asks for a typed `yes`
+before each key). With them unset, the Meta webhook answers 503 and the front door has no model
+to call. The one exception is the voice line, for a test call on the demo clinic (owner,
+19 October 2026): `HEALDESK_RETELL_LLM_SECRET` may be pasted with the answer `test` and
+`enable_voice` turned on before the chain is complete, because while `voice_real_calls` is off
+the voice endpoint itself answers no clinic but the demo clinic and records nothing of any other
+call ("The voice endpoint", "Turning it on"). With the secret unset, it refuses every call. (The
 Synthflow routes' two secrets were retired on 14 October 2026, `ssm.tf`.)
 
 Records and drills still open (the compliance map's §4): this module's first apply and deploy;

@@ -12,6 +12,7 @@ import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
+import { screenTestCall, voiceRealCallsAllowed, type TestCallScreen } from "./test-calls";
 
 /**
  * One call on Retell's custom-LLM WebSocket (the v1 voice agent; CLAUDE.md,
@@ -53,6 +54,11 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
  * nothing itself; direct booking through the booking engine
  * (lib/booking/engine.ts) waits for counsel and the owner.
  *
+ * Until real calls are switched on (HEALDESK_VOICE_REAL_CALLS, lib/voice/
+ * test-calls.ts), a call is taken only for a made-up clinic: any other is
+ * put through to its direct line, or closed with a fixed line, before the
+ * gate runs, and nothing of it is recorded.
+ *
  * Every degradation ends at a person (CLAUDE.md, "Failure"): a gate that
  * refuses the call, or a model that fails twice running, transfers the
  * caller to the clinic's direct line where there is one. With none, the
@@ -90,6 +96,9 @@ export type RetellSessionDeps = {
   now?: () => Date;
   gate?: (clinicId: string, now: Date) => Promise<AnswerDecision>;
   ingest?: (event: VoiceCallEvent) => Promise<IngestResult>;
+  /** Real patients' calls allowed; unset reads HEALDESK_VOICE_REAL_CALLS. */
+  realCalls?: boolean;
+  screen?: (clinicId: string) => Promise<TestCallScreen>;
 };
 
 /** The caller's words since the agent last spoke, from Retell's transcript. */
@@ -127,6 +136,8 @@ export class RetellCallSession {
   /** AYA gave the caller a real answer at least once, not only the failure line. */
   private answered = false;
   private closing = false;
+  /** Refused in test mode: a real clinic's caller, of whom nothing is kept. */
+  private unrecorded = false;
   private finished: Promise<IngestResult | null> | null = null;
 
   constructor(
@@ -158,6 +169,7 @@ export class RetellCallSession {
   async open(): Promise<void> {
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
+    if (!(this.deps.realCalls ?? voiceRealCallsAllowed()) && !(await this.madeUpClinic())) return;
     let decision: AnswerDecision;
     try {
       decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
@@ -184,6 +196,27 @@ export class RetellCallSession {
     this.gateAnswered = decision.decision === "answer";
     this.disclosurePlayedAt = now;
     this.say(0, openingLine(this.facts, "voice"));
+  }
+
+  /**
+   * Test mode: true for a made-up clinic. Otherwise the caller has already
+   * been put through to the clinic's direct line, or heard CLOSED_LINE, and
+   * the call is marked to be forgotten. A failed check fails closed.
+   */
+  private async madeUpClinic(): Promise<boolean> {
+    let screen: TestCallScreen = { madeUp: false, directLine: null };
+    try {
+      screen = await (this.deps.screen ?? screenTestCall)(this.clinicId);
+    } catch (error) {
+      log.error("retell test-call check failed", { clinicId: this.clinicId, error: describeError(error) });
+    }
+    if (screen.madeUp) return true;
+    log.warn("retell call refused: real calls are off and the clinic is not made up", { clinicId: this.clinicId });
+    this.unrecorded = true;
+    this.closing = true;
+    if (screen.directLine) this.say(0, TRANSFER_LINE, { transferTo: screen.directLine });
+    else this.say(0, CLOSED_LINE, { endCall: true });
+    return false;
   }
 
   /** One message from Retell. Never throws: a fault is logged and the caller hears a fixed line. */
@@ -318,6 +351,11 @@ export class RetellCallSession {
 
   private async record(): Promise<IngestResult | null> {
     this.closing = true;
+    if (this.unrecorded) {
+      this.turns = [];
+      this.callerPhone = null;
+      return null;
+    }
     await Promise.all(this.sending);
     const endedAt = this.now();
     const startedAt = this.startedAt ?? this.openedAt;

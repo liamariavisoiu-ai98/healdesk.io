@@ -81,12 +81,21 @@ hint_for() {
 # Keys that switch on a path carrying patients' messages. The guide asks for
 # them only once the business associate agreements behind that path are in
 # place, so the script asks too. HEALDESK_RETELL_LLM_SECRET opens the voice
-# endpoint to Retell's calls (enable_voice), and may stay __unset__ until then.
+# endpoint to Retell's calls (enable_voice), and may stay __unset__ until then,
+# with one exception (owner, 19 October 2026): it may be pasted for a test call
+# on a made-up clinic before the agreements are signed. The voice endpoint
+# enforces that itself: until Terraform's voice_real_calls is on, it answers
+# only the demo clinic (apps/app/src/lib/voice/test-calls.ts).
 patient_facing() {
   case "$1" in
     META_APP_SECRET | META_VERIFY_TOKEN | ANTHROPIC_API_KEY | HEALDESK_RETELL_LLM_SECRET) return 0 ;;
   esac
   return 1
+}
+
+# Keys that may be pasted for a test on made-up data before the agreements.
+test_allowed() {
+  [ "$1" = HEALDESK_RETELL_LLM_SECRET ]
 }
 
 # The shape of a few vendors' keys, so a value pasted under the wrong name is
@@ -232,7 +241,22 @@ for key in "${selected[@]}"; do
 
   echo >&2
   say "$key ($current): $(hint_for "$key")"
-  if patient_facing "$key"; then
+  testing=false
+  if patient_facing "$key" && test_allowed "$key"; then
+    answer=""
+    read -r -p "  $key switches on a path that carries patients' calls. Type yes once every agreement in the chain is signed, Retell's included, or test for a test call on a made-up clinic only (the agreements are not signed yet): " answer || true
+    case "$answer" in
+      yes) say "$key: yes, the whole chain is signed. Real patients' calls still need voice_real_calls = true in production.tfvars, applied and deployed; until then only the demo clinic is answered." ;;
+      test)
+        testing=true
+        say "$key: test. This allows a test call on the made-up demo clinic (scripts/demo-clinic.ts) and nothing else: keep voice_real_calls = false, and the voice endpoint answers no other clinic. A call for a real clinic is put through to its direct line, or refused, and nothing of it is kept. Put this address only in the demo clinic's Retell agent."
+        ;;
+      *)
+        summary+=("$key|kept ($current)")
+        continue
+        ;;
+    esac
+  elif patient_facing "$key"; then
     answer=""
     read -r -p "  $key switches on a path that carries patients' messages. Type yes once its agreements are in place: " answer || true
     if [ "$answer" != yes ]; then
@@ -298,7 +322,11 @@ for key in "${selected[@]}"; do
   fi
   rm -f "$tmp/value"
   say "$key: saved to $name"
-  summary+=("$key|pasted")
+  if [ "$testing" = true ]; then
+    summary+=("$key|pasted, for a test call on the demo clinic only")
+  else
+    summary+=("$key|pasted")
+  fi
   case "$key" in
     CLOUDFLARE_API_TOKEN) pasted_ci=true ;;
     HEALDESK_PROVISION_SECRET)

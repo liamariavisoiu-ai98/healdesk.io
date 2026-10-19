@@ -253,6 +253,17 @@ variable "enable_voice" {
   default     = false
 }
 
+variable "voice_real_calls" {
+  description = "Let the voice endpoint answer real patients' calls: sets HEALDESK_VOICE_REAL_CALLS=1 on the voice task, and on the web task for /admin/map. Off, the endpoint is in test mode (apps/app/src/lib/voice/test-calls.ts): it answers only healdesk's made-up demo clinic, and a call for any other clinic is put through to that clinic's direct line, or refused, before the assistant speaks, with nothing recorded. That is the owner's exception of 19 October 2026, which lets HEALDESK_RETELL_LLM_SECRET be pasted for a test call before the agreements are signed. Turn it on only once every business associate agreement in the chain is signed, Retell's included."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.voice_real_calls || var.enable_voice
+    error_message = "voice_real_calls needs enable_voice: without the voice endpoint there are no calls to allow."
+  }
+}
+
 variable "voice_desired" {
   description = "Intended number of voice tasks while enable_voice is on. Terraform creates the service at 0 and the deploy workflow sets this count after the first good migration; it is also the alarm's floor for healthy voice tasks. A deploy drops no call either way (the old tasks drain first, alb.tf). One, the lean default, is a single point of failure: losing that task mid-call drops every call on it and leaves Retell nothing to reach until ECS replaces it. Two survive the loss of one task mid-call (only its own calls drop, and the other answers the next), at the cost of a second task."
   type        = number

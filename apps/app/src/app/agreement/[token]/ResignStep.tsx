@@ -25,8 +25,9 @@ import { signResignAction, type ResignActionResult } from "./actions";
  *     and its box never arrives ticked.
  *
  * What it leaves out, because nothing here is the practice's to choose: the
- * covered-entity question (the answer is why it is here), the specialty, the
- * booking system and the Google account, which the DPA in force recorded.
+ * covered-entity question (the answer is why it is here, or, from an older
+ * BAA, the one on record), the specialty, the booking system and the Google
+ * account, which the agreement in force recorded.
  */
 
 function today(): string {
@@ -53,7 +54,15 @@ async function sha256(text: string): Promise<string | null> {
   }
 }
 
-export function ResignStep(props: { token: string; clinicName: string; document: ResignDocument }) {
+export function ResignStep(props: {
+  token: string;
+  clinicName: string;
+  document: ResignDocument;
+  /** The agreement it replaces: the DPA, or an older version of the BAA. */
+  replaces: { kind: "baa" | "dpa"; version: string };
+  /** Whether AYA is held paused until it is signed. */
+  holdsPause: boolean;
+}) {
   const { document } = props;
   const copy = AGREEMENT_COPY.baa;
   const explainer = copy.explainer(document.templateVersion);
@@ -126,17 +135,21 @@ export function ResignStep(props: { token: string; clinicName: string; document:
           </div>
           <div className="px-5 py-4">
             <p className="font-semibold">
-              It&rsquo;s in force from today, in place of your data protection agreement.
+              {props.replaces.kind === "dpa"
+                ? "It\u2019s in force from today, in place of your data protection agreement."
+                : `It\u2019s in force from today, in place of version ${props.replaces.version}.`}
             </p>
             <p className="text-muted mt-2 text-sm">
               {signed.copy.sent
                 ? `A copy is on its way to ${document.signatoryEmail}, and it's in Billing, under Your agreement.`
                 : signed.copy.reason}
             </p>
-            <p className="text-muted mt-2 text-sm">
-              AYA is no longer paused for it. The switch at the top of every page in healdesk says
-              whether she&rsquo;s answering.
-            </p>
+            {props.holdsPause ? (
+              <p className="text-muted mt-2 text-sm">
+                AYA is no longer paused for it. The switch at the top of every page in healdesk says
+                whether she&rsquo;s answering.
+              </p>
+            ) : null}
           </div>
           <div
             className="border-line px-5 py-4 sm:max-h-80 sm:overflow-y-auto"

@@ -125,7 +125,7 @@ describe("clinic blockers", () => {
     expect(superseded).toEqual([
       {
         level: "attention",
-        message: `BAA v1.0.0 has been superseded: the practice accepts v${CURRENT_BAA_VERSION} before go-live.`,
+        message: `BAA v1.0.0 has been superseded: the practice signs v${CURRENT_BAA_VERSION} from its re-sign link (L22) before go-live.`,
       },
     ]);
     expect(blockers[0]).toEqual(superseded[0]);
@@ -138,7 +138,7 @@ describe("clinic blockers", () => {
     expect(blockers).toEqual([
       {
         level: "attention",
-        message: `Live under BAA v1.2.0, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`,
+        message: `Live under BAA v1.2.0, which has been superseded: its re-sign to v${CURRENT_BAA_VERSION} opens by itself (L22), and AYA is paused until it's signed.`,
       },
     ]);
   });

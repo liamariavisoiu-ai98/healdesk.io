@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { annualTotalUsd, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
+import { annualTotalUsd, CURRENT_BAA_VERSION, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { DIRECT_KIND_REGISTRY, DIRECT_KINDS, LEDGER_DIRECT_KINDS } from "@/lib/email/direct-kinds";
@@ -421,6 +421,76 @@ describe("L22, sign your updated agreement", () => {
     expect(day7.text).toContain("still waiting to be signed, 7 days after we sent it");
     expect(day7.text).toContain("not sure whether Radiance Med Spa bills any health insurance");
     expect(copyProblems([day7.subject, day7.text].join("\n"))).toEqual([]);
+  });
+});
+
+describe("L22 for a newer business associate agreement (wave 2 R11)", () => {
+  const render = (
+    over: Partial<typeof AGREEMENT_TO_SIGN_ENTRY.fixture>,
+    audience: EmailAudience = "patients",
+  ) =>
+    AGREEMENT_TO_SIGN_ENTRY.render(
+      {
+        ...AGREEMENT_TO_SIGN_ENTRY.fixture,
+        kind: "baa_version",
+        version: "1.5.0",
+        isPaused: false,
+        isRequired: false,
+        ...over,
+      },
+      contextFor("agreement_to_sign", audience),
+    );
+
+  test("paused below the floor, answering during an overlap, and a practice not answering yet: the snapshots", () => {
+    expect(render({ isPaused: true, isRequired: true })).toMatchSnapshot();
+    expect(render({ waitingDays: 3 })).toMatchSnapshot();
+    expect(render({ channels: [], directLineE164: null, isRequired: true })).toMatchSnapshot();
+  });
+
+  test("names both versions, and says AYA is paused only where the re-sign holds her", () => {
+    const paused = render({ isPaused: true, isRequired: true });
+    expect(paused.text).toContain(
+      `version ${CURRENT_BAA_VERSION}, in place of version 1.5.0, which you signed`,
+    );
+    expect(paused.text).toContain("An agreement only changes when you sign it");
+    expect(paused.text).toContain("until the newer version is signed, AYA is paused:");
+    expect(paused.text).toContain("Phone: calls go to your direct line ((415) 555-0100)");
+    expect(paused.text).toContain("AYA answers again the moment it's signed");
+    expect(paused.preheader).toBe("AYA is paused until it's signed.");
+
+    const answering = render({});
+    expect(answering.text).toContain("AYA keeps answering while you read it and sign it.");
+    expect(answering.text).not.toContain("paused");
+    expect(answering.text).not.toContain("answers again");
+    expect(answering.preheader).toBe("AYA keeps answering while you sign it.");
+
+    // Never the DPA's words about insurance.
+    for (const email of [paused, answering]) {
+      expect(email.text).not.toContain("insurance");
+      expect(email.text).not.toContain("data protection agreement");
+      expect(copyProblems([email.subject, email.text].join("\n"))).toEqual([]);
+      expect(linkProblems(email, "agreement_to_sign")).toEqual([]);
+    }
+  });
+
+  test("before anything answers, it says whether go-live waits on the signature", () => {
+    const waits = render({ channels: [], directLineE164: null, isRequired: true }, "clients");
+    expect(waits.text).toContain("AYA starts answering your clients only once it's signed.");
+    const free = render({ channels: [], directLineE164: null });
+    expect(free.text).toContain("Nothing else in your setup waits on it.");
+    expect(free.preheader).toBe(`Version ${CURRENT_BAA_VERSION} of your agreement, to sign.`);
+  });
+
+  test("its payload passes the allowlist, and one naming no version is refused", () => {
+    const payload = {
+      ...AGREEMENT_TO_SIGN_ENTRY.fixture,
+      kind: "baa_version" as const,
+      version: "1.5.0",
+      isPaused: true,
+      isRequired: true,
+    };
+    expect(() => assertPayloadAllowed(payload, "agreement_to_sign")).not.toThrow();
+    expect(() => render({ version: undefined })).toThrow(/names the version it replaces/);
   });
 });
 

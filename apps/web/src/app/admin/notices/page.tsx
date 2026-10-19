@@ -20,6 +20,7 @@ import {
   sendProductUpdate as productUpdateUpstream,
   sendSubprocessorNotice as subprocessorUpstream,
   sendTermsNotice as termsUpstream,
+  startBaaVersionResigns as baaResignsUpstream,
   suspendForCause as suspendUpstream,
 } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
@@ -36,6 +37,10 @@ import { NoticesBoard } from "./NoticesBoard";
  *     the same practices, as far ahead as each one's agreement promises;
  *   - L33, a product update, to every practice still with us, behind its
  *     switch and one-click stop link;
+ *   - L22, the updated business associate agreement to sign, to every
+ *     account on an older version of it, each one's re-sign opened (wave 2
+ *     R11; the hourly job opens one by itself once a release's floor has
+ *     passed the version);
  *   - L30, a guarantee claim received and then our finding, to one practice;
  *   - L31, a suspension for a legal or security reason, to one practice:
  *     it suspends the service and emails why.
@@ -78,6 +83,12 @@ export default async function NoticesPage() {
     revalidatePath(PATH);
     return result;
   }
+  async function startBaaVersionResigns() {
+    "use server";
+    const result = await baaResignsUpstream();
+    revalidatePath(PATH);
+    return result;
+  }
   async function recordGuaranteeClaim(clinicId: string, claimReceivedOn: string) {
     "use server";
     const result = await claimUpstream(clinicId, claimReceivedOn);
@@ -115,6 +126,7 @@ export default async function NoticesPage() {
         sendTermsNotice,
         sendSubprocessorNotice,
         sendProductUpdate,
+        startBaaVersionResigns,
         recordGuaranteeClaim,
         sendGuaranteeFinding,
         suspendForCause,

@@ -1,4 +1,4 @@
-import { CHANNELS, type Channel } from "@healdesk/catalog";
+import { CHANNELS, CURRENT_BAA_VERSION, type Channel } from "@healdesk/catalog";
 
 import { fallbackLine, PAUSE_LINE_ORDER } from "@/lib/channels/pause-words";
 import { publicUrl } from "@/lib/public-url";
@@ -26,6 +26,15 @@ import type { EmailTemplate } from "./types";
  * cannot lift it until the agreement is signed. A practice with nothing
  * answering yet is told AYA starts only once it is signed. Nothing about a
  * patient, and no date the practice must meet: the link's own days only.
+ *
+ * The same email carries a practice under an older version of the business
+ * associate agreement to the current one (`kind: "baa_version"`, wave 2
+ * R11): it names the two versions, and says AYA is paused only where the
+ * re-sign holds her paused (`isPaused`, lib/agreements/resign-pause.ts: the
+ * version in force is below the floor go-live accepts and she answers
+ * patients under it). Otherwise she keeps answering while the practice
+ * signs, and a practice not yet answering is told whether its go-live waits
+ * on the signature (`isRequired`).
  */
 
 export type AgreementToSignPayload = {
@@ -44,9 +53,18 @@ export type AgreementToSignPayload = {
   channels: Channel[];
   /** The clinic's direct line, for phone's line. */
   directLineE164: string | null;
+  /** Absent for the DPA→BAA re-sign; `baa_version` for an older BAA to the current one. */
+  kind?: "baa_version";
+  /** For `baa_version`: the version of the BAA in force, which the current one replaces. */
+  version?: string;
+  /** For `baa_version`: whether the re-sign holds AYA paused until it is signed. */
+  isPaused?: boolean;
+  /** For `baa_version`: whether go-live waits on it (the version is below the floor). */
+  isRequired?: boolean;
 };
 
 export const renderAgreementToSign: EmailTemplate<AgreementToSignPayload> = (payload, ctx) => {
+  if (payload.kind === "baa_version") return renderBaaVersion(payload, ctx);
   const clinic = ctx.clinicName ?? "your practice";
   const channels = PAUSE_LINE_ORDER.filter((c) => payload.channels.includes(c));
   if (payload.channels.some((c) => !(CHANNELS as readonly string[]).includes(c))) {
@@ -102,6 +120,90 @@ export const renderAgreementToSign: EmailTemplate<AgreementToSignPayload> = (pay
       preheader: answering
         ? "AYA is paused until it's signed."
         : "AYA starts answering once it's signed.",
+      blocks,
+    },
+    ctx,
+  );
+};
+
+/** L22 for a practice under an older version of the BAA, to the current one. */
+const renderBaaVersion: EmailTemplate<AgreementToSignPayload> = (payload, ctx) => {
+  const clinic = ctx.clinicName ?? "your practice";
+  const channels = PAUSE_LINE_ORDER.filter((c) => payload.channels.includes(c));
+  if (payload.channels.some((c) => !(CHANNELS as readonly string[]).includes(c))) {
+    throw new EmailCompositionError("A channel in this email is not one of healdesk's channels.");
+  }
+  const from = payload.version;
+  if (!from || !/^[0-9][0-9A-Za-z.-]{0,31}$/.test(from)) {
+    throw new EmailCompositionError("An updated agreement names the version it replaces.");
+  }
+  const reminder = payload.waitingDays > 0;
+  const answering = channels.length > 0;
+  const paused = payload.isPaused === true;
+
+  const why = `There's a newer version of the business associate agreement between ${clinic} and healdesk: version ${CURRENT_BAA_VERSION}, in place of version ${from}, which you signed. An agreement only changes when you sign it, so the newer version needs your signature.`;
+
+  const blocks: Block[] = [
+    {
+      type: "paragraph",
+      text: reminder
+        ? `Your updated agreement is still waiting to be signed, ${payload.waitingDays} days after we sent it.`
+        : why,
+    },
+  ];
+  if (reminder) blocks.push({ type: "paragraph", text: why });
+  if (answering && paused) {
+    blocks.push(
+      {
+        type: "paragraph",
+        text: `Version ${from} no longer describes how AYA works, so until the newer version is signed, AYA is paused:`,
+      },
+      {
+        type: "list",
+        items: channels.map((c) => fallbackLine(c, payload.directLineE164)),
+      },
+    );
+  } else if (answering) {
+    blocks.push({
+      type: "paragraph",
+      text: "AYA keeps answering while you read it and sign it.",
+    });
+  } else if (payload.isRequired === true) {
+    blocks.push({
+      type: "paragraph",
+      text: `AYA starts answering your ${ctx.audience} only once it's signed.`,
+    });
+  } else {
+    blocks.push({
+      type: "paragraph",
+      text: "Nothing else in your setup waits on it.",
+    });
+  }
+  blocks.push(
+    { type: "action", label: "Sign your updated agreement", url: payload.signUrl },
+    {
+      type: "paragraph",
+      text: `Read it to the end, type your name and sign. Your plan and your settings stay as they are${answering && paused ? ", and AYA answers again the moment it's signed" : ""}. The link works for ${payload.validDays} days; after that, sign it from Billing in healdesk, under Your agreement.`,
+    },
+    {
+      type: "paragraph",
+      text: "If you have a question about what changed, reply to this email.",
+    },
+  );
+
+  return compose(
+    {
+      subject: reminder
+        ? "Your updated agreement is waiting to be signed"
+        : "Sign your updated agreement",
+      preheader:
+        answering && paused
+          ? "AYA is paused until it's signed."
+          : answering
+            ? "AYA keeps answering while you sign it."
+            : payload.isRequired === true
+              ? "AYA starts answering once it's signed."
+              : `Version ${CURRENT_BAA_VERSION} of your agreement, to sign.`,
       blocks,
     },
     ctx,

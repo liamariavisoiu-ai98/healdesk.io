@@ -17,7 +17,9 @@ export const dynamic = "force-dynamic";
  * /agreement/<token>: where L22's link lands (plan Part L; lib/agreements/
  * resign.ts). A practice under the Data Protection Agreement that now bills
  * insurance electronically, or is not sure, signs the Business Associate
- * Agreement here, with its own answers.
+ * Agreement here, with its own answers; so does a practice under an older
+ * version of the Business Associate Agreement, the current version (wave 2
+ * R11), which says whether AYA is paused meanwhile as L22 did.
  *
  * On apps/app, not beside the funnel's signing on apps/web: the practice
  * exists, so this host is running, and everything the screen reads and writes
@@ -72,13 +74,23 @@ export default async function ResignPage({ params }: { params: Promise<{ token: 
       <p className="text-muted text-sm font-semibold">{link.clinicName}</p>
       <h1 className="mt-1 text-2xl font-semibold">Sign your updated agreement</h1>
       <p className="text-muted mt-3">
-        {link.document.isCoveredEntity === true
-          ? "Your practice bills health insurance electronically, so the business associate agreement covers it now, in place of the data protection agreement it signed."
-          : "Your practice isn't sure whether it bills health insurance electronically, so the business associate agreement covers it now, in place of the data protection agreement it signed."}{" "}
-        AYA stays paused until it&rsquo;s signed.
+        {link.reason === "baa_version"
+          ? `There's a newer version of your business associate agreement: version ${link.document.templateVersion}, in place of version ${link.replaces.version}, which your practice signed. An agreement only changes when you sign it.`
+          : link.document.isCoveredEntity === true
+            ? "Your practice bills health insurance electronically, so the business associate agreement covers it now, in place of the data protection agreement it signed."
+            : "Your practice isn't sure whether it bills health insurance electronically, so the business associate agreement covers it now, in place of the data protection agreement it signed."}{" "}
+        {link.holdsPause
+          ? "AYA stays paused until it\u2019s signed."
+          : "AYA keeps answering while you read it and sign it."}
       </p>
       <div className="mt-8">
-        <ResignStep token={token} clinicName={link.clinicName} document={link.document} />
+        <ResignStep
+          token={token}
+          clinicName={link.clinicName}
+          document={link.document}
+          replaces={link.replaces}
+          holdsPause={link.holdsPause}
+        />
       </div>
       <p className="text-muted mt-10 text-center text-xs">
         No payment on this page · Your plan and your settings stay as they are

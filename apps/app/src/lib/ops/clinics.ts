@@ -207,16 +207,18 @@ export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
     // Before the covered-entity line on purpose: when nothing is blocked the
     // clinic card shows the first item, and on a synthetic clinic this one
     // decides whether it can go live at all (app_mark_clinic_production
-    // refuses it). Not "blocked": a live clinic keeps running under the
-    // agreement it signed while the practice accepts the current one.
+    // refuses it). Not "blocked": nothing is refused that the practice's
+    // signature does not fix, and the hourly job opens its re-sign by itself
+    // (lib/agreements/resign.ts, wave 2 R11). A live clinic below the floor
+    // has AYA paused until it signs: its calls go to its direct line.
     const dpa = agreementKindOfVersion(clinic.baaVersion) === "dpa";
     blockers.push({
       level: "attention",
       message: dpa
         ? `The data protection agreement ${clinic.baaVersion} is not released: the practice can't go live under it until it is.`
         : live
-          ? `Live under BAA v${clinic.baaVersion}, which has been superseded: have the practice accept v${CURRENT_BAA_VERSION}.`
-          : `BAA v${clinic.baaVersion} has been superseded: the practice accepts v${CURRENT_BAA_VERSION} before go-live.`,
+          ? `Live under BAA v${clinic.baaVersion}, which has been superseded: its re-sign to v${CURRENT_BAA_VERSION} opens by itself (L22), and AYA is paused until it's signed.`
+          : `BAA v${clinic.baaVersion} has been superseded: the practice signs v${CURRENT_BAA_VERSION} from its re-sign link (L22) before go-live.`,
     });
   }
 

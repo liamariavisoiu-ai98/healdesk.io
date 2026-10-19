@@ -282,6 +282,10 @@ type OperatorOp =
   | "sendGuaranteeFinding"
   | "suspendForCause"
   | "getOperatorNotices"
+  // The re-sign of a newer business associate agreement (wave 2 R11): every
+  // account on an older version opens its re-sign and is sent L22. No
+  // argument; counts back.
+  | "startBaaVersionResigns"
   // The account (plan Part K, D5 and L): the clinic's address and each
   // change of it; changeClinicEmail, sent only after the operator's fresh
   // TOTP (lib/admin/fresh-code.ts), and an objection's stop; the
@@ -4530,6 +4534,40 @@ export function sendSubprocessorNotice(input: { provider: PhiSubcontractor; star
     provider: literal(input.provider, keysOf(PHI_SUBCONTRACTORS), "sendSubprocessorNotice.provider"),
     startsAt: isoInstant(input.startsAt, "sendSubprocessorNotice.startsAt"),
   }));
+}
+
+/** What the re-sign broadcast did: counts, and the version every re-sign signs. */
+export type BaaVersionResignOutcome =
+  | {
+      status: "started";
+      version: string;
+      opened: number;
+      paused: number;
+      emailed: number;
+      alreadyOpen: number;
+      failed: number;
+      auditRecorded: boolean;
+    }
+  | { status: "refused"; message: string };
+
+/** L22 to every account on an older version of the BAA, opening each one's re-sign. */
+export function startBaaVersionResigns(): Promise<OpsResult<BaaVersionResignOutcome>> {
+  return callOps("startBaaVersionResigns", "write", {}, (value) => {
+    const data = object(value, "startBaaVersionResigns");
+    if (state(data, "startBaaVersionResigns") !== "started") {
+      return refusal(data, "startBaaVersionResigns");
+    }
+    return {
+      status: "started" as const,
+      version: text(data.version, "startBaaVersionResigns.version"),
+      opened: count(data.opened, "startBaaVersionResigns.opened"),
+      paused: count(data.paused, "startBaaVersionResigns.paused"),
+      emailed: count(data.emailed, "startBaaVersionResigns.emailed"),
+      alreadyOpen: count(data.alreadyOpen, "startBaaVersionResigns.alreadyOpen"),
+      failed: count(data.failed, "startBaaVersionResigns.failed"),
+      auditRecorded: bool(data.auditRecorded, "startBaaVersionResigns.auditRecorded"),
+    };
+  });
 }
 
 /** L33: a product update, to every practice still with us. */

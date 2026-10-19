@@ -266,10 +266,16 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // practice that owes its updated agreement (plan Part L; WP9). Not a
   // switched job, like the address changes: the practice was told AYA is
   // paused until it signs, and a switch that ships off would leave it waiting
-  // with no word. Each email is once per re-sign and day on the ledger.
+  // with no word. Each email is once per re-sign and day on the ledger. It
+  // also opens the re-sign of an account a release has left on a BAA version
+  // below the floor, and pauses one still waiting when the floor passes it
+  // (wave 2 R11): the release is the owner's switch for that.
   await record("agreement-resigns", async () => {
     const r = await runAgreementResignsJob({ now });
-    return { status: "ok", note: `${r.open} open, ${r.sent} sent, ${r.alerted} past 7 days` };
+    return {
+      status: "ok",
+      note: `${r.open} open, ${r.sent} sent, ${r.alerted} past 7 days, ${r.opened} opened by a release, ${r.paused} paused by one`,
+    };
   });
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));

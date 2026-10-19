@@ -18,6 +18,7 @@ import {
 import { useState, useTransition } from "react";
 
 import type {
+  BaaVersionResignOutcome,
   BroadcastOutcome,
   GuaranteeClaimOutcome,
   NoticeState,
@@ -38,6 +39,7 @@ type Actions = {
     startsAt: string;
   }) => Promise<OpsResult<BroadcastOutcome>>;
   sendProductUpdate: (code: ProductUpdateCode) => Promise<OpsResult<BroadcastOutcome>>;
+  startBaaVersionResigns: () => Promise<OpsResult<BaaVersionResignOutcome>>;
   recordGuaranteeClaim: (
     clinicId: string,
     claimReceivedOn: string,
@@ -103,6 +105,35 @@ function broadcastSaid(result: OpsResult<BroadcastOutcome>): { ok: boolean; text
   };
 }
 
+/** What the re-sign broadcast did, as a sentence. */
+export function resignsSaid(result: OpsResult<BaaVersionResignOutcome>): {
+  ok: boolean;
+  text: string;
+} {
+  const problem = problemOf(result);
+  if (problem || !result.ok || result.data.status !== "started")
+    return { ok: false, text: problem ?? "Refused." };
+  const d = result.data;
+  const practices = (n: number) => `${n} practice${n === 1 ? "" : "s"}`;
+  return {
+    ok: true,
+    text:
+      (d.opened === 0
+        ? `No practice on an older version was left to start on v${d.version}`
+        : `Started ${practices(d.opened)} on v${d.version}`) +
+      (d.paused ? `; AYA is paused for ${d.paused} until signed (below the floor)` : "") +
+      (d.opened && d.emailed < d.opened
+        ? `; ${d.opened - d.emailed} not emailed yet (the hourly job sends it)`
+        : "") +
+      (d.alreadyOpen ? `; ${d.alreadyOpen} already had a re-sign open` : "") +
+      (d.failed
+        ? `; ${d.failed} FAILED (see the logs, then start it again: it reaches only those that missed it)`
+        : "") +
+      "." +
+      (d.auditRecorded ? "" : " It is NOT in the audit log: record it by hand."),
+  };
+}
+
 export function NoticesBoard({
   record,
   clinics,
@@ -136,6 +167,9 @@ export function NoticesBoard({
       </Section>
       <Section title="Product update (L33)">
         <ProductUpdateForm send={actions.sendProductUpdate} />
+      </Section>
+      <Section title="Updated agreement to sign (L22)">
+        <BaaResignForm start={actions.startBaaVersionResigns} />
       </Section>
       <Section title="First-month guarantee (L30)">
         <GuaranteeForms
@@ -359,6 +393,45 @@ function ProductUpdateForm({ send }: { send: Actions["sendProductUpdate"] }) {
           className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white"
         >
           Send the update
+        </button>
+      </div>
+      <Outcome said={said} />
+    </form>
+  );
+}
+
+function BaaResignForm({ start }: { start: Actions["startBaaVersionResigns"] }) {
+  const [pending, begin] = useTransition();
+  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null);
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (
+          !window.confirm(
+            "Open a re-sign for every practice on an older business associate agreement, and email each its link?",
+          )
+        )
+          return;
+        begin(async () => setSaid(resignsSaid(await start())));
+      }}
+      className="grid gap-3 text-sm"
+    >
+      <p className="text-muted">
+        For a release that keeps the older version acceptable for a while: every practice whose
+        business associate agreement is older than the current version gets its re-sign and the
+        email with its link, then reminders at 3 and 7 days, and we&rsquo;re told at 7. AYA keeps
+        answering while it signs, unless its version is below the floor go-live accepts. Once a
+        release moves the floor past a version, the hourly job starts those practices by itself and
+        pauses AYA for each still unsigned.
+      </p>
+      <div>
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-full bg-black px-4 py-2 text-xs font-bold text-white"
+        >
+          Start the re-signs
         </button>
       </div>
       <Outcome said={said} />

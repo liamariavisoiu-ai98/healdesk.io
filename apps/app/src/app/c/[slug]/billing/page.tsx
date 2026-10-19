@@ -4,6 +4,7 @@ import {
   audienceSingular,
   CHANNEL_NAMES,
   channelList,
+  CURRENT_BAA_VERSION,
   getPlan,
   isSpecialtyId,
   planStartSentence,
@@ -74,8 +75,7 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
   const shell = shellProps(portal, page, "billing");
   const { clinic } = page.state;
   const view = await readBillingView({ clinicId: portal.clinicId, actor: page.actorContext, now });
-  const resign =
-    view.agreement?.kind === "dpa" ? await readOpenResign(portal.clinicId, page.actorContext) : null;
+  const resign = view.agreement ? await readOpenResign(portal.clinicId, page.actorContext) : null;
   const { summary } = view;
   const tz = clinic.timezone;
 
@@ -450,7 +450,19 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                 >
                   Download it (PDF)
                 </a>
-                {view.agreement.kind === "dpa" && resign ? (
+                {view.agreement.kind === "baa" && resign?.reason === "baa_version" ? (
+                  <div className="mt-3 text-sm">
+                    <p className="font-semibold">Your updated agreement is waiting to be signed.</p>
+                    <p className="text-muted mt-1">
+                      Version {CURRENT_BAA_VERSION} replaces version {view.agreement.version}, and
+                      it only changes when you sign it.{" "}
+                      {resign.holdsPause
+                        ? "AYA is paused until it\u2019s signed."
+                        : "AYA keeps answering while you sign it."}
+                    </p>
+                    <AgreementResignButton slug={portal.clinicSlug} open />
+                  </div>
+                ) : view.agreement.kind === "dpa" && resign ? (
                   <div className="mt-3 text-sm">
                     <p className="font-semibold">Your updated agreement is waiting to be signed.</p>
                     <p className="text-muted mt-1">

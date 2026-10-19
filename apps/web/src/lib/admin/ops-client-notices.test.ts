@@ -25,6 +25,7 @@ import {
   sendProductUpdate,
   sendSubprocessorNotice,
   sendTermsNotice,
+  startBaaVersionResigns,
   suspendForCause,
 } from "@/lib/admin/ops-client";
 
@@ -337,5 +338,31 @@ describe("the notices", () => {
 
     reply({ data: { broadcasts: [], notices: [{ state: "lost" }], openClaims: [] } });
     expect((await fetchOperatorNotices()).ok).toBe(false);
+  });
+
+  test("the re-sign broadcast sends nothing but its name, and reads its counts or its refusal", async () => {
+    const started = {
+      status: "started",
+      version: "1.6.0",
+      opened: 2,
+      paused: 1,
+      emailed: 2,
+      alreadyOpen: 0,
+      failed: 0,
+      auditRecorded: true,
+    };
+    reply({ data: started });
+    expect(await startBaaVersionResigns()).toEqual({ ok: true, data: started });
+    expect(sent).toEqual([{ op: "startBaaVersionResigns", args: {} }]);
+
+    reply({ data: { status: "refused", message: "Version 1.6.0 isn't released for signing in the database yet." } });
+    expect(await startBaaVersionResigns()).toEqual({
+      ok: true,
+      data: { status: "refused", message: "Version 1.6.0 isn't released for signing in the database yet." },
+    });
+
+    // A count that is not one is a reply the console does not half-read.
+    reply({ data: { ...started, opened: "two" } });
+    expect((await startBaaVersionResigns()).ok).toBe(false);
   });
 });

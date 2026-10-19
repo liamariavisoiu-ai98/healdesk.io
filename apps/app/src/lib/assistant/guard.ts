@@ -38,12 +38,14 @@ import type { AssistantFacts } from "./facts";
  * A refused reply is replaced by a fixed line; nothing of it is sent.
  *
  * The limit of the never-say list: its entries are the clinic's own words, in
- * English, and they are matched as written, from the start of a word, past
- * the clinic's own name and address (neverSayIn). A Spanish reply is refused
- * when it contains an entry's English text, and not when it says the same
- * thing in Spanish; the clinical screen, which reads Spanish, is what catches
- * a Spanish promise of safety or results. No entry may stop the assistant
- * saying it is an AI assistant, or pointing to 911 (NEVER_SAY_PROTECTED).
+ * English, and they are matched as written, from the start of a word,
+ * excused only where they fall wholly inside the clinic's own name or
+ * address and never when they name it themselves (neverSayIn). A Spanish
+ * reply is refused when it contains an entry's English text, and not when it
+ * says the same thing in Spanish; the clinical screen, which reads Spanish,
+ * is what catches a Spanish promise of safety or results. No entry may stop
+ * the assistant saying it is an AI assistant, or pointing to 911
+ * (NEVER_SAY_PROTECTED).
  */
 
 export type GuardRefusal =
@@ -220,12 +222,13 @@ function listForm(text: string): string {
 }
 
 /**
- * The clinic's own public words, which a never-say entry is read past: its
- * name, and each part of its address split at commas and line breaks, the
- * street also without its number. "Painless Laser Studio" must still be able
- * to say who and where it is with the default "painless" on its list, as the
- * Meta guard's other word checks read past the same words (front-door.ts,
- * withoutOwnWords), and its request-received line must keep the person's name.
+ * The clinic's own public words, inside which a never-say entry is excused
+ * (neverSayIn): its name, and each part of its address split at commas and
+ * line breaks, the street also without its number. "Painless Laser Studio"
+ * must still be able to say who and where it is with the default "painless"
+ * on its list, as the Meta guard's other word checks read past the same
+ * words (front-door.ts, withoutOwnWords), and its request-received line must
+ * keep the person's name.
  */
 export function clinicOwnWords(facts: { clinicName?: string | null; address?: string | null }): string[] {
   const words = [facts.clinicName ?? ""];
@@ -235,26 +238,57 @@ export function clinicOwnWords(facts: { clinicName?: string | null; address?: st
   return [...new Set(words.map((w) => w.trim()).filter((w) => w !== ""))];
 }
 
+/** A whole-word pattern for one phrase in listForm(), global so every occurrence can be read. */
+function wholeWords(phrase: string): RegExp {
+  return new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(phrase)}(?![\\p{L}\\p{N}])`, "gu");
+}
+
 /**
  * Whether a reply contains an entry of a never-say list. Both sides are
  * normalised (case, curly quotes, dashes, a hyphen read as a space, runs of
- * whitespace, a line break among them), the clinic's own name and address
- * are read past (clinicOwnWords), and an entry matches where a word starts:
- * "cure" is not in "secure", nor "AI" in "available", while "painless" is
- * still in "painlessly" and "guarantee" in "guaranteed", the forms the
- * prompt's "in any form" means. One function for every channel: the Meta
- * front door's guard calls it too (lib/meta/front-door.ts, guardReply), so
- * a phrase refused on a call is refused on Instagram, Messenger and
- * WhatsApp, and the two cannot drift apart.
+ * whitespace, a line break among them), and an entry matches where a word
+ * starts: "cure" is not in "secure", nor "AI" in "available", while
+ * "painless" is still in "painlessly" and "guarantee" in "guaranteed", the
+ * forms the prompt's "in any form" means.
+ *
+ * The clinic's own name and address (clinicOwnWords) excuse an entry only
+ * where it lies wholly inside one of them: "Painless Laser Studio" on
+ * "Painless Way" can say who and where it is with the default "painless" on
+ * its list, and is refused for "it's painless". They are never taken out of
+ * the reply before the list is read, so an entry that runs past them is
+ * still found ("the best med spa in Austin" in Glow Med Spa's reply, "Laser
+ * Studio is the best" in Painless Laser Studio's). An entry that itself
+ * names one of those words ("cheapest in Austin", "Glow Med Spa is the
+ * best", "Congress Ave") is the clinic saying it does not want them said
+ * that way, and is matched as written, with nothing read past.
+ *
+ * One function for every channel: the Meta front door's guard calls it too
+ * (lib/meta/front-door.ts, guardReply), so a phrase refused on a call is
+ * refused on Instagram, Messenger and WhatsApp, and the two cannot drift
+ * apart.
  */
 export function neverSayIn(reply: string, list: readonly string[], ownWords: readonly string[] = []): boolean {
-  let text = ` ${listForm(reply)} `;
-  for (const own of ownWords.map((w) => listForm(w).trim()).filter(Boolean).sort((a, b) => b.length - a.length)) {
-    text = text.replace(new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(own)}(?![\\p{L}\\p{N}])`, "gu"), " ");
+  const text = ` ${listForm(reply)} `;
+  const own = [...new Set(ownWords.map((w) => listForm(w).trim()).filter(Boolean))];
+  // Where the clinic's own words stand in the reply, as [start, end) spans.
+  const ownSpans: Array<[number, number]> = [];
+  for (const words of own) {
+    for (const m of text.matchAll(wholeWords(words))) ownSpans.push([m.index, m.index + m[0].length]);
   }
   return list.some((phrase) => {
     const p = listForm(phrase).trim();
-    return p !== "" && new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(p)}`, "u").test(text);
+    if (p === "") return false;
+    const excuses = own.some((words) => wholeWords(words).test(p)) ? [] : ownSpans;
+    // Every occurrence, overlapping ones included, so one inside the name
+    // cannot hide one outside it.
+    const entry = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegExp(p)}`, "gu");
+    for (let m = entry.exec(text); m; m = entry.exec(text)) {
+      const start = m.index;
+      const end = start + m[0].length;
+      if (!excuses.some(([s, e]) => s <= start && end <= e)) return true;
+      entry.lastIndex = start + 1;
+    }
+    return false;
   });
 }
 

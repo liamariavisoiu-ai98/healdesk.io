@@ -327,14 +327,57 @@ describe("the guard", () => {
     expect(neverSayIn("That would cure it.", ["cure"])).toBe(true);
   });
 
-  test("the never-say matcher reads past the clinic's own name and address, and nothing else", () => {
+  test("the never-say matcher excuses an entry inside the clinic's own name and address, and nowhere else", () => {
     const own = clinicOwnWords({ clinicName: "Painless Laser Studio", address: "12 Painless Way, Suite 4\nSpringfield" });
     expect(own).toEqual(["Painless Laser Studio", "12 Painless Way", "Painless Way", "Suite 4", "Springfield"]);
     expect(neverSayIn("Painless Laser Studio is on Painless Way.", ["painless"], own)).toBe(false);
     expect(neverSayIn("Painless Laser Studio’s team can help.", ["painless"], own)).toBe(false);
     expect(neverSayIn("At Painless Laser Studio it's painless.", ["painless"], own)).toBe(true);
+    // An occurrence outside the name is found however many sit inside it.
+    expect(neverSayIn("Painless Laser Studio: painless, at Painless Way.", ["painless"], own)).toBe(true);
     expect(neverSayIn("Painless Laser Studio is on Painless Way.", ["painless"])).toBe(true);
+    // An entry that runs past the name is not inside it, so the reply is never cut before the list is read.
+    expect(neverSayIn("Painless Laser Studio is the best.", ["Laser Studio is the best"], own)).toBe(true);
     expect(clinicOwnWords({})).toEqual([]);
+  });
+
+  test("a never-say entry naming the clinic, its city or its street is refused on a call, a web chat and the Meta front door", () => {
+    // The verifier's case of 19 October: deleting the clinic's own words
+    // before matching let every one of these through on every channel.
+    const clinicName = "Glow Med Spa";
+    const address = "500 Congress Ave, Austin, TX 78701";
+    const meta = (neverSay: string[]) =>
+      guardContextFor({ clinicName, address, services: [], publishedTimes: [540, 1020], neverSay: neverSayWithDefaults(neverSay) });
+    const call = (neverSay: string[]) => ({ ...FACTS, clinicName, address, neverSay: neverSayWithDefaults(neverSay) });
+    const cases: Array<[string, string]> = [
+      ["cheapest in Austin", "We're the cheapest in Austin."],
+      ["best med spa in Austin", "We're the best med spa in Austin."],
+      ["Glow Med Spa is the best", "Glow Med Spa is the best."],
+      ["Congress Ave", "We're on Congress Ave."],
+      ["Congress Ave", "We're at 500 Congress Ave."],
+    ];
+    for (const [entry, said] of cases) {
+      expect(neverSayIn(said, [entry], clinicOwnWords({ clinicName, address })), entry).toBe(true);
+      expect(guardAssistantReply(said, call([entry])), entry).toEqual({ ok: false, reason: "never_say" });
+      expect(guardReply(`${said} Call the practice to book.`, meta([entry])), entry).toEqual({ ok: false, reason: "a never-say phrase" });
+    }
+    // A competitor named after the clinic's own town.
+    const springfield = { clinicName: "Radiance Med Spa", address: "1 Main St, Springfield" };
+    const rival = ["better than Springfield Skin"];
+    expect(guardAssistantReply("We're better than Springfield Skin.", { ...FACTS, ...springfield, neverSay: rival })).toEqual({
+      ok: false,
+      reason: "never_say",
+    });
+    expect(
+      guardReply(
+        "We're better than Springfield Skin. Call the practice to book.",
+        guardContextFor({ ...springfield, services: [], publishedTimes: [540, 1020], neverSay: rival }),
+      ),
+    ).toEqual({ ok: false, reason: "a never-say phrase" });
+    // And with those entries on the list, the clinic still says who and where it is.
+    const all = cases.map(([entry]) => entry).filter((e) => e !== "Congress Ave");
+    expect(guardAssistantReply("Glow Med Spa is in Austin, with free parking.", call(all))).toEqual({ ok: true });
+    expect(guardReply("Glow Med Spa is in Austin, with free parking. Call the practice to book.", meta(all))).toEqual({ ok: true });
   });
 
   test("no never-say entry may stop the assistant saying it is an AI assistant when asked, or pointing to 911", () => {

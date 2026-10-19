@@ -465,8 +465,9 @@ export type GuardContext = {
   ownFacts?: string;
   /**
    * The never-say list (FrontDoorFacts.neverSay): a reply containing any
-   * entry is refused, matched as a call and a web chat match it (neverSayIn),
-   * past the clinic's own name and address (clinicOwnWords).
+   * entry is refused, matched as a call and a web chat match it (neverSayIn):
+   * excused only where it falls wholly inside the clinic's own name or
+   * address (clinicOwnWords), and never when the entry names them itself.
    */
   neverSay?: readonly string[];
 };
@@ -610,9 +611,11 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   const reason = appointmentDetail(withoutAddress(flat, context.address), context.publishedTimes ?? []);
   if (reason) return { ok: false, reason };
   // The clinic's never-say list, last of all, so a reply refused above keeps
-  // its own reason in the audit row. The label only, never the phrase. Past
-  // the clinic's own name and address, as a call and a web chat read it, so
-  // "Painless Laser Studio" can still say who it is.
+  // its own reason in the audit row. The label only, never the phrase. On the
+  // whole reply, as a call and a web chat read it: an entry is excused only
+  // inside the clinic's own name or address, so "Painless Laser Studio" can
+  // still say who it is, while "cheapest in Austin" or "Glow Med Spa is the
+  // best" is refused (neverSayIn).
   if (context.neverSay && neverSayIn(reply, context.neverSay, clinicOwnWords(context))) return { ok: false, reason: "a never-say phrase" };
   return { ok: true };
 }

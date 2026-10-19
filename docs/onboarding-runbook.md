@@ -14,6 +14,13 @@
 > the exception path: flagged audits, assisted five-minute forwarding calls,
 > the "I cannot get in" route, scrape failures, and the 14-day zero-inbound and
 > 48-hour zero-interaction flags.
+>
+> **Step 8's "Record approval" is gone (19 October 2026)**, with the console's
+> "I checked AYA's answers: audit passed": both cleared a channel's audit with
+> no practice question asked. The agent script is approved, and each channel's
+> audit passed, only by the practice questions, by themselves or by your
+> decision in `/admin/reviews` on a run they flagged. apps/app answers either
+> old operation with a 410.
 
 **Who:** the operator (you, today). **Where:** `/admin/ops` → the clinic's
 "Onboarding checklist, phone, script, go-live" page. **How long:** one 45-minute

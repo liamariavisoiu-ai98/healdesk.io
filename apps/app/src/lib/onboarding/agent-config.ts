@@ -16,9 +16,11 @@ import { completeStep } from "./steps";
  * The agent's words, per clinic.
  *
  * A default is seeded at provisioning from the specialty so no clinic is ever
- * configured with nothing; the operator edits it with the clinic on the
- * onboarding call; the clinic approves a version; go-live requires the
- * approval. Every write screens the text with findClinicalContent() — a
+ * configured with nothing; the clinic's own answers (and the operator's
+ * edits) make each new version; a version is approved only by a pass of the
+ * practice questions that read it (approveAgentConfigVersion, from
+ * lib/engine/practice), the questions' own or a review's of a run they
+ * flagged. Every write screens the text with findClinicalContent() — a
  * greeting that promises safe treatment during pregnancy is refused with the
  * phrase named, not stored and hoped about.
  *
@@ -226,9 +228,9 @@ export async function updateAgentConfig(tx: TenantTx, input: AgentConfigInput): 
 }
 
 /**
- * The practice questions passed this version (lib/engine/practice): it is
- * approved, as an operator's approval would approve it, and only if it is
- * still the current version and not approved already. A version the clinic
+ * The practice questions passed this version (lib/engine/practice), by
+ * themselves or by a review of a run they flagged: it is approved, and only
+ * if it is still the current version and not approved already. A version the clinic
  * changed while the questions ran is never approved by them. True when this
  * call approved it.
  */
@@ -251,7 +253,13 @@ export async function approveAgentConfigVersion(tx: TenantTx, version: number, a
   return true;
 }
 
-/** The clinic approved the current version, via the operator on the call. */
+/**
+ * Approve the current version outright, with no run behind it: for test
+ * fixtures only. No path in the product calls it. The operator's "Record
+ * approval" (ops approveAgentConfig) called it until 19 October 2026, when
+ * it was retired (lib/ops/api.ts, RETIRED_OPERATIONS): a version is approved
+ * only by a pass of the practice questions, through approveAgentConfigVersion.
+ */
 export async function approveAgentConfig(tx: TenantTx, approvedByLabel: string): Promise<AgentConfigRow> {
   const existing = await getAgentConfig(tx);
   if (!existing) throw new AgentConfigError("There is no agent configuration to approve.");

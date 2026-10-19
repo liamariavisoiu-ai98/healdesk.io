@@ -167,7 +167,7 @@ export type ChannelInputs = {
   channel: Channel;
   /** The clinic is offboarding or destroyed: nothing is ready, nothing goes live. */
   leaving: boolean;
-  /** The seam the practice questions replace (lib/channels/audit-seam.ts). */
+  /** The practice questions passed it, by themselves or by a review (lib/channels/audit-seam.ts). */
   auditPassed: boolean;
   /** Our half of the runtime: phone, AYA's number; Meta, the front door; website chat, none. */
   runtimeOurs: boolean;

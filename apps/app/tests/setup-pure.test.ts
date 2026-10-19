@@ -662,7 +662,6 @@ describe("the build tracker", () => {
         failedSection: null,
         failedCount: null,
         triggerSection: null,
-        overridden: false,
         reviewDueOn: null,
         ...over,
       },
@@ -676,7 +675,6 @@ describe("the build tracker", () => {
     expect(passed.left).toEqual([]);
     expect(passed.previewUnlocked).toBe(true);
     expect(engine(run())[1]).toEqual(["done", "AYA answered her practice questions about your practice, and got them right."]);
-    expect(engine(run({ overridden: true }))[1]![1]).toBe("Our team checked AYA's answers with you and approved them.");
     // A change since the pass: checked again before the stage is done.
     expect(engine(run({}, true))).toEqual([
       ["done", "AYA is built from your answers, with your prices, your hours and what she must never say."],

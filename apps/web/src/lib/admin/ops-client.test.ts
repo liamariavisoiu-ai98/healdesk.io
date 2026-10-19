@@ -22,7 +22,6 @@ vi.mock("next/headers", () => ({
 import * as opsClient from "@/lib/admin/ops-client";
 import {
   closeUnfinishedSetup,
-  attestChannelAudit,
   commitRefund,
   confirmWebWidget,
   disconnectCalendar,
@@ -863,14 +862,33 @@ describe("the channels card: each channel's go-live state, and the audit seam", 
     });
   });
 
-  test("attesting a channel's audit sends the clinic and the channel, and reads a refusal as one", async () => {
-    reply({ data: { status: "updated" } });
-    expect(await attestChannelAudit(CLINIC, "voice")).toEqual({ ok: true, data: { status: "updated" } });
-    expect(sent.at(-1)).toEqual({ op: "attestChannelAudit", args: { clinicId: CLINIC, channel: "voice" } });
-    reply({ data: { status: "error", message: "The clinic didn't buy that channel." } });
-    expect(await attestChannelAudit(CLINIC, "meta")).toEqual({
-      ok: true,
-      data: { status: "refused", message: "The clinic didn't buy that channel." },
+  test("no audit is passed by hand: the client can send neither the script approval nor the audit attestation", () => {
+    // apps/app retired both on 19 October 2026: each cleared a channel's
+    // audit with no practice question asked. A decision in the review queue
+    // is the one operator path.
+    for (const name of ["approveAgentConfig", "attestChannelAudit"]) {
+      expect(opsClient, name).not.toHaveProperty(name);
+    }
+    const source = readFileSync(fileURLToPath(new URL("./ops-client.ts", import.meta.url)), "utf8");
+    expect(source).not.toMatch(/"(approveAgentConfig|attestChannelAudit)"/);
+    expect(source).toMatch(/"decidePracticeReview"/);
+  });
+
+  test("a console that still sends a retired operation reads apps/app's 410 as a refusal that changed nothing", async () => {
+    // The order the deploy goes in: a console built before the retirement,
+    // against an apps/app after it. What that console shows, as this reader shows it.
+    reply(
+      {
+        error:
+          "Attesting a channel's audit by hand is retired: only the practice questions pass it, by themselves or through a decision in Reviews.",
+        code: "retired",
+      },
+      410,
+    );
+    expect(await confirmWebWidget(CLINIC)).toEqual({
+      ok: false,
+      code: "refused",
+      message: "The ops API refused this. The reason is in our logs; nothing was changed.",
     });
   });
 });

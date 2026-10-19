@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { NEVER_SAY_DEFAULTS, type Channel } from "@healdesk/catalog";
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, lt, ne, sql } from "drizzle-orm";
 
 import {
   agentConfigs,
@@ -12,7 +12,7 @@ import {
   type PracticeQuestionRun,
 } from "@/db/schema";
 import { assistantFacts } from "@/lib/assistant/facts";
-import { recordAuditPassed, type AuditPassVia } from "@/lib/channels/audit-seam";
+import { recordAuditPassed } from "@/lib/channels/audit-seam";
 import { evaluateChannelsSafely } from "@/lib/channels/events";
 import { frontDoorFacts } from "@/lib/meta/front-door";
 import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
@@ -51,10 +51,10 @@ import {
  *
  * What a run's outcome does:
  *
- *   - passed: approves the agent script's version the run read, as the
- *     operator's approval does (approveAgentConfigVersion), once, and only
- *     while that is still the current version; and once every stage of the
- *     tracker is done, queues O8;
+ *   - passed: approves the agent script's version the run read
+ *     (approveAgentConfigVersion), once, and only while that is still the
+ *     current version; records each channel's audit input, which is what
+ *     fires go-live; and once every stage of the tracker is done, queues O8;
  *   - failed on the clinic's own data: queues O9, naming the section and a
  *     count, and tells ops (practice_question_failed);
  *   - a judge's failure, or a check that failed on our side: opens a review
@@ -65,6 +65,14 @@ import {
  * None of them takes AYA offline: nothing here clears an approval or touches
  * a channel. The gate (practiceQuestionsGate) applies to a channel that has
  * not gone live, never to one that has.
+ *
+ * Only a run passes: the questions themselves, or an operator's decision on
+ * a run they flagged (review.ts), which passes that run's own cases. There
+ * is no approval without a run. The operator's approval of the script,
+ * recorded until 19 October 2026 as a passed run with reason `override`, an
+ * `override_label` and no cases (ops approveAgentConfig, retired), is not
+ * read as a run of the questions anywhere here (readPracticeState,
+ * latestRunVersion), so it passes nothing and hides no real run.
  */
 
 export const PRACTICE_DEBOUNCE_MS = 2 * 60_000;
@@ -541,6 +549,7 @@ export async function recordPracticeRun(
   await finish({ status: "passed" });
   await afterPass(tx, {
     runId: run.id,
+    inputVersion: read.inputVersion,
     agentVersion: read.agentVersion,
     slug: read.slug,
     channels: input.outcomes.map((o) => o.channel),
@@ -571,12 +580,16 @@ export async function closePracticeRun(
 
 /**
  * What a pass does, whether the questions passed or a review passed them:
- * approve the version they read, and O8 once the tracker is complete.
+ * approve the version they read, record each channel's audit input, and O8
+ * once the tracker is complete. Always a run's: its id, and the audit-input
+ * version its cases read, without which nothing is approved or recorded.
  */
 export async function afterPass(
   tx: TenantTx,
   input: {
     runId: string;
+    /** The audit-input version the run's cases read (practice_question_runs.input_version). */
+    inputVersion: string | null;
     agentVersion: number | null;
     slug: string;
     /** The channels whose result passed: each has its audit input recorded. */
@@ -585,6 +598,10 @@ export async function afterPass(
     talkToAyaBuilt?: boolean;
   },
 ): Promise<void> {
+  if (!input.runId || !input.inputVersion) {
+    // A pass is a run's cases at the version they read: never written without one.
+    throw new Error("A pass of the practice questions needs its run and its audit-input version.");
+  }
   if (input.agentVersion !== null) {
     const approved = await approveAgentConfigVersion(
       tx,
@@ -598,7 +615,7 @@ export async function afterPass(
         .where(eq(practiceQuestionRuns.id, input.runId));
     }
   }
-  await recordAuditInputs(tx, input.channels, "practice_questions", input.now);
+  await recordAuditInputs(tx, input.channels, input.now);
   await queueReadyEmail(tx, {
     slug: input.slug,
     now: input.now,
@@ -618,16 +635,11 @@ export async function afterPass(
 async function recordAuditInputs(
   tx: TenantTx,
   channels: readonly Channel[],
-  via: AuditPassVia,
   now: Date,
 ): Promise<void> {
-  for (const channel of channels) await recordAuditPassed(tx, channel, { via });
+  for (const channel of channels) await recordAuditPassed(tx, channel);
   if (channels.length > 0) {
-    await evaluateChannelsSafely(tx, {
-      now,
-      actor: via === "ops_attested" ? "ops" : "system",
-      goLiveVia: via === "ops_attested" ? "operator" : "practice_questions",
-    });
+    await evaluateChannelsSafely(tx, { now, actor: "system", goLiveVia: "practice_questions" });
   }
 }
 
@@ -654,6 +666,11 @@ export async function queueReadyEmail(
 // What the tracker, Home and the gate read
 // -----------------------------------------------------------------------------
 
+/**
+ * Where the clinic's practice questions stand. An operator's override
+ * (reason `override`, retired) is not a run of the questions and is never
+ * the latest run.
+ */
 export async function readPracticeState(
   tx: Pick<TenantTx, "db" | "clinicId">,
 ): Promise<PracticeState> {
@@ -673,6 +690,7 @@ export async function readPracticeState(
     .where(
       and(
         eq(practiceQuestionRuns.clinicId, tx.clinicId),
+        ne(practiceQuestionRuns.reason, "override"),
         inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
         isNotNull(practiceQuestionRuns.finishedAt),
       ),
@@ -704,14 +722,13 @@ export async function readPracticeState(
       failedSection: latest.failedSection,
       failedCount: latest.failedCount,
       triggerSection: latest.triggerSection,
-      overridden: latest.overrideLabel !== null,
       reviewDueOn,
     },
   };
 }
 
 export type PracticeGate =
-  | { open: true; why: "live" | "passed" | "override" }
+  | { open: true; why: "live" | "passed" }
   | {
       open: false;
       why: "not_run" | "pending" | "failed" | "in_review" | "error" | "channel_not_passed";
@@ -722,8 +739,10 @@ export type PracticeGate =
  * "gate only a clinic's first go-live, or a new channel's, never a live
  * channel"). A channel already live is never held back, whatever the latest
  * run says. One that is not live needs the latest run passed, with its own
- * result passed (or the operator's override), and nothing changed since.
- * For the go-live event's writer (WP1, WP2), which asks it per channel.
+ * result passed, and nothing changed since: the questions' pass or a
+ * review's, never an approval without a run. For the go-live event's writer
+ * (WP1, WP2), which asks it per channel. drizzle/0097's
+ * app_practice_gate_open is the SQL.
  */
 export async function practiceQuestionsGate(
   tx: Pick<TenantTx, "db" | "clinicId">,
@@ -739,7 +758,6 @@ export async function practiceQuestionsGate(
   if (state.pending) return { open: false, why: "pending" };
   if (!state.latest) return { open: false, why: "not_run" };
   if (state.latest.status !== "passed") return { open: false, why: state.latest.status };
-  if (state.latest.overridden) return { open: true, why: "override" };
   const [result] = await tx.db
     .select({ status: practiceQuestionResults.status })
     .from(practiceQuestionResults)
@@ -753,54 +771,6 @@ export async function practiceQuestionsGate(
   return result?.status === "passed"
     ? { open: true, why: "passed" }
     : { open: false, why: "channel_not_passed" };
-}
-
-// -----------------------------------------------------------------------------
-// The operator's approval, kept as an override
-// -----------------------------------------------------------------------------
-
-/**
- * The operator approved the agent script (ops approveAgentConfig): recorded
- * as a passed run with the operator's label, so the tracker and the gate
- * read it as the practice questions would, and the record says it was a
- * person, not the questions. Any open review is superseded by it.
- */
-export async function recordOperatorOverride(
-  tx: TenantTx,
-  input: { label: string; now?: Date },
-): Promise<string> {
-  const now = input.now ?? new Date();
-  const read = await readPracticeInputs(tx, now);
-  await tx.db
-    .update(auditReviewQueue)
-    .set({ status: "superseded" })
-    .where(openPracticeReviews(tx));
-  const [run] = await tx.db
-    .insert(practiceQuestionRuns)
-    .values({
-      clinicId: tx.clinicId,
-      status: "passed",
-      reason: "override",
-      requestedAt: now,
-      runAfter: now,
-      startedAt: now,
-      finishedAt: now,
-      agentVersion: read?.agentVersion ?? null,
-      casesVersion: PRACTICE_CASES_VERSION,
-      inputVersion: read?.inputVersion ?? null,
-      approvedVersion: read?.agentVersion ?? null,
-      overrideLabel: input.label.slice(0, 200),
-    })
-    .returning({ id: practiceQuestionRuns.id });
-  tx.audit.record({
-    action: "update",
-    resourceType: "practice_question_run",
-    resourceId: run!.id,
-    metadata: { override: true, version: read?.agentVersion ?? null },
-  });
-  // The operator cleared every bought channel's audit, as an attestation does.
-  await recordAuditInputs(tx, read?.channels.map((c) => c.channel) ?? [], "ops_attested", now);
-  return run!.id;
 }
 
 // -----------------------------------------------------------------------------
@@ -836,7 +806,7 @@ export async function claimPastDueReviews(tx: TenantTx, now: Date): Promise<stri
   return rows.map((r) => r.id);
 }
 
-/** The clinic's latest run whose outcome stands, for the sweep. */
+/** The clinic's latest run of the questions, for the sweep: an override is not one. */
 export async function latestRunVersion(
   tx: TenantTx,
 ): Promise<{ inputVersion: string | null; pending: boolean } | null> {
@@ -846,7 +816,12 @@ export async function latestRunVersion(
       status: practiceQuestionRuns.status,
     })
     .from(practiceQuestionRuns)
-    .where(eq(practiceQuestionRuns.clinicId, tx.clinicId))
+    .where(
+      and(
+        eq(practiceQuestionRuns.clinicId, tx.clinicId),
+        ne(practiceQuestionRuns.reason, "override"),
+      ),
+    )
     .orderBy(desc(practiceQuestionRuns.requestedAt))
     .limit(1);
   if (!latest) return null;

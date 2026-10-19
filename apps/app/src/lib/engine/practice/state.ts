@@ -9,7 +9,11 @@ import type { PracticeRunStatus, PracticeSection } from "./types";
 export type PracticeState = {
   /** A run is queued or running: something changed and has not been checked yet. */
   pending: boolean;
-  /** The latest run whose outcome stands (passed, failed, in review, error), or null before the first. */
+  /**
+   * The latest run of the questions whose outcome stands (passed, failed, in
+   * review, error), or null before the first. Never an operator's override:
+   * a pass is a run's cases, the questions' own or a review's.
+   */
   latest: {
     id: string;
     status: Extract<PracticeRunStatus, "passed" | "failed" | "in_review" | "error">;
@@ -19,8 +23,6 @@ export type PracticeState = {
     failedCount: number | null;
     /** The section whose change asked for the run, when one did. */
     triggerSection: PracticeSection | null;
-    /** An operator's approval of the script, recorded as a pass. */
-    overridden: boolean;
     /** The review's promised day (YYYY-MM-DD, New York), while one is open. */
     reviewDueOn: string | null;
   } | null;

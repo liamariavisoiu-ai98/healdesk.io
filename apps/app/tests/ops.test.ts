@@ -10,6 +10,8 @@ import {
   isIanaTimeZone,
   isMutating,
   isOpName,
+  parseEnvelope,
+  RETIRED_OPERATIONS,
   runOperation,
   type Operator,
 } from "@/lib/ops/api";
@@ -346,6 +348,39 @@ describe("inbound only: the call-back and template operations are gone", () => {
   test("neither the call-back switch nor the WhatsApp template op is an operation any more", () => {
     expect(isOpName("setOutboundCallbacks")).toBe(false);
     expect(isOpName("setWhatsAppTemplate")).toBe(false);
+  });
+});
+
+describe("an operator never passes an audit by hand (19 October 2026)", () => {
+  test("the script approval and the audit attestation are not operations, and the envelope answers each with a 410 of its own before any work", () => {
+    // Both cleared a channel's audit with no practice question asked. The
+    // review queue's decision (decidePracticeReview) is the one operator path.
+    expect(Object.keys(RETIRED_OPERATIONS).sort()).toEqual([
+      "approveAgentConfig",
+      "attestChannelAudit",
+    ]);
+    for (const op of ["approveAgentConfig", "attestChannelAudit"]) {
+      expect(isOpName(op), op).toBe(false);
+      const parsed = parseEnvelope(
+        JSON.stringify({ op, args: { clinicId: "3fa85f64-5717-4562-b3fc-2c963f66afa6" } }),
+      );
+      expect(parsed, op).toEqual({
+        ok: false,
+        outcome: { status: 410, body: { error: RETIRED_OPERATIONS[op], code: "retired" } },
+      });
+    }
+    expect(RETIRED_OPERATIONS.approveAgentConfig).toMatch(
+      /practice questions approve it when they pass/,
+    );
+    expect(RETIRED_OPERATIONS.attestChannelAudit).toMatch(/only the practice questions pass it/);
+    expect(isOpName("decidePracticeReview")).toBe(true);
+    // An operation never heard of is still unknown, and nothing inherited is retired.
+    for (const op of ["approveEverything", "toString", "constructor"]) {
+      expect(parseEnvelope(JSON.stringify({ op })), op).toMatchObject({
+        ok: false,
+        outcome: { status: 400, body: { code: "unknown_operation" } },
+      });
+    }
   });
 });
 

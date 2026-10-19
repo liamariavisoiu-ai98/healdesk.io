@@ -5557,8 +5557,9 @@ export const clinicProviderServices = pgTable(
  * which tells a run whose inputs changed while it ran (`superseded`).
  * `failed_section` and `failed_count` are what O9 names when a case failed
  * on the clinic's own data. `override_label` is an operator's approval of
- * the script recorded as a passed run (ops approveAgentConfig), the path
- * that stays as an override.
+ * the script recorded as a passed run with no cases (ops approveAgentConfig),
+ * retired on 19 October 2026: kept on the rows it named, and never read as a
+ * run of the questions (drizzle/0097).
  *
  * Synthetic: no patient is in any run, and nothing here is PHI. Tenant RLS,
  * forced; the runtime role may read, add and move a run on, never delete

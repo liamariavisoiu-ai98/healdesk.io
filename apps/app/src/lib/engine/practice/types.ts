@@ -142,8 +142,11 @@ export const PRACTICE_COMPLETED_STATUSES = [
 
 /**
  * What asked for a run: a Knowledge save, a Settings save, a setup screen,
- * an operator, the hourly sweep (inputs changed and nothing asked), or an
- * operator's approval recorded as an override.
+ * an operator, or the hourly sweep (inputs changed and nothing asked).
+ * `override` is kept for the rows it named: an operator's approval of the
+ * script recorded as a passed run with no cases (ops approveAgentConfig),
+ * retired on 19 October 2026. Nothing writes one now, and nothing reads one
+ * as a run of the questions (store.ts, readPracticeState; drizzle/0097).
  */
 export const PRACTICE_RUN_REASONS = [
   "knowledge",

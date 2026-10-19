@@ -208,9 +208,7 @@ function practiceStage(practice: PracticeState): Stage {
     return {
       ...stage,
       state: "done",
-      detail: latest?.overridden
-        ? "Our team checked AYA's answers with you and approved them."
-        : "AYA answered her practice questions about your practice, and got them right.",
+      detail: "AYA answered her practice questions about your practice, and got them right.",
     };
   }
   if (practice.pending) {

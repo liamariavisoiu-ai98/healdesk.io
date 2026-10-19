@@ -191,7 +191,9 @@ type OperatorOp =
   | "reopenOnboardingStep"
   | "setPhoneSettings"
   | "updateAgentConfig"
-  | "approveAgentConfig"
+  // The agent script is approved by a pass of the practice questions, never
+  // by hand: apps/app retired approveAgentConfig (19 October 2026), and the
+  // review queue's decision below is the one operator path.
   | "goLive"
   | "getClinicCare"
   | "addReportRecipient"
@@ -230,9 +232,8 @@ type OperatorOp =
   | "startForwardingTest"
   | "listClinicHealth"
   | "recordClinicTouch"
-  // Channel events: the operator says a channel's audit passed, until the
-  // practice questions exist (apps/app lib/channels/audit-seam.ts).
-  | "attestChannelAudit"
+  // Channel events: a channel's audit passes only on the practice questions
+  // (apps/app lib/channels/audit-seam.ts); attestChannelAudit is retired.
   // Website chat's line, confirmed on the clinic's site by the operator who looked.
   | "confirmWebWidget"
   | "attachMetaChannel"
@@ -2343,10 +2344,6 @@ export function updateAgentConfig(
   return simple("updateAgentConfig", { clinicId, ...input });
 }
 
-export function approveAgentConfig(clinicId: string, approvedBy: string) {
-  return simple("approveAgentConfig", { clinicId, approvedBy });
-}
-
 export function goLive(clinicId: string): Promise<OpsResult<GoLiveOutcome>> {
   return callOps("goLive", "write", { clinicId }, (value) => {
     const data = object(value, "goLive");
@@ -3764,15 +3761,6 @@ export function attachMetaChannel(
 
 export function setMetaFrontDoor(clinicId: string, enabled: boolean) {
   return careWrite("setMetaFrontDoor", { clinicId, enabled });
-}
-
-/**
- * A channel's audit passed, as the operator attests it until the practice
- * questions exist: recorded once by apps/app, which then moves the channel
- * on as far as its other inputs allow.
- */
-export function attestChannelAudit(clinicId: string, channel: ChannelId) {
-  return careWrite("attestChannelAudit", { clinicId, channel });
 }
 
 /**

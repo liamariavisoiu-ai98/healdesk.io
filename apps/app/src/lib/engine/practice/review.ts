@@ -14,7 +14,12 @@ import { publicUrl } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { sectionPath } from "./sections";
-import { afterPass, requestPracticeQuestions } from "./store";
+import {
+  afterPass,
+  readPracticeInputs,
+  readPracticeState,
+  requestPracticeQuestions,
+} from "./store";
 import type { AuditReviewStatus, PracticeCaseResult, PracticeSection } from "./types";
 
 /**
@@ -26,10 +31,24 @@ import type { AuditReviewStatus, PracticeCaseResult, PracticeSection } from "./t
  * what the checks and the judge made of it, ids and dates. No patient is in
  * any of it.
  *
- * A decision:
+ * This is the one way a person at healdesk passes the practice questions
+ * (spec, Stage 3, "If anything is flagged, it goes to a short internal
+ * review"; principle 7, "human review only when the audit flags
+ * something"). There is no approval without a run: the operator's approval
+ * of the script and the attestation of a channel's audit, which passed with
+ * no case asked, were retired on 19 October 2026 (lib/ops/api.ts,
+ * RETIRED_OPERATIONS).
+ *
+ * A decision is about the flagged run and nothing else: its own cases, at
+ * the audit-input version they read. It is refused for a run no longer in
+ * review, for one with no cases recorded, and for one whose inputs have
+ * changed since (a price edited, a never-say entry added): its answers are
+ * then not the ones AYA would give, and the run asked for by that change,
+ * asked for here if none waits, replaces the review.
  *   - pass: the run passes, as if the questions had: its channels' results
  *     are passed, the agent script's version it read is approved if it is
- *     still current, and O8 follows once the tracker is complete;
+ *     still current, each channel's audit input is recorded, which fires
+ *     go-live, and O8 follows once the tracker is complete;
  *   - fail: the run stays failed, and, when the operator names the section
  *     the clinic must fix, O9 tells the clinic what to fix and where.
  * Either is recorded with the operator's address, in the review, the
@@ -220,6 +239,12 @@ export async function decidePracticeReview(input: {
         )
         .limit(1);
       if (!run) return { status: "refused", message: "The run this review is about is not there." };
+      if (run.status !== "in_review") {
+        return {
+          status: "refused",
+          message: "The run this review is about is no longer waiting on a review.",
+        };
+      }
       const label = input.operatorLabel.slice(0, 200);
       const results = await tx.db
         .select({
@@ -229,7 +254,30 @@ export async function decidePracticeReview(input: {
           cases: practiceQuestionResults.cases,
         })
         .from(practiceQuestionResults)
-        .where(eq(practiceQuestionResults.runId, run.id));
+        .where(
+          and(
+            eq(practiceQuestionResults.runId, run.id),
+            eq(practiceQuestionResults.clinicId, tx.clinicId),
+          ),
+        );
+      // The decision is about this run's own cases, at the version they read.
+      if (!run.inputVersion || results.length === 0 || results.some((r) => r.cases.length === 0)) {
+        return {
+          status: "refused",
+          message: "This run has no cases recorded, so there is nothing to decide.",
+        };
+      }
+      const current = await readPracticeInputs(tx, now);
+      if (!current || current.inputVersion !== run.inputVersion) {
+        if (current && !(await readPracticeState(tx)).pending) {
+          await requestPracticeQuestions(tx, { reason: "ops", now });
+        }
+        return {
+          status: "refused",
+          message:
+            "What the practice questions read has changed since this run, so its answers are not the ones AYA would give now. The run that change asked for replaces this review: decide that one if it is flagged too.",
+        };
+      }
 
       if (input.decision === "pass") {
         await tx.db
@@ -250,6 +298,7 @@ export async function decidePracticeReview(input: {
         }
         await afterPass(tx, {
           runId: run.id,
+          inputVersion: run.inputVersion,
           agentVersion: run.agentVersion,
           slug: await slugOf(tx),
           channels: results.filter((r) => r.status !== "error").map((r) => r.channel),
@@ -274,7 +323,7 @@ export async function decidePracticeReview(input: {
             failedCount: section ? Math.max(1, count) : null,
           })
           .where(eq(practiceQuestionRuns.id, run.id));
-        if (section && run.inputVersion) {
+        if (section) {
           await enqueuePlanNotice(
             tx.db,
             tx.clinicId,

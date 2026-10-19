@@ -1219,7 +1219,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "The engine serves the bubble the pasted line loads (/widget/v1.js): it shows the AI line first, ends a chat when the visitor ends it or leaves the page, and becomes the website contact form, or the engine's line saying to call the practice on its published number (the website's own number where none is published or the engine cannot be reached), whenever AYA is not answering. Once a clinic's script is approved, by you or by a passing practice-question run, the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. Website chat still goes live only when you confirm in Ops that the line is on the clinic's site: the first chat opened from that site asks you to look, because a page's address proves nothing. Not yet tried on a real clinic's website.",
+      "The engine serves the bubble the pasted line loads (/widget/v1.js): it shows the AI line first, ends a chat when the visitor ends it or leaves the page, and becomes the website contact form, or the engine's line saying to call the practice on its published number (the website's own number where none is published or the engine cannot be reached), whenever AYA is not answering. Once website chat is ready on our side, which is once its practice questions pass (by themselves, or by your decision in Reviews on a run they flagged; nothing else passes them), the set-up wizard hands the clinic the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. Website chat still goes live only when you confirm in Ops that the line is on the clinic's site: the first chat opened from that site asks you to look, because a page's address proves nothing. Not yet tried on a real clinic's website.",
   },
   {
     id: "app-claude",
@@ -1235,7 +1235,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "The practice questions run only once you switch the practice-questions job on in Ops, and every run spends tokens on this key; while it is off, only your approval clears a clinic's script. Talk to your AYA opens once a clinic's build tracker is complete, stores nothing, and is capped per conversation, per device and per practice each day.",
+      "The practice questions run only once you switch the practice-questions job on in Ops, and every run spends tokens on this key; while it is off, nothing clears a clinic's script and no channel goes live, because there is no approval by hand (retired 19 October 2026): a run passes by itself, or by your decision in Reviews when it flags something. Talk to your AYA opens once a clinic's build tracker is complete, stores nothing, and is capped per conversation, per device and per practice each day.",
   },
   {
     id: "meta-app",

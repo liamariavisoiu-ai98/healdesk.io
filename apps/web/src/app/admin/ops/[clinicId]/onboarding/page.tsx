@@ -5,9 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { requireOperator } from "@/lib/admin/operator";
 import {
-  approveAgentConfig as approveUpstream,
   attachMetaChannel as metaChannelUpstream,
-  attestChannelAudit as attestAuditUpstream,
   confirmWebWidget as confirmWidgetUpstream,
   setMetaFrontDoor as metaSwitchUpstream,
   setMetaPlatform as metaPlatformUpstream,
@@ -25,7 +23,6 @@ import {
   startForwardingTest as forwardingTestUpstream,
   updateAgentConfig as agentUpstream,
   type AgentService,
-  type ChannelId,
   type DepositPolicy,
   type MetaPlatform,
 } from "@/lib/admin/ops-client";
@@ -41,7 +38,9 @@ import { OnboardingPanel } from "./OnboardingPanel";
  * lacks. The distinction it draws still holds: nothing here is patient-level.
  * The page shows the checklist, the phone facts, the forwarding codes, and
  * the words the agent will say — all clinic configuration, the same class
- * the overview function already exposes — and the go-live switch. The
+ * the overview function already exposes — and where go-live stands. No
+ * control here approves the agent's words or passes a channel's audit: the
+ * practice questions do both, and a run they flag waits in /admin/reviews. The
  * operator identity for every write comes from the session cookie inside
  * ops-client, never from this page.
  */
@@ -92,12 +91,6 @@ export default async function OnboardingPage({
   }) {
     "use server";
     const result = await agentUpstream(clinicId, input);
-    revalidatePath(path);
-    return result;
-  }
-  async function approveAgent(approvedBy: string) {
-    "use server";
-    const result = await approveUpstream(clinicId, approvedBy);
     revalidatePath(path);
     return result;
   }
@@ -173,15 +166,8 @@ export default async function OnboardingPage({
     return result;
   }
 
-  // Channel events: the operator says a channel's audit passed, until the
-  // practice questions exist. The clinic's id is this page's.
-  async function attestAudit(channel: ChannelId) {
-    "use server";
-    const result = await attestAuditUpstream(clinicId, channel);
-    revalidatePath(path);
-    return result;
-  }
-
+  // Channel events. No audit is passed here: only the practice questions
+  // pass one, by themselves or through a decision in /admin/reviews.
   async function confirmWidget() {
     "use server";
     const result = await confirmWidgetUpstream(clinicId);
@@ -193,9 +179,9 @@ export default async function OnboardingPage({
     <OnboardingPanel
       view={view}
       actions={{
-        completeStep, reopenStep, savePhone, saveAgent, approveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
+        completeStep, reopenStep, savePhone, saveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
         saveRequirements, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
-        disconnectCalendar, attestAudit, confirmWidget,
+        disconnectCalendar, confirmWidget,
       }}
     />
   );

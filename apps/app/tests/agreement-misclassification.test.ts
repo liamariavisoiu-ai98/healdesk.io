@@ -74,7 +74,8 @@ const { signAgreement } = await import("@/lib/agreements");
 const { flagInsuranceMismatch, insuranceMismatch, listAgreementReviews } =
   await import("@/lib/agreements/misclassification");
 const { listPracticeReviews } = await import("@/lib/engine/practice/review");
-const { recordOperatorOverride } = await import("@/lib/engine/practice/store");
+const { claimPracticeRun, readPracticeInputs, recordPracticeRun, requestPracticeQuestions } =
+  await import("@/lib/engine/practice/store");
 const { parseEnvelope, runOperation } = await import("@/lib/ops/api");
 const { provisionClinic } = await import("@/lib/provisioning");
 const { withTenant } = await import("@/lib/tenant");
@@ -234,12 +235,45 @@ describeDb("the misclassification review", () => {
       reviews: [{ clinicId: flagged.clinicId, status: "open" }],
     });
 
-    // A run of the practice questions, or the operator's approval, supersedes
-    // the open practice-questions reviews and leaves this one alone.
+    // A run of the practice questions supersedes the open practice-questions
+    // reviews and leaves this one alone (the operator's approval, which did
+    // too, was retired on 19 October 2026).
+    const now = new Date();
     await withTenant({ clinicId: flagged.clinicId, actor: ACTOR }, (tx) =>
-      recordOperatorOverride(tx, { label: "ops@healdesk.test" }),
+      requestPracticeQuestions(tx, { reason: "ops", now: new Date(now.getTime() - 5 * 60_000) }),
     );
-    expect((await reviewsOf(flagged.clinicId))[0]!.status).toBe("open");
+    const {
+      rows: [queued],
+    } = await inTenant(flagged.clinicId, (client) =>
+      client.query<{ id: string }>(`select id from practice_question_runs where status = 'queued'`),
+    );
+    await withTenant({ clinicId: flagged.clinicId, actor: ACTOR }, async (tx) => {
+      const run = (await claimPracticeRun(tx, queued!.id, now))!;
+      const read = (await readPracticeInputs(tx, now))!;
+      await recordPracticeRun(tx, {
+        run,
+        // Asked as though the answers were set up, so the run records its outcome.
+        read: {
+          ...read,
+          ready: true,
+          channels: read.channels.length ? read.channels : [{ channel: "web" } as never],
+        },
+        outcomes: [
+          {
+            channel: "web",
+            inputVersion: "a".repeat(64),
+            status: "in_review",
+            cases: [
+              { id: "hostile", status: "review", asked: [], answered: [], sources: [], checks: [] },
+            ],
+          },
+        ],
+        now,
+      });
+    });
+    const after = await reviewsOf(flagged.clinicId);
+    expect(after.map((r) => r.kind).sort()).toEqual(["agreement_kind", "practice_questions"]);
+    expect(after.find((r) => r.kind === "agreement_kind")!.status).toBe("open");
   });
 
   test("decided by the practice's answer: No keeps the DPA; Yes sends the BAA to sign", async () => {

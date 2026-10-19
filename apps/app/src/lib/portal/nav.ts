@@ -37,12 +37,13 @@ const SECTIONS: readonly { section: PortalSection; label: string; path: string }
   { section: "billing", label: "Billing", path: "/billing" },
 ];
 
-/** The screens that exist in this build. Bookings joins in M5. */
+/** The screens that exist in this build. */
 const BUILT: ReadonlySet<PortalSection> = new Set<PortalSection>([
   "home",
   "settings",
   "knowledge",
   "conversations",
+  "bookings",
   "billing",
 ]);
 

@@ -2,10 +2,10 @@ import { googleEventIdFor, HEALDESK_EVENT_MARKER, type CanonicalSlot, type FakeG
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest";
 
 import { arrangeSlots, namedWeekdays, slotLabel, writableConnection, writeToCalendar } from "@/lib/booking/calendar";
-import { decideBookingRequest, resolveBookingRequest } from "@/lib/meta/booking-requests";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { deskDecide, deskView } from "./setup/desk";
 import { deskLocation, deskTime, freshGoogle, installGoogleEnv, phoneRequest, restoreGoogleEnv } from "./setup/desk-calendar";
 import { inTenant } from "./setup/factories";
 
@@ -103,13 +103,13 @@ describeDb("the calendar write, against Google", () => {
     const manual = await deskLocation(google, "cal-manual", { bookingSystem: "mindbody" });
     expect(await withTenant({ clinicId: manual.clinicId, actor: ACTOR }, (tx) => writableConnection(tx))).toBeNull();
     const none = await phoneRequest(manual.clinicId);
-    expect(await resolveBookingRequest(none.token)).toMatchObject({ calendar: null, alternativeWindows: ["Friday morning"], treatment: "Consultation" });
+    expect(await deskView(none.token)).toMatchObject({ calendar: null, alternativeWindows: ["Friday morning"], treatment: "Consultation" });
 
     const f = await deskLocation(google, "cal-list");
     const writable = await withTenant({ clinicId: f.clinicId, actor: ACTOR }, (tx) => writableConnection(tx));
     expect(writable).toMatchObject({ connectionId: f.connectionId, provider: "google_calendar", phiBasis: "calendar_terms", calendarId: "primary" });
     const r = await phoneRequest(f.clinicId);
-    const opened = await resolveBookingRequest(r.token);
+    const opened = await deskView(r.token);
     expect(opened).toMatchObject({ calendar: { writable: true }, preferredWindow: "Thursday afternoon", alternativeWindows: ["Friday morning"] });
     const listed = opened!.calendar!.slots;
     expect(listed.length).toBeGreaterThan(0);
@@ -125,7 +125,7 @@ describeDb("the calendar write, against Google", () => {
     const f = await deskLocation(google, "cal-ok");
     const r = await phoneRequest(f.clinicId, { service: "facial", phone: "+15550104242" });
     const when = deskTime(3, 10);
-    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
+    const decided = await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when });
     expect(decided).toMatchObject({ outcome: "decided", followUp: null, calendarWrite: "written" });
 
     const rows = await appointmentRow(f.clinicId);
@@ -156,8 +156,8 @@ describeDb("the calendar write, against Google", () => {
     expect(JSON.stringify(body)).not.toMatch(/5550104242|Patient|@/);
 
     // The page: added. A second confirm is already decided, and a second write finds the row written.
-    expect(await resolveBookingRequest(r.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "written", error: null }, calendar: null });
-    expect((await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when })).outcome).toBe("already-decided");
+    expect(await deskView(r.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "written", error: null }, calendar: null });
+    expect((await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: when })).outcome).toBe("already-decided");
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!)).toBe("written");
     expect(inserts()).toHaveLength(1);
     const audit = await inTenant(f.clinicId, (client) => client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'appointment' and metadata->>'calendarWrite' is not null`));
@@ -168,7 +168,7 @@ describeDb("the calendar write, against Google", () => {
     const f = await deskLocation(google, "cal-vet", { specialty: "veterinary" });
     const r = await phoneRequest(f.clinicId);
     await inTenant(f.clinicId, (client) => client.query(`update contacts set full_name = '555 0100' where id = $1`, [r.contactId]));
-    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 11) });
+    const decided = await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 11) });
     expect(decided.calendarWrite).toBe("written");
     expect((inserts()[0]!.json as { summary: string }).summary).toBe("Client – Consultation");
   });
@@ -177,11 +177,11 @@ describeDb("the calendar write, against Google", () => {
     const f = await deskLocation(google, "cal-fail");
     const r = await phoneRequest(f.clinicId);
     google.failNext({ on: "insert", status: 400, reason: "badRequest" });
-    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 12) });
+    const decided = await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 12) });
     expect(decided).toMatchObject({ outcome: "decided", calendarWrite: "failed" });
     const [row] = await appointmentRow(f.clinicId);
     expect(row).toMatchObject({ calendar_write_status: "failed", external_appointment_id: null, calendar_written_at: null });
-    expect(await resolveBookingRequest(r.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "failed" } });
+    expect(await deskView(r.token)).toMatchObject({ status: "confirmed", calendarWrite: { status: "failed" } });
     // Not retried by the plain path; the ops retry reads back and then creates.
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!)).toBe("failed");
     expect(await writeToCalendar(f.clinicId, decided.appointmentId!, { fromFailed: true })).toBe("written");
@@ -193,7 +193,7 @@ describeDb("the calendar write, against Google", () => {
     const f = await deskLocation(google, "cal-timeout");
     const r = await phoneRequest(f.clinicId);
     google.failNext({ on: "insert", status: 503, reason: "backendError" });
-    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 13) });
+    const decided = await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 13) });
     expect(decided).toMatchObject({ outcome: "decided", calendarWrite: "unknown" });
     expect((await appointmentRow(f.clinicId))[0]).toMatchObject({ calendar_write_status: "unknown", external_appointment_id: null });
 
@@ -217,7 +217,7 @@ describeDb("the calendar write, against Google", () => {
   test("a write in flight is not started twice, and a location whose system does not read Google gets no write at all", async () => {
     const f = await deskLocation(google, "cal-guard");
     const r = await phoneRequest(f.clinicId);
-    const decided = await decideBookingRequest(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 14) });
+    const decided = await deskDecide(r.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 14) });
     expect(decided.calendarWrite).toBe("written");
     await inTenant(f.clinicId, (client) =>
       client.query(`update appointments set calendar_write_status = 'writing', calendar_write_claimed_at = clock_timestamp() where id = $1`, [decided.appointmentId]),
@@ -228,7 +228,7 @@ describeDb("the calendar write, against Google", () => {
 
     const manual = await deskLocation(google, "cal-none", { bookingSystem: "mindbody" });
     const m = await phoneRequest(manual.clinicId);
-    const bare = await decideBookingRequest(m.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 14) });
+    const bare = await deskDecide(m.token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: deskTime(3, 14) });
     expect(bare).toMatchObject({ outcome: "decided", calendarWrite: "not-connected" });
     expect((await appointmentRow(manual.clinicId))[0]).toMatchObject({ calendar_write_status: "none", booking_origin: null, calendar_id: null });
     expect(inserts()).toHaveLength(1);

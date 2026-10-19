@@ -29,15 +29,17 @@ import type { EmailTemplate } from "./types";
  * monthly price, the setup fee's rule and its receipt
  * (Stripe's hosted page for the paid first invoice: no separate receipt goes
  * for that invoice, contracts §3), how to cancel, and the Terms version
- * accepted at checkout. Then the way back into setup: a fresh
- * single-use "Continue setup" link for 72 hours, which makes this a link
- * email (X1.5), sent straight and never through the outbox. Each bought
- * channel's status is in words, never a date (owner, 6 October 2026). Help
- * closes it.
+ * accepted at checkout, with the signed agreement's download. Then the way
+ * back into setup: a fresh single-use "Continue setup" link for 72 hours,
+ * which makes this a link email (X1.5), sent straight and never through the
+ * outbox. Each bought channel's status is in words, never a date (owner,
+ * 6 October 2026). Help closes it.
  *
- * Cancelling before the plan starts is a reply to this email while Billing's
- * Auto-renew switch is still to come: the one route that exists today, and
- * the one it names.
+ * Cancelling online is Billing's Auto-renew switch (plan Part F6): off before
+ * the plan starts means it never starts and nothing more is charged. The
+ * email names the switch and links Billing, as it names the agreement and
+ * links its download; both are portal pages, behind the clinic's sign-in,
+ * so neither link carries a token (X1.5: only "Continue setup" does).
  */
 
 export type WelcomePayload = {
@@ -62,6 +64,10 @@ export type WelcomePayload = {
   helpPhoneE164: string | null;
   /** This app's /help/call, while a scheduling page is set. */
   callUrl: string | null;
+  /** publicUrl("/c/<slug>/billing#switches"): Auto-renew, the way to cancel online. */
+  billingUrl: string;
+  /** publicUrl("/c/<slug>/billing/agreement"): the signed agreement, as a PDF. */
+  agreementUrl: string;
 };
 
 export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
@@ -132,14 +138,16 @@ export const renderWelcome: EmailTemplate<WelcomePayload> = (payload, ctx) => {
     },
     {
       type: "paragraph",
-      text: "To cancel before your plan starts, reply to this email and we'll cancel it for you. Nothing more is charged.",
+      text: "To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won't start, and nothing more is charged.",
     },
+    { type: "action", label: "Open Billing", url: payload.billingUrl },
     {
       type: "paragraph",
       text: payload.version
-        ? `Your order is under healdesk's Terms of Service, version ${payload.version}, at healdesk.io/terms.`
-        : "Your order is under healdesk's Terms of Service, at healdesk.io/terms.",
+        ? `Your order is under healdesk's Terms of Service, version ${payload.version}, at healdesk.io/terms. Your signed agreement is in Billing too.`
+        : "Your order is under healdesk's Terms of Service, at healdesk.io/terms. Your signed agreement is in Billing too.",
     },
+    { type: "action", label: "Download your signed agreement (PDF)", url: payload.agreementUrl },
     { type: "paragraph", text: helpLine(payload, audience) },
   ];
   if (payload.callUrl) {
@@ -189,6 +197,8 @@ export const WELCOME_ENTRY: TemplateEntry<WelcomePayload> = {
       setupEndsOn: "2026-11-06",
       helpPhoneE164: "+18885550100",
       callUrl: publicUrl("/help/call"),
+      billingUrl: publicUrl("/c/glow-med-spa/billing#switches"),
+      agreementUrl: publicUrl("/c/glow-med-spa/billing/agreement"),
     };
   },
 };

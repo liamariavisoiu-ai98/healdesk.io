@@ -487,12 +487,15 @@ describe("the menu", () => {
       href: "/c/glow/conversations",
       current: true,
     });
-    // Bookings is not in this build, whatever the clinic opened.
+    // Bookings links only once the clinic has opened it too (package E).
+    expect(
+      portalNav("glow", "home", ["conversations"]).find((i) => i.section === "bookings"),
+    ).toMatchObject({ href: null });
     expect(
       portalNav("glow", "home", ["conversations", "bookings"]).find(
         (i) => i.section === "bookings",
       ),
-    ).toMatchObject({ href: null });
+    ).toMatchObject({ href: "/c/glow/bookings" });
   });
 });
 
@@ -1310,7 +1313,7 @@ describeDb("Conversations", () => {
     ).toHaveLength(2);
   });
 
-  test("the menu opens Conversations for a live channel, or once there is a conversation or a Meta thread", async () => {
+  test("the menu opens Conversations for a live channel, or once there is a conversation or a Meta thread; Bookings once there is a request", async () => {
     const actor = { type: "service", serviceName: "conversations-test" } as const;
     const none = await seedClinic("nav-none");
     expect(await openPatientScreens(none.clinicId, actor, { channels: [] })).toEqual([]);
@@ -1341,6 +1344,28 @@ describeDb("Conversations", () => {
     };
     expect(await openPatientScreens(live.clinicId, actor, { channels: [channel] })).toEqual([
       "conversations",
+      "bookings",
+    ]);
+    // Bookings opens on its own once there is a booking request to show.
+    const requested = await seedClinic("nav-request");
+    const contactId = await inTenant(requested.clinicId, async (client) => {
+      const { rows } = await client.query<{ id: string }>(
+        `insert into contacts (clinic_id, phone) values ($1, '+14155550133') returning id`,
+        [requested.clinicId],
+      );
+      return rows[0]!.id;
+    });
+    await withTenant({ clinicId: requested.clinicId, actor }, (tx) =>
+      createBookingRequest(tx, {
+        channel: "voice",
+        contactId,
+        conversationId: null,
+        preferredWindow: "Thursday afternoon",
+        treatment: null,
+      }),
+    );
+    expect(await openPatientScreens(requested.clinicId, actor, { channels: [] })).toEqual([
+      "bookings",
     ]);
     // Another clinic's conversation opens nothing here.
     expect(await openPatientScreens(none.clinicId, actor, { channels: [] })).toEqual([]);

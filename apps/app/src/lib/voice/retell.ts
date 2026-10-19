@@ -1,9 +1,9 @@
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
+import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
 import { servicesEnded, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
-import { voiceDisclosure } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { describeError, log } from "@/lib/log";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
@@ -175,7 +175,7 @@ export class RetellCallSession {
     }
     this.gateAnswered = decision.decision === "answer";
     this.disclosurePlayedAt = now;
-    this.say(0, `${voiceDisclosure({ clinicName: this.facts.clinicName, channel: "voice" })} ${this.facts.greeting.phone}`);
+    this.say(0, openingLine(this.facts, "voice"));
   }
 
   /** One message from Retell. Never throws: a fault is logged and the caller hears a fixed line. */

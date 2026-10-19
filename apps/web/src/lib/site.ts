@@ -61,13 +61,43 @@ export const site = {
   tagline: "An AI front desk you can rely on.",
 
   /**
+   * The words buyers search with, in the homepage <title> (owner's
+   * strategy, 14 October 2026: "AI receptionist" appeared nowhere on the
+   * site). The visible headline stays `tagline`.
+   */
+  category: "AI receptionist for elective clinics",
+
+  /**
    * The site-wide meta description, the Open Graph and Twitter description,
    * and the text on the rendered share image. No texting (v1 has no SMS) and
    * no revenue claim (attribution is phase two).
+   *
+   * It said "answers every call" until 19 October 2026. AYA answers the calls
+   * a clinic forwards to it, in the mode the clinic picks, and the default
+   * forwards only overflow and after-hours calls, so the copy guard now bans
+   * the phrase.
    */
   description:
-    "healdesk answers every call, chat and DM for high-ticket elective clinics, " +
-    "day or night, and books the appointment into your calendar.",
+    "An AI receptionist for elective clinics. AYA answers the calls you forward to her, " +
+    "your website chat and your Instagram, Messenger and WhatsApp messages, and books the visit.",
+
+  /**
+   * The one description of the company, in the third person: the
+   * Organization markup, and the LinkedIn, Crunchbase, G2 and Capterra
+   * profiles, which must all say the same thing so that search and AI
+   * engines learn one entity rather than several.
+   */
+  entityDescription:
+    "healdesk is an AI receptionist for elective clinics. Its assistant, AYA, answers the " +
+    "calls a clinic forwards to it, its website chat and its Instagram, Messenger and " +
+    "WhatsApp messages, and books appointments into the clinic's Google Calendar.",
+
+  /**
+   * The company's profiles elsewhere, for the Organization markup's `sameAs`.
+   * Add each URL the day its profile goes live; an empty list is honest, a
+   * guessed URL is not.
+   */
+  profiles: [] as readonly string[],
 
   /**
    * The line in the bar above the hero headline, after jasper.ai's "NEW"
@@ -122,6 +152,9 @@ export const site = {
    */
   footerLinks: [
     { label: "Pricing", href: "/pricing" },
+    // The editorial library (strategy of 14 October 2026), so every guide is
+    // two clicks from any page and a crawler finds them without the sitemap.
+    { label: "Guides", href: "/guides" },
     { label: "Why wait?", href: "/why-wait" },
     { label: "Contact us", href: "/contact" },
     { label: "Privacy", href: "/privacy" },

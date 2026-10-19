@@ -1,21 +1,29 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { ResolvedLink } from "@/lib/connections/links";
-import type { ResolvedBookingRequest } from "@/lib/meta/booking-requests";
+import type { BookingRequestView } from "@/lib/meta/booking-requests";
+import type { BookingsScreen } from "@/lib/portal/bookings";
 
 /**
- * Where a vet reads the animal's name and species: the desk page a request's
- * email points to, and the setup page where a practice chooses what the
- * assistant asks for. Both in the vet's words ("client", never "patient"),
- * and the animal fields offered to no practice whose patients are people.
- * Rendered to static markup with the resolvers mocked; the database-backed
- * half is tests/vet-booking-fields.test.ts.
+ * Where a vet reads the animal's name and species: the request on Bookings,
+ * which the desk's emailed link points to, in the vet's words ("client",
+ * never "patient"). The setup page where a practice once chose what the
+ * assistant asks for was retired with the setup wizard (plan C2); which
+ * fields a practice may be asked for is now the specialty's. Rendered to static markup with the step-up and
+ * the readers mocked; the database-backed half is
+ * tests/vet-booking-fields.test.ts, and Bookings behind a real step-up is
+ * tests/bookings-screen.test.ts.
  */
 
+const PAGE = {
+  portal: { userId: "usr-1", clinicId: "clinic-1", clinicSlug: "paws" },
+  stepUp: { passkeyId: "pk-1", stepUpId: "su-1", deviceLabel: "Front desk Mac" },
+  request: { requestId: "render-1" },
+};
+
 const mocks = vi.hoisted(() => ({
-  request: null as ResolvedBookingRequest | null,
-  link: null as ResolvedLink | null,
+  screen: null as BookingsScreen | null,
+  audience: "clients" as "clients" | "patients",
   redirect: vi.fn((url: string) => {
     throw Object.assign(new Error("NEXT_REDIRECT"), { url });
   }),
@@ -23,25 +31,62 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   redirect: mocks.redirect,
+  notFound: () => {
+    throw new Error("NEXT_NOT_FOUND");
+  },
   RedirectType: { replace: "replace", push: "push" },
+  // The shell's Help carries the support chat (WP10), which reads the slug
+  // from the route; static markup has no router.
+  useParams: () => null,
 }));
 vi.mock("@/app/connect/[token]/request-context", () => ({
   connectRequestContext: async () => ({ ipAddress: null, userAgent: null }),
 }));
 vi.mock("@/lib/connections/attempt-limit", () => ({ withinConnectAttemptLimit: () => true }));
-vi.mock("@/lib/meta/booking-requests", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/meta/booking-requests")>()),
-  resolveBookingRequest: async () => mocks.request,
+// The guard shows nothing until the browser has asked the server
+// (PatientPageGuard); static markup has no browser, so it stands in as a
+// wrapper that says which step-up and render it was given.
+vi.mock("@/app/c/[slug]/PatientPageGuard", async () => {
+  const { createElement } = await import("react");
+  return {
+    PatientPageGuard: (props: {
+      slug: string;
+      stepUpId: string;
+      renderId: string;
+      children: unknown;
+    }) =>
+      createElement(
+        "div",
+        { "data-guard": props.slug, "data-step-up": props.stepUpId, "data-render": props.renderId },
+        props.children as never,
+      ),
+  };
+});
+vi.mock("@/lib/portal/patient-page", () => ({
+  requirePatientPage: async () => PAGE,
+  withPatientPage: async (_page: unknown, read: (tx: unknown) => Promise<unknown>) => read({}),
+  patientGuardProps: () => ({ slug: "paws", stepUpId: "su-1", renderId: "render-1" }),
 }));
-vi.mock("@/lib/connections/links", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/connections/links")>()),
-  resolveConnectionLink: async () => mocks.link,
+vi.mock("@/lib/portal/page", () => ({
+  loadPortalPage: async () => ({ state: { clinic: { offboardingStartedAt: null } } }),
+  shellProps: () => ({
+    slug: "paws",
+    clinicName: "Paws & Claws",
+    section: "bookings",
+    audience: mocks.audience,
+    status: { kind: "answering" },
+    timeZone: "America/Los_Angeles",
+    locations: [],
+    opened: ["bookings"],
+  }),
+}));
+vi.mock("@/lib/portal/bookings", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/portal/bookings")>()),
+  readBookingsScreen: async () => mocks.screen,
+  withFreeTimes: async (_page: unknown, screen: unknown) => screen,
 }));
 
-import BookingRequestPage from "@/app/booking/[token]/page";
-import SetupPage from "@/app/setup/[token]/page";
-
-const TOKEN = "T".repeat(43);
+import BookingsPage from "@/app/c/[slug]/bookings/page";
 
 function text(html: string): string {
   return html
@@ -53,11 +98,10 @@ function text(html: string): string {
     .trim();
 }
 
-function request(overrides: Partial<ResolvedBookingRequest>): ResolvedBookingRequest {
+function request(overrides: Partial<BookingRequestView>): BookingRequestView {
   return {
-    id: "req-1",
+    id: "00000000-0000-4000-8000-0000000000a1",
     clinicId: "clinic-1",
-    clinicName: "Paws & Claws",
     audience: "clients",
     timeZone: "America/Los_Angeles",
     channel: "voice",
@@ -70,116 +114,82 @@ function request(overrides: Partial<ResolvedBookingRequest>): ResolvedBookingReq
     collectedFields: {},
     status: "requested",
     createdAt: new Date("2026-10-14T16:00:00Z"),
+    expiresAt: new Date(Date.now() + 7 * 86_400_000),
     decidedAt: null,
     decidedByLabel: null,
     deskNote: null,
     confirmedFor: null,
+    appointmentId: null,
     proposedSlots: [],
     rescheduleExpiresAt: null,
     bookedVia: "desk",
     lastInboundAt: null,
+    lapsed: false,
     calendar: null,
     calendarWrite: null,
     heldFor: null,
     metaWindowOpen: null,
-    amendmentCount: 0,
+    amendments: [],
     ...overrides,
   };
 }
 
-async function deskPage(): Promise<string> {
+async function bookingsPage(view: BookingRequestView): Promise<string> {
+  mocks.audience = view.audience;
+  mocks.screen = {
+    timeZone: view.timeZone,
+    open: [view],
+    deposits: [],
+    missed: [],
+    booked: [],
+    focus: null,
+    writableCalendar: false,
+  };
   return text(
     renderToStaticMarkup(
-      await BookingRequestPage({
-        params: Promise.resolve({ token: TOKEN }),
+      await BookingsPage({
+        params: Promise.resolve({ slug: "paws" }),
         searchParams: Promise.resolve({}),
       }),
     ),
   );
 }
 
-function link(specialty: string): ResolvedLink {
-  return {
-    clinicId: "clinic-1",
-    clinicName: "Paws & Claws",
-    clinicSlug: "paws",
-    platformId: "none",
-    attributionMode: "estimated",
-    specialty,
-    purpose: "setup",
-    linkId: "link-1",
-    audience: "recipients",
-    allowsAccountChange: false,
-    pendingElection: null,
-    sentTo: null,
-  } as ResolvedLink;
-}
-
-async function setupPage(): Promise<string> {
-  return text(renderToStaticMarkup(await SetupPage({ params: Promise.resolve({ token: TOKEN }) })));
-}
-
-describe("the desk page", () => {
+describe("a request on Bookings", () => {
   beforeEach(() => {
-    mocks.request = null;
+    mocks.screen = null;
   });
 
   test("a vet's request names the animal and its species, under the vet's words", async () => {
-    mocks.request = request({
-      collectedFields: {
-        animal_species: "small mammal",
-        animal_name: "Biscuit",
-        last_name: "Okafor",
-      },
-      amendmentCount: 1,
-    });
-    const page = await deskPage();
-    expect(page).toContain("A client would like to book");
-    expect(page).toMatch(
-      /Collected by the assistant Last name Okafor Animal's name Biscuit Species Small mammal/,
+    const page = await bookingsPage(
+      request({
+        collectedFields: {
+          animal_species: "small mammal",
+          animal_name: "Biscuit",
+          last_name: "Okafor",
+        },
+        amendments: [
+          { text: "Biscuit is a guinea pig.", requestedAt: new Date("2026-10-14T17:00:00Z") },
+        ],
+      }),
     );
-    expect(page).toContain("in the client’s export");
+    expect(page).toContain("Dana would like to book");
+    expect(page).toMatch(/Last name Okafor Animal's name Biscuit Species Small mammal/);
+    expect(page).toContain("Amended at your practice’s direction Biscuit is a guinea pig.");
     expect(page).not.toMatch(/patient/i);
   });
 
   test("a species written as other keeps its word, capitalised", async () => {
-    mocks.request = request({ collectedFields: { animal_species: "other: ferret" } });
-    expect(await deskPage()).toContain("Species Other: ferret");
+    expect(
+      await bookingsPage(request({ collectedFields: { animal_species: "other: ferret" } })),
+    ).toContain("Species Other: ferret");
   });
 
   test("a practice whose patients are people reads 'patient', as before", async () => {
-    mocks.request = request({ audience: "patients", collectedFields: { new_or_existing: "new" } });
-    const page = await deskPage();
-    expect(page).toContain("A patient would like to book");
+    const page = await bookingsPage(
+      request({ audience: "patients", collectedFields: { new_or_existing: "new" } }),
+    );
     expect(page).toContain("New or returning patient new");
   });
 });
 
-describe("the setup page", () => {
-  test("a vet is offered the animal's name and species, pre-selected, in its own words", async () => {
-    mocks.link = link("veterinary");
-    const page = await setupPage();
-    expect(page).toContain("Animal's name");
-    expect(page).toContain("Species");
-    expect(page).toContain("New or returning client");
-    expect(page).not.toContain("New or returning patient");
-    const html = renderToStaticMarkup(
-      await SetupPage({ params: Promise.resolve({ token: TOKEN }) }),
-    );
-    // Pre-selected: the vet's defaults include both.
-    for (const id of ["animal_name", "animal_species"]) {
-      const input = html.match(new RegExp(`<input[^>]*value="${id}"[^>]*>`))?.[0];
-      expect(input, id).toBeDefined();
-      expect(input, id).toMatch(/checked/);
-    }
-  });
-
-  test("a practice whose patients are people is never offered them", async () => {
-    mocks.link = link("med-spa");
-    const html = renderToStaticMarkup(
-      await SetupPage({ params: Promise.resolve({ token: TOKEN }) }),
-    );
-    expect(html).not.toMatch(/animal_name|animal_species|Animal&#x27;s name|Animal's name/);
-    expect(text(html)).toContain("New or returning patient");
-  });
-});

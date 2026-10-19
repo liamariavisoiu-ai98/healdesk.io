@@ -209,6 +209,10 @@ export async function sendWelcomeEmail(
       ),
       helpPhoneE164: helpContacts().phoneE164,
       callUrl: emailCallUrl(),
+      // Portal pages behind the sign-in: Auto-renew, the way to cancel
+      // online, and the signed agreement's download (plan C4, Part F6).
+      billingUrl: publicUrl(`/c/${state.clinic.slug}/billing#switches`),
+      agreementUrl: publicUrl(`/c/${state.clinic.slug}/billing/agreement`),
     };
     assertPayloadAllowed(payload, "welcome");
     const rendered = renderWelcome(payload, {

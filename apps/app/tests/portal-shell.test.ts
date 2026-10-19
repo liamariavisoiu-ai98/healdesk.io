@@ -5,6 +5,7 @@ import ts from "typescript";
 import { describe, expect, test } from "vitest";
 
 import type { ChannelState } from "@/lib/channels/state";
+import type { PracticeState } from "@/lib/engine/practice/state";
 import { needsAttention, type AttentionFacts } from "@/lib/portal/attention";
 import { portalDay, portalMoment, portalMoney } from "@/lib/portal/format";
 import { answeringStatus } from "@/lib/portal/header";
@@ -55,6 +56,7 @@ function channel(over: Partial<ChannelState> & Pick<ChannelState, "channel">): C
 
 describe("the menu", () => {
   test("the spec's order; each screen this build has is a link, and the patient screens say they open after go-live", () => {
+    // A clinic with no live channel and no booking request yet.
     const nav = portalNav("glow", "home");
     const order: PortalSection[] = [
       "home",
@@ -78,6 +80,33 @@ describe("the menu", () => {
     expect(nav.find((i) => i.section === "home")).toMatchObject({ current: true });
     expect(sectionPath("glow", "home")).toBe("/c/glow");
     expect(sectionPath("glow", "billing")).toBe("/c/glow/billing");
+  });
+
+  test("Bookings is a link once the clinic has opened it, whatever Conversations' state", () => {
+    expect(isBuiltSection("bookings")).toBe(true);
+    const waiting = portalNav("glow", "home", ["conversations"]);
+    expect(waiting.find((i) => i.section === "bookings")).toEqual({
+      section: "bookings",
+      label: "Bookings",
+      href: null,
+      current: false,
+      note: OPENS_AFTER_GO_LIVE,
+    });
+    const opened = portalNav("glow", "home", ["bookings"]);
+    expect(opened.find((i) => i.section === "bookings")).toEqual({
+      section: "bookings",
+      label: "Bookings",
+      href: "/c/glow/bookings",
+      current: false,
+    });
+    expect(opened.find((i) => i.section === "conversations")).toMatchObject({
+      href: null,
+      note: OPENS_AFTER_GO_LIVE,
+    });
+    // On Bookings itself, once opened, it is the current page.
+    expect(
+      portalNav("glow", "bookings", ["bookings"]).find((i) => i.section === "bookings"),
+    ).toMatchObject({ href: "/c/glow/bookings", current: true });
   });
 
   test("once a channel is live, a patient screen not built yet stops saying it opens after go-live, and says where its contents go", () => {
@@ -227,6 +256,43 @@ describe("Needs attention", () => {
     ]);
   });
 
+  test("after go-live, a calendar that stopped working; never before, and never one disconnected by choice", () => {
+    const connected = {
+      status: "active" as const,
+      account: { email: "desk@glow.test", kind: "workspace" as const, domain: "glow.test" },
+      calendar: { id: "primary", primary: true },
+      connectedAt: at.toISOString(),
+      lastVerifiedAt: at,
+      brokenAt: null,
+      lastError: null,
+      disclosureCurrent: true,
+    };
+    const broken = { ...connected, status: "error" as const, brokenAt: at, lastError: "invalid_grant" };
+    const accessRemoved = { status: "not_connected" as const, accessRemovedAt: at };
+    const disconnectedByChoice = { status: "not_connected" as const, accessRemovedAt: null };
+
+    for (const calendar of [broken, accessRemoved]) {
+      expect(needsAttention(facts({ live: true, calendar }))).toEqual([
+        {
+          id: "calendar_disconnected",
+          text: "Your calendar stopped working, so bookings arrive as requests your team confirms.",
+          action: { label: "Reconnect it in Settings", href: "/c/glow/settings#calendar" },
+        },
+      ]);
+      // Before go-live the calendar step of setup says it already.
+      expect(needsAttention(facts({ live: false, calendar }))).toEqual([]);
+    }
+    // Healthy, merely unreachable this once, never connected or disconnected
+    // by the clinic: nothing to do.
+    for (const calendar of [
+      connected,
+      { ...connected, status: "degraded" as const },
+      disconnectedByChoice,
+    ]) {
+      expect(needsAttention(facts({ live: true, calendar }))).toEqual([]);
+    }
+  });
+
   test("an address that bounces and a payment that failed come first; the website list is M7's", () => {
     const items = needsAttention(
       facts({
@@ -272,6 +338,40 @@ describe("dates and money as the portal writes them", () => {
     );
     expect(portalMoney(89700)).toBe("$897");
     expect(portalMoney(2450)).toBe("$24.50");
+  });
+});
+
+describe("Needs attention after go-live: the practice questions", () => {
+  const latest = (over: Partial<NonNullable<PracticeState["latest"]>> = {}): PracticeState => ({
+    pending: false,
+    latest: {
+      id: "11111111-2222-4333-8444-555555555555",
+      status: "in_review",
+      finishedAt: at,
+      failedSection: null,
+      failedCount: null,
+      triggerSection: "prices",
+      overridden: false,
+      reviewDueOn: "2026-10-14",
+      ...over,
+    },
+  });
+
+  test("a change the questions did not pass shows \"We're double-checking your change to Prices\", linking to it, once a channel is live", () => {
+    expect(needsAttention(facts({ live: true, practice: latest() }))).toEqual([
+      { id: "double_checking", text: "We're double-checking your change to Prices.", action: { label: "Open Prices", href: "/c/glow/knowledge#prices" } },
+    ]);
+    // A failure the clinic must fix names the section that failed, here a Settings card.
+    expect(needsAttention(facts({ live: true, practice: latest({ status: "failed", failedSection: "safety_net", failedCount: 1 }) }))[0]).toMatchObject({
+      text: "We're double-checking your change to Safety net.",
+      action: { href: "/c/glow/settings#safety-net" },
+    });
+  });
+
+  test("not before go-live, where the tracker says it, and not once a run has passed", () => {
+    expect(needsAttention(facts({ live: false, practice: latest() }))).toEqual([]);
+    expect(needsAttention(facts({ live: true, practice: latest({ status: "passed" }) }))).toEqual([]);
+    expect(needsAttention(facts({ live: true, practice: latest({ status: "error" }) }))).toEqual([]);
   });
 });
 

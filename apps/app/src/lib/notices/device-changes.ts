@@ -13,9 +13,14 @@ import { withTenant } from "@/lib/tenant";
 /**
  * The device email: O3 in Annex X5 of the funnel and portal plan, "A device
  * was added or removed". It goes to the sign-in's address when a passkey is
- * added (except the first, in the browser that paid, where the person adding
- * it is the person reading the inbox), when one is removed, when code entry
- * locks after wrong codes, and when "Someone left" signs everyone out.
+ * added, when one is removed, when code entry locks after wrong codes, and
+ * when "Someone left" signs everyone out.
+ *
+ * The one addition it skips is the first passkey added in the browser that
+ * paid (`first` and `payingBrowser` both), where the person adding it is the
+ * person reading the inbox. A first passkey from any other session is the
+ * one O3 most needs to report: before go-live it needs no step-up (Part D3),
+ * so it is a device gaining patient details on nothing but a session.
  *
  * Sent straight, not through the outbox: factors belong to the user, not to
  * a clinic, and one sign-in can open several locations. The factor's row (or,
@@ -31,7 +36,10 @@ export async function notifyDeviceChange(
     userId: string;
     kind: DeviceChange;
     factorId?: string;
+    /** The sign-in's first passkey. */
     first?: boolean;
+    /** Added in the browser that paid (lib/sign-in/paying-browser.ts). */
+    payingBrowser?: boolean;
     /** For a lockout: when code entry unlocks. */
     lockedUntil?: Date;
     /** For "Someone left": how many devices it removed. */
@@ -39,7 +47,7 @@ export async function notifyDeviceChange(
   },
   options: SendEmailOptions = {},
 ): Promise<void> {
-  if (change.kind === "added" && change.first) return;
+  if (change.kind === "added" && change.first && change.payingBrowser) return;
   try {
     const [account] = await unsafeDb
       .select({ email: user.email })

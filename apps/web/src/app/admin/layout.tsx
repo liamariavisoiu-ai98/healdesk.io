@@ -103,6 +103,7 @@ export const metadata: Metadata = {
 const SECTIONS = [
   { href: "/admin", label: "Changes" },
   { href: "/admin/ops", label: "Ops" },
+  { href: "/admin/reviews", label: "Reviews" },
   { href: "/admin/map", label: "Map" },
   { href: "/admin/host", label: "Host" },
   { href: "/admin/setup", label: "Setup" },
@@ -110,6 +111,7 @@ const SECTIONS = [
   { href: "/admin/crm", label: "CRM" },
   { href: "/admin/demos", label: "Demos" },
   { href: "/admin/agreements", label: "Agreements" },
+  { href: "/admin/seo", label: "SEO" },
 ] as const;
 
 /**

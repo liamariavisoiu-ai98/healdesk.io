@@ -1,5 +1,5 @@
 {
-  "id": "039e3610-b1ab-4646-89eb-f2635b4aa04a",
+  "id": "7e0ef5cf-18fd-4e77-bde4-78dac9a76423",
   "prevId": "ef9c70e8-6521-4d2b-b17b-5ca4fd265eb9",
   "version": "7",
   "dialect": "postgresql",
@@ -753,6 +753,172 @@
         "audit_log_actor_shape": {
           "name": "audit_log_actor_shape",
           "value": "\n        (actor_type = 'user'      and actor_user_id       is not null) or\n        (actor_type in ('service','agent') and actor_service_name is not null) or\n        (actor_type = 'connector' and actor_connection_id is not null) or\n        (actor_type = 'system')\n      "
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.audit_review_queue": {
+      "name": "audit_review_queue",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "due_on": {
+          "name": "due_on",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "due_at": {
+          "name": "due_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "past_due_alerted_at": {
+          "name": "past_due_alerted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_by_label": {
+          "name": "decided_by_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "section": {
+          "name": "section",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "audit_review_queue_run_idx": {
+          "name": "audit_review_queue_run_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_review_queue_open_idx": {
+          "name": "audit_review_queue_open_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "due_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"audit_review_queue\".\"status\" = 'open'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "audit_review_queue_clinic_id_clinics_id_fk": {
+          "name": "audit_review_queue_clinic_id_clinics_id_fk",
+          "tableFrom": "audit_review_queue",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "audit_review_queue_run_fk": {
+          "name": "audit_review_queue_run_fk",
+          "tableFrom": "audit_review_queue",
+          "tableTo": "practice_question_runs",
+          "columnsFrom": [
+            "clinic_id",
+            "run_id"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "audit_review_queue_status_check": {
+          "name": "audit_review_queue_status_check",
+          "value": "\"audit_review_queue\".\"status\" in ('open', 'passed', 'failed', 'superseded')"
+        },
+        "audit_review_queue_section_check": {
+          "name": "audit_review_queue_section_check",
+          "value": "\"audit_review_queue\".\"section\" is null or (\"audit_review_queue\".\"status\" = 'failed' and \"audit_review_queue\".\"section\" in ('practice', 'prices', 'policies', 'promotions', 'quick_answers', 'never_say', 'hours', 'how_aya_talks', 'safety_net'))"
+        },
+        "audit_review_queue_decided_check": {
+          "name": "audit_review_queue_decided_check",
+          "value": "(\"audit_review_queue\".\"status\" in ('open', 'superseded')) = (\"audit_review_queue\".\"decided_at\" is null) and (\"audit_review_queue\".\"decided_at\" is null) = (\"audit_review_queue\".\"decided_by_label\" is null)"
+        },
+        "audit_review_queue_decided_by_check": {
+          "name": "audit_review_queue_decided_by_check",
+          "value": "\"audit_review_queue\".\"decided_by_label\" is null or char_length(\"audit_review_queue\".\"decided_by_label\") between 1 and 200"
         }
       },
       "isRLSEnabled": false
@@ -3617,7 +3783,7 @@
       "checkConstraints": {
         "clinic_settings_history_field_check": {
           "name": "clinic_settings_history_field_check",
-          "value": "\"clinic_settings_history\".\"field\" in ('direct_line_e164', 'transfer_e164', 'urgent_help_e164', 'vet_referral_e164', 'transcript_retention_days', 'auto_confirm_bookings', 'sign_in_email')"
+          "value": "\"clinic_settings_history\".\"field\" in ('direct_line_e164', 'transfer_e164', 'urgent_help_e164', 'vet_referral_e164', 'transcript_retention_days', 'auto_confirm_bookings')"
         },
         "clinic_settings_history_values_check": {
           "name": "clinic_settings_history_values_check",
@@ -6619,6 +6785,417 @@
       },
       "isRLSEnabled": false
     },
+    "public.practice_question_results": {
+      "name": "practice_question_results",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "input_version": {
+          "name": "input_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cases": {
+          "name": "cases",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reused": {
+          "name": "reused",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "practice_question_results_run_channel_idx": {
+          "name": "practice_question_results_run_channel_idx",
+          "columns": [
+            {
+              "expression": "run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "practice_question_results_version_idx": {
+          "name": "practice_question_results_version_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "input_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "practice_question_results_clinic_id_clinics_id_fk": {
+          "name": "practice_question_results_clinic_id_clinics_id_fk",
+          "tableFrom": "practice_question_results",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "practice_question_results_run_fk": {
+          "name": "practice_question_results_run_fk",
+          "tableFrom": "practice_question_results",
+          "tableTo": "practice_question_runs",
+          "columnsFrom": [
+            "clinic_id",
+            "run_id"
+          ],
+          "columnsTo": [
+            "clinic_id",
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "practice_question_results_channel_check": {
+          "name": "practice_question_results_channel_check",
+          "value": "\"practice_question_results\".\"channel\" in ('web', 'meta', 'voice')"
+        },
+        "practice_question_results_status_check": {
+          "name": "practice_question_results_status_check",
+          "value": "\"practice_question_results\".\"status\" in ('passed', 'failed', 'in_review', 'error')"
+        },
+        "practice_question_results_input_version_check": {
+          "name": "practice_question_results_input_version_check",
+          "value": "\"practice_question_results\".\"input_version\" ~ '^[0-9a-f]{64}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.practice_question_runs": {
+      "name": "practice_question_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "clinic_id": {
+          "name": "clinic_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "trigger_section": {
+          "name": "trigger_section",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "run_after": {
+          "name": "run_after",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "agent_version": {
+          "name": "agent_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cases_version": {
+          "name": "cases_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "input_version": {
+          "name": "input_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failed_section": {
+          "name": "failed_section",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failed_count": {
+          "name": "failed_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approved_version": {
+          "name": "approved_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "override_label": {
+          "name": "override_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "practice_question_runs_queued_idx": {
+          "name": "practice_question_runs_queued_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"practice_question_runs\".\"status\" = 'queued'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "practice_question_runs_running_idx": {
+          "name": "practice_question_runs_running_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"practice_question_runs\".\"status\" = 'running'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "practice_question_runs_clinic_idx": {
+          "name": "practice_question_runs_clinic_idx",
+          "columns": [
+            {
+              "expression": "clinic_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "requested_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "practice_question_runs_clinic_id_clinics_id_fk": {
+          "name": "practice_question_runs_clinic_id_clinics_id_fk",
+          "tableFrom": "practice_question_runs",
+          "tableTo": "clinics",
+          "columnsFrom": [
+            "clinic_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "practice_question_runs_clinic_run_key": {
+          "name": "practice_question_runs_clinic_run_key",
+          "nullsNotDistinct": false,
+          "columns": [
+            "clinic_id",
+            "id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "practice_question_runs_status_check": {
+          "name": "practice_question_runs_status_check",
+          "value": "\"practice_question_runs\".\"status\" in ('queued', 'running', 'not_ready', 'passed', 'failed', 'in_review', 'error', 'superseded')"
+        },
+        "practice_question_runs_reason_check": {
+          "name": "practice_question_runs_reason_check",
+          "value": "\"practice_question_runs\".\"reason\" in ('knowledge', 'settings', 'wizard', 'ops', 'sweep', 'override')"
+        },
+        "practice_question_runs_trigger_section_check": {
+          "name": "practice_question_runs_trigger_section_check",
+          "value": "\"practice_question_runs\".\"trigger_section\" is null or \"practice_question_runs\".\"trigger_section\" in ('practice', 'prices', 'policies', 'promotions', 'quick_answers', 'never_say', 'hours', 'how_aya_talks', 'safety_net')"
+        },
+        "practice_question_runs_failed_section_check": {
+          "name": "practice_question_runs_failed_section_check",
+          "value": "\"practice_question_runs\".\"failed_section\" is null or \"practice_question_runs\".\"failed_section\" in ('practice', 'prices', 'policies', 'promotions', 'quick_answers', 'never_say', 'hours', 'how_aya_talks', 'safety_net')"
+        },
+        "practice_question_runs_attempts_check": {
+          "name": "practice_question_runs_attempts_check",
+          "value": "\"practice_question_runs\".\"attempts\" >= 0"
+        },
+        "practice_question_runs_failed_count_check": {
+          "name": "practice_question_runs_failed_count_check",
+          "value": "\"practice_question_runs\".\"failed_count\" is null or \"practice_question_runs\".\"failed_count\" >= 0"
+        },
+        "practice_question_runs_input_version_check": {
+          "name": "practice_question_runs_input_version_check",
+          "value": "\"practice_question_runs\".\"input_version\" is null or \"practice_question_runs\".\"input_version\" ~ '^[0-9a-f]{64}$'"
+        },
+        "practice_question_runs_cases_version_check": {
+          "name": "practice_question_runs_cases_version_check",
+          "value": "\"practice_question_runs\".\"cases_version\" is null or \"practice_question_runs\".\"cases_version\" ~ '^[a-z0-9.-]{1,32}$'"
+        },
+        "practice_question_runs_last_error_check": {
+          "name": "practice_question_runs_last_error_check",
+          "value": "\"practice_question_runs\".\"last_error\" is null or \"practice_question_runs\".\"last_error\" ~ '^[a-z0-9_]{1,64}$'"
+        },
+        "practice_question_runs_override_check": {
+          "name": "practice_question_runs_override_check",
+          "value": "\"practice_question_runs\".\"override_label\" is null or (\"practice_question_runs\".\"reason\" = 'override' and \"practice_question_runs\".\"status\" = 'passed' and char_length(\"practice_question_runs\".\"override_label\") between 1 and 200)"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.provider_connections": {
       "name": "provider_connections",
       "schema": "",
@@ -7795,259 +8372,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.sign_in_address_changes": {
-      "name": "sign_in_address_changes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "old_email": {
-          "name": "old_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "new_email": {
-          "name": "new_email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source": {
-          "name": "source",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_by": {
-          "name": "requested_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "confirm_token_hash": {
-          "name": "confirm_token_hash",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "confirm_expires_at": {
-          "name": "confirm_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "confirmed_at": {
-          "name": "confirmed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "effective_at": {
-          "name": "effective_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolved_at": {
-          "name": "resolved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stopped_by": {
-          "name": "stopped_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "resolution": {
-          "name": "resolution",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "sign_in_address_changes_clinic_idx": {
-          "name": "sign_in_address_changes_clinic_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sign_in_address_changes_token_idx": {
-          "name": "sign_in_address_changes_token_idx",
-          "columns": [
-            {
-              "expression": "confirm_token_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"sign_in_address_changes\".\"confirm_token_hash\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sign_in_address_changes_open_idx": {
-          "name": "sign_in_address_changes_open_idx",
-          "columns": [
-            {
-              "expression": "user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"sign_in_address_changes\".\"status\" in ('awaiting_confirmation', 'pending')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "sign_in_address_changes_due_idx": {
-          "name": "sign_in_address_changes_due_idx",
-          "columns": [
-            {
-              "expression": "effective_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"sign_in_address_changes\".\"status\" = 'pending'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "sign_in_address_changes_clinic_id_clinics_id_fk": {
-          "name": "sign_in_address_changes_clinic_id_clinics_id_fk",
-          "tableFrom": "sign_in_address_changes",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "sign_in_address_changes_user_id_user_id_fk": {
-          "name": "sign_in_address_changes_user_id_user_id_fk",
-          "tableFrom": "sign_in_address_changes",
-          "tableTo": "user",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "sign_in_address_changes_status_check": {
-          "name": "sign_in_address_changes_status_check",
-          "value": "\"sign_in_address_changes\".\"status\" in ('awaiting_confirmation', 'pending', 'applied', 'stopped', 'expired', 'failed')"
-        },
-        "sign_in_address_changes_source_check": {
-          "name": "sign_in_address_changes_source_check",
-          "value": "\"sign_in_address_changes\".\"source\" in ('settings', 'operator')"
-        },
-        "sign_in_address_changes_stopped_by_check": {
-          "name": "sign_in_address_changes_stopped_by_check",
-          "value": "\"sign_in_address_changes\".\"stopped_by\" is null or \"sign_in_address_changes\".\"stopped_by\" in ('clinic', 'operator')"
-        },
-        "sign_in_address_changes_emails_check": {
-          "name": "sign_in_address_changes_emails_check",
-          "value": "\"sign_in_address_changes\".\"old_email\" = lower(btrim(\"sign_in_address_changes\".\"old_email\")) and \"sign_in_address_changes\".\"new_email\" = lower(btrim(\"sign_in_address_changes\".\"new_email\")) and char_length(\"sign_in_address_changes\".\"old_email\") between 3 and 254 and char_length(\"sign_in_address_changes\".\"new_email\") between 3 and 254 and \"sign_in_address_changes\".\"old_email\" <> \"sign_in_address_changes\".\"new_email\""
-        },
-        "sign_in_address_changes_token_hash_length": {
-          "name": "sign_in_address_changes_token_hash_length",
-          "value": "\"sign_in_address_changes\".\"confirm_token_hash\" is null or octet_length(\"sign_in_address_changes\".\"confirm_token_hash\") = 32"
-        },
-        "sign_in_address_changes_requested_by_check": {
-          "name": "sign_in_address_changes_requested_by_check",
-          "value": "char_length(\"sign_in_address_changes\".\"requested_by\") between 1 and 200"
-        },
-        "sign_in_address_changes_resolution_check": {
-          "name": "sign_in_address_changes_resolution_check",
-          "value": "\"sign_in_address_changes\".\"resolution\" is null or char_length(\"sign_in_address_changes\".\"resolution\") between 1 and 200"
-        },
-        "sign_in_address_changes_link_check": {
-          "name": "sign_in_address_changes_link_check",
-          "value": "(\"sign_in_address_changes\".\"source\" = 'settings') = (\"sign_in_address_changes\".\"confirm_expires_at\" is not null)"
-        },
-        "sign_in_address_changes_pending_check": {
-          "name": "sign_in_address_changes_pending_check",
-          "value": "\"sign_in_address_changes\".\"status\" <> 'pending' or (\"sign_in_address_changes\".\"effective_at\" is not null and \"sign_in_address_changes\".\"confirmed_at\" is not null)"
-        },
-        "sign_in_address_changes_resolved_check": {
-          "name": "sign_in_address_changes_resolved_check",
-          "value": "(\"sign_in_address_changes\".\"status\" in ('awaiting_confirmation', 'pending')) = (\"sign_in_address_changes\".\"resolved_at\" is null)"
-        },
-        "sign_in_address_changes_stopped_check": {
-          "name": "sign_in_address_changes_stopped_check",
-          "value": "(\"sign_in_address_changes\".\"status\" = 'stopped') = (\"sign_in_address_changes\".\"stopped_by\" is not null)"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.sign_in_links": {

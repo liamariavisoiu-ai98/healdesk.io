@@ -105,11 +105,53 @@ export function asksCoveredQuestion(id: SpecialtyId): boolean {
 }
 
 /**
- * Whether the funnel offers a specialty at all. A veterinary practice can buy
- * only once there is an agreement it can sign: the released DPA.
+ * Veterinary readiness (plan Part L, "Vet readiness (the chip's gate)"; the
+ * v1 spec: "Veterinary practices are sold only once the veterinary urgent set
+ * and an emergency referral number are in place"). Each item is a thing that
+ * must exist before a veterinary practice can buy, and is true only because
+ * it does; tests in agreement-kind.test.ts tie each one to the code it
+ * names, so none of them can be set true ahead of its substance:
+ *
+ * - `urgentSet`: the veterinary urgent set (urgent-content.ts,
+ *   `urgentSetFor("veterinary")`), which tells a person's emergency from an
+ *   animal's, and its fixed reply (urgent-replies.ts), which gives the
+ *   emergency vet and, for a person, 911;
+ * - `referralNumber`: the emergency referral number, captured at wizard 2.5
+ *   and in Settings (clinic_settings.vet_referral_e164) and given by that
+ *   reply on every channel;
+ * - `clientWording`: "clients", never "patients" (audience.ts);
+ * - `vetPracticeCases`: the veterinary practice questions (plan Part G),
+ *   package B's (apps/app lib/engine/practice/cases.ts): the nine cases
+ *   about an animal, its complication screened with the veterinary set and
+ *   answered with the emergency vet the practice refers to. In place since
+ *   B landed them; apps/app's tests/practice-questions.test.ts holds this
+ *   item to them.
+ *
+ * The DPA's release flag stays the owner's alone (dpa.ts,
+ * `approvedByCounsel`): nothing here releases it, and readiness alone never
+ * offers a vet.
  */
-export function specialtyOffered(id: SpecialtyId, dpaReleased: boolean = isDpaReleased()): boolean {
-  return regimeFor(id) !== "non-hipaa" || dpaReleased;
+export const VETERINARY_READINESS = Object.freeze({
+  urgentSet: true,
+  referralNumber: true,
+  clientWording: true,
+  vetPracticeCases: true,
+} as const);
+
+/** Every item of VETERINARY_READINESS is in place. */
+export const VETERINARY_READY: boolean = Object.values(VETERINARY_READINESS).every(Boolean);
+
+/**
+ * Whether the funnel offers a specialty at all. A veterinary practice can buy
+ * only once there is an agreement it can sign, the released DPA, and once the
+ * product is ready for it (VETERINARY_READY).
+ */
+export function specialtyOffered(
+  id: SpecialtyId,
+  dpaReleased: boolean = isDpaReleased(),
+  veterinaryReady: boolean = VETERINARY_READY,
+): boolean {
+  return regimeFor(id) !== "non-hipaa" || (dpaReleased && veterinaryReady);
 }
 
 function coveredFlag(answer: CoveredAnswer | null): boolean | null {

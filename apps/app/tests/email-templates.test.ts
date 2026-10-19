@@ -183,7 +183,6 @@ describe("the template registry", () => {
         "calendar_check",
       ],
       WP4: ["daily_summary", "weekly_recap"],
-      WP3: ["ai_paused"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
       WP9: ["agreement_to_sign"],
       WP11: ["website_changes"],
@@ -198,12 +197,11 @@ describe("the template registry", () => {
         "product_update",
       ],
       WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
-      B: ["assistant_ready", "practice_questions_failed"],
       WP5: ["ops_digest", "flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, O6 and O5's two, and the support chat's L25 and I3", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, O6 and O5's two, the support chat's L25 and I3, and the practice questions' O8 and O9", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -241,6 +239,7 @@ describe("the template registry", () => {
       "channel_ready",
       "steps_sent",
       "channel_live",
+      "ai_paused",
       "calendar_link",
       "calendar_election_recorded",
       "sign_in_help_link",
@@ -248,6 +247,8 @@ describe("the template registry", () => {
       "address_changing",
       "support_request",
       "support_escalation",
+      "assistant_ready",
+      "practice_questions_failed",
     ]);
   });
 
@@ -414,6 +415,24 @@ describe("the welcome email (B1)", () => {
     ).text;
     expect(voice).toContain("Included each month: 300 voice minutes\n");
     expect(voice).toContain("Past the allowance: $104 for each started block of 100 extra voice minutes\n");
+  });
+
+  test("cancelling online is Billing's Auto-renew, and the signed agreement downloads from Billing", () => {
+    const { text, html } = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome"));
+    // Not a reply to this email: the portal's own switch (plan Part F6).
+    expect(text).not.toMatch(/reply to this email and we'll cancel/i);
+    expect(text).toContain(
+      "To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won't start, and nothing more is charged.",
+    );
+    expect(text).toContain(`Open Billing: ${WELCOME_ENTRY.fixture.billingUrl}`);
+    expect(WELCOME_ENTRY.fixture.billingUrl).toMatch(/\/c\/[a-z0-9-]+\/billing#switches$/);
+    // The agreement's download, beside the Terms (plan C4).
+    expect(text).toContain(
+      `Download your signed agreement (PDF): ${WELCOME_ENTRY.fixture.agreementUrl}`,
+    );
+    expect(WELCOME_ENTRY.fixture.agreementUrl).toMatch(/\/c\/[a-z0-9-]+\/billing\/agreement$/);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.agreementUrl}"`);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.billingUrl}"`);
   });
 
   test("Help: the voicemail line in the plan's words while one is set, and nothing while not", () => {

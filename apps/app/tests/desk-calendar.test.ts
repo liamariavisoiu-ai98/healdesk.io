@@ -3,7 +3,6 @@ import {
   googleCalendarAdapter,
   googleEventIdFor,
   HEALDESK_EVENT_MARKER,
-  setGoogleFetch,
   setGoogleTimeouts,
   type FakeGoogleCalendar,
 } from "@healdesk/connectors";
@@ -12,7 +11,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import { availableSlotsFor, deskSpanFree } from "@/lib/booking/availability";
 import { sweepDeskWrites, writeToCalendar } from "@/lib/booking/calendar";
 import { holderRefOf, holdSpan } from "@/lib/booking/holds";
-import { decideBookingRequest, resolveBookingRequest } from "@/lib/meta/booking-requests";
+import { runOperation, type Operator } from "@/lib/ops/api";
 
 import { asApp } from "./setup/calendar-db";
 import {
@@ -32,6 +31,7 @@ import {
   restoreGoogleEnv,
   type DeskLocation,
 } from "./setup/desk-calendar";
+import { deskDecide, deskView } from "./setup/desk";
 import { inTenant, seedGoogleConnection } from "./setup/factories";
 
 /**
@@ -82,7 +82,7 @@ describeDb("the desk path and the Google write (C12)", () => {
     at: Date,
     extra: { addAnyway?: boolean; treatment?: string } = {},
   ) =>
-    decideBookingRequest(token, "confirmed", {
+    deskDecide(token, "confirmed", {
       decidedByLabel: "Jo",
       deskNote: null,
       confirmedFor: at,
@@ -193,11 +193,11 @@ describeDb("the desk path and the Google write (C12)", () => {
       });
       const base = { decidedByLabel: "Jo", deskNote: null };
       expect((await confirm(r.token, at)).outcome).toBe("checking");
-      expect((await decideBookingRequest(r.token, "accepted", base)).outcome).toBe("checking");
-      expect((await decideBookingRequest(r.token, "declined", base)).outcome).toBe("checking");
+      expect((await deskDecide(r.token, "accepted", base)).outcome).toBe("checking");
+      expect((await deskDecide(r.token, "declined", base)).outcome).toBe("checking");
       expect(
         (
-          await decideBookingRequest(r.token, "rescheduling", {
+          await deskDecide(r.token, "rescheduling", {
             ...base,
             proposedSlots: [{ at: deskTime(5, 10) }],
           })
@@ -212,7 +212,7 @@ describeDb("the desk path and the Google write (C12)", () => {
         status: "unknown",
         attemptedSecondsAgo: 30,
       });
-      expect((await decideBookingRequest(u.token, "declined", base)).outcome).toBe("checking");
+      expect((await deskDecide(u.token, "declined", base)).outcome).toBe("checking");
       expect(await appointments(f.clinicId)).toEqual([]);
       expect(inserts()).toHaveLength(0);
       // Every refusal is on the record, as a decision's own refusal always was.
@@ -256,7 +256,7 @@ describeDb("the desk path and the Google write (C12)", () => {
         status: "converted",
         appointment_id: stands.appointmentId,
       });
-      expect(await resolveBookingRequest(found.token)).toMatchObject({
+      expect(await deskView(found.token)).toMatchObject({
         status: "confirmed",
         decidedByLabel: "assistant (calendar write confirmed after the call)",
         confirmedFor: at,
@@ -405,7 +405,7 @@ describeDb("the desk path and the Google write (C12)", () => {
         outcome: "slot_taken",
         takenBy: "booking",
       });
-      expect(await resolveBookingRequest(d.token)).toMatchObject({ status: "requested" });
+      expect(await deskView(d.token)).toMatchObject({ status: "requested" });
 
       const e = await phoneRequest(covered.clinicId);
       const held = deskTime(4, 15);
@@ -514,7 +514,7 @@ describeDb("the desk path and the Google write (C12)", () => {
         calendar_write_error: "event_id_taken",
       });
       expect(google.events(f.sub)).toHaveLength(1);
-      expect(await resolveBookingRequest(r.token)).toMatchObject({ heldFor: heldAt });
+      expect(await deskView(r.token)).toMatchObject({ heldFor: heldAt });
     },
     SLOW,
   );
@@ -592,6 +592,67 @@ describeDb("the desk path and the Google write (C12)", () => {
       ).toBe(true);
       expect(rows.find((x) => !ids.includes(x.id))!.calendar_write_status).toBe("failed");
       expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+    },
+    SLOW,
+  );
+
+  test(
+    "a booking marked cancelled, showed or no-show is never written: not by the sweep, the ops retry or a stuck claim",
+    async () => {
+      const f = await deskLocation(google, "desk-cancelled");
+      const r = await phoneRequest(f.clinicId);
+      // Staff confirm; Google's insert fails before it stores anything, so
+      // the write is unknown and the sweep would read back, find nothing and
+      // create the event.
+      google.failNext({ on: "insert", status: 503, reason: "backendError" });
+      const decided = await confirm(r.token, deskTime(4, 16));
+      expect(decided.calendarWrite).toBe("unknown");
+      const id = decided.appointmentId!;
+      const events = () => google.events(f.sub).filter((e) => e.status !== "cancelled");
+      expect(events()).toHaveLength(0);
+      const writes = inserts().length;
+
+      // Cancelled while it was unknown (Bookings refuses that; this is the
+      // second lock): the sweep passes it over, and the ops retry and a
+      // direct write claim nothing.
+      await inTenant(f.clinicId, (client) =>
+        client.query(`update appointments set status = 'cancelled' where id = $1`, [id]),
+      );
+      expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+      const operator: Operator = { email: "ops@healdesk.test", request: {} };
+      const retried = await runOperation(
+        "retryCalendarWrite",
+        { clinicId: f.clinicId, appointmentId: id },
+        operator,
+      );
+      expect((retried.body as { data: Record<string, unknown> }).data).toEqual({
+        status: "error",
+        message: "That appointment is marked cancelled, so nothing is written to the calendar for it.",
+      });
+      expect(await writeToCalendar(f.clinicId, id, { fromFailed: true })).toBe("unknown");
+      expect(inserts()).toHaveLength(writes);
+
+      // A claim stuck in writing, then marked no-show: taken over by nobody.
+      await inTenant(f.clinicId, (client) =>
+        client.query(
+          `update appointments set status = 'no_show', calendar_write_status = 'writing',
+                  calendar_write_lease = gen_random_uuid(),
+                  calendar_write_claimed_at = now() - interval '3 minutes', updated_at = now()
+            where id = $1`,
+          [id],
+        ),
+      );
+      expect(await sweepDeskWrites()).toMatchObject({ attempted: 0 });
+      expect(await writeToCalendar(f.clinicId, id)).toBe("unknown");
+      expect(inserts()).toHaveLength(writes);
+      expect(events()).toHaveLength(0);
+
+      // The same row, on again, is written: what held it back was the status.
+      await inTenant(f.clinicId, (client) =>
+        client.query(`update appointments set status = 'scheduled' where id = $1`, [id]),
+      );
+      expect(await sweepDeskWrites()).toMatchObject({ attempted: 1, written: 1 });
+      expect(events()).toHaveLength(1);
     },
     SLOW,
   );
@@ -798,7 +859,7 @@ describeDb("the desk path and the Google write (C12)", () => {
       expect((await confirm(second.token, at, { addAnyway: true })).outcome).toBe("decided");
 
       const base = { decidedByLabel: "Jo", deskNote: null };
-      expect((await decideBookingRequest(first.token, "declined", base)).outcome).toBe("decided");
+      expect((await deskDecide(first.token, "declined", base)).outcome).toBe("decided");
       expect(await holdStatus(f.clinicId, holdId)).toMatchObject({
         status: "released",
         outcome_reason: "record_conflict",
@@ -832,7 +893,7 @@ describeDb("the desk path and the Google write (C12)", () => {
       });
       google.revokeRefreshToken(f.refreshToken);
       const base = { decidedByLabel: "Jo", deskNote: null };
-      expect((await decideBookingRequest(r.token, "declined", base)).outcome).toBe("decided");
+      expect((await deskDecide(r.token, "declined", base)).outcome).toBe("decided");
       expect(await connectionBroken(f.clinicId)).toBe(true);
 
       const g = await deskLocation(google, "desk-readback-notours");
@@ -850,7 +911,7 @@ describeDb("the desk path and the Google write (C12)", () => {
         start: at,
         end: new Date(at.getTime() + 30 * MIN),
       });
-      expect((await decideBookingRequest(n.token, "declined", base)).outcome).toBe("decided");
+      expect((await deskDecide(n.token, "declined", base)).outcome).toBe("decided");
       expect(await connectionBroken(g.clinicId)).toBe(false);
     },
     SLOW,
@@ -916,42 +977,17 @@ describeDb("the desk path and the Google write (C12)", () => {
         startsAt: at,
         status: "reserved",
       });
-      const own = await resolveBookingRequest(r.token);
+      const own = await deskView(r.token);
       expect(own!.calendar!.slots.map((s) => s.at)).toContain(at.toISOString());
-      const theirs = await resolveBookingRequest(other.token);
+      const theirs = await deskView(other.token);
       expect(theirs!.calendar!.writable).toBe(true);
       expect(theirs!.calendar!.slots.map((s) => s.at)).not.toContain(at.toISOString());
     },
     SLOW,
   );
 
-  test(
-    "the desk page asks Google only after its own transaction has committed",
-    async () => {
-      const f = await deskLocation(google, "desk-no-slots-in-tx");
-      const r = await phoneRequest(f.clinicId);
-      const seen: boolean[] = [];
-      const real = google.fetch;
-      setGoogleFetch((async (input: RequestInfo | URL, init?: RequestInit) => {
-        if (String(input instanceof Request ? input.url : input).includes("freeBusy")) {
-          // The page's open is audited in its transaction; it is visible from
-          // another connection only once that transaction has committed.
-          const opened = await inTenant(f.clinicId, (client) =>
-            client.query(
-              `select 1 from audit_log where resource_type = 'booking_request' and resource_id = $1 and metadata->>'outcome' = 'opened'`,
-              [r.requestId],
-            ),
-          );
-          seen.push(opened.rows.length === 1);
-        }
-        return real(input, init);
-      }) as typeof fetch);
-      const page = await resolveBookingRequest(r.token);
-      expect(page!.calendar!.slots.length).toBeGreaterThan(0);
-      expect(seen).toEqual([true]);
-    },
-    SLOW,
-  );
+  // The page's free times are asked for only after its access row has
+  // committed: tests/bookings-screen.test.ts, through the portal's own page.
 
   /* ------------------------------------------------------- availability */
 
@@ -1032,7 +1068,7 @@ describeDb("the desk path and the Google write (C12)", () => {
       const g = await deskLocation(google, "desk-avail-down");
       const r = await phoneRequest(g.clinicId);
       google.failNext({ on: "freeBusy", status: 503, reason: "backendError" });
-      expect(await resolveBookingRequest(r.token)).toMatchObject({
+      expect(await deskView(r.token)).toMatchObject({
         status: "requested",
         calendar: { writable: true, slots: [] },
       });
@@ -1161,7 +1197,7 @@ describeDb("the desk path and the Google write (C12)", () => {
     async () => {
       const f = await deskLocation(google, "migb-guard");
       const r = await phoneRequest(f.clinicId);
-      const decided = await decideBookingRequest(r.token, "confirmed", {
+      const decided = await deskDecide(r.token, "confirmed", {
         decidedByLabel: "Jo",
         deskNote: null,
         confirmedFor: deskTime(5, 9),

@@ -38,8 +38,17 @@ import { NextResponse, type NextRequest } from "next/server";
  *    clinic's.
  */
 
-/** Where a form here may send the browser: this app, and the login pages its connect buttons open. */
-const FORM_TARGETS = ["https://accounts.google.com", "https://connect.stripe.com"] as const;
+/**
+ * Where a form here may send the browser: this app, and the login pages its
+ * connect buttons open. Browsers apply form-action to the redirects after a
+ * post too, so the Facebook login, which /api/meta/login answers with a 303
+ * to Facebook's dialog, needs its origin here as Google's sign-in does.
+ */
+const FORM_TARGETS = [
+  "https://accounts.google.com",
+  "https://connect.stripe.com",
+  "https://www.facebook.com",
+] as const;
 
 /** The policy for one response. Development keeps eval for React's tooling, and plain http. */
 export function contentSecurityPolicy(

@@ -42,8 +42,9 @@ describe("the Content-Security-Policy", () => {
     expect(policy.get("object-src")).toBe("'none'");
     expect(policy.get("base-uri")).toBe("'self'");
     expect(policy.get("frame-ancestors")).toBe("'none'");
+    // The connect buttons' logins: a post's redirect is held to form-action too.
     expect(policy.get("form-action")).toBe(
-      "'self' https://accounts.google.com https://connect.stripe.com",
+      "'self' https://accounts.google.com https://connect.stripe.com https://www.facebook.com",
     );
     expect(policy.has("upgrade-insecure-requests")).toBe(true);
   });

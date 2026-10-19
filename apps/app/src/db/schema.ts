@@ -85,6 +85,11 @@ import {
 } from "../lib/engine/practice/types";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 import {
+  DEVICE_RECOVERY_REVOKE_REASONS,
+  DEVICE_RECOVERY_TTL_HOURS,
+  type DeviceRecoveryRevokeReason,
+} from "../lib/factors/recovery-terms";
+import {
   SETTINGS_HISTORY_FIELDS,
   SETUP_SCREEN_OUTCOMES,
   SETUP_SCREENS,
@@ -4903,10 +4908,19 @@ export type WebauthnChallengePurpose = (typeof WEBAUTHN_CHALLENGE_PURPOSES)[numb
 /**
  * Why this session may add a passkey, decided before the browser is asked to
  * make one (plan Part D3): the sign-in's first passkey before any of its
- * clinics has gone live, a passkey step-up on this session, or a code from
- * the authenticator app or a backup code.
+ * clinics has gone live, a passkey step-up on this session, a code from the
+ * authenticator app or a backup code, the human route's one-time link
+ * (`recovery`, device_recoveries), or the browser that paid, within its seven
+ * days, adding the sign-in's first passkey ever (`paying_browser`,
+ * lib/sign-in/paying-browser.ts).
  */
-export const PASSKEY_ENROL_BASES = ["first_passkey", "step_up", "code"] as const;
+export const PASSKEY_ENROL_BASES = [
+  "first_passkey",
+  "step_up",
+  "code",
+  "recovery",
+  "paying_browser",
+] as const;
 export type PasskeyEnrolBasis = (typeof PASSKEY_ENROL_BASES)[number];
 
 /**
@@ -5029,6 +5043,109 @@ export const factorLockouts = pgTable(
   },
   (t) => [check("factor_lockouts_failures_check", sql`${t.failures} >= 0`)],
 );
+
+/**
+ * The human route for a clinic that has lost every device (plan Part D3,
+ * "Lost every device"; drizzle/0091): after the operator has called the
+ * practice back on its published number and entered a fresh code from the
+ * operator's authenticator on apps/web, the ops operation
+ * issueDeviceRecovery mints one of these and emails its link to the
+ * clinic's address on file, and nowhere else (lib/factors/recovery.ts).
+ *
+ * One row is one basis for one passkey, and it can be spent once, by one
+ * session, inside its window:
+ *
+ *   - **issued**: `token_hash` is SHA-256 of the link's token, never the
+ *     token; `expires_at` is at most DEVICE_RECOVERY_TTL_HOURS after
+ *     `created_at` (a CHECK), on the database's clock;
+ *   - **claimed**: the link was used. `claimed_at` and `session_token_hash`
+ *     are set together, in one conditional UPDATE, to the session the link
+ *     started, so only that browser can use what the link allows;
+ *   - **used**: that session added one passkey (`used_at`, `factor_id`), in
+ *     the same transaction as the passkey, and nothing more;
+ *   - **revoked**: ended unused, by a newer link, the clinic's "Someone
+ *     left", or the operator's removal.
+ *
+ * At most one is open (unused and unrevoked) per sign-in, by a partial
+ * unique index; issuing a new one revokes the last. `landing` is the portal
+ * path the link lands on, the Protect page of the clinic whose number was
+ * called.
+ *
+ * Identity plane, like user_factors and sign_in_links: a passkey belongs to
+ * the sign-in, not to a clinic, so no clinic_id and no RLS; the clinic is
+ * named in the security events and in `landing`. The runtime role may move
+ * only the claim, the use and the end, never DELETE, and a trigger freezes
+ * what was issued and a row once it is used or revoked. Kept: each row is
+ * the record that a device was added on our word, after a call.
+ */
+export const deviceRecoveries = pgTable(
+  "device_recoveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    tokenHash: bytea("token_hash").notNull(),
+    /** Where the link lands: `/c/<slug>/protect`. A path on this app, like sign_in_links.redirect_to. */
+    landing: text("landing").notNull(),
+    /** The operator's address, as a snapshot. */
+    issuedBy: text("issued_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    /** SHA-256 of the Better Auth session token the link started, never the token. */
+    sessionTokenHash: bytea("session_token_hash"),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    factorId: uuid("factor_id").references(() => userFactors.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedReason: text("revoked_reason").$type<DeviceRecoveryRevokeReason>(),
+  },
+  (t) => [
+    uniqueIndex("device_recoveries_token_hash_idx").on(t.tokenHash),
+    uniqueIndex("device_recoveries_one_open_idx")
+      .on(t.userId)
+      .where(sql`${t.usedAt} is null and ${t.revokedAt} is null`),
+    index("device_recoveries_user_idx").on(t.userId, t.createdAt),
+    index("device_recoveries_session_idx")
+      .on(t.sessionTokenHash)
+      .where(sql`${t.sessionTokenHash} is not null`),
+    check("device_recoveries_token_hash_length", sql`octet_length(${t.tokenHash}) = 32`),
+    check(
+      "device_recoveries_session_hash_length",
+      sql`${t.sessionTokenHash} is null or octet_length(${t.sessionTokenHash}) = 32`,
+    ),
+    check(
+      "device_recoveries_landing_check",
+      sql`${t.landing} like '/c/%/protect' and ${t.landing} not like '//%' and ${t.landing} !~ '[\\\\[:cntrl:][:space:]]' and char_length(${t.landing}) <= 200`,
+    ),
+    check(
+      "device_recoveries_issued_by_check",
+      sql`char_length(${t.issuedBy}) between 1 and 200`,
+    ),
+    check(
+      "device_recoveries_window_check",
+      sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '${sql.raw(String(DEVICE_RECOVERY_TTL_HOURS))} hours'`,
+    ),
+    check(
+      "device_recoveries_claim_check",
+      sql`(${t.claimedAt} is null) = (${t.sessionTokenHash} is null)`,
+    ),
+    check(
+      "device_recoveries_use_check",
+      sql`${t.usedAt} is null or ${t.claimedAt} is not null`,
+    ),
+    check(
+      "device_recoveries_factor_check",
+      sql`${t.factorId} is null or ${t.usedAt} is not null`,
+    ),
+    check(
+      "device_recoveries_revoked_check",
+      sql`(${t.revokedAt} is null) = (${t.revokedReason} is null) and (${t.revokedAt} is null or ${t.usedAt} is null) and (${t.revokedReason} is null or ${t.revokedReason} in (${sqlList(DEVICE_RECOVERY_REVOKE_REASONS)}))`,
+    ),
+  ],
+);
+
+export type DeviceRecovery = typeof deviceRecoveries.$inferSelect;
 
 // -----------------------------------------------------------------------------
 // Google Calendar (drizzle/0057): calendar terms per location, the OAuth

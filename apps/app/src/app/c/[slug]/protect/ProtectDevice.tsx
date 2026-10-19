@@ -12,6 +12,7 @@ import {
 } from "@/lib/factors/device";
 
 import { beginAddDevice, finishAddDevice } from "./actions";
+import { HUMAN_ROUTE, type ProtectMode } from "./copy";
 
 /**
  * The device's half of adding a passkey: name it, unlock it, done. The
@@ -19,12 +20,18 @@ import { beginAddDevice, finishAddDevice } from "./actions";
  * on the device itself because an iPad's browser says it is a Mac. The
  * browser offers "Use a phone or tablet" (a QR code) beside this device's own
  * unlock, because the options leave the authenticator's attachment open.
+ *
+ * Its three modes are copy.ts's. Only `needs_proof`, where the sign-in has a
+ * device, links to the step-up page; `no_device` offers the code and the
+ * human route instead, so the two pages never send a browser round in a loop.
  */
 export function ProtectDevice(props: {
   slug: string;
   next: string;
-  mode: "open" | "needs_proof";
+  mode: ProtectMode;
   firstDevice: boolean;
+  /** Open on the human route's link: one device, once. */
+  recovery?: boolean;
   codeRoute: boolean;
   initialDevice: DeviceKind;
   stepUpHref: string;
@@ -60,7 +67,7 @@ export function ProtectDevice(props: {
     setMessage(null);
     try {
       const begun = await beginAddDevice(props.slug, {
-        code: props.mode === "needs_proof" ? code : undefined,
+        code: props.mode === "open" ? undefined : code,
       });
       if (!begun.ok) {
         setMessage(begun.message);
@@ -93,8 +100,14 @@ export function ProtectDevice(props: {
       </h1>
       <p className="text-muted mt-3">
         {props.mode === "open"
-          ? `Conversations and Bookings open only after ${word} on a device you've added. It takes one tap.`
-          : `This sign-in already has a device that opens patient details. Confirm with it, and this one can be added.`}
+          ? props.recovery
+            ? `The link from healdesk lets one device be added, once. Conversations and Bookings then open with ${word} on it.`
+            : `Conversations and Bookings open only after ${word} on a device you've added. It takes one tap.`
+          : props.mode === "needs_proof"
+            ? `This sign-in already has a device that opens patient details. Confirm with it, and this one can be added.`
+            : props.codeRoute
+              ? `This sign-in has no device that opens patient details, and patient details may already exist, so adding one takes a code from your authenticator app or a backup code.`
+              : `This sign-in has no device that opens patient details and no authenticator app to confirm with, and patient details may already exist, so a device is added with our help.`}
       </p>
 
       {!supported ? (
@@ -105,18 +118,14 @@ export function ProtectDevice(props: {
       ) : null}
 
       {props.mode === "needs_proof" ? (
-        <>
-          <a
-            href={props.stepUpHref}
-            className="bg-ink mt-6 inline-flex min-h-11 items-center rounded-full px-6 py-3 text-sm font-bold text-white"
-          >
-            Confirm with a device that has it
-          </a>
-          <p className="text-muted mt-3 text-sm">
-            No such device at hand? Email hello@healdesk.io and we&rsquo;ll help you add this one.
-          </p>
-        </>
+        <a
+          href={props.stepUpHref}
+          className="bg-ink mt-6 inline-flex min-h-11 items-center rounded-full px-6 py-3 text-sm font-bold text-white"
+        >
+          Confirm with a device that has it
+        </a>
       ) : null}
+      {props.mode !== "open" ? <p className="text-muted mt-3 text-sm">{HUMAN_ROUTE}</p> : null}
 
       {canAdd ? (
         <form
@@ -146,7 +155,7 @@ export function ProtectDevice(props: {
             </p>
           </div>
 
-          {props.mode === "needs_proof" ? (
+          {props.mode !== "open" ? (
             <div className="grid gap-1">
               <label htmlFor={codeId} className="text-sm font-semibold">
                 Or enter a code from your authenticator app, or a backup code
@@ -164,7 +173,7 @@ export function ProtectDevice(props: {
 
           <button
             type="submit"
-            disabled={working || !supported || (props.mode === "needs_proof" && !code.trim())}
+            disabled={working || !supported || (props.mode !== "open" && !code.trim())}
             className="bg-ink min-h-11 w-fit rounded-full px-6 py-3 text-sm font-bold text-white disabled:opacity-50"
           >
             {working ? "Waiting for your device…" : `Use ${word}`}

@@ -4,7 +4,7 @@ import {
   manualBookingNotice,
   NEVER_SAY_DEFAULTS,
 } from "@healdesk/catalog";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   BOOKING_MODE_REASON_CODES,
@@ -636,7 +636,7 @@ describe("the build tracker", () => {
     expect(tracker.left).toEqual(["Assistant built", "Practice questions passed"]);
   });
 
-  test("the engine's two stages read the practice questions: built once a run has, passed only with nothing changed since", () => {
+  test("the engine's two stages read the practice questions: built once a run has, passed only with nothing changed since", async () => {
     const answered = setupState({
       clinic: {
         ...setupState().clinic,
@@ -692,6 +692,19 @@ describe("the build tracker", () => {
       "an urgent message from a client, an off-topic client, a question your answers don't cover and a conversation in Spanish.",
     );
     expect(engine(run(), vetSpanish)[1]![1]).not.toMatch(/patient/);
+    // Once every case can be asked, the plain line again.
+    vi.resetModules();
+    vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
+      casesNotAskable: () => [],
+    }));
+    try {
+      const { practicePassedDetail } = await import("@/lib/setup/tracker");
+      expect(practicePassedDetail(answered)).toBe("AYA answered her practice questions about your practice, and got them right.");
+    } finally {
+      vi.doUnmock("@/lib/engine/practice/cases");
+      vi.resetModules();
+    }
     expect(engine(run({ overridden: true }))[1]![1]).toBe("Our team checked AYA's answers with you and approved them.");
     // A change since the pass: checked again before the stage is done.
     expect(engine(run({}, true))).toEqual([

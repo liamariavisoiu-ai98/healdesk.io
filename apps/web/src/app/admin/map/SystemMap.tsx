@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 
 import { layoutBundles, nodeOfTool, type Lane } from "@/lib/admin/map-layout";
 import { STATUS_WORDS, STORIES, type BridgeStatus, type MapView } from "@/lib/admin/system-map";
@@ -26,6 +27,46 @@ export type { RecordRotation };
 /** How long a story lingers on each step: long enough to read the sentence. */
 const STEP_MS = 4600;
 
+/**
+ * How often the live checks run again while the page is open and in view.
+ * Each run asks the AWS host, GitHub and the Sheet once, so five minutes keeps
+ * a page left open on a second screen current without making noise.
+ */
+const REFRESH_MS = 5 * 60 * 1000;
+
+/**
+ * Asks the server for the page again every REFRESH_MS while the tab is in
+ * view, and at once on coming back to a tab that has gone stale. What is on
+ * screen (the lens, the open panel, a story) stays as it is: only the data
+ * underneath is replaced. Time is measured from when this browser received
+ * the data, not from the server's clock, so a skewed clock cannot make it
+ * refresh in a loop.
+ */
+function useLiveRefresh(checkedAt: string): { refreshing: boolean; refresh: () => void } {
+  const router = useRouter();
+  const [refreshing, start] = useTransition();
+  const received = useRef(0);
+  const refresh = useCallback(() => start(() => router.refresh()), [router]);
+
+  useEffect(() => {
+    received.current = Date.now();
+  }, [checkedAt]);
+
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === "visible" && Date.now() - received.current >= REFRESH_MS) refresh();
+    };
+    const timer = window.setInterval(tick, 30_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [refresh]);
+
+  return { refreshing, refresh };
+}
+
 type Story = { id: string; step: number; playing: boolean };
 
 export function SystemMap({ view, recordRotation }: { view: MapView; recordRotation: RecordRotation }) {
@@ -33,6 +74,7 @@ export function SystemMap({ view, recordRotation }: { view: MapView; recordRotat
   const bridges = useMemo(() => new Map(view.bridges.map((bridge) => [bridge.id, bridge])), [view.bridges]);
   const tools = useMemo(() => new Map(view.tools.map((tool) => [tool.id, tool])), [view.tools]);
   const reducedMotion = usePrefersReducedMotion();
+  const live = useLiveRefresh(view.checkedAt);
 
   const [lens, setLens] = useState<Lens>("all");
   const [status, setStatus] = useState<BridgeStatus | null>(null);
@@ -90,7 +132,7 @@ export function SystemMap({ view, recordRotation }: { view: MapView; recordRotat
 
   return (
     <div className="mt-8 grid grid-cols-1 gap-6">
-      <Overview view={view} status={status} setStatus={setStatus} />
+      <Overview view={view} status={status} setStatus={setStatus} refreshing={live.refreshing} onRefresh={live.refresh} />
 
       <section
         aria-label="The whole system"
@@ -211,7 +253,24 @@ const HOST: Record<MapView["host"]["state"], { label: string; dot: string; ink: 
   unconfigured: { label: "This deployment can't reach the AWS host", dot: "#d4860b", ink: "#7a4b00" },
 };
 
-function Overview({ view, status, setStatus }: { view: MapView; status: BridgeStatus | null; setStatus: (status: BridgeStatus | null) => void }) {
+/** "15:13", in UTC as the rest of the console writes times, so the server's and the browser's render agree. */
+function clock(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" });
+}
+
+function Overview({
+  view,
+  status,
+  setStatus,
+  refreshing,
+  onRefresh,
+}: {
+  view: MapView;
+  status: BridgeStatus | null;
+  setStatus: (status: BridgeStatus | null) => void;
+  refreshing: boolean;
+  onRefresh: () => void;
+}) {
   const total = view.bridges.length;
   const working = view.counts.working;
   const tiles: BridgeStatus[] = ["needs-key", "broken", "to-build", "off", "unknown"];
@@ -234,6 +293,20 @@ function Overview({ view, status, setStatus }: { view: MapView; status: BridgeSt
               <span className="relative inline-block size-2.5 rounded-full" style={{ background: host.dot }} />
             </span>
             {host.label}
+          </p>
+          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[#5c6e7e]" aria-live="polite">
+            <span>
+              {refreshing ? "Checking now…" : `Checked ${clock(view.checkedAt)} UTC`} · refreshes every 5 minutes
+            </span>
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={refreshing}
+              className="inline-flex min-h-8 items-center gap-1 rounded-full px-2 font-bold text-[#172a3a] hover:bg-[#f1f3f6] disabled:opacity-50"
+            >
+              <Icon name="refresh" className={`size-3.5 ${refreshing ? "motion-safe:animate-spin" : ""}`} strokeWidth={2.4} />
+              Refresh
+            </button>
           </p>
         </div>
       </div>

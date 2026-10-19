@@ -2,11 +2,12 @@ import type { Channel } from "@healdesk/catalog";
 import type { ReactNode } from "react";
 
 import type { PortalGrant } from "@/lib/portal/access";
-import type { AnsweringStatus } from "@/lib/portal/header";
+import type { AnsweringControl, AnsweringStatus } from "@/lib/portal/header";
 import { portalNav, sectionPath, type PortalSection } from "@/lib/portal/nav";
 
 import { signOut } from "./actions";
 import { HelpPanel } from "./HelpPanel";
+import { PauseSwitch } from "./PauseSwitch";
 
 /**
  * The frame every portal screen sits in (plan Part F0): the clinic's name,
@@ -29,6 +30,8 @@ export type ShellProps = {
   section: PortalSection;
   audience: "patients" | "clients";
   status: AnsweringStatus;
+  /** The AYA is answering switch, after go-live (lib/portal/header.ts); null shows the line alone. */
+  answering?: AnsweringControl | null;
   /** The channels that have gone live, for what the menu's unbuilt screens say. */
   liveChannels?: readonly Channel[];
   timeZone: string;
@@ -76,12 +79,16 @@ export function PortalShell(props: ShellProps) {
           </div>
         </div>
 
-        <StatusLine
-          slug={props.slug}
-          status={props.status}
-          audience={props.audience}
-          timeZone={props.timeZone}
-        />
+        {props.answering ? (
+          <PauseSwitch slug={props.slug} control={props.answering} />
+        ) : (
+          <StatusLine
+            slug={props.slug}
+            status={props.status}
+            audience={props.audience}
+            timeZone={props.timeZone}
+          />
+        )}
 
         <nav aria-label="Portal" className="mt-4">
           <ul className="grid grid-cols-3 gap-2 sm:grid-cols-6">
@@ -124,9 +131,10 @@ export function PortalShell(props: ShellProps) {
 }
 
 /**
- * The header's slot about AYA (lib/portal/header.ts). Before go-live it says
- * she isn't answering yet and links to the build tracker; after it, M6 puts
- * the AYA is answering switch here.
+ * The header's slot about AYA where it holds no switch (lib/portal/header.ts):
+ * before go-live it says she isn't answering yet and links to the build
+ * tracker; with every live channel switched Off in Settings, it says so.
+ * After go-live the slot is the AYA is answering switch (PauseSwitch.tsx).
  */
 function StatusLine(props: {
   slug: string;

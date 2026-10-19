@@ -73,6 +73,10 @@ export const SANCTIONED: Readonly<Record<string, string>> = {
   "src/lib/booking/terms.ts#calendarTermsFor":
     "the location's calendar terms, read through the caller's tx.db; the checker reads the " +
     "`rows` of tx.db.execute's result as the pg driver's own. Business data, no patient row",
+  "src/app/c/[slug]/pause-actions.ts#pauseAyaAction":
+    "the header's AYA is answering switch: writes the clinic's pause, reads no patient",
+  "src/app/c/[slug]/pause-actions.ts#resumeAyaAction":
+    "the header's AYA is answering switch: clears the clinic's pause, reads no patient",
 };
 
 const REQUIRE_PATIENT_PAGE = "src/lib/portal/patient-page.ts#requirePatientPage";

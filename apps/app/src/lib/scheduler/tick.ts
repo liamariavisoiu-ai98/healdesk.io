@@ -1,5 +1,6 @@
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { sweepChannelStates } from "@/lib/channels/events";
+import { sweepEndedPauses } from "@/lib/channels/pause";
 import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
@@ -140,6 +141,17 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // none asked for, the review-past-due alert, and O8 for a complete tracker.
   // The runs themselves go every minute from their own queue.
   await record("practice-questions-sweep", () => runPracticeQuestionsSweep({ now }));
+  // The header's pause (lib/channels/pause.ts): a timed pause that ended by
+  // itself gets its `resumed` row, at the moment it ended, once. Not a
+  // switched job, for the reason the channel-states sweep is not: the answer
+  // gate already reads the end, so this only completes the record.
+  await record("ai-pause", async () => {
+    const r = await sweepEndedPauses(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.resumed} resumed${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

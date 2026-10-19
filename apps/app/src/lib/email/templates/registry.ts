@@ -1,6 +1,7 @@
 import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
+import { AI_PAUSED_ENTRY } from "./ai_paused";
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
 import { ASSISTANT_READY_ENTRY } from "./assistant_ready";
 import { CALENDAR_RECONNECTED_ENTRY, CALENDAR_STOPPED_ENTRY } from "./calendar_state";
@@ -115,6 +116,8 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   steps_sent: STEPS_SENT_ENTRY,
   // Go-live (M6): L1, queued when a channel is recorded live.
   channel_live: CHANNEL_LIVE_ENTRY,
+  // The header's pause and a channel switched Off (M6): L15.
+  ai_paused: AI_PAUSED_ENTRY,
   // The calendar backend's two (plan §2.6, §4.1).
   calendar_link: CALENDAR_LINK_ENTRY,
   calendar_election_recorded: CALENDAR_ELECTION_RECORDED_ENTRY,
@@ -197,6 +200,7 @@ export const PENDING_TEMPLATES: Record<
     | "setting_changed"
     | "channel_ready"
     | "channel_live"
+    | "ai_paused"
     | "steps_sent"
     | "calendar_link"
     | "calendar_election_recorded"
@@ -224,8 +228,6 @@ export const PENDING_TEMPLATES: Record<
   // WP4: the claims function's emails.
   daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
   weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },
-  // WP3: the pause control.
-  ai_paused: { owner: "plan", package: "WP3", ships: "M6 (L15)" },
   // The runtime's routed/answered counter: blocked, owned by no package yet.
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },

@@ -205,7 +205,7 @@ describeDb("a dropped Meta login", () => {
     const audits = await inTenant(clinic.clinicId, (c) =>
       c.query(`select 1 from audit_log where metadata->>'outcome' = 'needs_reconnect'`),
     );
-    expect(audits.rowCount).toBe(1);
+    expect(audits.rows).toHaveLength(1);
 
     await connect(clinic, "messenger");
     expect((await view(clinic)).facebook.state).toBe("connected");

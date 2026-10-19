@@ -3,7 +3,11 @@ import { and, eq, gt, sql } from "drizzle-orm";
 
 import { bookingRequests, clinicChannels, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
-import { assistantMayAnswer, servicesEnded, type AnswerDecision } from "@/lib/billing/answering";
+import {
+  assistantMayAnswer,
+  patientDataRefused,
+  type AnswerDecision,
+} from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { describeError, log } from "@/lib/log";
 import { cleanFirstName, createBookingRequest } from "@/lib/meta/booking-requests";
@@ -38,8 +42,10 @@ import type { WebChatClinic } from "./web-chat";
  * answering (switched Off, the header's pause, the allowance cap, a
  * suspension), and while she is answering too, for a widget whose chat
  * failed to start. Never for a clinic that has left, whose Services have
- * ended (no agreement in effect, cancelled), that did not buy website chat,
- * or whose website chat has never been live: nothing may be kept for those.
+ * ended (no agreement in effect, cancelled), whose agreement no longer covers
+ * it (a DPA practice now a covered entity, which the database refuses patient
+ * rows for), that did not buy website chat, or whose website chat has never
+ * been live: nothing may be kept for those.
  *
  * Rate-limited twice: per address and clinic in this process, and per clinic
  * from the requests themselves, so several web tasks cannot multiply it.
@@ -80,7 +86,7 @@ export const CLOSED_FORM: ContactFormOffer = { takesMessages: false, times: CONT
 function refusesMessages(decision: AnswerDecision): boolean {
   if (decision.decision === "answer") return false;
   return (
-    servicesEnded(decision.reason) ||
+    patientDataRefused(decision.reason) ||
     decision.reason === "not_purchased" ||
     decision.reason === "channel_not_live"
   );

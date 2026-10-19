@@ -7,7 +7,7 @@ import type { AssistantResponder } from "@/lib/assistant/turn";
 import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
-import { latestCallerWords, TRANSFER_LINE } from "@/lib/voice/retell";
+import { CLOSED_LINE, latestCallerWords, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE } from "@/lib/voice/retell";
 import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -179,6 +179,112 @@ describeDb("the Retell voice endpoint", () => {
     await c.waitFor((r) => responses(r).length >= 1);
     expect(responses(c.received)[0]).toMatchObject({ response_id: 0, content: TRANSFER_LINE, transfer_number: "+14155550123" });
     await c.close();
+  });
+
+  test("a practice whose agreement no longer covers it goes to its direct line, and with none the call is closed, never the assistant", async () => {
+    // A DPA practice that has told us it is now a covered entity: the
+    // database refuses its patient rows until it signs the BAA.
+    const coveredDpa = async (name: string) => {
+      const clinic = await seedClinic(name);
+      await bindAgreementInEffect(clinic.clinicId);
+      await getMigratorPool().query(
+        `update clinics
+            set data_classification = 'production', baa_signed_at = now(),
+                regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = true
+          where id = $1`,
+        [clinic.clinicId],
+      );
+      return clinic;
+    };
+    let asked = false;
+    modelAnswer = () => {
+      asked = true;
+      return { reply: "model" };
+    };
+
+    const withLine = await coveredDpa("retell-kind-line");
+    await inTenant(withLine.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550124')
+         on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [withLine.clinicId],
+      ),
+    );
+    const transferred = await call(port, `/llm-websocket/${SECRET}/${withLine.clinicId}/call_kind_line`);
+    await transferred.waitFor((r) => responses(r).length >= 1);
+    expect(responses(transferred.received)[0]).toMatchObject({ response_id: 0, content: TRANSFER_LINE, transfer_number: "+14155550124" });
+    await transferred.close();
+
+    const withoutLine = await coveredDpa("retell-kind-closed");
+    const closed = await call(port, `/llm-websocket/${SECRET}/${withoutLine.clinicId}/call_kind_closed`);
+    await closed.waitFor((r) => responses(r).length >= 1);
+    expect(responses(closed.received)[0]).toMatchObject({ response_id: 0, content: CLOSED_LINE, end_call: true });
+    // Nothing a caller says reaches the model afterwards.
+    closed.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Hello?" }] });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(responses(closed.received)).toHaveLength(1);
+    expect(asked).toBe(false);
+    await closed.close();
+  });
+
+  test("a clinic with no agreement in effect still goes to its direct line, and with none the call is closed", async () => {
+    // Production with no agreement: the Services are not in effect
+    // (no_agreement). The Terms still pass a forwarded call straight through.
+    const ended = async (name: string) => {
+      const clinic = await seedClinic(name);
+      await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now() where id = $1`, [clinic.clinicId]);
+      return clinic;
+    };
+    const withLine = await ended("retell-ended-line");
+    await inTenant(withLine.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550125')
+         on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [withLine.clinicId],
+      ),
+    );
+    const transferred = await call(port, `/llm-websocket/${SECRET}/${withLine.clinicId}/call_ended_line`);
+    await transferred.waitFor((r) => responses(r).length >= 1);
+    expect(responses(transferred.received)[0]).toMatchObject({ response_id: 0, content: TRANSFER_LINE, transfer_number: "+14155550125" });
+    await transferred.close();
+
+    const withoutLine = await ended("retell-ended-closed");
+    const closed = await call(port, `/llm-websocket/${SECRET}/${withoutLine.clinicId}/call_ended_closed`);
+    await closed.waitFor((r) => responses(r).length >= 1);
+    expect(responses(closed.received)[0]).toMatchObject({ response_id: 0, content: CLOSED_LINE, end_call: true });
+    await closed.close();
+  });
+
+  test("a call whose start fails goes to the direct line when it can be read, and is closed when it cannot", async () => {
+    const failingGate = async () => {
+      throw new Error("settings could not be read");
+    };
+    const opened = async (clinicId: string) => {
+      const sent: Received[] = [];
+      const session = new RetellCallSession(clinicId, `call_${clinicId.slice(0, 8)}`, (m) => sent.push(m as Received), {
+        responder,
+        transport,
+        gate: failingGate,
+        ingest: async () => ({ conversationId: null }) as never,
+      });
+      await session.open();
+      return responses(sent);
+    };
+    const withLine = await seedClinic("retell-start-line");
+    await inTenant(withLine.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550126')
+         on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [withLine.clinicId],
+      ),
+    );
+    expect(await opened(withLine.clinicId)).toEqual([
+      expect.objectContaining({ response_id: 0, content: TROUBLE_TRANSFER_LINE, transfer_number: "+14155550126" }),
+    ]);
+    const withoutLine = await seedClinic("retell-start-closed");
+    expect(await opened(withoutLine.clinicId)).toEqual([
+      expect.objectContaining({ response_id: 0, content: CLOSED_LINE, end_call: true }),
+    ]);
   });
 
   test("an urgent caller hears 911 and the urgent number, and the model is never asked", async () => {

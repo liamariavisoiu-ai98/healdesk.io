@@ -20,8 +20,9 @@ export const piece: Piece = {
     "HIPAA covers a provider that sends health information electronically in a type of transaction HHS has adopted a standard for. What that means for cash-pay practices.",
   answer:
     "A clinic is a HIPAA covered entity only if it, or an entity acting for it, sends health information electronically in connection with a type of transaction for which HHS has adopted a standard. Those types include insurance claims and eligibility checks, so a practice paid only by its patients may sit outside HIPAA, while state health privacy laws and the FTC Act can still reach it.",
-  stage: "draft",
+  stage: "live",
   legal: true,
+  review: "Every statement was checked against the primary texts on 19 October 2026 by an independent AI review, not by a lawyer.",
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
   sections: [
@@ -141,13 +142,13 @@ export const piece: Piece = {
         { kind: "h3", text: "Nevada: NRS 603A.400 to 603A.550" },
         {
           kind: "p",
-          text: "Nevada’s consumer health data law was enacted in 2023 as [Senate Bill 370](https://www.leg.state.nv.us/Session/82nd2023/Bills/SB/SB370_EN.pdf) and sits in [NRS 603A.400 to 603A.550](https://www.leg.state.nv.us/NRS/NRS-603A.html). A regulated entity may collect consumer health data only with “the affirmative, voluntary consent of the consumer”, or to the extent necessary to provide a product or service the consumer requested. The provisions do not apply to “any person or entity that is subject to” HIPAA. They separately exempt personally identifiable information governed by Part C of Title XI of the Social Security Act and collected, used or disclosed pursuant to it. Any violation is a deceptive trade practice, and the statute states that the provisions do not create a private right of action.",
+          text: "Nevada’s consumer health data law was enacted in 2023 as [Senate Bill 370](https://www.leg.state.nv.us/Session/82nd2023/Bills/SB/SB370_EN.pdf) and sits in [NRS 603A.400 to 603A.550](https://www.leg.state.nv.us/NRS/NRS-603A.html). A regulated entity may collect consumer health data only with “the affirmative, voluntary consent of the consumer”, or to the extent necessary to provide a product or service the consumer requested. The provisions do not apply to “any person or entity that is subject to” HIPAA. They separately exempt personally identifiable information governed by Part C of Title XI of the Social Security Act and collected, used or disclosed pursuant to it. Except as the statute provides for processors, a violation is a deceptive trade practice, and the statute states that the provisions do not create a private right of action.",
           cite: ["nv-sb370", "nrs-603a"],
         },
         { kind: "h3", text: "Connecticut: consumer health data in chapter 743jj" },
         {
           kind: "p",
-          text: "Connecticut added consumer health data to its [data privacy chapter](https://www.cga.ct.gov/2026/sup/chap_743jj.htm) in 2023, through Public Act 23-56. Since 1 July 2026, the chapter defines consumer health data as personal data a controller uses to identify a consumer’s “physical or mental health condition, diagnosis or status”, and lists it as sensitive data. The chapter’s general duties now also reach persons that “control or process consumers’ sensitive data”, and section 42-520 conditions their processing of sensitive data on, among other things, the consumer’s consent. [Public Act 26-64](https://www.cga.ct.gov/2026/ACT/PA/PDF/2026PA-00064-R00SB-00004-PA.PDF), in force since 1 October 2026, amended both sections again and kept that definition and that consent condition. Section 42-526 bars a person from selling consumer health data without consent, and limits who may be given access to it.",
+          text: "Connecticut added consumer health data to its [data privacy chapter](https://www.cga.ct.gov/2026/sup/chap_743jj.htm) in 2023, through Public Act 23-56. Since 1 July 2026, the chapter defines consumer health data as personal data a controller uses to identify a consumer’s “physical or mental health condition, diagnosis or status”, and lists it as sensitive data. The chapter’s general duties now also reach persons that “control or process consumers’ sensitive data, excluding personal data controlled or processed solely for the purposes of completing a payment transaction”. Section 42-520 conditions their processing of sensitive data on, among other things, the consumer’s consent. [Public Act 26-64](https://www.cga.ct.gov/2026/ACT/PA/PDF/2026PA-00064-R00SB-00004-PA.PDF), in force since 1 October 2026, amended both sections again and kept that definition and that consent condition. Section 42-526 bars a person from selling consumer health data without consent, and limits who may be given access to it.",
           cite: ["ct-743jj-2026", "ct-pa-26-64", "ct-743jj"],
         },
         {
@@ -255,7 +256,7 @@ export const piece: Piece = {
       id: "cms-covered-entities",
       title: "Are You a Covered Entity?",
       publisher: "Centers for Medicare & Medicaid Services",
-      url: "https://www.cms.gov/about-cms/what-we-do/administrative-simplification/hipaa/covered-entities",
+      url: "https://www.cms.gov/priorities/key-initiatives/burden-reduction/administrative-simplification/hipaa/covered-entities",
       kind: "government",
       checked: "2026-10-19",
     },

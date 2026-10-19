@@ -21,8 +21,9 @@ export const piece: Piece = {
   answer:
     "Several states require an AI assistant to say it is an AI in some conversations, and the rules differ by state and by what the conversation covers. " +
     "California, Texas, Utah, Maine and Colorado have rules that can reach an assistant on a clinic's phone or website chat, while the FCC's 2024 ruling on AI voices addresses outbound calls.",
-  stage: "draft",
+  stage: "live",
   legal: true,
+  review: "Every statement was checked against the primary texts on 19 October 2026 by an independent AI review, not by a lawyer.",
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
   sections: [

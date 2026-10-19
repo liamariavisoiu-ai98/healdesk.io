@@ -23,8 +23,9 @@ export const piece: Piece = {
     "Federal law needs one party’s consent to record a call; several states need every party’s. What the statutes and AI vendor cases say about transcription.",
   answer:
     "Federal law requires one party’s consent to record or intercept a call, while several states, including California, Florida, Illinois and Washington, require every party’s consent or knowledge for at least some calls. For an AI that transcribes calls, two open questions are whether live transcription with no audio kept counts as recording, and whether the AI vendor is a third party to the call.",
-  stage: "draft",
+  stage: "live",
   legal: true,
+  review: "Every statement was checked against the primary texts on 19 October 2026 by an independent AI review, not by a lawyer.",
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
   sections: [

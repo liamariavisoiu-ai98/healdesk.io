@@ -119,6 +119,15 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "data-protection-agreement",
+    promise: "A practice HIPAA does not cover signs a data protection agreement instead of a business associate agreement",
+    where: "Is a cash-pay clinic covered by HIPAA?, How AYA is built to behave",
+    status: "owner",
+    left: "The agreement is drafted and marked not released (isDpaReleased() is false), so every practice signs the business associate agreement today. Release it, as you released the business associate agreement versions, and checkout offers it by specialty.",
+    evidence: "packages/catalog/src/dpa.ts, packages/catalog/src/agreement-kind.ts",
+    blocksGoLive: false,
+  },
+  {
     id: "direct-booking-addendum",
     promise: "A clinic can elect direct booking under its agreement",
     where: "Setup, agreement",

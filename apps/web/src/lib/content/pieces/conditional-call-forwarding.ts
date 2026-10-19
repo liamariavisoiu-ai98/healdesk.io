@@ -43,7 +43,7 @@ export const piece: Piece = {
             "Unconditional forwarding sends every incoming call to another number, which T-Mobile describes as preventing calls to the original number. " +
             "Conditional forwarding lets the original line ring first and forwards a call only when a set condition is met. " +
             "Carriers document three conditions: the line is busy, nobody answers within a set number of rings or seconds, or the phone is off or out of signal range. " +
-            "On most of the lines covered below, each condition has its own code to switch it on and another to switch it off.",
+            "On several of the lines covered below, each condition has its own code to switch it on and another to switch it off.",
           cite: ["tmobile-codes", "verizon-home", "att-phone"],
         },
         {
@@ -197,7 +197,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "Comcast Business's handset guides for its VoiceEdge and managed voice services, both from 2017, give *72 and *73 for all calls, *92 and *93 for no answer, and *90 and *91 for busy. " +
-            "The busy code applies, in the guides' words, \"if call waiting is not enabled\". " +
+            "The busy code applies, in the managed voice guide's words, \"if call waiting is not enabled\". " +
             "The VoiceEdge guide adds that forwarding can also be turned on and off in the Comcast Business online account.",
           cite: ["comcast-voiceedge", "comcast-managed"],
         },

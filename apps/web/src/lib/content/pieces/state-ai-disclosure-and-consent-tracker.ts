@@ -27,9 +27,10 @@ export const piece: Piece = {
     "Call-recording consent statutes and AI-disclosure laws that can reach a clinic's AI assistant, for 20 states, each linked to its text and dated.",
   answer:
     "For 20 states, this tracker names the statute on consent to record or intercept a phone call and any AI-disclosure law that can reach an AI assistant on a clinic's phone or chat. " +
-    "California, Texas, Utah and Maine have disclosure laws that can reach one, while several 2025 and 2026 chatbot laws in other states exclude customer service.",
-  stage: "draft",
+    "California, Texas, Utah, Maine and Colorado have disclosure laws that can reach one, while several 2025 and 2026 companion chatbot laws exclude customer service.",
+  stage: "live",
   legal: true,
+  review: "Every statement was checked against the primary texts on 19 October 2026 by an independent AI review, not by a lawyer.",
   published: "2026-10-19",
   lastReviewed: "2026-10-19",
   sections: [
@@ -58,7 +59,7 @@ export const piece: Piece = {
             [
               "Texas",
               `One party. [Penal Code § 16.02(c)(4)](https://tcss.legis.texas.gov/resources/PE/htm/PE.16.htm) makes it a defence that the person is a party, or that "one of the parties to the communication has given prior consent".`,
-              `[Bus. & Com. Code § 552.051(f)](https://tcss.legis.texas.gov/resources/BC/htm/BC.552.htm) (TRAIGA): the provider must disclose AI "used in relation to health care service or treatment", from 1 January 2026. [Health & Safety Code § 183.005](https://tcss.legis.texas.gov/resources/HS/htm/HS.183.htm): AI used for diagnosis, from 1 September 2025.`,
+              `[Bus. & Com. Code § 552.051(f)](https://tcss.legis.texas.gov/resources/BC/htm/BC.552.htm) (TRAIGA), from 1 January 2026: where AI is "used in relation to health care service or treatment", the provider "shall provide the disclosure under Subsection (b)", a subsection addressed to governmental agencies. [Health & Safety Code § 183.005](https://tcss.legis.texas.gov/resources/HS/htm/HS.183.htm): AI used for diagnosis, from 1 September 2025.`,
               "19 October 2026",
             ],
             [
@@ -160,7 +161,7 @@ export const piece: Piece = {
             [
               "Colorado",
               `One party. [C.R.S. §§ 18-9-303 and 18-9-304](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-18.pdf) (2024 edition) bar interception without the consent of a sender or receiver, or of "at least one of the principal parties".`,
-              `[C.R.S. § 6-1-1704](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-06.pdf) (SB 24-205), from 30 June 2026 under [SB 25B-004](https://leg.colorado.gov/laws/session-laws/SB25B-004/3/download): "a deployer or other developer" making available an AI system "intended to interact with consumers" must ensure each consumer is told it is AI, unless that would be obvious to a reasonable person. Part 17 defines a "deployer" as a person doing business in Colorado that deploys a high-risk AI system, and a "developer" as one that develops or intentionally and substantially modifies any AI system. On 27 April 2026, in [X.AI LLC v. Weiser](https://storage.courtlistener.com/recap/gov.uscourts.cod.253513/gov.uscourts.cod.253513.24.0.pdf), a magistrate judge's minute order granted the parties' joint stipulated motion. It orders the Attorney General not to begin enforcing SB 24-205, or legislation replacing it enacted that session, for violations up to 14 days after the court rules on xAI's preliminary-injunction motion. [SB 26-189](https://leg.colorado.gov/bill_files/116489/download) repeals and re-enacts Part 17 from 1 January 2027 and covers only consequential decisions. [HB 26-1263](https://leg.colorado.gov/laws/session-laws/HB26-1263/208/download), from 1 January 2027: operators of public conversational AI services must disclose that they are AI. Software primarily designed for customer service, or used by or for a HIPAA covered entity or business associate, is excluded. HB 26-1263 adds its duty as section 6-1-1708, a number SB 26-189's re-enacted Part 17 gives to another rule, and neither act refers to the other, so their codification is unsettled.`,
+              `[C.R.S. § 6-1-1704](https://content.leg.colorado.gov/sites/default/files/images/olls/crs2024-title-06.pdf) (SB 24-205), from 30 June 2026 under [SB 25B-004](https://leg.colorado.gov/laws/session-laws/SB25B-004/3/download): "a deployer or other developer" making available an AI system "intended to interact with consumers" must ensure each consumer is told it is AI, unless that would be obvious to a reasonable person. Part 17 defines a "deployer" as a person doing business in Colorado that deploys a high-risk AI system, and a "developer" as one that develops or intentionally and substantially modifies any AI system. On 27 April 2026, in [X.AI LLC v. Weiser](https://storage.courtlistener.com/recap/gov.uscourts.cod.253513/gov.uscourts.cod.253513.24.0.pdf), a magistrate judge's minute order granted the parties' joint stipulated motion. It orders the Attorney General not to begin enforcing SB 24-205, or legislation replacing or amending it enacted that session, for violations up to 14 days after the court rules on xAI's preliminary-injunction motion. [SB 26-189](https://leg.colorado.gov/bill_files/116489/download) repeals and re-enacts Part 17 from 1 January 2027 and covers only consequential decisions. [HB 26-1263](https://leg.colorado.gov/laws/session-laws/HB26-1263/208/download), from 1 January 2027: operators of public conversational AI services must disclose that they are AI. Software primarily designed for customer service, or used by or for a HIPAA covered entity or business associate, is excluded. HB 26-1263 adds its duty as section 6-1-1708, a number SB 26-189's re-enacted Part 17 gives to another rule, and neither act refers to the other, so their codification is unsettled.`,
               "19 October 2026",
             ],
             [
@@ -251,7 +252,7 @@ export const piece: Piece = {
             "Maine: Public Law 2025, chapter 294 took effect on 24 September 2025, and the Revisor of Statutes has moved it from § 1500-Y to § 1500-DD of Title 10.",
             'Colorado: SB 26-189, signed on 14 May 2026, repeals and re-enacts Part 17 of Article 1 of Title 6, the 2024 AI act, from 1 January 2027. Its notices apply where automated decision-making technology materially influences a consequential decision, a term that excludes "routine scheduling".',
             "Colorado: HB 26-1263, approved on 29 May 2026, adds the conversational AI disclosure described in the table, from 1 January 2027. How it is codified beside SB 26-189's re-enacted Part 17 is unsettled.",
-            "Colorado: SB 25B-004 moved the start of SB 24-205's duties, including the section 6-1-1704 disclosure, to 30 June 2026. On 27 April 2026, in X.AI LLC v. Weiser, a magistrate judge's minute order granted the parties' joint stipulated motion. It orders the Attorney General not to begin enforcing SB 24-205 or its replacement for violations up to 14 days after a ruling on a preliminary-injunction motion.",
+            "Colorado: SB 25B-004 moved the start of SB 24-205's duties, including the section 6-1-1704 disclosure, to 30 June 2026. On 27 April 2026, in X.AI LLC v. Weiser, a magistrate judge's minute order granted the parties' joint stipulated motion. It orders the Attorney General not to begin enforcing SB 24-205, or legislation replacing or amending it enacted that session, for violations up to 14 days after a ruling on a preliminary-injunction motion.",
             "Connecticut: Public Act 26-15 (SB 5), approved on 27 May 2026, adds AI companion rules from 1 January 2027, enforced only by the Attorney General. Its definition excludes a chatbot used only for customer service or support and not marketed as a companion.",
             "Washington: HB 2225, on AI companion chatbots, was signed on 24 March 2026 and takes effect on 1 January 2027. Oregon: SB 1546, on AI companions, became chapter 85 of its 2026 session laws.",
             "Florida: SB 482 died in messages on 13 March 2026. New York: S7263A was committed to the Rules Committee on 5 June 2026 and is not law. S9051B, on AI companions and minors, passed both houses in June 2026, and the Assembly's record of its actions showed no delivery to the Governor on 19 October 2026.",
@@ -317,7 +318,7 @@ export const piece: Piece = {
           kind: "p",
           text:
             "A row states what the statute's text says and whom it binds, and it does not say whether any practice meets it. " +
-            "Whether live transcription with no audio kept counts as recording or interception is not settled by these texts, as [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state) sets out. " +
+            "Whether live transcription with no audio kept is recording, and whether an AI vendor is a third party, are not settled by these texts, as [AI call transcription consent by state](/guides/ai-call-transcription-consent-by-state) sets out. " +
             '"None found" and "No general law found" record what the searches for this tracker turned up, and they do not mean that no such law exists. ' +
             "Each row carries the date it was last checked against the primary text. " +
             "Corrections, with the statute or bill that supports them, go to [hello@healdesk.io](mailto:hello@healdesk.io).",

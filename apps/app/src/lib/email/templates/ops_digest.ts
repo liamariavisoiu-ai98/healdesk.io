@@ -79,6 +79,12 @@ export type OpsDigestPayload = {
   hasRateWarning: boolean;
   /** Sources or clinics that could not be read; the digest went without them. */
   unreadCount: number;
+  /**
+   * /sign-in/help requests in the window for an address with no account,
+   * which alert no one (lib/sign-in/help.ts): the security log has each.
+   * Absent from a digest collected before 19 October 2026's follow-ups.
+   */
+  signInHelpNoAccountCount?: number;
 };
 
 /** Resend's free plan stops at 100 a day; the alarm is at 70 (Annex X2). */
@@ -210,6 +216,14 @@ export const renderOpsDigest: EmailTemplate<OpsDigestPayload> = (payload, ctx) =
           },
         ]
       : []),
+    ...((payload.signInHelpNoAccountCount ?? 0) > 0
+      ? [
+          {
+            type: "paragraph" as const,
+            text: `Sign-in help: ${plural(payload.signInHelpNoAccountCount ?? 0, "request")} in the last 24 hours named an address with no account. Nothing was mailed for them; the security log's sign_in_help_unmatched rows have each, and many from one place are worth a look.`,
+          },
+        ]
+      : []),
     ...(payload.calendarRows.length > 0
       ? [
           { type: "paragraph" as const, text: "Google Calendar connections, by state:" },
@@ -302,6 +316,7 @@ export const OPS_DIGEST_FIXTURE: OpsDigestPayload = {
   complaintPercent: 0,
   hasRateWarning: true,
   unreadCount: 0,
+  signInHelpNoAccountCount: 3,
 };
 
 export const OPS_DIGEST_ENTRY: TemplateEntry<OpsDigestPayload> = {

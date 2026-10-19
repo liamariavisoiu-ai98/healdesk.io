@@ -393,7 +393,7 @@ const WORDING: Record<OpsEvent, Wording> = {
   sign_in_help_unmatched: {
     title: "A request for sign-in help sent no link",
     action:
-      "Someone used I can't get in, and no link went: the code says why. Where a clinic is named, call it on its published number before changing anything; never send a link anywhere but the address on the account.",
+      "Someone used I can't get in with a clinic's address, and no link went: the code says why. This is the day's first for this clinic and code; later ones are in the security log. Call the clinic on its published number before changing anything; never send a link anywhere but the address on the account. Requests for addresses with no account alert no one and are counted in the morning digest.",
   },
   retention_purge_failed: {
     title: "The retention purge failed",

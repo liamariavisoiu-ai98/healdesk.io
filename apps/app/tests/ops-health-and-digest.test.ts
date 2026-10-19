@@ -642,6 +642,34 @@ describeDb("WP5: health flags, the ops watch and the digest", () => {
       expect(rows).toEqual([]);
     });
 
+    /** /sign-in/help's requests for addresses with no account alert no one: the digest says how many. */
+    test("counts the day's sign-in help requests for addresses with no account", async () => {
+      const now = new Date();
+      for (const [code, hoursAgo] of [
+        ["no_account", 1],
+        ["no_account", 3],
+        ["no_account", 30],
+        ["no_match", 1],
+      ] as const) {
+        await getMigratorPool().query(
+          `insert into security_events (actor_label, event, metadata, occurred_at)
+           values ('sign-in-help', 'sign_in_help_unmatched', $1, $2)`,
+          [JSON.stringify({ code }), new Date(now.getTime() - hoursAgo * HOUR)],
+        );
+      }
+      const digest = await collectDigest(now);
+      expect(digest.signInHelpNoAccountCount).toBe(2);
+      expect(() => assertPayloadAllowed(digest, "ops_digest")).not.toThrow();
+      const rendered = renderOpsDigest(digest, {
+        clinicName: null,
+        audience: "patients",
+        reason: "You're receiving this because you're on healdesk's ops rota.",
+        raisedAt: now,
+        timeZone: "UTC",
+      });
+      expect(rendered.text).toContain("Sign-in help: 2 requests in the last 24 hours named an address with no account.");
+    });
+
     test("goes once a UTC day from 07:00, to ops, and is retried by the next tick when it fails", async () => {
       process.env.HEALDESK_OPS_EMAIL = "ops@healdesk.test";
       const morning = new Date();

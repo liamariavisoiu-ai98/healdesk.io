@@ -300,6 +300,11 @@ export async function finishPasskeyRegistration(input: {
   response: unknown;
   deviceLabel: unknown;
   request?: RequestMeta;
+  /**
+   * This is the browser that paid (lib/sign-in/paying-browser.ts): its first
+   * passkey is the only addition that sends no device email (O3).
+   */
+  payingBrowser?: boolean;
 }): Promise<RegistrationFinish> {
   const { userId, sessionTokenHash } = input.session;
   const label = validateDeviceLabel(input.deviceLabel);
@@ -405,7 +410,13 @@ export async function finishPasskeyRegistration(input: {
     throw error;
   }
   if (result.ok) {
-    await notifyDeviceChange({ userId, kind: "added", factorId: result.factorId, first });
+    await notifyDeviceChange({
+      userId,
+      kind: "added",
+      factorId: result.factorId,
+      first,
+      payingBrowser: input.payingBrowser === true,
+    });
   }
   return result;
 }

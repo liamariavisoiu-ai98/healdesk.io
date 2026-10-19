@@ -18,7 +18,9 @@ import type { TenantTx } from "@/lib/tenant";
  * evidence: a channel in service stays in the price whatever its switch says,
  * lib/channels/state.ts). No step-up: the spec puts the step-up only where
  * calls and money go to a new place, and Off sends calls to the place the
- * clinic already chose. L15, the email a channel switched Off sends, is M6's.
+ * clinic already chose. L15, the email a live channel switched Off sends,
+ * is queued by Settings after this says it changed
+ * (lib/channels/pause.ts, noteChannelSwitchedOff).
  *
  * Settings has no switch for the Meta channel itself: it has one each for
  * Instagram, Messenger and WhatsApp, and lib/channels/meta-platforms.ts sets

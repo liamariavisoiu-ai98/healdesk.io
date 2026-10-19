@@ -19,7 +19,9 @@
  * It is not a second copy of the product spec or the roadmap. A bridge's
  * `build` and `buildNote` say only what the code shows today (read out of it
  * on 14 October 2026: routes, Terraform, the design notes' "Not built"
- * lists), and system-map.test.ts holds each key to a name the code actually
+ * lists; every bridge re-audited against main on 19 October 2026, when the
+ * words were corrected to what the channels do now: they take requests for
+ * the desk, and none books), and system-map.test.ts holds each key to a name the code actually
  * reads, so a renamed variable fails a test instead of a map that quietly
  * goes green.
  *
@@ -83,7 +85,9 @@ export type IconName =
   | "search"
   | "chart"
   | "shield"
-  | "inbox";
+  | "inbox"
+  | "archive"
+  | "terminal";
 
 /**
  * The bands the map is drawn in, top to bottom: the patient side (our AWS
@@ -124,9 +128,9 @@ export type GroupDef = {
 export const GROUPS: readonly GroupDef[] = [
   { id: "patient-people", name: "Patients & clinics", blurb: "The people the clinic engine serves: patients who get in touch, and the clinic team who use its portal.", icon: "users", band: "patient" },
   { id: "front-doors", name: "Front doors", blurb: "Where patients' calls and messages come in before they reach the engine.", icon: "inbox", band: "patient" },
-  { id: "vault", name: "Inside our AWS", blurb: "Our own locked rooms: the engine's memory, the safe for clinics' logins, and the email that carries transcripts.", icon: "shield", band: "patient" },
+  { id: "vault", name: "Inside our AWS", blurb: "Our own locked rooms: the engine's memory, the key safe, the email that carries transcripts, the bucket a leaving clinic's records are packed into, and the console you run it all from.", icon: "shield", band: "patient" },
   { id: "brain", name: "AYA's brain", blurb: "Writes every answer AYA gives a patient, under a business associate agreement.", icon: "sparkles", band: "patient" },
-  { id: "bookings", name: "Bookings & deposits", blurb: "Where AYA's bookings land and where patients' deposits are paid: always the clinic's own accounts.", icon: "calendar", band: "patient" },
+  { id: "bookings", name: "Bookings & deposits", blurb: "Where the bookings the desk confirms land and where patients' deposits will be paid: always the clinic's own accounts.", icon: "calendar", band: "patient" },
   { id: "phase-two", name: "Phase two", blurb: "Built or half built, and parked on purpose: v1 does not claim revenue.", icon: "link", band: "patient" },
   { id: "payments", name: "Payments", blurb: "Our own Stripe: the shop window sells, the engine keeps each subscription right.", icon: "card", band: "shared" },
   { id: "email", name: "Email", blurb: "Everyday email from hello@healdesk.io, for both apps. Never a patient's details.", icon: "mail", band: "shared" },
@@ -160,12 +164,14 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "retell", name: "Retell", role: "Phone lines AYA answers", kind: "vendor", category: "front-doors", icon: "phone", side: "patient" },
   { id: "meta", name: "Meta", role: "Instagram, Messenger, WhatsApp", kind: "vendor", category: "front-doors", icon: "chat", side: "patient" },
   { id: "db", name: "Database", role: "Amazon RDS: the engine's memory", kind: "aws", category: "vault", icon: "database", side: "patient" },
-  { id: "kms", name: "Key safe", role: "Amazon KMS: locks clinics' logins", kind: "aws", category: "vault", icon: "lock", side: "patient" },
+  { id: "kms", name: "Key safe", role: "Amazon KMS: locks logins and waiting transcripts", kind: "aws", category: "vault", icon: "lock", side: "patient" },
   { id: "ses", name: "Amazon email", role: "SES: sends transcripts", kind: "aws", category: "vault", icon: "mail", side: "patient" },
+  { id: "exports", name: "Export bucket", role: "Amazon S3: a leaving clinic's records", kind: "aws", category: "vault", icon: "archive", side: "patient" },
+  { id: "aws-console", name: "AWS console", role: "CloudShell, stored keys, alarms", kind: "aws", category: "vault", icon: "terminal", side: "patient" },
   { id: "claude-baa", name: "Claude", role: "Anthropic, patient account, under a BAA", kind: "vendor", category: "brain", icon: "sparkles", side: "patient" },
   { id: "gcal", name: "Google Calendar", role: "Each clinic's own diary", kind: "vendor", category: "bookings", icon: "calendar", side: "patient" },
   { id: "clinic-stripe", name: "Clinic's Stripe", role: "Deposits paid to the clinic", kind: "vendor", category: "bookings", icon: "card", side: "patient" },
-  { id: "connectors", name: "Booking systems", role: "Mindbody, Boulevard", kind: "vendor", category: "phase-two", icon: "link", side: "patient" },
+  { id: "connectors", name: "Booking systems", role: "Mindbody, Boulevard: not connected", kind: "vendor", category: "phase-two", icon: "link", side: "patient" },
 
   // Shared by both sides.
   { id: "stripe", name: "Stripe", role: "Our checkout and subscriptions", kind: "vendor", category: "payments", icon: "card", side: "both" },
@@ -178,9 +184,11 @@ export const TOOLS: readonly ToolDef[] = [
   { id: "you", name: "You", role: "Running healdesk from /admin", kind: "people", category: "shop-people", icon: "user", side: "shop" },
   { id: "claude-mkt", name: "Claude (demos)", role: "Anthropic, marketing account", kind: "vendor", category: "selling", icon: "sparkles", side: "shop" },
   { id: "retell-demo", name: "Retell demos", role: "The demo line: AYA rings owners", kind: "vendor", category: "selling", icon: "phone", side: "shop" },
-  { id: "apify", name: "Apify", role: "Reads clinic websites", kind: "vendor", category: "selling", icon: "search", side: "shop" },
+  { id: "apify", name: "Apify", role: "Reads clinic websites and Google listings", kind: "vendor", category: "selling", icon: "search", side: "shop" },
   { id: "outreach", name: "Cold email", role: "Instantly, InboxKit, GlockApps…", kind: "vendor", category: "selling", icon: "megaphone", side: "shop" },
   { id: "posthog", name: "PostHog", role: "Visitor analytics", kind: "vendor", category: "selling", icon: "chart", side: "shop" },
+  { id: "calendly", name: "Calendly", role: "Owners book a call with you", kind: "vendor", category: "selling", icon: "calendar", side: "shop" },
+  { id: "indexnow", name: "Search engines", role: "IndexNow: Bing and others hear of new pages", kind: "vendor", category: "selling", icon: "search", side: "shop" },
   { id: "sheets", name: "Google Sheets", role: "Leads, requests, agreements", kind: "vendor", category: "records", icon: "table", side: "shop" },
   { id: "slack", name: "Slack", role: "Alerts for you", kind: "vendor", category: "records", icon: "bell", side: "shop" },
   { id: "vercel-cron", name: "Vercel timer", role: "Daily jobs", kind: "vendor", category: "records", icon: "clock", side: "shop" },
@@ -197,18 +205,24 @@ export const TOOLS: readonly ToolDef[] = [
  *   aws       the engine's environment on AWS (Parameter Store, or a public
  *             id Terraform sets). Read over the signed ops call, live, while
  *             the host is on; "can't check" while it is in standby.
- *   aws-ci    Parameter Store's shelf for GitHub's deploys only. No running
- *             task is given it, so nothing can report on it.
+ *   aws-ci    Parameter Store, given only to one-off jobs (a deploy's
+ *             migration task, a GitHub run of infra.yml or host.yml), never
+ *             to a running service, so nothing can report on it.
+ *   github    the repository's Actions variables, which infra.yml, host.yml
+ *             and deploy-app.yml refuse to run without. Never checked here.
  *   computer  your own computer and password manager. Never checked.
- *   clinic    one per clinic, sealed in the database with the key safe, made
- *             when the clinic presses a login button. Shown per clinic on Ops.
+ *   clinic    one per clinic, made when the clinic presses a login button:
+ *             a login sealed in the database with the key safe, or for
+ *             Stripe an account id our own Stripe key acts for. Shown per
+ *             clinic on Ops.
  */
-export type KeyHome = "vercel" | "aws" | "aws-ci" | "computer" | "clinic";
+export type KeyHome = "vercel" | "aws" | "aws-ci" | "github" | "computer" | "clinic";
 
 export const HOME_LABEL: Record<KeyHome, string> = {
   vercel: "Vercel (shop window)",
   aws: "AWS (clinic engine)",
-  "aws-ci": "AWS, deploys only",
+  "aws-ci": "AWS, one-off jobs only",
+  github: "GitHub (repository variables)",
   computer: "Your computer",
   clinic: "Each clinic's own login",
 };
@@ -324,7 +338,13 @@ export const KEYS: readonly KeyDef[] = [
     home: "vercel",
     label: "The stamp on visitors' passes",
     need: "required",
-    rotation: { kind: "every", days: 365, how: `openssl rand -base64 32. ${VERCEL_HOW}`, impact: "Setup links and agreement downloads already sent stop working, so do it when none is out." },
+    // It also signs the unsubscribe link in every marketing email, which never
+    // expires, so a schedule would break opt-outs already in inboxes.
+    rotation: {
+      kind: "only-if",
+      when: "it leaks",
+      how: `openssl rand -base64 32. ${VERCEL_HOW} Unsubscribe links in every email already sent stop working, as do setup links and agreement downloads; visitors must unlock the demo again, and the website's 48-hour offer restarts for everyone.`,
+    },
   },
   {
     id: "vercel.STRIPE_SECRET_KEY",
@@ -438,7 +458,12 @@ export const KEYS: readonly KeyDef[] = [
     home: "vercel",
     label: "Apify key",
     need: "optional",
-    rotation: { kind: "every", days: 365, how: `Apify console, Settings, Integrations. ${VERCEL_HOW}`, impact: "Demos read only plain HTML in between." },
+    rotation: {
+      kind: "every",
+      days: 365,
+      how: `Apify console, Settings, Integrations. ${VERCEL_HOW}`,
+      impact: "Demos read only plain HTML, and take opening hours from the website instead of Google, in between.",
+    },
   },
   {
     id: "vercel.DEMO_WEBHOOK_SECRET",
@@ -500,13 +525,27 @@ export const KEYS: readonly KeyDef[] = [
     home: "aws",
     label: "The password in each clinic's Retell line address",
     need: "later",
-    waitsFor: "voice is switched on (enable_voice) after a test call on a made-up clinic",
+    waitsFor:
+      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Then paste it, turn enable_voice on (production.tfvars, merged, an infra.yml apply, then a full deploy-app.yml), put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
     rotation: {
       kind: "every",
       days: 180,
       how: "openssl rand -hex 32, then put-external-secrets.sh HEALDESK_RETELL_LLM_SECRET and a restart, and the same value into every clinic's Retell agent URL.",
       impact: "Calls are refused for any clinic whose Retell agent still has the old address: change them in the same quiet hour.",
     },
+  },
+  {
+    // Not a secret: Terraform sets it on the web task whenever enable_voice is
+    // on (infra/aws/locals.tf), because the secret above is given to the web
+    // task, and so reads as present, before the voice service exists.
+    id: "aws.HEALDESK_VOICE_ENABLED",
+    env: "HEALDESK_VOICE_ENABLED",
+    home: "aws",
+    label: "The voice endpoint's switch (enable_voice)",
+    need: "later",
+    waitsFor:
+      "enable_voice is turned on, once every business associate agreement in the chain is signed (Retell's included) and the Retell line password (HEALDESK_RETELL_LLM_SECRET) is pasted: set it in production.tfvars, merge, run an infra.yml apply and a full deploy-app.yml, put the line address in a made-up clinic's Retell agent, and make a test call before any real one",
+    rotation: { kind: "public" },
   },
   {
     id: "aws.META_APP_SECRET",
@@ -544,14 +583,19 @@ export const KEYS: readonly KeyDef[] = [
     home: "aws",
     label: "The stamp on clinic sign-ins",
     need: "required",
-    rotation: { kind: "every", days: 365, how: "Set app/BETTER_AUTH_SECRET to __unset__, then at once deploy-app.yml with bootstrap_db, which makes a new one inside AWS.", impact: "Signs every clinic out and voids pending email stop links." },
+    rotation: {
+      kind: "every",
+      days: 365,
+      how: "Set app/BETTER_AUTH_SECRET to __unset__, then at once deploy-app.yml with bootstrap_db, which makes a new one inside AWS.",
+      impact: "Signs every clinic out, voids pending email stop links, ends every open website chat, and fails any Google Calendar connect in progress.",
+    },
   },
   { id: "aws.BETTER_AUTH_URL", env: "BETTER_AUTH_URL", home: "aws", label: "The portal's public address", need: "required", rotation: { kind: "public" } },
   {
     id: "aws.HEALDESK_IDENTIFIER_REF_KEY",
     env: "HEALDESK_IDENTIFIER_REF_KEY",
     home: "aws",
-    label: "The phone-number scrambler",
+    label: "The id scrambler (vendors' ids, and WhatsApp numbers)",
     need: "required",
     rotation: { kind: "never", why: "Every stored conversation was filed under it. A new one would split every open conversation and count every caller twice. Only with a re-key plan." },
   },
@@ -593,6 +637,14 @@ export const KEYS: readonly KeyDef[] = [
     need: "required",
     rotation: { kind: "every", days: 365, how: "Roll it in Cloudflare, then bash put-external-secrets.sh CLOUDFLARE_API_TOKEN in CloudShell.", impact: "None: only the next infra.yml or host.yml run reads it." },
   },
+  // GitHub's repository variables: ids and addresses, none of them secret,
+  // that the AWS workflows refuse to run without.
+  { id: "github.AWS_TERRAFORM_ROLE_ARN", env: "AWS_TERRAFORM_ROLE_ARN", home: "github", label: "Which AWS role GitHub's runs may take", need: "required", rotation: { kind: "public" } },
+  { id: "github.TF_STATE_BUCKET", env: "TF_STATE_BUCKET", home: "github", label: "Where the AWS set-up's state is kept", need: "required", rotation: { kind: "public" } },
+  { id: "github.TF_STATE_KMS_KEY_ARN", env: "TF_STATE_KMS_KEY_ARN", home: "github", label: "The key that locks that state", need: "required", rotation: { kind: "public" } },
+  { id: "github.HEALDESK_ADMIN_EMAIL", env: "HEALDESK_ADMIN_EMAIL", home: "github", label: "Your address, as the engine's copy is set from", need: "required", rotation: { kind: "public" }, sameAs: "aws.HEALDESK_ADMIN_EMAIL" },
+  { id: "github.ALARM_EMAIL", env: "ALARM_EMAIL", home: "github", label: "Where AWS's alarms and budget warnings go", need: "required", rotation: { kind: "public" } },
+  { id: "github.CLOUDFLARE_ZONE_ID", env: "CLOUDFLARE_ZONE_ID", home: "github", label: "Which Cloudflare zone is healdesk.io", need: "required", rotation: { kind: "public" } },
   { id: "computer.INSTANTLY_API_KEY", env: "INSTANTLY_API_KEY", home: "computer", label: "Instantly key (sending)", need: "required", rotation: { kind: "every", days: 180, how: "Make a new key in Instantly and replace it where your outreach scripts read it.", impact: "None between sends." } },
   { id: "computer.INBOXKIT_API_KEY", env: "INBOXKIT_API_KEY", home: "computer", label: "InboxKit key (mailboxes, warm-up)", need: "required", rotation: { kind: "every", days: 180, how: "app.inboxkit.com, Settings, API.", impact: "None between runs." } },
   { id: "computer.GLOCKAPPS_API_KEY", env: "GLOCKAPPS_API_KEY", home: "computer", label: "GlockApps key (inbox tests)", need: "optional", rotation: { kind: "every", days: 365, how: "GlockApps account settings.", impact: "None between tests." } },
@@ -601,8 +653,22 @@ export const KEYS: readonly KeyDef[] = [
 
   // --- Per clinic --------------------------------------------------------------
   { id: "clinic.google", env: null, home: "clinic", label: "Each clinic's Google Calendar login", need: "required", rotation: { kind: "only-if", when: "a clinic disconnects or Google revokes it: the clinic presses Connect again", how: "From the clinic's portal, or a calendar link from Ops." } },
-  { id: "clinic.meta", env: null, home: "clinic", label: "Each clinic's Instagram, Messenger or WhatsApp login", need: "required", rotation: { kind: "only-if", when: "a clinic disconnects or Meta revokes it", how: "The clinic presses Connect again in its portal." } },
-  { id: "clinic.stripe", env: null, home: "clinic", label: "Each clinic's Stripe connection", need: "required", rotation: { kind: "only-if", when: "a clinic disconnects its Stripe", how: "The clinic connects again from its portal, or a link from Ops." } },
+  {
+    id: "clinic.meta",
+    env: null,
+    home: "clinic",
+    label: "Each clinic's Instagram, Messenger or WhatsApp login",
+    need: "required",
+    rotation: { kind: "only-if", when: "a clinic disconnects or Meta revokes it", how: "Make a new link with run-task.sh channels-link (meta for Facebook and Instagram, whatsapp for WhatsApp) and send it to the clinic. The set-up wizard's Connect with Facebook button won't come back by itself: it shows only until one of the clinic's Meta logins is connected, nothing tells the engine when Meta revokes one, and WhatsApp has no button in the portal." },
+  },
+  {
+    id: "clinic.stripe",
+    env: null,
+    home: "clinic",
+    label: "Each clinic's Stripe account id (our Stripe key acts for it)",
+    need: "required",
+    rotation: { kind: "only-if", when: "a clinic disconnects its Stripe", how: "The clinic connects again from its portal, or a link from Ops." },
+  },
 ];
 
 /**
@@ -629,6 +695,12 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   NEXT_PUBLIC_SITE_URL: "healdesk.io's public address.",
   NEXT_PUBLIC_PORTAL_URL: "The clinic portal's public sign-in address.",
   HEALDESK_REPO: "Which GitHub repository the Changes tab reads: a name.",
+  HEALDESK_GITHUB_REPO: "Which GitHub repository the AWS on/off switch runs in: a name.",
+  HEALDESK_APP_PUBLIC_URL: "The engine's public address, given to a Stripe set-up script on your computer.",
+  RETELL_DEMO_TOOL_ORIGIN: "The site address the demo agent's set-up script points AYA's tools at.",
+  SITE_URL: "The site address the IndexNow script pings for: a public address.",
+  HEALDESK_CHECKOUT_MODE: "Your switch for who may buy: public opens checkout to anyone; anything else keeps it to people you sent a setup link.",
+  HEALDESK_SETUP_LINKS: "Your switch that lets Setup send setup links in production (open), once the launch checklist is done.",
   HEALDESK_APP_URL: "The engine's private address. The engine reads it only to refuse it in any email it sends.",
   HEALDESK_SUPPORT_PHONE: "Our public support number, shown in the portal's Help.",
   HEALDESK_CALL_BOOKING_URL: "The public page clinics book their set-up call on.",
@@ -647,8 +719,17 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_KMS_PROVIDER: "Which key safe the engine uses. The key itself never leaves AWS; the key-safe line checks it live.",
   HEALDESK_KMS_KEY_ID: "Names the key in the key safe; not the key.",
   HEALDESK_LOCAL_KEK: "Development only: production refuses it and uses the key safe.",
-  HEALDESK_DIRECT_BOOKING_ENABLED: "Your switch for AYA booking by herself rather than asking the clinic.",
+  HEALDESK_DIRECT_BOOKING_ENABLED:
+    "Your switch for AYA booking by herself rather than asking the clinic. No channel calls the booking engine yet, so today it changes only the buy page's wording and reports; never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
+  // One-off jobs (apps/app/scripts), started by hand inside AWS.
+  HEALDESK_EXPORT_BUCKET: "The export job's bucket: a name.",
+  HEALDESK_EXPORT_KEY: "The export file's name in that bucket; not a key.",
+  HEALDESK_EXPORT_CLINIC_ID: "Which clinic the export job packs: an id.",
+  HEALDESK_EXPORT_CONTACT_ID: "Which one person the export job packs, by id.",
+  HEALDESK_EXPORT_REQUESTED_BY: "Who asked for the export: a word.",
+  HEALDESK_RUNTIME_ROLE: "The database role the queue is installed for: a name.",
+  USER: "Set by the shell: who ran the job, for its audit row.",
 };
 
 // -----------------------------------------------------------------------------
@@ -699,6 +780,12 @@ export type BridgeDef = {
   keyless?: string;
   /** Carries something a patient said or did. */
   phi: boolean;
+  /**
+   * For a bridge with patient data through a vendor that never signs a
+   * business associate agreement (Meta, Stripe): how it is kept in bounds
+   * instead, which the drawer says in place of "under an agreement".
+   */
+  phiNote?: string;
   build: BuildState;
   buildNote?: string;
   proof?: LiveProof;
@@ -709,6 +796,9 @@ export type BridgeDef = {
    */
   dependsOn?: string;
 };
+
+const META_SCOPE =
+  "Meta never signs a business associate agreement, so these channels are scoped instead: every message is screened for clinical content before the model sees it, and one that is caught is never stored and gets a fixed line moving the person to a call. No filter catches every wording.";
 
 export const BRIDGES: readonly BridgeDef[] = [
   // --- The two apps and you ----------------------------------------------------
@@ -729,8 +819,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "selling",
     from: "web",
     to: "app",
+    both: true,
     title: "The shop window hands work to the engine",
-    carries: "Paid purchases to set up, and every read and button on Ops and Host",
+    carries:
+      "Paid purchases to set up, every Stripe billing change after that, email delivery reports, review and welcome checks, and every read and button on Ops, Reviews (the practice questions waiting for you), Host and this map; the engine answers with what those pages show",
     example: "A clinic's first invoice is paid. The shop window posts its signed agreement to the engine in an envelope sealed with a stamp only the two of them own; the engine checks the seal and opens the clinic's account.",
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
@@ -764,6 +856,19 @@ export const BRIDGES: readonly BridgeDef[] = [
     build: "built",
   },
   {
+    id: "web-indexnow",
+    theme: "selling",
+    from: "web",
+    to: "indexnow",
+    title: "We tell the search engines a page changed",
+    carries: "The public addresses in the sitemap, and nothing else",
+    example: "A new guide goes live. After the deploy, GitHub (or the Ping IndexNow button on the SEO tab) sends its address to IndexNow, and Bing and the other engines that share it come to read it within hours instead of weeks.",
+    keys: [],
+    keyless: "The IndexNow key is a public file on healdesk.io by design: it proves the site owns the pings, and grants nothing else.",
+    phi: false,
+    build: "built",
+  },
+  {
     id: "web-stripe",
     theme: "selling",
     from: "web",
@@ -771,7 +876,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "We open a checkout for a buyer",
     carries: "The package, the setup fee and the buyer's email",
     example: "The owner presses Pay. We ask Stripe to show its card page for the setup fee and the monthly plan; we never see the card number.",
-    keys: ["vercel.STRIPE_SECRET_KEY"],
+    // Checkout seals the purchase into the Sheet before it calls Stripe, and
+    // answers "Signup is unavailable" without the seal or the Sheet.
+    keys: ["vercel.STRIPE_SECRET_KEY", "vercel.HEALDESK_PROVISION_SECRET"],
+    dependsOn: "web-sheets",
     phi: false,
     build: "built",
   },
@@ -783,7 +891,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Stripe tells us an invoice was paid",
     carries: "\"Invoice paid\", \"checkout expired\" and similar messages",
     example: "Like a courier showing ID at the door: Stripe signs every \"paid\" message, and the shop window opens only for a message with the right signature. A paid first invoice is what sets a clinic up.",
-    keys: ["vercel.STRIPE_WEBHOOK_SECRET"],
+    // It passes every event it acts on to the engine and answers Stripe with
+    // an error, so Stripe retries, while the engine does not answer.
+    keys: ["vercel.STRIPE_WEBHOOK_SECRET", "vercel.STRIPE_SECRET_KEY"],
+    dependsOn: "web-app",
     phi: false,
     build: "built",
   },
@@ -794,8 +905,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "sheets",
     both: true,
     title: "Leads and setup requests are kept in the Sheet",
-    carries: "Demo leads, setup requests, signed agreements until the first invoice, rotation dates",
-    example: "A dentist fills in \"Tell us about your clinic\" and a new row appears in the company's Google Sheet; the agreement that clinic signs waits there until its first invoice is paid.",
+    carries:
+      "Demo leads and their events, personalised demos, call consents, setup requests, sealed agreements and purchases until the first invoice, daily spend counters, rotation dates, the SEO tab's ticks and AI-answer log",
+    example:
+      "A dentist fills in \"Tell us about your clinic\" and a new row appears in the company's Google Sheet; the agreement that clinic signs waits there until its first invoice is paid. You read the same Sheet in CRM, through your own Google sign-in.",
     keys: ["vercel.GOOGLE_SERVICE_ACCOUNT_JSON", "vercel.MARKETING_SHEET_ID"],
     phi: false,
     build: "built",
@@ -819,8 +932,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "web",
     to: "retell-demo",
     title: "We ask Retell to ring a clinic owner",
-    carries: "The owner's number and which demo to play, or a browser call",
-    example: "An owner types a mobile number and presses \"Have AYA call me\"; seconds later that phone rings from our demo number. Or they press \"Talk now\" and speak to AYA in the browser.",
+    carries: "The owner's number and which demo to play, or a request for a one-call browser pass",
+    example: "An owner types a mobile number and presses \"Have AYA call me\"; seconds later that phone rings from our demo number.",
     keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_AGENT_ID", "vercel.RETELL_DEMO_FROM_NUMBER", "vercel.RETELL_CLINIC_DEMO_AGENT_ID", "vercel.RETELL_DEMO_INBOUND_AGENT_ID"],
     phi: false,
     build: "built",
@@ -833,7 +946,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "Retell passes on demo follow-ups",
     carries: "\"Please email me\" requests and calls to the demo line",
     example: "On the demo call the owner says \"have someone email me\". Retell sends that request to us, signed, and we email them.",
-    keys: ["vercel.RETELL_WEBHOOK_KEY"],
+    // Calls to the demo line check Retell's signature with the API key when
+    // the webhook key is not added; only the follow-up needs the webhook key.
+    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_WEBHOOK_KEY"],
     phi: false,
     build: "built",
   },
@@ -843,7 +958,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "web",
     to: "resend",
     title: "Shop-window email goes out",
-    carries: "Setup links, nurture emails, the contact form, your sign-in alerts",
+    carries: "Setup links, the signed agreement's copy, demo links and demo-call follow-ups, nurture emails, the contact and review forms, your sign-in and host alerts",
     example: "You send a clinic its setup link from Setup; Resend delivers it from hello@healdesk.io, and every reply comes to that inbox.",
     keys: ["vercel.RESEND_API_KEY", "vercel.HEALDESK_EMAIL_FROM"],
     phi: false,
@@ -855,11 +970,12 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "resend",
     to: "web",
     title: "Resend reports bounces and spam complaints",
-    carries: "\"Bounced\" and \"marked as spam\", for both apps' email",
+    carries: "Bounces and spam complaints for the shop window's mail; every delivery report for the engine's mail, passed on to it",
     example: "A clinic's old address no longer exists. Resend tells us, and we stop writing to it, which keeps our emails out of spam folders.",
     keys: ["vercel.RESEND_WEBHOOK_SECRET"],
     phi: false,
     build: "built",
+    buildNote: "The engine's half is passed on over the bridge to the engine, and waits while the host is off.",
   },
   {
     id: "cron-web",
@@ -878,8 +994,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "running",
     from: "web",
     to: "github",
+    both: true,
     title: "The AWS on/off switch",
-    carries: "\"Turn the host on\" or \"put it in standby\"",
+    carries: "\"Turn the host on\" or \"put it in standby\", and the switch's recent runs back",
     example: "You press Turn on in Host, and the shop window asks GitHub to run the switch that rebuilds the AWS host from its snapshot. A clinic's first paid invoice presses it for you.",
     keys: ["vercel.HEALDESK_GITHUB_ACTIONS_TOKEN"],
     phi: false,
@@ -929,9 +1046,10 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "selling",
     from: "web",
     to: "apify",
-    title: "Apify reads websites built in the browser",
-    carries: "A clinic's public website address",
-    example: "A clinic's site is built on Wix and shows nothing until it loads in a browser; Apify opens it in a real one so the demo can read its prices.",
+    title: "Apify reads clinic websites and their Google listing",
+    carries: "A clinic's public website address, and its name to find its Google Maps listing",
+    example:
+      "A clinic's site is built on Wix and shows nothing until it loads in a browser; Apify opens it in a real one so the demo can read its prices, and reads the clinic's opening hours off its Google listing.",
     keys: ["vercel.APIFY_TOKEN"],
     phi: false,
     build: "built",
@@ -942,7 +1060,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "outreach",
     to: "web",
     title: "A cold-email reply asks for a demo",
-    carries: "The prospect's clinic and website",
+    carries: "The prospect's clinic, website, email and phone, and whether to email them the demo",
     example: "A prospect replies \"sure, show me\" to a cold email; Instantly's reply rule asks the site to build their personalised demo.",
     keys: ["vercel.DEMO_WEBHOOK_SECRET"],
     phi: false,
@@ -957,6 +1075,35 @@ export const BRIDGES: readonly BridgeDef[] = [
     carries: "Mailboxes, warm-up, inbox tests and sequences",
     example: "Mailboxes are made and warmed in InboxKit, tested with GlockApps and MailReach, and the sequences run in Instantly, all from your own computer.",
     keys: ["computer.INSTANTLY_API_KEY", "computer.INBOXKIT_API_KEY", "computer.GLOCKAPPS_API_KEY", "computer.MAILREACH_API_KEY", "computer.CLOUDFLARE_API_TOKEN"],
+    phi: false,
+    build: "built",
+  },
+  {
+    id: "prospects-retell-demo",
+    theme: "selling",
+    from: "prospects",
+    to: "retell-demo",
+    both: true,
+    title: "Owners talk to AYA's demo",
+    carries: "Their voice, in the browser or on the phone",
+    example: "An owner presses \"Talk now\" and speaks to AYA in the browser, straight to Retell; or dials the demo line from their mobile.",
+    // The browser half needs the one-call pass the shop window fetches with
+    // these (lib/retell-web-call.ts); a phone call to the demo line needs none.
+    keys: ["vercel.RETELL_API_KEY", "vercel.RETELL_DEMO_INBOUND_AGENT_ID", "vercel.RETELL_CLINIC_DEMO_AGENT_ID"],
+    keyless: "A phone call to the demo line needs nothing of ours; the browser uses a one-call pass the shop window fetches with these keys.",
+    phi: false,
+    build: "built",
+  },
+  {
+    id: "prospects-calendly",
+    theme: "selling",
+    from: "prospects",
+    to: "calendly",
+    title: "Owners book a call with you",
+    carries: "Their name, email and chosen time, typed into Calendly's own page",
+    example: "An owner presses \"Get in touch\" and picks Tuesday 11am in Calendly's window over the page.",
+    keys: [],
+    keyless: "Calendly's own page, framed on our site; no key of ours.",
     phi: false,
     build: "built",
   },
@@ -975,20 +1122,39 @@ export const BRIDGES: readonly BridgeDef[] = [
     dependsOn: "retell-app",
     phi: true,
     build: "built",
-    buildNote: "Each clinic's Retell agent and number are set up by hand in Retell's dashboard.",
+    buildNote:
+      "Each clinic's Retell agent and number are set up by hand in Retell's dashboard. If our voice endpoint is down, nothing of ours sends the call to the clinic's line: that rests on each Retell agent's own failure setting, so check it names the clinic's direct line. If Retell itself is down, no setting of Retell's runs, and the clinic's forwarding has to be removed by hand (the automatic fall-through is not built).",
   },
   {
     id: "retell-app",
     theme: "serving",
     from: "retell",
     to: "app",
+    both: true,
     title: "Retell lets the engine run the call",
-    carries: "What the caller says, as it is said",
-    example: "While Maria talks, Retell streams each sentence to the engine over a private line whose address carries a password; the engine decides every word AYA says back and books the consultation for Thursday at 3pm.",
-    keys: ["aws.HEALDESK_RETELL_LLM_SECRET"],
+    carries: "What the caller says, and every word AYA says back",
+    example:
+      "While Maria talks, Retell streams each sentence to the engine over a private line whose address carries a password; the engine decides every word AYA says back, and takes Maria's request for Thursday at 3pm for the clinic to confirm.",
+    keys: ["aws.HEALDESK_RETELL_LLM_SECRET", "aws.HEALDESK_VOICE_ENABLED"],
     phi: true,
     build: "built",
-    buildNote: "Switched off in AWS (enable_voice) until a test call on a made-up clinic checks Retell's fields.",
+    buildNote:
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. A call in progress when the voice task crashes is lost, with its words and its booking request: the backstop from Retell's call-ended message is not built.",
+  },
+  {
+    id: "retell-clinic",
+    theme: "serving",
+    from: "retell",
+    to: "clinic",
+    title: "AYA puts the caller through to the clinic",
+    carries: "The live call, to the clinic's direct line",
+    example: "The clinic has paused AYA; Maria's call is answered with one line and put straight through to the front desk.",
+    keys: [],
+    keyless: "The engine names the clinic's direct line and Retell dials it; no key of ours.",
+    dependsOn: "retell-app",
+    phi: true,
+    build: "built",
+    buildNote: "Only while our endpoint is up, and only where the clinic has set a direct line.",
   },
   {
     id: "patients-widget",
@@ -997,12 +1163,16 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "app",
     title: "A patient chats on the clinic's website",
     carries: "The patient's messages, straight to the engine",
-    example: "James opens the chat bubble on the clinic's website at midnight, asks what a first visit costs, and books Friday 10am.",
-    keys: [],
-    keyless: "Public by design: the bubble names the clinic, and the engine decides whether to answer.",
+    example:
+      "James opens the chat bubble on the clinic's website at midnight, asks what a first visit costs, and leaves a request for Friday morning that the clinic confirms.",
+    // Each open chat carries a token the engine signs with a key made from
+    // this secret (lib/chat/web-chat.ts).
+    keys: ["aws.BETTER_AUTH_SECRET"],
+    keyless: "No key on the clinic's site: the bubble names the clinic, and the engine decides whether to answer.",
     phi: true,
     build: "partial",
-    buildNote: "The engine's chat is built; the bubble clinics paste on their website is not.",
+    buildNote:
+      "The engine's chat is built; the bubble's script is not: nothing serves the address the pasted line points to. Yet once a clinic's script is approved, by you or by a passing practice-question run, its website chat counts as ready and the set-up wizard hands it the line to paste, with a Copy button; Home, the welcome email and the reminder email ask for it too. The chat cannot go live until you confirm in Ops that the line is on the clinic's site, so confirm none until the bubble exists.",
   },
   {
     id: "app-claude",
@@ -1010,11 +1180,15 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "claude-baa",
     title: "Claude writes AYA's replies to patients",
-    carries: "The conversation so far and the clinic's settings; and the portal's support chat, screened first",
-    example: "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said. The clinic's own support chat in the portal uses the same key, and answers with a fixed line and our support number until it is added.",
+    carries:
+      "The conversation so far and the clinic's settings; the portal's support chat, screened first; made-up practice questions built from the clinic's own prices and answers; and the clinic team's own messages in Talk to your AYA",
+    example:
+      "A patient asks \"anything Saturday morning?\". The engine asks Claude, under the business associate agreement, to write AYA's answer, then checks it against the clinic's rules before it is said. The same key answers the clinic's support chat (a fixed line and our support number until it is added), puts made-up practice questions to AYA on every channel a clinic bought whenever its set-up changes, and answers the front desk when it tries Talk to your AYA.",
     keys: ["aws.ANTHROPIC_API_KEY"],
     phi: true,
     build: "built",
+    buildNote:
+      "The practice questions run only once you switch the practice-questions job on in Ops, and every run spends tokens on this key; while it is off, only your approval clears a clinic's script. Talk to your AYA opens once a clinic's build tracker is complete, stores nothing, and is capped per conversation, per device and per practice each day.",
   },
   {
     id: "meta-app",
@@ -1026,7 +1200,9 @@ export const BRIDGES: readonly BridgeDef[] = [
     example: "A patient sends the clinic's Instagram \"how much is a consultation?\". Meta forwards it to the engine, signed with our app secret; anything clinical is caught at the door and never stored.",
     keys: ["aws.META_APP_SECRET", "aws.META_VERIFY_TOKEN"],
     phi: true,
+    phiNote: META_SCOPE,
     build: "built",
+    buildNote: "Each clinic also stays silent until you switch its Meta front door on in Ops, and the clinic's own switch for that platform is on.",
   },
   {
     id: "app-meta",
@@ -1035,11 +1211,16 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "meta",
     title: "AYA answers in Instagram and Messenger",
     carries: "AYA's reply, inside Meta's 24-hour window only",
-    example: "The clinic presses Connect Instagram in its portal and logs in to Facebook; from then on AYA's answer appears in the same chat thread.",
-    keys: ["aws.META_APP_ID", "aws.META_LOGIN_CONFIG_ID", "clinic.meta"],
+    example:
+      "The clinic presses Connect with Facebook at the channels step of its set-up and picks its Page; an Instagram account linked to that Page connects with it. A link you send works too. From then on AYA's answer appears in the same chat thread.",
+    // The Facebook login's return address is built from the portal's.
+    keys: ["aws.META_APP_ID", "aws.META_LOGIN_CONFIG_ID", "aws.BETTER_AUTH_URL", "clinic.meta"],
     dependsOn: "meta-app",
     phi: true,
+    phiNote: META_SCOPE,
     build: "built",
+    buildNote:
+      "The Connect with Facebook button is on the set-up wizard's channels step, not in Settings. It shows only until one of the clinic's Meta logins is connected, and only once the Facebook login's keys are in (without them the clinic is told to email us). For any later connection you make the clinic's link with run-task.sh channels-link and send it.",
   },
   {
     id: "app-whatsapp",
@@ -1048,11 +1229,15 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "meta",
     title: "AYA answers on WhatsApp",
     carries: "AYA's reply, inside Meta's 24-hour window only",
-    example: "The clinic connects its WhatsApp number through Meta's sign-up window; it goes live once that WhatsApp account has a payment method.",
+    example:
+      "You send the clinic a WhatsApp link; it connects its number through Meta's sign-up window, and it goes live once that WhatsApp account has a payment method.",
     keys: ["aws.META_APP_ID", "aws.META_WHATSAPP_CONFIG_ID", "clinic.meta"],
     dependsOn: "meta-app",
     phi: true,
+    phiNote: META_SCOPE,
     build: "built",
+    buildNote:
+      "The portal has no WhatsApp button: set-up's Connect with Facebook links Instagram and Messenger only. You make the clinic's WhatsApp link with run-task.sh channels-link (choosing whatsapp) and send it.",
   },
   {
     id: "app-gcal",
@@ -1060,12 +1245,19 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "gcal",
     both: true,
-    title: "AYA checks free times and books into the clinic's calendar",
-    carries: "Free and busy times one way, the booking the other",
-    example: "AYA sees Thursday 3pm is free, holds it for 60 seconds while she confirms with Maria, and writes the consultation into the clinic's own Google Calendar.",
-    keys: ["aws.GOOGLE_OAUTH_CLIENT_ID", "aws.GOOGLE_OAUTH_CLIENT_SECRET", "clinic.google"],
+    title: "Bookings the desk confirms go into the clinic's calendar",
+    carries:
+      "Free times one way, for a request the desk opens on Bookings and for the clinic's own Talk to your AYA preview, which holds and books nothing; the booking the desk confirms on Bookings the other",
+    example:
+      "Maria asks for Thursday afternoon. The receptionist follows the emailed link, signs in and unlocks Bookings with a passkey, sees Thursday 3pm free in the clinic's Google Calendar, confirms it, and the engine writes it there.",
+    // The Google login's return address is built from the portal's address,
+    // and its one-time check values are signed with a key made from the
+    // sign-in secret (lib/connections/google-oauth.ts).
+    keys: ["aws.GOOGLE_OAUTH_CLIENT_ID", "aws.GOOGLE_OAUTH_CLIENT_SECRET", "aws.BETTER_AUTH_URL", "aws.BETTER_AUTH_SECRET", "clinic.google"],
     phi: true,
     build: "built",
+    buildNote:
+      "AYA does not book by herself yet: every channel takes a request and the desk confirms it. Holding and booking a time herself is built (lib/booking/engine.ts) but no channel calls it; it waits on HEALDESK_DIRECT_BOOKING_ENABLED, which is for counsel and you.",
   },
   {
     id: "app-stripe",
@@ -1073,7 +1265,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "stripe",
     title: "The engine runs each clinic's subscription",
-    carries: "Price changes, refunds and extra-usage invoices",
+    carries: "Plan changes, metered usage, refunds and extra-usage invoices, and the link to Stripe's billing page for the clinic",
     example: "The day AYA first answers a patient for a clinic, the engine swaps that clinic's $0 placeholder for its real monthly price.",
     keys: ["aws.STRIPE_SECRET_KEY"],
     phi: false,
@@ -1084,12 +1276,17 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "serving",
     from: "app",
     to: "clinic-stripe",
-    title: "AYA sends a deposit link that pays the clinic",
+    title: "Deposit links that pay the clinic's own Stripe",
     carries: "An amount and an anonymous reference, never a treatment",
-    example: "In web chat a patient books and AYA sends a link to pay the deposit; the money lands in the clinic's own Stripe account, never ours.",
-    keys: ["aws.STRIPE_CONNECT_CLIENT_ID", "clinic.stripe"],
+    example:
+      "The clinic presses Connect Stripe in its portal; once chat sends deposit links, a patient's deposit will land in the clinic's own Stripe account, never ours.",
+    // Our platform key does the connecting and makes the links, for the
+    // clinic's account; the return address is the portal's.
+    keys: ["aws.STRIPE_CONNECT_CLIENT_ID", "aws.STRIPE_SECRET_KEY", "aws.BETTER_AUTH_URL", "clinic.stripe"],
     phi: false,
-    build: "built",
+    build: "partial",
+    buildNote:
+      "Clinics can connect their Stripe from the deposits step of set-up (if they bought a chat channel) or in Settings, and disconnect it in Settings. The deposit link is built (lib/billing/deposit-link.ts) but no chat sends one yet: it needs a booking, and no channel books yet. Set-up already tells a clinic that has connected that AYA sends the link in chat.",
   },
   {
     id: "clinic-stripe-app",
@@ -1097,11 +1294,17 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "clinic-stripe",
     to: "app",
     title: "Stripe tells us a deposit was paid",
-    carries: "\"Deposit paid\", and a clinic disconnecting its Stripe",
-    example: "The patient pays the deposit by phone; Stripe tells the engine, signed, and the booking shows the deposit as paid.",
-    keys: ["aws.STRIPE_CONNECT_WEBHOOK_SECRET"],
-    phi: false,
+    carries:
+      "\"Deposit paid\", a clinic disconnecting its Stripe, and every other Stripe Checkout or Payment Link sale on the clinic's Stripe, ignored on arrival",
+    example:
+      "Today: a clinic disconnects its Stripe, Stripe tells the engine, signed, and the engine turns that clinic's deposits off. Once chat sends deposit links, a patient paying one will show on the booking as paid.",
+    // The route answers 503 without our platform key.
+    keys: ["aws.STRIPE_CONNECT_WEBHOOK_SECRET", "aws.STRIPE_SECRET_KEY"],
+    phi: true,
+    phiNote:
+      "Stripe signs no business associate agreement. The clinic's own Stripe account sends every sale it takes through Stripe Checkout or a Payment Link, patients' details included; the engine acts only on its own deposits and a disconnect, and drops the rest on arrival without keeping it.",
     build: "built",
+    buildNote: "Only disconnects act until a chat sends deposit links.",
   },
   {
     id: "app-resend",
@@ -1109,11 +1312,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "app",
     to: "resend",
     title: "Everyday clinic email goes out",
-    carries: "Welcome, sign-in links, \"you have a new booking request\"",
-    example: "\"You have a new booking request: open the portal.\" A pointer only, never a patient's name, number or time.",
+    carries: "Welcome, sign-in links, \"you have a new booking request\"; and alerts and support requests to you",
+    example:
+      "\"New booking request via Instagram\": just a link, never a patient's name, number or time. The receptionist follows it, signs in, unlocks Bookings with the front-desk computer's passkey, and has 7 days to answer the request before it moves to Missed.",
     keys: ["aws.RESEND_API_KEY", "aws.HEALDESK_EMAIL_FROM"],
     phi: false,
     build: "built",
+    buildNote:
+      "Booking-request emails go, and each is only a pointer: its link opens the request on Bookings after sign-in and the passkey. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. Urgent, deposit and calendar-check alerts are only logged until the alerts are sent through the outbox (funnel M5), so an urgent caller's escalation reaches nobody yet.",
   },
   {
     id: "app-ses",
@@ -1125,8 +1331,12 @@ export const BRIDGES: readonly BridgeDef[] = [
     example: "When Maria hangs up, the transcript goes to the clinic through Amazon's email with encryption required, and our copy is deleted once Amazon confirms it arrived.",
     keys: ["aws.HEALDESK_SES_CONFIGURATION_SET"],
     keyless: "No password: AWS lets the engine send because of the role it runs as.",
+    // Every send opens the sealed copy first.
+    dependsOn: "app-kms",
     phi: true,
     build: "built",
+    buildNote:
+      "Until AWS takes our Amazon email out of its sandbox (infra/aws/README.md, First run, step 9), it delivers only to addresses verified in our account, so no transcript reaches a clinic; this page cannot see which. A clinic that replies sends the transcript to hello@, which no agreement covers, until a covered reply-to address is set or that risk is accepted in writing.",
   },
   {
     id: "ses-app",
@@ -1140,6 +1350,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     keyless: "Amazon signs each report and the engine checks it against Amazon's certificate.",
     phi: false,
     build: "built",
+    buildNote:
+      "This page sees only the reports' address, not the subscription that delivers them. host.yml's last job makes it; an infra.yml apply while the engine does not answer removes it, and the next infra.yml apply or host.yml active while it answers puts it back.",
   },
   {
     id: "app-db",
@@ -1149,7 +1361,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     both: true,
     title: "The engine's memory",
     carries: "Clinics, bookings, conversations, settings",
-    example: "Bookings and conversations live in the database. A caller's phone number is stored only as a scrambled fingerprint, never as the number itself.",
+    example:
+      "Bookings and conversations live in the database, with each person's name and phone number, so the front desk can press \"Call Maria\" on Bookings. The ids Meta, Retell and the website chat use to tell people, calls and messages apart are kept only as scrambled fingerprints.",
     keys: ["aws.DATABASE_URL", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws-ci.MIGRATION_DATABASE_URL"],
     phi: true,
     build: "built",
@@ -1159,9 +1372,11 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "serving",
     from: "app",
     to: "kms",
-    title: "Clinic logins are locked in the key safe",
-    carries: "Each clinic's Google, Meta and Stripe logins, to lock and unlock",
-    example: "When a clinic connects Google Calendar, its login is locked in a box whose key never leaves Amazon's safe, and every opening is logged.",
+    title: "Logins and waiting words are locked with the key safe",
+    carries:
+      "The keys that lock each clinic's Google and Meta logins, the portal's authenticator-app secrets, and the words of open chats and of transcripts waiting to be emailed. The logins and the words are locked inside the engine and never travel here",
+    example:
+      "When a clinic connects Google Calendar, the engine locks its login with a fresh key, and Amazon's safe locks that key under a master key that never leaves it; every unlock is logged.",
     keys: [],
     keyless: "No password: AWS lets the engine use the key safe because of the role it runs as.",
     phi: false,
@@ -1175,11 +1390,13 @@ export const BRIDGES: readonly BridgeDef[] = [
     to: "app",
     title: "The clinic signs in to its portal",
     carries: "Sign-in links, settings, bookings and conversations",
-    example: "The receptionist clicks the sign-in link in the clinic's inbox and confirms with a passkey on the front-desk laptop, then changes the greeting in Settings.",
+    example:
+      "The receptionist clicks the sign-in link in the clinic's inbox and changes the greeting in Settings, with no passkey needed. When she opens Maria's request on Bookings, the portal first asks for the front-desk laptop's passkey, and logs that the laptop opened it.",
     keys: ["aws.BETTER_AUTH_SECRET", "aws.BETTER_AUTH_URL"],
     phi: true,
-    build: "partial",
-    buildNote: "Home, Settings, Knowledge, Billing, the set-up wizard, the support chat and Conversations (opened only behind a passkey) are built; the Bookings screen is not yet.",
+    build: "built",
+    buildNote:
+      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings does not yet list a caller who asked for a person, or a message left while AYA was off: nothing records them yet.",
   },
   {
     id: "connectors-app",
@@ -1193,7 +1410,21 @@ export const BRIDGES: readonly BridgeDef[] = [
     keyless: "Each clinic's own connection, phase two.",
     phi: true,
     build: "parked",
-    buildNote: "Phase two: kept in the code, fenced out of v1.",
+    buildNote: "Phase two, half built: our side (sync, reconciliation, the connect page, the webhook) is kept and switched off; no Mindbody or Boulevard adapter has been written.",
+  },
+  {
+    id: "app-exports",
+    theme: "serving",
+    from: "app",
+    to: "exports",
+    title: "A leaving clinic's records are packed for hand-over",
+    carries: "One clinic's (or one person's) records, as one file",
+    example: "A clinic leaves; you run run-task.sh patient-export, and its bundle lands in the bucket, locked with our key.",
+    keys: [],
+    keyless: "No password: only the export job's own AWS role may put a file there.",
+    phi: true,
+    build: "built",
+    buildNote: "Run by hand, one job per clinic or person; Amazon deletes the file on its own after a day or two.",
   },
 
   // --- Deploys -------------------------------------------------------------------
@@ -1203,10 +1434,11 @@ export const BRIDGES: readonly BridgeDef[] = [
     from: "github",
     to: "app",
     title: "GitHub deploys the engine and switches it on and off",
-    carries: "The new version, and \"turn on\" or \"standby\"",
-    example: "A change is merged; GitHub builds the new version, and AWS lets it in only because GitHub's signed badge says \"the owner's run, main branch\".",
-    keys: [],
-    keyless: "No password stored: GitHub shows AWS a signed badge (OIDC) for your runs of main, good for two hours.",
+    carries: "The new version, and \"turn on\" or \"standby\", which it also records in Parameter Store",
+    example:
+      "You run Deploy (deploy-app.yml) from main, or Turn on in Host runs it for you; GitHub builds the new version, and AWS lets it in only because GitHub's signed badge says \"the owner's run, main branch\". A merge alone changes nothing on AWS.",
+    keys: ["github.AWS_TERRAFORM_ROLE_ARN", "github.TF_STATE_BUCKET", "github.TF_STATE_KMS_KEY_ARN", "github.HEALDESK_ADMIN_EMAIL", "github.ALARM_EMAIL"],
+    keyless: "No password stored: GitHub shows AWS a signed badge (OIDC) for your runs of main, good for two hours. The ids it needs are repository variables.",
     phi: false,
     build: "built",
   },
@@ -1215,11 +1447,69 @@ export const BRIDGES: readonly BridgeDef[] = [
     theme: "running",
     from: "github",
     to: "cloudflare",
-    title: "GitHub points app.healdesk.io at the host",
-    carries: "The host's new address when it is switched on",
-    example: "When the host comes back from standby it has a new load balancer; GitHub updates app.healdesk.io in Cloudflare so the address leads there.",
-    keys: ["aws-ci.CLOUDFLARE_API_TOKEN"],
+    title: "GitHub keeps the engine's addresses in Cloudflare",
+    carries:
+      "app.healdesk.io and the private app-internal.healdesk.io (both removed in standby), the certificate's check records, and Amazon email's three signing records",
+    example:
+      "Every infra.yml or host.yml apply writes them. When the host comes back from standby it has a new load balancer, so both addresses are pointed at it again.",
+    keys: ["aws-ci.CLOUDFLARE_API_TOKEN", "github.CLOUDFLARE_ZONE_ID"],
     phi: false,
+    build: "built",
+  },
+  {
+    id: "you-aws",
+    theme: "running",
+    from: "you",
+    to: "aws-console",
+    title: "You paste keys and run one-off jobs in AWS CloudShell",
+    carries: "The engine's keys, and one-off jobs such as a migration, a deletion request, a clinic's connect link or its export",
+    example: "You paste a new Resend key with put-external-secrets.sh, then restart the engine.",
+    keys: [],
+    keyless: "Your own AWS administrator sign-in. No key of ours is involved, and nothing is stored on GitHub or Vercel.",
+    phi: false,
+    build: "built",
+  },
+  {
+    id: "console-app",
+    theme: "running",
+    from: "aws-console",
+    to: "app",
+    title: "Stored keys and one-off jobs reach the engine",
+    carries: "Each task's keys from Parameter Store as it starts, and one-off jobs run from the engine's own image",
+    example: "After you paste a new Resend key and restart the engine, AWS hands the new tasks the new key; the old ones stop.",
+    keys: [],
+    keyless: "AWS gives each task only the stored keys its definition names, through the role it starts with; no key is written into the code or the image.",
+    phi: false,
+    build: "built",
+  },
+  {
+    id: "aws-alarms-you",
+    theme: "running",
+    from: "aws-console",
+    to: "you",
+    title: "AWS emails you when something breaks or costs too much",
+    carries: "Alarm names and counts, and budget warnings; never a patient's details",
+    example: "The web tier drops below its task count at 3am, and an alarm email arrives.",
+    keys: ["github.ALARM_EMAIL"],
+    keyless: "AWS emails the address in the GitHub variable ALARM_EMAIL, confirmed once from that inbox.",
+    phi: false,
+    build: "built",
+    buildNote: "Standby removes the alarms but keeps the topic and the monthly budget's warnings.",
+  },
+  {
+    id: "exports-you",
+    theme: "running",
+    from: "exports",
+    to: "you",
+    title: "You download a clinic's or a patient's export",
+    carries: "The bundle, to hand over and then delete",
+    example:
+      "You copy it into CloudShell, download it, hand it over by the clinic's own channel for patient data (never a plain email attachment), and delete all three copies: the bucket's, CloudShell's and your download.",
+    keys: [],
+    keyless: "Your AWS administrator sign-in, in CloudShell.",
+    phi: true,
+    phiNote:
+      "Patient data reaches your own computer here, on purpose: a leaving clinic's bundle, or one person's for a patient-rights request, downloaded only to hand it to the clinic over its own channel for patient data, a portal upload or an encrypted message, never a plain email attachment (docs/incident-response.md, Patient rights requests, step 3). Then delete all three copies: the bucket's, CloudShell's and your download (infra/aws/README.md, patient-export).",
     build: "built",
   },
 ];
@@ -1248,10 +1538,15 @@ export const STORIES: readonly StoryDef[] = [
       { bridge: "patients-retell", text: "Maria calls the clinic at 8pm. The clinic's own number forwards the call to its Retell line." },
       { bridge: "retell-app", text: "Retell streams what Maria says to the clinic engine, over a private line with a password in its address." },
       { bridge: "app-claude", text: "The engine asks Claude, under a business associate agreement, how AYA should answer." },
-      { bridge: "app-gcal", text: "AYA finds Thursday 3pm free in the clinic's Google Calendar, holds it, and books it." },
-      { bridge: "app-db", text: "The booking and the conversation are kept in the engine's database." },
+      {
+        bridge: "app-db",
+        text: "AYA takes Maria's name, number and preferred time as a booking request, and the engine keeps it with a record of the call; the call's words only as a sealed copy until the transcript is delivered.",
+      },
+      { bridge: "app-resend", text: "The clinic's inbox gets a \"new booking request\" email: just a link, with nothing about Maria in it." },
       { bridge: "app-ses", text: "When Maria hangs up, the transcript is emailed to the clinic through Amazon, encrypted on the way." },
       { bridge: "ses-app", text: "Amazon confirms it arrived, and the engine deletes its copy." },
+      { bridge: "clinic-app", text: "Next morning the receptionist follows the link, signs in, and opens Maria's request on Bookings with the front-desk laptop's passkey." },
+      { bridge: "app-gcal", text: "She confirms Thursday at 3pm, and only then is it written into the clinic's Google Calendar." },
     ],
   },
   {
@@ -1274,7 +1569,8 @@ export const STORIES: readonly StoryDef[] = [
       { bridge: "you-console", text: "You sign in to this console with your password and the code on your phone." },
       { bridge: "web-github", text: "You press Turn on in Host, and the shop window asks GitHub to run the switch." },
       { bridge: "github-app", text: "GitHub rebuilds the engine on AWS; AWS lets it in because of GitHub's signed badge." },
-      { bridge: "github-cloudflare", text: "GitHub points app.healdesk.io at the engine's new address." },
+      { bridge: "github-cloudflare", text: "GitHub points app.healdesk.io and the private app-internal address at the engine's new load balancer." },
+      { bridge: "ses-app", text: "Once the engine answers, GitHub subscribes it to Amazon's delivery reports." },
     ],
   },
 ];
@@ -1288,9 +1584,13 @@ export type HostReach =
   | { state: "answered"; present: Record<string, boolean>; stripeMode: "test" | "live" | null }
   /** The shop window is missing the seal or the address, so nothing was sent. */
   | { state: "unconfigured" }
-  /** No usable answer: the host is in standby, switching, or down. */
-  | { state: "silent"; message: string }
-  /** It answered and refused: the two seals differ, or the admin address does. */
+  /**
+   * No usable answer. `cause` says which kind: nothing answered (standby,
+   * switching, or down), an engine too old to know the question, or a
+   * server error; left out, it means nothing answered.
+   */
+  | { state: "silent"; message: string; cause?: "no-answer" | "outdated" | "server-error" }
+  /** It answered and refused: most often the two seals differ. */
   | { state: "refused"; message: string };
 
 export type ProofResult = { ok: boolean; detail: string };
@@ -1380,7 +1680,7 @@ export type BridgeView = Omit<BridgeDef, "proof"> & {
 export const STATUS_WORDS: Record<BridgeStatus, string> = {
   working: "Connected",
   "needs-key": "Needs a key",
-  off: "Off on purpose",
+  off: "Switched off",
   broken: "Broken",
   unknown: "Can't check now",
   "to-build": "Still to build",
@@ -1405,7 +1705,7 @@ export type MapView = {
   todos: Todo[];
   counts: Record<BridgeStatus, number>;
   rotationsDue: number;
-  host: { state: HostReach["state"]; text: string };
+  host: { state: HostReach["state"]; cause: "no-answer" | "outdated" | "server-error" | null; text: string };
   rotationLog: LiveInputs["rotationLog"];
   checkedAt: string;
 };
@@ -1436,16 +1736,25 @@ const ADD_HOW: Record<KeyHome, string> = {
   vercel: "Add it in Vercel (healdesk project, Settings, Environment Variables, Production) and redeploy.",
   aws: "Paste it from AWS CloudShell with bash put-external-secrets.sh, then restart the engine.",
   "aws-ci": "Paste it from AWS CloudShell with bash put-external-secrets.sh.",
+  github: "Add it in GitHub (the repository's Settings, Secrets and variables, Actions, Variables).",
   computer: "Keep it in your password manager.",
   clinic: "Each clinic makes its own with a login button.",
 };
 
-/** Public ids and settings on AWS are Terraform's, not the paste script's. */
-const AWS_PUBLIC_HOW = "Set it in infra/aws/production.tfvars and apply (infra.yml).";
+/**
+ * Public ids and settings on AWS are Terraform's, not the paste script's.
+ * The running services use the task revisions deploy-app.yml registers, so a
+ * Terraform change reaches them only with the next full deploy.
+ */
+const AWS_PUBLIC_HOW =
+  "Set it in infra/aws/production.tfvars, merge, run infra.yml apply, then a full deploy-app.yml run (not restart_only). host.yml active does both.";
 const AWS_GENERATED = new Set(["aws.BETTER_AUTH_SECRET", "aws.HEALDESK_IDENTIFIER_REF_KEY", "aws.DATABASE_URL"]);
+/** Set from a GitHub repository variable, because it is personal and kept out of git. */
+const AWS_FROM_GITHUB: Record<string, string> = {
+  "aws.HEALDESK_ADMIN_EMAIL": "Set the GitHub variable HEALDESK_ADMIN_EMAIL, run infra.yml apply, then a full deploy-app.yml run.",
+};
 const AWS_TERRAFORM = new Set([
   "aws.BETTER_AUTH_URL",
-  "aws.HEALDESK_ADMIN_EMAIL",
   "aws.HEALDESK_EMAIL_FROM",
   "aws.HEALDESK_SES_CONFIGURATION_SET",
   "aws.HEALDESK_SES_EVENTS_TOPIC_ARN",
@@ -1457,10 +1766,18 @@ const AWS_TERRAFORM = new Set([
 
 function addHow(key: KeyDef): string {
   if (AWS_GENERATED.has(key.id)) return "Made inside AWS: run deploy-app.yml with bootstrap_db.";
+  if (AWS_FROM_GITHUB[key.id]) return AWS_FROM_GITHUB[key.id]!;
   if (AWS_TERRAFORM.has(key.id)) return AWS_PUBLIC_HOW;
   if (key.home === "aws" && key.env) return `Paste it from AWS CloudShell with bash put-external-secrets.sh ${key.env}, then restart the engine.`;
   return ADD_HOW[key.home];
 }
+
+/** Who does read each one-off key, since no running service does. */
+const AWS_CI_UNSEEN: Record<string, string> = {
+  "aws-ci.MIGRATION_DATABASE_URL":
+    "Given only to the one-off migrate task a deploy (or run-task.sh) starts inside AWS. GitHub never sees it and no running service has it, so this page cannot check it.",
+  "aws-ci.CLOUDFLARE_API_TOKEN": "Read only by infra.yml and host.yml runs on GitHub, after AWS lets them in. No running service has it, so this page cannot check it.",
+};
 
 function keyState(key: KeyDef, live: LiveInputs): { state: KeyState; text: string } {
   const absent = (): { state: KeyState; text: string } => {
@@ -1473,7 +1790,9 @@ function keyState(key: KeyDef, live: LiveInputs): { state: KeyState; text: strin
     case "computer":
       return { state: "not-checked", text: "Lives on your computer, where this page cannot look." };
     case "aws-ci":
-      return { state: "not-checked", text: "Only a deploy run from GitHub reads it, and no running service is given it, so this page cannot check it." };
+      return { state: "not-checked", text: AWS_CI_UNSEEN[key.id] ?? "No running service is given it, so this page cannot check it." };
+    case "github":
+      return { state: "not-checked", text: "A GitHub repository variable: only the AWS workflows read it, so this page cannot check it." };
     case "clinic":
       return { state: "per-clinic", text: "One per clinic, made when the clinic presses its login button. Ops shows each clinic's." };
     case "vercel": {
@@ -1579,12 +1898,34 @@ function proofPassed(bridge: BridgeDef, live: LiveInputs): boolean {
   return Boolean(result?.ok);
 }
 
+/** Why an engine-side thing cannot be checked, in the words of what the host did. */
+function hostUnread(live: LiveInputs): string {
+  switch (live.host.state) {
+    case "refused":
+      return "Can't check right now: the engine is up but refused this page's signed call (see the line from the shop window to the engine).";
+    case "unconfigured":
+      return "Can't check: this deployment is missing the seal or the engine's address, so the engine was not asked.";
+    case "silent":
+      if (live.host.cause === "outdated") return "Can't check: the engine is up but runs an older version that does not report its keys. Deploy it (deploy-app.yml).";
+      if (live.host.cause === "server-error") return `Can't check right now: the AWS host answered with an error (${live.host.message}).`;
+      return "Can't check right now: the AWS host could not be read. It may be in standby (see Host).";
+    default:
+      return "Can't check right now: the AWS host could not be read.";
+  }
+}
+
 function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { status: BridgeStatus; text: string } {
   if (bridge.build === "parked") return { status: "parked", text: bridge.buildNote ?? "Parked on purpose." };
   if (bridge.build === "not-built") return { status: "to-build", text: bridge.buildNote ?? "Not built yet." };
 
   if (bridge.proof === "kms" && live.host.state !== "answered") {
-    return { status: "unknown", text: "Can't check right now: the AWS host could not be read, and only it can reach the key safe." };
+    return { status: "unknown", text: `${hostUnread(live)} Only the engine can reach the key safe.` };
+  }
+
+  // A keyless connection that runs on the engine (a one-off job, an export)
+  // exists only while the engine does: standby removes every service.
+  if (bridge.keys.length === 0 && (bridge.from === "app" || bridge.to === "app") && live.host.state !== "answered") {
+    return { status: "unknown", text: hostUnread(live) };
   }
 
   const failure = proofFailure(bridge, live);
@@ -1613,8 +1954,14 @@ function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { s
     return { status: "needs-key", text: `Built, waiting for ${missing.length === 1 ? "a key" : `${missing.length} keys`}: ${missing.map((key) => key.label).join("; ")}.` };
   }
 
-  if (keys.some((key) => key.state === "unknown") || (bridge.id === "web-app" && live.host.state === "silent")) {
-    return { status: "unknown", text: "Can't check right now: the AWS host could not be read. It may be in standby (see Host)." };
+  const unknown = keys.find((key) => key.state === "unknown");
+  if (unknown && live.host.state === "answered") {
+    // The engine answered but did not name this key: it runs a build from
+    // before the key joined its list, until deploy-app.yml runs.
+    return { status: "unknown", text: `The engine runs an older version that does not report ${midSentence(unknown.label)}: deploy it (deploy-app.yml) to check this.` };
+  }
+  if (unknown || (bridge.id === "web-app" && live.host.state === "silent")) {
+    return { status: "unknown", text: hostUnread(live) };
   }
 
   const waiting = keys.find((key) => key.state === "waiting");
@@ -1629,8 +1976,17 @@ function bridgeStatus(bridge: BridgeDef, keys: KeyView[], live: LiveInputs): { s
     return { status: "not-checked", text: "Its keys live where this page cannot look." };
   }
 
+  // An optional key that is not added switches its part off: the whole
+  // bridge when it is the only kind of key there, one feature otherwise.
+  const optionalOff = keys.filter((key) => key.state === "optional-off");
+  if (optionalOff.length > 0 && optionalOff.length === keys.length) {
+    return { status: "off", text: `Off: ${midSentence(optionalOff.map((key) => key.label).join("; "))} ${optionalOff.length === 1 ? "is" : "are"} not added. Optional, so nothing else breaks.` };
+  }
   if (proofPassed(bridge, live)) return { status: "working", text: "Connected, and checked live just now." };
   if (bridge.keys.length === 0) return { status: "working", text: bridge.keyless ?? "No key needed." };
+  if (optionalOff.length > 0) {
+    return { status: "working", text: `Connected, but ${optionalOff.map((key) => midSentence(key.label)).join("; ")} ${optionalOff.length === 1 ? "is" : "are"} not added, so that part is off.` };
+  }
   return { status: "working", text: "Connected: every key it needs is in place." };
 }
 
@@ -1642,6 +1998,9 @@ function midSentence(label: string): string {
 }
 
 const TODO_ORDER: Record<TodoKind, number> = { fix: 0, "add-key": 1, rotate: 2, build: 3, check: 4, waiting: 5 };
+
+/** What a dependant shows when the bridge it waits on is not connected; anything else reads "off". */
+const INHERITED: Partial<Record<BridgeStatus, BridgeStatus>> = { broken: "broken", "needs-key": "needs-key", unknown: "unknown", "not-checked": "not-checked" };
 
 export function assess(live: LiveInputs): MapView {
   const usedBy = new Map<string, string[]>();
@@ -1668,13 +2027,18 @@ export function assess(live: LiveInputs): MapView {
 
   const own = new Map(BRIDGES.map((bridge) => [bridge.id, bridgeStatus(bridge, bridge.keys.map((id) => keyView.get(id)!), live)]));
 
+  // A bridge that is fine itself but useless without another takes that
+  // one's trouble: a broken Sheet breaks checkout too, rather than leaving it
+  // calmly "off on purpose". Only the cause gets a to-do, below.
+  const inherited = new Set<string>();
   const bridges: BridgeView[] = BRIDGES.map((bridge, index) => {
     let { status, text } = own.get(bridge.id)!;
     const dependency = bridge.dependsOn ? BRIDGES.find((other) => other.id === bridge.dependsOn) : undefined;
     const upstream = dependency ? own.get(dependency.id) : undefined;
     if (dependency && upstream && status === "working" && upstream.status !== "working") {
-      status = upstream.status === "unknown" ? "unknown" : "off";
-      text = `Waits on bridge ${BRIDGES.indexOf(dependency) + 1}, "${dependency.title}". ${upstream.text}`;
+      status = INHERITED[upstream.status] ?? "off";
+      text = `Waits on bridge ${BRIDGES.indexOf(dependency) + 1}, "${dependency.title}". ${upstream.text.charAt(0).toUpperCase()}${upstream.text.slice(1)}`;
+      inherited.add(bridge.id);
     }
     const stripeMode =
       bridge.id === "web-stripe" || bridge.id === "stripe-web"
@@ -1696,8 +2060,12 @@ export function assess(live: LiveInputs): MapView {
 
   const todos: Todo[] = [];
   for (const bridge of bridges) {
-    if (bridge.status === "broken") todos.push({ kind: "fix", text: `${bridge.title}: ${bridge.statusText}`, bridge: bridge.id, key: null });
-    if (bridge.status === "to-build") todos.push({ kind: "build", text: `${bridge.title}: ${bridge.statusText}`, bridge: bridge.id, key: null });
+    if (bridge.status === "broken" && !inherited.has(bridge.id)) todos.push({ kind: "fix", text: `${bridge.title}: ${bridge.statusText}`, bridge: bridge.id, key: null });
+    // By what is built, not by colour: a half-built bridge whose host is in
+    // standby is still half built.
+    if (bridge.build === "partial" || bridge.build === "not-built") {
+      todos.push({ kind: "build", text: `${bridge.title}: ${bridge.buildNote ?? (bridge.build === "partial" ? "Half built." : "Not built yet.")}`, bridge: bridge.id, key: null });
+    }
   }
   const seenMissing = new Set<string>();
   for (const bridge of bridges) {
@@ -1715,7 +2083,21 @@ export function assess(live: LiveInputs): MapView {
     }
   }
   if (live.host.state === "silent") {
-    todos.push({ kind: "check", text: "The AWS host could not be read, so its keys could not be checked. If it is in standby, turn it on from Host to see them.", bridge: "web-app", key: null });
+    const text =
+      live.host.cause === "outdated"
+        ? "The engine is up but runs an older version that does not know this page's check. Deploy it (deploy-app.yml) to see its keys."
+        : live.host.cause === "server-error"
+          ? `The AWS host answered with an error, so its keys could not be checked: ${live.host.message}.`
+          : "The AWS host could not be read, so its keys could not be checked. If it is in standby, turn it on from Host to see them.";
+    todos.push({ kind: "check", text, bridge: "web-app", key: null });
+  }
+  if (live.host.state === "answered" && keys.some((key) => key.home === "aws" && key.state === "unknown")) {
+    todos.push({
+      kind: "check",
+      text: "The engine runs an older version that does not report every key this page asks about. Deploy it (deploy-app.yml) to check them all.",
+      bridge: "web-app",
+      key: null,
+    });
   }
   const waitingSeen = new Set<string>();
   for (const key of keys) {
@@ -1745,7 +2127,7 @@ export function assess(live: LiveInputs): MapView {
     todos,
     counts,
     rotationsDue: keys.filter((key) => key.rotation.state === "overdue" || key.rotation.state === "due-soon").length,
-    host: { state: live.host.state, text: hostText(live.host) },
+    host: { state: live.host.state, cause: live.host.state === "silent" ? (live.host.cause ?? "no-answer") : null, text: hostText(live.host) },
     rotationLog: live.rotationLog,
     checkedAt: live.now.toISOString(),
   };
@@ -1758,6 +2140,8 @@ function hostText(host: HostReach): string {
     case "unconfigured":
       return "This deployment is missing the seal or the engine's address, so the AWS host was not asked.";
     case "silent":
+      if (host.cause === "outdated") return `The AWS host answered, but ${host.message}, so its keys show as "can't check".`;
+      if (host.cause === "server-error") return `The AWS host answered with an error (${host.message}), so its keys show as "can't check".`;
       return `The AWS host could not be read (${host.message}), so its keys show as "can't check". It may be in standby: see Host.`;
     case "refused":
       return `The AWS host refused the signed call: ${host.message}`;

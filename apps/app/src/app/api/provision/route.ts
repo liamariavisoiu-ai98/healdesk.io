@@ -100,89 +100,98 @@ export async function POST(request: Request): Promise<Response> {
     return problem("Invalid request body.", 400);
   }
 
-  // 3. Validate. Two shapes: the purchase itself (the development path, and
-  // any caller from before intents), or `{ ref, ... }`, the intent apps/app
-  // stored when Pay was pressed, now that its first invoice is paid (design
-  // D2). The intent's own payload becomes the request, so what provisioning
-  // checks is exactly what was checked before payment, and only while the
-  // intent still names the press of Pay and the terms that were paid.
+  // 3. Validate. One shape: `{ ref, ... }`, the purchase pressed at Pay, now
+  // that its first invoice is paid (design D2, plan C1), with the records
+  // apps/web kept for it. The intent's own payload becomes the request, so
+  // what provisioning checks is exactly what was checked before payment, and
+  // only while the intent still names the press of Pay and the terms that
+  // were paid.
+  //
+  // A body without a ref, the whole purchase sent as the request, was the
+  // development path and the callers from before intents. Neither is left:
+  // the Stripe relay and the unpaid development path both send a ref
+  // (apps/web's api/webhooks/stripe and api/checkout), and plan C1 keeps no
+  // legacy branch, because a body that names its own clinic, contact and
+  // agreement would provision an account that no paid purchase stands
+  // behind. It is refused before anything is read, and ops hears of it: only
+  // our own signed callers reach this line, so one is a bug in a relay.
   //
   // Every refusal of a `{ ref }` request is a paid invoice with no account
   // behind it, so every one reaches ops, never only a log line.
   const intentRef = intentRefOf(body);
+  if (!intentRef) {
+    await afterResponse(() => notifyOps("provisioning_rejected", { field: "ref", source: "request" }));
+    return problem("A purchase reference is required.", 422, "ref");
+  }
   let provisionRequest: ProvisionRequest;
   let setup: SetupSeed | undefined;
   let firstInvoiceUrl: string | null = null;
   try {
-    if (intentRef) {
-      const stripe = body as {
-        idempotencyKey?: unknown;
-        stripeCustomerId?: unknown;
-        stripeSubscriptionId?: unknown;
-        attempt?: unknown;
-        plan?: unknown;
-        billingInterval?: unknown;
-        hostedInvoiceUrl?: unknown;
-      };
-      // The records apps/web kept, taken in before the intent is read: a
-      // retried event finds both rows and continues. Absent on a relay from
-      // before 14 October 2026, whose intent this host stored itself.
-      const records = checkoutRecordsOf(body);
-      if (records) {
-        let imported: Awaited<ReturnType<typeof importCheckoutRecords>>;
-        try {
-          imported = await importCheckoutRecords(intentRef, records);
-        } catch (error) {
-          // A database fault, not a refusal: 500, so Stripe redelivers.
-          log.error("checkout records could not be imported", { error: describeError(error) });
-          return problem("Could not complete setup.", 500);
+    const stripe = body as {
+      idempotencyKey?: unknown;
+      stripeCustomerId?: unknown;
+      stripeSubscriptionId?: unknown;
+      attempt?: unknown;
+      plan?: unknown;
+      billingInterval?: unknown;
+      hostedInvoiceUrl?: unknown;
+    };
+    // The records apps/web kept, taken in before the intent is read: a
+    // retried event finds both rows and continues. Absent on a relay from
+    // before 14 October 2026, whose intent this host stored itself.
+    const records = checkoutRecordsOf(body);
+    if (records) {
+      let imported: Awaited<ReturnType<typeof importCheckoutRecords>>;
+      try {
+        imported = await importCheckoutRecords(intentRef, records);
+      } catch (error) {
+        // A database fault, not a refusal: 500, so Stripe redelivers.
+        log.error("checkout records could not be imported", { error: describeError(error) });
+        return problem("Could not complete setup.", 500);
+      }
+      if (!imported.ok) {
+        if (imported.reach === "intent") {
+          await refuseIntent(intentRef, new ProvisioningError(imported.message, imported.field));
+        } else {
+          await afterResponse(() =>
+            notifyOps("provisioning_rejected", { field: imported.field, source: "records" }),
+          );
         }
-        if (!imported.ok) {
-          if (imported.reach === "intent") {
-            await refuseIntent(intentRef, new ProvisioningError(imported.message, imported.field));
-          } else {
-            await afterResponse(() =>
-              notifyOps("provisioning_rejected", { field: imported.field, source: "records" }),
-            );
-          }
-          return problem(imported.message, 422, imported.field);
-        }
+        return problem(imported.message, 422, imported.field);
       }
-      const intent = await findIntent(intentRef);
-      if (!intent) {
-        await afterResponse(() => notifyOps("provisioning_rejected", { field: "ref", source: "intent" }));
-        return problem("Unknown purchase.", 422, "ref");
-      }
-      if (intent.consumedAt && intent.stripeSubscriptionId !== stripe.stripeSubscriptionId) {
-        // A second subscription paid for a purchase already set up: its
-        // setup fee was taken twice. Never marked failed: the first
-        // subscription's account exists and /welcome must keep saying so.
-        await afterResponse(() =>
-          notifyOps("duplicate_subscription", { clinicId: intent.provisionedClinicId, source: "intent" }),
-        );
-        return problem("That purchase was set up on another subscription.", 409, "ref");
-      }
-      const moved = paidTermsMismatch(intent, stripe);
-      if (moved) throw new ProvisioningError(moved.message, moved.field);
-      provisionRequest = provisionRequestFromIntent(intent, {
-        idempotencyKey: typeof stripe.idempotencyKey === "string" ? stripe.idempotencyKey : "",
-        stripeCustomerId: typeof stripe.stripeCustomerId === "string" ? stripe.stripeCustomerId : undefined,
-        stripeSubscriptionId: typeof stripe.stripeSubscriptionId === "string" ? stripe.stripeSubscriptionId : undefined,
-      });
-      // What the setup wizard starts from: the funnel's answers and the read.
-      setup = setupSeedFromIntent(intent);
-      // The paid first invoice's hosted page, the setup-fee receipt the
-      // welcome email links. Anything but a Stripe invoice page is dropped,
-      // never refused: the purchase is paid, and a receipt link is not worth
-      // an account.
-      firstInvoiceUrl = stripeInvoiceUrl(stripe.hostedInvoiceUrl);
-    } else {
-      provisionRequest = body as ProvisionRequest;
     }
+    const intent = await findIntent(intentRef);
+    if (!intent) {
+      await afterResponse(() => notifyOps("provisioning_rejected", { field: "ref", source: "intent" }));
+      return problem("Unknown purchase.", 422, "ref");
+    }
+    if (intent.consumedAt && intent.stripeSubscriptionId !== stripe.stripeSubscriptionId) {
+      // A second subscription paid for a purchase already set up: its
+      // setup fee was taken twice. Never marked failed: the first
+      // subscription's account exists and /welcome must keep saying so.
+      await afterResponse(() =>
+        notifyOps("duplicate_subscription", { clinicId: intent.provisionedClinicId, source: "intent" }),
+      );
+      return problem("That purchase was set up on another subscription.", 409, "ref");
+    }
+    const moved = paidTermsMismatch(intent, stripe);
+    if (moved) throw new ProvisioningError(moved.message, moved.field);
+    provisionRequest = provisionRequestFromIntent(intent, {
+      idempotencyKey: typeof stripe.idempotencyKey === "string" ? stripe.idempotencyKey : "",
+      stripeCustomerId: typeof stripe.stripeCustomerId === "string" ? stripe.stripeCustomerId : undefined,
+      stripeSubscriptionId: typeof stripe.stripeSubscriptionId === "string" ? stripe.stripeSubscriptionId : undefined,
+    });
+    // What the setup wizard starts from: the funnel's answers and the read.
+    setup = setupSeedFromIntent(intent);
+    // The paid first invoice's hosted page, the setup-fee receipt the
+    // welcome email links. Anything but a Stripe invoice page is dropped,
+    // never refused: the purchase is paid, and a receipt link is not worth
+    // an account.
+    firstInvoiceUrl = stripeInvoiceUrl(stripe.hostedInvoiceUrl);
     validateProvisionRequest(provisionRequest);
   } catch (error) {
     if (error instanceof ProvisioningError) {
-      if (intentRef) await refuseIntent(intentRef, error);
+      await refuseIntent(intentRef, error);
       return problem(error.message, 422, error.field);
     }
     throw error;
@@ -198,7 +207,7 @@ export async function POST(request: Request): Promise<Response> {
           undefined,
         userAgent: request.headers.get("user-agent") ?? undefined,
       },
-      intentRef ? { intentRef, setup, firstInvoiceUrl } : {},
+      { intentRef, setup, firstInvoiceUrl },
     );
 
     // 200 on a replay, 201 on a genuine creation.
@@ -215,6 +224,13 @@ export async function POST(request: Request): Promise<Response> {
     // such an effect, which is why it sits inside the `!result.replayed`
     // check (and its ledger row makes it once per clinic besides); anything
     // else a customer can perceive belongs there too.
+    // A replay found by the customer alone is a second subscription paid for
+    // a practice that already has its clinic (lib/provisioning.ts,
+    // clinicForStripe): nothing is made for it, and ops cancels and refunds.
+    if (result.duplicateSubscription) {
+      const clinicId = result.clinicId;
+      await afterResponse(() => notifyOps("duplicate_subscription", { clinicId, source: "customer" }));
+    }
     if (!result.replayed) {
       const clinicId = result.clinicId;
       await afterResponse(async () => {
@@ -237,7 +253,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   } catch (error) {
     if (error instanceof ProvisioningError) {
-      if (intentRef) await refuseIntent(intentRef, error);
+      await refuseIntent(intentRef, error);
       return problem(error.message, 422, error.field);
     }
     // Never echo the payload: it carries the buyer's contact details.
@@ -246,7 +262,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
-/** The intent ref of a `{ ref, ... }` request, or null for the full-purchase shape. */
+/** The intent ref of a `{ ref, ... }` request, or null for any other body, which is refused. */
 function intentRefOf(body: unknown): string | null {
   const ref = (body as { ref?: unknown } | null)?.ref;
   return typeof ref === "string" && ref.length > 0 ? ref : null;

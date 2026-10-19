@@ -12,6 +12,7 @@ import {
   mergeCapture,
   messagesFor,
   parseModelAnswer,
+  languageTerms,
   refusalLine,
   type AssistantResponder,
 } from "@/lib/assistant/turn";
@@ -53,6 +54,7 @@ const FACTS: AssistantFacts = {
   tone: "warm",
   languages: ["en"],
   suggestAddOns: false,
+  providerNames: ["Dr. Ngozi Okafor"],
 };
 
 /** A veterinary practice: its urgent set is an animal's, and its urgent line gives the emergency vet. */
@@ -67,6 +69,8 @@ const VET: AssistantFacts = {
 /** A Tuesday at 11:00 and a Sunday at 11:00 in New York. */
 const OPEN = new Date("2026-10-13T15:00:00Z");
 const CLOSED = new Date("2026-10-11T15:00:00Z");
+
+const GLOW_LIKE: AssistantFacts = { ...FACTS, clinicName: "Glow Med Spa", neverSay: [] };
 
 const reply = (text: string, extra: object = {}): AssistantResponder => async () => JSON.stringify({ reply: text, ...extra });
 
@@ -400,11 +404,12 @@ describe("answerTurn", () => {
     expect(result.reply).toContain(URGENT_LEAVE_NUMBER_LINE);
   });
 
-  test("the urgent line says the team was told only once the urgent alert reaches it", async () => {
-    // notifyBookingAlert only logs until package F sends L12 through the outbox.
-    expect(URGENT_ALERT_DELIVERED).toBe(false);
+  test("the urgent line says the team was told, now that the urgent alert reaches it", async () => {
+    // Package F sends L12 through the outbox, in-process after commit, from
+    // voice, web chat and Meta (tests/live-alerts.test.ts).
+    expect(URGENT_ALERT_DELIVERED).toBe(true);
     const result = await answerTurn({ facts: FACTS, channel: "web_chat", history: [], text: "it won't stop bleeding", responder: null });
-    expect(result.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(result.reply).toContain(URGENT_TEAM_TOLD_LINE);
   });
 
   test("a veterinary practice: an animal's emergency gets the emergency vet, never 911, and its own number only while open", async () => {
@@ -471,7 +476,7 @@ describe("answerTurn", () => {
     expect(asked).toBe(false);
     expect(result).toMatchObject({ source: "urgent", urgent: true });
     expect(result.reply).toBe(
-      "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí. Si es una emergencia, llame al 911 ahora. Si no, llame a Radiance Med Spa al (415) 555-0123. Deje un número para que la clínica le llame.",
+      "Soy un asistente de IA, así que no puedo ayudar con nada urgente aquí. Si es una emergencia, llame al 911 ahora. Si no, llame a Radiance Med Spa al (415) 555-0123. Ya avisé al equipo. Deje un número para que la clínica le llame.",
     );
   });
 
@@ -496,6 +501,36 @@ describe("answerTurn", () => {
       expect(result.reply).toContain("Si es una emergencia, llame al 911 ahora.");
       expect(result.reply).toContain("(415) 555-0123");
     }
+  });
+
+  test("the practice's own words are no language: its providers and its services reach the model", async () => {
+    const facts = {
+      ...FACTS,
+      services: [...FACTS.services, { name: "Zelora Glow Facial", priceFromUsd: 180, priceToUsd: 180, priceKind: "exact" as const, unit: null, durationMinutes: 60, depositUsd: null }],
+      address: "75-5660 Palani Rd, Kailua-Kona, HI",
+    };
+    for (const text of ["ngozi okafor?", "zelora glow?", "kailua kona?"]) {
+      let asked = false;
+      const result = await answerTurn({
+        facts,
+        channel: "web_chat",
+        history: [],
+        text,
+        responder: async () => {
+          asked = true;
+          return JSON.stringify({ reply: "Happy to help with that." });
+        },
+      });
+      expect(asked, text).toBe(true);
+      expect(result.source, text).toBe("model");
+    }
+    // Without the practice's terms the same words would be turned away.
+    expect(languageTerms(FACTS)).toContain("Dr. Ngozi Okafor");
+  });
+
+  test("the reply guard reads the practice's own words as no language too", () => {
+    const facts = { ...GLOW_LIKE, services: [{ name: "Zelora Glow Facial", priceFromUsd: 180, priceToUsd: 180, priceKind: "exact" as const, unit: null, durationMinutes: 60, depositUsd: null }], providerNames: ["Ngozi Okafor"] };
+    expect(guardAssistantReply("Ngozi Okafor does the Zelora Glow Facial.", facts)).toEqual({ ok: true });
   });
 
   test("on a call, the urgent and refusal lines never give the published number, which forwards back to us", async () => {

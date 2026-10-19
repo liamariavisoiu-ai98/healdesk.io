@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import {
   googleEventIdFor,
@@ -91,11 +91,7 @@ import { depositLine } from "@/lib/booking/lines";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { sweepHolds, writeHeldBooking } from "@/lib/booking/writer";
 import { saveProviders } from "@/lib/connections/google-calendar";
-import {
-  createBookingRequest,
-  decideBookingRequest,
-  recordAssistantWrite,
-} from "@/lib/meta/booking-requests";
+import { createBookingRequest, recordAssistantWrite } from "@/lib/meta/booking-requests";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { withTenant } from "@/lib/tenant";
 import { upsertCallerContact } from "@/lib/voice/ingest";
@@ -107,6 +103,7 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
+import { deskDecideById } from "./setup/desk";
 import {
   DESK_TZ,
   deskLocation,
@@ -319,28 +316,6 @@ describeDb("the booking engine (C13)", () => {
           )
         ).rows[0]?.broken === true,
     );
-
-  /**
-   * Staff decide in the portal from the funnel's M5 (the design record's §9,
-   * item 11); until then the desk path is reached by a request's token,
-   * which the engine never mails. The test gives the request one.
-   */
-  async function deskToken(clinicId: string, requestId: string): Promise<string> {
-    const token = randomBytes(32).toString("base64url");
-    const hash = createHash("sha256").update(token, "utf8").digest();
-    const ok = await inTenant(
-      clinicId,
-      async (client) =>
-        (
-          await client.query<{ ok: boolean }>(
-            `select app_reissue_undelivered_booking_token($1, $2) as ok`,
-            [requestId, hash],
-          )
-        ).rows[0]?.ok,
-    );
-    if (!ok) throw new Error("the request took no token");
-    return token;
-  }
 
   /**
    * The claim as the engine commits it (plan §7.7 step 6), for a write the
@@ -966,8 +941,9 @@ describeDb("the booking engine (C13)", () => {
       const otherId = (await rows(f.clinicId)).requests.find(
         (r) => r.vendor_call_id === "retell:c17:1",
       )!.id;
-      const decided = await decideBookingRequest(
-        await deskToken(f.clinicId, otherId),
+      const decided = await deskDecideById(
+        f.clinicId,
+        otherId,
         "confirmed",
         {
           decidedByLabel: "Jo",
@@ -1558,8 +1534,9 @@ describeDb("the booking engine (C13)", () => {
 
         // Staff confirm the request: the write goes under the hold's key and
         // meets the assistant's event there, one event in all.
-        const decided = await decideBookingRequest(
-          await deskToken(f.clinicId, requestId),
+        const decided = await deskDecideById(
+          f.clinicId,
+          requestId,
           "confirmed",
           { decidedByLabel: "Jo", deskNote: null, confirmedFor: at, addAnyway: true },
         );
@@ -1925,8 +1902,9 @@ describeDb("the booking engine (C13)", () => {
         state.decide.clear();
         expect((await hold(f.clinicId, "d9", at, "Chemical peel")).kind).toBe("slot_taken");
 
-        const decided = await decideBookingRequest(
-          await deskToken(f.clinicId, requests[0]!.id),
+        const decided = await deskDecideById(
+          f.clinicId,
+          requests[0]!.id,
           "confirmed",
           { decidedByLabel: "Jo", deskNote: null, confirmedFor: at },
         );

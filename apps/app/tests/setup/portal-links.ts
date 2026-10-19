@@ -14,7 +14,8 @@ import { SETUP_SCREENS } from "@/lib/setup/screen-ids";
  *   - mailto: or tel:;
  *   - a page this app has: a screen of this build on the clinic's own portal
  *     (lib/portal/nav.ts, which a page file backs), one of its setup screens,
- *     the protect and step-up pages, /help/call, /sign-in, or the Stripe
+ *     the protect and step-up pages, Talk to your AYA's preview while its
+ *     page file exists, /help/call, /sign-in, or the Stripe
  *     Connect start route with this clinic's slug;
  *   - a download a screen offers, while its route file exists: Billing's
  *     signed agreement.
@@ -90,6 +91,11 @@ function linkProblem(href: string, slug: string, ids: Set<string>): string | nul
       : "not a setup screen";
   }
   if (rest === "/protect" || rest === "/step-up") return null;
+  if (rest === "/preview") {
+    return existsSync(join(process.cwd(), "src", "app", "c", "[slug]", "preview", "page.tsx"))
+      ? null
+      : "no preview in this build";
+  }
   if (rest === "/billing/agreement") {
     return existsSync(
       join(process.cwd(), "src", "app", "c", "[slug]", "billing", "agreement", "route.ts"),

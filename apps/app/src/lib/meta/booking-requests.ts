@@ -12,10 +12,10 @@ import {
   clinics,
   contacts,
   metaBookingDrafts,
-  reportRecipients,
   slotHolds,
   type AgentService,
   type BookedVia,
+  type BookingRequestSource,
   type BookingOrigin,
   type CalendarWriteStatus,
   type ProposedSlot,
@@ -30,12 +30,11 @@ import { ANSWERED_AS_REQUEST, lockClinicCalendar } from "@/lib/booking/holds";
 import { calendarTermsFor } from "@/lib/booking/terms";
 import { calendarBreakOf, googleCalendarConnection, isTokenBreak, markCalendarBroken } from "@/lib/connections/google-calendar";
 import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/reschedule";
-import { PublicUrlError, publicUrl } from "@/lib/public-url";
+import { publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { listClinics } from "@/lib/ops/clinics";
-import { amendmentCount } from "@/lib/patient-rights/amendments";
-import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
+import { amendmentsFor } from "@/lib/patient-rights/amendments";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { META_WINDOW_MS, resolveFollowUpOwner, sendMetaReply, type MetaChannelOwner, type MetaSender } from "./channels";
@@ -55,15 +54,18 @@ import type { MetaPlatform } from "./front-door";
  * steps 1.5 and 1.7) every booking is a request.
  *
  * A request is a name, a number, a preferred day or time and up to two other
- * times that could work, and on the phone the service asked for. It reaches
- * the practice through a single-use link, and the person is told the
- * practice will confirm. The desk has the final say from that page: confirm
- * a slot, which is the moment the appointment row comes into existence;
- * accept and call them; propose up to three other times (decision of
- * 23 September 2026, §C) and go through them by phone; or decline. healdesk
- * itself contacts no one about a request: the confirmation a person hears
- * comes from a human at the practice, by phone, or as a fixed line on the
- * Meta thread that names no time, sent only inside Meta's 24-hour window.
+ * times that could work, and on the phone the service asked for. The person
+ * is told the practice will confirm, and staff decide it on the portal's
+ * Bookings screen (/c/<slug>/bookings), signed in and behind a passkey
+ * step-up, as the spec requires before any booking opens: confirm a slot,
+ * which is the moment the appointment row comes into existence; propose up
+ * to three other times (decision of 23 September 2026, §C) and go through
+ * them by phone; or decline. `decideBookingRequest` is keyed by the clinic
+ * and the request's id, and its actor is the sign-in and the device whose
+ * passkey stepped up. healdesk itself contacts no one about a request: the
+ * confirmation a person hears comes from a human at the practice, by phone,
+ * or as a fixed line on the Meta thread that names no time, sent only inside
+ * Meta's 24-hour window.
  *
  * Why the exposure is lower this way: an agent that states a time on a
  * channel is making a promise the clinic's calendar may not keep, and on a
@@ -84,20 +86,26 @@ import type { MetaPlatform } from "./front-door";
  *
  * `booking_requests` is the request. Its contact row is the caller's (voice)
  * or upserted by phone (Meta), so the person the desk rings is one contact
- * either way. The desk's credential is SHA-256(token), never the token — the
- * same discipline, and the same bootstrap RLS policy, as connection_links
- * (drizzle/0024, 0037, 0039). The token is never rotated.
+ * either way. Each request has a token, stored as SHA-256(token) and never
+ * as itself (drizzle/0024, 0037, 0039), for the link the desk's email
+ * carried until the live alerts replaced that email (package F): nothing
+ * mails a new one, and a link already sent is a pointer and nothing more.
+ * /booking/<token> shows no patient field and takes no decision, and sends
+ * the browser through sign-in and the step-up to the request on Bookings
+ * (`resolveBookingPointer`).
  *
  * ## What never leaves the tenant
  *
- * The email to the desk names the clinic and the channel and carries a link.
- * No name, no number, no window, no service: it may travel over a transport
- * with no BAA behind it (`phiClass: "none"`), and the details are on the page
- * the link opens. The audit rows say a request was made and decided, never
- * for whom, and for a `rescheduling` decision how many slots — never when.
+ * The desk's email is the live alert (L7, lib/notices/booking-alerts.ts): the
+ * clinic, the channel and a link into Bookings, through the outbox to the
+ * clinic's one address. No name, no number, no window, no service: it may
+ * travel over a transport with no BAA behind it (`phiClass: "none"`), and the
+ * details are on the Bookings screen behind the passkey. The audit rows say a
+ * request was made and decided, and by which sign-in and passkey, never for
+ * whom, and for a `rescheduling` decision how many slots — never when.
  */
 
-/** How long the desk's link stays good. A weekend plus a slow Monday. */
+/** How long a request stays open before it lapses as missed (L9). A weekend plus a slow Monday. */
 export const BOOKING_REQUEST_TTL_DAYS = 7;
 /** A draft nobody finished in a day is abandoned, and its phone number goes with it. */
 export const DRAFT_TTL_HOURS = 24;
@@ -109,8 +117,28 @@ export const MAX_PROPOSED_SLOTS = 3;
 const TOKEN_BYTES = 32;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
-const LINK_ACTOR: ActorContext = { type: "service", serviceName: "booking-link" };
+/** The emailed link, which only points: it reads a request's id and its clinic's slug. */
+const POINTER_ACTOR: ActorContext = { type: "service", serviceName: "booking-link" };
 const EXPIRY_ACTOR: ActorContext = { type: "service", serviceName: "booking-expiry" };
+
+/**
+ * Who decides a request: the clinic's sign-in, by the device whose passkey
+ * step-up is live (lib/portal/patient-page.ts). Every transaction of the
+ * decision runs as that user with the device's name as its label, and the
+ * decision's own audit rows carry the passkey's and the step-up's ids.
+ */
+export type DeskActor = { userId: string; passkeyId: string; stepUpId: string; deviceLabel: string };
+
+function deskActorContext(desk: DeskActor): ActorContext {
+  return { type: "user", userId: desk.userId, label: desk.deviceLabel };
+}
+
+/** The passkey behind a decision, for its audit rows: ids only. */
+function stepUpOf(desk: DeskActor): { passkeyId: string; stepUpId: string } {
+  return { passkeyId: desk.passkeyId, stepUpId: desk.stepUpId };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type BookingChannel = "voice" | "meta" | "web_chat";
 export type BookingThread = { platform: MetaPlatform; externalId: string; senderId: string };
@@ -224,8 +252,8 @@ export type WindowScreen = { conditions?: boolean; timeGrammar?: boolean };
  * everyday skin and hair conditions are refused as well, because Meta signs
  * no BAA and its channels are scoped to carry nothing clinical, by filters
  * that are designed to keep it out and cannot catch every wording (clause 16
- * of BAA 1.5.0). `timeGrammar` is Meta's too (META_WINDOW, clause 11 of BAA
- * 1.5.0, as of 1.3.0): the window must fit the closed time
+ * of BAA 1.5.1). `timeGrammar` is Meta's too (META_WINDOW, clause 11 of BAA
+ * 1.5.1, as of 1.3.0): the window must fit the closed time
  * grammar (isTimeWindow), every word of it a word for a time, because no list
  * of refused words is ever complete. A voice request's alternatives, which
  * come from a call the BAA covers, are screened without either.
@@ -400,13 +428,20 @@ export type CreateBookingRequestInput =
       vendorCallId?: string;
       /** `agent_direct` when the assistant is attempting the booking itself. Frozen at insert. */
       bookedVia?: BookedVia;
+      /**
+       * `contact_form` for a message left on the website's contact form
+       * (lib/chat/contact-form.ts): web chat only, with no conversation.
+       * Frozen at insert. AYA's own requests leave it out.
+       */
+      source?: BookingRequestSource;
     };
 
 /**
- * The request row and the desk's token — returned once, to be put into
- * exactly one email. A Meta request also upserts its contact by phone and
- * deletes its draft, in the same transaction. No consent of any kind is
- * asked for or recorded: healdesk contacts no one about a request.
+ * The request row and the desk's token — returned once, and emailed nowhere
+ * since the live alerts replaced the desk's link email. A Meta request also
+ * upserts its contact by phone and deletes its draft, in the same
+ * transaction. No consent of any kind is asked for or recorded: healdesk
+ * contacts no one about a request.
  */
 export async function createBookingRequest(tx: TenantTx, input: CreateBookingRequestInput): Promise<CreatedBookingRequest> {
   const [clinic] = await tx.db
@@ -470,6 +505,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       collectedFields,
       vendorCallId: input.channel !== "meta" ? (input.vendorCallId ?? null) : null,
       bookedVia: input.channel !== "meta" ? (input.bookedVia ?? "desk") : "desk",
+      source: input.channel === "web_chat" ? (input.source ?? "assistant") : "assistant",
       tokenHash: hashToken(token),
       expiresAt: sql`now() + make_interval(days => ${BOOKING_REQUEST_TTL_DAYS})`,
       lastInboundAt: input.channel === "meta" ? (input.lastInboundAt ?? now) : null,
@@ -491,6 +527,7 @@ export async function createBookingRequest(tx: TenantTx, input: CreateBookingReq
       platform: input.channel === "meta" ? input.thread.platform : undefined,
       expiresInDays: BOOKING_REQUEST_TTL_DAYS,
       alternatives: alternativeWindows.length,
+      ...(input.channel === "web_chat" && input.source === "contact_form" ? { source: "contact_form" } : {}),
     },
   });
   return { id: row.id, token, expiresAt: row.expiresAt };
@@ -512,146 +549,14 @@ export function bookingRequestUrl(token: string): string {
 // -----------------------------------------------------------------------------
 // Telling the desk
 // -----------------------------------------------------------------------------
-
-export type DeskNoticeVariant = "new" | "fyi_direct";
-
-/**
- * Tell the desk. One email per report recipient, carrying the link and
- * nothing about the person; "none" because there is nothing in it a BAA
- * would need to cover. A clinic with no recipient is logged, not failed —
- * the request still exists and the care view shows it waiting.
- *
- * `fyi_direct` (§E.5) is the notice for an appointment the assistant booked
- * itself where the practice elected direct booking: nothing is asked of the
- * desk, and the deposit line is added only when the booked appointment's
- * deposit was left for the desk to collect.
- */
-export async function notifyDesk(
-  tx: TenantTx,
-  created: { id: string; token: string },
-  via: { channel: BookingChannel; platform: MetaPlatform | null },
-  deps: { transport?: EmailTransport; variant?: DeskNoticeVariant } = {},
-): Promise<{ status: "sent" | "no-recipients" | "failed"; recipients: number }> {
-  const variant = deps.variant ?? "new";
-  const [clinic] = await tx.db.select({ name: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-  const clinicName = clinic?.name ?? "your practice";
-  const recipients = await deskRecipients(tx);
-  if (recipients.length === 0) {
-    log.warn("booking request has no desk to notify", { clinicId: tx.clinicId, requestId: created.id });
-    return { status: "no-recipients", recipients: 0 };
-  }
-  const transport = deps.transport ?? getTransport("none");
-  // notifyDesk runs inside the caller's tenant transaction, after the booking
-  // request (and, on a call, the conversation) is written. A misconfigured
-  // BETTER_AUTH_URL must cost the desk its email, not the patient their
-  // request: a throw here would roll all of it back. So it is a failed send,
-  // logged, and the request stays where the care view and the console see it.
-  let url: string;
-  try {
-    url = bookingRequestUrl(created.token);
-  } catch (error) {
-    if (!(error instanceof PublicUrlError)) throw error;
-    log.error("booking request notice not sent: no public origin to link to", {
-      clinicId: tx.clinicId,
-      requestId: created.id,
-      error: describeError(error),
-    });
-    return { status: "failed", recipients: recipients.length };
-  }
-  const label = channelLabel(via.channel, via.platform);
-
-  let subject: string;
-  let paragraphs: string[];
-  if (variant === "fyi_direct") {
-    // The deposit sentence reads the appointment the assistant booked, never
-    // the clinic's policy: whether a deposit was flagged is decided per
-    // booking (lib/billing/deposits.ts depositDecision), so only an
-    // appointment left `pending_front_desk` has one for the desk to collect.
-    const [booked] = await tx.db
-      .select({ depositStatus: appointments.depositStatus })
-      .from(bookingRequests)
-      .innerJoin(appointments, eq(appointments.id, bookingRequests.appointmentId))
-      .where(and(eq(bookingRequests.id, created.id), eq(bookingRequests.clinicId, tx.clinicId)))
-      .limit(1);
-    const deposit = booked?.depositStatus === "pending_front_desk" ? " The assistant said a deposit is due and that you will call to collect it." : "";
-    subject = `The assistant booked an appointment — ${clinicName}`;
-    paragraphs = [
-      `Your assistant booked a caller directly into your calendar, as you elected. Open the link to see who and when. Nothing further is needed unless you want to change it, which you do in your calendar.${deposit}`,
-      url,
-      `The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose.`,
-    ];
-  } else {
-    subject = `New booking request via ${label} — ${clinicName}`;
-    paragraphs = [
-      `Someone contacted ${clinicName} through ${label} asking to book.`,
-      "Open the request to see who, their number and the times they'd like (a first choice and up to two backups), then confirm a time, propose other times, call them back, or decline:",
-      url,
-      `The link works for ${BOOKING_REQUEST_TTL_DAYS} days and is for your front desk only. This email carries no patient details on purpose. Nothing is booked until you confirm it, and the person has only been told that you will call to confirm.`,
-    ];
-  }
-  const text = paragraphs.join("\n\n");
-  const html = paragraphs.map((p) => (p === url ? `<p><a href="${url}">${url}</a></p>` : `<p>${escapeHtml(p)}</p>`)).join("");
-
-  const sent = await deliverToDesk(tx, transport, recipients, { subject, text, html }, { clinicName, requestId: created.id });
-  if (sent === 0) return { status: "failed", recipients: recipients.length };
-  await tx.db.update(bookingRequests).set({ deskNotifiedAt: new Date() }).where(and(eq(bookingRequests.id, created.id), eq(bookingRequests.clinicId, tx.clinicId)));
-  tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: created.id, metadata: { outcome: "desk_notified", recipients: sent, variant } });
-  return { status: "sent", recipients: sent };
-}
-
-/**
- * notifyDesk for a request whose transaction has committed, in a transaction
- * of its own: the Meta front door's way to email the desk (the webhook calls
- * it after the answer's transaction, whatever became of the reply), so the
- * email never goes for a request that then rolls back. Never throws: an email
- * that fails here is logged and leaves `desk_notified_at` unset, and the
- * request stays as it is, open and counted in the operator's care view, until
- * the desk acts on it or it expires. Nothing sends the notice again: no job
- * has read `desk_notified_at` since C13 removed the sweep, and the daily
- * summary that would list open requests is not built yet.
- */
-export async function notifyDeskAfterCommit(
-  clinicId: string,
-  created: { id: string; token: string },
-  via: { channel: BookingChannel; platform: MetaPlatform | null },
-  deps: { transport?: EmailTransport; actor?: ActorContext } = {},
-): Promise<void> {
-  const actor = deps.actor ?? DESK_NOTICE_ACTOR;
-  try {
-    await withTenant({ clinicId, actor }, (tx) => notifyDesk(tx, created, via, { transport: deps.transport }));
-  } catch (error) {
-    log.error("booking request notice not sent after commit", { clinicId, requestId: created.id, error: describeError(error) });
-  }
-}
-
-const DESK_NOTICE_ACTOR: ActorContext = { type: "agent", serviceName: "meta-front-door" };
-
-async function deskRecipients(tx: TenantTx): Promise<{ email: string }[]> {
-  return tx.db
-    .select({ email: reportRecipients.email })
-    .from(reportRecipients)
-    .where(and(eq(reportRecipients.clinicId, tx.clinicId), sql`${reportRecipients.unsubscribedAt} is null`));
-}
-
-async function deliverToDesk(
-  tx: TenantTx,
-  transport: EmailTransport,
-  recipients: { email: string }[],
-  message: { subject: string; text: string; html: string },
-  about: { clinicName: string; requestId: string },
-): Promise<number> {
-  let sent = 0;
-  for (const r of recipients) {
-    try {
-      const result = await transport.send({ to: r.email, clinicId: tx.clinicId, clinicName: about.clinicName }, { ...message, phiClass: "none" });
-      if (result.status !== "failed") sent += 1;
-      else log.error("booking request notice failed", { clinicId: tx.clinicId, requestId: about.requestId, reason: result.reason });
-    } catch (error) {
-      log.error("booking request notice threw", { clinicId: tx.clinicId, requestId: about.requestId, error: describeError(error) });
-    }
-  }
-  return sent;
-}
+//
+// The desk hears about a request through the live alerts: whoever creates
+// one queues L7 (notifyBookingAlert(tx, "booking_request", ...),
+// lib/notices/booking-alerts.ts) in the transaction that creates it, and the
+// outbox emails the clinic's one address a pointer into Bookings after
+// commit. notifyDesk, which emailed this module's single-use link to every
+// report recipient directly, was retired with package F: a pointer names no
+// one, and the details open behind sign-in and step-up.
 
 /**
  * What the person is told once the request exists. Fixed text; a name, never
@@ -690,18 +595,57 @@ export function followUpLine(clinicName: string, decision: BookingDecision): str
 }
 
 // -----------------------------------------------------------------------------
-// The desk's view
+// The emailed link, which points; and the desk's view, on Bookings
 // -----------------------------------------------------------------------------
 
 export type BookingRequestStatus = "requested" | "accepted" | "rescheduling" | "confirmed" | "declined" | "expired";
 
-export type ResolvedBookingRequest = {
+/** The request's statuses staff can still act on (§A.13). */
+export const OPEN_REQUEST_STATUSES = ["requested", "accepted", "rescheduling"] as const;
+
+/** Where an emailed link points: the request's clinic and id, and nothing of the person. */
+export type BookingPointer = { clinicId: string; slug: string; requestId: string };
+
+/**
+ * Where the desk's emailed link (/booking/<token>) points, or null for a
+ * token that is malformed or names no request. The link shows nothing and
+ * decides nothing (spec: a passkey before any booking opens): the page sends
+ * the browser through sign-in and the passkey step-up to the request on
+ * Bookings, and a sign-in that does not open this clinic gets "not found"
+ * there. A request's age does not matter here: a lapsed one is on Bookings,
+ * under Missed. The one audit row says the link was followed, by the
+ * request's id.
+ */
+export async function resolveBookingPointer(token: string, request?: RequestContext): Promise<BookingPointer | null> {
+  const hash = hashIfWellFormed(token);
+  if (!hash) return null;
+  const clinicId = await clinicForTokenHash(hash);
+  if (!clinicId) return null;
+  return withTenant({ clinicId, actor: POINTER_ACTOR, request }, async (tx) => {
+    const [row] = await tx.db
+      .select({ id: bookingRequests.id, slug: clinics.slug })
+      .from(bookingRequests)
+      .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
+      .where(eq(bookingRequests.tokenHash, hash))
+      .limit(1);
+    if (!row) return null;
+    tx.audit.record({ action: "read", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "link_followed" } });
+    return { clinicId, slug: row.slug, requestId: row.id };
+  });
+}
+
+/**
+ * One request as staff see it on Bookings: who, their number, the times they
+ * asked for, what the assistant collected, and how it stands. Patient data:
+ * read only inside a patient page's transaction (lib/portal/patient-page.ts),
+ * which writes the access row naming the passkey.
+ */
+export type BookingRequestView = {
   id: string;
   clinicId: string;
-  clinicName: string;
-  /** "clients" at a practice that cares for animals, "patients" elsewhere (audienceFor): the words the page uses. */
+  /** "clients" at a practice that cares for animals, "patients" elsewhere (audienceFor): the words Bookings uses. */
   audience: Audience;
-  /** The practice's IANA zone: every time on the desk page is said on the practice's clock, not the server's. */
+  /** The practice's IANA zone: every time on Bookings is said on the practice's clock, not the server's. */
   timeZone: string;
   channel: BookingChannel;
   platform: MetaPlatform | null;
@@ -713,150 +657,174 @@ export type ResolvedBookingRequest = {
   collectedFields: Record<string, string>;
   status: BookingRequestStatus;
   createdAt: Date;
+  expiresAt: Date;
   decidedAt: Date | null;
   decidedByLabel: string | null;
   deskNote: string | null;
   confirmedFor: Date | null;
+  appointmentId: string | null;
   proposedSlots: ProposedSlot[];
   rescheduleExpiresAt: Date | null;
   bookedVia: BookedVia;
+  /** AYA took it, or the website's contact form did while AYA was not answering (L20). */
+  source: BookingRequestSource;
   lastInboundAt: Date | null;
-  /** Free slots from the writable calendar while the request is open (§B.3); null when there is no writable connection. */
+  /**
+   * Open in name but past its link's expiry, or its alternatives' deadline:
+   * nothing can decide it, and the hourly sweep (expireLapsedRequests) marks
+   * it expired. Bookings shows it under Missed.
+   */
+  lapsed: boolean;
+  /** Free slots from the writable calendar while the request is open (§B.3); null until read, and when there is no writable connection. */
   calendar: { writable: boolean; slots: CalendarSlot[] } | null;
-  /** The confirmed appointment's calendar write, for the read-only views; `attempts` so the page knows when retries have run out. */
+  /** The confirmed appointment's calendar write; `attempts` so the page knows when retries have run out. */
   calendarWrite: { status: CalendarWriteStatus; error: string | null; attempts: number } | null;
   /** When the assistant held time for this request on the call, if it did. */
   heldFor: Date | null;
-  /** §G.1: whether a Meta line could still reach them; null for a phone request. */
+  /** §G.1: whether a Meta line could still reach them; null for a phone or web chat request. */
   metaWindowOpen: boolean | null;
   /**
-   * How many amendments the practice has directed to this request
-   * (record_amendments, lib/patient-rights/amendments.ts): a count, never
-   * their words. Clause 14(b) of the agreement in force (BAA 1.5.0, unchanged
-   * since 1.3.0) has every screen of healdesk's that shows the request carry
-   * them, but this view opens with the emailed
-   * token alone, no passkey, and the plan has /booking/<token> show no
-   * patient fields, so it says that the request was amended and where the
-   * words are, and nothing they say (review of 12 October 2026).
+   * The practice's amendments to this request (record_amendments,
+   * lib/patient-rights/amendments.ts), oldest first. The request stays as it
+   * was made, and every screen of healdesk's that shows it carries them
+   * (clause 14(b) of the agreement in force, BAA 1.5.1, unchanged since
+   * 1.3.0): Bookings opens only behind the passkey, so it shows their words
+   * beside the request.
    */
-  amendmentCount: number;
+  amendments: { text: string; requestedAt: Date }[];
 };
 
+/** Which requests to read: the open queue, the lapsed ones of the last `days`, or these ids. */
+export type BookingRequestScope = { kind: "open" } | { kind: "missed"; days: number } | { kind: "ids"; ids: readonly string[] };
+
 /**
- * What the holder of the link may see, or null. Expired, unknown and
- * malformed are one null, and the open is recorded either way — a decided
- * request still renders (read-only, with its outcome) so a second click on
- * the same email shows the outcome rather than a dead end.
+ * The requests in `scope`, in the caller's transaction (RLS keeps them to its
+ * clinic): the open queue oldest first, so whoever has waited longest is at
+ * the top; Missed newest first. The caller logs the access.
  */
-export async function resolveBookingRequest(token: string, request?: RequestContext): Promise<ResolvedBookingRequest | null> {
-  const hash = hashIfWellFormed(token);
-  if (!hash) return null;
-  const clinicId = await clinicForTokenHash(hash);
-  if (!clinicId) return null;
+export async function readBookingRequestViews(
+  tx: TenantTx,
+  scope: BookingRequestScope,
+  opts: { limit?: number; now?: Date } = {},
+): Promise<BookingRequestView[]> {
+  const now = opts.now ?? new Date();
+  const lapsed = sql<boolean>`(${bookingRequests.expiresAt} <= now()
+    or (${bookingRequests.status} = 'rescheduling' and ${bookingRequests.rescheduleExpiresAt} is not null and ${bookingRequests.rescheduleExpiresAt} < now()))`;
+  const open = inArray(bookingRequests.status, [...OPEN_REQUEST_STATUSES]);
+  let where;
+  if (scope.kind === "open") {
+    where = and(open, sql`not ${lapsed}`);
+  } else if (scope.kind === "missed") {
+    where = and(
+      sql`(${bookingRequests.status} = 'expired' or (${open} and ${lapsed}))`,
+      sql`coalesce(${bookingRequests.decidedAt}, ${bookingRequests.expiresAt}) > now() - make_interval(days => ${scope.days})`,
+    );
+  } else {
+    const ids = scope.ids.filter((id) => UUID.test(id));
+    if (ids.length === 0) return [];
+    where = inArray(bookingRequests.id, ids);
+  }
+  const rows = await tx.db
+    .select({
+      id: bookingRequests.id,
+      channel: bookingRequests.channel,
+      platform: bookingRequests.platform,
+      preferredWindow: bookingRequests.preferredWindow,
+      alternativeWindows: bookingRequests.alternativeWindows,
+      treatment: bookingRequests.treatment,
+      collectedFields: bookingRequests.collectedFields,
+      status: bookingRequests.status,
+      createdAt: bookingRequests.createdAt,
+      expiresAt: bookingRequests.expiresAt,
+      decidedAt: bookingRequests.decidedAt,
+      decidedByLabel: bookingRequests.decidedByLabel,
+      deskNote: bookingRequests.deskNote,
+      confirmedFor: bookingRequests.confirmedFor,
+      appointmentId: bookingRequests.appointmentId,
+      proposedSlots: bookingRequests.proposedSlots,
+      rescheduleExpiresAt: bookingRequests.rescheduleExpiresAt,
+      bookedVia: bookingRequests.bookedVia,
+      source: bookingRequests.source,
+      lastInboundAt: bookingRequests.lastInboundAt,
+      lapsed,
+      specialty: clinics.specialty,
+      timeZone: clinics.timezone,
+      firstName: contacts.fullName,
+      phone: contacts.phone,
+      calendarWriteStatus: appointments.calendarWriteStatus,
+      calendarWriteError: appointments.calendarWriteError,
+      calendarWriteAttempts: appointments.calendarWriteAttempts,
+    })
+    .from(bookingRequests)
+    .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
+    .innerJoin(contacts, eq(contacts.id, bookingRequests.contactId))
+    .leftJoin(appointments, eq(appointments.id, bookingRequests.appointmentId))
+    .where(and(eq(bookingRequests.clinicId, tx.clinicId), where))
+    .orderBy(
+      scope.kind === "missed" ? desc(sql`coalesce(${bookingRequests.decidedAt}, ${bookingRequests.expiresAt})`) : bookingRequests.createdAt,
+      bookingRequests.id,
+    )
+    .limit(opts.limit ?? 100);
+  if (rows.length === 0) return [];
 
-  const resolved = await withTenant({ clinicId, actor: LINK_ACTOR, request }, async (tx) => {
-    const [row] = await tx.db
-      .select({
-        id: bookingRequests.id,
-        channel: bookingRequests.channel,
-        platform: bookingRequests.platform,
-        preferredWindow: bookingRequests.preferredWindow,
-        alternativeWindows: bookingRequests.alternativeWindows,
-        treatment: bookingRequests.treatment,
-        collectedFields: bookingRequests.collectedFields,
-        status: bookingRequests.status,
-        createdAt: bookingRequests.createdAt,
-        decidedAt: bookingRequests.decidedAt,
-        decidedByLabel: bookingRequests.decidedByLabel,
-        deskNote: bookingRequests.deskNote,
-        confirmedFor: bookingRequests.confirmedFor,
-        proposedSlots: bookingRequests.proposedSlots,
-        rescheduleExpiresAt: bookingRequests.rescheduleExpiresAt,
-        bookedVia: bookingRequests.bookedVia,
-        lastInboundAt: bookingRequests.lastInboundAt,
-        expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
-        clinicName: clinics.name,
-        specialty: clinics.specialty,
-        timeZone: clinics.timezone,
-        firstName: contacts.fullName,
-        phone: contacts.phone,
-        calendarWriteStatus: appointments.calendarWriteStatus,
-        calendarWriteError: appointments.calendarWriteError,
-        calendarWriteAttempts: appointments.calendarWriteAttempts,
-      })
-      .from(bookingRequests)
-      .innerJoin(clinics, eq(clinics.id, bookingRequests.clinicId))
-      .innerJoin(contacts, eq(contacts.id, bookingRequests.contactId))
-      .leftJoin(appointments, eq(appointments.id, bookingRequests.appointmentId))
-      .where(eq(bookingRequests.tokenHash, hash))
-      .limit(1);
-    if (!row) return null;
-    if (row.expired) {
-      tx.audit.record({ action: "read", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "rejected", reason: "expired" } });
-      return null;
-    }
-    tx.audit.record({ action: "read", resourceType: "booking_request", resourceId: row.id, metadata: { outcome: "opened", status: row.status } });
+  const ids = rows.map((r) => r.id);
+  const amended = await amendmentsFor(tx, "booking_request", ids);
+  const held = await tx.db
+    .selectDistinctOn([slotHolds.bookingRequestId], { requestId: slotHolds.bookingRequestId, startsAt: slotHolds.startsAt })
+    .from(slotHolds)
+    .where(and(eq(slotHolds.clinicId, tx.clinicId), inArray(slotHolds.bookingRequestId, ids)))
+    .orderBy(slotHolds.bookingRequestId, desc(slotHolds.createdAt));
+  const heldFor = new Map(held.map((h) => [h.requestId, h.startsAt]));
 
-    const amended = await amendmentCount(tx, { kind: "booking_request", id: row.id });
-    const [held] = await tx.db
-      .select({ startsAt: slotHolds.startsAt })
-      .from(slotHolds)
-      .where(eq(slotHolds.bookingRequestId, row.id))
-      .orderBy(desc(slotHolds.createdAt))
-      .limit(1);
-    return {
-      id: row.id,
-      clinicId,
-      clinicName: row.clinicName,
-      audience: audienceFor(row.specialty),
-      timeZone: row.timeZone,
-      channel: row.channel,
-      platform: row.platform,
-      firstName: row.firstName,
-      phone: row.phone,
-      preferredWindow: row.preferredWindow,
-      alternativeWindows: row.alternativeWindows,
-      treatment: row.treatment,
-      collectedFields: row.collectedFields,
-      status: row.status,
-      createdAt: row.createdAt,
-      decidedAt: row.decidedAt,
-      decidedByLabel: row.decidedByLabel,
-      deskNote: row.deskNote,
-      confirmedFor: row.confirmedFor,
-      proposedSlots: row.proposedSlots,
-      rescheduleExpiresAt: row.rescheduleExpiresAt,
-      bookedVia: row.bookedVia,
-      lastInboundAt: row.lastInboundAt,
-      calendar: null as ResolvedBookingRequest["calendar"],
-      calendarWrite: row.calendarWriteStatus ? { status: row.calendarWriteStatus, error: row.calendarWriteError ?? null, attempts: row.calendarWriteAttempts ?? 0 } : null,
-      heldFor: held?.startsAt ?? null,
-      metaWindowOpen: row.channel === "meta" ? row.lastInboundAt !== null && row.lastInboundAt.getTime() + META_WINDOW_MS > Date.now() : null,
-      amendmentCount: amended,
-    };
-  });
-  if (!resolved) return null;
-
-  // The calendar's free times, after the transaction and never inside it
-  // (plan §6.4): Google is asked with no transaction open.
-  const open = resolved.status === "requested" || resolved.status === "accepted" || resolved.status === "rescheduling";
-  if (open) resolved.calendar = await deskCalendarSlots(clinicId, resolved);
-  return resolved;
+  return rows.map((row) => ({
+    id: row.id,
+    clinicId: tx.clinicId,
+    audience: audienceFor(row.specialty),
+    timeZone: row.timeZone,
+    channel: row.channel,
+    platform: row.platform,
+    firstName: row.firstName,
+    phone: row.phone,
+    preferredWindow: row.preferredWindow,
+    alternativeWindows: row.alternativeWindows,
+    treatment: row.treatment,
+    collectedFields: row.collectedFields,
+    status: row.status,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+    decidedAt: row.decidedAt,
+    decidedByLabel: row.decidedByLabel,
+    deskNote: row.deskNote,
+    confirmedFor: row.confirmedFor,
+    appointmentId: row.appointmentId,
+    proposedSlots: row.proposedSlots,
+    rescheduleExpiresAt: row.rescheduleExpiresAt,
+    bookedVia: row.bookedVia,
+    source: row.source,
+    lastInboundAt: row.lastInboundAt,
+    lapsed: row.lapsed,
+    calendar: null,
+    calendarWrite: row.calendarWriteStatus ? { status: row.calendarWriteStatus, error: row.calendarWriteError ?? null, attempts: row.calendarWriteAttempts ?? 0 } : null,
+    heldFor: heldFor.get(row.id) ?? null,
+    metaWindowOpen: row.channel === "meta" ? row.lastInboundAt !== null && row.lastInboundAt.getTime() + META_WINDOW_MS > now.getTime() : null,
+    amendments: (amended.get(row.id) ?? []).map((a) => ({ text: a.amendment, requestedAt: a.requestedAt })),
+  }));
 }
 
 /**
- * The free times the desk page lists for an open request: the request's
- * service on the calendar it books into, arranged for a desk with the
- * person's own windows in front of it (arrangeSlots). The request's own
- * holds do not block it: a time the assistant reserved for this person is
- * one the desk may confirm for them. Null where healdesk may not write
- * (nothing to pick from); an empty list when Google did not answer just
- * now, so the desk types a time.
+ * The free times Bookings lists for an open request: the request's service on
+ * the calendar it books into, arranged for a desk with the person's own
+ * windows in front of it (arrangeSlots). Called after the page's transaction
+ * has committed, never inside it (plan §6.4): Google is asked with no
+ * transaction open. The request's own holds do not block it: a time the
+ * assistant reserved for this person is one the desk may confirm for them.
+ * Null where healdesk may not write (nothing to pick from); an empty list
+ * when Google did not answer just now, so the desk types a time.
  */
-async function deskCalendarSlots(clinicId: string, req: ResolvedBookingRequest): Promise<ResolvedBookingRequest["calendar"]> {
+export async function deskFreeTimes(clinicId: string, req: BookingRequestView, actor: ActorContext): Promise<BookingRequestView["calendar"]> {
   const now = new Date();
   try {
-    const found = await availableSlotsFor(clinicId, { service: req.treatment ?? req.collectedFields.service ?? null, exceptRequestId: req.id, now, actor: LINK_ACTOR });
+    const found = await availableSlotsFor(clinicId, { service: req.treatment ?? req.collectedFields.service ?? null, exceptRequestId: req.id, now, actor });
     if (found.status === "ok") {
       const spans = found.slots.map((s) => ({ startsAt: s.at, endsAt: new Date(s.at.getTime() + found.serviceMinutes * 60_000) }));
       return { writable: true, slots: arrangeSlots(spans, { timeZone: found.timeZone, now, named: namedWeekdays([req.preferredWindow, ...req.alternativeWindows]) }) };
@@ -864,7 +832,7 @@ async function deskCalendarSlots(clinicId: string, req: ResolvedBookingRequest):
     if (found.status === "broken" || (found.status === "unavailable" && found.reason === "not_writable")) return null;
     return { writable: true, slots: [] };
   } catch (error) {
-    log.warn("desk page free times not read", { clinicId, requestId: req.id, error: describeError(error) });
+    log.warn("desk free times not read", { clinicId, requestId: req.id, error: describeError(error) });
     return { writable: true, slots: [] };
   }
 }
@@ -903,6 +871,8 @@ export type DecisionOutcome = {
 };
 
 export type DecisionInput = {
+  /** Who decides: the sign-in and the device whose passkey stepped up. */
+  actor: DeskActor;
   decidedByLabel: string | null;
   deskNote: string | null;
   confirmedFor?: Date | null;
@@ -919,7 +889,7 @@ export type DecisionInput = {
 type OpenStatus = "requested" | "accepted" | "rescheduling";
 
 /** Which states each decision may be made from (§A.13). A second "rescheduling" is a plain update, not a transition. */
-const DECIDABLE_FROM: Record<BookingDecision, OpenStatus[]> = {
+export const DECIDABLE_FROM: Record<BookingDecision, readonly OpenStatus[]> = {
   accepted: ["requested"],
   declined: ["requested", "rescheduling"],
   confirmed: ["requested", "accepted", "rescheduling"],
@@ -958,7 +928,7 @@ type RequestFacts = {
 };
 
 /** The facts the guard and the re-check need, read before the decision's own transaction. */
-async function readRequestFacts(tx: TenantTx, hash: Buffer): Promise<RequestFacts | null> {
+async function readRequestFacts(tx: TenantTx, requestId: string): Promise<RequestFacts | null> {
   const [row] = await tx.db
     .select({
       id: bookingRequests.id,
@@ -970,7 +940,7 @@ async function readRequestFacts(tx: TenantTx, hash: Buffer): Promise<RequestFact
       metaPlatform: bookingRequests.platform,
     })
     .from(bookingRequests)
-    .where(eq(bookingRequests.tokenHash, hash))
+    .where(and(eq(bookingRequests.id, requestId), eq(bookingRequests.clinicId, tx.clinicId)))
     .limit(1);
   if (!row) return null;
   const [hold] = await tx.db
@@ -1026,17 +996,24 @@ async function readRequestFacts(tx: TenantTx, hash: Buffer): Promise<RequestFact
  * The transaction commits before the calendar write (plan §7.12), so a
  * Google timeout can never roll back the desk's decision, and a re-notify
  * or retry finds the row in the state it was left.
+ *
+ * Keyed by the clinic and the request's id, which the caller read inside
+ * the clinic's own portal (requirePatientPage): every transaction here is
+ * scoped to `target.clinicId`, so another clinic's request is `invalid`,
+ * exactly like one that does not exist. Every transaction runs as
+ * `input.actor`, the sign-in by its device, and the decision's own audit
+ * rows, refusals included, carry the passkey's and the step-up's ids.
  */
 export async function decideBookingRequest(
-  token: string,
+  target: { clinicId: string; requestId: string },
   decision: BookingDecision,
   input: DecisionInput,
   send?: MetaSender,
 ): Promise<DecisionOutcome> {
   const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null, calendarWrite: null };
   const now = input.now ?? new Date();
-  const hash = hashIfWellFormed(token);
-  if (!hash) return none;
+  const { clinicId, requestId } = target;
+  if (!UUID.test(clinicId) || !UUID.test(requestId)) return none;
   if (decision === "confirmed" && !isValidDate(input.confirmedFor)) return none;
   let proposed: { at: Date; source: "calendar" | "desk" }[] = [];
   if (decision === "rescheduling") {
@@ -1049,26 +1026,26 @@ export async function decideBookingRequest(
       .map((s) => ({ at: s.at, source: s.source ?? "desk" }))
       .sort((a, b) => a.at.getTime() - b.at.getTime());
   }
-  const clinicId = await clinicForTokenHash(hash);
-  if (!clinicId) return none;
-  const actor = { clinicId, actor: LINK_ACTOR, request: input.request };
+  const as = deskActorContext(input.actor);
+  const who = stepUpOf(input.actor);
+  const actor = { clinicId, actor: as, request: input.request };
   const from = DECIDABLE_FROM[decision];
 
   // 1. The assistant's own write, outside any transaction. A refusal is
   // audited as the decision's own transaction audits one.
   const facts = await withTenant(actor, async (tx) => {
-    const read = await readRequestFacts(tx, hash);
-    if (read && (read.expired || !(from as string[]).includes(read.status))) {
-      rejected(tx, read.id, read.expired ? "invalid" : "already-decided", decision);
+    const read = await readRequestFacts(tx, requestId);
+    if (read && (read.expired || !from.includes(read.status as OpenStatus))) {
+      rejected(tx, read.id, read.expired ? "invalid" : "already-decided", decision, who);
     }
     return read;
   });
   if (!facts) return none;
   if (facts.expired) return none;
-  if (!(from as string[]).includes(facts.status)) return { ...none, outcome: "already-decided" };
-  const guard = await assistantWriteGuard(clinicId, facts, now);
+  if (!from.includes(facts.status as OpenStatus)) return { ...none, outcome: "already-decided" };
+  const guard = await assistantWriteGuard(clinicId, facts, now, as);
   if (guard) {
-    await withTenant(actor, async (tx) => rejected(tx, facts.id, guard.outcome, decision));
+    await withTenant(actor, async (tx) => rejected(tx, facts.id, guard.outcome, decision, who));
     return guard;
   }
 
@@ -1078,15 +1055,15 @@ export async function decideBookingRequest(
   const service = serviceDuration(facts.services, input.treatment?.trim() || facts.treatment || facts.collectedFields.service || null);
   let deskCalendar: { calendarId: string; providerId: string | null } | null = null;
   if (decision === "confirmed") {
-    const span = await deskSpanFree(clinicId, { startsAt: input.confirmedFor!, durationMinutes: service.minutes, service: service.canonicalName, calendarId: facts.keyHold?.calendarId ?? null, actor: LINK_ACTOR });
+    const span = await deskSpanFree(clinicId, { startsAt: input.confirmedFor!, durationMinutes: service.minutes, service: service.canonicalName, calendarId: facts.keyHold?.calendarId ?? null, actor: as });
     if (span.status === "free" || span.status === "busy") deskCalendar = { calendarId: span.calendarId, providerId: span.providerId };
     if (span.status === "busy" && !input.addAnyway) {
       // A colleague may have confirmed it meanwhile, and its event is what
       // Google shows: that is already-decided, not a busy calendar.
       return withTenant(actor, async (tx) => {
-        const again = await readRequestFacts(tx, hash);
-        const outcome = !again || again.expired || !(from as string[]).includes(again.status) ? "already-decided" : "calendar_busy";
-        rejected(tx, facts.id, outcome, decision);
+        const again = await readRequestFacts(tx, requestId);
+        const outcome = !again || again.expired || !from.includes(again.status as OpenStatus) ? "already-decided" : "calendar_busy";
+        rejected(tx, facts.id, outcome, decision, who);
         return { ...none, outcome };
       });
     }
@@ -1097,14 +1074,14 @@ export async function decideBookingRequest(
   // a pause, a suspension or no agreement in effect withholds the line.
   const followUpOwner =
     facts.metaConnectionId && facts.metaPlatform
-      ? await resolveFollowUpOwner({ clinicId, connectionId: facts.metaConnectionId, platform: facts.metaPlatform, actor: LINK_ACTOR, now })
+      ? await resolveFollowUpOwner({ clinicId, connectionId: facts.metaConnectionId, platform: facts.metaPlatform, actor: as, now })
       : null;
 
   // 3. The decision.
   let decided: DecisionOutcome;
   try {
     decided = await withTenant(actor, (tx) =>
-      decideWithin(tx, { hash, decision, input, proposed, from, now, service, deskCalendar, send, followUpOwner }),
+      decideWithin(tx, { requestId, decision, input, proposed, from, now, service, deskCalendar, send, followUpOwner, who }),
     );
   } catch (error) {
     if (codeOf(error) !== "23P01") throw error;
@@ -1112,13 +1089,13 @@ export async function decideBookingRequest(
     // Decided meanwhile by a colleague is already-decided; otherwise say
     // whether it is a live call holding it or a booking.
     return withTenant(actor, async (tx) => {
-      const again = await readRequestFacts(tx, hash);
-      if (!again || !(from as string[]).includes(again.status)) {
-        rejected(tx, facts.id, "already-decided", decision);
+      const again = await readRequestFacts(tx, requestId);
+      if (!again || !from.includes(again.status as OpenStatus)) {
+        rejected(tx, facts.id, "already-decided", decision, who);
         return { ...none, outcome: "already-decided" as const };
       }
       const live = await liveHoldOverlaps(tx, input.confirmedFor!, service.minutes);
-      rejected(tx, again.id, "slot_taken", decision);
+      rejected(tx, again.id, "slot_taken", decision, who);
       return { ...none, outcome: "slot_taken" as const, takenBy: live ? ("live_call" as const) : ("booking" as const) };
     });
   }
@@ -1130,9 +1107,9 @@ export async function decideBookingRequest(
   return decided;
 }
 
-/** The desk's decision refused, audited as the decision's own transaction audits one. */
-function rejected(tx: TenantTx, requestId: string, reason: string, decision: BookingDecision): void {
-  tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "rejected", reason, decision } });
+/** The desk's decision refused, audited as the decision's own transaction audits one, with the passkey behind it. */
+function rejected(tx: TenantTx, requestId: string, reason: string, decision: BookingDecision, who: { passkeyId: string; stepUpId: string }): void {
+  tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: requestId, metadata: { outcome: "rejected", reason, decision, ...who } });
 }
 
 /**
@@ -1144,7 +1121,7 @@ function rejected(tx: TenantTx, requestId: string, reason: string, decision: Boo
  * the desk decides, as it does when the event is gone, deleted, or not
  * ours.
  */
-async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: Date): Promise<DecisionOutcome | null> {
+async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: Date, actor: ActorContext): Promise<DecisionOutcome | null> {
   const hold = facts.hold;
   const checking: DecisionOutcome = { outcome: "checking", followUp: null, appointmentId: null, calendarWrite: null };
   if (!hold) return null;
@@ -1152,7 +1129,7 @@ async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: D
   if (hold.status !== "unknown") return null;
   if (!hold.insertAttemptedAt || now.getTime() - hold.insertAttemptedAt.getTime() < ASSISTANT_WRITE_GRACE_MS) return checking;
 
-  const read = await withTenant({ clinicId, actor: LINK_ACTOR }, async (tx) => {
+  const read = await withTenant({ clinicId, actor }, async (tx) => {
     const target = await writableConnection(tx);
     if (!target) return null;
     const [row] = await tx.db
@@ -1176,7 +1153,7 @@ async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: D
       // location's own calendar, breaks the connection.
       if (isTokenBreak(code) || read.calendarId === read.target.calendarId) {
         try {
-          await markCalendarBroken(clinicId, { code, connectionId: read.target.connectionId, credentialVersion: read.target.credentialVersion, actor: LINK_ACTOR });
+          await markCalendarBroken(clinicId, { code, connectionId: read.target.connectionId, credentialVersion: read.target.credentialVersion, actor });
         } catch (error) {
           log.error("calendar break not recorded", { clinicId, error: describeError(error) });
         }
@@ -1191,7 +1168,7 @@ async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: D
 
   let recorded: RecordedLateWrite;
   try {
-    recorded = await withTenant({ clinicId, actor: LINK_ACTOR }, (tx) => recordAssistantWrite(tx, hold.id, event.externalId, now));
+    recorded = await withTenant({ clinicId, actor }, (tx) => recordAssistantWrite(tx, hold.id, event.externalId, now));
   } catch (error) {
     if (codeOf(error) !== "23P01") throw error;
     // §7.9: the assistant's event reached Google after its hold stopped
@@ -1199,7 +1176,7 @@ async function assistantWriteGuard(clinicId: string, facts: RequestFacts, now: D
     // whole; the hold is let go and never retried (the writer never deletes
     // an event), the clinic is told in the same transaction to look for a
     // duplicate (calendar_check), and the desk decides.
-    await withTenant({ clinicId, actor: LINK_ACTOR }, async (tx) => {
+    await withTenant({ clinicId, actor }, async (tx) => {
       if (await releaseAssistantHold(tx, hold.id, "record_conflict")) await notifyBookingAlert(tx, "calendar_check", { bookingRequestId: facts.id });
     });
     return null;
@@ -1286,7 +1263,7 @@ export async function recordAssistantWrite(
         .for("update")
         .limit(1)
     : [];
-  if (!request || request.expired || !(DECIDABLE_FROM.confirmed as string[]).includes(request.status)) {
+  if (!request || request.expired || !(DECIDABLE_FROM.confirmed as readonly string[]).includes(request.status)) {
     await releaseAssistantHold(tx, holdId, "request_decided", fence);
     if (request) await notifyBookingAlert(tx, "calendar_check", { bookingRequestId: request.id });
     return { kind: "request_decided" };
@@ -1358,17 +1335,19 @@ async function liveHoldOverlaps(tx: TenantTx, startsAt: Date, minutes: number): 
 }
 
 type DecideWithinInput = {
-  hash: Buffer;
+  requestId: string;
   decision: BookingDecision;
   input: DecisionInput;
   proposed: { at: Date; source: "calendar" | "desk" }[];
-  from: OpenStatus[];
+  from: readonly OpenStatus[];
   now: Date;
   service: { minutes: number; canonicalName: string | null };
   deskCalendar: { calendarId: string; providerId: string | null } | null;
   send?: MetaSender;
   /** The Meta follow-up's owner, resolved through the switches before this transaction; null withholds it. */
   followUpOwner: MetaChannelOwner | null;
+  /** The passkey and step-up behind the decision, for its audit rows. */
+  who: { passkeyId: string; stepUpId: string };
 };
 
 /**
@@ -1388,7 +1367,7 @@ export function followUpOwnerFor(
 /** Step 3 of the desk path: the decision itself, in the caller's transaction. */
 async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<DecisionOutcome> {
   const none: DecisionOutcome = { outcome: "invalid", followUp: null, appointmentId: null, calendarWrite: null };
-  const { decision, input, from, now } = d;
+  const { decision, input, from, now, who } = d;
   // The calendar lock first, then the request's row lock: two confirmations
   // of one request queue here, and the second finds it decided.
   await lockClinicCalendar(tx);
@@ -1404,14 +1383,14 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
       expired: sql<boolean>`${bookingRequests.expiresAt} <= now()`,
     })
     .from(bookingRequests)
-    .where(eq(bookingRequests.tokenHash, d.hash))
+    .where(and(eq(bookingRequests.id, d.requestId), eq(bookingRequests.clinicId, tx.clinicId)))
     .for("update")
     .limit(1);
   const [clinic] = await tx.db.select({ timezone: clinics.timezone, clinicName: clinics.name }).from(clinics).where(eq(clinics.id, tx.clinicId)).limit(1);
-  const decidable = candidate && clinic && !candidate.expired && (from as string[]).includes(candidate.status);
+  const decidable = candidate && clinic && !candidate.expired && from.includes(candidate.status as OpenStatus);
   if (!decidable) {
     const outcome = candidate && !candidate.expired ? "already-decided" : "invalid";
-    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate?.id, metadata: { outcome: "rejected", reason: outcome, decision } });
+    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate?.id, metadata: { outcome: "rejected", reason: outcome, decision, ...who } });
     return { ...none, outcome };
   }
 
@@ -1424,7 +1403,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
     .where(eq(slotHolds.bookingRequestId, candidate.id))
     .orderBy(desc(slotHolds.createdAt));
   if (holds.some((h) => h.status === "writing" || (h.status === "unknown" && (!h.insertAttemptedAt || now.getTime() - h.insertAttemptedAt.getTime() < ASSISTANT_WRITE_GRACE_MS)))) {
-    rejected(tx, candidate.id, "checking", decision);
+    rejected(tx, candidate.id, "checking", decision, who);
     return { ...none, outcome: "checking" };
   }
   const terms = await calendarTermsFor(tx);
@@ -1482,7 +1461,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
       await tx.db.update(slotHolds).set({ appointmentId, updatedAt: sql`now()` }).where(eq(slotHolds.id, reserved.id));
     }
     if (input.addAnyway) {
-      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "confirmed_over_busy", decision } });
+      tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "confirmed_over_busy", decision, ...who } });
     }
   }
 
@@ -1499,7 +1478,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
       ...(decision === "confirmed" ? { confirmedFor: input.confirmedFor!, appointmentId } : {}),
       ...(decision === "rescheduling" ? { proposedSlots: slots, rescheduleExpiresAt: rescheduleDeadline(candidate.expiresAt, d.proposed, now) } : {}),
     })
-    .where(and(eq(bookingRequests.id, candidate.id), inArray(bookingRequests.status, from), gt(bookingRequests.expiresAt, sql`now()`)))
+    .where(and(eq(bookingRequests.id, candidate.id), inArray(bookingRequests.status, [...from]), gt(bookingRequests.expiresAt, sql`now()`)))
     .returning({
       id: bookingRequests.id,
       channel: bookingRequests.channel,
@@ -1511,7 +1490,7 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
   if (!row) {
     // Lost the race to a colleague's click between the read and the write.
     if (appointmentId) await tx.db.delete(appointments).where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)));
-    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "rejected", reason: "already-decided", decision } });
+    tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: candidate.id, metadata: { outcome: "rejected", reason: "already-decided", decision, ...who } });
     return { ...none, outcome: "already-decided" };
   }
   if (appointmentId) {
@@ -1519,14 +1498,14 @@ async function decideWithin(tx: TenantTx, d: DecideWithinInput): Promise<Decisio
       action: "create",
       resourceType: "appointment",
       resourceId: appointmentId,
-      metadata: { conversationId: candidate.conversationId ?? undefined, bookingRequestId: row.id, confirmedByDesk: true, confirmedByClinicSystem: false },
+      metadata: { conversationId: candidate.conversationId ?? undefined, bookingRequestId: row.id, confirmedByDesk: true, confirmedByClinicSystem: false, ...who },
     });
   }
   tx.audit.record({
     action: "update",
     resourceType: "booking_request",
     resourceId: row.id,
-    metadata: { outcome: "decided", decision, channel: row.channel, slots: decision === "rescheduling" ? slots.length : undefined },
+    metadata: { outcome: "decided", decision, channel: row.channel, slots: decision === "rescheduling" ? slots.length : undefined, ...who },
   });
 
   // §C.2: the desk goes through the alternatives by phone; on a Meta
@@ -1646,8 +1625,9 @@ function codeOf(error: unknown): string | undefined {
 /**
  * Lapse what has lapsed, every clinic: a `rescheduling` request past its
  * reschedule deadline and an open request past its link's expiry become
- * `expired`. A pure function of the clock over rows that already exist; the
- * hourly tick runs it (lib/scheduler/tick.ts).
+ * `expired`, and the clinic is told of each (L9, "Missed: they were told
+ * you'd call") in the same transaction. A pure function of the clock over
+ * rows that already exist; the hourly tick runs it (lib/scheduler/tick.ts).
  */
 export async function expireLapsedRequests(now: Date): Promise<{ expired: number }> {
   let expired = 0;
@@ -1666,6 +1646,9 @@ export async function expireLapsedRequests(now: Date): Promise<{ expired: number
         .returning({ id: bookingRequests.id, wasRescheduling: sql<boolean>`${bookingRequests.rescheduleExpiresAt} is not null` });
       for (const r of lapsed) {
         tx.audit.record({ action: "update", resourceType: "booking_request", resourceId: r.id, metadata: { outcome: "decided", decision: "expired", reason: r.wasRescheduling ? "alternatives_lapsed" : "link_expired" } });
+        // L9, "Missed: they were told you'd call", in the transaction that
+        // lapses it: once per request, and never for one that rolls back.
+        await notifyBookingAlert(tx, "request_missed", { bookingRequestId: r.id });
       }
       return lapsed.length;
     });
@@ -1701,10 +1684,6 @@ function hashIfWellFormed(token: unknown): Buffer | null {
 async function clinicForTokenHash(hash: Buffer): Promise<string | null> {
   const result = await unsafeDb.execute<{ clinic_id: string | null }>(sql`select app_booking_request_clinic(${hash}::bytea) as clinic_id`);
   return result.rows[0]?.clinic_id ?? null;
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
 export type { ProposedSlot } from "@/db/schema";

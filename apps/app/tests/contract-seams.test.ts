@@ -72,13 +72,17 @@ describe("the notice seams", () => {
     vi.restoreAllMocks();
   });
 
-  test("the booking alerts record and send nothing yet, write one line and never throw", async () => {
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  test("the booking alerts queue through the outbox since M5, and never throw into their caller", async () => {
+    // A transaction that cannot run anything: the alert is not queued, one
+    // error line says so, and the deposit it reports on goes on.
+    // tests/live-alerts.test.ts proves the queueing on a real transaction.
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const tenantTx = { clinicId: CLINIC } as unknown as TenantTx;
     await expect(
       notifyBookingAlert(tenantTx, "deposit_to_collect", { appointmentId: CLINIC }),
     ).resolves.toBeUndefined();
-    expect(info).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledTimes(1);
+    expect(String(error.mock.calls[0]![0])).toMatch(/^\[healdesk\] booking alert not queued /);
   });
 
   test("the calendar email queues O13 since M3, and never throws into its caller", async () => {

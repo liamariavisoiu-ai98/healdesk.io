@@ -9,11 +9,9 @@ import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta
 import {
   cleanAlternatives,
   cleanBookingFields,
-  decideBookingRequest,
   expireLapsedRequests,
   followUpLine,
   requestReceivedLine,
-  resolveBookingRequest,
   windowIsClean,
 } from "@/lib/meta/booking-requests";
 import { collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
@@ -21,10 +19,13 @@ import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { sendPendingNotices } from "@/lib/email/outbox";
+import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled } from "./setup/factories";
+import { deskDecide, deskView } from "./setup/desk";
+import { bindAgreementInEffect, inTenant, mintDeskToken, queuedNotices, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The booking hand-off (decisions of 21 and 23 September 2026, narrowed by
@@ -200,8 +201,12 @@ describeDb("the booking hand-off, end to end", () => {
     await closePools();
   });
 
+  /** The clinic liveClinic made last: quickRequest mints its newest request's desk token. */
+  let lastClinicId = "";
+
   async function liveClinic(label: string, externalId = PAGE_ID, platform: MetaPlatform = "messenger", opts: { agreement?: boolean } = {}) {
     const c = await seedClinic(label);
+    lastClinicId = c.clinicId;
     // Live under an agreement in effect, as go-live leaves a clinic: without
     // one the answer gate and the database refuse it (drizzle/0066).
     if (opts.agreement !== false) await bindAgreementInEffect(c.clinicId);
@@ -237,9 +242,12 @@ describeDb("the booking hand-off, end to end", () => {
     // A new sender, so the thread's first reply: the greeting opens it.
     const channel = platform === "instagram" ? "instagram_dm" : platform;
     expect(sent.at(-1)!.text).toBe(`${metaChannelGreeting({ clinicName: clinicName!, channel })} ${requestReceivedLine(clinicName!, name)}`);
-    const token = mailed.at(-1)?.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)?.[1];
-    if (!token) throw new Error("no desk email carried a link");
-    return token;
+    // The desk is mailed nothing (notifyDesk is retired); the clinic's L7
+    // alert is queued instead, and the token the desk decides with is minted
+    // here, as package E's Bookings screen will make it unnecessary.
+    expect(mailed).toEqual([]);
+    expect((await queuedNotices(lastClinicId, ["booking_request"])).length).toBeGreaterThan(0);
+    return mintDeskToken(lastClinicId);
   }
 
   test("collects the three things across messages and creates the request the moment they are in hand — with the alternative, and no consent row", async () => {
@@ -264,32 +272,31 @@ describeDb("the booking hand-off, end to end", () => {
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows).toHaveLength(0);
 
     // Message 3: the window arrives last, with an alternative. The three
-    // things are in hand, so the request exists now, the desk is emailed, the
-    // draft is gone, and the reply is the fixed line — not the model's text,
-    // which promised a time. No consent question is asked first.
+    // things are in hand, so the request exists now, the clinic's L7 alert is
+    // queued with it, the draft is gone, and the reply is the fixed line — not
+    // the model's text, which promised a time. No consent question is asked
+    // first.
     __setMetaRuntimeForTests(async () => json("Great, you're all booked for Tuesday at 2pm!", { window: "any weekday morning", alt_windows: ["Thursday after 4"] }), sender, transport);
     res = await post(inbound("any weekday morning works, or Thursday after 4"));
     expect(await res.json()).toEqual({ received: true, answered: 1, skipped: 0 });
     expect(sent[2]!.text).toBe(requestReceivedLine("booking Clinic", "Maria"));
     expect(sent[2]!.text).not.toMatch(/2pm|Tuesday|0134/);
 
-    expect(mailed).toHaveLength(1);
-    const mail = mailed[0]!;
-    expect(mail.target.to).toBe("desk@example-clinic.test");
-    expect(mail.message.phiClass).toBe("none");
-    expect(mail.message.subject).toMatch(/booking request via Messenger/);
-    expect(mail.message.text).toMatch(/a first choice and up to two backups/);
-    expect(mail.message.text).toMatch(/propose other times/);
-    expect(mail.message.text).not.toMatch(/Maria|0134|weekday|Thursday/);
-    const link = mail.message.text.match(/https:\/\/app\.healdesk\.test\/booking\/([A-Za-z0-9_-]{43})/);
-    expect(link).not.toBeNull();
-    const token = link![1]!;
+    // Nothing is mailed to the report recipient (notifyDesk is retired): one
+    // L7 alert is queued for the clinic's one address, a pointer into
+    // Bookings that names nobody.
+    expect(mailed).toEqual([]);
+    const alerts = await queuedNotices(c.clinicId);
+    expect(alerts.map((a) => a.kind)).toEqual(["booking_request"]);
+    expect(alerts[0]!.payload).toMatchObject({ channel: "meta", portalUrl: `https://app.healdesk.test/c/${c.slug}/bookings` });
+    expect(JSON.stringify(alerts[0]!.payload)).not.toMatch(/Maria|0134|weekday|Thursday/);
+    const token = await mintDeskToken(c.clinicId);
 
     const stored = await inTenant(c.clinicId, async (client) => ({
       drafts: (await client.query(`select 1 from meta_booking_drafts`)).rows.length,
       requests: (
-        await client.query<{ id: string; status: string; preferred_window: string; alternative_windows: string[]; desk_notified_at: string | null; last_inbound_at: string | null; token_len: number }>(
-          `select id, status, preferred_window, alternative_windows, desk_notified_at, last_inbound_at, octet_length(token_hash) as token_len from booking_requests`,
+        await client.query<{ id: string; status: string; preferred_window: string; alternative_windows: string[]; last_inbound_at: string | null; token_len: number }>(
+          `select id, status, preferred_window, alternative_windows, last_inbound_at, octet_length(token_hash) as token_len from booking_requests`,
         )
       ).rows,
       consent: (await client.query(`select 1 from consent_records`)).rows.length,
@@ -298,7 +305,6 @@ describeDb("the booking hand-off, end to end", () => {
     }));
     expect(stored.drafts).toBe(0);
     expect(stored.requests).toMatchObject([{ status: "requested", preferred_window: "any weekday morning", alternative_windows: ["Thursday after 4"], token_len: 32 }]);
-    expect(stored.requests[0]!.desk_notified_at).not.toBeNull();
     expect(stored.requests[0]!.last_inbound_at).not.toBeNull();
     expect(stored.consent).toBe(0);
     expect(stored.contacts).toEqual([{ phone: "+14155550134", full_name: "Maria" }]);
@@ -309,7 +315,7 @@ describeDb("the booking hand-off, end to end", () => {
     // calendar is connected, so the desk confirms in its own system. Its
     // times are said on the practice's clock, whatever the server's is.
     await getMigratorPool().query(`update clinics set timezone = 'America/Los_Angeles' where id = $1`, [c.clinicId]);
-    const opened = await resolveBookingRequest(token);
+    const opened = await deskView(token);
     expect(opened).toMatchObject({
       clinicId: c.clinicId,
       timeZone: "America/Los_Angeles",
@@ -324,11 +330,11 @@ describeDb("the booking hand-off, end to end", () => {
       bookedVia: "desk",
       collectedFields: {},
     });
-    expect(await resolveBookingRequest("A".repeat(43))).toBeNull();
-    expect(await resolveBookingRequest("not-a-token")).toBeNull();
+    expect(await deskView("A".repeat(43))).toBeNull();
+    expect(await deskView("not-a-token")).toBeNull();
 
     // Accept: one decision, relayed as the fixed line through the sealed token.
-    const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
+    const decided = await deskDecide(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
     expect(decided).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
     // The fourth message: three replies above, then this follow-up. (It was
     // the fifth while a callback-consent question sat between them; that
@@ -339,9 +345,9 @@ describeDb("the booking hand-off, end to end", () => {
     expect(sent[3]!.text).not.toMatch(/Thursday|10am/);
 
     // A second decision, either way, changes nothing and sends nothing.
-    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null, calendarWrite: null });
+    expect(await deskDecide(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null, calendarWrite: null });
     expect(sent).toHaveLength(4);
-    const after = await resolveBookingRequest(token);
+    const after = await deskView(token);
     expect(after).toMatchObject({ status: "accepted", decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" });
 
     // The row cannot be re-decided even by a direct write.
@@ -353,8 +359,8 @@ describeDb("the booking hand-off, end to end", () => {
     await getMigratorPool().query(`alter table booking_requests disable trigger booking_requests_no_rewrite`);
     await inTenant(c.clinicId, (client) => client.query(`update booking_requests set expires_at = now() - interval '1 minute'`));
     await getMigratorPool().query(`alter table booking_requests enable trigger booking_requests_no_rewrite`);
-    expect(await resolveBookingRequest(token)).toBeNull();
-    expect(await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskView(token)).toBeNull();
+    expect(await deskDecide(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
     // Both refusals are on the record: the second decision, and the decision on a dead link.
     const refused = await inTenant(c.clinicId, (client) =>
       client.query<{ reason: string; decision: string }>(
@@ -395,7 +401,8 @@ describeDb("the booking hand-off, end to end", () => {
     await post(inboundWa("Ana, 415 555 0155, Friday morning", "15550100123", "555000111"));
     expect(sent.at(-1)!.text).toBe(`${metaChannelGreeting({ clinicName: "booking-wa Clinic", channel: "whatsapp" })} ${requestReceivedLine("booking-wa Clinic", "Ana")}`);
     expect(sent.at(-1)!.text).not.toMatch(/WhatsApp/);
-    expect(mailed).toHaveLength(1);
+    expect(mailed).toEqual([]);
+    expect((await queuedNotices(c.clinicId)).map((a) => [a.kind, a.payload.channel])).toEqual([["booking_request", "meta"]]);
     expect((await inTenant(c.clinicId, (client) => client.query<{ platform: string }>(`select platform from booking_requests`))).rows).toEqual([{ platform: "whatsapp" }]);
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from consent_records`))).rows).toHaveLength(0);
     // The adapter has one way to send, and it is the windowed one.
@@ -414,8 +421,8 @@ describeDb("the booking hand-off, end to end", () => {
       const token = await quickRequest(k.platform, k.externalId, k.sender, { phone: `+1415555061${i}` });
       const before = sent.length;
       await inTenant(c.clinicId, (client) => client.query(`update booking_requests set last_inbound_at = now() - interval '25 hours'`));
-      expect(await resolveBookingRequest(token)).toMatchObject({ metaWindowOpen: false });
-      const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender);
+      expect(await deskView(token)).toMatchObject({ metaWindowOpen: false });
+      const decided = await deskDecide(token, "accepted", { decidedByLabel: null, deskNote: null }, sender);
       expect(decided).toEqual({ outcome: "decided", followUp: "outside_window", appointmentId: null, calendarWrite: null });
       expect(sent).toHaveLength(before);
       const audit = await inTenant(c.clinicId, (client) => client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'meta_front_door_reply' and metadata->>'outcome' = 'outside_window'`));
@@ -425,8 +432,8 @@ describeDb("the booking hand-off, end to end", () => {
       await inTenant(c.clinicId, (client) => client.query(`update booking_requests set last_inbound_at = now() - interval '25 hours' where status = 'requested'`));
       __setMetaRuntimeForTests(async () => json("We're open 9 to 5 — the practice will call you."), sender, transport);
       await post(inboundOn(k.platform, "any news?", `${k.sender}-b`, k.externalId));
-      expect(await resolveBookingRequest(token2)).toMatchObject({ metaWindowOpen: true });
-      expect((await decideBookingRequest(token2, "declined", { decidedByLabel: null, deskNote: null }, sender)).followUp).toBe("sent");
+      expect(await deskView(token2)).toMatchObject({ metaWindowOpen: true });
+      expect((await deskDecide(token2, "declined", { decidedByLabel: null, deskNote: null }, sender)).followUp).toBe("sent");
     }
   });
 
@@ -437,10 +444,10 @@ describeDb("the booking hand-off, end to end", () => {
     const d2 = new Date(Date.now() + 3 * DAY);
 
     // One to three future slots; a past one or none is refused before anything is read.
-    expect(await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [] }, sender)).toMatchObject({ outcome: "invalid" });
-    expect(await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() - DAY) }] }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [] }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() - DAY) }] }, sender)).toMatchObject({ outcome: "invalid" });
 
-    const proposed = await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: "offered two", proposedSlots: [{ at: d2, source: "desk" }, { at: d1, source: "calendar" }] }, sender);
+    const proposed = await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: "offered two", proposedSlots: [{ at: d2, source: "desk" }, { at: d1, source: "calendar" }] }, sender);
     expect(proposed).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
     expect(sent.at(-1)!.text).toBe(followUpLine("booking-resched Clinic", "rescheduling"));
     expect(guardReply(sent.at(-1)!.text)).toEqual({ ok: true });
@@ -456,39 +463,39 @@ describeDb("the booking hand-off, end to end", () => {
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]!.metadata).toMatchObject({ outcome: "decided", decision: "rescheduling", slots: 2 });
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(await resolveBookingRequest(token)).toMatchObject({ status: "rescheduling", proposedSlots: [{ at: d1.toISOString(), source: "calendar" }, { at: d2.toISOString(), source: "desk" }] });
+    expect(await deskView(token)).toMatchObject({ status: "rescheduling", proposedSlots: [{ at: d1.toISOString(), source: "calendar" }, { at: d2.toISOString(), source: "desk" }] });
 
     // Propose different times while still rescheduling: a plain update.
     const d3 = new Date(Date.now() + 4 * DAY);
-    expect((await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d3 }] }, sender)).outcome).toBe("decided");
-    expect((await resolveBookingRequest(token))!.proposedSlots.map((s) => s.at)).toEqual([d3.toISOString()]);
+    expect((await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d3 }] }, sender)).outcome).toBe("decided");
+    expect((await deskView(token))!.proposedSlots.map((s) => s.at)).toEqual([d3.toISOString()]);
 
     // The person chooses on the desk's own call, and the desk confirms it on
     // the page: rescheduling → confirmed, an appointment row, recorded here
     // only (no writable calendar), and the fixed line on the thread.
-    const chosen = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
+    const chosen = await deskDecide(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
     expect(chosen).toMatchObject({ outcome: "decided", followUp: "sent", calendarWrite: "not-connected" });
     expect(chosen.appointmentId).not.toBeNull();
     // No calendar terms here: the booking occupies no calendar time (booking_origin
     // NULL, no calendar), is never written, and carries the request's own key.
-    const requestId = (await resolveBookingRequest(token))!.id;
+    const requestId = (await deskView(token))!.id;
     expect((await inTenant(c.clinicId, (client) => client.query(`select booking_origin, calendar_id, calendar_event_key, calendar_write_status from appointments`))).rows).toEqual([
       { booking_origin: null, calendar_id: null, calendar_event_key: requestId, calendar_write_status: "none" },
     ]);
-    expect(await resolveBookingRequest(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
+    expect(await deskView(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
     expect((await inTenant(c.clinicId, (client) => client.query<{ scheduled_for: Date }>(`select scheduled_for from appointments`))).rows.map((r) => new Date(r.scheduled_for).getTime())).toEqual([Math.floor(d3.getTime() / 1000) * 1000 + (d3.getTime() % 1000)]);
-    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });
+    expect(await deskDecide(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });
 
     // Lapse: a second request whose alternatives nobody chose.
     const token2 = await quickRequest("messenger", "723456789012345", "user-72", { name: "Kim", phone: "+14155550172" });
-    expect((await decideBookingRequest(token2, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d1 }] }, sender)).outcome).toBe("decided");
+    expect((await deskDecide(token2, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d1 }] }, sender)).outcome).toBe("decided");
     // The sweep is platform-wide: flush what earlier tests left lapsed, then nothing here has.
     await expireLapsedRequests(new Date());
     expect(await expireLapsedRequests(new Date())).toEqual({ expired: 0 });
     await inTenant(c.clinicId, (client) => client.query(`update booking_requests set reschedule_expires_at = now() - interval '1 minute' where status = 'rescheduling'`));
     expect(await expireLapsedRequests(new Date())).toEqual({ expired: 1 });
-    expect(await resolveBookingRequest(token2)).toMatchObject({ status: "expired", proposedSlots: [{ at: d1.toISOString() }] });
-    expect(await decideBookingRequest(token2, "confirmed", { decidedByLabel: null, deskNote: null, confirmedFor: d1 }, sender)).toMatchObject({ outcome: "already-decided" });
+    expect(await deskView(token2)).toMatchObject({ status: "expired", proposedSlots: [{ at: d1.toISOString() }] });
+    expect(await deskDecide(token2, "confirmed", { decidedByLabel: null, deskNote: null, confirmedFor: d1 }, sender)).toMatchObject({ outcome: "already-decided" });
   });
 
   test("the follow-up and the reschedule line obey the practice's switches: front door off, platform off, paused or suspended, neither is sent", async () => {
@@ -537,14 +544,14 @@ describeDb("the booking hand-off, end to end", () => {
       await switchOff(c.clinicId);
       const before = sent.length;
 
-      expect(await decideBookingRequest(accepted, "accepted", { decidedByLabel: "Jo", deskNote: null }, sender), label).toEqual({
+      expect(await deskDecide(accepted, "accepted", { decidedByLabel: "Jo", deskNote: null }, sender), label).toEqual({
         outcome: "decided",
         followUp: "withheld",
         appointmentId: null,
         calendarWrite: null,
       });
       expect(
-        await decideBookingRequest(rescheduled, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() + 3 * DAY) }] }, sender),
+        await deskDecide(rescheduled, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() + 3 * DAY) }] }, sender),
         label,
       ).toMatchObject({ outcome: "decided", followUp: "withheld" });
       // Nothing went out, and the drop is recorded as the adapter records one outside the window.
@@ -561,42 +568,41 @@ describeDb("the booking hand-off, end to end", () => {
     }
   });
 
-  test("the desk is emailed only after the request has committed, and a reply that fails to send loses neither", async () => {
+  test("the clinic's alert is queued with the request and goes to its one address, and a reply that fails to send loses neither", async () => {
     const externalId = "693456789012345";
     const c = await liveClinic("booking-after-commit", externalId);
-    // What the desk's email could see when it went: the request, committed,
-    // read from another connection.
-    const seenAtSend: number[] = [];
-    const committedTransport: EmailTransport = {
-      name: "capture-after-commit",
-      async send(target, message) {
-        const rows = await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`));
-        seenAtSend.push(rows.rows.length);
-        mailed.push({ target, message });
-        return { status: "sent", messageId: `m-${mailed.length}` };
-      },
-    };
     const failing: MetaSender = async () => {
       throw new Error("Graph API 500");
     };
     __setMetaRuntimeForTests(
       async () => json("Got it — the practice will call you.", { wants: true, first_name: "Rae", phone: "+14155550191", window: "Saturday afternoon" }),
       failing,
-      committedTransport,
+      transport,
     );
     const res = await post(inbound("Rae, 415 555 0191, Saturday afternoon please", "user-after-commit", externalId));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ received: true, answered: 0, skipped: 1 });
 
-    // The reply never went, but the request stands and the desk was told, once, after it committed.
-    const requests = await inTenant(c.clinicId, (client) =>
-      client.query<{ desk_notified_at: Date | null }>(`select desk_notified_at from booking_requests`),
-    );
+    // The reply never went, but the request stands, and its alert was queued
+    // in the transaction that created it: once, and nothing mailed yet.
+    const requests = await inTenant(c.clinicId, (client) => client.query<{ id: string }>(`select id from booking_requests`));
     expect(requests.rows).toHaveLength(1);
-    expect(requests.rows[0]!.desk_notified_at).not.toBeNull();
-    expect(mailed).toHaveLength(1);
-    expect(seenAtSend).toEqual([1]);
-    expect(mailed[0]!.message.text).toMatch(/\/booking\/[A-Za-z0-9_-]{43}/);
+    const alerts = await queuedNotices(c.clinicId);
+    expect(alerts.map((a) => [a.kind, a.dedupe_key])).toEqual([["booking_request", `booking_request:request:${requests.rows[0]!.id}`]]);
+    expect(mailed).toEqual([]);
+
+    // The outbox sends it to the clinic's one address, never to the report
+    // recipient notifyDesk used to mail, and with no link to /booking/.
+    await setJobEnabled(JOB_BILLING_NOTICES, true, c.staffUserId);
+    try {
+      await sendPendingNotices({ clinicId: c.clinicId, transport });
+    } finally {
+      await setJobEnabled(JOB_BILLING_NOTICES, false, c.staffUserId);
+    }
+    expect(mailed.map((m) => m.target.to)).toEqual([c.staffEmail]);
+    expect(mailed[0]!.message.subject).toBe("A booking request is waiting for your team");
+    expect(mailed[0]!.message.text).toContain(`https://app.healdesk.test/c/${c.slug}/bookings`);
+    expect(mailed[0]!.message.text).not.toMatch(/\/booking\/|Rae|0191|Saturday/);
   });
 
   test("a stop word on a thread is a message like any other: nothing is suppressed, because nothing is ever sent outside the conversation", async () => {
@@ -644,12 +650,13 @@ describeDb("the booking hand-off, end to end", () => {
     }
   });
 
-  test("a clinic with no desk address still gets the request, and it waits in the care view", async () => {
+  test("a clinic with no report recipient still gets the request and its alert", async () => {
     const c = await liveClinic("booking-nodesk", "133456789012345");
     await inTenant(c.clinicId, (client) => client.query(`delete from report_recipients`));
-    await expect(quickRequest("messenger", "133456789012345", "user-13", { name: "Lee", phone: "+14155550166" })).rejects.toThrow(/no desk email/);
+    await quickRequest("messenger", "133456789012345", "user-13", { name: "Lee", phone: "+14155550166" });
     expect(mailed).toHaveLength(0);
-    const rows = await inTenant(c.clinicId, (client) => client.query<{ status: string; desk_notified_at: string | null }>(`select status, desk_notified_at from booking_requests`));
-    expect(rows.rows).toEqual([{ status: "requested", desk_notified_at: null }]);
+    const rows = await inTenant(c.clinicId, (client) => client.query<{ status: string }>(`select status from booking_requests`));
+    expect(rows.rows).toEqual([{ status: "requested" }]);
+    expect((await queuedNotices(c.clinicId)).map((a) => a.kind)).toEqual(["booking_request"]);
   });
 });

@@ -16,6 +16,7 @@ import {
 } from "@healdesk/catalog";
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { publicUrl } from "@/lib/public-url";
 import { POST as postProvision } from "@/app/api/provision/route";
 import { signAgreement } from "@/lib/agreements";
 import {
@@ -518,6 +519,16 @@ describeDb("the setup wizard", () => {
       // relay passed it (contracts §3: no separate receipt for this invoice).
       expect(message.text).toContain("Setup fee: Paid");
       expect(message.text).toContain(`Your setup-fee receipt: ${RECEIPT_URL}`);
+      // Cancelling online is the clinic's own Auto-renew, and its signed
+      // agreement downloads from its own Billing: both on the public origin.
+      expect(message.text).toMatch(/turn off Auto-renew in Billing/);
+      expect(message.text).not.toMatch(/reply to this email and we'll cancel/i);
+      expect(message.text).toContain(
+        `Open Billing: ${publicUrl(`/c/${clinic.slug}/billing#switches`)}`,
+      );
+      expect(message.text).toContain(
+        `Download your signed agreement (PDF): ${publicUrl(`/c/${clinic.slug}/billing/agreement`)}`,
+      );
       expect(message.tags).toEqual(
         expect.arrayContaining([
           { name: "app", value: "app" },

@@ -43,6 +43,11 @@ export type SetupClinic = {
   address: string | null;
   website: string | null;
   publishedPhoneE164: string | null;
+  /** AYA's own number, which the main line forwards to: set once voice is provisioned. */
+  assistantNumberE164: string | null;
+  /** Who bills the main line, and what kind of line: they decide the forwarding codes. */
+  carrier: string | null;
+  phoneSystemType: string | null;
   openingHours: OpeningHours | null;
   siteProfile: ClinicProfile | null;
   regulatoryRegime: RegulatoryRegime | null;
@@ -96,6 +101,9 @@ export async function readSetupState(
       address: clinics.address,
       website: clinics.website,
       publishedPhoneE164: clinics.publishedPhoneE164,
+      assistantNumberE164: clinics.assistantNumberE164,
+      carrier: clinics.carrier,
+      phoneSystemType: clinics.phoneSystemType,
       openingHours: clinics.openingHours,
       siteProfile: clinics.siteProfile,
       regulatoryRegime: clinics.regulatoryRegime,

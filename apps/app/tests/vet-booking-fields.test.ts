@@ -11,15 +11,13 @@ import {
   webChatClinic,
   type WebChatClinic,
 } from "@/lib/chat/web-chat";
-import { cleanCollectedFields, resolveBookingRequest } from "@/lib/meta/booking-requests";
-import { issueConnectionLink } from "@/lib/connections/links";
+import { cleanCollectedFields } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import { buildFrontDoorPrompt } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import {
-  confirmBookingRequirementsWithin,
   setBookingRequirementsWithin,
 } from "@/lib/onboarding/requirements";
 import type {
@@ -40,9 +38,12 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
+import { deskView } from "./setup/desk";
 import {
   bindAgreementInEffect,
   inTenant,
+  mintDeskToken,
+  queuedNotices,
   seedClinic,
   seedEntitled,
   setWeekdayHours,
@@ -70,13 +71,6 @@ class FakeTransport implements EmailTransport {
   async send(target: DeliveryTarget, message: OutgoingEmail): Promise<DeliveryResult> {
     this.sent.push({ target, message });
     return { status: "sent", messageId: `ses-${randomUUID()}` };
-  }
-  deskToken(): string {
-    const token = this.sent
-      .map((s) => s.message.text.match(/\/booking\/([A-Za-z0-9_-]{43})/)?.[1])
-      .find(Boolean);
-    if (!token) throw new Error("no desk email carried a link");
-    return token;
   }
 }
 
@@ -313,10 +307,14 @@ describeDb("collected on a call and in a chat, refused on Meta, shown to the des
       { field: "new_or_existing", reason: "not_required" },
     ]);
 
-    // The desk's email is a pointer, and the page it opens names the animal.
+    // The clinic's alert (L7) is a pointer queued in the outbox, and the
+    // request on Bookings names the animal.
     const desk = transport.sent.filter((s) => s.message.phiClass !== "may-carry-phi");
-    expect(JSON.stringify(desk.map((s) => s.message))).not.toMatch(/Biscuit|ferret/);
-    const req = (await resolveBookingRequest(transport.deskToken()))!;
+    expect(desk).toEqual([]);
+    const alerts = await queuedNotices(clinic.clinicId, ["booking_request"]);
+    expect(alerts).toHaveLength(1);
+    expect(JSON.stringify(alerts)).not.toMatch(/Biscuit|ferret/);
+    const req = (await deskView(await mintDeskToken(clinic.clinicId)))!;
     expect(req.audience).toBe("clients");
     expect(collectedFieldRows(req.collectedFields, req.audience)).toEqual([
       { id: "last_name", label: "Last name", value: "Okafor" },
@@ -494,46 +492,6 @@ describeDb("collected on a call and in a chat, refused on Meta, shown to the des
     );
     expect(everything.rows.map((r) => r.row).join("\n")).not.toMatch(/Biscuit|Okafor/);
     expect(sent.map((s) => s.text).join("\n")).not.toMatch(/Biscuit|dog/i);
-  });
-
-  test("a setup link keeps a vet's animal fields and drops them from any other practice's submission", async () => {
-    async function submitted(clinicId: string, fields: string[]) {
-      const { token } = await issueConnectionLink(
-        clinicId,
-        { purpose: "setup" },
-        { actor: ACTOR, request: {} },
-      );
-      const result = await withTenant({ clinicId, actor: ACTOR }, (tx) =>
-        confirmBookingRequirementsWithin(tx, {
-          token,
-          ip: null,
-          fields,
-          election: null,
-          clinicName: "Setup Clinic",
-          platformId: "acuity",
-        }),
-      );
-      const { rows } = await getMigratorPool().query<{ booking_requirements: string[] | null }>(
-        `select booking_requirements from clinics where id = $1`,
-        [clinicId],
-      );
-      expect(rows[0]!.booking_requirements).toEqual(result.fields);
-      return result.fields;
-    }
-    const locked = ["first_name", "phone", "preferred_window", "alternative_windows"];
-    const medSpa = await seedClinic("vet-setup-medspa");
-    expect(await submitted(medSpa.clinicId, ["service", "animal_name", "animal_species"])).toEqual([
-      ...locked,
-      "service",
-    ]);
-    const vet = await seedClinic("vet-setup-vet");
-    await asVet(vet.clinicId);
-    expect(await submitted(vet.clinicId, ["animal_species", "animal_name", "service"])).toEqual([
-      ...locked,
-      "service",
-      "animal_name",
-      "animal_species",
-    ]);
   });
 
   test("an operator cannot give a practice whose patients are people an animal field; a vet can have them", async () => {

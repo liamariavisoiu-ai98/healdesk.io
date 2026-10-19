@@ -18,13 +18,13 @@ const TODO: Record<TodoKind, { title: string; blurb: string; icon: AnyIcon; tint
   fix: { title: "Fix first", blurb: "A live check failed, or two copies of a key disagree.", icon: "alert", tint: "#fde4e4", ink: "#9b1213" },
   "add-key": { title: "Keys to add", blurb: "Built and waiting for its key.", icon: "key", tint: "#fff2d9", ink: "#7a4b00" },
   rotate: { title: "Keys to rotate", blurb: "Due within two weeks, or overdue.", icon: "clock", tint: "#fff2d9", ink: "#7a4b00" },
-  build: { title: "Still to build", blurb: "Not built yet, or only half built.", icon: "wrench", tint: "#efeafc", ink: "#4b3a8a" },
-  check: { title: "Couldn't check", blurb: "Something this page could not reach.", icon: "question", tint: "#eef1f5", ink: "#475569" },
+  build: { title: "Still to build", blurb: "Not built yet, or only half built, whatever colour its line shows now.", icon: "wrench", tint: "#efeafc", ink: "#4b3a8a" },
+  check: { title: "Couldn't check", blurb: "Something this page could not reach, or an engine too old to answer it.", icon: "question", tint: "#eef1f5", ink: "#475569" },
   waiting: { title: "Waiting on purpose", blurb: "Nothing to do yet: each waits for something else first.", icon: "pause", tint: "#e3eefb", ink: "#1f4f86" },
 };
 
 const TODO_ORDER: readonly TodoKind[] = ["fix", "add-key", "rotate", "build", "check", "waiting"];
-const HOME_ORDER: readonly KeyHome[] = ["vercel", "aws", "aws-ci", "computer", "clinic"];
+const HOME_ORDER: readonly KeyHome[] = ["vercel", "aws", "aws-ci", "github", "computer", "clinic"];
 
 type Tab = "left" | "keys" | "all";
 

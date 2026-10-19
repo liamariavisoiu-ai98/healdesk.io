@@ -39,7 +39,13 @@ import {
   ORDER_REASON,
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
+import { addressConfirmReason } from "@/lib/email/templates/address_change_confirm";
+import {
+  ADDRESS_CHANGING_ENTRY,
+  addressMovingReason,
+} from "@/lib/email/templates/address_changing";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
+import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import { stepsReason } from "@/lib/email/templates/steps_sent";
 import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
@@ -92,7 +98,10 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
   const scope = carriesUnsubscribe(kind) ? "commercial" : null;
   return {
     clinicName:
-      kind === "ops_alert" || kind === "sign_in_link" || kind === "device_changed"
+      kind === "ops_alert" ||
+      kind === "sign_in_link" ||
+      kind === "sign_in_help_link" ||
+      kind === "device_changed"
         ? null
         : "Radiance Med Spa",
     audience,
@@ -101,7 +110,11 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
         ? OPS_REASON
         : kind === "sign_in_link"
           ? SIGN_IN_REASON
-          : kind === "order_confirmed_delayed"
+          : kind === "sign_in_help_link"
+            ? SIGN_IN_HELP_REASON
+            : kind === "address_change_confirm"
+              ? addressConfirmReason("Radiance Med Spa")
+              : kind === "order_confirmed_delayed"
             ? ORDER_REASON
             : kind === "device_changed"
               ? ACCOUNT_REASON
@@ -159,39 +172,18 @@ describe("the template registry", () => {
       (byPackage[pending.package] ??= []).push(kind);
     }
     expect(byPackage).toEqual({
-      WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
-      F: [
-        "booking_request",
-        "request_still_open",
-        "request_missed",
-        "deposit_to_collect",
-        "handover",
-        "urgent",
-        "website_message",
-        "calendar_check",
-      ],
       WP4: ["daily_summary", "weekly_recap"],
-      WP3: ["ai_paused"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
       WP9: ["agreement_to_sign"],
       WP11: ["website_changes"],
-      WP7: [
-        "terms_notice",
-        "subprocessor_notice",
-        "incident_report",
-        "guarantee_claim_received",
-        "guarantee_finding",
-        "suspended_for_cause",
-        "patient_request",
-        "product_update",
-      ],
+      // WP7's operator notices are templated; L32 is the one left.
+      WP7: ["patient_request"],
       WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
-      B: ["assistant_ready", "practice_questions_failed"],
       WP5: ["ops_digest", "flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, and the support chat's L25 and I3", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, and the practice questions' O8 and O9", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -229,10 +221,31 @@ describe("the template registry", () => {
       "channel_ready",
       "steps_sent",
       "channel_live",
+      "ai_paused",
       "calendar_link",
       "calendar_election_recorded",
+      "booking_request",
+      "request_still_open",
+      "request_missed",
+      "deposit_to_collect",
+      "handover",
+      "urgent",
+      "website_message",
+      "calendar_check",
+      "terms_notice",
+      "subprocessor_notice",
+      "incident_report",
+      "guarantee_claim_received",
+      "guarantee_finding",
+      "suspended_for_cause",
+      "product_update",
+      "sign_in_help_link",
+      "address_change_confirm",
+      "address_changing",
       "support_request",
       "support_escalation",
+      "assistant_ready",
+      "practice_questions_failed",
     ]);
   });
 
@@ -328,6 +341,38 @@ describe("each template's output", () => {
   }
 });
 
+describe("O5 from ops' changeClinicEmail", () => {
+  const ops = (isToNewAddress: boolean) =>
+    ADDRESS_CHANGING_ENTRY.render(
+      { ...ADDRESS_CHANGING_ENTRY.fixture, isFromOperator: true, isToNewAddress },
+      {
+        ...contextFor("address_changing"),
+        reason: isToNewAddress
+          ? addressMovingReason("Radiance Med Spa")
+          : clinicReason("Radiance Med Spa"),
+      },
+    );
+
+  test("to the old address and to the new: the snapshots", () => {
+    expect(ops(false)).toMatchSnapshot();
+    expect(ops(true)).toMatchSnapshot();
+  });
+
+  test("both name the end of the objection window, how to object, and carry no stop link or token", () => {
+    for (const isToNewAddress of [false, true]) {
+      const r = ops(isToNewAddress);
+      expect(r.text).toContain("takes effect on Friday, October 9 at 10:32 AM EDT");
+      expect(r.text).toContain("reply to this email before Friday, October 9 at 10:32 AM EDT");
+      expect(r.text).not.toContain("Stop this change");
+      expect(linkProblems(r, "address_changing")).toEqual([]);
+      expect(copyProblems([r.subject, r.text].join("\n"))).toEqual([]);
+    }
+    expect(ops(true).text).toContain(
+      "You're receiving this because Radiance Med Spa is moving its healdesk address to this one.",
+    );
+  });
+});
+
 describe("the welcome email (B1)", () => {
   const usd = (amount: number) => `$${amount.toLocaleString("en-US")}`;
 
@@ -367,6 +412,24 @@ describe("the welcome email (B1)", () => {
     ).text;
     expect(voice).toContain("Included each month: 300 voice minutes\n");
     expect(voice).toContain("Past the allowance: $104 for each started block of 100 extra voice minutes\n");
+  });
+
+  test("cancelling online is Billing's Auto-renew, and the signed agreement downloads from Billing", () => {
+    const { text, html } = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome"));
+    // Not a reply to this email: the portal's own switch (plan Part F6).
+    expect(text).not.toMatch(/reply to this email and we'll cancel/i);
+    expect(text).toContain(
+      "To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won't start, and nothing more is charged.",
+    );
+    expect(text).toContain(`Open Billing: ${WELCOME_ENTRY.fixture.billingUrl}`);
+    expect(WELCOME_ENTRY.fixture.billingUrl).toMatch(/\/c\/[a-z0-9-]+\/billing#switches$/);
+    // The agreement's download, beside the Terms (plan C4).
+    expect(text).toContain(
+      `Download your signed agreement (PDF): ${WELCOME_ENTRY.fixture.agreementUrl}`,
+    );
+    expect(WELCOME_ENTRY.fixture.agreementUrl).toMatch(/\/c\/[a-z0-9-]+\/billing\/agreement$/);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.agreementUrl}"`);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.billingUrl}"`);
   });
 
   test("Help: the voicemail line in the plan's words while one is set, and nothing while not", () => {

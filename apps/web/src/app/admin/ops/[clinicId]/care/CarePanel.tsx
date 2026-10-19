@@ -28,13 +28,16 @@ type Actions = {
   markErasureVendorDeleted: (erasureId: string, step: "retell", how: ErasureStepOutcome) => Promise<OpsResult<CareOutcome>>;
 };
 
-// The clocks apps/app computes (lib/incidents/incidents.ts): BAA 1.3.0 gives
-// every clinic 24 hours from discovery for the first three classes, whichever
-// version it signed.
+// What each class is. The clocks are the incident's own, from apps/app
+// (lib/incidents): the deadline the practice's agreement promises ("without
+// unreasonable delay and in no case later than 60 calendar days" under BAA
+// 1.2.2 on and the DPA), and healdesk's internal 24-hour target, which no
+// agreement states and nothing here presents as a promise (owner, 12 October
+// 2026). Neither is printed in a label, so neither can be mistaken for the other.
 const CLASS_LABELS: Record<IncidentClass, string> = {
-  security_incident: "Security incident (24 hours to tell the clinic)",
-  improper_use_or_disclosure: "Use or disclosure the BAA does not permit (24 hours)",
-  breach: "Breach of unsecured PHI (24 hours)",
+  security_incident: "Security incident",
+  improper_use_or_disclosure: "Use or disclosure the agreement does not permit",
+  breach: "Breach of unsecured PHI",
   service_complaint: "Service complaint (2 business days to a first reply)",
 };
 
@@ -118,8 +121,10 @@ export function CarePanel({ view, actions }: { view: OpsResult<CareView>; action
 
       <Section title={`Incidents — ${open.length} open`}>
         <p className="text-muted text-sm">
-          Opening one starts the clock the agreement promises. Write the summary in ids and counts — a phone number,
-          an email address or a name is refused. The conversation id is the pointer to the evidence. Procedure:
+          Opening one starts two clocks: the deadline the practice&rsquo;s agreement promises, and our internal target,
+          which is stricter and never a promise. Write the summary in ids and counts — a phone number, an email address
+          or a name is refused. The conversation id is the pointer to the evidence. Send the report, or record it as not
+          reportable, from <a href="/admin/incidents" className="underline">Incidents</a>. Procedure:
           docs/incident-response.md.
         </p>
         <ul className="mt-3 grid gap-3">
@@ -343,9 +348,17 @@ function IncidentRow({ incident, actions }: { incident: CareView["incidents"][nu
       <p className={`mt-2 text-xs ${overdue ? "text-red-deep font-bold" : "text-muted"}`}>
         {incident.notifiedAt
           ? `Clinic told ${incident.notifiedAt}: ${incident.notifiedHow ?? ""}`
-          : `Tell the clinic by ${incident.notifyBy}${overdue ? " — OVERDUE" : ""}`}
+          : `${incident.agreementNotifyBy ? `The agreement's deadline: ${incident.agreementNotifyBy} · ` : ""}our internal target: ${incident.notifyBy}${overdue ? " — PAST OUR TARGET" : ""}`}
         {incident.ftcNotifyBy ? ` · the clinic tells the people affected by ${incident.ftcNotifyBy} (state breach law)` : ""}
       </p>
+      {incident.reportsSent > 0 ? (
+        <p className="text-done mt-1 text-xs">
+          {incident.reportsSent === 1 ? "Report sent" : `Report and ${incident.reportsSent - 1} update(s) sent`} from Incidents.
+        </p>
+      ) : null}
+      {incident.notReportableReason ? (
+        <p className="text-muted mt-1 text-xs">Not reportable: {incident.notReportableReason}</p>
+      ) : null}
       {incident.resolution ? <p className="text-muted mt-1 text-xs">{incident.resolution}</p> : null}
       {problem ? <p className="text-red-deep mt-1 text-xs">{problem}</p> : null}
       {!resolved ? (
@@ -402,7 +415,12 @@ function OpenIncidentForm({ onOpen }: { onOpen: Actions["openIncident"] }) {
             ...(discovered ? { discoveredAt: new Date(discovered).toISOString() } : {}),
           });
           const message = describe(result);
-          setProblem(message ?? (result.ok && result.data.status === "opened" ? `Opened. Tell the clinic by ${result.data.notifyBy}.` : null));
+          setProblem(
+            message ??
+              (result.ok && result.data.status === "opened"
+                ? `Opened. ${result.data.agreementNotifyBy ? `The agreement's deadline is ${result.data.agreementNotifyBy}; ` : ""}our internal target is ${result.data.notifyBy}. Send the report from Incidents.`
+                : null),
+          );
           if (!message) form.reset();
         });
       }}

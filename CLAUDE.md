@@ -370,6 +370,15 @@ a rule already holds, and treat a gap as a bug, not a precedent.
   the step, never the time. Never "live in two minutes".
 - **No opening dates.** A channel is sold only once it is ready; one that isn't
   comes off the product list and out of the copy (owner, 6 October 2026).
+- **Copy first, then the switch** (owner, 19 October 2026). Client-facing copy
+  states a feature of a channel that is sold as on before production does it,
+  phrased as design where a page describes behaviour ("AYA is designed to
+  ..."), and never the other way round: nothing is switched on and then the
+  wording changed. What production does not do yet is an item in
+  `LAUNCH_PROMISES` (`apps/web/src/lib/admin/seo/launch.ts`), shown at
+  `/admin/seo`; no clinic goes live while an item that blocks go-live is open.
+  Move an item to `on` in the commit that makes production do it, and add one
+  in the commit that adds a promise.
 - **Pricing is per product, in usage steps of 100** (owner's pricing sheet,
   13 October 2026; `packages/catalog/src/plans.ts` holds it). Five packages:
   AYA Voice, AYA Web Chat, AYA Meta Chat (which includes website chat), Voice +
@@ -485,6 +494,44 @@ not by restoring that code.
 
 ---
 
+# The editorial library (SEO and GEO, `apps/web`, no PHI)
+
+The public guides, research and standards pages, the glossary and the About
+page carry the owner's search and AI-visibility strategy (14 and 19 October
+2026). The strategy itself is the doc at
+https://claude.ai/code/artifact/6a71b399-b0bc-4317-9a18-21aebd2e9aca.
+
+- **Pieces are TypeScript data in `apps/web/src/lib/content/`**, so the copy
+  guard (`lib/site-copy.test.ts`) and `lib/content/content.test.ts` read every
+  sentence: citations resolve, every listed source is cited, every source was
+  reopened within twelve months (against the real clock, so a stale figure
+  fails the build), and our own prose keeps the house style. Never move
+  content to Markdown or a CMS without moving those guards with it.
+- **A piece is `draft`, `audited` or `live`, and only `live` is public.** The
+  family routes (`/guides`, `/research`, `/standards/[slug]`) build from
+  `livePieces()` with `dynamicParams = false`, so a draft is a 404; the
+  sitemap, `llms.txt` and the `/guides` hub list live pieces only; a link to
+  a piece that is not live prints as its label (`lib/content/inline.tsx`).
+- **A legal piece goes live only after an independent audit of every
+  statement against the primary text passes.** As of 19 October 2026 that
+  audit is an AI review, not a lawyer's (owner's decision); each legal page's
+  notice and `/about` say so, and the notice names a lawyer's review when one
+  has taken place.
+- **Structured data is built in `lib/structured-data.ts` from what the page
+  prints**: `site` for the company, the catalog for prices, the registry for
+  articles. `legalName` stays out of the markup, keeping the operating
+  company on the Terms and Privacy pages only.
+- **`/admin/seo` shows the strategy as state** (owner-approved 19 October
+  2026): the owner's steps with ticks, ten checks run against the live site,
+  pages by stage, the roadmap, the AI-answer panel and the launch tracker.
+  Ticks and panel runs are append-only tabs in the marketing Sheet
+  (`lib/admin/seo/store.ts`); step ids are stable, so never reuse one.
+- **The sitemap carries real edit dates**, typed on each route in
+  `lib/seo.ts` or taken from an article's `lastReviewed`, never the build
+  time. IndexNow pings the sitemap's URLs after each production deployment
+  (`.github/workflows/indexnow.yml`; the key file in `public/` is public by
+  design).
+
 # Deployment
 
 | Workspace | Target | Root directory | PHI |
@@ -563,12 +610,17 @@ undeclared variable is invisible to the task.
   - adds a tool or vendor: `TOOLS`, in a category from `GROUPS` (a new
     category also needs a place in `lib/admin/map-layout.ts`);
   - adds a connection between two tools: `BRIDGES`;
-  - adds an environment variable: `KEYS`, with where it lives and how it is
-    rotated, or `NOT_KEYS`, with the reason it is only a setting. An AWS-side
-    key also goes in `apps/app/src/lib/ops/key-presence.ts`;
+  - adds an environment variable, or a GitHub repository variable a workflow
+    needs: `KEYS`, with where it lives and how it is rotated, or `NOT_KEYS`,
+    with the reason it is only a setting. An AWS-side key also goes in
+    `apps/app/src/lib/ops/key-presence.ts`;
+  - changes what a connection does, not only whether it exists (a channel
+    that starts booking, a deposit link that starts being sent): that
+    bridge's words, and the story that plays it;
   - finishes something the map shows as still to build: that bridge's
     `build` and `buildNote`.
 
-  `system-map.test.ts` fails on a variable either app reads that is on neither
-  list, and on a key nothing reads. It cannot see a new connection or a
-  finished build, so those depend on this rule.
+  `system-map.test.ts` fails on a variable either app or its scripts read
+  that is on neither list, and on a key nothing reads. It cannot see a new
+  connection, a finished build or a changed behaviour, so those depend on
+  this rule.

@@ -75,6 +75,8 @@
   var busy = false; // a message is waiting for its reply
   var started = null; // the start request, once made; cleared when it may be tried again
   var failures = 0; // messages in a row that did not reach the engine
+  var turns = 0; // messages answered in this chat
+  var lastAnswer = 0; // when the engine last answered in this chat
   var view = "loading"; // loading | chat | form | call | done
   // Where the panel covers the whole screen, it is modal: Tab stays inside.
   var small = win.matchMedia ? win.matchMedia("(max-width: 480px), (max-height: 500px)") : null;
@@ -200,8 +202,9 @@
 
   function focusFirst() {
     if (panel.hidden) return;
+    // The call and done views focus their own words, so a screen reader reads them.
     var target =
-      view === "chat" ? input : contactArea.querySelector("input, button, a") || closeButton;
+      view === "chat" ? input : contactArea.querySelector("input, [tabindex='-1']") || closeButton;
     target.focus();
   }
 
@@ -220,7 +223,7 @@
     if (event.shiftKey && (active === first || !panel.contains(active))) {
       event.preventDefault();
       last.focus();
-    } else if (!event.shiftKey && active === last) {
+    } else if (!event.shiftKey && (active === last || list.indexOf(active) === -1)) {
       event.preventDefault();
       first.focus();
     }
@@ -258,6 +261,8 @@
       token = data.token;
       needsStart = false;
       talking = false;
+      turns = 0;
+      lastAnswer = 0;
       if (lead) note(lead, before);
       say("assistant", data.opening, "opening", before);
       return null;
@@ -279,6 +284,10 @@
     grow();
     var bubble = say("person", text);
     setStatus("Replying…", true);
+    // The engine ends a chat after thirty quiet minutes or 120 turns and
+    // would quietly open the next one: open it here, so its opening line is
+    // on screen.
+    if (turns >= 59 || (lastAnswer && Date.now() - lastAnswer > 29 * 60 * 1000)) needsStart = true;
     var opened = needsStart ? begin(bubble) : Promise.resolve(null);
     opened
       .then(function (refused) {
@@ -290,7 +299,12 @@
         if (outcome === "limited") setStatus("That's a lot of messages at once. Please wait a minute, then send it again.");
         else if (outcome === "unsent") setStatus("That message didn't send. Please try again.");
         else if (outcome === "unreachable") setStatus("We couldn't reach the chat. Please send it again.");
-        else if (outcome === "fallback") setStatus("The chat isn't available, so here is another way to reach the practice.");
+        else setStatus("");
+        if (outcome === "fallback") {
+          // It never reached the practice: say so on the message itself.
+          bubble.classList.add("unsent");
+          bubble.appendChild(el("span", { class: "unsent-label" }, " (not sent)"));
+        }
         if (outcome === "limited" || outcome === "unsent" || outcome === "unreachable") {
           bubble.remove();
           if (!input.value) input.value = text;
@@ -311,6 +325,8 @@
       var data = res.data;
       if (res.ok && data.mode === "chat" && typeof data.reply === "string") {
         failures = 0;
+        turns += 1;
+        lastAnswer = Date.now();
         setStatus("");
         if (typeof data.token === "string") token = data.token;
         say("assistant", data.reply);
@@ -343,6 +359,8 @@
       // visitor is shown how to reach the practice instead.
       failures += 1;
       if (failures < 2) return "unreachable";
+      // Reopening the bubble asks for a chat again: a deploy is over in moments.
+      started = null;
     }
     fallBack(res);
     return "fallback";
@@ -411,7 +429,7 @@
     );
     var name = field(form, "first", "First name", { type: "text", autocomplete: "given-name", maxlength: "60" });
     var tel = field(form, "phone", "Phone number", { type: "tel", autocomplete: "tel", inputmode: "tel", maxlength: "32" });
-    var group = el("fieldset", { class: "times", "aria-describedby": "time-error" });
+    var group = el("fieldset", { class: "times", role: "radiogroup", "aria-describedby": "time-error" });
     group.appendChild(el("legend", {}, "Best time to call"));
     times.forEach(function (time, i) {
       if (!time || typeof time.id !== "string" || typeof time.label !== "string") return;
@@ -474,6 +492,7 @@
         if (wrong && !first) first = row[1];
       });
       if (problems.indexOf("unknown_field") !== -1 && !first) setStatus("Something went wrong. Please call the practice.");
+      if (first === group) first = group.querySelector("input:checked") || group.querySelector("input");
       if (first) first.focus();
     }
   }
@@ -481,7 +500,7 @@
   function showCall(lead) {
     view = "call";
     clearContact();
-    var box = el("div", { class: "call" });
+    var box = el("div", { class: "call", tabindex: "-1" });
     box.appendChild(el("h3", {}, "Please call the practice"));
     box.appendChild(el("p", {}, "The chat isn't available right now." + (lead ? " " + lead : "")));
     box.appendChild(el("p", {}, "Its phone number is on this website."));
@@ -499,7 +518,16 @@
    * route checks the page's origin itself and reads the body as JSON.
    */
   function post(path, payload, keepalive) {
+    // Longer than the engine's own model deadline, so only a request that
+    // will never answer (a phone changing networks) is given up on.
+    var abort = !keepalive && typeof AbortController === "function" ? new AbortController() : null;
+    var timer = abort ? setTimeout(function () { abort.abort(); }, 60000) : null;
+    var done = function (result) {
+      if (timer) clearTimeout(timer);
+      return result;
+    };
     return fetchFn(base + path, {
+      signal: abort ? abort.signal : undefined,
       method: "POST",
       mode: "cors",
       credentials: "omit",
@@ -512,15 +540,15 @@
       function (response) {
         return response.json().then(
           function (data) {
-            return { ok: response.ok, status: response.status, data: data && typeof data === "object" ? data : {} };
+            return done({ ok: response.ok, status: response.status, data: data && typeof data === "object" ? data : {} });
           },
           function () {
-            return { ok: false, status: response.status, data: {} };
+            return done({ ok: false, status: response.status, data: {} });
           },
         );
       },
       function () {
-        return { ok: false, status: 0, data: {} };
+        return done({ ok: false, status: 0, data: {} });
       },
     );
   }
@@ -633,6 +661,7 @@
       ".msg{max-width:85%;padding:10px 14px;border-radius:14px;white-space:pre-wrap;overflow-wrap:anywhere}",
       ".msg.assistant{align-self:flex-start;background:#f0f2f5;border-bottom-left-radius:4px}",
       ".msg.person{align-self:flex-end;background:" + accent + ";color:" + on + ";border-bottom-right-radius:4px}",
+      ".msg.unsent{opacity:.75}.unsent-label{font-size:13px}",
       ".note{margin:4px 0;text-align:center;font-size:13px;color:#555}",
       ".status{margin:0 16px 8px;font-size:14px;color:#555}",
       ".status:empty{margin:0}",
@@ -657,6 +686,7 @@
       ".fine{font-size:14px;color:#555}",
       ".primary{min-height:44px;padding:0 24px;border:0;border-radius:10px;background:" + accent + ";color:" + on + ";font-weight:600}",
       ".primary:disabled{opacity:.6;cursor:default}",
+      ".call:focus{outline:none}",
       ".received{padding:12px 14px;background:#f0f2f5;border-radius:12px}",
       "a{color:" + accent + ";font-weight:600}",
       "@media (max-width:480px),(max-height:500px){.panel{inset:0;width:100%;max-width:none;height:100vh;height:100dvh;border:0;border-radius:0;padding-bottom:env(safe-area-inset-bottom)}" +

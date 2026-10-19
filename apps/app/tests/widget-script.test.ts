@@ -321,6 +321,83 @@ describe("the bubble on a clinic's page", () => {
     expect(calls.at(-1)!.url).toBe(`${API}message`);
   });
 
+  test("a request that never answers is given up on after a minute, and the words kept", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const root = await load();
+    await open(root);
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal("fetch", (_url: string, init: RequestInit) =>
+        new Promise((_resolve, reject) => init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")))),
+      );
+      q<HTMLTextAreaElement>(root, "textarea").value = "Hello?";
+      q<HTMLFormElement>(root, ".compose").dispatchEvent(new Event("submit", { cancelable: true }));
+      expect(q<HTMLButtonElement>(root, ".send").disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+    } finally {
+      vi.useRealTimers();
+    }
+    await settle();
+    expect(q<HTMLButtonElement>(root, ".send").disabled).toBe(false);
+    expect(q<HTMLTextAreaElement>(root, "textarea").value).toBe("Hello?");
+    expect(q(root, ".status").textContent).toMatch(/couldn't reach the chat/);
+  });
+
+  test("after thirty quiet minutes the next message opens a new chat, with its opening line on screen", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "n0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Welcome back.", token: "n1", ended: false } });
+    const root = await load();
+    await open(root);
+    await type(root, "Hello");
+    const now = Date.now();
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 30 * 60 * 1000);
+    try {
+      await type(root, "Back again");
+    } finally {
+      clock.mockRestore();
+    }
+    expect(calls.slice(-2).map((c) => c.url.replace(API, ""))).toEqual(["start", "message"]);
+    expect(calls.at(-1)!.body).toEqual({ token: "n0", text: "Back again" });
+    expect(messages(root).slice(-3)).toEqual([`Assistant: ${OPENING}`, "You: Back again", "Assistant: Welcome back."]);
+  });
+
+  test("a new chat that cannot be opened keeps the words, and asks again next time", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Bye.", token: "t1", ended: true } });
+    answer("start", { status: 429, body: { error: "rate_limited" } });
+    const root = await load();
+    await open(root);
+    await type(root, "bye");
+    await type(root, "wait");
+    expect(q<HTMLTextAreaElement>(root, "textarea").value).toBe("wait");
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "n0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Yes?", token: "n1", ended: false } });
+    await type(root, "wait");
+    expect(calls.slice(-2).map((c) => c.url.replace(API, ""))).toEqual(["start", "message"]);
+  });
+
+  test("on a phone the panel is modal and Tab stays inside it", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true }));
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const root = await load();
+    await open(root);
+    const panel = q(root, ".panel");
+    expect(panel.getAttribute("aria-modal")).toBe("true");
+    const close = q<HTMLButtonElement>(root, ".icon-button");
+    const send = q<HTMLButtonElement>(root, ".send");
+    send.focus();
+    // Rendering is not laid out here: every control counts as visible.
+    for (const node of panel.querySelectorAll("button, textarea, input, a")) {
+      (node as HTMLElement).getClientRects = () => ({ length: (node as HTMLElement).closest("[hidden]") ? 0 : 1 }) as unknown as DOMRectList;
+    }
+    send.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(root.activeElement).toBe(close);
+    close.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(root.activeElement).toBe(send);
+  });
+
   test("every request is plain text with no credential", async () => {
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
     answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
@@ -444,7 +521,17 @@ describe("when the chat is not answering", () => {
     await type(root, "Hello");
     expect(q(root, ".compose").hidden).toBe(true);
     expect(q(root, ".call").textContent).toContain("Please call the practice");
-    expect(q(root, ".status").textContent).toMatch(/another way to reach the practice/);
+    // The message that never arrived says so, and focus is on the way to call.
+    expect(root.querySelectorAll(".msg.unsent")).toHaveLength(1);
+    expect(messages(root).at(-1)).toBe("You: Hello (not sent)");
+    expect(root.activeElement).toBe(q(root, ".call"));
+
+    // Reopening asks for a chat again.
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t9" } });
+    q<HTMLButtonElement>(root, ".icon-button").click();
+    await open(root);
+    expect(q(root, ".compose").hidden).toBe(false);
+    expect(messages(root).at(-1)).toBe(`Assistant: ${OPENING}`);
     // What was said stays on screen, the opening line first.
     expect(messages(root)[0]).toBe(`Assistant: ${OPENING}`);
   });

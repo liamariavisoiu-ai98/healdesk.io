@@ -5476,7 +5476,8 @@ export type CalendarElectionSource = (typeof CALENDAR_ELECTION_SOURCES)[number];
  * app_calendar_election_guard (drizzle/0057) assigns `sequence`, checks the
  * row against the agreement, and refuses any UPDATE or DELETE. It also holds
  * the rules on who may record what: an `agreement` row only for the
- * location set up at signing; a released document and a booking sync as the
+ * location set up at signing, and only as the first row under its agreement
+ * (drizzle/0100); a released document and a booking sync as the
  * database's own copies of the catalogue say (a draft counts only for a demo
  * clinic); an unspent, unexpired link of this location, sent to whom the row
  * says; and an election that widens what reaches Google needs the practice
@@ -5600,11 +5601,14 @@ export const calendarElections = pgTable(
       "calendar_elections_rendered_shape",
       sql`(${t.source} = 'agreement') = (${t.renderedText} is null)`,
     ),
-    // The signed agreement decides only a location's first calendar terms,
-    // and only for a released, signed document nobody had to confirm.
+    // An agreement row is a released, signed document nobody had to
+    // confirm. It is the first row under its agreement, which the guard
+    // checks (drizzle/0100): a location's first terms at provisioning, and
+    // its terms under the agreement that superseded the one before
+    // (recordSupersedingTerms), so not always sequence 1.
     check(
       "calendar_elections_agreement_shape",
-      sql`${t.source} <> 'agreement' or (${t.sequence} = 1 and ${t.documentReleased} and not ${t.ownerConfirmed})`,
+      sql`${t.source} <> 'agreement' or (${t.documentReleased} and not ${t.ownerConfirmed})`,
     ),
     check(
       "calendar_elections_sent_to_shape",

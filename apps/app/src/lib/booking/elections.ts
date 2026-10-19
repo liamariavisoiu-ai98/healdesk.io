@@ -23,6 +23,7 @@ import {
 } from "@healdesk/catalog";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
+import type { Transaction } from "@/db";
 import {
   baaAcceptances,
   calendarElections,
@@ -32,7 +33,7 @@ import {
   type CalendarElectionSource,
   type PendingCalendarElection,
 } from "@/db/schema";
-import type { ActorContext, RequestContext } from "@/lib/audit";
+import { AuditRecorder, type ActorContext, type RequestContext } from "@/lib/audit";
 import {
   eraseGoogleCalendarWithin,
   googleCalendarConnection,
@@ -44,7 +45,7 @@ import {
 import { calendarRecipients, ownerRecipients } from "@/lib/connections/recipients";
 import { mailCalendarElectionCopy, type CalendarMailClinic } from "@/lib/email/calendar-link";
 import { log } from "@/lib/log";
-import { withTenant, type TenantTx } from "@/lib/tenant";
+import { TENANT_GUC, withTenant, type TenantTx } from "@/lib/tenant";
 
 import { releaseLiveHolds } from "./holds";
 import { calendarTermsFor, type CalendarTermsNeedsElectionReason } from "./terms";
@@ -54,16 +55,18 @@ import { calendarTermsFor, type CalendarTermsNeedsElectionReason } from "./terms
  * agreement (plan §2.6, owner decision 3).
  *
  * The signed agreement gives the location set up at signing its first terms
- * (`recordAgreementTerms`, which provisioning calls). Every later change, and
- * every other location's first terms, is an election: a short versioned
- * document the practice accepts (`calendar-election/1.0.0`, in the catalogue),
- * stored whole, append-only, the newest under the agreement in effect
- * deciding (lib/booking/terms.ts). An election amends the practice's
+ * (`recordAgreementTerms`, which provisioning calls), and a later signature
+ * that supersedes it gives that location its terms under the new agreement
+ * (`recordSupersedingTerms`, in the transaction that binds it). Every other
+ * change, and every other location's first terms, is an election: a short
+ * versioned document the practice accepts (`calendar-election/1.0.0`, in the
+ * catalogue), stored whole, append-only, the newest under the agreement in
+ * effect deciding (lib/booking/terms.ts). An election amends the practice's
  * contract, so only the practice records one, never ops.
  *
  * What the database already refuses is not re-implemented here as a rule,
  * only asked first so the answer is a status rather than a 42501: the guard
- * (app_calendar_election_guard, drizzle/0057) anchors the row to the
+ * (app_calendar_election_guard, drizzle/0057 and 0100) anchors the row to the
  * agreement in effect, numbers it, holds `document_released` and
  * `booking_sync` to its own copies of the catalogue, accepts a draft
  * document only for a demo clinic, checks the hash against the stored text,
@@ -712,7 +715,7 @@ export async function recordCalendarElection(
 }
 
 // -----------------------------------------------------------------------------
-// The location's first terms, from the signed agreement
+// The location's terms from a signed agreement: the first, and a superseding one
 // -----------------------------------------------------------------------------
 
 /**
@@ -807,9 +810,12 @@ export function signedCalendarTerms(variables: unknown): SignedCalendarTerms {
 
 /**
  * Record the `agreement` row: the calendar terms the practice signed, as the
- * first terms of the location set up at signing (plan §2.6, §3.4(c)).
- * Provisioning calls it once, after the clinic insert, inside its own
- * transaction (C15). Null when the signed document holds no 1.3.0 calendar
+ * terms of the location set up at signing under that agreement (plan §2.6,
+ * §3.4(c)). Two callers, each once per agreement and inside the transaction
+ * that puts the agreement in force: provisioning, after the clinic insert
+ * (C15), which gives the location its first terms; and
+ * recordSupersedingTerms, after a later signature supersedes the agreement
+ * (19 October 2026). Null when the signed document holds no 1.3.0 calendar
  * clause: an agreement before 1.3.0 leaves the location to its first
  * election (plan §2.8).
  *
@@ -818,8 +824,9 @@ export function signedCalendarTerms(variables: unknown): SignedCalendarTerms {
  * sync that clause means. A clause the catalogue would no longer select for
  * those answers is recorded as signed all the same, and logged; the location
  * changes its terms by an election. The guard checks each value against the
- * bound acceptance again, and refuses the row for any location but the one
- * set up at signing.
+ * bound acceptance again, refuses the row for any location but the one set
+ * up at signing, and refuses it unless it is the first row under its
+ * agreement (drizzle/0100).
  */
 export async function recordAgreementTerms(
   tx: TenantTx,
@@ -876,6 +883,118 @@ export async function recordAgreementTerms(
     });
   }
   return { electionId: row.id, sequence: row.sequence, kind: terms.kind };
+}
+
+/** What recordSupersedingTerms recorded: the `agreement` row, and the location it governs. */
+export type SupersedingTerms = {
+  clinicId: string;
+  electionId: string;
+  sequence: number;
+  kind: CalendarTermsKind;
+};
+
+/**
+ * Record the calendar terms a superseding signature carries, in the
+ * transaction that put it in force (owner, 19 October 2026). Call it right
+ * after supersedeAgreement, with that transaction's `db`, the clinic whose
+ * practice signed, and the new agreement's id: signAgreementResign does
+ * (the DPA→BAA re-sign), and so will the BAA→BAA re-sign.
+ *
+ * Without it, no row is anchored to the new agreement, so the location reads
+ * `needs_election` (calendarTermsFor never falls back to the agreement before)
+ * and the calendar watch's terms sweep erases its Google Calendar connection
+ * and revokes the grant within five minutes. The new signature IS the
+ * location's terms: it carries a calendar clause chosen by the two answers
+ * the practice signed, as the first signature did, so it is recorded as the
+ * location's `agreement` row under the new agreement (recordAgreementTerms,
+ * audited the same way), and the old election is not carried forward. A
+ * signature naming another kind of Google account than the one connected (a
+ * personal account against a Workspace one, or the reverse) is recorded as
+ * signed, and the sweep then takes the connection away as
+ * `election_changed`, as an election to the same terms would.
+ *
+ * The row is for the organisation's location set up at signing: its clinic
+ * with no billing_clinic_id, read across the organisation through
+ * app_organization_clinics(), whose order makes it the oldest should there
+ * ever be two. The guard refuses an agreement row for a location with
+ * billing_clinic_id set, and that refusal would roll back the whole
+ * signature. Those locations are left alone: their elections stay under the
+ * old agreement and they read `needs_election` until they record one. The
+ * owner has not decided whether elections carry across agreements, and no
+ * such location exists yet (LOCATION_CLINICS_READY is false).
+ *
+ * The tenant setting is moved to that location for the write, as
+ * signAgreementResign moves it, and put back to what the caller had before
+ * returning. The audit row is flushed in the location's tenant. Null when
+ * the new document holds no calendar clause, or the organisation has no
+ * location without a billing clinic. Throws what recordAgreementTerms and the
+ * guard throw, which rolls the signature back with it: the signature is
+ * never in force without the terms it carries.
+ */
+export async function recordSupersedingTerms(
+  db: Transaction,
+  input: {
+    /** The clinic whose practice signed: any location of the organisation. */
+    clinicId: string;
+    /** The superseding agreement, bound and in force in this transaction. */
+    agreementId: string;
+    actor: ActorContext;
+    request?: RequestContext;
+  },
+): Promise<SupersedingTerms | null> {
+  const before = await db.execute<{ tenant: string | null }>(
+    sql`select current_setting(${TENANT_GUC}, true) as tenant`,
+  );
+  const setTenant = (clinicId: string) =>
+    db.execute(sql`select set_config(${TENANT_GUC}, ${clinicId}, true)`);
+  // Put back only on the way out of a write that held: a throw rolls the
+  // caller's transaction back, setting and all.
+  const restore = () => setTenant(before.rows[0]?.tenant ?? "");
+
+  await setTenant(input.clinicId);
+  const [signer] = await db
+    .select({ organizationId: clinics.organizationId })
+    .from(clinics)
+    .where(eq(clinics.id, input.clinicId))
+    .limit(1);
+  if (!signer) throw new CalendarElectionError("No such location.", "clinicId");
+  const located = await db.execute<{ clinic_id: string }>(sql`
+    select o.clinic_id
+      from app_organization_clinics(${signer.organizationId}::text)
+           with ordinality as o(clinic_id, billing_clinic_id, data_classification,
+                                offboarding_started_at, destroyed_at, n)
+     where o.clinic_id = o.billing_clinic_id
+     order by o.n`);
+  const locationId = located.rows[0]?.clinic_id;
+  if (!locationId) {
+    log.warn("superseding agreement: no location set up at signing to record its terms for", {
+      clinicId: input.clinicId,
+      agreementId: input.agreementId,
+    });
+    await restore();
+    return null;
+  }
+  if (located.rows.length > 1) {
+    log.warn(
+      "superseding agreement: the oldest location without a billing clinic takes its terms",
+      {
+        clinicId: locationId,
+        agreementId: input.agreementId,
+        count: located.rows.length,
+      },
+    );
+  }
+
+  await setTenant(locationId);
+  const tx: TenantTx = {
+    db,
+    audit: new AuditRecorder(locationId, input.actor, input.request),
+    clinicId: locationId,
+  };
+  const recorded = await recordAgreementTerms(tx, input.agreementId);
+  await tx.audit.flush(db);
+  await restore();
+  return recorded ? { clinicId: locationId, ...recorded } : null;
 }
 
 // -----------------------------------------------------------------------------

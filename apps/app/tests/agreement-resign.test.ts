@@ -1,13 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import {
+  AGREEMENT_COPY,
   agreementPlatformFor,
   CURRENT_BAA_VERSION,
   currentDpaTemplate,
   DPA_ASSENT_LABEL,
+  type BookingSystemId,
+  type CalendarAccount,
 } from "@healdesk/catalog";
 import { effectiveDateOf, prepareSigning } from "@healdesk/catalog/agreement-signing";
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import {
+  fakeGoogleCalendar,
+  resetGoogleTokenCache,
+  setGoogleFetch,
+  type FakeGoogleCalendar,
+} from "@healdesk/connectors";
+import { sql } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   closePools,
@@ -17,14 +27,24 @@ import {
   runMigrations,
   truncateAll,
 } from "./setup/db";
-import { inTenant, seedChannels, seedClinic, seedContact, seedEntitled } from "./setup/factories";
+import {
+  inTenant,
+  seedChannels,
+  seedClinic,
+  seedContact,
+  seedEntitled,
+  seedGoogleConnection,
+  type SeededClinic,
+} from "./setup/factories";
 
 /**
  * The DPA→BAA re-sign (package WP9; plan Part L, Annex X5 L22): a practice
  * under the Data Protection Agreement whose answer becomes "Yes" or "Not
  * sure" is sent L22 with a signed one-time link, AYA is paused until it
  * signs, the screen signs the BAA from the practice's own answers, and the
- * supersede puts it in force. Synthetic clinics and fake mail throughout.
+ * supersede puts it in force, with the calendar terms it carries for the
+ * location set up at signing. Synthetic clinics, fake mail and the in-memory
+ * Google throughout.
  *
  * The DPA is unreleased, as it must be until the owner releases it; the
  * practice here signed it as it will after the release (`dpaReleased`, the
@@ -84,10 +104,15 @@ const {
   signAgreementResign,
 } = await import("@/lib/agreements/resign");
 const { renderResignPreview } = await import("@/lib/agreements/resign-preview");
+const { supersedeAgreement } = await import("@/lib/agreements/kind");
 const { assistantMayAnswer } = await import("@/lib/billing/answering");
+const { recordAgreementTerms, recordSupersedingTerms } = await import("@/lib/booking/elections");
+const { calendarTermsFor } = await import("@/lib/booking/terms");
 const { pauseAya, PauseError, resumeAya } = await import("@/lib/channels/pause");
 const { AGREEMENT_PAUSE_LABEL, pauseBanner } = await import("@/lib/channels/pause-words");
-const { withTenant } = await import("@/lib/tenant");
+const { sweepCalendarTerms } = await import("@/lib/connections/google-calendar");
+const { unsafeDb } = await import("@/db");
+const { TENANT_GUC, withTenant } = await import("@/lib/tenant");
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ORIGIN = "https://app.healdesk.test";
@@ -592,5 +617,344 @@ describeDb("the DPA→BAA re-sign", () => {
       [practice.clinicId],
     );
     expect(rows[0]!.n).toBe(1);
+  });
+  /*
+   * The location's calendar through the change of agreement (19 October 2026).
+   * A location's terms are its newest calendar election under the agreement
+   * in effect, never an older agreement's, so a signature put in force with
+   * nothing recorded under it left the location `needs_election`, and the
+   * calendar watch's terms sweep took its Google connection away within five
+   * minutes. The signature is the location's terms (recordSupersedingTerms).
+   */
+  describe("the location's Google Calendar through the change of agreement", () => {
+    let google: FakeGoogleCalendar;
+    let accounts = 0;
+
+    beforeEach(() => {
+      google = fakeGoogleCalendar();
+      setGoogleFetch(google.fetch);
+      resetGoogleTokenCache();
+    });
+
+    afterEach(() => {
+      setGoogleFetch(undefined);
+    });
+
+    function termsOf(clinicId: string) {
+      return withTenant({ clinicId, actor: OPERATOR }, (tx) => calendarTermsFor(tx));
+    }
+
+    /** The agreement's terms as provisioning records them: the `agreement` row, sequence 1. */
+    function recordSignedTerms(clinicId: string, agreementId: string) {
+      return withTenant({ clinicId, actor: OPERATOR }, (tx) =>
+        recordAgreementTerms(tx, agreementId),
+      );
+    }
+
+    /** A Workspace calendar, stored as the connect flow stores one, on a grant the fake issued. */
+    async function connectWorkspace(clinicId: string) {
+      const sub = `2${Date.now() % 1_000_000_000}${String(++accounts).padStart(6, "0")}`;
+      google.addAccount({ sub, email: `bookings${accounts}@practice.test`, hd: "practice.test" });
+      const { refreshToken } = google.grant({ sub });
+      const seeded = await seedGoogleConnection(clinicId, {
+        managed: true,
+        refreshToken,
+        accountRef: sha256(`google:${sub}`),
+      });
+      return { ...seeded, refreshToken };
+    }
+
+    async function connectionOf(clinicId: string) {
+      const { rows } = await inTenant(clinicId, (client) =>
+        client.query<{ status: string; last_error: string | null }>(
+          `select status, last_error from provider_connections
+            where clinic_id = $1 and provider = 'google_calendar'`,
+          [clinicId],
+        ),
+      );
+      return rows[0] ?? null;
+    }
+
+    async function electionsOf(clinicId: string) {
+      const { rows } = await inTenant(clinicId, (client) =>
+        client.query<{
+          id: string;
+          sequence: number;
+          source: string;
+          agreement_id: string;
+          terms_kind: string;
+          calendar_account: string;
+          document_version: string;
+          document_hash: string;
+        }>(
+          `select id, sequence, source, agreement_id, terms_kind, calendar_account,
+                  document_version, document_hash
+             from calendar_elections where clinic_id = $1 order by sequence`,
+          [clinicId],
+        ),
+      );
+      return rows;
+    }
+
+    /** The practice signs the BAA from L22's link, as the screen does. */
+    async function signFromLink(practice: { clinicId: string; staffEmail: string }) {
+      await setCoveredEntity({
+        clinicId: practice.clinicId,
+        answer: "yes",
+        actor: OPERATOR,
+        actorLabel: "ops@healdesk.test",
+      });
+      const token = linkIn(l22For(practice.staffEmail)[0]!.text);
+      const link = await lookUpResignLink(token);
+      if (!link.ok) throw new Error(`the link did not open: ${link.reason}`);
+      const signature = { signatoryName: "Laura Owner", signatoryTitle: "Owner" };
+      const shown = renderResignPreview(link.document, signature, effectiveDateOf(new Date()));
+      const outcome = await signAgreementResign(token, {
+        ...signature,
+        displayedHash: sha256(shown.text),
+        templateVersion: CURRENT_BAA_VERSION,
+      });
+      if (outcome.status !== "signed") throw new Error(`not signed: ${JSON.stringify(outcome)}`);
+      return outcome;
+    }
+
+    test("DPA→BAA: the BAA is the location's terms from the signature on, and the watch leaves its calendar connected", async () => {
+      const practice = await dpaPractice("resigncal");
+      // Provisioning recorded the DPA's calendar clause as the location's
+      // first terms: no booking system, a Workspace account without Google's
+      // BAA, so uncovered, and the practice connected that Workspace calendar.
+      const first = await recordSignedTerms(practice.clinicId, practice.dpaId);
+      expect(first).toMatchObject({ sequence: 1, kind: "uncovered" });
+      const connected = await connectWorkspace(practice.clinicId);
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        kind: "uncovered",
+        account: "workspace_no_baa",
+        source: "agreement",
+        sequence: 1,
+        agreementId: practice.dpaId,
+        allowsWrite: true,
+      });
+
+      const outcome = await signFromLink(practice);
+
+      // The BAA's own calendar clause and answers, recorded under it in the
+      // signing transaction: the location's second row, its first under the BAA.
+      const { rows: signed } = await getMigratorPool().query<{ document_hash: string }>(
+        `select document_hash from baa_acceptances where id = $1`,
+        [outcome.agreementId],
+      );
+      const elections = await electionsOf(practice.clinicId);
+      expect(elections.map(({ id: _id, ...row }) => row)).toEqual([
+        {
+          sequence: 1,
+          source: "agreement",
+          agreement_id: practice.dpaId,
+          terms_kind: "uncovered",
+          calendar_account: "workspace_no_baa",
+          document_version: currentDpaTemplate().version,
+          document_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+        },
+        {
+          sequence: 2,
+          source: "agreement",
+          agreement_id: outcome.agreementId,
+          terms_kind: "uncovered",
+          calendar_account: "workspace_no_baa",
+          document_version: CURRENT_BAA_VERSION,
+          document_hash: signed[0]!.document_hash,
+        },
+      ]);
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        kind: "uncovered",
+        account: "workspace_no_baa",
+        bookingSystem: "none",
+        source: "agreement",
+        sequence: 2,
+        electionId: elections[1]!.id,
+        documentVersion: CURRENT_BAA_VERSION,
+        agreementId: outcome.agreementId,
+        agreementVersion: CURRENT_BAA_VERSION,
+        allowsWrite: true,
+      });
+
+      // Recorded and audited as provisioning records it, and named on the re-sign's own audit row.
+      const { rows: audit } = await inTenant(practice.clinicId, (client) =>
+        client.query<{
+          resource_type: string;
+          resource_id: string;
+          metadata: Record<string, unknown>;
+        }>(
+          `select resource_type, resource_id, metadata from audit_log
+            where clinic_id = $1 and resource_type in ('calendar_election', 'agreement_resign')
+              and action in ('create', 'update')`,
+          [practice.clinicId],
+        ),
+      );
+      expect(audit).toContainEqual({
+        resource_type: "calendar_election",
+        resource_id: elections[1]!.id,
+        metadata: { sequence: 2, source: "agreement", termsKind: "uncovered" },
+      });
+      expect(audit).toContainEqual(
+        expect.objectContaining({
+          resource_type: "agreement_resign",
+          metadata: expect.objectContaining({
+            status: "signed",
+            calendarElectionId: elections[1]!.id,
+          }),
+        }),
+      );
+
+      // The watch's sweep finds terms that cover the calendar: nothing erased,
+      // nothing revoked, and the assistant may still write there.
+      expect(await sweepCalendarTerms([practice.clinicId])).toEqual({
+        checked: 1,
+        disconnected: 0,
+        failed: 0,
+        failedClinicIds: [],
+      });
+      expect(await connectionOf(practice.clinicId)).toEqual({ status: "active", last_error: null });
+      expect(google.requests).toEqual([]);
+      expect(google.grantOf(connected.refreshToken)?.revoked).toBe(false);
+      const { rows: permitted } = await inTenant(practice.clinicId, (client) =>
+        client.query<{ ok: boolean }>(`select app_calendar_write_permitted($1, false) as ok`, [
+          practice.clinicId,
+        ]),
+      );
+      expect(permitted[0]!.ok).toBe(true);
+    });
+
+    /**
+     * A practice under a BAA: the signature bound to its organisation a day
+     * ago, and a second location billed on the first, which the signed
+     * clause does not govern.
+     */
+    async function baaPractice(
+      label: string,
+      answers: { bookingSystem: BookingSystemId; calendarAccount: CalendarAccount },
+    ) {
+      const clinic = await seedClinic(label);
+      const signed = await signBaa(clinic, answers);
+      await getMigratorPool().query(
+        `update baa_acceptances set accepted_at = now() - interval '1 day' where id = $1`,
+        [signed],
+      );
+      await getMigratorPool().query(`select app_bind_agreement($1::uuid, $2)`, [
+        signed,
+        clinic.organizationId,
+      ]);
+      const { rows } = await getMigratorPool().query<{ id: string }>(
+        `insert into clinics (organization_id, slug, name, specialty, billing_clinic_id)
+         values ($1, $2, 'Second location', 'med-spa', $3) returning id`,
+        [clinic.organizationId, `${label}-loc-${randomUUID().slice(0, 6)}`, clinic.clinicId],
+      );
+      const location = rows[0]!.id;
+      await getMigratorPool().query(
+        `update clinics set regulatory_regime = 'hipaa', agreement_kind = 'baa', is_covered_entity = true
+          where organization_id = $1`,
+        [clinic.organizationId],
+      );
+      return { ...clinic, agreementId: signed, locationId: location };
+    }
+
+    /** A BAA signed through the funnel's own path: an unbound acceptance. */
+    async function signBaa(
+      clinic: SeededClinic,
+      answers: { bookingSystem: BookingSystemId; calendarAccount: CalendarAccount },
+    ): Promise<string> {
+      const signed = await signAgreement({
+        clinicLegalName: `${clinic.slug} Med Spa LLC`,
+        specialty: "med-spa",
+        signatoryName: "Laura Owner",
+        signatoryTitle: "Owner",
+        signatoryEmail: clinic.staffEmail,
+        isCoveredEntity: true,
+        attributionMode: "estimated",
+        platform: agreementPlatformFor(answers.bookingSystem),
+        bookingSystem: answers.bookingSystem,
+        calendarAccount: answers.calendarAccount,
+        assentLabel: AGREEMENT_COPY.baa.assentLabel,
+        templateVersion: CURRENT_BAA_VERSION,
+      });
+      return signed.agreementId;
+    }
+
+    test("a superseding signature with another kind of Google account is the location's terms, and the sweep then takes the old connection away", async () => {
+      // The BAA→BAA re-sign's shape: the new signature's answers are the
+      // practice's own, and may name another kind of account than the one
+      // connected. The signature's terms are recorded as signed; the
+      // connection they no longer cover goes, as an election would take it.
+      const practice = await baaPractice("supersedeacct", {
+        bookingSystem: "google_calendar",
+        calendarAccount: "workspace_no_baa",
+      });
+      await recordSignedTerms(practice.clinicId, practice.agreementId);
+      const connected = await connectWorkspace(practice.clinicId);
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        kind: "uncovered",
+        account: "workspace_no_baa",
+        sequence: 1,
+        allowsWrite: true,
+      });
+      const later = await signBaa(practice, {
+        bookingSystem: "google_calendar",
+        calendarAccount: "personal",
+      });
+
+      // Supersede and record in one transaction, from the second location's
+      // re-sign: the terms go to the location set up at signing, and the
+      // tenant setting is back where the caller left it.
+      const recorded = await unsafeDb.transaction(async (db) => {
+        await db.execute(sql`select set_config(${TENANT_GUC}, '', true)`);
+        await supersedeAgreement(practice.locationId, later, practice.staffEmail, db);
+        const terms = await recordSupersedingTerms(db, {
+          clinicId: practice.locationId,
+          agreementId: later,
+          actor: OPERATOR,
+        });
+        const after = await db.execute<{ tenant: string | null }>(
+          sql`select current_setting(${TENANT_GUC}, true) as tenant`,
+        );
+        return { terms, tenant: after.rows[0]?.tenant };
+      });
+      expect(recorded).toEqual({
+        terms: {
+          clinicId: practice.clinicId,
+          electionId: expect.any(String),
+          sequence: 2,
+          kind: "uncovered",
+        },
+        tenant: "",
+      });
+      expect(await termsOf(practice.clinicId)).toMatchObject({
+        kind: "uncovered",
+        account: "personal",
+        source: "agreement",
+        sequence: 2,
+        electionId: recorded.terms!.electionId,
+        agreementId: later,
+        allowsWrite: true,
+      });
+      // A location billed on it is left as it was: it records its own election.
+      expect(await electionsOf(practice.locationId)).toEqual([]);
+      expect(await termsOf(practice.locationId)).toMatchObject({
+        kind: "needs_election",
+        reason: "location",
+        agreementId: later,
+      });
+
+      // The Workspace calendar is not the personal account the terms now name.
+      expect(await sweepCalendarTerms([practice.clinicId])).toEqual({
+        checked: 1,
+        disconnected: 1,
+        failed: 0,
+        failedClinicIds: [],
+      });
+      expect(await connectionOf(practice.clinicId)).toEqual({
+        status: "revoked",
+        last_error: "election_changed",
+      });
+      expect(google.grantOf(connected.refreshToken)?.revoked).toBe(true);
+    });
   });
 });

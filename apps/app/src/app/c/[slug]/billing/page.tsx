@@ -1,15 +1,18 @@
 import {
   additionalLocationChargeUsd,
+  asksCoveredQuestion,
   audienceSingular,
   CHANNEL_NAMES,
   channelList,
   getPlan,
+  isSpecialtyId,
   planStartSentence,
   USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { readOpenResign } from "@/lib/agreements/resign";
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
 import {
@@ -29,6 +32,7 @@ import { PortalShell } from "../PortalShell";
 
 import {
   AddLocation,
+  AgreementResignButton,
   AllowanceChoice,
   BillingSwitch,
   ChangePlan,
@@ -69,6 +73,8 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
   const shell = shellProps(portal, page, "billing");
   const { clinic } = page.state;
   const view = await readBillingView({ clinicId: portal.clinicId, actor: page.actorContext, now });
+  const resign =
+    view.agreement?.kind === "dpa" ? await readOpenResign(portal.clinicId, page.actorContext) : null;
   const { summary } = view;
   const tz = clinic.timezone;
 
@@ -419,15 +425,26 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                 >
                   Download it (PDF)
                 </a>
-                {view.agreement.kind === "dpa" ? (
-                  <p className="text-muted mt-3 text-sm">
-                    If your practice starts billing any health insurance electronically, email{" "}
-                    <a href="mailto:hello@healdesk.io" className="text-ink font-semibold underline">
-                      hello@healdesk.io
-                    </a>
-                    : your agreement becomes a business associate agreement, and we send it to you
-                    to sign.
-                  </p>
+                {view.agreement.kind === "dpa" && resign ? (
+                  <div className="mt-3 text-sm">
+                    <p className="font-semibold">Your updated agreement is waiting to be signed.</p>
+                    <p className="text-muted mt-1">
+                      Your practice now needs a business associate agreement in place of this one.
+                      AYA is paused until it&rsquo;s signed.
+                    </p>
+                    <AgreementResignButton slug={portal.clinicSlug} open />
+                  </div>
+                ) : view.agreement.kind === "dpa" &&
+                  isSpecialtyId(clinic.specialty) &&
+                  asksCoveredQuestion(clinic.specialty) ? (
+                  <div className="mt-3 text-sm">
+                    <p className="text-muted">
+                      If your practice starts billing any health insurance electronically, yourself
+                      or through a clearinghouse, your agreement becomes a business associate
+                      agreement, which you sign here.
+                    </p>
+                    <AgreementResignButton slug={portal.clinicSlug} open={false} />
+                  </div>
                 ) : null}
               </>
             ) : (

@@ -7,9 +7,12 @@ vi.mock("@/lib/ops/notify", () => ({
   },
   notifyOpsOnce: async () => {},
 }));
-// No database here: any tenant read fails as one that refuses would.
+// No database here: any tenant read fails as one that refuses would,
+// unless a test hands back what the read would have returned.
+const tenant = vi.hoisted(() => ({ result: undefined as unknown }));
 vi.mock("@/lib/tenant", () => ({
   withTenant: async () => {
+    if (tenant.result !== undefined) return tenant.result;
     throw new Error("connect ECONNREFUSED");
   },
 }));
@@ -27,7 +30,7 @@ vi.mock("@/lib/assistant/turn", async (importOriginal) => {
 
 import { FAILURE_LINE } from "@/lib/assistant/turn";
 import { fallbackLineFor, forgetDirectLines, rememberDirectLine } from "@/lib/voice/fallback-line";
-import { CLOSED_LINE, RetellCallSession, TROUBLE_TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
+import { CLOSED_LINE, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE, type RetellOutbound } from "@/lib/voice/retell";
 import { getRetellPhoneNumber, setRetellFallbackNumber } from "@/lib/voice/retell-api";
 import { syncRetellFallbacks, wantedFallback } from "@/lib/voice/retell-fallback-sync";
 
@@ -87,6 +90,7 @@ const details = (to: string | null) =>
   JSON.stringify({ interaction_type: "call_details", call: { from_number: "+15125550100", ...(to ? { to_number: to } : {}), direction: "inbound" } });
 
 beforeEach(() => {
+  tenant.result = undefined;
   forgetDirectLines();
   notified.length = 0;
 });
@@ -177,6 +181,20 @@ describe("a call that cannot read the database", () => {
     await s.handle(details(AYA));
     await s.finish();
     expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
+  });
+
+  test("a start that was slow, not dead, answers the call normally once it is in", async () => {
+    tenant.result = { clinicId: CLINIC, directLine: DIRECT, phone: null };
+    const { s, responses } = session({
+      startDeadlineMs: 20,
+      gate: () => new Promise((resolve) => setTimeout(() => resolve({ decision: "pass_through", reason: "ai_paused", directLine: DIRECT } as never), 80)),
+      fallbackLine: async () => null,
+    });
+    await s.open();
+    await s.handle(details(AYA));
+    await s.finish();
+    expect(responses()).toEqual([expect.objectContaining({ content: TRANSFER_LINE, transfer_number: DIRECT })]);
+    expect(notified).toEqual([]);
   });
 
   test("a caller who speaks before the transfer is said gets it on the newest request, and again after", async () => {
@@ -290,13 +308,21 @@ describe("the hourly fallback sync", () => {
     expect(await syncRetellFallbacks(opts)).toMatchObject({ status: "ok", set: 0, unchanged: 1 });
   });
 
-  test("leaves alone a number two clinics name, and says so", async () => {
-    const retell = fakeRetell({ [AYA]: { fallback_number: null } });
+  test("clears the fallback of a number two clinics name, and says so", async () => {
+    const retell = fakeRetell({ [AYA]: { fallback_number: DIRECT } });
     const other = { ...clinic, id: "0c1d2e3f-0000-4000-8000-00000000f412" };
     const result = await syncRetellFallbacks({ key: KEY, fetch: retell.fetcher, list: async () => [clinic, other], directLineOf: async () => DIRECT });
-    expect(result).toMatchObject({ status: "failed", failures: 2, set: 0 });
-    expect(retell.calls).toEqual([]);
+    expect(result).toMatchObject({ status: "failed", failures: 2, set: 1 });
+    expect(retell.calls.filter((c) => c.method === "PATCH").map((c) => JSON.parse(c.body!))).toEqual([{ fallback_number: null }]);
     expect(notified.map((n) => n.fields.code)).toEqual(["duplicate", "duplicate"]);
+  });
+
+  test("a PATCH Retell does not keep, or a rate limit, is named for what it is", async () => {
+    const ignored = fakeRetell({ [AYA]: { fallback_number: null } }, { ignoresPatch: true });
+    await syncRetellFallbacks({ key: KEY, fetch: ignored.fetcher, list: async () => [clinic], directLineOf: async () => DIRECT });
+    const limited = fakeRetell({}, { status: 429 });
+    await syncRetellFallbacks({ key: KEY, fetch: limited.fetcher, list: async () => [clinic], directLineOf: async () => DIRECT });
+    expect(notified.map((n) => n.fields.code)).toEqual(["not_kept", "unreachable"]);
   });
 
   test("a number Retell does not have, or a refused key, tells ops by clinic and reason", async () => {

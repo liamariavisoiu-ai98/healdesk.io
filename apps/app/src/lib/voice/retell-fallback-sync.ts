@@ -39,8 +39,9 @@ import {
  * raises voice_fallback_no_direct_line for such a clinic.) A direct line
  * equal to the AYA number or the published number (which forwards to AYA) is
  * never set: it would send the caller back to us. A number two clinics both
- * name is left alone and reported (code `duplicate`): whichever clinic it
- * belonged to, the other's callers would reach the wrong desk. Offboarding
+ * name has its fallback cleared and is reported (code `duplicate`):
+ * whichever clinic it belonged to, the other's callers would reach the wrong
+ * desk. A PATCH Retell does not keep is `not_kept`. Offboarding
  * forgets a clinic's AYA number, so this cannot clear that number's fallback:
  * release or clear the number in Retell when a clinic leaves
  * (docs/on-call.md). Not a switched job: it sends
@@ -115,11 +116,10 @@ export async function syncRetellFallbacks(
         summary.unchanged += 1;
         continue;
       }
-      if ((holders.get(clinic.assistantNumber) ?? 0) > 1) {
-        code = "duplicate";
-        throw new Error("more than one clinic names this AYA number");
-      }
-      const wanted = wantedFallback({ ...clinic, directLine: await directLineOf(clinic.id) });
+      const duplicate = (holders.get(clinic.assistantNumber) ?? 0) > 1;
+      // A number two clinics name gets no fallback at all: whichever line it
+      // held, the other clinic's callers would reach the wrong desk.
+      const wanted = duplicate ? null : wantedFallback({ ...clinic, directLine: await directLineOf(clinic.id) });
       code = "unreachable";
       const number = await getRetellPhoneNumber(clinic.assistantNumber, { ...options, key });
       unreachableInARow = 0;
@@ -127,14 +127,21 @@ export async function syncRetellFallbacks(
         code = "missing";
         throw new Error("Retell has no such number");
       }
-      if (number.fallbackNumber === wanted) {
+      if (number.fallbackNumber !== wanted) {
+        code = "not_kept";
+        await setRetellFallbackNumber(clinic.assistantNumber, wanted, { ...options, key });
+        summary.set += 1;
+      } else {
         summary.unchanged += 1;
-        continue;
       }
-      await setRetellFallbackNumber(clinic.assistantNumber, wanted, { ...options, key });
-      summary.set += 1;
+      if (duplicate) {
+        code = "duplicate";
+        throw new Error("more than one clinic names this AYA number");
+      }
     } catch (error) {
-      if (error instanceof RetellApiError && error.status >= 400 && error.status < 500) code = "rejected";
+      // A rate limit, like a timeout, is Retell not answering, not a refusal.
+      if (error instanceof RetellApiError && error.status === 429) code = "unreachable";
+      else if (error instanceof RetellApiError && error.status >= 400 && error.status < 500) code = "rejected";
       summary.failures += 1;
       log.error("retell fallback not synced", { clinicId: clinic.id, code, error: describeError(error) });
       if (error instanceof RetellApiError && (error.status === 401 || error.status === 403)) {

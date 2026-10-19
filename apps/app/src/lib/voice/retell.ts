@@ -111,11 +111,33 @@ export type RetellSessionDeps = {
  * long as the connection takes to give up, which the pool does not bound.
  */
 const START_DEADLINE_MS = 3_000;
+/**
+ * A start that passed its deadline with no line known anywhere may still be
+ * slow rather than dead (the gate also sends ops and clinic email): it gets
+ * this much longer to answer the call normally before the closing line.
+ */
+const LATE_START_GRACE_MS = 5_000;
+/** The urgent and handover alerts' writes; past it the reply is said without them. */
+const ALERT_DEADLINE_MS = 2_000;
 
-class StartDeadline extends Error {
+/** `promise`, or a rejection once `ms` have passed. Never leaves a timer behind. */
+function withDeadline<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  promise.catch(() => {});
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Deadline()), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+type Started = { decision: AnswerDecision; facts: AssistantFacts | null };
+
+class Deadline extends Error {
   constructor() {
-    super("the call's start passed its deadline");
-    this.name = "StartDeadline";
+    super("passed its deadline");
+    this.name = "Deadline";
   }
 }
 
@@ -202,52 +224,53 @@ export class RetellCallSession {
   async open(): Promise<void> {
     this.send({ response_type: "config", config: { auto_reconnect: true, call_details: true } });
     const now = this.now();
-    let decision: AnswerDecision | null = null;
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let gated: AnswerDecision | null = null;
+    // Nothing here writes the session: a start that finishes after its
+    // deadline changes nothing unless the fall-through hands it back.
+    const started: Promise<Started> = (async () => {
+      const decision = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
+      gated = decision;
+      const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
+      return { decision, facts };
+    })();
+    let result: Started;
     try {
-      // Read into locals, so a start that finishes after its deadline
-      // changes nothing on a call that has already fallen through.
-      const started = (async () => {
-        const d = await (this.deps.gate ?? voiceAnswerDecision)(this.clinicId, now);
-        decision ??= d;
-        const facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
-        return { decision: d, facts };
-      })();
-      const deadline = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new StartDeadline()), this.deps.startDeadlineMs ?? START_DEADLINE_MS);
-      });
-      started.catch(() => {});
-      const result = await Promise.race([started, deadline]);
-      decision = result.decision;
-      this.facts = result.facts;
+      result = await withDeadline(started, this.deps.startDeadlineMs ?? START_DEADLINE_MS);
     } catch (error) {
       log.error("retell call could not start", { clinicId: this.clinicId, error: describeError(error) });
       this.closing = true;
       // A gate that answered before the facts failed already named the line.
+      const decision = gated as AnswerDecision | null;
       const known = decision?.decision === "pass_through" ? decision.directLine : null;
-      this.sending.push(this.fallThrough(known));
+      this.sending.push(this.fallThrough(known, error instanceof Deadline ? started : null));
       return;
-    } finally {
-      clearTimeout(timer);
     }
-    this.directLine = this.facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
-    // Kept for a later call that cannot read the database (fallback-line.ts).
-    if (this.facts) rememberDirectLine(this.clinicId, this.facts.directLine, this.facts.phone);
+    this.begin(result);
+  }
 
-    if (!this.facts || (decision.decision === "pass_through" && servicesEnded(decision.reason))) {
+  /** The gate and the facts are in: close, transfer, or say the opening line. */
+  private begin({ decision, facts }: Started): void {
+    this.facts = facts;
+    // On the newest request, if the caller spoke while the start was slow.
+    const responseId = Math.max(this.latestResponseId, 0);
+    this.directLine = facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
+    // Kept for a later call that cannot read the database (fallback-line.ts).
+    if (facts) rememberDirectLine(this.clinicId, facts.directLine, facts.phone);
+
+    if (!facts || (decision.decision === "pass_through" && servicesEnded(decision.reason))) {
       this.closing = true;
-      this.say(0, CLOSED_LINE, { endCall: true });
+      this.say(responseId, CLOSED_LINE, { endCall: true });
       return;
     }
     if (decision.decision === "pass_through" && decision.directLine) {
       // Paused, capped or suspended: the caller goes to a person, never to silence.
       this.closing = true;
-      this.say(0, TRANSFER_LINE, { transferTo: decision.directLine });
+      this.say(responseId, TRANSFER_LINE, { transferTo: decision.directLine });
       return;
     }
     this.gateAnswered = decision.decision === "answer";
-    this.disclosurePlayedAt = now;
-    this.say(0, openingLine(this.facts, "voice"));
+    this.disclosurePlayedAt = this.now();
+    this.say(responseId, openingLine(facts, "voice"));
   }
 
   /**
@@ -256,7 +279,7 @@ export class RetellCallSession {
    * chain rather than in it, because the number the call came in on arrives
    * as a message (call details) after this has begun. The record waits for it.
    */
-  private async fallThrough(known: string | null): Promise<void> {
+  private async fallThrough(known: string | null, late: Promise<Started> | null): Promise<void> {
     // Call details may already have said this is an outbound call, which
     // callDetails has ended (v1 is inbound only): nothing more is said.
     if (this.outbound) return;
@@ -273,6 +296,20 @@ export class RetellCallSession {
       }
     }
     if (this.outbound) return;
+    if (!found && late) {
+      // Nowhere holds a line, and the start was slow rather than failed:
+      // give it longer to answer the call normally before closing.
+      try {
+        const result = await withDeadline(late, LATE_START_GRACE_MS);
+        if (this.outbound) return;
+        log.warn("retell call started late", { clinicId: this.clinicId });
+        this.closing = false;
+        this.begin(result);
+        return;
+      } catch {
+        if (this.outbound) return;
+      }
+    }
     // The latest request, if the caller has spoken while this was found.
     const responseId = Math.max(this.latestResponseId, 0);
     if (found && found.line !== this.calledNumber) {
@@ -374,8 +411,12 @@ export class RetellCallSession {
     if (turn.urgent && !this.urgent) {
       this.urgent = true;
       try {
-        await withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
-          notifyBookingAlert(tx, "urgent", { callId: this.callId, channel: "voice" }),
+        // Bounded, so a database that hangs never holds the urgent reply.
+        await withDeadline(
+          withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
+            notifyBookingAlert(tx, "urgent", { callId: this.callId, channel: "voice" }),
+          ),
+          ALERT_DEADLINE_MS,
         );
         urgentQueued = true;
       } catch (error) {
@@ -387,8 +428,11 @@ export class RetellCallSession {
     if (turn.handoff && !this.handoverAlerted && !this.urgent) {
       this.handoverAlerted = true;
       try {
-        await withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
-          notifyBookingAlert(tx, "handover", { callId: this.callId, channel: "voice" }),
+        await withDeadline(
+          withTenant({ clinicId: this.clinicId, actor: ACTOR }, (tx) =>
+            notifyBookingAlert(tx, "handover", { callId: this.callId, channel: "voice" }),
+          ),
+          ALERT_DEADLINE_MS,
         );
       } catch (error) {
         log.error("retell handover alert not raised", { clinicId: this.clinicId, error: describeError(error) });
@@ -407,7 +451,13 @@ export class RetellCallSession {
       this.failures = 0;
     }
     if (turn.end) this.closing = true;
-    this.say(responseId, turn.reply, { endCall: turn.end });
+    // Retell keeps only the latest response: a caller who spoke before the
+    // opening line went out may never have heard it. Retell's transcript
+    // then holds no word of the agent's, and the AI line comes first here.
+    // Not before an urgent reply, which must not wait behind it.
+    const heardOpening = Array.isArray(event.transcript) && (event.transcript as RetellTranscriptEntry[]).some((e) => e.role === "agent");
+    const reply = !heardOpening && !turn.urgent && this.disclosurePlayedAt ? `${openingLine(facts, "voice")} ${turn.reply}` : turn.reply;
+    this.say(responseId, reply, { endCall: turn.end });
     // The urgent alert is critical: sent in-process once its row has
     // committed, after the caller has heard the reply, so the line never
     // waits on an email. It never rejects; whatever it misses, the minute

@@ -24,15 +24,21 @@ without the database (`lib/voice/fallback-line.ts`): first from the process's me
 of the clinic's last call, then from the fallback number Retell holds for the
 clinic's AYA number. Each such call raises `voice_call_start_failed`, whose code says
 where it went (`transferred_memory`, `transferred_retell`, `transferred_gate`, or
-`closed` when no line was known and the caller heard the closing line).
+`closed` when no line was known and the caller heard the closing line). A start that
+was only slow, with no line known, gets five seconds more to answer normally first.
+That alert writes to the ops log before it emails, so while the database hangs rather
+than refuses it waits with the database and is not emailed: then the voice alarm and the
+`retell call could not start` log lines are the signal. The database pool sets no
+connection or statement timeout (`src/db/index.ts`), so after a hang it can stay
+jammed until its connections give up; a pool timeout is the fix, not yet made.
 
 The worker keeps that Retell fallback number equal to each clinic's direct line every
 hour (`lib/voice/retell-fallback-sync.ts`, tick job `retell-fallback`), through
 `HEALDESK_RETELL_API_KEY`. It never sets a line equal to the AYA number or the
 clinic's published number. It clears the fallback of a number whose clinic has no
-usable direct line, since a line left there could only be a previous holder's, and it
-leaves alone a number two clinics both name. `retell_fallback_unsynced` names a clinic
-whose number it could not set (`duplicate`, `missing`, `rejected`, `unreachable`,
+usable direct line, since a line left there could only be a previous holder's, and of a
+number two clinics both name. `retell_fallback_unsynced` names a clinic
+whose number it could not set (`duplicate`, `missing`, `not_kept`, `rejected`, `unreachable`,
 `database`); a refused key (`key_refused`) or three numbers in a row timing out
 (`retell_unreachable`) stops the run with one alert for every clinic. Offboarding forgets a clinic's AYA number, so the sync cannot clear that
 number's fallback: release the number in Retell, or clear its fallback, when a clinic

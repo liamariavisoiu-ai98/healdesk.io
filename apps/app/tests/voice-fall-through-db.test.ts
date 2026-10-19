@@ -68,6 +68,27 @@ describeDb("the voice fall-through, with the database", () => {
     ]);
   });
 
+  test("a caller who spoke before the opening line went out hears the AI line first", async () => {
+    const clinicId = await withNumbers("fall-opening");
+    const sent: RetellOutbound[] = [];
+    const session = new RetellCallSession(clinicId, "call_opening", (m) => sent.push(m), {
+      responder: async () => JSON.stringify({ reply: "Happy to help." }),
+      ingest: async () => ({}) as never,
+    });
+    await session.open();
+    // Retell's transcript holds no word of the agent's: the opening was dropped.
+    await session.handle(JSON.stringify({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "When are you open?" }] }));
+    const said = sent.filter((m): m is Extract<RetellOutbound, { response_type: "response" }> => m.response_type === "response");
+    const last = said[said.length - 1]!;
+    expect(last.response_id).toBe(1);
+    expect(last.content).toMatch(/^Hi, I'm an AI assistant/);
+    await session.handle(
+      JSON.stringify({ interaction_type: "response_required", response_id: 2, transcript: [{ role: "agent", content: last.content }, { role: "user", content: "Thanks" }] }),
+    );
+    const next = sent.filter((m) => m.response_type === "response").pop() as { content: string };
+    expect(next.content).not.toMatch(/AI assistant/);
+  });
+
   test("the hourly sync reads the AYA number and the direct line through its own queries", async () => {
     await truncateAll();
     await withNumbers("fall-sync");

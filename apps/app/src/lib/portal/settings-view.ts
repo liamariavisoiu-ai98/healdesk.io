@@ -234,8 +234,15 @@ export async function readSettingsView(input: {
               key: `channel_${platform}` as SettingKey,
               name: META_PLATFORM_NAMES[platform],
               on,
-              // Off is the platform's own; otherwise it stands where the Meta channel does.
-              statusLabel: on ? statusLabel : channelStatusWord("off"),
+              // Off is the platform's own. A pause is clinic-wide, so it is true of
+              // every platform; but the Meta channel's live date is the first
+              // platform's, and one connected later did not go live then, so a
+              // live platform says only that it is live.
+              statusLabel: !on
+                ? channelStatusWord("off")
+                : c.status === "live"
+                  ? channelStatusWord("live")
+                  : statusLabel,
               switchLine: `Off leaves ${META_PLATFORM_NAMES[platform]} messages for your team to answer in ${META_PLATFORM_NAMES[platform]}.`,
             };
           }),

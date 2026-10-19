@@ -210,6 +210,31 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
     ).toEqual([]);
   });
 
+  test("a live Meta channel dates itself, but each platform only says it is live: one connected later did not go live that day", async () => {
+    const clinic = await provisionPortalClinic("view-live", { plan: "voice-metachat-1000-1000" });
+    const view = async () =>
+      withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => {
+        const state = await readSetupState(tx, { userId: clinic.userId });
+        return state!;
+      }).then((state) => readSettingsView({ slug: clinic.clinicSlug, state, actor: ACTOR }));
+    await connect(clinic, "instagram");
+    await connect(clinic, "whatsapp", "embedded_signup");
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update clinic_channels set ready_at = '2026-10-14T15:00:00Z', live_at = '2026-10-14T15:00:00Z' where clinic_id = $1 and channel = 'meta'`,
+        [clinic.clinicId],
+      ),
+    );
+    const meta = (await view()).channels.find((c) => c.channel === "meta")!;
+    // The channel went live with its first platform, on 14 October.
+    expect(meta.statusLabel).toMatch(/^Live since 14 October/);
+    // WhatsApp, signed up later, never went live on the 14th: no platform repeats the date.
+    expect(meta.platforms!.map((p) => [p.platform, p.statusLabel])).toEqual([
+      ["instagram", "Live"],
+      ["whatsapp", "Live"],
+    ]);
+  });
+
   test("Settings shows a switch for each connected platform only, each with its own status word, and none for the channel itself", async () => {
     const clinic = await provisionPortalClinic("view", { plan: "voice-metachat-1000-1000" });
     const view = async () =>

@@ -73,9 +73,11 @@ const QUESTIONS_LINE = "Questions? Reply to this email and a person at healdesk 
  * What doing the steps below involves, never how long it takes (the set-up
  * promise describes the step, never the time; until 19 October 2026 this
  * said "It takes a few minutes"). The same three paths the steps take
- * (forwardingInstructions): the carrier's codes dialled from the line being
- * forwarded; a rule in a cloud phone system's admin; or, with no codes for
- * the carrier, a request to it.
+ * (forwardingInstructions): the carrier's steps for the kind of line, which
+ * for some lines are a call to the carrier or a setting on the phone rather
+ * than a code, so the sentence names the steps and only then the codes; a
+ * rule in a cloud phone system's admin; or, with no codes for the carrier, a
+ * request to it.
  */
 function howItIsDone(fields: ForwardingFields): string {
   if (fields.phoneSystem === "voip") {
@@ -89,7 +91,7 @@ function howItIsDone(fields: ForwardingFields): string {
   });
   return needsCarrierHelp
     ? "It's done by asking the practice's phone company, as below."
-    : "It's done by dialling the codes below from the practice's own phone, on the main line itself.";
+    : "It's done by following the steps below for the practice's kind of line, dialling each code from the main line itself.";
 }
 
 /** Website chat's: who asked, the two-sentence instruction, and the line. */

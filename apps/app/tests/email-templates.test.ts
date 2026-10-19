@@ -659,11 +659,11 @@ describe("phone's steps in O11", () => {
       // The carrier's codes, dialled from the line being forwarded.
       [
         phone,
-        "It's done by dialling the codes below from the practice's own phone, on the main line itself.",
+        "It's done by following the steps below for the practice's kind of line, dialling each code from the main line itself.",
       ],
       [
         { ...phone, carrier: "verizon", phoneSystem: "unknown", routing: "after_hours_only" },
-        "It's done by dialling the codes below from the practice's own phone, on the main line itself.",
+        "It's done by following the steps below for the practice's kind of line, dialling each code from the main line itself.",
       ],
       // A cloud phone system: a rule in its admin, whatever the carrier.
       [

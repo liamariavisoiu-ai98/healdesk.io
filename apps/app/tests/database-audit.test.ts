@@ -757,9 +757,10 @@ describeDb("database audit (0031)", () => {
   });
 
   test("the identity plane's records of who got in, and with what, cannot be erased by the runtime role", async () => {
-    // security_events (0003), sign_in_links (0043), and the portal's second
-    // factors and step-ups (0047): which device's passkey could open patient
-    // data, and when. A new table of this kind belongs on this list.
+    // security_events (0003), sign_in_links (0043), the portal's second
+    // factors and step-ups (0047), and the human route's links (0092):
+    // which device's passkey could open patient data, how it got there, and
+    // when. A new table of this kind belongs on this list.
     for (const table of [
       "security_events",
       "sign_in_links",
@@ -768,6 +769,7 @@ describeDb("database audit (0031)", () => {
       "webauthn_challenges",
       "step_ups",
       "factor_lockouts",
+      "device_recoveries",
     ]) {
       const { rows } = await getMigratorPool().query<{ deletable: boolean }>(
         `select has_table_privilege('healdesk_app', $1::regclass, 'DELETE') as deletable`,

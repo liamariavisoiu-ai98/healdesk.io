@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
@@ -20,6 +21,18 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vit
  * is stubbed, as in tests/passkeys.test.ts.
  */
 
+/**
+ * One response's cookies, as Next's cookies() store would carry them: what
+ * the browser sent, and every Set-Cookie the request wrote, in order. Each
+ * request runs inside its own jar (AsyncLocalStorage), so two concurrent
+ * POSTs never share one; outside a jar, cookies are read as absent and
+ * writes are dropped.
+ */
+type Jar = {
+  sent: Map<string, string>;
+  set: { name: string; value: string }[];
+};
+
 const mocks = vi.hoisted(() => {
   class NavigationSignal extends Error {
     constructor(readonly url: string) {
@@ -28,6 +41,7 @@ const mocks = vi.hoisted(() => {
   }
   return {
     NavigationSignal,
+    jars: undefined as unknown as { getStore(): Jar | undefined },
     headers: new Headers({ "user-agent": "vitest", "x-forwarded-for": "203.0.113.7" }),
     verifyRegistrationResponse: vi.fn(),
     sent: [] as { to: string; kind: string; subject: string; text: string }[],
@@ -36,7 +50,21 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("next/headers", () => ({
   headers: async () => mocks.headers,
-  cookies: async () => ({ get: () => undefined, set: () => undefined, delete: () => undefined }),
+  cookies: async () => {
+    const jar = mocks.jars?.getStore();
+    return {
+      get: (name: string) => {
+        const value = jar?.sent.get(name);
+        return value === undefined ? undefined : { name, value };
+      },
+      set: (name: string, value: string) => {
+        jar?.set.push({ name, value });
+      },
+      delete: (name: string) => {
+        jar?.set.push({ name, value: "" });
+      },
+    };
+  },
 }));
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
@@ -80,7 +108,8 @@ const { auth } = await import("@/lib/auth");
 const { passkeyEnrolDecision } = await import("@/lib/factors/authority");
 const { finishPasskeyRegistration, startPasskeyRegistration } =
   await import("@/lib/factors/passkeys");
-const { claimDeviceRecovery, lookUpDeviceRecovery } = await import("@/lib/factors/recovery");
+const { bindDeviceRecovery, claimDeviceRecovery, liveDeviceRecovery, lookUpDeviceRecovery } =
+  await import("@/lib/factors/recovery");
 const { someoneLeft } = await import("@/lib/factors/someone-left");
 const { hashSessionToken } = await import("@/lib/factors/step-ups");
 const { isMutating, isOpName, parseEnvelope, runOperation } = await import("@/lib/ops/api");
@@ -89,12 +118,18 @@ const { ProtectDevice } = await import("@/app/c/[slug]/protect/ProtectDevice");
 const { HUMAN_ROUTE, protectMode } = await import("@/app/c/[slug]/protect/copy");
 const { renderDeviceChanged } = await import("@/lib/email/templates/device_changed");
 
-const { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } =
+const { closePools, getAppPool, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } =
   await import("./setup/db");
-const { seedClinic } = await import("./setup/factories");
+const { unsafeDb } = await import("@/db");
+const { inTenant, seedClinic } = await import("./setup/factories");
+const { runAddressChangesJob } = await import("@/lib/sign-in/address-change");
+
+const jars = new AsyncLocalStorage<Jar>();
+mocks.jars = jars;
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ORIGIN = "https://app.healdesk.test";
+const SESSION_COOKIE = "hd.session_token";
 const OPERATOR = { email: "ops@healdesk.test", request: {} };
 
 type Binding = { userId: string; sessionTokenHash: Buffer };
@@ -102,6 +137,22 @@ type Clinic = Awaited<ReturnType<typeof seedClinic>>;
 
 async function sql<T extends Record<string, unknown>>(text: string, values: unknown[] = []) {
   return (await getMigratorPool().query<T>(text, values)).rows;
+}
+
+type Client = {
+  query: <T = Record<string, unknown>>(text: string, values?: unknown[]) => Promise<{ rows: T[] }>;
+};
+
+/** One block on the RUNTIME role, always rolled back. Identity plane: no tenant. */
+async function asApp<T>(fn: (c: Client) => Promise<T>): Promise<T> {
+  const client = await getAppPool().connect();
+  try {
+    await client.query("begin");
+    return await fn(client as unknown as Client);
+  } finally {
+    await client.query("rollback").catch(() => {});
+    client.release();
+  }
 }
 
 async function op(name: string, args: Record<string, unknown> = {}) {
@@ -155,21 +206,79 @@ function formAction(node: ReactNode): ((data: FormData) => Promise<void>) | null
 /**
  * Submit the /recover page's form for `token`; returns where the browser is
  * sent. A page rendered while a link worked can be submitted after it no
- * longer does (a stale tab), so the form may come from `pageOf`'s page.
+ * longer does (a stale tab), so the form may come from `pageOf`'s page. The
+ * POST runs in `jar`, a response of its own, whose Set-Cookies it records.
  */
-async function postLink(token: string, pageOf: string = token): Promise<string> {
-  const page = await RecoverPage({ params: Promise.resolve({ token: pageOf }) });
+async function postLink(
+  token: string,
+  pageOf: string = token,
+  jar: Jar = { sent: new Map(), set: [] },
+): Promise<string> {
+  return submit(await pageAction(pageOf), token, jar);
+}
+
+/** The Continue form's action, from the page as rendered for `token`. */
+async function pageAction(token: string): Promise<(data: FormData) => Promise<void>> {
+  const page = await RecoverPage({ params: Promise.resolve({ token }) });
   const action = formAction(page);
   if (!action) throw new Error("the page has no form to submit");
+  return action;
+}
+
+/** Submit a rendered form for `token` in `jar`, its own response; returns where the browser goes. */
+async function submit(
+  action: (data: FormData) => Promise<void>,
+  token: string,
+  jar: Jar,
+): Promise<string> {
   const data = new FormData();
   data.set("token", token);
+  return jars.run(jar, async () => {
+    try {
+      await action(data);
+    } catch (error) {
+      if (error instanceof mocks.NavigationSignal) return error.url;
+      throw error;
+    }
+    throw new Error("the action did not redirect");
+  });
+}
+
+/** The session cookies a response set, by value. */
+function sessionCookiesSet(jar: Jar): string[] {
+  return jar.set.filter((c) => c.name === SESSION_COOKIE).map((c) => c.value);
+}
+
+/** Make the sign-in's open links lapse, as the owner past the trigger that keeps every role off the clock. */
+async function lapse(userId: string): Promise<void> {
+  const client = await getMigratorPool().connect();
   try {
-    await action(data);
+    await client.query("begin");
+    await client.query(`alter table device_recoveries disable trigger device_recoveries_guard`);
+    await client.query(
+      `update device_recoveries set created_at = now() - interval '25 hours', expires_at = now() - interval '1 hour'
+        where user_id = $1 and used_at is null and revoked_at is null`,
+      [userId],
+    );
+    await client.query(`alter table device_recoveries enable trigger device_recoveries_guard`);
+    await client.query("commit");
   } catch (error) {
-    if (error instanceof mocks.NavigationSignal) return error.url;
+    await client.query("rollback");
     throw error;
+  } finally {
+    client.release();
   }
-  throw new Error("the action did not redirect");
+}
+
+/** Open a change of the sign-in's address straight in the table, as nothing in the app would, to test the backstops. */
+async function openChangeBehindTheAppsBack(clinic: Clinic, to: string): Promise<void> {
+  await inTenant(clinic.clinicId, (c) =>
+    c.query(
+      `insert into sign_in_address_changes (clinic_id, user_id, old_email, new_email, source, status, requested_by, confirmed_at, effective_at)
+       values ($1, $2, $3, $4, 'operator', 'pending', 'ops', now(), now() + interval '72 hours')`,
+      [clinic.clinicId, clinic.staffUserId, clinic.staffEmail, to],
+    ),
+  );
 }
 
 /** A session the way a sign-in link starts one. */
@@ -386,6 +495,25 @@ describe("O3 for what healdesk did", () => {
   });
 });
 
+describe("O16, the link's email", () => {
+  test("asks for a new email to stop it, never a reply, which would copy the live link into hello@", async () => {
+    const { DEVICE_RECOVERY_LINK_ENTRY } =
+      await import("@/lib/email/templates/device_recovery_link");
+    const rendered = DEVICE_RECOVERY_LINK_ENTRY.render(DEVICE_RECOVERY_LINK_ENTRY.fixture, {
+      clinicName: "Radiance Med Spa",
+      audience: "patients",
+      reason:
+        "You're receiving this because this is the address on Radiance Med Spa's healdesk account.",
+      raisedAt: new Date("2026-10-19T14:32:00Z"),
+      timeZone: "America/New_York",
+    });
+    expect(rendered.text).toContain(
+      "Write a new email to hello@healdesk.io, rather than replying to this one, so the link isn't copied into it",
+    );
+    expect(rendered.text).not.toMatch(/reply to this email/i);
+  });
+});
+
 describeDb("the human route", () => {
   beforeAll(async () => {
     await runMigrations();
@@ -429,19 +557,42 @@ describeDb("the human route", () => {
     ]);
   });
 
-  test("the table: a window over 24 hours, a stretched one, a second claim and a used link moved again are refused, for every role", async () => {
+  test("the table: the database dates and binds every link; a forward date, a longer window, a link that arrives claimed or bound elsewhere are refused or undone, for the runtime role", async () => {
     const clinic = await seedClinic("rtable");
     const digest = () => createHash("sha256").update(randomBytes(16)).digest();
+    const insert = (extra = "", values: unknown[] = []) =>
+      asApp((c) =>
+        c.query<{ id: string; ahead: boolean; hours: string }>(
+          `insert into device_recoveries (user_id, token_hash, address_hash, landing, issued_by, created_at, expires_at${extra ? `, ${extra}` : ""})
+           values ($1, $2, app_address_hash($1), '/c/x/protect', 'ops', now() + interval '1 year', now() + interval '1 year 23 hours'${values.length ? `, ${values.map((_, i) => `$${i + 3}`).join(", ")}` : ""})
+           returning id, created_at > now() as ahead, extract(epoch from (expires_at - created_at)) / 3600 as hours`,
+          [clinic.staffUserId, digest(), ...values],
+        ),
+      );
+    // Forward-dated by a year: the database dates it now, for exactly 24 hours.
+    const [dated] = (await insert()).rows;
+    expect(dated).toMatchObject({ ahead: false });
+    expect(Number(dated!.hours)).toBe(24);
+    // Arriving already claimed by a session of someone's choosing, or bound
+    // to an address that is not the sign-in's: refused.
     await expect(
-      sql(
-        `insert into device_recoveries (user_id, token_hash, landing, issued_by, expires_at)
-         values ($1, $2, '/c/x/protect', 'ops', now() + interval '25 hours')`,
-        [clinic.staffUserId, digest()],
+      insert("claimed_at, session_token_hash", [new Date(), digest()]),
+    ).rejects.toMatchObject({
+      code: "42501",
+    });
+    await expect(
+      asApp((c) =>
+        c.query(
+          `insert into device_recoveries (user_id, token_hash, address_hash, landing, issued_by, expires_at)
+           values ($1, $2, $3, '/c/x/protect', 'ops', now() + interval '24 hours')`,
+          [clinic.staffUserId, digest(), digest()],
+        ),
       ),
-    ).rejects.toMatchObject({ code: "23514" });
+    ).rejects.toMatchObject({ code: "42501" });
+
     const [row] = await sql<{ id: string }>(
-      `insert into device_recoveries (user_id, token_hash, landing, issued_by, expires_at)
-       values ($1, $2, '/c/x/protect', 'ops', now() + interval '24 hours') returning id`,
+      `insert into device_recoveries (user_id, token_hash, address_hash, landing, issued_by, expires_at)
+       values ($1, $2, app_address_hash($1), '/c/x/protect', 'ops', now() + interval '24 hours') returning id`,
       [clinic.staffUserId, digest()],
     );
     const id = row!.id;
@@ -451,10 +602,15 @@ describeDb("the human route", () => {
         [id],
       ),
     ).rejects.toMatchObject({ code: "42501" });
-    await sql(
-      `update device_recoveries set claimed_at = now(), session_token_hash = $2 where id = $1`,
-      [id, digest()],
-    );
+    await expect(
+      sql(`update device_recoveries set address_hash = $2 where id = $1`, [id, digest()]),
+    ).rejects.toMatchObject({ code: "42501" });
+    // A session is named only once the link is claimed, and only once.
+    await expect(
+      sql(`update device_recoveries set session_token_hash = $2 where id = $1`, [id, digest()]),
+    ).rejects.toMatchObject({ code: "23514" });
+    await sql(`update device_recoveries set claimed_at = now() where id = $1`, [id]);
+    await sql(`update device_recoveries set session_token_hash = $2 where id = $1`, [id, digest()]);
     await expect(
       sql(`update device_recoveries set session_token_hash = $2 where id = $1`, [id, digest()]),
     ).rejects.toMatchObject({ code: "42501" });
@@ -628,21 +784,31 @@ describeDb("the human route", () => {
     await goLive(theirs.clinicId);
     const token = await issue(mine);
 
-    // Another clinic's sign-in holding the token: no claim, and nothing spent.
+    // Claimed, it can be bound only to a session of this clinic's sign-in:
+    // another clinic's session gets nothing from it.
+    const claimed = await claimDeviceRecovery({ token });
+    if (!claimed.ok) throw new Error(claimed.reason);
+    expect(claimed.userId).toBe(mine.staffUserId);
     const stranger = await startSession(theirs.staffUserId);
-    expect(await claimDeviceRecovery({ token, sessionId: stranger.id })).toEqual({
-      ok: false,
-      reason: "used",
-    });
-    expect(await lookUpDeviceRecovery(token)).toMatchObject({ ok: true });
+    expect(
+      await bindDeviceRecovery({ recoveryId: claimed.recoveryId, sessionId: stranger.id }),
+    ).toBe(false);
     expect(
       await passkeyEnrolDecision(theirs.staffUserId, stranger.binding.sessionTokenHash),
     ).toMatchObject({ allowed: false });
-
-    // Claimed by this clinic's browser; another session of the same sign-in
-    // (a second link, another browser) gets nothing from it.
-    await postLink(token);
+    const browser = await startSession(mine.staffUserId);
+    expect(
+      await bindDeviceRecovery({ recoveryId: claimed.recoveryId, sessionId: browser.id }),
+    ).toBe(true);
+    // Once only: not to a second session after it.
     const other = await startSession(mine.staffUserId);
+    expect(await bindDeviceRecovery({ recoveryId: claimed.recoveryId, sessionId: other.id })).toBe(
+      false,
+    );
+    expect(await liveDeviceRecovery(unsafeDb, browser.binding)).not.toBeNull();
+
+    // Another session of the same sign-in (a second link, another browser)
+    // gets nothing from it.
     expect(await passkeyEnrolDecision(mine.staffUserId, other.binding.sessionTokenHash)).toEqual({
       allowed: false,
       codeRoute: false,
@@ -659,16 +825,8 @@ describeDb("the human route", () => {
     await goLive(clinic.clinicId);
     // A page to submit from: another clinic's link, still open.
     const elsewhere = await issue(await seedClinic("rwindow-other"));
-    const lapsed = randomBytes(32).toString("base64url");
-    await sql(
-      `insert into device_recoveries (user_id, token_hash, landing, issued_by, created_at, expires_at)
-       values ($1, $2, $3, 'ops', now() - interval '25 hours', now() - interval '1 hour')`,
-      [
-        clinic.staffUserId,
-        createHash("sha256").update(lapsed).digest(),
-        `/c/${clinic.slug}/protect`,
-      ],
-    );
+    const lapsed = await issue(clinic);
+    await lapse(clinic.staffUserId);
     expect(await lookUpDeviceRecovery(lapsed)).toEqual({ ok: false, reason: "expired" });
     expect(await postLink(lapsed, elsewhere)).toBe(`/recover/${lapsed}`);
     expect(await sessionsOf(clinic.staffUserId)).toHaveLength(0);
@@ -687,29 +845,8 @@ describeDb("the human route", () => {
     const started = await startPasskeyRegistration({ session });
     if (!started.ok) throw new Error(started.reason);
 
-    // The window passes between the challenge and the passkey (as the owner,
-    // past the trigger that keeps every role off the clock).
-    const client = await getMigratorPool().connect();
-    try {
-      await client.query("begin");
-      await client.query(
-        `alter table device_recoveries disable trigger device_recoveries_no_rewrite`,
-      );
-      await client.query(
-        `update device_recoveries set created_at = now() - interval '25 hours', expires_at = now() - interval '1 hour'
-          where user_id = $1 and used_at is null and revoked_at is null`,
-        [clinic.staffUserId],
-      );
-      await client.query(
-        `alter table device_recoveries enable trigger device_recoveries_no_rewrite`,
-      );
-      await client.query("commit");
-    } catch (error) {
-      await client.query("rollback");
-      throw error;
-    } finally {
-      client.release();
-    }
+    // The window passes between the challenge and the passkey.
+    await lapse(clinic.staffUserId);
     expect(await finish(session, started.options.challenge, "Front desk Mac")).toEqual({
       ok: false,
       reason: "needs_step_up",
@@ -725,6 +862,7 @@ describeDb("the human route", () => {
     const token = await issue(clinic);
     expect(await op("endDeviceRecovery", { clinicId: clinic.clinicId })).toEqual({
       status: "ended",
+      browsersSignedOut: 0,
     });
     expect(await op("endDeviceRecovery", { clinicId: clinic.clinicId })).toEqual({
       status: "none",
@@ -733,6 +871,282 @@ describeDb("the human route", () => {
     expect((await events("device_recovery_revoked"))[0]).toMatchObject({
       actor_label: "ops@healdesk.test",
       metadata: { reason: "operator_ended", clinicId: clinic.clinicId },
+    });
+  });
+
+  test("ending or replacing a link a browser has opened signs that browser out, and ends its step-ups", async () => {
+    const clinic = await seedClinic("rendclaimed");
+    const device = await seedPasskey(clinic.staffUserId, "Front desk Mac");
+    const signedIn = await startSession(clinic.staffUserId);
+    await postLink(await issue(clinic));
+    const [, claimer] = await sessionsOf(clinic.staffUserId);
+    // A step-up on that browser from another device, which must end with it.
+    await sql(
+      `insert into step_ups (session_token_hash, user_id, factor_id, device_label) values ($1, $2, $3, 'Front desk Mac')`,
+      [hashSessionToken(claimer!.token), clinic.staffUserId, device],
+    );
+    expect(await op("endDeviceRecovery", { clinicId: clinic.clinicId })).toEqual({
+      status: "ended",
+      browsersSignedOut: 1,
+    });
+    expect((await sessionsOf(clinic.staffUserId)).map((x) => x.id)).toEqual([signedIn.id]);
+    expect(
+      await sql(`select 1 from step_ups where session_token_hash = $1 and revoked_at is null`, [
+        hashSessionToken(claimer!.token),
+      ]),
+    ).toEqual([]);
+    expect((await events("device_recovery_revoked"))[0]!.metadata).toMatchObject({
+      reason: "operator_ended",
+      browsersSignedOut: 1,
+    });
+
+    // Replaced: a newer link ends the claimed one's browser the same way.
+    await postLink(await issue(clinic));
+    expect(await sessionsOf(clinic.staffUserId)).toHaveLength(2);
+    await lapse(clinic.staffUserId);
+    await issue(clinic);
+    expect((await sessionsOf(clinic.staffUserId)).map((x) => x.id)).toEqual([signedIn.id]);
+    expect((await events("device_recovery_revoked")).at(-1)!.metadata).toMatchObject({
+      reason: "replaced",
+      browsersSignedOut: 1,
+    });
+  });
+
+  describe("the address it was sent to", () => {
+    test("no link is issued while a change of the address is open, and the console is told why", async () => {
+      const clinic = await seedClinic("raddropen");
+      expect(
+        await op("changeClinicEmail", {
+          clinicId: clinic.clinicId,
+          newEmail: "front@radiance.test",
+        }),
+      ).toMatchObject({ status: "entered" });
+      mocks.sent.length = 0;
+      const refused = await op("issueDeviceRecovery", {
+        clinicId: clinic.clinicId,
+        calledBack: true,
+      });
+      expect(refused).toMatchObject({ status: "refused" });
+      expect(String(refused.message)).toContain("the address on file is the one being retired");
+      expect(mocks.sent).toEqual([]);
+      expect(await sql(`select 1 from device_recoveries`)).toEqual([]);
+      expect((await events("device_recovery_issue_refused"))[0]).toMatchObject({
+        actor_label: "ops@healdesk.test",
+        user_id: clinic.staffUserId,
+        metadata: { code: "address_changing", clinicId: clinic.clinicId },
+      });
+      expect(await op("getClinicDevices", { clinicId: clinic.clinicId })).toMatchObject({
+        addressChangeOpen: true,
+      });
+
+      // Stopped, a link can be sent again.
+      await op("stopClinicEmailChange", { clinicId: clinic.clinicId });
+      expect(await op("getClinicDevices", { clinicId: clinic.clinicId })).toMatchObject({
+        addressChangeOpen: false,
+      });
+      await issue(clinic);
+    });
+
+    test("starting a change ends an open link, and the browser that had opened it", async () => {
+      const clinic = await seedClinic("raddrstart");
+      const unclaimed = await issue(clinic);
+      expect(
+        await op("changeClinicEmail", {
+          clinicId: clinic.clinicId,
+          newEmail: "front@radiance.test",
+        }),
+      ).toMatchObject({ status: "entered" });
+      expect(await lookUpDeviceRecovery(unclaimed)).toEqual({ ok: false, reason: "ended" });
+      await op("stopClinicEmailChange", { clinicId: clinic.clinicId });
+
+      await postLink(await issue(clinic));
+      expect(await sessionsOf(clinic.staffUserId)).toHaveLength(1);
+      await op("changeClinicEmail", { clinicId: clinic.clinicId, newEmail: "desk@radiance.test" });
+      expect(await sessionsOf(clinic.staffUserId)).toHaveLength(0);
+      const [row] = await sql<{ revoked_reason: string }>(
+        `select revoked_reason from device_recoveries order by created_at desc limit 1`,
+      );
+      expect(row!.revoked_reason).toBe("address_changed");
+      expect((await events("device_recovery_revoked")).at(-1)!.metadata).toMatchObject({
+        reason: "address_changed",
+        browsersSignedOut: 1,
+      });
+    });
+
+    test("applying a change ends any link still open for the old address, and says so", async () => {
+      const clinic = await seedClinic("raddrapply");
+      const entered = await op("changeClinicEmail", {
+        clinicId: clinic.clinicId,
+        newEmail: "front@radiance.test",
+      });
+      // A link minted for the old address some way the app never would.
+      const [link] = await sql<{ id: string }>(
+        `insert into device_recoveries (user_id, token_hash, address_hash, landing, issued_by, expires_at)
+         values ($1, $2, app_address_hash($1), $3, 'ops', now() + interval '24 hours') returning id`,
+        [
+          clinic.staffUserId,
+          createHash("sha256").update(randomBytes(16)).digest(),
+          `/c/${clinic.slug}/protect`,
+        ],
+      );
+      await inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `update sign_in_address_changes
+              set effective_at = now() - interval '1 minute', confirmed_at = now() - interval '73 hours'
+            where id = $1`,
+          [entered.changeId],
+        ),
+      );
+      expect((await runAddressChangesJob()).applied).toBe(1);
+      const [row] = await sql<{ revoked_reason: string }>(
+        `select revoked_reason from device_recoveries where id = $1`,
+        [link!.id],
+      );
+      expect(row!.revoked_reason).toBe("address_changed");
+      expect((await events("sign_in_address_changed"))[0]!.metadata).toMatchObject({
+        recoveriesRevoked: 1,
+        recoveryIds: [link!.id],
+      });
+    });
+
+    test("a link whose address moved neither signs in nor adds a device, and its refusal is recorded", async () => {
+      const clinic = await seedClinic("raddrmoved");
+      await goLive(clinic.clinicId);
+      const unclaimed = await issue(clinic);
+      const elsewhere = await issue(await seedClinic("raddrmoved-other"));
+      // The address moves some way that ends nothing (a backstop test).
+      await sql(`update "user" set email = 'moved@radiance.test' where id = $1`, [
+        clinic.staffUserId,
+      ]);
+      expect(await lookUpDeviceRecovery(unclaimed)).toEqual({ ok: false, reason: "moved" });
+      expect(await postLink(unclaimed, elsewhere)).toBe(`/recover/${unclaimed}`);
+      expect(await sessionsOf(clinic.staffUserId)).toHaveLength(0);
+      expect((await events("device_recovery_refused")).at(-1)!.metadata).toMatchObject({
+        code: "moved",
+      });
+      expect(
+        renderToStaticMarkup(await RecoverPage({ params: Promise.resolve({ token: unclaimed }) })),
+      ).toContain("This link no longer works.");
+
+      // Claimed before the move: the session it started adds nothing after it.
+      await sql(`update "user" set email = $2 where id = $1`, [
+        clinic.staffUserId,
+        clinic.staffEmail,
+      ]);
+      await sql(
+        `update device_recoveries set revoked_at = now(), revoked_reason = 'replaced' where user_id = $1 and revoked_at is null and used_at is null`,
+        [clinic.staffUserId],
+      );
+      await postLink(await issue(clinic));
+      const [s] = await sessionsOf(clinic.staffUserId);
+      const session = { userId: clinic.staffUserId, sessionTokenHash: hashSessionToken(s!.token) };
+      const started = await startPasskeyRegistration({ session });
+      if (!started.ok) throw new Error(started.reason);
+      await sql(`update "user" set email = 'moved@radiance.test' where id = $1`, [
+        clinic.staffUserId,
+      ]);
+      mocks.sent.length = 0;
+      expect(await finish(session, started.options.challenge, "Front desk Mac")).toEqual({
+        ok: false,
+        reason: "needs_step_up",
+      });
+      expect(await passkeys(clinic.staffUserId)).toEqual([]);
+      expect(mocks.sent).toEqual([]);
+    });
+
+    test("while a change is open, a claimed link adds no device, so O3 never goes to the address being retired", async () => {
+      const clinic = await seedClinic("raddrretire");
+      await goLive(clinic.clinicId);
+      await postLink(await issue(clinic));
+      const [s] = await sessionsOf(clinic.staffUserId);
+      const session = { userId: clinic.staffUserId, sessionTokenHash: hashSessionToken(s!.token) };
+      const started = await startPasskeyRegistration({ session });
+      if (!started.ok) throw new Error(started.reason);
+      await openChangeBehindTheAppsBack(clinic, "front@radiance.test");
+      expect(
+        await passkeyEnrolDecision(clinic.staffUserId, session.sessionTokenHash),
+      ).toMatchObject({
+        allowed: false,
+      });
+      mocks.sent.length = 0;
+      expect(await finish(session, started.options.challenge, "Front desk Mac")).toEqual({
+        ok: false,
+        reason: "needs_step_up",
+      });
+      expect(await passkeys(clinic.staffUserId)).toEqual([]);
+      expect(mocks.sent).toEqual([]);
+    });
+  });
+
+  describe("the Continue button, at the page, with the browser's own cookies", () => {
+    // The session cookie is set inside startLinkSession, by Better Auth's
+    // nextCookies plugin, which imports "next/headers.js" from inside
+    // node_modules, where no test mock reaches. So each call records the
+    // Set-Cookie it makes into the response it runs in, as that plugin
+    // would: the value is the session's token, as Better Auth's cookie is.
+    beforeAll(() => {
+      const original = auth.api.startLinkSession.bind(auth.api);
+      vi.spyOn(auth.api, "startLinkSession").mockImplementation((async (
+        ...args: Parameters<typeof original>
+      ) => {
+        const started = await original(...args);
+        const [row] = await sql<{ token: string }>(`select token from session where id = $1`, [
+          started.sessionId,
+        ]);
+        jars.getStore()?.set.push({ name: SESSION_COOKIE, value: `${row!.token}.signature` });
+        return started;
+      }) as typeof original);
+    });
+
+    afterAll(() => {
+      vi.restoreAllMocks();
+    });
+
+    test("two POSTs at once: one claims, and only its response sets a session cookie", async () => {
+      const clinic = await seedClinic("rrace");
+      const token = await issue(clinic);
+      const a: Jar = { sent: new Map(), set: [] };
+      const b: Jar = { sent: new Map(), set: [] };
+      // Both tabs rendered while the link worked, then both pressed at once.
+      const [tabA, tabB] = [await pageAction(token), await pageAction(token)];
+      const landed = await Promise.all([submit(tabA, token, a), submit(tabB, token, b)]);
+      expect([...landed].sort()).toEqual([`/c/${clinic.slug}/protect`, `/recover/${token}`].sort());
+      const winner = landed[0] === `/c/${clinic.slug}/protect` ? a : b;
+      const loser = winner === a ? b : a;
+      expect(sessionCookiesSet(winner)).toHaveLength(1);
+      expect(loser.set).toEqual([]);
+
+      // The one session there is, the one the cookie names, holds the link.
+      const sessions = await sessionsOf(clinic.staffUserId);
+      expect(sessions).toHaveLength(1);
+      expect(decodeURIComponent(sessionCookiesSet(winner)[0]!).split(".")[0]).toBe(
+        sessions[0]!.token,
+      );
+      const [row] = await sql<{ session_token_hash: Buffer }>(
+        `select session_token_hash from device_recoveries`,
+      );
+      expect(
+        Buffer.from(row!.session_token_hash).equals(hashSessionToken(sessions[0]!.token)),
+      ).toBe(true);
+    });
+
+    test("a losing POST never replaces the session cookie the browser already holds", async () => {
+      const clinic = await seedClinic("rkeep");
+      const token = await issue(clinic);
+      const browser: Jar = { sent: new Map(), set: [] };
+      await postLink(token, token, browser);
+      const [held] = sessionCookiesSet(browser);
+      expect(held).toBeDefined();
+
+      // The same browser, a stale tab submitting the spent link: nothing set.
+      const fresh = await issue(await seedClinic("rkeep-other"));
+      const again: Jar = { sent: new Map([[SESSION_COOKIE, held!]]), set: [] };
+      expect(await postLink(token, fresh, again)).toBe(`/recover/${token}`);
+      expect(again.set).toEqual([]);
+      expect(await sessionsOf(clinic.staffUserId)).toHaveLength(1);
+      expect((await events("device_recovery_refused")).at(-1)!.metadata).toMatchObject({
+        code: "used",
+      });
     });
   });
 
@@ -825,6 +1239,9 @@ describeDb("the human route", () => {
         2,
       );
       expect(await events("operator_signed_out")).toEqual([]);
+      expect((await events("operator_sign_out_refused")).map((e) => e.metadata)).toEqual([
+        { code: "not_this_sign_in", clinicId: clinic.clinicId },
+      ]);
     });
   });
 

@@ -110,10 +110,17 @@ describe("the human route's link from /admin", () => {
     expect(sent).toHaveLength(1);
   });
 
-  test("ending a link needs no code: it only takes access away", async () => {
-    replies.push({ data: { status: "ended" } });
-    expect(await endDeviceRecovery(CLINIC)).toEqual({ ok: true, data: { status: "ended" } });
+  test("ending a link needs no code, and says whether a browser was signed out with it", async () => {
+    replies.push({ data: { status: "ended", browsersSignedOut: 1 } });
+    expect(await endDeviceRecovery(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "ended", browsersSignedOut: 1 },
+    });
     expect(sent).toEqual([{ op: "endDeviceRecovery", args: { clinicId: CLINIC } }]);
+    replies.push({ data: { status: "none" } });
+    expect(await endDeviceRecovery(CLINIC)).toEqual({ ok: true, data: { status: "none" } });
+    replies.push({ data: { status: "ended" } });
+    expect(await endDeviceRecovery(CLINIC)).toMatchObject({ ok: false, code: "malformed" });
   });
 });
 
@@ -171,6 +178,7 @@ describe("the devices reader is strict", () => {
     backupCodesLeft: 9,
     sessions: 2,
     patientDataMayExist: true,
+    addressChangeOpen: false,
     recoveries: [
       {
         id: LINK,
@@ -196,6 +204,7 @@ describe("the devices reader is strict", () => {
       { ...view, recoveries: [{ ...view.recoveries[0], state: "teleported" }] },
       { ...view, recoveries: [{ ...view.recoveries[0], revokedReason: "because" }] },
       { ...view, sessions: 1.5 },
+      { ...view, addressChangeOpen: "no" },
     ]) {
       replies.push({ data: bad });
       expect(await fetchClinicDevices(CLINIC)).toMatchObject({ ok: false, code: "malformed" });

@@ -47,6 +47,7 @@ function view(overrides: Partial<ClinicDevicesView> = {}): OpsResult<ClinicDevic
       backupCodesLeft: 0,
       sessions: 1,
       patientDataMayExist: true,
+      addressChangeOpen: false,
       recoveries: [],
       ...overrides,
     },
@@ -64,6 +65,39 @@ describe("the devices section", () => {
     expect(page).toContain("Code from your authenticator");
     expect(page).toContain("once, within 24 hours");
     expect(page).not.toContain("End this link");
+  });
+
+  test("while a change of the address is under way, no link can be sent, and the page says why", () => {
+    const page = text(
+      h(DevicesSection, { view: view({ addressChangeOpen: true }), actions: ACTIONS }),
+    );
+    expect(page).toContain("No link can be sent now.");
+    expect(page).toContain("the address on file is the one being retired");
+    expect(page).not.toContain("Send the link");
+  });
+
+  test("a link a browser has opened says ending it signs that browser out", () => {
+    const page = text(
+      h(DevicesSection, {
+        view: view({
+          recoveries: [
+            {
+              id: "9b2e1c4d-1111-4c2a-9a8b-1f2e3d4c5b6a",
+              state: "claimed",
+              issuedBy: "ops@healdesk.test",
+              createdAt: "2026-10-19T14:32:00.000Z",
+              expiresAt: "2026-10-20T14:32:00.000Z",
+              claimedAt: "2026-10-19T14:40:00.000Z",
+              usedAt: null,
+              revokedAt: null,
+              revokedReason: null,
+            },
+          ],
+        }),
+        actions: ACTIONS,
+      }),
+    );
+    expect(page).toContain("A browser has opened it: ending it signs that browser out too.");
   });
 
   test("a link already out is ended, not sent twice", () => {

@@ -24,7 +24,13 @@ export const DEVICE_RECOVERY_REVOKE_REASONS = [
   "someone_left",
   /** The operator removed devices and signed everyone out, after the clinic replied to O3. */
   "operator_signed_out",
-  /** The operator ended it unused: the clinic replied that nobody there asked for it. */
+  /** The operator ended it unused: the clinic said nobody there asked for it. */
   "operator_ended",
+  /**
+   * The clinic's sign-in address began to change, or moved: a link mailed to
+   * the old address must not add a device once that address is on its way
+   * out (lib/sign-in/address-change.ts), as its sign-in links are spent.
+   */
+  "address_changed",
 ] as const;
 export type DeviceRecoveryRevokeReason = (typeof DEVICE_RECOVERY_REVOKE_REASONS)[number];

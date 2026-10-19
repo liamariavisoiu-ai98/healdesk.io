@@ -5102,6 +5102,7 @@ export const DEVICE_RECOVERY_REVOKE_REASONS = [
   "someone_left",
   "operator_signed_out",
   "operator_ended",
+  "address_changed",
 ] as const;
 
 export type ClinicDevice = {
@@ -5134,6 +5135,8 @@ export type ClinicDevicesView = {
   sessions: number;
   /** A clinic of this sign-in is live or in production: a sign-in link alone adds no device. */
   patientDataMayExist: boolean;
+  /** A change of the sign-in's address is open: no link can be sent until it ends. */
+  addressChangeOpen: boolean;
   recoveries: DeviceRecoveryRow[];
 };
 
@@ -5174,6 +5177,7 @@ export function fetchClinicDevices(clinicId: string): Promise<OpsResult<ClinicDe
       backupCodesLeft: count(data.backupCodesLeft, "getClinicDevices.backupCodesLeft"),
       sessions: count(data.sessions, "getClinicDevices.sessions"),
       patientDataMayExist: bool(data.patientDataMayExist, "getClinicDevices.patientDataMayExist"),
+      addressChangeOpen: bool(data.addressChangeOpen, "getClinicDevices.addressChangeOpen"),
       recoveries: list(data.recoveries, "getClinicDevices.recoveries").map(readDeviceRecovery),
     };
   });
@@ -5212,13 +5216,26 @@ export function issueDeviceRecovery(
   );
 }
 
-/** The clinic's open link ended unused. It only takes access away, so no fresh code. */
+export type EndDeviceRecoveryOutcome =
+  | { status: "ended"; browsersSignedOut: number }
+  | { status: "none" };
+
+/**
+ * The clinic's open link ended unused, and the browser that had opened it,
+ * if one had, signed out. It only takes access away, so no fresh code.
+ */
 export function endDeviceRecovery(
   clinicId: string,
-): Promise<OpsResult<{ status: "ended" | "none" }>> {
+): Promise<OpsResult<EndDeviceRecoveryOutcome>> {
   return callOps("endDeviceRecovery", "write", { clinicId }, (value) => {
     const data = object(value, "endDeviceRecovery");
-    return { status: literal(data.status, ["ended", "none"] as const, "endDeviceRecovery.status") };
+    const status = literal(data.status, ["ended", "none"] as const, "endDeviceRecovery.status");
+    return status === "none"
+      ? { status }
+      : {
+          status,
+          browsersSignedOut: count(data.browsersSignedOut, "endDeviceRecovery.browsersSignedOut"),
+        };
   });
 }
 

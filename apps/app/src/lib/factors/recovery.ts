@@ -11,6 +11,7 @@ import { maskEmail } from "@/lib/sign-in/links";
 
 import type { SessionBinding } from "./passkeys";
 import type { DeviceRecoveryRevokeReason } from "./recovery-terms";
+import { endStepUps } from "./step-ups";
 
 /**
  * The human route for a clinic that has lost every device (plan Part D3,
@@ -32,9 +33,10 @@ import type { DeviceRecoveryRevokeReason } from "./recovery-terms";
  *      link still open for the sign-in, and emails the link to the clinic's
  *      address on file, as stored, and nowhere else.
  *   2. **Claim** (/recover/<token>). A GET only looks, so a mail scanner
- *      spends nothing. The POST starts a session for the sign-in and claims
- *      the row for that session in one conditional UPDATE: once, unexpired,
- *      unrevoked. A claim that loses ends the session it started.
+ *      spends nothing. The POST claims the row in one conditional UPDATE
+ *      (once, unexpired, unrevoked, its address still the sign-in's) before
+ *      any session exists, so a losing claim signs nobody in and sends no
+ *      cookie; the winner then starts a session and binds the row to it.
  *   3. **Use** (lib/factors/passkeys.ts, basis `recovery`). That session, and
  *      no other, may add one passkey. The row is spent in the transaction
  *      that stores the passkey, by a conditional UPDATE, so of two
@@ -42,7 +44,12 @@ import type { DeviceRecoveryRevokeReason } from "./recovery-terms";
  *      device was added this way.
  *
  * The window, DEVICE_RECOVERY_TTL_HOURS from issue, covers the claim and the
- * use, on the database's clock, and a CHECK keeps it from being longer.
+ * use, on the database's clock: the database dates the row on INSERT and a
+ * CHECK keeps the window from being longer (drizzle/0092). A link is bound
+ * to the address it was mailed to: none is issued while a change of that
+ * address is open, starting or applying one ends it, and it neither claims
+ * nor adds a device once its address is not the sign-in's or a change of it
+ * is open, so O3 never goes to an address on its way out.
  * Every step writes a security_events row with ids only. The token is
  * returned once, into one email, and only its SHA-256 is stored.
  *
@@ -91,11 +98,22 @@ export async function lockFactors(db: Queryable, userId: string): Promise<void> 
 // 2. Claim
 // -----------------------------------------------------------------------------
 
-export type DeviceRecoveryProblem = "unknown" | "used" | "expired" | "ended";
+/**
+ * Why a link does nothing: never ours, already used, past its window, ended
+ * by healdesk or a newer link, or `moved`: the address it was mailed to is
+ * no longer the sign-in's, or a change of that address is under way.
+ */
+export type DeviceRecoveryProblem = "unknown" | "used" | "expired" | "ended" | "moved";
 
 export type DeviceRecoveryLookup =
   | { ok: true; recoveryId: string; userId: string; emailMasked: string; landing: string }
   | { ok: false; reason: DeviceRecoveryProblem };
+
+/**
+ * The link's address is still the sign-in's, and no change of it is open:
+ * the condition every claim and every use of a link repeats (drizzle/0092).
+ */
+const ADDRESS_STILL_ITS = sql`(${deviceRecoveries.addressHash} = app_address_hash(${deviceRecoveries.userId}) and not app_sign_in_address_change_open(${deviceRecoveries.userId}))`;
 
 /** What a link would do, without using it: the GET that renders "Continue". */
 export async function lookUpDeviceRecovery(token: unknown): Promise<DeviceRecoveryLookup> {
@@ -110,6 +128,7 @@ export async function lookUpDeviceRecovery(token: unknown): Promise<DeviceRecove
       claimedAt: deviceRecoveries.claimedAt,
       revokedAt: deviceRecoveries.revokedAt,
       expired: sql<boolean>`${deviceRecoveries.expiresAt} <= now()`,
+      addressStillIts: sql<boolean>`${ADDRESS_STILL_ITS}`,
     })
     .from(deviceRecoveries)
     .innerJoin(user, eq(user.id, deviceRecoveries.userId))
@@ -119,6 +138,7 @@ export async function lookUpDeviceRecovery(token: unknown): Promise<DeviceRecove
   if (row.claimedAt) return { ok: false, reason: "used" };
   if (row.revokedAt) return { ok: false, reason: "ended" };
   if (row.expired) return { ok: false, reason: "expired" };
+  if (!row.addressStillIts) return { ok: false, reason: "moved" };
   return {
     ok: true,
     recoveryId: row.id,
@@ -128,37 +148,66 @@ export async function lookUpDeviceRecovery(token: unknown): Promise<DeviceRecove
   };
 }
 
+/**
+ * Record a link presented and refused (used, ended, expired, moved), against
+ * the sign-in it was for: a spent or ended link presented again is the case
+ * most likely to mean it leaked. A token that is none of ours names no
+ * sign-in, so nothing is recorded for it. Never throws.
+ */
+export async function recordRecoveryRefusal(input: {
+  token: unknown;
+  reason: DeviceRecoveryProblem;
+  request?: RecoveryTrace;
+}): Promise<void> {
+  const hash = hashIfWellFormed(input.token);
+  if (!hash) return;
+  try {
+    const [known] = await unsafeDb
+      .select({ id: deviceRecoveries.id, userId: deviceRecoveries.userId })
+      .from(deviceRecoveries)
+      .where(eq(deviceRecoveries.tokenHash, hash))
+      .limit(1);
+    if (!known) return;
+    await recordSecurityEvent(unsafeDb, {
+      event: "device_recovery_refused",
+      actorLabel: await actorLabelFor(unsafeDb, known.userId),
+      userId: known.userId,
+      ipAddress: input.request?.ipAddress ?? null,
+      userAgent: input.request?.userAgent ?? null,
+      metadata: { recoveryId: known.id, code: input.reason },
+    });
+  } catch (error) {
+    log.error("device recovery refusal not recorded", { error: describeError(error) });
+  }
+}
+
 export type DeviceRecoveryClaim =
   | { ok: true; recoveryId: string; userId: string; landing: string }
   | { ok: false; reason: DeviceRecoveryProblem };
 
 /**
- * Spend the link for the session it just started (`sessionId`, Better Auth's
- * row): one conditional UPDATE, so of two submissions exactly one claims it,
- * and the claim names the session by SHA-256 of its token, read from the
- * session row in the same statement, which must be this sign-in's. The page
- * ends the session it started when this loses.
+ * Spend the link, before any session exists: one conditional UPDATE, so of
+ * two submissions exactly one claims it, and the loser has started no
+ * session and sends the browser no cookie, so it can never replace a
+ * session the browser already holds. The winner then starts its session and
+ * names it with bindDeviceRecovery. A refusal is recorded.
  */
 export async function claimDeviceRecovery(input: {
   token: unknown;
-  sessionId: string;
   request?: RecoveryTrace;
 }): Promise<DeviceRecoveryClaim> {
   const hash = hashIfWellFormed(input.token);
   if (!hash) return { ok: false, reason: "unknown" };
   const [row] = await unsafeDb
     .update(deviceRecoveries)
-    .set({
-      claimedAt: sql`now()`,
-      sessionTokenHash: sql`(select sha256(convert_to(s.token, 'UTF8')) from "session" s where s.id = ${input.sessionId} and s.user_id = ${deviceRecoveries.userId})`,
-    })
+    .set({ claimedAt: sql`now()` })
     .where(
       and(
         eq(deviceRecoveries.tokenHash, hash),
         isNull(deviceRecoveries.claimedAt),
         isNull(deviceRecoveries.revokedAt),
         gt(deviceRecoveries.expiresAt, sql`now()`),
-        sql`exists (select 1 from "session" s where s.id = ${input.sessionId} and s.user_id = ${deviceRecoveries.userId})`,
+        ADDRESS_STILL_ITS,
       ),
     )
     .returning({
@@ -166,116 +215,129 @@ export async function claimDeviceRecovery(input: {
       userId: deviceRecoveries.userId,
       landing: deviceRecoveries.landing,
     });
-  const trace = {
-    ipAddress: input.request?.ipAddress ?? null,
-    userAgent: input.request?.userAgent ?? null,
-  };
   if (row) {
     await recordSecurityEvent(unsafeDb, {
       event: "device_recovery_claimed",
       actorLabel: await actorLabelFor(unsafeDb, row.userId),
       userId: row.userId,
-      ...trace,
+      ipAddress: input.request?.ipAddress ?? null,
+      userAgent: input.request?.userAgent ?? null,
       metadata: { recoveryId: row.id },
     });
     return { ok: true, recoveryId: row.id, userId: row.userId, landing: row.landing };
   }
 
-  // Lost the race, or never could have won: say which, and record it
-  // against the sign-in the link was for, when it was one.
+  // Lost the race, or never could have won: say which.
   const state = await lookUpDeviceRecovery(input.token);
   const reason: DeviceRecoveryProblem = state.ok ? "used" : state.reason;
-  const [known] = await unsafeDb
-    .select({ id: deviceRecoveries.id, userId: deviceRecoveries.userId })
-    .from(deviceRecoveries)
-    .where(eq(deviceRecoveries.tokenHash, hash))
-    .limit(1);
-  if (known) {
-    await recordSecurityEvent(unsafeDb, {
-      event: "device_recovery_refused",
-      actorLabel: await actorLabelFor(unsafeDb, known.userId),
-      userId: known.userId,
-      ...trace,
-      metadata: { recoveryId: known.id, code: reason },
-    }).catch((error) =>
-      log.error("device recovery refusal not recorded", { error: describeError(error) }),
-    );
-  }
+  await recordRecoveryRefusal({ token: input.token, reason, request: input.request });
   return { ok: false, reason };
 }
 
 /**
- * End the session a losing claim started, before its cookie is ever sent
- * back: a link that could not be claimed signs nobody in. Better Auth reads
- * the session row on every request, so a deleted row is a signed-out
- * browser; a session this new has no step-up to end.
+ * Name the session the winning claim started (`sessionId`, Better Auth's
+ * row), by SHA-256 of its token read from the row in the same statement,
+ * which must be this sign-in's. Once only, and only while the link is still
+ * unspent and unrevoked: false when the operator ended it in between, and
+ * the session is then a plain sign-in that can add nothing.
  */
-export async function abandonSession(sessionId: string): Promise<void> {
-  await unsafeDb.delete(session).where(eq(session.id, sessionId));
+export async function bindDeviceRecovery(input: {
+  recoveryId: string;
+  sessionId: string;
+}): Promise<boolean> {
+  const bound = await unsafeDb
+    .update(deviceRecoveries)
+    .set({
+      sessionTokenHash: sql`(select sha256(convert_to(s.token, 'UTF8')) from "session" s where s.id = ${input.sessionId} and s.user_id = ${deviceRecoveries.userId})`,
+    })
+    .where(
+      and(
+        eq(deviceRecoveries.id, input.recoveryId),
+        isNotNull(deviceRecoveries.claimedAt),
+        isNull(deviceRecoveries.sessionTokenHash),
+        isNull(deviceRecoveries.usedAt),
+        isNull(deviceRecoveries.revokedAt),
+        sql`exists (select 1 from "session" s where s.id = ${input.sessionId} and s.user_id = ${deviceRecoveries.userId})`,
+      ),
+    )
+    .returning({ id: deviceRecoveries.id });
+  return bound.length > 0;
 }
 
 // -----------------------------------------------------------------------------
 // 3. Use, and the end
 // -----------------------------------------------------------------------------
 
+/** A claimed link that this session of this sign-in may still spend, on the database's clock. */
+function spendable(binding: SessionBinding) {
+  return and(
+    eq(deviceRecoveries.userId, binding.userId),
+    eq(deviceRecoveries.sessionTokenHash, binding.sessionTokenHash),
+    isNotNull(deviceRecoveries.claimedAt),
+    isNull(deviceRecoveries.usedAt),
+    isNull(deviceRecoveries.revokedAt),
+    gt(deviceRecoveries.expiresAt, sql`now()`),
+    ADDRESS_STILL_ITS,
+  );
+}
+
 /**
  * The link this session claimed, if it may still add its one device: claimed
- * by this session of this sign-in, unspent, unrevoked, inside its window.
+ * by this session of this sign-in, unspent, unrevoked, inside its window,
+ * and still bound to the sign-in's address with no change of it open.
  */
 export async function liveDeviceRecovery(
   db: Queryable,
-  session: SessionBinding,
+  binding: SessionBinding,
 ): Promise<{ id: string; expiresAt: Date } | null> {
   const [row] = await db
     .select({ id: deviceRecoveries.id, expiresAt: deviceRecoveries.expiresAt })
     .from(deviceRecoveries)
-    .where(
-      and(
-        eq(deviceRecoveries.userId, session.userId),
-        eq(deviceRecoveries.sessionTokenHash, session.sessionTokenHash),
-        isNotNull(deviceRecoveries.claimedAt),
-        isNull(deviceRecoveries.usedAt),
-        isNull(deviceRecoveries.revokedAt),
-        gt(deviceRecoveries.expiresAt, sql`now()`),
-      ),
-    )
+    .where(spendable(binding))
     .limit(1);
   return row ?? null;
 }
 
 /**
  * Spend this session's link on `factorId`, the passkey just stored in the
- * same transaction. One conditional UPDATE: null when there is nothing left
- * to spend, and the caller then rolls the passkey back.
+ * same transaction. One conditional UPDATE, with every condition of
+ * liveDeviceRecovery: null when there is nothing left to spend, and the
+ * caller then rolls the passkey back. The address the link was mailed to is
+ * the sign-in's still, so the O3 that follows goes to that address.
  */
 export async function spendDeviceRecovery(
   db: Queryable,
-  session: SessionBinding,
+  binding: SessionBinding,
   factorId: string,
 ): Promise<string | null> {
   const [row] = await db
     .update(deviceRecoveries)
     .set({ usedAt: sql`now()`, factorId })
-    .where(
-      and(
-        eq(deviceRecoveries.userId, session.userId),
-        eq(deviceRecoveries.sessionTokenHash, session.sessionTokenHash),
-        isNotNull(deviceRecoveries.claimedAt),
-        isNull(deviceRecoveries.usedAt),
-        isNull(deviceRecoveries.revokedAt),
-        gt(deviceRecoveries.expiresAt, sql`now()`),
-      ),
-    )
+    .where(spendable(binding))
     .returning({ id: deviceRecoveries.id });
   return row?.id ?? null;
 }
 
-/** End every link of the sign-in not yet used, claimed or not. Returns their ids. */
+export type RevokedRecoveries = {
+  ids: string[];
+  /** Sessions a claimed link had started, now ended. */
+  browsersSignedOut: number;
+};
+
+/**
+ * End every link of the sign-in not yet used, claimed or not, in the
+ * caller's transaction. A claimed link takes the session it started with
+ * it, and that session's step-ups: ending the link signs that browser out,
+ * so a link ended because nobody at the clinic asked for it leaves nobody
+ * signed in by it. Better Auth reads the session row on every request, and
+ * the sign-out hook in lib/auth.ts does not see a direct delete, hence the
+ * step-ups here.
+ */
 export async function revokeOpenDeviceRecoveries(
   db: Queryable,
   userId: string,
   reason: DeviceRecoveryRevokeReason,
-): Promise<string[]> {
+): Promise<RevokedRecoveries> {
   const rows = await db
     .update(deviceRecoveries)
     .set({ revokedAt: sql`now()`, revokedReason: reason })
@@ -286,38 +348,64 @@ export async function revokeOpenDeviceRecoveries(
         isNull(deviceRecoveries.revokedAt),
       ),
     )
-    .returning({ id: deviceRecoveries.id });
-  return rows.map((r) => r.id);
+    .returning({ id: deviceRecoveries.id, sessionTokenHash: deviceRecoveries.sessionTokenHash });
+  let browsersSignedOut = 0;
+  for (const row of rows) {
+    if (!row.sessionTokenHash) continue;
+    const ended = await db
+      .delete(session)
+      .where(
+        and(
+          eq(session.userId, userId),
+          sql`sha256(convert_to(${session.token}, 'UTF8')) = ${row.sessionTokenHash}`,
+        ),
+      )
+      .returning({ id: session.id });
+    browsersSignedOut += ended.length;
+    await endStepUps({ sessionTokenHash: row.sessionTokenHash }, db);
+  }
+  return { ids: rows.map((r) => r.id), browsersSignedOut };
 }
+
+export type EndDeviceRecoveryOutcome =
+  | {
+      status: "ended";
+      /** Whether a browser had used the link, and was signed out with it. */
+      browsersSignedOut: number;
+    }
+  | { status: "none" };
 
 /**
  * The operator ends the clinic's open link unused (the ops operation
- * endDeviceRecovery): the clinic replied that nobody there asked for it. It
- * only takes access away, so it needs no fresh code, like stopping an
- * address change.
+ * endDeviceRecovery): the clinic said nobody there asked for it. A browser
+ * that had already used the link is signed out with it. It only takes
+ * access away, so it needs no fresh code, like stopping an address change.
  */
 export async function endDeviceRecovery(input: {
   userId: string;
   clinicId: string;
   operatorLabel: string;
   request?: RecoveryTrace;
-}): Promise<{ status: "ended" | "none" }> {
-  const ended = await unsafeDb.transaction(async (tx) => {
+}): Promise<EndDeviceRecoveryOutcome> {
+  return unsafeDb.transaction(async (tx): Promise<EndDeviceRecoveryOutcome> => {
     await lockFactors(tx, input.userId);
-    const ids = await revokeOpenDeviceRecoveries(tx, input.userId, "operator_ended");
-    if (ids.length > 0) {
-      await recordSecurityEvent(tx, {
-        event: "device_recovery_revoked",
-        actorLabel: input.operatorLabel,
-        userId: input.userId,
-        ipAddress: input.request?.ipAddress ?? null,
-        userAgent: input.request?.userAgent ?? null,
-        metadata: { recoveryIds: ids, reason: "operator_ended", clinicId: input.clinicId },
-      });
-    }
-    return ids.length;
+    const revoked = await revokeOpenDeviceRecoveries(tx, input.userId, "operator_ended");
+    if (revoked.ids.length === 0) return { status: "none" };
+    await recordSecurityEvent(tx, {
+      event: "device_recovery_revoked",
+      actorLabel: input.operatorLabel,
+      userId: input.userId,
+      ipAddress: input.request?.ipAddress ?? null,
+      userAgent: input.request?.userAgent ?? null,
+      metadata: {
+        recoveryIds: revoked.ids,
+        reason: "operator_ended",
+        clinicId: input.clinicId,
+        browsersSignedOut: revoked.browsersSignedOut,
+      },
+    });
+    return { status: "ended", browsersSignedOut: revoked.browsersSignedOut };
   });
-  return { status: ended > 0 ? "ended" : "none" };
 }
 
 // -----------------------------------------------------------------------------

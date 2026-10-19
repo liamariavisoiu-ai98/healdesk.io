@@ -15,6 +15,13 @@ import type { EmailTemplate } from "./types";
  * once, within DEVICE_RECOVERY_TTL_HOURS; O3 then says a device was added
  * this way. A link email (X1.5): the token is minted at send time and lives
  * only here.
+ *
+ * To stop it, the clinic is asked to write to hello@ afresh, never to reply:
+ * a reply quotes the live link into our inbox. Resend's open and click
+ * tracking are domain settings, not per-message ones; nothing here or in
+ * the transport turns them on, and Annex X8's launch check reads them off
+ * (GET /domains/:id), because a tracked click would carry the token through
+ * a redirect host.
  */
 
 export type DeviceRecoveryLinkPayload = {
@@ -41,7 +48,7 @@ export const renderDeviceRecoveryLink: EmailTemplate<DeviceRecoveryLinkPayload> 
         },
         {
           type: "paragraph",
-          text: "If nobody at your clinic spoke to healdesk about this, don't use the link: reply to this email now and we'll stop it.",
+          text: "If nobody at your clinic spoke to healdesk about this, don't use the link. Write a new email to hello@healdesk.io, rather than replying to this one, so the link isn't copied into it, and we'll stop it.",
         },
       ],
     },

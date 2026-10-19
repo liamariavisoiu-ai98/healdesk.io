@@ -1,5 +1,5 @@
 {
-  "id": "a6b9c0d8-71e7-4c7a-8a48-b2c7a70f3a4c",
+  "id": "a51ffba7-d942-4b0b-895d-408f95507980",
   "prevId": "f8988f89-e04a-49b1-9449-875a413da99b",
   "version": "7",
   "dialect": "postgresql",
@@ -5738,6 +5738,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "address_hash": {
+          "name": "address_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
         "landing": {
           "name": "landing",
           "type": "text",
@@ -5906,6 +5912,10 @@
           "name": "device_recoveries_token_hash_length",
           "value": "octet_length(\"device_recoveries\".\"token_hash\") = 32"
         },
+        "device_recoveries_address_hash_length": {
+          "name": "device_recoveries_address_hash_length",
+          "value": "octet_length(\"device_recoveries\".\"address_hash\") = 32"
+        },
         "device_recoveries_session_hash_length": {
           "name": "device_recoveries_session_hash_length",
           "value": "\"device_recoveries\".\"session_token_hash\" is null or octet_length(\"device_recoveries\".\"session_token_hash\") = 32"
@@ -5924,11 +5934,11 @@
         },
         "device_recoveries_claim_check": {
           "name": "device_recoveries_claim_check",
-          "value": "(\"device_recoveries\".\"claimed_at\" is null) = (\"device_recoveries\".\"session_token_hash\" is null)"
+          "value": "\"device_recoveries\".\"session_token_hash\" is null or \"device_recoveries\".\"claimed_at\" is not null"
         },
         "device_recoveries_use_check": {
           "name": "device_recoveries_use_check",
-          "value": "\"device_recoveries\".\"used_at\" is null or \"device_recoveries\".\"claimed_at\" is not null"
+          "value": "\"device_recoveries\".\"used_at\" is null or \"device_recoveries\".\"session_token_hash\" is not null"
         },
         "device_recoveries_factor_check": {
           "name": "device_recoveries_factor_check",
@@ -5936,7 +5946,7 @@
         },
         "device_recoveries_revoked_check": {
           "name": "device_recoveries_revoked_check",
-          "value": "(\"device_recoveries\".\"revoked_at\" is null) = (\"device_recoveries\".\"revoked_reason\" is null) and (\"device_recoveries\".\"revoked_at\" is null or \"device_recoveries\".\"used_at\" is null) and (\"device_recoveries\".\"revoked_reason\" is null or \"device_recoveries\".\"revoked_reason\" in ('replaced', 'someone_left', 'operator_signed_out', 'operator_ended'))"
+          "value": "(\"device_recoveries\".\"revoked_at\" is null) = (\"device_recoveries\".\"revoked_reason\" is null) and (\"device_recoveries\".\"revoked_at\" is null or \"device_recoveries\".\"used_at\" is null) and (\"device_recoveries\".\"revoked_reason\" is null or \"device_recoveries\".\"revoked_reason\" in ('replaced', 'someone_left', 'operator_signed_out', 'operator_ended', 'address_changed'))"
         }
       },
       "isRLSEnabled": false

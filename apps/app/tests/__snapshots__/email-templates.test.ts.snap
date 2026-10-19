@@ -2842,7 +2842,7 @@ exports[`each template's output > device_recovery_link, for clients: the snapsho
 <p style="margin:0 0 16px;">Your clinic told us on the phone that no device on its healdesk sign-in can open patient details any more. This link lets one phone or computer add its own Face ID, fingerprint or screen lock to the sign-in. Open it on that device.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/recover/Rw7kT2nB5xQ9mV3cL8pZ1sF6dJ4hG0yAeN2uOiXtKqE" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Add a device</a></p>
 <p style="margin:0 0 16px;">It works once, for the next 24 hours, and adds one device only. When the device is added, we email this address to say so.</p>
-<p style="margin:0 0 16px;">If nobody at your clinic spoke to healdesk about this, don&#39;t use the link: reply to this email now and we&#39;ll stop it.</p>
+<p style="margin:0 0 16px;">If nobody at your clinic spoke to healdesk about this, don&#39;t use the link. Write a new email to hello@healdesk.io, rather than replying to this one, so the link isn&#39;t copied into it, and we&#39;ll stop it.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -2859,7 +2859,7 @@ Add a device: https://app.healdesk.test/recover/Rw7kT2nB5xQ9mV3cL8pZ1sF6dJ4hG0yA
 
 It works once, for the next 24 hours, and adds one device only. When the device is added, we email this address to say so.
 
-If nobody at your clinic spoke to healdesk about this, don't use the link: reply to this email now and we'll stop it.
+If nobody at your clinic spoke to healdesk about this, don't use the link. Write a new email to hello@healdesk.io, rather than replying to this one, so the link isn't copied into it, and we'll stop it.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -2893,7 +2893,7 @@ exports[`each template's output > device_recovery_link, for patients: the snapsh
 <p style="margin:0 0 16px;">Your clinic told us on the phone that no device on its healdesk sign-in can open patient details any more. This link lets one phone or computer add its own Face ID, fingerprint or screen lock to the sign-in. Open it on that device.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/recover/Rw7kT2nB5xQ9mV3cL8pZ1sF6dJ4hG0yAeN2uOiXtKqE" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Add a device</a></p>
 <p style="margin:0 0 16px;">It works once, for the next 24 hours, and adds one device only. When the device is added, we email this address to say so.</p>
-<p style="margin:0 0 16px;">If nobody at your clinic spoke to healdesk about this, don&#39;t use the link: reply to this email now and we&#39;ll stop it.</p>
+<p style="margin:0 0 16px;">If nobody at your clinic spoke to healdesk about this, don&#39;t use the link. Write a new email to hello@healdesk.io, rather than replying to this one, so the link isn&#39;t copied into it, and we&#39;ll stop it.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
 <p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
@@ -2910,7 +2910,7 @@ Add a device: https://app.healdesk.test/recover/Rw7kT2nB5xQ9mV3cL8pZ1sF6dJ4hG0yA
 
 It works once, for the next 24 hours, and adds one device only. When the device is added, we email this address to say so.
 
-If nobody at your clinic spoke to healdesk about this, don't use the link: reply to this email now and we'll stop it.
+If nobody at your clinic spoke to healdesk about this, don't use the link. Write a new email to hello@healdesk.io, rather than replying to this one, so the link isn't copied into it, and we'll stop it.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

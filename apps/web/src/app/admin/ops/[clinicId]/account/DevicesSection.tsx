@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import type {
   ClinicDevicesView,
   DeviceRecoveryRow,
+  EndDeviceRecoveryOutcome,
   IssueDeviceRecoveryOutcome,
   OpsResult,
   RemoveClinicDevicesOutcome,
@@ -32,7 +33,7 @@ export type DevicesActions = {
     code: string;
     calledBack: boolean;
   }) => Promise<OpsResult<IssueDeviceRecoveryOutcome>>;
-  endRecovery: () => Promise<OpsResult<{ status: "ended" | "none" }>>;
+  endRecovery: () => Promise<OpsResult<EndDeviceRecoveryOutcome>>;
   removeDevices: (input: {
     code: string;
     calledBack: boolean;
@@ -59,6 +60,7 @@ const REASON_WORDS: Record<NonNullable<DeviceRecoveryRow["revokedReason"]>, stri
   someone_left: "the clinic used Someone left",
   operator_signed_out: "ops signed everyone out",
   operator_ended: "ops ended it",
+  address_changed: "the clinic's sign-in address began to change, or moved",
 };
 
 type Note = { tone: "ok" | "bad"; text: string } | null;
@@ -152,6 +154,13 @@ function Devices({ v, actions }: { v: ClinicDevicesView; actions: DevicesActions
 
       {open ? (
         <OpenLink row={open} onEnd={actions.endRecovery} />
+      ) : v.addressChangeOpen ? (
+        <p className="border-line rounded-sm border px-4 py-3">
+          <span className="font-semibold">No link can be sent now.</span> A change of the
+          clinic&rsquo;s sign-in address is under way (see above), so the address on file is the one
+          being retired, and a link sent now would go there. Send one once the change has taken
+          effect, or after it is stopped.
+        </p>
       ) : (
         <SendLink onSend={actions.issueRecovery} />
       )}
@@ -193,6 +202,9 @@ function OpenLink({
       </p>
       <p className="text-muted mt-1">
         If the clinic says nobody there asked for it, end it. Sending another also ends it.
+        {row.state === "claimed"
+          ? " A browser has opened it: ending it signs that browser out too."
+          : ""}
       </p>
       <button
         type="button"
@@ -204,7 +216,13 @@ function OpenLink({
               !result.ok
                 ? { tone: "bad", text: result.message }
                 : result.data.status === "ended"
-                  ? { tone: "ok", text: "Ended." }
+                  ? {
+                      tone: "ok",
+                      text:
+                        result.data.browsersSignedOut > 0
+                          ? `Ended, and the browser that had opened it was signed out.`
+                          : "Ended. No browser had opened it.",
+                    }
                   : { tone: "ok", text: "Nothing was open." },
             );
           })

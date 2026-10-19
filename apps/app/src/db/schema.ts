@@ -5056,11 +5056,15 @@ export const factorLockouts = pgTable(
  * session, inside its window:
  *
  *   - **issued**: `token_hash` is SHA-256 of the link's token, never the
- *     token; `expires_at` is at most DEVICE_RECOVERY_TTL_HOURS after
- *     `created_at` (a CHECK), on the database's clock;
- *   - **claimed**: the link was used. `claimed_at` and `session_token_hash`
- *     are set together, in one conditional UPDATE, to the session the link
- *     started, so only that browser can use what the link allows;
+ *     token; `address_hash` is SHA-256 of the sign-in address it was mailed
+ *     to (app_address_hash), checked again at claim and at use, so a link
+ *     sent before the address moved adds nothing after. The database sets
+ *     `created_at` and `expires_at`, DEVICE_RECOVERY_TTL_HOURS later, on
+ *     INSERT (a trigger), and a row always arrives unclaimed;
+ *   - **claimed**: the link was used. `claimed_at` is set first, by one
+ *     conditional UPDATE, before any session exists, so a losing claim
+ *     signs nobody in; then `session_token_hash`, once, names the session
+ *     the winner started, so only that browser can use what it allows;
  *   - **used**: that session added one passkey (`used_at`, `factor_id`), in
  *     the same transaction as the passkey, and nothing more;
  *   - **revoked**: ended unused, by a newer link, the clinic's "Someone
@@ -5086,6 +5090,8 @@ export const deviceRecoveries = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     tokenHash: bytea("token_hash").notNull(),
+    /** SHA-256 of the sign-in's address when the link was mailed to it (app_address_hash). */
+    addressHash: bytea("address_hash").notNull(),
     /** Where the link lands: `/c/<slug>/protect`. A path on this app, like sign_in_links.redirect_to. */
     landing: text("landing").notNull(),
     /** The operator's address, as a snapshot. */
@@ -5110,6 +5116,7 @@ export const deviceRecoveries = pgTable(
       .on(t.sessionTokenHash)
       .where(sql`${t.sessionTokenHash} is not null`),
     check("device_recoveries_token_hash_length", sql`octet_length(${t.tokenHash}) = 32`),
+    check("device_recoveries_address_hash_length", sql`octet_length(${t.addressHash}) = 32`),
     check(
       "device_recoveries_session_hash_length",
       sql`${t.sessionTokenHash} is null or octet_length(${t.sessionTokenHash}) = 32`,
@@ -5128,11 +5135,11 @@ export const deviceRecoveries = pgTable(
     ),
     check(
       "device_recoveries_claim_check",
-      sql`(${t.claimedAt} is null) = (${t.sessionTokenHash} is null)`,
+      sql`${t.sessionTokenHash} is null or ${t.claimedAt} is not null`,
     ),
     check(
       "device_recoveries_use_check",
-      sql`${t.usedAt} is null or ${t.claimedAt} is not null`,
+      sql`${t.usedAt} is null or ${t.sessionTokenHash} is not null`,
     ),
     check(
       "device_recoveries_factor_check",

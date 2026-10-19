@@ -15,7 +15,7 @@ import {
 } from "@/lib/email/templates/device_recovery_link";
 import { describeError, log } from "@/lib/log";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
-import { clinicSignIn } from "@/lib/sign-in/address-change";
+import { clinicSignIn, openAddressChange } from "@/lib/sign-in/address-change";
 import { withTenant } from "@/lib/tenant";
 
 import { hashRecoveryToken, lockFactors, revokeOpenDeviceRecoveries } from "./recovery";
@@ -46,12 +46,24 @@ export type DeviceRecoveryIssue =
     }
   | { status: "refused"; message: string };
 
+/** Why an issue was refused, as recorded: a code, never the words shown. */
+type IssueRefusal =
+  "no_call_back" | "no_origin" | "no_clinic" | "closed" | "no_sign_in" | "address_changing";
+
 /**
  * Mint the basis and send its link to the clinic's address on file. The
  * caller is the ops operation: the operator's session, the call back and a
  * fresh code from the operator's authenticator were checked on apps/web, and
  * `calledBack` is the operator's tick, carried in the signed request and
  * refused here too when it is missing.
+ *
+ * Refused while a change of the sign-in's address is open (awaiting its
+ * confirmation, or pending its 72 hours): until it applies the address on
+ * file is the one being retired, and a link mailed there would hand a device
+ * to whoever keeps that inbox. Checked under the factor lock that starting a
+ * change also takes (lib/sign-in/address-change.ts), so the two cannot pass
+ * each other. The link is bound to the address it is mailed to, read in the
+ * same transaction. Every refusal is recorded.
  */
 export async function issueDeviceRecovery(
   input: {
@@ -64,20 +76,38 @@ export async function issueDeviceRecovery(
   },
   options: SendEmailOptions = {},
 ): Promise<DeviceRecoveryIssue> {
+  const operatorLabel = input.operatorLabel.trim().slice(0, 200) || "ops";
+  const trace = {
+    ipAddress: input.request?.ipAddress ?? null,
+    userAgent: input.request?.userAgent ?? null,
+  };
+  const refuse = async (
+    code: IssueRefusal,
+    message: string,
+    userId: string | null = null,
+  ): Promise<DeviceRecoveryIssue> => {
+    await recordSecurityEvent(unsafeDb, {
+      event: "device_recovery_issue_refused",
+      actorLabel: operatorLabel,
+      userId,
+      ...trace,
+      metadata: { code, clinicId: input.clinicId },
+    }).catch((error) =>
+      log.error("device recovery refusal not recorded", { error: describeError(error) }),
+    );
+    return { status: "refused", message };
+  };
+
   if (input.calledBack !== true) {
-    return {
-      status: "refused",
-      message:
-        "Call the practice back on its published number first, and hear from it that it asked for this. Nothing was sent.",
-    };
+    return refuse(
+      "no_call_back",
+      "Call the practice back on its published number first, and hear from it that it asked for this. Nothing was sent.",
+    );
   }
   // The link must point somewhere: refuse before anything is minted rather
   // than leave a live link nobody can follow (lib/public-url.ts).
   if (publicOriginProblem()) {
-    return {
-      status: "refused",
-      message: "Links can't be sent from this deployment yet. Nothing was sent.",
-    };
+    return refuse("no_origin", "Links can't be sent from this deployment yet. Nothing was sent.");
   }
 
   const clinic = await withTenant(
@@ -95,21 +125,25 @@ export async function issueDeviceRecovery(
         .where(eq(clinics.id, tx.clinicId))
         .limit(1);
       if (!row) return null;
-      return { ...row, signIn: await clinicSignIn(tx) };
+      return { ...row, signIn: await clinicSignIn(tx), change: await openAddressChange(tx) };
     },
   );
-  if (!clinic) return { status: "refused", message: "No such clinic." };
+  if (!clinic) return refuse("no_clinic", "No such clinic.");
   if (clinic.offboardingStartedAt) {
-    return {
-      status: "refused",
-      message: "This account has closed, so no device can be added. Nothing was sent.",
-    };
+    return refuse(
+      "closed",
+      "This account has closed, so no device can be added. Nothing was sent.",
+    );
   }
   if (!clinic.signIn) {
-    return { status: "refused", message: "This clinic has no sign-in. Nothing was sent." };
+    return refuse("no_sign_in", "This clinic has no sign-in. Nothing was sent.");
   }
   const { userId } = clinic.signIn;
-  const operatorLabel = input.operatorLabel.trim().slice(0, 200) || "ops";
+  const changing = (when: Date | null) =>
+    `A change of the clinic's sign-in address is under way${
+      when ? `, taking effect ${when.toISOString().slice(0, 16).replace("T", " ")} UTC` : ""
+    }. Until it takes effect, the address on file is the one being retired, so a link sent now would go there. Nothing was sent: send it once the change has taken effect, or after it is stopped.`;
+  if (clinic.change) return refuse("address_changing", changing(clinic.change.effectiveAt), userId);
 
   const raw = randomBytes(TOKEN_BYTES);
   const token = raw.toString("base64url");
@@ -117,30 +151,45 @@ export async function issueDeviceRecovery(
 
   const issued = await unsafeDb.transaction(async (tx) => {
     await lockFactors(tx, userId);
+    // Again under the lock, across every clinic of the sign-in: a change
+    // started at another location, or since the read above, is a change.
+    const [open] = await tx
+      .execute<{ open: boolean }>(sql`select app_sign_in_address_change_open(${userId}) as open`)
+      .then((r) => r.rows);
+    if (open?.open) return { refused: "address_changing" as const };
+    const [account] = await tx
+      .select({ email: user.email })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+    if (!account) return { refused: "no_sign_in" as const };
     const replaced = await revokeOpenDeviceRecoveries(tx, userId, "replaced");
     const [row] = await tx
       .insert(deviceRecoveries)
       .values({
         userId,
         tokenHash: hashRecoveryToken(token),
+        // Bound to the address read above, the one the link is mailed to.
+        addressHash: sql`app_address_hash(${userId})`,
         landing: `/c/${clinic.slug}/protect`,
         issuedBy: operatorLabel,
-        // The database's clock, like every other expiry it enforces.
+        // The database dates the row itself (drizzle/0092); this is its rule.
         expiresAt: sql`now() + ${WINDOW}`,
       })
       .returning({ id: deviceRecoveries.id, expiresAt: deviceRecoveries.expiresAt });
     if (!row) throw new Error("The device recovery was not recorded.");
-    const trace = {
-      ipAddress: input.request?.ipAddress ?? null,
-      userAgent: input.request?.userAgent ?? null,
-    };
-    if (replaced.length > 0) {
+    if (replaced.ids.length > 0) {
       await recordSecurityEvent(tx, {
         event: "device_recovery_revoked",
         actorLabel: operatorLabel,
         userId,
         ...trace,
-        metadata: { recoveryIds: replaced, reason: "replaced", clinicId: input.clinicId },
+        metadata: {
+          recoveryIds: replaced.ids,
+          reason: "replaced",
+          clinicId: input.clinicId,
+          browsersSignedOut: replaced.browsersSignedOut,
+        },
       });
     }
     await recordSecurityEvent(tx, {
@@ -155,13 +204,19 @@ export async function issueDeviceRecovery(
         validHours: DEVICE_RECOVERY_TTL_HOURS,
       },
     });
-    return { ...row, replaced: replaced.length };
+    return { ...row, to: account.email, replaced: replaced.ids.length };
   });
+  if ("refused" in issued) {
+    return issued.refused === "address_changing"
+      ? refuse("address_changing", changing(null), userId)
+      : refuse("no_sign_in", "This clinic has no sign-in. Nothing was sent.", userId);
+  }
 
   const emailed = await sendRecoveryLink(
     {
       recoveryId: issued.id,
       userId,
+      to: issued.to,
       token,
       clinic,
       operatorLabel,
@@ -177,11 +232,16 @@ export async function issueDeviceRecovery(
   };
 }
 
-/** The link, to the sign-in's address as stored. Never throws; says whether it went. */
+/**
+ * The link, to the address it is bound to: the sign-in's, as stored when the
+ * row was written. Never throws; says whether it went.
+ */
 async function sendRecoveryLink(
   input: {
     recoveryId: string;
     userId: string;
+    /** The sign-in's address, read in the transaction that bound the link to it. */
+    to: string;
     token: string;
     clinic: { name: string; specialty: string; timezone: string };
     operatorLabel: string;
@@ -190,12 +250,6 @@ async function sendRecoveryLink(
 ): Promise<boolean> {
   let status = "failed";
   try {
-    const [account] = await unsafeDb
-      .select({ email: user.email })
-      .from(user)
-      .where(eq(user.id, input.userId))
-      .limit(1);
-    if (!account) return false;
     const payload: DeviceRecoveryLinkPayload = {
       recoveryUrl: publicUrl(`/recover/${input.token}`),
       validHours: DEVICE_RECOVERY_TTL_HOURS,
@@ -211,7 +265,7 @@ async function sendRecoveryLink(
     // To the address on file, as stored: never one an operator typed.
     const result = await sendEmail(
       {
-        to: account.email,
+        to: input.to,
         kind: "device_recovery_link",
         subject: rendered.subject,
         text: rendered.text,

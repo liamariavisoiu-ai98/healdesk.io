@@ -129,7 +129,8 @@ async function clearSignIn(
     .where(eq(session.userId, userId))
     .returning({ id: session.id });
   await endStepUps({ userId }, tx);
-  const recoveriesRevoked = await revokeOpenDeviceRecoveries(tx, userId, recoveryReason);
+  // After every session is gone, so a claimed link's session is already ended.
+  const recoveriesRevoked = (await revokeOpenDeviceRecoveries(tx, userId, recoveryReason)).ids;
 
   return {
     removedIds,

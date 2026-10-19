@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { clientIp } from "@/lib/client-ip";
 import {
-  abandonSession,
+  bindDeviceRecovery,
   claimDeviceRecovery,
   lookUpDeviceRecovery,
+  recordRecoveryRefusal,
   type DeviceRecoveryProblem,
 } from "@/lib/factors/recovery";
 
@@ -25,11 +26,14 @@ export const dynamic = "force-dynamic";
  * clinic's address after calling the practice back.
  *
  * The GET only looks, as /link/<token> does, so the scanners mail providers
- * run over every link in an inbox spend nothing. The POST starts a session
- * for the clinic's sign-in and claims the link for that session, once, and
- * then goes to the clinic's Protect page, where that session may add one
- * device. A claim that loses (a second tab, the window closing in between)
- * ends the session it started and comes back here to say why.
+ * run over every link in an inbox spend nothing. The POST claims the link
+ * first, once, before any session exists: a POST that loses (a second tab,
+ * a stale page, the window or the address gone in between) starts no
+ * session, sends no cookie, so it never replaces a session this browser
+ * already holds, and comes back here to say why, with the refusal recorded.
+ * The winner then starts a session for the clinic's sign-in, binds the link
+ * to it and goes to the clinic's Protect page, where that session may add
+ * one device.
  */
 
 const PROBLEMS: Record<DeviceRecoveryProblem, { title: string; body: string }> = {
@@ -45,6 +49,10 @@ const PROBLEMS: Record<DeviceRecoveryProblem, { title: string; body: string }> =
     title: "This link was stopped.",
     body: "healdesk ended it, or a newer one was sent to the same address. Use the newest, or email hello@healdesk.io.",
   },
+  moved: {
+    title: "This link no longer works.",
+    body: "Your clinic's sign-in address is changing, or has changed, since it was sent. Email hello@healdesk.io once the change is done: we'll call your clinic back and send one to the address on file.",
+  },
   unknown: {
     title: "This link isn't valid.",
     body: "It may have been copied incompletely. Open it again from the email, or email hello@healdesk.io.",
@@ -55,27 +63,30 @@ async function continueWithRecovery(formData: FormData): Promise<void> {
   "use server";
   const token = formData.get("token");
   const back = `/recover/${encodeURIComponent(String(token ?? ""))}`;
+  const h = await headers();
+  const request = {
+    // The address our load balancer saw, not the chain's first entry
+    // (lib/client-ip.ts).
+    ipAddress: clientIp(h) ?? null,
+    userAgent: h.get("user-agent")?.slice(0, 512) ?? null,
+  };
   const found = await lookUpDeviceRecovery(token);
   // Back to the GET, which says what went wrong. Outside any try: redirect()
   // works by throwing, and a catch-all would swallow it.
-  if (!found.ok) redirect(back);
-
-  const h = await headers();
-  const started = await auth.api.startLinkSession({ body: { userId: found.userId }, headers: h });
-  const claimed = await claimDeviceRecovery({
-    token,
-    sessionId: started.sessionId,
-    request: {
-      // The address our load balancer saw, not the chain's first entry
-      // (lib/client-ip.ts).
-      ipAddress: clientIp(h) ?? null,
-      userAgent: h.get("user-agent")?.slice(0, 512) ?? null,
-    },
-  });
-  if (!claimed.ok) {
-    await abandonSession(started.sessionId);
+  if (!found.ok) {
+    await recordRecoveryRefusal({ token, reason: found.reason, request });
     redirect(back);
   }
+
+  // Spent before any session exists: a POST that loses here sets no cookie.
+  const claimed = await claimDeviceRecovery({ token, request });
+  if (!claimed.ok) redirect(back);
+
+  const started = await auth.api.startLinkSession({ body: { userId: claimed.userId }, headers: h });
+  // False only when the operator ended the link in the moment between: this
+  // browser keeps a plain sign-in, which adds nothing, and is not handed a
+  // cookie for a session deleted under it.
+  await bindDeviceRecovery({ recoveryId: claimed.recoveryId, sessionId: started.sessionId });
   redirect(claimed.landing);
 }
 

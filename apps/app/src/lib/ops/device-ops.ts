@@ -17,6 +17,7 @@ import { withTenant } from "@/lib/tenant";
 
 import {
   actorFor,
+  audit,
   booleanArg,
   clinicById,
   ok,
@@ -84,6 +85,11 @@ export type ClinicDevicesView = {
   sessions: number;
   /** Any clinic of the sign-in is in production or has gone live: a link alone adds no device. */
   patientDataMayExist: boolean;
+  /**
+   * A change of the sign-in's address is open at any of its clinics: no link
+   * can be sent until it takes effect or is stopped (lib/factors/recovery-issue.ts).
+   */
+  addressChangeOpen: boolean;
   recoveries: OpsDeviceRecovery[];
 };
 
@@ -114,6 +120,7 @@ export async function opGetClinicDevices(
       backupCodesLeft: 0,
       sessions: 0,
       patientDataMayExist: false,
+      addressChangeOpen: false,
       recoveries: [],
     } satisfies ClinicDevicesView);
   }
@@ -123,6 +130,9 @@ export async function opGetClinicDevices(
     .from(session)
     .where(and(eq(session.userId, signIn.userId), gt(session.expiresAt, sql`now()`)));
   const recoveries = await listDeviceRecoveries(signIn.userId, 10);
+  const changing = await unsafeDb.execute<{ open: boolean }>(
+    sql`select app_sign_in_address_change_open(${signIn.userId}) as open`,
+  );
   return ok({
     clinicId: clinic.id,
     hasSignIn: true,
@@ -136,6 +146,7 @@ export async function opGetClinicDevices(
     backupCodesLeft: factors.backupCodesLeft,
     sessions: Number(open?.n ?? 0),
     patientDataMayExist: await anyClinicMayHoldPatientData(signIn.userId),
+    addressChangeOpen: changing.rows[0]?.open === true,
     recoveries: recoveries.map((r) => ({
       id: r.id,
       state: r.state,
@@ -195,9 +206,13 @@ export async function opIssueDeviceRecovery(
   } satisfies IssueDeviceRecoveryState);
 }
 
-export type EndDeviceRecoveryState = { status: "ended" | "none" };
+export type EndDeviceRecoveryState =
+  { status: "ended"; browsersSignedOut: number } | { status: "none" };
 
-/** The clinic's open link, ended unused. It only takes access away, so it needs no fresh code. */
+/**
+ * The clinic's open link, ended unused, and the browser that had opened it,
+ * if one had, signed out. It only takes access away, so it needs no fresh code.
+ */
 export async function opEndDeviceRecovery(
   args: Record<string, unknown>,
   operator: Operator,
@@ -236,12 +251,16 @@ export async function opRemoveClinicDevices(
   args: Record<string, unknown>,
   operator: Operator,
 ): Promise<OpsOutcome> {
-  const refused = (message: string) =>
-    ok({ status: "refused", message } satisfies RemoveClinicDevicesState);
   const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return refused("No such clinic.");
+  // Every refusal is recorded, with a code and the clinic, never what was sent.
+  const refused = async (code: string, message: string) => {
+    await audit(operator, "operator_sign_out_refused", { code, clinicId: clinic?.id ?? null });
+    return ok({ status: "refused", message } satisfies RemoveClinicDevicesState);
+  };
+  if (!clinic) return refused("no_clinic", "No such clinic.");
   if (booleanArg(args, "calledBack") !== true) {
     return refused(
+      "no_call_back",
       "Call the practice back on its published number first, and hear from it that it asked for this. Nothing was changed.",
     );
   }
@@ -251,10 +270,10 @@ export async function opRemoveClinicDevices(
     raw.length > 50 ||
     !raw.every((id): id is string => typeof id === "string" && UUID.test(id))
   ) {
-    return refused("Pick the devices to remove from the list. Nothing was changed.");
+    return refused("bad_devices", "Pick the devices to remove from the list. Nothing was changed.");
   }
   const signIn = await signInOf(clinic.id, operator);
-  if (!signIn) return refused("This clinic has no sign-in. Nothing was changed.");
+  if (!signIn) return refused("no_sign_in", "This clinic has no sign-in. Nothing was changed.");
   const outcome = await operatorSignOut({
     userId: signIn.userId,
     removeFactorIds: raw,
@@ -264,6 +283,7 @@ export async function opRemoveClinicDevices(
   });
   if (!outcome.ok) {
     return refused(
+      "not_this_sign_in",
       "A device picked is no longer this sign-in's. Reload the page and pick again. Nothing was changed.",
     );
   }

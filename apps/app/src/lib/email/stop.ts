@@ -82,11 +82,15 @@ export async function stopOptionalEmail(target: StopTarget): Promise<StopOutcome
   if (scope === "commercial") return { status: "nothing" };
   return withTenant({ clinicId, actor: STOP_ACTOR }, async (tx) => {
     const [clinic] = await tx.db
-      .select({ name: clinics.name })
+      .select({ name: clinics.name, closedAt: clinics.accountClosedAt })
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
       .limit(1);
     if (!clinic) return { status: "nothing" as const };
+    // A closed account sends no optional email at all, and its settings are
+    // gone and may not come back (lib/offboarding/account-closure.ts): an old
+    // link is answered as done, and writes nothing.
+    if (clinic.closedAt) return { status: "stopped" as const, clinicName: clinic.name };
     if (scope === "usage_alerts") {
       const row = await getEntitlementsForUpdate(tx.db, tx.clinicId);
       if (!row) return { status: "nothing" as const };

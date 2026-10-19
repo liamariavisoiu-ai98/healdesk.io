@@ -11,6 +11,7 @@ import { supersededReason } from "@/lib/email/superseded";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
 import { renderPassThroughEnding } from "@/lib/email/templates/pass_through_ending";
 import {
+  accountClosesAt,
   backupsExpireOn,
   DESTRUCTION_NOTICE_DAYS,
   destructionNoticeExpired,
@@ -137,6 +138,19 @@ describe("E5's day, and the download deadline it names", () => {
 });
 
 describe("E6's dates and its bound", () => {
+  test("the account closes at the later of the destruction and the pass-through's end", () => {
+    const ended = new Date("2026-11-06T14:32:00Z");
+    const passThroughEnds = new Date(ended.getTime() + FORWARDING_PASS_THROUGH_DAYS * DAY);
+    // Destroyed on day 29: the account waits for the pass-through.
+    const day29 = new Date(ended.getTime() + 29 * DAY);
+    expect(accountClosesAt(day29, ended)).toEqual(passThroughEnds);
+    // Destroyed on day 89 (the export rule, never delivered): it closes with it.
+    const day89 = new Date(ended.getTime() + 89 * DAY);
+    expect(accountClosesAt(day89, ended)).toEqual(day89);
+    expect(accountClosesAt(day89, ended.toISOString())).toEqual(day89);
+    expect(accountClosesAt(day29, null)).toEqual(day29);
+  });
+
   test("backups expire BACKUP_RETENTION_DAYS after the destruction; the captured address waits a week at most", () => {
     const destroyed = new Date("2026-12-05T15:02:00Z");
     expect(backupsExpireOn(destroyed)).toBe(
@@ -723,7 +737,7 @@ describeDb("after cancellation, in the database", () => {
     expect(await sendDestructionNotice(c.clinicId, { transport })).toBe("sent");
     const { text } = transport.sent[0]!.message;
     expect(text).not.toContain("record of disclosures");
-    expect(text).toContain("The signed agreement, kept for at least six years");
+    expect(text).toContain("The signed agreement, with any calendar terms you recorded under it, kept for at least six years");
     expect(text).toContain("client information");
   });
 

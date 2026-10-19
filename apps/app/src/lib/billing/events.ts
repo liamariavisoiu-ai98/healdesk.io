@@ -25,6 +25,7 @@ import {
   type Entitlements,
 } from "@/db/schema";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
+import { revokeMetaAccess } from "@/lib/meta/revoke";
 import type { NoticeKind } from "@/lib/email/kinds";
 import { linkProblem } from "@/lib/email/lint";
 import { log } from "@/lib/log";
@@ -389,6 +390,10 @@ export async function handleStripeEvent(
       // other location uses the account. After the commit, so an event that
       // rolled back takes nothing away, and never thrown from.
       await sweepCalendarTerms([resolved], { actor: STRIPE_WEBHOOK_ACTOR });
+      // And its Meta access (Terms §7): the app taken off its Page and its
+      // WhatsApp account, and the tokens erased (lib/meta/revoke.ts). Never
+      // throws; what Meta refuses now the hourly run tries again.
+      await revokeMetaAccess([resolved], { actor: STRIPE_WEBHOOK_ACTOR });
     }
     return effects.critical ? { ...result, criticalNotice: true } : result;
   } catch (error) {

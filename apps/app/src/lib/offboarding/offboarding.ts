@@ -157,9 +157,16 @@ import { withTenant } from "@/lib/tenant";
  * contact details). The runtime role still cannot delete them, so
  * app_destroy_contact_evidence() does, on the same floor.
  *
- * What stays: the clinic row (a customer we had), the audit log
- * (append-only, and the record that the destruction happened), the signed
- * agreement (its own six-year floor), and the billing history. That history
+ * What stays at destruction: everything that is not a patient's. The
+ * sign-in and the setup stay one day more at most, because forwarded calls
+ * still pass through to the direct line the settings hold until the
+ * pass-through ends; then the account closes (lib/offboarding/
+ * account-closure.ts, app_close_clinic_account in drizzle/0091) and only
+ * KEPT_FOR_GOOD remains: the clinic row (a customer we had, which the kept
+ * records point at), the audit log (append-only, and the record that the
+ * destruction happened), the signed agreement and its elections (their own
+ * six-year floor), the billing history, the notices given and their ledger,
+ * the incidents, and the record of the notice addresses. The billing history
  * includes channel_events, kept like billing_notices: the plan start and
  * every step-up were charged from its rows, which hold no patient data.
  * Deposits do not stay: each carries the Checkout session that finds the
@@ -564,7 +571,9 @@ export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boole
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
  * directed, and its deposits, gone. Audit, agreements, calendar elections and
- * billing stay, and so does AYA's number until the pass-through has ended.
+ * billing stay, and so do AYA's number, the sign-in and the setup until the
+ * pass-through has ended (then the account closes: lib/offboarding/
+ * account-closure.ts).
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;

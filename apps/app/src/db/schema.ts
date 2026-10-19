@@ -601,6 +601,16 @@ export const clinics = pgTable(
      * is sent, or once DESTRUCTION_NOTICE_DAYS have passed without a send.
      */
     destructionNoticeAddress: text("destruction_notice_address"),
+    /**
+     * The account was closed (lib/offboarding/account-closure.ts): once the
+     * data is destroyed and calls no longer pass through, its sign-in, its
+     * setup and its business data went, keeping only the signed agreement,
+     * the billing records and the records the agreements and the law need
+     * (the keep-list there). The database's to stamp, like destroyed_at:
+     * app_close_clinic_account() writes it, the runtime role has no UPDATE on
+     * it, and a new clinic cannot carry it (drizzle/0091).
+     */
+    accountClosedAt: timestamp("account_closed_at", { withTimezone: true }),
 
     // --- Billing across locations and the deposit account (0043). ---
     /**
@@ -4581,7 +4591,11 @@ export type AddressChangeStopper = (typeof ADDRESS_CHANGE_STOPPERS)[number];
  * The confirmation token is never stored, only its SHA-256, as sign-in links
  * keep theirs. The runtime role may move the state columns and never DELETE:
  * the row is the written record that the practice gave healdesk a new notice
- * address (the agreements' Notices clause), and destruction keeps it.
+ * address (the agreements' Notices clause), and destruction keeps it. So
+ * does the account's closure, which deletes the sign-in itself: the row
+ * outlives it, with `user_id` null, because a notice the agreement still owes
+ * after termination (a breach report while backups hold the practice's data)
+ * goes to the last address the practice gave (drizzle/0091).
  */
 export const signInAddressChanges = pgTable(
   "sign_in_address_changes",
@@ -4590,10 +4604,8 @@ export const signInAddressChanges = pgTable(
     clinicId: uuid("clinic_id")
       .notNull()
       .references(() => clinics.id, { onDelete: "cascade" }),
-    /** The sign-in that moves. */
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    /** The sign-in that moves; null once the account is closed and the sign-in deleted. */
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
     /** Lower-cased, as user.email stood when the change was asked for. */
     oldEmail: text("old_email").notNull(),
     newEmail: text("new_email").notNull(),

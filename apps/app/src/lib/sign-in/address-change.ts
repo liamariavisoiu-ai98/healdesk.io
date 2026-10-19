@@ -623,7 +623,11 @@ async function applyChange(changeId: string, clinicId: string): Promise<ApplyOut
         ),
       )
       .limit(1);
-    return row ?? null;
+    // A pending change always names its sign-in: user_id is null only once
+    // the account has closed (drizzle/0091), and the closure ends every open
+    // change before it deletes the sign-in.
+    if (!row?.userId) return null;
+    return { ...row, userId: row.userId };
   });
   if (!change) return "skipped";
 

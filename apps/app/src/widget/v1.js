@@ -17,15 +17,23 @@
  * When the chat is not answering (switched off, paused, capped, our endpoint
  * failing), the bubble becomes the contact form the engine offers; when even
  * that takes nothing, it tells the visitor to call the practice (CLAUDE.md,
- * "Failure": a visitor always reaches someone). A clinic may add
- * data-phone="+15551234567" to the line to have that number shown.
+ * "Failure": a visitor always reaches someone). The engine does not send
+ * the practice's number, so that line points to the number on the clinic's
+ * own website, where the bubble sits.
  *
- * Built to sit on any page: a closed shadow root for the host page's styles
- * and scripts, no dependencies, no innerHTML and no inline style or eval, so
- * it runs under a strict Content-Security-Policy and Trusted Types once the
- * page allows this script and connections to its origin. The visitor's words
- * are kept in memory only, never in the page's storage, and the chat is
- * ended (its transcript sent to the practice) when the page goes away.
+ * Built to sit on any page: a closed shadow root for the host page's styles,
+ * no dependencies, no innerHTML and no inline style or eval, so it runs under
+ * a strict Content-Security-Policy and Trusted Types once the page allows
+ * this script and connections to its origin (a browser without constructed
+ * stylesheets, Safari before 16.4, needs the page to allow inline styles).
+ * The visitor's words are kept in memory only, never in the page's storage,
+ * and the chat is ended (its transcript sent to the practice) when the page
+ * goes away.
+ *
+ * What it cannot do is hide the visitor's words from the page's own scripts:
+ * it runs in the page, so a script there that wraps fetch sees them. Doing
+ * better needs the panel in a frame from this origin, which the engine's
+ * origin check would have to allow for.
  */
 (function () {
   "use strict";
@@ -33,11 +41,14 @@
   var doc = document;
   var win = window;
   var TAG = "healdesk-chat";
+  var ACCENT = "#1f4e79"; // white on it, and it on white, are both above 8:1
 
   var script =
     doc.currentScript ||
     doc.querySelector('script[data-clinic][src*="/widget/v1.js"]');
-  if (!script || doc.querySelector(TAG)) return;
+  // Once per page, however many times the line is pasted: two copies in
+  // <head> can both run before either has a bubble in the DOM.
+  if (!script || win.__healdeskChat || doc.querySelector(TAG)) return;
   if (!win.fetch || !Element.prototype.attachShadow) return;
 
   var slug = script.getAttribute("data-clinic") || "";
@@ -51,7 +62,7 @@
   } catch (e) {
     return;
   }
-  var phone = readPhone(script.getAttribute("data-phone"));
+  win.__healdeskChat = true;
   var fetchFn = win.fetch.bind(win);
 
   // ---------------------------------------------------------------------------
@@ -59,10 +70,14 @@
   // ---------------------------------------------------------------------------
 
   var token = null; // the engine's signed handle on the chat; nothing the visitor wrote
+  var needsStart = false; // the chat ended: the next message opens a new one, with its own opening line
   var talking = false; // a message has been sent since the chat last ended
-  var busy = false;
-  var started = null; // the start request, once made
+  var busy = false; // a message is waiting for its reply
+  var started = null; // the start request, once made; cleared when it may be tried again
+  var failures = 0; // messages in a row that did not reach the engine
   var view = "loading"; // loading | chat | form | call | done
+  // Where the panel covers the whole screen, it is modal: Tab stays inside.
+  var small = win.matchMedia ? win.matchMedia("(max-width: 480px), (max-height: 500px)") : null;
 
   // ---------------------------------------------------------------------------
   // The DOM
@@ -71,13 +86,13 @@
   var host = doc.createElement(TAG);
   host.style.setProperty("all", "initial", "important");
   var root = host.attachShadow({ mode: "closed" });
-  adoptStyles(root, css(readColor(script.getAttribute("data-color"))));
+  adoptStyles(root, css(ACCENT));
 
-  var launcher = el("button", { class: "launcher", type: "button", "aria-expanded": "false", "aria-controls": "panel" });
+  var launcher = el("button", { class: "launcher", type: "button", lang: "en", "aria-expanded": "false", "aria-controls": "panel" });
   launcher.appendChild(icon("M4 4h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H9l-5 4v-4H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z"));
   launcher.appendChild(el("span", { class: "launcher-label" }, "Chat with us"));
 
-  var panel = el("section", { class: "panel", id: "panel", role: "dialog", "aria-labelledby": "title" });
+  var panel = el("section", { class: "panel", id: "panel", lang: "en", role: "dialog", "aria-labelledby": "title" });
   panel.hidden = true;
 
   var header = el("div", { class: "header" });
@@ -119,6 +134,9 @@
   launcher.addEventListener("click", function () {
     setOpen(panel.hidden);
   });
+  launcher.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && !panel.hidden) setOpen(false);
+  });
   closeButton.addEventListener("click", function () {
     setOpen(false);
   });
@@ -126,6 +144,8 @@
     if (event.key === "Escape") {
       event.stopPropagation();
       setOpen(false);
+    } else if (event.key === "Tab" && small && small.matches) {
+      trapTab(event);
     }
   });
   endButton.addEventListener("click", function () {
@@ -136,14 +156,17 @@
     send();
   });
   input.addEventListener("keydown", function (event) {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    // keyCode 229: Safari's Enter that confirms an IME conversion, sent after compositionend.
+    if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
       event.preventDefault();
       send();
     }
   });
   input.addEventListener("input", grow);
-  win.addEventListener("pagehide", function () {
-    endChat(true);
+  win.addEventListener("pagehide", function (event) {
+    // A page kept for Back (persisted) comes back with the chat on screen,
+    // so it stays open; if it never comes back, the quiet time sends it.
+    if (!event.persisted) endChat(true);
   });
 
   if (doc.body) doc.body.appendChild(host);
@@ -155,6 +178,8 @@
 
   function setOpen(open) {
     panel.hidden = !open;
+    if (open && small && small.matches) panel.setAttribute("aria-modal", "true");
+    else panel.removeAttribute("aria-modal");
     launcher.setAttribute("aria-expanded", open ? "true" : "false");
     launcher.setAttribute("aria-label", open ? "Close chat" : "Chat with us");
     host.setAttribute("data-open", open ? "true" : "false");
@@ -164,7 +189,10 @@
     }
     if (!started) {
       started = start();
-      started.then(focusFirst);
+      started.then(function (ok) {
+        if (ok === "retry") started = null;
+        focusFirst();
+      });
     } else {
       focusFirst();
     }
@@ -181,24 +209,64 @@
   // The chat
   // ---------------------------------------------------------------------------
 
+  function trapTab(event) {
+    var list = Array.prototype.filter.call(panel.querySelectorAll("button, textarea, input, a[href]"), function (node) {
+      return !node.disabled && node.getClientRects().length > 0;
+    });
+    if (!list.length) return;
+    var first = list[0];
+    var last = list[list.length - 1];
+    var active = root.activeElement;
+    if (event.shiftKey && (active === first || !panel.contains(active))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // The chat
+  // ---------------------------------------------------------------------------
+
+  /** The bubble's first open: the chat, or the way to reach the practice. "retry" when it is worth asking again. */
   function start() {
     setStatus("Connecting…");
-    return post("start", {}).then(function (res) {
+    return begin(null).then(function (res) {
       setStatus("");
-      if (res.ok && res.data.mode === "chat" && opens(res.data)) {
-        token = res.data.token;
-        say("assistant", res.data.opening, "opening");
+      if (res === null) {
         showChat();
         return true;
       }
       fallBack(res);
-      return false;
+      return transient(res) || res.status === 429 ? "retry" : false;
     });
   }
 
-  /** A chat opens only with its opening line, the locked AI line, to show first. */
-  function opens(data) {
-    return typeof data.opening === "string" && data.opening.trim() !== "" && typeof data.token === "string";
+  /**
+   * Ask the engine for a new chat. Its opening line, the locked AI line, goes
+   * in the log (before `before`, when given), and nothing opens without one.
+   * Null once the chat is open, else the answer that refused it.
+   */
+  function begin(before, lead) {
+    return post("start", {}).then(function (res) {
+      var data = res.data;
+      if (!res.ok || data.mode !== "chat" || typeof data.opening !== "string" || !data.opening.trim() || typeof data.token !== "string") {
+        return res;
+      }
+      token = data.token;
+      needsStart = false;
+      talking = false;
+      if (lead) note(lead, before);
+      say("assistant", data.opening, "opening", before);
+      return null;
+    });
+  }
+
+  /** A failure to reach the engine, or one of its 5xx with no word on what to show. */
+  function transient(res) {
+    return res.status === 0 || (res.status >= 500 && !res.data.mode);
   }
 
   function send() {
@@ -206,84 +274,100 @@
     if (!text || busy || view !== "chat") return;
     busy = true;
     sendButton.disabled = true;
+    endButton.hidden = true;
     input.value = "";
     grow();
     var bubble = say("person", text);
     setStatus("Replying…", true);
-    deliver(text, true).then(function (outcome) {
-      busy = false;
-      sendButton.disabled = false;
-      if (outcome === "limited") setStatus("That's a lot of messages at once. Please wait a minute, then send it again.");
-      else if (outcome === "unsent") setStatus("That message didn't send. Please try again.");
-      if (outcome === "limited" || outcome === "unsent") {
-        bubble.remove();
-        if (!input.value) input.value = text;
-        grow();
-      }
-      if (view === "chat") input.focus();
-    });
+    var opened = needsStart ? begin(bubble) : Promise.resolve(null);
+    opened
+      .then(function (refused) {
+        return refused ? failed(refused) : deliver(text, bubble, true);
+      })
+      .then(function (outcome) {
+        busy = false;
+        sendButton.disabled = false;
+        if (outcome === "limited") setStatus("That's a lot of messages at once. Please wait a minute, then send it again.");
+        else if (outcome === "unsent") setStatus("That message didn't send. Please try again.");
+        else if (outcome === "unreachable") setStatus("We couldn't reach the chat. Please send it again.");
+        else if (outcome === "fallback") setStatus("The chat isn't available, so here is another way to reach the practice.");
+        if (outcome === "limited" || outcome === "unsent" || outcome === "unreachable") {
+          bubble.remove();
+          if (!input.value) input.value = text;
+          grow();
+        }
+        if (view === "chat") {
+          endButton.hidden = !talking;
+          input.focus();
+        } else {
+          focusFirst();
+        }
+      });
   }
 
-  /** One message: "sent", "limited" (try again), "unsent", or "fallback" (the view changed). */
-  function deliver(text, mayRestart) {
+  /** One message: "sent", "limited", "unsent", "unreachable" (each to try again), or "fallback" (the view changed). */
+  function deliver(text, bubble, mayRestart) {
     return post("message", { token: token, text: text }).then(function (res) {
       var data = res.data;
       if (res.ok && data.mode === "chat" && typeof data.reply === "string") {
+        failures = 0;
         setStatus("");
         if (typeof data.token === "string") token = data.token;
         say("assistant", data.reply);
         if (data.ended) {
           note("This chat has ended. Send a message to start a new one.");
           talking = false;
-          endButton.hidden = true;
+          needsStart = true;
         } else {
           talking = true;
-          endButton.hidden = false;
         }
         return "sent";
       }
-      if (res.status === 429) return "limited";
       if (res.status === 400 && data.error === "token" && mayRestart) {
         // The chat's token ran out (twelve hours): a new chat, opened with
-        // its own opening line, then the message again.
-        return post("start", {}).then(function (again) {
-          if (again.ok && again.data.mode === "chat" && opens(again.data)) {
-            token = again.data.token;
-            talking = false;
-            note("Your earlier chat timed out, so this is a new one.");
-            say("assistant", again.data.opening, "opening");
-            return deliver(text, false);
-          }
-          fallBack(again);
-          return "fallback";
+        // its own opening line above the message, then the message again.
+        return begin(bubble, "Your earlier chat timed out, so this is a new one.").then(function (refused) {
+          return refused ? failed(refused) : deliver(text, bubble, false);
         });
       }
-      if (res.status === 400) return "unsent";
-      fallBack(res);
-      return "fallback";
+      return failed(res);
     });
+  }
+
+  /** What a refused start or message leaves the visitor with. */
+  function failed(res) {
+    if (res.status === 429) return "limited";
+    if (res.status === 400 && !res.data.mode) return "unsent";
+    if (transient(res)) {
+      // Once may be a dropped connection or a deploy; twice in a row, the
+      // visitor is shown how to reach the practice instead.
+      failures += 1;
+      if (failures < 2) return "unreachable";
+    }
+    fallBack(res);
+    return "fallback";
   }
 
   /** The visitor ended the chat, or the page is going: its transcript goes to the practice now. */
   function endChat(leaving) {
-    if (!talking || !token) return;
+    // While a reply is on its way, the message still writes the chat: the
+    // quiet time sends it instead.
+    if (!talking || !token || busy) return;
     talking = false;
+    needsStart = true;
     endButton.hidden = true;
-    var payload = JSON.stringify({ token: token });
-    if (leaving) {
-      // text/plain keeps it a simple request a beacon may send; the route
-      // reads the body as JSON whatever its type.
-      var sent = false;
-      try {
-        sent = navigator.sendBeacon(base + "end", new Blob([payload], { type: "text/plain" }));
-      } catch (e) {
-        sent = false;
-      }
-      if (!sent) post("end", { token: token }, true);
+    if (leaving && typeof Request === "function" && !("keepalive" in Request.prototype) && navigator.sendBeacon) {
+      // text/plain keeps it a simple request a beacon may send.
+      navigator.sendBeacon(base + "end", new Blob([JSON.stringify({ token: token })], { type: "text/plain" }));
       return;
     }
-    post("end", { token: token });
-    note("Chat ended. Send a message to start a new one.");
+    // keepalive outlives the page, and unlike a beacon sends the page's real
+    // Origin and no Referer whatever the page's own referrer policy.
+    post("end", { token: token }, true);
+    if (!leaving) {
+      note("Chat ended. Send a message to start a new one.");
+      input.focus();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -299,12 +383,12 @@
   function fallBack(res) {
     var form = res.data && res.data.mode === "contact_form" ? res.data.form : null;
     if (form && form.takesMessages === true && Array.isArray(form.times) && form.times.length) showForm(form.times);
-    else if (res.status === 429) showCall("Lots of people are messaging right now.");
-    else showCall();
+    else showCall(res.status === 429 ? "Please try again in a minute, or call." : "");
   }
 
   function showChat() {
     view = "chat";
+    failures = 0;
     contactArea.hidden = true;
     compose.hidden = false;
   }
@@ -382,7 +466,7 @@
       [
         ["first_name", name.input, name.error, "Please enter your first name."],
         ["phone", tel.input, tel.error, "Please enter a phone number we can call, like 555 123 4567."],
-        ["preferred_time", group.querySelector("input"), group.querySelector(".error"), "Please choose a time."],
+        ["preferred_time", group, group.querySelector(".error"), "Please choose a time."],
       ].forEach(function (row) {
         var wrong = problems.indexOf(row[0]) !== -1;
         if (row[1]) row[1].setAttribute("aria-invalid", wrong ? "true" : "false");
@@ -399,15 +483,8 @@
     clearContact();
     var box = el("div", { class: "call" });
     box.appendChild(el("h3", {}, "Please call the practice"));
-    box.appendChild(el("p", {}, (lead ? lead + " " : "") + "The chat isn't available right now."));
-    if (phone) {
-      var line = el("p", {}, "Call ");
-      line.appendChild(el("a", { href: "tel:" + phone.e164 }, phone.shown));
-      line.appendChild(doc.createTextNode(" to speak to someone."));
-      box.appendChild(line);
-    } else {
-      box.appendChild(el("p", {}, "Its phone number is on this website."));
-    }
+    box.appendChild(el("p", {}, "The chat isn't available right now." + (lead ? " " + lead : "")));
+    box.appendChild(el("p", {}, "Its phone number is on this website."));
     box.appendChild(el("p", { class: "fine" }, "If it's an emergency, call 911."));
     contactArea.appendChild(box);
   }
@@ -449,17 +526,17 @@
   }
 
   /** A message in the log, as text: nothing anyone wrote is ever parsed as markup. */
-  function say(who, text, extra) {
+  function say(who, text, extra, before) {
     var row = el("div", { class: "msg " + who + (extra ? " " + extra : "") });
     row.appendChild(el("span", { class: "sr" }, who === "person" ? "You: " : "Assistant: "));
     row.appendChild(doc.createTextNode(String(text)));
-    log.appendChild(row);
+    log.insertBefore(row, before || null);
     body.scrollTop = body.scrollHeight;
     return row;
   }
 
-  function note(text) {
-    log.appendChild(el("p", { class: "note" }, text));
+  function note(text, before) {
+    log.insertBefore(el("p", { class: "note" }, text), before || null);
     body.scrollTop = body.scrollHeight;
   }
 
@@ -506,29 +583,6 @@
     return svg;
   }
 
-  function readPhone(value) {
-    if (!value) return null;
-    var digits = String(value).replace(/[^\d+]/g, "");
-    if (!/^\+?\d{7,15}$/.test(digits)) return null;
-    var us = digits.replace(/^\+?1(?=\d{10}$)/, "");
-    var shown = /^\d{10}$/.test(us) ? "(" + us.slice(0, 3) + ") " + us.slice(3, 6) + "-" + us.slice(6) : digits;
-    return { e164: digits.charAt(0) === "+" ? digits : "+" + (digits.length === 10 ? "1" + digits : digits), shown: shown };
-  }
-
-  function readColor(value) {
-    return value && /^#[0-9a-fA-F]{6}$/.test(value) ? value : "#1f4e79";
-  }
-
-  /** Black or white text on the accent, whichever reads. */
-  function ink(hex) {
-    var c = [1, 3, 5].map(function (i) {
-      var v = parseInt(hex.slice(i, i + 2), 16) / 255;
-      return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
-    });
-    var lum = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
-    return lum > 0.179 ? "#111111" : "#ffffff";
-  }
-
   /** Constructed sheets where the browser has them, which a style-src policy does not govern. */
   function adoptStyles(shadow, text) {
     try {
@@ -549,7 +603,7 @@
   }
 
   function css(accent) {
-    var on = ink(accent);
+    var on = "#ffffff";
     return [
       ":host{all:initial}",
       "*,*::before,*::after{box-sizing:border-box}",
@@ -563,11 +617,11 @@
       ".launcher:focus-visible{outline-color:#1a1a1a;box-shadow:0 0 0 3px #fff}",
       ":host([data-open=true]) .launcher-label{display:none}",
       ":host([data-open=true]) .launcher{padding:0 14px}",
-      ".panel{position:fixed;right:16px;bottom:88px;z-index:2147483000;display:flex;flex-direction:column;width:380px;max-width:calc(100vw - 32px);height:min(600px,calc(100vh - 120px));background:#fff;border:1px solid #d0d0d0;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.2);overflow:hidden}",
+      ".panel{position:fixed;right:16px;bottom:88px;z-index:2147483000;display:flex;flex-direction:column;width:380px;max-width:calc(100vw - 32px);height:min(600px,calc(100vh - 120px));height:min(600px,calc(100dvh - 120px));background:#fff;border:1px solid #d0d0d0;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.2);overflow:hidden}",
       ".header{display:flex;align-items:center;gap:8px;padding:12px 12px 12px 16px;background:" + accent + ";color:" + on + "}",
       ".titles{flex:1;min-width:0}",
       "h2{margin:0;font-size:17px;font-weight:700}",
-      ".sub{margin:0;font-size:13px;opacity:.9}",
+      ".sub{margin:0;font-size:13px}",
       ".icon-button,.text-button{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0 10px;border:0;border-radius:8px;background:transparent;color:inherit}",
       ".text-button{font-size:14px;text-decoration:underline}",
       ".icon-button:hover,.text-button:hover{background:rgba(127,127,127,.2)}",
@@ -605,7 +659,7 @@
       ".primary:disabled{opacity:.6;cursor:default}",
       ".received{padding:12px 14px;background:#f0f2f5;border-radius:12px}",
       "a{color:" + accent + ";font-weight:600}",
-      "@media (max-width:480px){.panel{inset:0;width:100%;max-width:none;height:100%;border:0;border-radius:0;padding-bottom:env(safe-area-inset-bottom)}" +
+      "@media (max-width:480px),(max-height:500px){.panel{inset:0;width:100%;max-width:none;height:100vh;height:100dvh;border:0;border-radius:0;padding-bottom:env(safe-area-inset-bottom)}" +
         ":host([data-open=true]) .launcher{display:none}}",
       "@media (prefers-reduced-motion:no-preference){.panel{animation:rise .18s ease-out}.status.typing::after{content:'';display:inline-block;width:1.2em;animation:dots 1.2s steps(4) infinite}" +
         "@keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}" +

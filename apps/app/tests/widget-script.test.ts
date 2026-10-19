@@ -81,6 +81,8 @@ beforeEach(async () => {
   // its chat now, so it sends nothing during this one.
   window.dispatchEvent(new Event("pagehide"));
   await settle();
+  delete (window as unknown as { __healdeskChat?: boolean }).__healdeskChat;
+  Object.defineProperty(Request.prototype, "keepalive", { configurable: true, get: () => false });
   calls = [];
   answers = {};
   beacons = [];
@@ -109,6 +111,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   Element.prototype.attachShadow = realAttach;
+  delete (Request.prototype as unknown as { keepalive?: boolean }).keepalive;
   vi.unstubAllGlobals();
 });
 
@@ -129,6 +132,17 @@ describe("the bubble on a clinic's page", () => {
     expect(document.querySelector("healdesk-chat")).toBeNull();
     await load();
     await load();
+    expect(document.querySelectorAll("healdesk-chat")).toHaveLength(1);
+  });
+
+  test("a line in <head> waits for the body, and two copies there still draw one bubble", async () => {
+    Object.defineProperty(document, "body", { configurable: true, get: () => null });
+    await load();
+    await load();
+    expect(roots).toHaveLength(1);
+    expect(document.querySelector("healdesk-chat")).toBeNull();
+    delete (document as unknown as { body?: unknown }).body;
+    document.dispatchEvent(new Event("DOMContentLoaded"));
     expect(document.querySelectorAll("healdesk-chat")).toHaveLength(1);
   });
 
@@ -180,34 +194,91 @@ describe("the bubble on a clinic's page", () => {
     expect(q(root, ".text-button").hidden).toBe(false);
   });
 
-  test("ends the chat with the end route, and by beacon when the page goes", async () => {
+  test("ends the chat with the end route, and as the page goes, and opens the next chat with its own opening line", async () => {
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
     answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
-    answer("message", { status: 200, body: { mode: "chat", reply: "Again.", token: "t2", ended: false } });
-    answer("end", { status: 200, body: { ended: true } });
+    answer("end", { status: 200, body: { ended: true }, }, { status: 200, body: { ended: true } });
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "n0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Again.", token: "n1", ended: false } });
     const root = await load();
     await open(root);
     // Nothing said yet: nothing to end.
     window.dispatchEvent(new Event("pagehide"));
     await settle();
-    expect(beacons).toHaveLength(0);
+    expect(calls.map((c) => c.url.replace(API, ""))).toEqual(["start"]);
 
     await type(root, "Hello");
     q<HTMLButtonElement>(root, ".text-button").click();
     await settle();
     expect(calls.at(-1)!.url).toBe(`${API}end`);
     expect(calls.at(-1)!.body).toEqual({ token: "t1" });
+    expect(calls.at(-1)!.init.keepalive).toBe(true);
     expect(root.querySelector(".note")?.textContent).toMatch(/Chat ended/);
+    expect(q(root, ".text-button").hidden).toBe(true);
+    expect(root.activeElement).toBe(q(root, "textarea"));
 
+    // The next message opens a new chat first, and its AI line is on screen above the message.
     await type(root, "One more");
+    expect(calls.slice(-2).map((c) => c.url.replace(API, ""))).toEqual(["start", "message"]);
+    expect(calls.at(-1)!.body).toEqual({ token: "n0", text: "One more" });
+    expect(messages(root).slice(-4)).toEqual([`Assistant: ${OPENING}`, "Assistant: Sure.", `Assistant: ${OPENING}`, "You: One more", "Assistant: Again."].slice(-4));
+    expect(messages(root).filter((m) => m === `Assistant: ${OPENING}`)).toHaveLength(2);
+
     window.dispatchEvent(new Event("pagehide"));
     await settle();
-    expect(beacons).toEqual([{ url: `${API}end`, body: JSON.stringify({ token: "t2" }) }]);
+    expect(calls.at(-1)!.url).toBe(`${API}end`);
+    expect(calls.at(-1)!.body).toEqual({ token: "n1" });
+    expect(calls.at(-1)!.init.keepalive).toBe(true);
+    expect(calls.at(-1)!.init.referrerPolicy).toBe("no-referrer");
   });
 
-  test("an ended chat says so, and the next message starts a new one", async () => {
+  test("falls back to a beacon where fetch cannot outlive the page", async () => {
+    delete (Request.prototype as unknown as { keepalive?: boolean }).keepalive;
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    await type(root, "Hello");
+    window.dispatchEvent(new Event("pagehide"));
+    await settle();
+    expect(beacons).toEqual([{ url: `${API}end`, body: JSON.stringify({ token: "t1" }) }]);
+  });
+
+  test("a page kept for Back does not end its chat", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    await type(root, "Hello");
+    const kept = new Event("pagehide") as Event & { persisted: boolean };
+    Object.defineProperty(kept, "persisted", { value: true });
+    window.dispatchEvent(kept);
+    await settle();
+    expect(calls.some((c) => c.url.endsWith("/end"))).toBe(false);
+    expect(beacons).toHaveLength(0);
+  });
+
+  test("End chat is out of reach while a reply is on its way", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "First.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    await type(root, "Hello");
+    expect(q(root, ".text-button").hidden).toBe(false);
+    q<HTMLTextAreaElement>(root, "textarea").value = "Second";
+    q<HTMLFormElement>(root, ".compose").dispatchEvent(new Event("submit", { cancelable: true }));
+    // Synchronously, before the reply: End is hidden, and a page going now sends no end.
+    expect(q(root, ".text-button").hidden).toBe(true);
+    window.dispatchEvent(new Event("pagehide"));
+    await settle();
+    expect(calls.some((c) => c.url.endsWith("/end"))).toBe(false);
+  });
+
+  test("an ended chat says so, and the next message opens a new one with its own opening line", async () => {
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
     answer("message", { status: 200, body: { mode: "chat", reply: "Goodbye.", token: "fresh", ended: true } });
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "n0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Hello again.", token: "n1", ended: false } });
     const root = await load();
     await open(root);
     await type(root, "bye");
@@ -215,10 +286,14 @@ describe("the bubble on a clinic's page", () => {
     expect(q(root, ".text-button").hidden).toBe(true);
     window.dispatchEvent(new Event("pagehide"));
     await settle();
-    expect(beacons).toHaveLength(0);
+    expect(calls.some((c) => c.url.endsWith("/end"))).toBe(false);
+    await type(root, "wait");
+    expect(calls.slice(-2).map((c) => c.url.replace(API, ""))).toEqual(["start", "message"]);
+    expect(calls.at(-1)!.body).toEqual({ token: "n0", text: "wait" });
+    expect(messages(root).slice(-3)).toEqual([`Assistant: ${OPENING}`, "You: wait", "Assistant: Hello again."]);
   });
 
-  test("a token that ran out opens a new chat, with its own opening line, and sends the message again", async () => {
+  test("a token that ran out opens a new chat, with its own opening line above the message, and sends it again", async () => {
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "old" } });
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "new" } });
     answer("message", { status: 400, body: { error: "token" } });
@@ -228,8 +303,38 @@ describe("the bubble on a clinic's page", () => {
     await type(root, "Still there?");
     expect(calls.map((c) => c.url.replace(API, ""))).toEqual(["start", "message", "start", "message"]);
     expect(calls[3]!.body).toEqual({ token: "new", text: "Still there?" });
-    expect(messages(root).filter((m) => m === `Assistant: ${OPENING}`)).toHaveLength(2);
-    expect(messages(root).at(-1)).toBe("Assistant: Hi again.");
+    expect(messages(root)).toEqual([`Assistant: ${OPENING}`, `Assistant: ${OPENING}`, "You: Still there?", "Assistant: Hi again."]);
+  });
+
+  test("Enter confirming an IME conversion does not send", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    const root = await load();
+    await open(root);
+    const box = q<HTMLTextAreaElement>(root, "textarea");
+    box.value = "こんにちは";
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", keyCode: 229, bubbles: true, cancelable: true }));
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true, cancelable: true }));
+    await settle();
+    expect(calls).toHaveLength(1);
+    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+    await settle();
+    expect(calls.at(-1)!.url).toBe(`${API}message`);
+  });
+
+  test("every request is plain text with no credential", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
+    answer("end", { status: 200, body: { ended: true } });
+    const root = await load();
+    await open(root);
+    await type(root, "Hello");
+    q<HTMLButtonElement>(root, ".text-button").click();
+    await settle();
+    expect(calls).toHaveLength(3);
+    for (const call of calls) {
+      expect(call.init.credentials).toBe("omit");
+      expect((call.init.headers as Record<string, string>)["Content-Type"]).toBe("text/plain;charset=UTF-8");
+    }
   });
 
   test("a rate limit keeps the words in the box to send again", async () => {
@@ -296,34 +401,65 @@ describe("when the chat is not answering", () => {
     expect(root.activeElement).toBe(q(root, "#first"));
   });
 
-  test("a form that takes nothing says to call the practice, with the number the line names", async () => {
+  test("a form that takes nothing says to call the practice, at the number on its own website", async () => {
     answer("start", { status: 200, body: { mode: "contact_form", reason: "cancelled", form: { takesMessages: false, times: TIMES } } });
-    const root = await load({ "data-clinic": "radiance", "data-phone": "+1 (415) 555-0199" });
+    const root = await load();
     await open(root);
     expect(root.querySelector(".form")).toBeNull();
-    const link = q<HTMLAnchorElement>(root, ".call a");
-    expect(link.getAttribute("href")).toBe("tel:+14155550199");
-    expect(link.textContent).toBe("(415) 555-0199");
-  });
-
-  test("without a number on the line it points to the clinic's own website", async () => {
-    answer("start", { status: 503, body: { mode: "contact_form", reason: "unavailable" } });
-    const root = await load({ "data-clinic": "radiance", "data-phone": "javascript:alert(1)" });
-    await open(root);
-    expect(root.querySelector(".call a")).toBeNull();
     expect(q(root, ".call").textContent).toContain("Its phone number is on this website.");
+    expect(q(root, ".call").textContent).toContain("If it's an emergency, call 911.");
+    expect(root.querySelector(".call a")).toBeNull();
   });
 
-  test("an engine that cannot be reached, mid-chat, turns the chat into the way to call", async () => {
+  test("a start that could not reach the engine is asked again when the bubble is reopened", async () => {
+    answer("start", "network");
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
-    answer("message", "network");
+    const root = await load();
+    await open(root);
+    expect(q(root, ".call")).toBeTruthy();
+    q<HTMLButtonElement>(root, ".icon-button").click();
+    await open(root);
+    expect(messages(root)).toEqual([`Assistant: ${OPENING}`]);
+    expect(q(root, ".compose").hidden).toBe(false);
+    expect(q(root, ".contact").hidden).toBe(true);
+  });
+
+  test("a rate-limited start says to try again in a minute, or call", async () => {
+    answer("start", { status: 429, body: { error: "rate_limited" } });
+    const root = await load();
+    await open(root);
+    expect(q(root, ".call").textContent).toContain("Please try again in a minute, or call.");
+  });
+
+  test("one failure to reach the engine mid-chat keeps the words to send again; a second shows the way to call", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", "network", { status: 502, body: "<html>bad gateway</html>" });
     const root = await load();
     await open(root);
     await type(root, "Hello");
+    expect(q(root, ".compose").hidden).toBe(false);
+    expect(q<HTMLTextAreaElement>(root, "textarea").value).toBe("Hello");
+    expect(q(root, ".status").textContent).toMatch(/couldn't reach the chat/);
+
+    await type(root, "Hello");
     expect(q(root, ".compose").hidden).toBe(true);
     expect(q(root, ".call").textContent).toContain("Please call the practice");
+    expect(q(root, ".status").textContent).toMatch(/another way to reach the practice/);
     // What was said stays on screen, the opening line first.
     expect(messages(root)[0]).toBe(`Assistant: ${OPENING}`);
+  });
+
+  test("a message the form can no longer take says to call the practice", async () => {
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } });
+    answer("contact", { status: 409, body: { mode: "closed" } });
+    const root = await load();
+    await open(root);
+    q<HTMLInputElement>(root, "#first").value = "Jamie";
+    q<HTMLInputElement>(root, "#phone").value = "415 555 0199";
+    q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
+    await settle();
+    expect(q(root, ".call").textContent).toContain("Please call the practice");
+    expect(root.querySelector(".form")).toBeNull();
   });
 
   test("a message the engine answers with the contact form switches to it", async () => {

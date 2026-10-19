@@ -57,11 +57,20 @@ runs under a strict CSP and Trusted Types once the page allows the script and co
 - **Requests** are `text/plain`, CORS-simple, so no preflight: the routes check the Origin themselves and
   read the body as JSON whatever its type. No cookie, no storage: the token and the words live in the
   page's memory only.
-- **End**: the visitor's End chat button, or a beacon on `pagehide`, once a message has been sent.
-- **Not answering** (any `contact_form` reply, a 5xx, a failure to reach us, or an answer the browser
-  hides because the page is not the clinic's site): the contact form when it takes messages, otherwise a
-  line saying to call the practice, with the number from an optional `data-phone` on the line, or a
-  pointer to the number on the clinic's own website.
+- **End**: the visitor's End chat button, or a keepalive request on `pagehide` (not for a page kept for
+  Back), once a message has been sent and no reply is pending. The next message after any end asks for a
+  new chat first, so every conversation's opening line is on screen.
+- **Not answering** (any `contact_form` reply, two failures in a row to reach us, or an answer the
+  browser hides because the page is not the clinic's site): the contact form when it takes messages,
+  otherwise a line saying to call the practice. The engine does not send the practice's number, so the
+  line points to the number on the clinic's own website; returning `publishedPhoneE164` in the contact
+  form offer would let the bubble show it. A start that failed is asked again when the bubble reopens.
+- **Known limits.** The bubble runs in the clinic's page, so a script there that wraps `fetch` (a
+  session-replay or tag-manager script) can see what a visitor types; only a frame served from
+  `apps/app` would hide it, and the engine's origin check would have to allow for that. The script is
+  served only by `apps/app`, so while the host is in standby or down no bubble loads at all and the
+  visitor has the clinic's own page and number. Going live waits for an operator, who is asked only
+  once someone opens the bubble from the clinic's site (`LAUNCH_PROMISES`, `web-chat-on-paste`).
 
 ## The voice endpoint: `src/voice/server.ts`, `lib/voice/retell.ts`
 

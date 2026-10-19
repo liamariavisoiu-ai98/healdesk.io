@@ -476,7 +476,12 @@ describeDb("the DPA→BAA re-sign", () => {
           and metadata->>'clinicId' = $1 order by occurred_at`,
       [practice.clinicId],
     );
-    expect(events.map((e) => e.event)).toEqual(["agreement_superseded", "agreement_resign_signed"]);
+    // Both are written in the signing transaction, so they share now() and
+    // occurred_at cannot order them: compare them as a set.
+    expect(events.map((e) => e.event).sort()).toEqual([
+      "agreement_resign_signed",
+      "agreement_superseded",
+    ]);
 
     // The link is spent: a second signature with it is refused, and it opens on "signed".
     const again = await signAgreementResign(token, {

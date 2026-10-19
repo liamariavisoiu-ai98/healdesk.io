@@ -188,13 +188,11 @@ export async function readSettingsView(input: {
       isDefault: settings.phoneGreeting === null,
     });
   }
-  if (bought.web || bought.meta) {
+  // Website chat's alone: Instagram, Messenger and WhatsApp never say it.
+  if (bought.web) {
     greetings.push({
       key: "chat_greeting",
-      lockedLine: disclosureFor({
-        clinicName: clinic.name,
-        channel: bought.web ? "web_chat" : "instagram_dm",
-      }),
+      lockedLine: disclosureFor({ clinicName: clinic.name, channel: "web_chat" }),
       text: settings.chatGreeting ?? defaultChatGreeting(),
       isDefault: settings.chatGreeting === null,
     });

@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 import { loadSetupState } from "@/lib/setup/state";
 import { publicUrl } from "@/lib/public-url";
 
@@ -172,6 +173,20 @@ describeDb("the setup wizard's pages", () => {
       }
     }
   }, 60_000);
+
+  test("2.1: the chat greeting is website chat's, and a Meta clinic is told its channels open with their own line", async () => {
+    // It was labelled "When someone opens a chat or sends a message", though
+    // no Instagram, Messenger or WhatsApp reply ever says it.
+    as(everything);
+    const meta = text(await wizard({ s: "tone" }));
+    expect(meta).toContain(GREETING_LABELS.chat);
+    expect(meta).toContain(META_GREETING_NOTE);
+    expect(meta).not.toContain("sends a message");
+    as(voiceWeb);
+    const web = text(await wizard({ s: "tone" }));
+    expect(web).toContain(GREETING_LABELS.chat);
+    expect(web).not.toContain(META_GREETING_NOTE);
+  });
 
   describe("2.4: deposits and the payment account", () => {
     test("a chat package may connect Stripe; doing it later in Settings → Payments is the default", async () => {

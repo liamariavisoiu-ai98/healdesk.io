@@ -29,7 +29,11 @@ import {
   type CalendarNotice,
 } from "@/lib/setup/calendar";
 import { channelNextStep, channelStatusLabel, setupSentence } from "@/lib/setup/channels";
-import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
+import {
+  defaultChatGreeting,
+  defaultPhoneGreeting,
+  META_GREETING_NOTE,
+} from "@/lib/setup/greetings";
 import {
   forwardingView,
   voiceForwardingReady,
@@ -369,17 +373,15 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           isDefault: settings.phoneGreeting === null,
         });
       }
-      if (channels.includes("web") || channels.includes("meta")) {
+      // Website chat's alone: Instagram, Messenger and WhatsApp open with
+      // their own fixed line, and the clinic with them is told so.
+      if (channels.includes("web")) {
         greetings.push({
           kind: "chat" as const,
-          // Website chat's line where the clinic has it; a Meta-only clinic's
-          // people read the Meta channels' own warning first.
-          lockedLine: disclosureFor({
-            clinicName: name,
-            channel: channels.includes("web") ? "web_chat" : "instagram_dm",
-          }),
+          lockedLine: disclosureFor({ clinicName: name, channel: "web_chat" }),
           text: settings.chatGreeting ?? defaultChatGreeting(),
           isDefault: settings.chatGreeting === null,
+          note: channels.includes("meta") ? META_GREETING_NOTE : null,
         });
       }
       return (

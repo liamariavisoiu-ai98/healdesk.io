@@ -44,6 +44,7 @@ import {
   type RequestContext,
 } from "@/lib/audit";
 import { getClinicSettings } from "@/lib/billing/settings";
+import { recordSupersedingTerms } from "@/lib/booking/elections";
 import { isDemoClinic } from "@/lib/booking/terms";
 import { updateClinicSettingsRecordingPause } from "@/lib/channels/pause";
 import { AGREEMENT_PAUSE_LABEL, PAUSE_LINE_ORDER } from "@/lib/channels/pause-words";
@@ -100,8 +101,10 @@ import { supersedeAgreement, SupersedeError } from "./kind";
  *      document again from those answers, refuses a screen that showed
  *      anything else, and in ONE transaction writes the acceptance, puts it
  *      in force through supersedeAgreement (app_supersede_agreement(), which
- *      never goes BAA→DPA and binds the new row), closes the re-sign and
- *      lifts the pause it set. The signer's copy goes after commit.
+ *      never goes BAA→DPA and binds the new row), records the calendar terms
+ *      the BAA carries for the location set up at signing
+ *      (recordSupersedingTerms), closes the re-sign and lifts the pause it
+ *      set. The signer's copy goes after commit.
  *   4. **Or ops withdraws it** (`withdrawAgreementResign`): the practice
  *      bills no insurance electronically after all, the DPA covers it again,
  *      and the pause it set is lifted.
@@ -1121,9 +1124,12 @@ export type SignResignOutcome =
  * acceptance is written in service context (where an unbound one may be);
  * supersedeAgreement binds it and puts it in force, terminating the DPA at
  * the end of today (app_supersede_agreement(), which refuses a DPA ever
- * replacing a BAA); and, back in the clinic's tenant, the re-sign closes and
- * the pause it set is lifted. Two submissions of one link are one signature:
- * the second waits on the lock and finds it signed.
+ * replacing a BAA); the BAA's calendar clause and answers are recorded as
+ * the location's calendar terms under it (recordSupersedingTerms), so its
+ * Google Calendar connection outlives the change; and, back in the clinic's
+ * tenant, the re-sign closes and the pause it set is lifted. Two submissions
+ * of one link are one signature: the second waits on the lock and finds it
+ * signed.
  */
 export async function signAgreementResign(
   token: unknown,
@@ -1223,6 +1229,15 @@ export async function signAgreementResign(
         prepared.signatoryEmail,
         db,
       );
+      // The BAA is the location's calendar terms from now on: recorded under
+      // it here, or the location reads `needs_election` and the calendar
+      // watch takes its Google connection away within five minutes.
+      const calendarTerms = await recordSupersedingTerms(db, {
+        clinicId: read.clinicId,
+        agreementId: acceptance.id,
+        actor,
+        request: context,
+      });
 
       await setTenant(read.clinicId);
       await db
@@ -1244,6 +1259,7 @@ export async function signAgreementResign(
           status: "signed",
           agreementId: acceptance.id,
           supersededAgreementId: superseded.supersededAgreementId,
+          calendarElectionId: calendarTerms?.electionId ?? null,
           pauseLifted: lifted,
         },
       });

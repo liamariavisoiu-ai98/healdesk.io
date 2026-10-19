@@ -28,8 +28,12 @@ import type { TenantTx } from "@/lib/tenant";
  *      No row: `needs_election`, `legacy_agreement` when the agreement holds
  *      no 1.3.0 calendar clause (every signature before 1.3.0), `location`
  *      when it does but this location has no row (a location added later,
- *      whose terms the signed clause does not govern, or one whose agreement
- *      was superseded).
+ *      whose terms the signed clause does not govern). A superseded
+ *      agreement leaves the location set up at signing a row: the new
+ *      signature's own terms, recorded as its `agreement` row in the
+ *      transaction that binds it (recordSupersedingTerms, 19 October 2026).
+ *      Any other location's elections stay under the old agreement, so it
+ *      reads `location` until it records one.
  *   3. The newest row counts when it came from the agreement itself, its
  *      election document was released when it was recorded, or the location
  *      is a demo clinic (app_clinic_is_demo). A draft row on any other

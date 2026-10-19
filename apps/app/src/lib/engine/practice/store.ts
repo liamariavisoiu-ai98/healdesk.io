@@ -1,7 +1,20 @@
 import { createHash } from "node:crypto";
 
 import { NEVER_SAY_DEFAULTS, type Channel } from "@healdesk/catalog";
-import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import {
   agentConfigs,
@@ -461,7 +474,9 @@ export async function recordPracticeRun(
       return { status: "queued", alerts };
     }
     await finish({ status: "error", lastError: "model_unreachable" });
-    if (!queued)
+    // Ops hears of a streak once, at its first errored run; the sweep asks
+    // again after its back-off, and errors_in_a_row is the escalation (job.ts).
+    if (!queued && !(await previousRunErrored(tx, run.id)))
       alerts.push({
         event: "practice_question_failed",
         fields: { clinicId: tx.clinicId, runId: run.id, outcome: "error" },
@@ -565,6 +580,25 @@ export async function recordPracticeRun(
     talkToAyaBuilt: input.talkToAyaBuilt,
   });
   return { status: "passed", alerts };
+}
+
+/** Whether the clinic's run of the questions finished before `runId` (the latest such) also errored. */
+async function previousRunErrored(tx: TenantTx, runId: string): Promise<boolean> {
+  const [previous] = await tx.db
+    .select({ status: practiceQuestionRuns.status })
+    .from(practiceQuestionRuns)
+    .where(
+      and(
+        eq(practiceQuestionRuns.clinicId, tx.clinicId),
+        ne(practiceQuestionRuns.id, runId),
+        notAnOverride(),
+        inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
+        isNotNull(practiceQuestionRuns.finishedAt),
+      ),
+    )
+    .orderBy(desc(practiceQuestionRuns.finishedAt))
+    .limit(1);
+  return previous?.status === "error";
 }
 
 /** Close a claimed run with nothing asked: the clinic has left. Only while it is still ours. */
@@ -867,24 +901,24 @@ export type StalledPractice =
 export async function stalledPractice(
   tx: Pick<TenantTx, "db" | "clinicId">,
 ): Promise<StalledPractice | null> {
-  const recent = await tx.db
+  const finished = (...more: SQL[]) =>
+    and(
+      eq(practiceQuestionRuns.clinicId, tx.clinicId),
+      notAnOverride(),
+      inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
+      isNotNull(practiceQuestionRuns.finishedAt),
+      ...more,
+    );
+  const [latest] = await tx.db
     .select({
       id: practiceQuestionRuns.id,
       status: practiceQuestionRuns.status,
       finishedAt: practiceQuestionRuns.finishedAt,
     })
     .from(practiceQuestionRuns)
-    .where(
-      and(
-        eq(practiceQuestionRuns.clinicId, tx.clinicId),
-        notAnOverride(),
-        inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
-        isNotNull(practiceQuestionRuns.finishedAt),
-      ),
-    )
+    .where(finished())
     .orderBy(desc(practiceQuestionRuns.finishedAt))
-    .limit(50);
-  const latest = recent[0];
+    .limit(1);
   if (!latest) return null;
   if (latest.status === "in_review") {
     const [open] = await tx.db
@@ -901,12 +935,33 @@ export async function stalledPractice(
     return open ? null : { kind: "review_gone", runId: latest.id };
   }
   if (latest.status !== "error") return null;
-  let errorsInARow = 0;
-  while (errorsInARow < recent.length && recent[errorsInARow]!.status === "error") errorsInARow += 1;
+  // The streak, however long: every errored run since the latest that did
+  // not error, counted and started in the database, so its first run, which
+  // keys the one alert, stays the same while it grows.
+  const [lastOther] = await tx.db
+    .select({ finishedAt: practiceQuestionRuns.finishedAt })
+    .from(practiceQuestionRuns)
+    .where(finished(ne(practiceQuestionRuns.status, "error")))
+    .orderBy(desc(practiceQuestionRuns.finishedAt))
+    .limit(1);
+  const inStreak = finished(
+    eq(practiceQuestionRuns.status, "error"),
+    ...(lastOther?.finishedAt ? [gt(practiceQuestionRuns.finishedAt, lastOther.finishedAt)] : []),
+  );
+  const [first] = await tx.db
+    .select({ id: practiceQuestionRuns.id })
+    .from(practiceQuestionRuns)
+    .where(inStreak)
+    .orderBy(asc(practiceQuestionRuns.finishedAt))
+    .limit(1);
+  const [counted] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(practiceQuestionRuns)
+    .where(inStreak);
   return {
     kind: "error",
-    errorsInARow,
-    firstErrorRunId: recent[errorsInARow - 1]!.id,
+    errorsInARow: counted?.n ?? 1,
+    firstErrorRunId: first?.id ?? latest.id,
     lastFinishedAt: latest.finishedAt!,
   };
 }

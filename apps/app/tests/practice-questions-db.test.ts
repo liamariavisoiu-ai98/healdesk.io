@@ -14,6 +14,7 @@ import {
   readPracticeState,
   recordPracticeRun,
   requestPracticeQuestions,
+  stalledPractice,
 } from "@/lib/engine/practice/store";
 import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { runOperation, type Operator } from "@/lib/ops/api";
@@ -833,6 +834,60 @@ describeDb("the practice questions, against the database", () => {
     expect(await alerts()).toBe(1);
     await sweepPracticeQuestions({ now: hours(24.1) });
     expect(await queued()).toHaveLength(1);
+    // Each errored run's own alert went once, for the streak's first: the
+    // re-asks after it are the sweep's to escalate, not three more emails.
+    const perRun = (
+      await getMigratorPool().query<{ n: number }>(
+        `select count(*)::int as n from ops_alerts
+          where event = 'practice_question_failed' and fields->>'clinicId' = $1 and fields->>'outcome' = 'error'`,
+        [clinic.clinicId],
+      )
+    ).rows[0]!.n;
+    expect(perRun).toBe(1);
+  });
+
+  test("a streak longer than any window is counted from its start, and its alert goes once however long it runs", async () => {
+    await setAnswers();
+    // The run the answers asked for, out of the way and long before the streak.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update practice_question_runs
+            set status = 'superseded', requested_at = now() - interval '200 days', finished_at = now() - interval '200 days'
+          where status = 'queued'`,
+      ),
+    );
+    const read = (await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      readPracticeInputs(tx),
+    ))!;
+    // 55 runs that could not reach the model, a day apart, the latest a minute ago.
+    const errored = (n: number, since: string) =>
+      inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `insert into practice_question_runs (clinic_id, status, reason, requested_at, run_after, started_at, finished_at, attempts, input_version, last_error)
+           select $1, 'error', 'sweep', t, t, t, t, 3, $2, 'model_unreachable'
+             from (select now() - $4::interval - (g || ' days')::interval as t from generate_series(0, $3 - 1) g) s`,
+          [clinic.clinicId, read.inputVersion, n, since],
+        ),
+      );
+    await errored(55, "1 minute");
+    const streak = async () =>
+      (
+        await getMigratorPool().query<{ count: string }>(
+          `select fields->>'count' as count from ops_alerts
+            where event = 'practice_question_failed' and fields->>'clinicId' = $1 and fields->>'outcome' = 'errors_in_a_row'`,
+          [clinic.clinicId],
+        )
+      ).rows;
+    await sweepPracticeQuestions({ now: new Date() });
+    expect(await streak()).toEqual([{ count: "55" }]);
+    // One more errored run: the same streak, so no second alert.
+    await errored(1, "0 seconds");
+    await sweepPracticeQuestions({ now: new Date() });
+    expect(await streak()).toEqual([{ count: "55" }]);
+    const stalled = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      stalledPractice(tx),
+    );
+    expect(stalled).toMatchObject({ kind: "error", errorsInARow: 56 });
   });
 
   test("an operator's pass on a run that a later errored run left behind opens the gate on the next run, which asks the model nothing and opens no second review", async () => {

@@ -714,7 +714,9 @@ describeDb("the live alerts' hooks", () => {
     expect(transport.notices()).toEqual([]);
     // Ops hears of it, to phone the clinic: ids and a channel, nothing said.
     await vi.waitFor(async () => expect(await urgentMisses(c.clinicId)).toHaveLength(1), { timeout: 10_000 });
-    expect(await urgentMisses(c.clinicId)).toEqual([{ clinicId: c.clinicId, channel: "voice", conversationId: null }]);
+    expect(await urgentMisses(c.clinicId)).toEqual([
+      { clinicId: c.clinicId, channel: "voice", conversationId: null, callId: "call_alert_miss" },
+    ]);
   });
 
   test("Meta: an urgent message queues one L12 per conversation, sent in-process once the answer has committed", async () => {

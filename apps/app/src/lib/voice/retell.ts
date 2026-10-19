@@ -634,7 +634,7 @@ export class RetellCallSession {
       // A transaction that fails, now or after the deadline, never queued
       // the row: ops is told, to phone the clinic. notifyBookingAlert tells
       // ops itself when only its savepoint failed (it then returns false).
-      writing.catch(() => urgentAlertNotQueued(this.clinicId, { channel: "voice" }));
+      writing.catch(() => urgentAlertNotQueued(this.clinicId, { channel: "voice", callId: this.callId }));
       try {
         // Bounded, so a database that hangs never holds the urgent reply.
         urgentQueued = await withDeadline(writing, ALERT_DEADLINE_MS);

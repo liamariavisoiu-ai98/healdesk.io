@@ -239,12 +239,15 @@ export async function notifyBookingAlert(
  */
 export async function urgentAlertNotQueued(
   clinicId: string,
-  ref: Pick<BookingAlertRef, "conversationId" | "channel">,
+  ref: Pick<BookingAlertRef, "conversationId" | "channel" | "callId">,
 ): Promise<void> {
   await notifyOps("urgent_alert_not_queued", {
     clinicId,
     channel: ref.channel ?? null,
     conversationId: ref.conversationId ?? null,
+    // A call has no conversation row until it ends: its id keeps two
+    // callers' misses at one clinic in one hour from being folded into one.
+    ...(ref.callId ? { callId: ref.callId } : {}),
   });
 }
 

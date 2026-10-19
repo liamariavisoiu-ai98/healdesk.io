@@ -819,6 +819,90 @@ export async function claimPastDueReviews(tx: TenantTx, now: Date): Promise<stri
   return rows.map((r) => r.id);
 }
 
+// -----------------------------------------------------------------------------
+// A run that nothing will ask again
+// -----------------------------------------------------------------------------
+
+/**
+ * After the first errored run in a row the sweep asks again an hour after it
+ * finished, after the second six hours, then once a day: each run already
+ * tried three times (PRACTICE_RETRY_DELAYS_MS), so a model that stays
+ * unreachable costs at most a run a day per clinic, never a loop.
+ */
+export const PRACTICE_ERROR_BACKOFF_MS = [60 * 60_000, 6 * 60 * 60_000, 24 * 60 * 60_000] as const;
+/** Errored runs in a row after which ops is told, once for the streak. */
+export const PRACTICE_ERRORS_BEFORE_ALERT = 3;
+
+export function practiceErrorBackoffMs(errorsInARow: number): number {
+  const index = Math.min(Math.max(errorsInARow, 1), PRACTICE_ERROR_BACKOFF_MS.length) - 1;
+  return PRACTICE_ERROR_BACKOFF_MS[index]!;
+}
+
+export type StalledPractice =
+  /** The latest run could not reach the model after all its attempts, `errorsInARow` runs running. */
+  | { kind: "error"; errorsInARow: number; firstErrorRunId: string; lastFinishedAt: Date }
+  /**
+   * The latest run is in review with no review open: its review was
+   * superseded by the retired script approval, which was the run that
+   * replaced it and no longer counts, so no one can decide it.
+   */
+  | { kind: "review_gone"; runId: string };
+
+/**
+ * Whether the clinic's latest run of the questions is one that nothing will
+ * ask again: neither a change (the inputs are the same) nor a person (no
+ * review is open). The sweep asks again for these (job.ts), so a clinic is
+ * never left with Home saying it is being checked, or that she answers them
+ * again shortly, and nothing coming. Null when the latest run stands on its
+ * own: passed, failed on the clinic's data, in an open review, or none yet.
+ */
+export async function stalledPractice(
+  tx: Pick<TenantTx, "db" | "clinicId">,
+): Promise<StalledPractice | null> {
+  const recent = await tx.db
+    .select({
+      id: practiceQuestionRuns.id,
+      status: practiceQuestionRuns.status,
+      finishedAt: practiceQuestionRuns.finishedAt,
+    })
+    .from(practiceQuestionRuns)
+    .where(
+      and(
+        eq(practiceQuestionRuns.clinicId, tx.clinicId),
+        notAnOverride(),
+        inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
+        isNotNull(practiceQuestionRuns.finishedAt),
+      ),
+    )
+    .orderBy(desc(practiceQuestionRuns.finishedAt))
+    .limit(50);
+  const latest = recent[0];
+  if (!latest) return null;
+  if (latest.status === "in_review") {
+    const [open] = await tx.db
+      .select({ id: auditReviewQueue.id })
+      .from(auditReviewQueue)
+      .where(
+        and(
+          eq(auditReviewQueue.clinicId, tx.clinicId),
+          eq(auditReviewQueue.runId, latest.id),
+          eq(auditReviewQueue.status, "open"),
+        ),
+      )
+      .limit(1);
+    return open ? null : { kind: "review_gone", runId: latest.id };
+  }
+  if (latest.status !== "error") return null;
+  let errorsInARow = 0;
+  while (errorsInARow < recent.length && recent[errorsInARow]!.status === "error") errorsInARow += 1;
+  return {
+    kind: "error",
+    errorsInARow,
+    firstErrorRunId: recent[errorsInARow - 1]!.id,
+    lastFinishedAt: latest.finishedAt!,
+  };
+}
+
 /** The clinic's latest run of the questions, for the sweep: an override is not one. */
 export async function latestRunVersion(
   tx: TenantTx,

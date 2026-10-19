@@ -15,6 +15,7 @@ import {
   goLive as goLiveUpstream,
   issueCalendarLink as calendarLinkUpstream,
   reopenOnboardingStep as reopenUpstream,
+  rerunPracticeQuestions as rerunPracticeUpstream,
   retryCalendarWrite as retryWriteUpstream,
   setAutoConfirm as autoConfirmUpstream,
   setBookingRequirements as requirementsUpstream,
@@ -167,7 +168,15 @@ export default async function OnboardingPage({
   }
 
   // Channel events. No audit is passed here: only the practice questions
-  // pass one, by themselves or through a decision in /admin/reviews.
+  // pass one, by themselves or through a decision in /admin/reviews. What
+  // the console can do is ask them again, for every channel at once, as
+  // /admin/reviews does after a fix on our side.
+  async function rerunPractice() {
+    "use server";
+    const result = await rerunPracticeUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
   async function confirmWidget() {
     "use server";
     const result = await confirmWidgetUpstream(clinicId);
@@ -181,7 +190,7 @@ export default async function OnboardingPage({
       actions={{
         completeStep, reopenStep, savePhone, saveAgent, goLive, startForwardingTest, attachMeta, setMeta, setMetaPlatform,
         saveRequirements, confirmTimezone, retryCalendarWrite, setAutoConfirm, sendCalendarLink,
-        disconnectCalendar, confirmWidget,
+        disconnectCalendar, rerunPractice, confirmWidget,
       }}
     />
   );

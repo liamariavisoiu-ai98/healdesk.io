@@ -27,10 +27,13 @@ import {
   closePracticeRun,
   latestRunVersion,
   passedResultAt,
+  PRACTICE_ERRORS_BEFORE_ALERT,
+  practiceErrorBackoffMs,
   queueReadyEmail,
   readPracticeInputs,
   recordPracticeRun,
   requestPracticeQuestions,
+  stalledPractice,
   type PendingAlert,
 } from "./store";
 
@@ -48,9 +51,14 @@ import {
  *
  * Every hour, from the tick: the sweep. A clinic whose inputs changed with no
  * run asked for (a writer that does not ask, such as the ops console's
- * script edit) gets one; an open review past the day the clinic was given
- * raises practice_question_review_past_due once; and once Talk to your AYA
- * exists, a clinic whose tracker is complete gets O8 if it has not yet.
+ * script edit) gets one; so does one whose latest run nothing else will ask
+ * again (store.ts, stalledPractice): a run that could not reach the model
+ * after all its attempts, asked again an hour, then six, then a day after it
+ * finished, with ops told once after three in a row; and a run in review
+ * whose review is gone (the retired script approval superseded it), asked
+ * again at once. An open review past the day the clinic was given raises
+ * practice_question_review_past_due once; and once Talk to your AYA exists,
+ * a clinic whose tracker is complete gets O8 if it has not yet.
  */
 
 const ACTOR = { type: "service", serviceName: "practice-questions" } as const;
@@ -200,8 +208,11 @@ export type PracticeSweepSummary = {
 
 /**
  * The hourly sweep, behind the same switch: a run for a clinic whose inputs
- * no longer match its latest run's and none is waiting; the past-due alert
- * for each open review past its day, once; O8 for a complete tracker.
+ * no longer match its latest run's and none is waiting, or whose latest run
+ * nothing else will ask again (stalledPractice, after its back-off for
+ * errors); the past-due alert for each open review past its day, once; O8
+ * for a complete tracker. Every run it asks for waits its two minutes and
+ * runs one at a time per clinic, as any other.
  */
 export async function sweepPracticeQuestions(
   options: PracticeJobDeps = {},
@@ -216,11 +227,28 @@ export async function sweepPracticeQuestions(
         const read = await readPracticeInputs(tx, now);
         let requested = false;
         let ready = false;
+        let errors: { runId: string; count: number } | null = null;
         if (read?.ready) {
           const latest = await latestRunVersion(tx);
           if (!latest || (!latest.pending && latest.inputVersion !== read.inputVersion)) {
             await requestPracticeQuestions(tx, { reason: "sweep", now });
             requested = true;
+          } else if (!latest.pending) {
+            // The same inputs, and nothing waiting: ask again only for a run
+            // that nothing else would, an errored one after its back-off.
+            const stalled = await stalledPractice(tx);
+            if (stalled?.kind === "error" && stalled.errorsInARow >= PRACTICE_ERRORS_BEFORE_ALERT) {
+              errors = { runId: stalled.firstErrorRunId, count: stalled.errorsInARow };
+            }
+            const due =
+              stalled?.kind === "review_gone" ||
+              (stalled?.kind === "error" &&
+                now.getTime() - stalled.lastFinishedAt.getTime() >=
+                  practiceErrorBackoffMs(stalled.errorsInARow));
+            if (due) {
+              await requestPracticeQuestions(tx, { reason: "sweep", now });
+              requested = true;
+            }
           }
           ready = await queueReadyEmail(tx, {
             slug: read.slug,
@@ -228,8 +256,17 @@ export async function sweepPracticeQuestions(
             talkToAyaBuilt: options.talkToAyaBuilt,
           });
         }
-        return { pastDue, requested, ready };
+        return { pastDue, requested, ready, errors };
       });
+      if (outcome.errors) {
+        // Once for the streak: its first errored run is its key.
+        await notifyOpsOnce("practice_question_failed", {
+          clinicId: clinic.id,
+          runId: outcome.errors.runId,
+          outcome: "errors_in_a_row",
+          count: outcome.errors.count,
+        });
+      }
       for (const reviewId of outcome.pastDue) {
         summary.pastDue += 1;
         await notifyOpsOnce("practice_question_review_past_due", { clinicId: clinic.id, reviewId });

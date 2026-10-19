@@ -723,6 +723,118 @@ describeDb("the practice questions, against the database", () => {
     ]);
   });
 
+  test("a run left in review with its review gone, as the retired script approval left one, is asked again by the sweep, once", async () => {
+    await setAnswers();
+    const runId = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, runId, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("fail"),
+      }),
+    ).toBe("in_review");
+    // What "Record approval" did until 19 October 2026: superseded the open
+    // review and recorded an override run, which counts for nothing now.
+    await inTenant(clinic.clinicId, async (c) => {
+      await c.query(`update audit_review_queue set status = 'superseded' where run_id = $1`, [
+        runId,
+      ]);
+      await c.query(
+        `insert into practice_question_runs (clinic_id, status, reason, requested_at, run_after, started_at, finished_at, override_label)
+         values ($1, 'passed', 'override', now(), now(), now(), clock_timestamp(), 'Laura Owner (recorded by ops@healdesk.test)')`,
+        [clinic.clinicId],
+      );
+    });
+    const gate = () =>
+      withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        practiceQuestionsGate(tx, "web"),
+      );
+    expect(await gate()).toEqual({ open: false, why: "in_review" });
+    // No one can decide it: the queue hides a superseded review, and refuses it.
+    const listed = (
+      (await runOperation("listPracticeReviews", {}, OPERATOR)).body as {
+        data: { reviews: { runId: string }[] };
+      }
+    ).data.reviews;
+    expect(listed.filter((r) => r.runId === runId)).toEqual([]);
+
+    // The inputs are the same, so only the stalled run makes the sweep ask.
+    await sweepPracticeQuestions({ now: new Date() });
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([
+      { reason: "sweep" },
+    ]);
+    await sweepPracticeQuestions({ now: new Date() });
+    expect((await runs()).filter((r) => r.status === "queued")).toHaveLength(1);
+    const again = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, again, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("pass"),
+      }),
+    ).toBe("passed");
+    expect(await gate()).toEqual({ open: true, why: "passed" });
+  });
+
+  test("a run that could not reach the model after all its attempts is asked again after its back-off, and ops is told once after three in a row", async () => {
+    await setAnswers();
+    const unreachable: typeof judge = () => async () => {
+      throw new Error("unreachable");
+    };
+    /** The clinic's queued run, tried until it gives up: three attempts, as the job's retries would. */
+    const errorOut = async (): Promise<void> => {
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        const id = await dueQueued();
+        const status = await runOnePracticeRun(clinic.clinicId, id, {
+          responder: model(),
+          metaResponder: null,
+          judge: unreachable("fail"),
+        });
+        expect(status, `attempt ${attempt}`).toBe(attempt < 3 ? "queued" : "error");
+      }
+    };
+    const queued = async () => (await runs()).filter((r) => r.status === "queued");
+    const alerts = async () =>
+      (
+        await getMigratorPool().query<{ n: number }>(
+          `select count(*)::int as n from ops_alerts
+            where event = 'practice_question_failed' and fields->>'clinicId' = $1 and fields->>'outcome' = 'errors_in_a_row'`,
+          [clinic.clinicId],
+        )
+      ).rows[0]!.n;
+    const hours = (n: number) => new Date(Date.now() + n * 60 * 60_000);
+
+    await errorOut();
+    // An error opens no review; Home says she answers them again shortly, and the sweep sees to it.
+    const [none] = await inTenant(
+      clinic.clinicId,
+      async (c) => (await c.query(`select count(*)::int as n from audit_review_queue`)).rows,
+    );
+    expect(none).toEqual({ n: 0 });
+    await sweepPracticeQuestions({ now: new Date() });
+    expect(await queued()).toEqual([]);
+    await sweepPracticeQuestions({ now: hours(1.1) });
+    expect(await queued()).toMatchObject([{ reason: "sweep" }]);
+
+    // The second in a row: six hours.
+    await errorOut();
+    await sweepPracticeQuestions({ now: hours(1.1) });
+    expect(await queued()).toEqual([]);
+    await sweepPracticeQuestions({ now: hours(6.1) });
+    expect(await queued()).toHaveLength(1);
+    expect(await alerts()).toBe(0);
+
+    // The third: a day, and ops is told, once for the streak.
+    await errorOut();
+    await sweepPracticeQuestions({ now: hours(6.1) });
+    expect(await queued()).toEqual([]);
+    expect(await alerts()).toBe(1);
+    await sweepPracticeQuestions({ now: hours(12) });
+    expect(await alerts()).toBe(1);
+    await sweepPracticeQuestions({ now: hours(24.1) });
+    expect(await queued()).toHaveLength(1);
+  });
+
   test("a review's decision is about its own run: refused once what the questions read has changed, which asks for the run that replaces it", async () => {
     await setAnswers();
     const runId = await dueQueued();

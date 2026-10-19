@@ -58,6 +58,7 @@ const ACTIONS: Actions = {
   setAutoConfirm: NOT_IN_A_RENDER,
   sendCalendarLink: NOT_IN_A_RENDER,
   disconnectCalendar: NOT_IN_A_RENDER,
+  rerunPractice: NOT_IN_A_RENDER,
   confirmWidget: NOT_IN_A_RENDER,
 };
 

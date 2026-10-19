@@ -56,7 +56,9 @@ type Actions = {
   disconnectCalendar: () => Promise<OpsResult<DisconnectCalendarOutcome>>;
   // Channel events: website chat's line confirmed on the clinic's site. No
   // action passes a channel's audit or approves the script: the practice
-  // questions do, and a run they flag is decided in /admin/reviews.
+  // questions do, and a run they flag is decided in /admin/reviews. The
+  // console can only ask them again.
+  rerunPractice: () => Promise<OpsResult<CareOutcome>>;
   confirmWidget: () => Promise<OpsResult<CareOutcome>>;
 };
 
@@ -201,7 +203,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       </Section>
 
       <Section title="Channels">
-        <ChannelsCard view={v} onConfirmWidget={actions.confirmWidget} />
+        <ChannelsCard view={v} onRerun={actions.rerunPractice} onConfirmWidget={actions.confirmWidget} />
       </Section>
     </main>
   );
@@ -593,21 +595,62 @@ function needWords(channel: ChannelId, input: ChannelLiveInput): string {
 
 function ChannelsCard({
   view,
+  onRerun,
   onConfirmWidget,
 }: {
   view: OnboardingView;
+  onRerun: Actions["rerunPractice"];
   onConfirmWidget: Actions["confirmWidget"];
 }) {
   if (view.channels === null) {
     return <p className="text-muted text-sm">apps/app sent no channel states: it predates channel events.</p>;
   }
   if (view.channels.length === 0) return <p className="text-muted text-sm">No channels bought.</p>;
+  const waitingOnAudit = view.channels.some((c) => !c.liveAt && c.missing.includes("audit"));
   return (
-    <ul className="grid gap-3">
-      {view.channels.map((c) => (
-        <ChannelRow key={c.channel} channel={c} onConfirmWidget={onConfirmWidget} />
-      ))}
-    </ul>
+    <div>
+      <ul className="grid gap-3">
+        {view.channels.map((c) => (
+          <ChannelRow key={c.channel} channel={c} onConfirmWidget={onConfirmWidget} />
+        ))}
+      </ul>
+      {waitingOnAudit ? <RerunPractice onRerun={onRerun} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Ask the practice questions again, beside the channels whose audit waits on
+ * them: after a fix on our side, or when a run could not finish. It asks;
+ * it never passes anything. The run waits its two minutes and runs one at a
+ * time, as any other, and a run it flags goes to Reviews.
+ */
+function RerunPractice({ onRerun }: { onRerun: Actions["rerunPractice"] }) {
+  const [pending, start] = useTransition();
+  const [message, setMessage] = useState<string | null>(null);
+  return (
+    <div className="border-line mt-4 flex flex-wrap items-center gap-3 border-t pt-4 text-sm">
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() =>
+          start(async () => {
+            const result = await onRerun();
+            if (!result.ok) return setMessage(result.message);
+            setMessage(
+              result.data.status === "updated"
+                ? "Asked: the practice questions run again for every channel in about two minutes. If they flag something, it waits in Reviews."
+                : result.data.message,
+            );
+          })
+        }
+        className="border-line rounded-full border px-4 py-2 text-sm font-bold disabled:opacity-40"
+      >
+        Ask the practice questions again
+      </button>
+      <span className="text-muted text-xs">For every channel at once. It asks them; it passes nothing.</span>
+      {message ? <p className="w-full">{message}</p> : null}
+    </div>
   );
 }
 

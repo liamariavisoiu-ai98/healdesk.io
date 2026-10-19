@@ -53,6 +53,7 @@ const ACTIONS: Actions = {
   setAutoConfirm: NOT_IN_A_RENDER,
   sendCalendarLink: NOT_IN_A_RENDER,
   disconnectCalendar: NOT_IN_A_RENDER,
+  rerunPractice: NOT_IN_A_RENDER,
   confirmWidget: NOT_IN_A_RENDER,
 };
 
@@ -160,6 +161,25 @@ describe("no audit is passed by hand on the onboarding page", () => {
     expect(said.split(line)).toHaveLength(3);
     // Website chat's own step is a fact an operator looks at, and stays.
     expect(said).toContain("The line is on their website");
+  });
+
+  test("beside the channels waiting on their audit, the console can ask the practice questions again, once for every channel, and nothing more", () => {
+    const said = page(AGENT, NOT_AUDITED);
+    expect(said.split("Ask the practice questions again")).toHaveLength(2);
+    expect(said).toContain("For every channel at once. It asks them; it passes nothing.");
+    // Nothing left waiting on an audit, or only a live channel: nothing to ask.
+    const audited = NOT_AUDITED.map((c) => ({
+      ...c,
+      auditPassed: true,
+      missing: c.missing.filter((m) => m !== "audit"),
+    }));
+    expect(page(AGENT, audited)).not.toContain("Ask the practice questions again");
+    expect(
+      page(
+        AGENT,
+        NOT_AUDITED.map((c) => ({ ...c, liveAt: "2026-10-15T09:00:00.000Z", missing: [] })),
+      ),
+    ).not.toContain("Ask the practice questions again");
   });
 
   test("a version approved before the retirement, as apps/app still reports it, is said as it was recorded", () => {

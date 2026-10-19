@@ -70,19 +70,28 @@ async function host(): Promise<HostReach> {
       // An engine deployed before this check existed does not know the
       // question. That is not a broken seal, and saying so would send the
       // owner to rotate a secret that is fine.
-      return { state: "silent", message: "it runs an older version without this check: deploy the engine (deploy-app.yml) to see its keys" };
+      return { state: "silent", cause: "outdated", message: "it runs an older version without this check: deploy the engine (deploy-app.yml) to see its keys" };
     case "refused":
       return {
         state: "refused",
         message:
           "most often the two copies of HEALDESK_PROVISION_SECRET (Vercel and AWS) differ, or a clock is badly off; the exact reason is in the logs.",
       };
+    case "failed":
+      // The engine answers 503 before anything runs when its own copy of
+      // HEALDESK_PROVISION_SECRET or HEALDESK_ADMIN_EMAIL is missing; the
+      // ops client cannot tell that from a 503 the load balancer gives.
+      return {
+        state: "silent",
+        cause: "server-error",
+        message: "if Host shows Active rather than Switching, check that the engine has HEALDESK_PROVISION_SECRET and HEALDESK_ADMIN_EMAIL",
+      };
     case "timeout":
-      return { state: "silent", message: "no answer in time" };
+      return { state: "silent", cause: "no-answer", message: "no answer in time" };
     case "unreachable":
-      return { state: "silent", message: "nothing answered at its address" };
+      return { state: "silent", cause: "no-answer", message: "nothing answered at its address" };
     default:
-      return { state: "silent", message: "it answered with an error" };
+      return { state: "silent", cause: "server-error", message: "the console could not read its answer" };
   }
 }
 

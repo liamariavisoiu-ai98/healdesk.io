@@ -60,6 +60,9 @@ export const KEY_PRESENCE_NAMES = [
   "META_LOGIN_CONFIG_ID",
   "META_WHATSAPP_CONFIG_ID",
   "STRIPE_CONNECT_CLIENT_ID",
+  // Set with enable_voice, because HEALDESK_RETELL_LLM_SECRET reads as
+  // present here before the voice service exists (infra/aws/locals.tf).
+  "HEALDESK_VOICE_ENABLED",
 ] as const;
 
 export type KeyPresenceName = (typeof KEY_PRESENCE_NAMES)[number];

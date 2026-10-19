@@ -13,7 +13,7 @@ import { SystemMap } from "./SystemMap";
  * grouped into categories on the patient side, the shop side and what both
  * share; a line between each pair of things that talk, pointing the way the
  * information travels and coloured by what was found live on this request
- * (connected, needs a key, off on purpose, broken, can't check, still to
+ * (connected, needs a key, switched off, broken, can't check, still to
  * build, parked); and, one tap away, every single connection with the key it
  * rides on and when to rotate it. It can be narrowed to one purpose, or play
  * a journey step by step. What is left to build, add or rotate is listed

@@ -568,6 +568,13 @@
       "when": 1792384273788,
       "tag": "0080_practice_questions",
       "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1792396999838,
+      "tag": "0081_claims_and_summary",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, min, sql } from "drizzle-orm";
 
 import {
   appointments,
@@ -13,6 +13,7 @@ import type { ActorContext } from "@/lib/audit";
 import { writableConnection } from "@/lib/booking/calendar";
 import {
   deskFreeTimes,
+  openRequestCondition,
   readBookingRequestViews,
   type BookingChannel,
   type BookingRequestView,
@@ -64,15 +65,7 @@ export type AppointmentStatus =
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Bookings, or one request on it: where the emailed link, and a decision, land. */
-export function bookingsPath(slug: string): string {
-  return `/c/${slug}/bookings`;
-}
-
-/** One request on Bookings. The id is a UUID, never anything of the person. */
-export function bookingRequestPath(slug: string, requestId: string): string {
-  return `${bookingsPath(slug)}?request=${encodeURIComponent(requestId)}`;
-}
+export { bookingRequestPath, bookingsPath } from "./booking-paths";
 
 /** The decision's actor: the sign-in, by the device whose passkey step-up opened the page. */
 export function deskActorOf(page: PatientPage): DeskActor {
@@ -174,12 +167,7 @@ export async function readBookingsScreen(
     });
   }
 
-  const deposits = booked.filter(
-    (a) =>
-      a.depositStatus === "pending_front_desk" &&
-      (a.status === "scheduled" || a.status === "confirmed") &&
-      a.scheduledFor.getTime() > now.getTime(),
-  );
+  const deposits = booked.filter((a) => isDepositToCollect(a, now));
   return {
     timeZone: open[0]?.timeZone ?? missed[0]?.timeZone ?? (await clinicZone(tx)),
     open,
@@ -188,6 +176,75 @@ export async function readBookingsScreen(
     booked,
     focus,
     writableCalendar,
+  };
+}
+
+/**
+ * A deposit a booking left for the front desk to collect, while the
+ * appointment is still ahead: Needs you lists it, and Home counts it.
+ */
+export function isDepositToCollect(
+  a: Pick<BookedAppointment, "depositStatus" | "status" | "scheduledFor">,
+  now: Date,
+): boolean {
+  return (
+    a.depositStatus === "pending_front_desk" &&
+    (a.status === "scheduled" || a.status === "confirmed") &&
+    a.scheduledFor.getTime() > now.getTime()
+  );
+}
+
+/** Home's "Waiting for you": how many of each thing on Needs you, never which. */
+export type WaitingCounts = {
+  /** Open requests, each a person the team has to call back. */
+  toCallBack: number;
+  /** When the longest-waiting of them was taken, or null when there are none. */
+  oldestSince: Date | null;
+  /** Deposits a booking left for the front desk, while the appointment is ahead. */
+  depositsToCollect: number;
+};
+
+/**
+ * The counts behind Home's "Waiting for you" card (plan Part F1): the same
+ * requests and deposits Needs you lists on Bookings, by the same rules
+ * (openRequestCondition, isDepositToCollect), counted in the database
+ * without reading a single person. Home is not a patient page, so this takes
+ * a plain tenant transaction and writes no access-log row: it learns no
+ * name, number, time or service, only how many, and when the oldest request
+ * was taken.
+ *
+ * A handover has no record that says whether anyone has dealt with it yet
+ * (Bookings lists none either, above), so there is no count of handovers
+ * waiting: each one was emailed the moment it happened.
+ */
+export async function readWaitingCounts(tx: TenantTx, now: Date = new Date()): Promise<WaitingCounts> {
+  const [open] = await tx.db
+    .select({ n: sql<number>`count(*)::int`, oldest: min(bookingRequests.createdAt) })
+    .from(bookingRequests)
+    .where(and(eq(bookingRequests.clinicId, tx.clinicId), openRequestCondition()));
+  const [deposits] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(appointments)
+    .innerJoin(
+      bookingRequests,
+      and(
+        eq(bookingRequests.appointmentId, appointments.id),
+        eq(bookingRequests.clinicId, appointments.clinicId),
+      ),
+    )
+    .where(
+      and(
+        eq(appointments.clinicId, tx.clinicId),
+        eq(appointments.depositStatus, "pending_front_desk"),
+        inArray(appointments.status, ["scheduled", "confirmed"]),
+        gt(appointments.scheduledFor, now),
+      ),
+    );
+  const oldest = open?.oldest ?? null;
+  return {
+    toCallBack: open?.n ?? 0,
+    oldestSince: oldest === null ? null : new Date(oldest),
+    depositsToCollect: deposits?.n ?? 0,
   };
 }
 

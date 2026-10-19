@@ -57,6 +57,27 @@ export function priceKindOf(
   return inferPriceKind(service.priceFromUsd, service.priceToUsd);
 }
 
+/**
+ * A service's listed price as a booking snapshots it (appointments.
+ * listed_price_cents and listed_price_kind, drizzle/0081), for booked value
+ * (lib/reporting/claims.ts): the low end, in cents, and how the menu states
+ * it. An exact price is itself; a "from" price and a range are their start,
+ * the least the clinic's own list says the booking is worth; a per-unit
+ * price is the price of one unit, which the claims count apart and never
+ * multiply into a total, because nobody knows how many units a booking
+ * takes. Null for a service with no listed price ("quote on the call is not
+ * allowed"), or none at all.
+ */
+export function listedPrice(
+  service: Pick<AgentService, "priceKind" | "priceFromUsd" | "priceToUsd" | "unit"> | null | undefined,
+): { cents: number; kind: ServicePriceKind } | null {
+  if (!service) return null;
+  const kind = priceKindOf(service);
+  const from = service.priceFromUsd;
+  if (kind === null || from === null || !Number.isFinite(from) || from < 0) return null;
+  return { cents: Math.round(from * 100), kind };
+}
+
 /** Dollars, to the cent. */
 export function toCents(value: number): number {
   return Math.round(value * 100) / 100;

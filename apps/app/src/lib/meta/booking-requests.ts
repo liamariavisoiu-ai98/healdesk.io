@@ -32,6 +32,7 @@ import { calendarBreakOf, googleCalendarConnection, isTokenBreak, markCalendarBr
 import { planRescheduleOutreach, type RescheduleOutreach } from "@/lib/booking/reschedule";
 import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import { describeError, log } from "@/lib/log";
+import { listedPrice } from "@/lib/setup/prices";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import { listClinics } from "@/lib/ops/clinics";
 import { amendmentsFor } from "@/lib/patient-rights/amendments";
@@ -725,6 +726,22 @@ export type BookingRequestStatus = "requested" | "accepted" | "rescheduling" | "
 /** The request's statuses staff can still act on (§A.13). */
 export const OPEN_REQUEST_STATUSES = ["requested", "accepted", "rescheduling"] as const;
 
+/**
+ * Open in name but past its link's expiry, or its alternatives' deadline:
+ * nothing can decide it, and the hourly sweep (expireLapsedRequests) marks
+ * it expired. On the database's clock, like the sweep.
+ */
+export const REQUEST_LAPSED = sql<boolean>`(${bookingRequests.expiresAt} <= now()
+    or (${bookingRequests.status} = 'rescheduling' and ${bookingRequests.rescheduleExpiresAt} is not null and ${bookingRequests.rescheduleExpiresAt} < now()))`;
+
+/**
+ * The requests Bookings lists under Needs you: open, and not lapsed. Home's
+ * "Waiting for you" counts the same ones (lib/portal/bookings.ts).
+ */
+export function openRequestCondition() {
+  return and(inArray(bookingRequests.status, [...OPEN_REQUEST_STATUSES]), sql`not ${REQUEST_LAPSED}`);
+}
+
 /** Where an emailed link points: the request's clinic and id, and nothing of the person. */
 export type BookingPointer = { clinicId: string; slug: string; requestId: string };
 
@@ -828,12 +845,11 @@ export async function readBookingRequestViews(
   opts: { limit?: number; now?: Date } = {},
 ): Promise<BookingRequestView[]> {
   const now = opts.now ?? new Date();
-  const lapsed = sql<boolean>`(${bookingRequests.expiresAt} <= now()
-    or (${bookingRequests.status} = 'rescheduling' and ${bookingRequests.rescheduleExpiresAt} is not null and ${bookingRequests.rescheduleExpiresAt} < now()))`;
+  const lapsed = REQUEST_LAPSED;
   const open = inArray(bookingRequests.status, [...OPEN_REQUEST_STATUSES]);
   let where;
   if (scope.kind === "open") {
-    where = and(open, sql`not ${lapsed}`);
+    where = openRequestCondition();
   } else if (scope.kind === "missed") {
     where = and(
       sql`(${bookingRequests.status} = 'expired' or (${open} and ${lapsed}))`,
@@ -1686,10 +1702,19 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
   // rule; with no payment link path, a required deposit is owed to the front
   // desk. The engine's decision: written here only when its alert already
   // went; otherwise after the insert, by D's one writer.
-  const [agent] = input.deposit
-    ? [null]
-    : await tx.db.select({ depositPolicy: agentConfigs.depositPolicy }).from(agentConfigs).where(eq(agentConfigs.clinicId, tx.clinicId)).limit(1);
-  const depositPolicy = agent?.depositPolicy ?? null;
+  const [agent] = await tx.db
+    .select({ depositPolicy: agentConfigs.depositPolicy, services: agentConfigs.services })
+    .from(agentConfigs)
+    .where(eq(agentConfigs.clinicId, tx.clinicId))
+    .limit(1);
+  const depositPolicy = input.deposit ? null : (agent?.depositPolicy ?? null);
+  // The clinic's listed price for the service booked, as its list says it
+  // now, kept on the booking (drizzle/0081): booked value multiplies by
+  // this, so a later edit to Prices never rewrites what was booked. The
+  // service is matched as the calendar matches it (serviceDuration).
+  const services = agent?.services ?? [];
+  const canonical = serviceDuration(services, input.treatment).canonicalName;
+  const listed = listedPrice(canonical === null ? null : services.find((s) => s.name === canonical));
   const owedAlready =
     input.depositAlerted === true && input.deposit?.isRequired === true && (input.deposit.action === "book_and_flag" || input.deposit.action === "hold_and_alert");
   // A chat link (`collect`) is priced from the appointment's own amount.
@@ -1712,6 +1737,8 @@ async function insertAppointment(tx: TenantTx, input: AppointmentInput): Promise
       bookingOrigin: input.bookingOrigin,
       calendarEventKey: input.calendarEventKey,
       calendarId: input.calendarId,
+      listedPriceCents: listed?.cents ?? null,
+      listedPriceKind: listed?.kind ?? null,
       ...(input.written
         ? {
             calendarWriteStatus: "written" as const,

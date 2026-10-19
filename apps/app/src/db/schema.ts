@@ -5041,6 +5041,17 @@ export const agreementResigns = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     /** The pause this re-sign put on AYA, or null when she was already paused or nothing answered. */
     pausedAt: timestamp("paused_at", { withTimezone: true }),
+    /**
+     * Each pause the opening put in force, or extended, at a clinic of the
+     * organisation, its own included (drizzle/0102): `[{ clinicId, pausedAt,
+     * until }]`, `until` being the end a location's own timed pause had before
+     * the re-sign made it indefinite. Signing or withdrawing gives back
+     * exactly those and never a pause set there otherwise.
+     */
+    heldPauses: jsonb("held_pauses")
+      .$type<{ clinicId: string; pausedAt: string; until: string | null }[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     signedAt: timestamp("signed_at", { withTimezone: true }),
     supersedingAgreementId: uuid("superseding_agreement_id").references(() => baaAcceptances.id),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
@@ -5084,8 +5095,9 @@ export const agreementResigns = pgTable(
     // A newer BAA over an older one never pauses AYA (owner, 19 October 2026).
     check(
       "agreement_resigns_baa_version_unpaused_check",
-      sql`${t.reason} <> 'baa_version' or ${t.pausedAt} is null`,
+      sql`${t.reason} <> 'baa_version' or (${t.pausedAt} is null and ${t.heldPauses} = '[]'::jsonb)`,
     ),
+    check("agreement_resigns_held_pauses_check", sql`jsonb_typeof(${t.heldPauses}) = 'array'`),
   ],
 );
 
@@ -5477,7 +5489,7 @@ export type CalendarElectionSource = (typeof CALENDAR_ELECTION_SOURCES)[number];
  * row against the agreement, and refuses any UPDATE or DELETE. It also holds
  * the rules on who may record what: an `agreement` row only for the
  * location set up at signing, and only as the first row under its agreement
- * (drizzle/0100); a released document and a booking sync as the
+ * (drizzle/0102); a released document and a booking sync as the
  * database's own copies of the catalogue say (a draft counts only for a demo
  * clinic); an unspent, unexpired link of this location, sent to whom the row
  * says; and an election that widens what reaches Google needs the practice
@@ -5603,7 +5615,7 @@ export const calendarElections = pgTable(
     ),
     // An agreement row is a released, signed document nobody had to
     // confirm. It is the first row under its agreement, which the guard
-    // checks (drizzle/0100): a location's first terms at provisioning, and
+    // checks (drizzle/0102): a location's first terms at provisioning, and
     // its terms under the agreement that superseded the one before
     // (recordSupersedingTerms), so not always sequence 1.
     check(

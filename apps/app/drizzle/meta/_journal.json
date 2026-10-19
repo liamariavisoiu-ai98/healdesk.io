@@ -715,6 +715,13 @@
       "when": 1792438362627,
       "tag": "0101_incident_affected_until_destroyed",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1792438371560,
+      "tag": "0102_resign_held_pauses",
+      "breakpoints": true
     }
   ]
 }

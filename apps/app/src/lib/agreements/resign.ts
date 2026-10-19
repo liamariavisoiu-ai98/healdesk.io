@@ -302,7 +302,8 @@ export async function openAgreementResign(
   const existing = (await organisationOpenResigns(tx))[0];
   if (existing) return { resignId: existing.resignId, opened: false };
 
-  const pausedAt = input.pause === false ? null : await holdOrganisationPaused(tx, now);
+  const held = input.pause === false ? [] : await holdOrganisationPaused(tx, now);
+  const pausedAt = held.find((h) => h.clinicId === tx.clinicId)?.pausedAt ?? null;
   const [row] = await tx.db
     .insert(agreementResigns)
     .values({
@@ -312,7 +313,8 @@ export async function openAgreementResign(
       source: input.source,
       requestedBy: input.requestedBy.slice(0, 200),
       startedAt: now,
-      pausedAt,
+      pausedAt: pausedAt === null ? null : new Date(pausedAt),
+      heldPauses: held,
     })
     .returning({ id: agreementResigns.id });
   tx.audit.record({
@@ -359,31 +361,40 @@ async function forEachOrganisationClinic(
   }
 }
 
+/** One pause a re-sign holds (agreement_resigns.held_pauses, drizzle/0102). */
+export type HeldPause = AgreementResign["heldPauses"][number];
+
 /**
  * Pause AYA on the clinic and every other location of its organisation
  * (holdAyaPaused on each): the answer gate reads each location's own pause.
- * Returns the pause it put on the clinic itself, the one its re-sign row
- * records, or null when that clinic was already paused that way.
+ * Returns each pause it put in force or extended, the clinic's own among
+ * them, for the re-sign row to record (held_pauses; the clinic's own is its
+ * paused_at too), so that signing lifts exactly those.
  */
-async function holdOrganisationPaused(tx: TenantTx, now: Date): Promise<Date | null> {
-  let own: Date | null = null;
+async function holdOrganisationPaused(tx: TenantTx, now: Date): Promise<HeldPause[]> {
+  const held: HeldPause[] = [];
   await forEachOrganisationClinic(tx, async (clinic) => {
     const paused = await holdAyaPaused(clinic, now);
-    if (clinic.clinicId === tx.clinicId) own = paused;
+    if (paused) held.push({ clinicId: clinic.clinicId, ...paused });
   });
-  return own;
+  return held;
 }
 
 /**
  * Pause AYA until switched back on, quietly, unless she is already paused
  * that way, which is the practice's own pause and stays its own. Returns the
- * pause this put in force (or extended: a pause that would end by itself is
- * made one that does not), or null.
+ * pause this put in force, or extended (a pause that would end by itself is
+ * made one that does not, keeping who paused it and since when), with the
+ * end it had before, so the release can give it back; or null.
  */
-async function holdAyaPaused(tx: TenantTx, now: Date): Promise<Date | null> {
+async function holdAyaPaused(
+  tx: TenantTx,
+  now: Date,
+): Promise<{ pausedAt: string; until: string | null } | null> {
   const before = await getClinicSettings(tx);
   const pause = { pausedAt: before.aiPausedAt, pausedUntil: before.aiPausedUntil };
-  if (isPaused(pause, now) && before.aiPausedUntil === null) return null;
+  const paused = isPaused(pause, now);
+  if (paused && before.aiPausedUntil === null) return null;
   const { after } = await updateClinicSettingsRecordingPause(
     tx,
     { aiPaused: true, aiPausedUntil: null },
@@ -391,39 +402,60 @@ async function holdAyaPaused(tx: TenantTx, now: Date): Promise<Date | null> {
     now,
     { emailClinic: false },
   );
-  return after.aiPausedAt;
+  if (!after.aiPausedAt) return null;
+  return {
+    pausedAt: after.aiPausedAt.toISOString(),
+    // Extended: the end the practice's own pause had.
+    until: paused ? (before.aiPausedUntil?.toISOString() ?? null) : null,
+  };
 }
 
 /**
- * Lift the pause `resign` put on AYA, on the clinic and every other location
- * of its organisation, where it is still that pause: the one its row
- * records, or, on a location, a pause healdesk put there for an agreement
- * since the re-sign began (AGREEMENT_PAUSE_LABEL, with no end). A pause the
- * practice set itself stays its own. Returns whether it lifted any.
+ * Give back each pause `resign` holds (held_pauses), on the clinic and every
+ * other location of its organisation, where it is still that pause: the
+ * same start, and still no end. One the re-sign put in force is lifted; a
+ * timed pause of the practice's own that it made indefinite gets its end
+ * back, or is lifted if that end has passed. A pause the practice set
+ * otherwise stays its own. A row from before held_pauses (0102) holds only
+ * its paused_at, on its own clinic. Returns whether it lifted or ended any.
  */
 async function releaseAyaPause(
   tx: TenantTx,
-  resign: Pick<AgreementResign, "pausedAt" | "startedAt">,
+  resign: Pick<AgreementResign, "pausedAt" | "heldPauses">,
   actorLabel: string,
   now: Date,
 ): Promise<boolean> {
-  let lifted = false;
+  const held: HeldPause[] =
+    resign.heldPauses.length > 0
+      ? resign.heldPauses
+      : resign.pausedAt
+        ? [{ clinicId: tx.clinicId, pausedAt: resign.pausedAt.toISOString(), until: null }]
+        : [];
+  let released = false;
   await forEachOrganisationClinic(tx, async (clinic) => {
+    const mine = held.find((h) => h.clinicId === clinic.clinicId);
+    if (!mine) return;
     const current = await getClinicSettings(clinic);
-    const recorded =
-      clinic.clinicId === tx.clinicId &&
-      resign.pausedAt !== null &&
-      current.aiPausedAt?.getTime() === resign.pausedAt.getTime();
-    const ours =
-      current.aiPausedAt !== null &&
-      current.aiPausedUntil === null &&
-      current.aiPausedByLabel === AGREEMENT_PAUSE_LABEL &&
-      current.aiPausedAt.getTime() >= resign.startedAt.getTime();
-    if (!recorded && !ours) return;
-    await updateClinicSettingsRecordingPause(clinic, { aiPaused: false }, actorLabel, now);
-    lifted = true;
+    if (
+      current.aiPausedAt?.getTime() !== new Date(mine.pausedAt).getTime() ||
+      current.aiPausedUntil !== null
+    ) {
+      return;
+    }
+    const until = mine.until === null ? null : new Date(mine.until);
+    await updateClinicSettingsRecordingPause(
+      clinic,
+      until !== null && until.getTime() > now.getTime()
+        ? { aiPaused: true, aiPausedUntil: until }
+        : { aiPaused: false },
+      actorLabel,
+      now,
+      // The practice's own pause given back its end: it was told when it set it.
+      { emailClinic: false },
+    );
+    released = true;
   });
-  return lifted;
+  return released;
 }
 
 /**

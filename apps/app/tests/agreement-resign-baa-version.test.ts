@@ -318,8 +318,12 @@ describeDb("re-signing a newer BAA over an older one", () => {
 
   async function pause(clinicId: string) {
     const { rows } = await inTenant(clinicId, (client) =>
-      client.query<{ ai_paused_at: Date | null; ai_paused_by_label: string | null }>(
-        `select ai_paused_at, ai_paused_by_label from clinic_settings where clinic_id = $1`,
+      client.query<{
+        ai_paused_at: Date | null;
+        ai_paused_by_label: string | null;
+        ai_paused_until: Date | null;
+      }>(
+        `select ai_paused_at, ai_paused_by_label, ai_paused_until from clinic_settings where clinic_id = $1`,
         [clinicId],
       ),
     );
@@ -373,17 +377,22 @@ describeDb("re-signing a newer BAA over an older one", () => {
   }
 
   /** Sign the open re-sign the latest L22 to `to` links to, as the screen does. */
-  async function signFromL22(to: string) {
+  async function signFromL22(to: string, now = new Date()) {
     const token = linkIn(l22For(to).at(-1)!.text);
-    const link = await lookUpResignLink(token);
+    const link = await lookUpResignLink(token, now);
     if (!link.ok) throw new Error(`the link did not open: ${link.reason}`);
     const signature = { signatoryName: "Laura Owner", signatoryTitle: "Owner" };
-    const shown = renderResignPreview(link.document, signature, effectiveDateOf(new Date()));
-    return signAgreementResign(token, {
-      ...signature,
-      displayedHash: sha256(shown.text),
-      templateVersion: link.document.templateVersion,
-    });
+    const shown = renderResignPreview(link.document, signature, effectiveDateOf(now));
+    return signAgreementResign(
+      token,
+      {
+        ...signature,
+        displayedHash: sha256(shown.text),
+        templateVersion: link.document.templateVersion,
+      },
+      {},
+      now,
+    );
   }
 
   test("switched off until the calendar fix: the job opens no BAA-version re-sign, the broadcast refuses and changes nothing, and the DPA re-sign is untouched", async () => {
@@ -771,6 +780,64 @@ describeDb("re-signing a newer BAA over an older one", () => {
     expect(await pause(location)).toMatchObject({ ai_paused_by_label: "Front desk iPad" });
   });
 
+  test("a location's own timed pause the DPA re-sign made indefinite gets its end back when it is signed, or ends if that has passed", async () => {
+    const held = async (clinicId: string) => {
+      const { rows } = await inTenant(clinicId, (client) =>
+        client.query<{ paused_at: Date | null; held_pauses: unknown }>(
+          `select paused_at, held_pauses from agreement_resigns where clinic_id = $1`,
+          [clinicId],
+        ),
+      );
+      return rows[0]!;
+    };
+    for (const [label, signedAfter] of [
+      ["bvtimed", 0],
+      ["bvtimedover", 2 * 60 * 60 * 1000],
+    ] as const) {
+      const practice = await dpaPractice(label);
+      const location = await seedLocation(practice, `${label}two`, "dpa");
+      await withTenant({ clinicId: location, actor: OPERATOR }, (tx) =>
+        pauseAya(tx, { choice: "hour", actorLabel: "Front desk iPad" }),
+      );
+      const staff = await pause(location);
+      expect(staff.ai_paused_until).not.toBeNull();
+
+      await yes(practice.clinicId);
+      // Made indefinite while the agreement waits, the practice's label and start kept.
+      expect(await pause(location)).toEqual({ ...staff, ai_paused_until: null });
+      const own = await pause(practice.clinicId);
+      expect(await held(practice.clinicId)).toEqual({
+        paused_at: own.ai_paused_at,
+        held_pauses: [
+          { clinicId: practice.clinicId, pausedAt: own.ai_paused_at!.toISOString(), until: null },
+          {
+            clinicId: location,
+            pausedAt: staff.ai_paused_at!.toISOString(),
+            until: staff.ai_paused_until!.toISOString(),
+          },
+        ],
+      });
+
+      const at = new Date(Date.now() + signedAfter);
+      expect((await signFromL22(practice.staffEmail, at)).status).toBe("signed");
+      expect((await pause(practice.clinicId)).ai_paused_at).toBeNull();
+      if (signedAfter === 0) {
+        // Signed within the hour: the location's own pause, as it set it.
+        expect(await pause(location)).toEqual(staff);
+      } else {
+        // Its hour is over: nothing holds it paused any more.
+        expect((await pause(location)).ai_paused_at).toBeNull();
+        const voice = await assistantMayAnswer({
+          clinicId: location,
+          channel: "voice",
+          actor: OPERATOR,
+          now: at,
+        });
+        expect(voice).toMatchObject({ decision: "answer" });
+      }
+    }
+  });
+
   test("a BAA version's re-sign pauses no location either", async () => {
     const practice = await baaPractice("bvorgbaa");
     const location = await seedLocation(practice, "bvorgbaatwo");
@@ -842,12 +909,24 @@ describeDb("re-signing a newer BAA over an older one", () => {
     await expect(
       asApp(`update agreement_resigns set paused_at = now() where id = $1`, [resign!.id]),
     ).rejects.toMatchObject({ code: "42501" });
-    // Nor does anyone move it: 0088's guard fixes it once a row is written.
+    // Nor does anyone move it: 0088's guard fixes it once a row is written,
+    // and the pauses it holds elsewhere with it (0102).
     await expect(
       inTenant(practice.clinicId, (client) =>
         client.query(`update agreement_resigns set paused_at = now() where id = $1`, [resign!.id]),
       ),
     ).rejects.toMatchObject({ message: expect.stringMatching(/fixed once opened/) });
+    await expect(
+      inTenant(practice.clinicId, (client) =>
+        client.query(
+          `update agreement_resigns set held_pauses = '[{"clinicId":"x","pausedAt":"y","until":null}]' where id = $1`,
+          [resign!.id],
+        ),
+      ),
+    ).rejects.toMatchObject({ message: expect.stringMatching(/fixed once opened/) });
+    await expect(
+      asApp(`update agreement_resigns set held_pauses = '[]' where id = $1`, [resign!.id]),
+    ).rejects.toMatchObject({ code: "42501" });
     // And a BAA-version re-sign is never written paused, by anyone.
     const other = await baaPractice("bvguardinsert");
     await expect(

@@ -235,3 +235,27 @@ export async function displayPhoneNumber(fetchImpl: FetchLike, phoneNumberId: st
   );
   return typeof body.display_phone_number === "string" ? body.display_phone_number : null;
 }
+
+/**
+ * Take the app off a Page's webhooks, with the Page's own token: its
+ * Messenger conversations, and the direct messages of the Instagram account
+ * linked to it, stop reaching us. The reverse of subscribePage, and what
+ * "we revoke our access to your Meta accounts" (Terms §7) does for a Page
+ * (lib/meta/revoke.ts).
+ */
+export async function unsubscribePage(fetchImpl: FetchLike, pageId: string, pageToken: string): Promise<void> {
+  const body = await call<{ success?: unknown }>(fetchImpl, `${GRAPH}/${requireId(pageId, "Page id")}/subscribed_apps`, {
+    method: "DELETE",
+    headers: bearer(pageToken),
+  });
+  if (body.success !== true) throw new GraphError("Meta did not confirm the Page unsubscription.", 502);
+}
+
+/** Take the app off a WhatsApp Business account's webhooks, with the business's token. The reverse of subscribeWaba. */
+export async function unsubscribeWaba(fetchImpl: FetchLike, wabaId: string, token: string): Promise<void> {
+  const body = await call<{ success?: unknown }>(fetchImpl, `${GRAPH}/${requireId(wabaId, "WhatsApp Business account id")}/subscribed_apps`, {
+    method: "DELETE",
+    headers: bearer(token),
+  });
+  if (body.success !== true) throw new GraphError("Meta did not confirm the WhatsApp unsubscription.", 502);
+}

@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
+import { TENANT_SCOPED_TABLES } from "@/db/schema";
+
 import {
   closePools,
   getMigratorPool,
@@ -183,6 +185,28 @@ describeDb("RLS drift", () => {
         ).toBe(true);
       }
     }
+  });
+
+  test("TENANT_SCOPED_TABLES names exactly the tables with a clinic_id", async () => {
+    // The list is the schema's own statement of which tables are tenant data
+    // (finish-common: every new tenant table goes on it). It was checked only
+    // table by table, by the tests that added each, so transcript_emails
+    // (drizzle/0069), FORCE RLS like every other, was missing from it for
+    // a week. Compared here with the catalog, a table on one side and not
+    // the other fails, whoever added it.
+    const { rows } = await getMigratorPool().query<{ relname: string }>(`
+      select c.relname
+        from pg_class c
+        join pg_namespace n on n.oid = c.relnamespace
+       where n.nspname = 'public'
+         and c.relkind in ('r', 'p')
+         and exists (select 1 from pg_attribute a
+                      where a.attrelid = c.oid and a.attname = 'clinic_id'
+                        and a.attnum > 0 and not a.attisdropped)
+    `);
+    const catalog = rows.map((r) => r.relname).sort();
+    expect(catalog.length).toBeGreaterThan(20);
+    expect([...TENANT_SCOPED_TABLES].sort()).toEqual(catalog);
   });
 
   test("the tenant helper is STABLE, so the planner can hoist it", async () => {

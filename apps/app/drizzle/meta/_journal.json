@@ -673,6 +673,13 @@
       "when": 1792425196473,
       "tag": "0095_device_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1792426331384,
+      "tag": "0096_account_closure",
+      "breakpoints": true
     }
   ]
 }

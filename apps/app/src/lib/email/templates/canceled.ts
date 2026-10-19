@@ -12,8 +12,14 @@ import type { EmailTemplate } from "./types";
  * In the order a clinic needs it: calls still pass straight through to its
  * direct line for the Terms' pass-through days (§7), and how to undo the
  * forwarding for its own carrier before they stop (the catalog's undo steps,
- * R31); the website chat's contact form until the snippet comes off; then the
- * export and the destruction dates. Each channel's paragraph appears only when
+ * R31); what the website chat does until the snippet comes off; then the
+ * export and the destruction dates.
+ *
+ * The website chat takes no message once the service has ended: nothing new
+ * about a patient may be kept after termination (BAA clause 17), so the
+ * widget shows the practice's published number to call in the contact
+ * form's place (lib/chat/contact-form.ts, contactFormOffer). Until 19 October
+ * this email said the chat "shows a contact form", which it never did then. Each channel's paragraph appears only when
  * the clinic bought that channel, so a chat-only clinic is not told to undo
  * forwarding it never set up.
  *
@@ -60,7 +66,7 @@ export const renderCanceled: EmailTemplate<CanceledPayload> = (payload, ctx) => 
   if (payload.channels.includes("web")) {
     blocks.push({
       type: "paragraph",
-      text: "Your website chat shows a contact form until you remove the healdesk snippet from your website.",
+      text: "Your website chat no longer takes messages. Until you remove the healdesk snippet from your website, it asks visitors to call your practice instead.",
     });
   }
   if (payload.channels.includes("meta")) {

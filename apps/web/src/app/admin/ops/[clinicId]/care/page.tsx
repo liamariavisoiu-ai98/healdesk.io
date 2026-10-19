@@ -98,9 +98,9 @@ export default async function CarePage({ params }: { params: Promise<{ clinicId:
     revalidatePath(path);
     return result;
   }
-  async function markVoiceVendorDataDeleted(how: string) {
+  async function markVoiceVendorDataDeleted(how: string, step: "calls" | "agent") {
     "use server";
-    const result = await vendorDeletedUpstream(clinicId, how);
+    const result = await vendorDeletedUpstream(clinicId, how, step === "agent" ? "agent" : "calls");
     revalidatePath(path);
     return result;
   }

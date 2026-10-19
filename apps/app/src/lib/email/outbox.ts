@@ -272,7 +272,7 @@ async function claimNotice(
   // can ride on the email as its `delivery` tag. A recipient whose row is
   // already 'sent' (an earlier attempt reached it) comes back null and is
   // not sent again.
-  const recipients = await billingRecipients(tx);
+  const recipients = await billingRecipients(tx, kind);
   const slots: Slot[] = [];
   for (const [index, recipient] of recipients.entries()) {
     const deliveryId = await claimDelivery(tx, {

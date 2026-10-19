@@ -197,6 +197,25 @@ export const OPS_EVENTS = [
   // stops AYA where that vendor serves and asks for an incident.
   "vendor_agreement_expiring",
   "vendor_agreement_lapsed",
+  // Closing a leaving clinic's account (lib/offboarding/account-closure.ts):
+  // its data is destroyed and its pass-through over, but the closure waits on
+  // a person (`code`: voice_agent, incident_open, critical_notice or
+  // stripe_connect), once per clinic and code; or the closure threw, every
+  // hour it does.
+  "account_closure_waiting",
+  "account_closure_failed",
+  // Revoking a leaving clinic's Meta access (lib/meta/revoke.ts): Meta kept
+  // refusing to take the app off a Page or WhatsApp account (`phase`
+  // retries, once per connection after META_REVOKE_ALERT_AFTER tries), or
+  // still refused it on the last try before destruction deleted the token
+  // (`phase` destruction).
+  "meta_revoke_failed",
+  // ...and healdesk could not end a subscription at Meta itself, once per
+  // connection: no Page or account on record (`code` no_asset_on_record),
+  // no token to ask with (no_token), or a clinic in service holds a
+  // connection of the same kind that names no Page or account, so the asset
+  // was left subscribed in case it is theirs (asset_unverified). Ids only.
+  "meta_revoke_by_hand",
   // L32, a patient's request passed to its practice (BAA 1.5.1 clause 14:
   // within five business days), by the hourly sweep in
   // lib/patient-rights/patient-requests.ts, once per request each: nobody at

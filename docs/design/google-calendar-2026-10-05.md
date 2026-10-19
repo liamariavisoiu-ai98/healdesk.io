@@ -785,7 +785,21 @@ stood on 6 and 7 October. Each is to be settled with the other session before th
    `app_supersede_agreement()`, which replaces a clinic's agreement with a later one. The plan
    assumed none is ever replaced: elections anchor to the agreement in effect, and an `agreement`
    election row may only be a location's first. What a superseding agreement does to a location's
-   calendar terms is to be settled before migration A.
+   calendar terms is to be settled before migration A. **Settled 19 October 2026** (the owner: "go
+   ahead and build it"), after the gap was reproduced in code: the DPA→BAA re-sign
+   (`signAgreementResign`, WP9) put the BAA in force with no row under it, so the location read
+   `needs_election`, and the calendar watch's terms sweep erased its Google connection and revoked
+   the grant within one five-minute run. The new signature is the location's calendar terms.
+   `recordSupersedingTerms` (`lib/booking/elections.ts`) records it as the location's `agreement`
+   row under the new agreement, in the transaction that binds it, for the location set up at signing
+   (the organisation's clinic with no `billing_clinic_id`); the old election is not carried forward,
+   and a signature naming another kind of Google account takes the old connection away as
+   `election_changed`. The re-sign calls it now, and the BAA→BAA re-sign (R11) is to call it the
+   same way. `drizzle/0100` relaxes `calendar_elections_agreement_shape` (no longer sequence 1) and
+   moves "first" into the guard, per agreement: an agreement row is the first row recorded under its
+   agreement. Other locations (`billing_clinic_id` set) keep their elections under the old agreement
+   and read `needs_election` until they record one; whether elections carry across agreements is
+   still the owner's to decide, and none exist while `LOCATION_CLINICS_READY` is false.
 3. **The portal user's lock label (C6b, with the funnel).** The funnel's `lib/factors/totp.ts`
    seals each clinic user's authenticator-app secret through the same envelope, keyed by the user,
    so it has no `client_number`. C6b changed its two calls, since `seal()` and `open()` now require

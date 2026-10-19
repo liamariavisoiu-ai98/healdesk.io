@@ -323,12 +323,49 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
 
       const first = await recordAgreementElection(clinic.clinicId, agreement);
       expect(first.sequence).toBe(1);
-      // Only the first: the signed agreement decides a location's first terms,
-      // every later change is an election.
+      // Only the first under its agreement: the signature decides the
+      // location's terms under it, and every later change is an election
+      // (the guard since 0100; the CHECK held it to sequence 1 before).
       await expect(insertAgreementRow({})).rejects.toMatchObject({
         code: "23514",
-        constraint: "calendar_elections_agreement_shape",
+        message: expect.stringMatching(/first row recorded under its agreement/),
       });
+      // The CHECK still holds the row's shape: a released document nobody had to confirm.
+      for (const [label, released, confirmed] of [
+        ["unreleased", false, false],
+        ["owner-confirmed", true, true],
+      ] as const) {
+        const other = await seedClinic(`elect-shape-${label}`);
+        const signed = await bindCalendarAgreement(other);
+        await expect(
+          asApp(other.clinicId, (c) =>
+            c.query(
+              `insert into calendar_elections
+                 (clinic_id, agreement_id, source, terms_kind, clause_id, calendar_account,
+                  booking_sync, booking_system, document_version, document_hash,
+                  document_released, owner_confirmed, elected_by_label)
+               values ($1, $2, 'agreement', $3, $4, $5, $6, $7, $8, $9, $10, $11, 'Alex Chen')`,
+              [
+                other.clinicId,
+                signed.agreementId,
+                signed.termsKind,
+                signed.clauseId,
+                signed.calendarAccount,
+                signed.bookingSync,
+                signed.bookingSystem,
+                signed.documentVersion,
+                signed.documentHash,
+                released,
+                confirmed,
+              ],
+            ),
+          ),
+          label,
+        ).rejects.toMatchObject({
+          code: "23514",
+          constraint: "calendar_elections_agreement_shape",
+        });
+      }
 
       // An acceptance with no calendar clause at all (1.2.1 and earlier) can
       // never be the source of a location's calendar terms.
@@ -406,6 +443,132 @@ describeDb("drizzle/0057: the Google Calendar schema", () => {
       );
       expect(elected.sequence).toBe(1);
       expect(await permitted(location.clinicId)).toBe(true);
+    },
+    SLOW,
+  );
+
+  test(
+    "an agreement row is the first under its agreement: a superseding agreement's is taken at a later sequence, a second under one agreement is not",
+    async () => {
+      // When a later signature supersedes the agreement, it is the location's
+      // terms under the new one (recordSupersedingTerms, 0100). The sequence
+      // counts every row the location has, so that row is not sequence 1;
+      // the guard holds it to being the first row under its own agreement.
+      const clinic = await seedClinic("elect-supersede");
+      const location = await seedLocation(clinic);
+      const agreementRow = (
+        clinicId: string,
+        agreement: BoundAgreement,
+        override: Partial<Pick<BoundAgreement, "calendarAccount" | "termsKind" | "clauseId">> = {},
+      ) =>
+        asApp(clinicId, async (c) => {
+          const { rows } = await c.query<{ sequence: number }>(
+            `insert into calendar_elections
+               (clinic_id, agreement_id, source, terms_kind, clause_id, calendar_account, booking_sync,
+                booking_system, document_version, document_hash, document_released, elected_by_label)
+             values ($1, $2, 'agreement', $3, $4, $5, $6, $7, $8, $9, true, 'Alex Chen')
+             returning sequence`,
+            [
+              clinicId,
+              agreement.agreementId,
+              override.termsKind ?? agreement.termsKind,
+              override.clauseId ?? agreement.clauseId,
+              override.calendarAccount ?? agreement.calendarAccount,
+              agreement.bookingSync,
+              agreement.bookingSystem,
+              agreement.documentVersion,
+              agreement.documentHash,
+            ],
+          );
+          return rows[0]!.sequence;
+        });
+      const supersede = async (
+        old: BoundAgreement,
+        input: Parameters<typeof bindCalendarAgreement>[1],
+      ) => {
+        // As app_supersede_agreement() leaves it: the old one ended, the new one bound and later.
+        await getMigratorPool().query(
+          `update baa_acceptances set accepted_at = now() - interval '1 day', terminated_at = now() where id = $1`,
+          [old.agreementId],
+        );
+        return bindCalendarAgreement(clinic, input);
+      };
+      const firstUnder = {
+        code: "23514",
+        message: expect.stringMatching(/first row recorded under its agreement/),
+      };
+
+      // Under the first agreement: its row, then an election to a personal account.
+      const before = await bindCalendarAgreement(clinic, { calendarAccount: "workspace_no_baa" });
+      expect(await agreementRow(clinic.clinicId, before)).toBe(1);
+      const recipients = await insertCalendarLink(clinic.clinicId);
+      const elected = await asApp(clinic.clinicId, (c) =>
+        insertElection(c, clinic.clinicId, before, {
+          source: "calendar_link",
+          linkId: recipients,
+          calendarAccount: "personal",
+        }),
+      );
+      expect(elected.sequence).toBe(2);
+
+      const after = await supersede(before, { calendarAccount: "workspace_baa" });
+      // Each refusal 0057 made of an agreement row still holds under the new
+      // agreement: values the practice did not sign, a location with a
+      // billing clinic, and an agreement no longer in effect.
+      await expect(
+        agreementRow(clinic.clinicId, after, {
+          calendarAccount: "workspace_no_baa",
+          termsKind: "uncovered",
+          clauseId: "google-calendar-uncovered",
+        }),
+      ).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringMatching(/exactly the calendar terms the practice signed/),
+      });
+      await expect(agreementRow(location.clinicId, after)).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringMatching(/only for the location set up at signing/),
+      });
+      await expect(agreementRow(clinic.clinicId, before)).rejects.toMatchObject({
+        code: "23514",
+        message: expect.stringMatching(/against the agreement in effect/),
+      });
+
+      // The new signature's terms, at the location's third row: the election
+      // under the old agreement is not carried forward.
+      expect(await agreementRow(clinic.clinicId, after)).toBe(3);
+      await insertGoogleConnection(clinic.clinicId, { managed: true });
+      expect(await permitted(clinic.clinicId)).toBe(true);
+      // A second agreement row under the same agreement is not the first under it.
+      await expect(agreementRow(clinic.clinicId, after)).rejects.toMatchObject(firstUnder);
+
+      // Nor is one recorded after an election under its agreement.
+      const third = await supersede(after, { calendarAccount: "workspace_baa" });
+      const owner = await insertCalendarLink(clinic.clinicId, { audience: "owner" });
+      expect(
+        (
+          await asApp(clinic.clinicId, (c) =>
+            insertElection(c, clinic.clinicId, third, {
+              source: "calendar_link",
+              linkId: owner,
+              ownerConfirmed: true,
+            }),
+          )
+        ).sequence,
+      ).toBe(4);
+      await expect(agreementRow(clinic.clinicId, third)).rejects.toMatchObject(firstUnder);
+      const { rows } = await asApp(clinic.clinicId, (c) =>
+        c.query<{ sequence: number; source: string; agreement_id: string }>(
+          `select sequence, source, agreement_id from calendar_elections where clinic_id = $1 order by sequence`,
+          [clinic.clinicId],
+        ),
+      );
+      expect(rows).toEqual([
+        { sequence: 1, source: "agreement", agreement_id: before.agreementId },
+        { sequence: 2, source: "calendar_link", agreement_id: before.agreementId },
+        { sequence: 3, source: "agreement", agreement_id: after.agreementId },
+        { sequence: 4, source: "calendar_link", agreement_id: third.agreementId },
+      ]);
     },
     SLOW,
   );

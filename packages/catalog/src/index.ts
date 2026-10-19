@@ -40,6 +40,7 @@ export * from "./dpa-explainer";
 export * from "./forwarding";
 export * from "./google-calendar-disclosure";
 export * from "./message-language";
+export * from "./model-retention";
 export * from "./onboarding";
 export * from "./plans";
 export * from "./platforms";

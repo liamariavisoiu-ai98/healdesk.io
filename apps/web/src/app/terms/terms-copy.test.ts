@@ -89,9 +89,12 @@ describe("the terms describe v1 as the spec defines it", () => {
     expect(text).toContain(
       "it keeps conversation content for no more than the 30 days of its standard retention, and then deletes it.",
     );
+    // "Conversation content", never "inputs": the provider keeps and deletes
+    // inputs and outputs alike.
     expect(text).toContain(
-      "The AI model provider keeps inputs for up to 30 days. Our model provider's own business associate agreement covers its service only under its standard retention, which we do not control",
+      "The AI model provider keeps conversation content for up to 30 days. Our model provider's own business associate agreement covers its service only under its standard retention, which we do not control",
     );
+    expect(text).not.toMatch(/keeps (conversation )?inputs/);
     expect(text.split(MODEL_RETENTION_EXCEPTIONS).length - 1).toBe(2);
     // What Anthropic says only of its Covered Models, a purpose it does not
     // state, and a cap on law-required content it does not give.

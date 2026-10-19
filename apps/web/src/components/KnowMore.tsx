@@ -107,7 +107,8 @@ const FAQS = [
     // The model provider's retention is Anthropic's documentation for the
     // models the product calls (packages/catalog model-retention.ts, 19
     // October 2026): two years for flagged content alone, and no cap on what
-    // the law requires it to keep.
+    // the law requires it to keep. "Conversation content", never "inputs":
+    // the provider keeps inputs and outputs alike.
     q: "How do you handle patient data?",
     list: [
       "We sign a business associate agreement and handle patient data under it.",
@@ -117,7 +118,7 @@ const FAQS = [
       "Patient data is deleted on your instruction. Each transcript is emailed to you " +
         "and not kept: our encrypted copy is deleted as soon as your mail server confirms " +
         "delivery (or after 30 days if it is never delivered), and conversation records " +
-        "after 90 days. Our AI model provider keeps conversation inputs for up to " +
+        "after 90 days. Our AI model provider keeps conversation content for up to " +
         "30 days; content its safety systems flag may be kept for up to two years, " +
         "and content the law requires it to keep for as long as the law requires.",
     ],

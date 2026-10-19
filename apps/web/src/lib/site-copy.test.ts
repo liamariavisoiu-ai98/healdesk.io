@@ -405,6 +405,22 @@ describe("the model provider's 30 days always travel with the two-year exception
     );
     expect(offenders).toEqual([]);
   });
+
+  test("every statement keeps conversation content, not inputs alone, and states training as the catalog does", () => {
+    // The provider keeps and deletes inputs and outputs alike, and an output
+    // carries patient information too, such as a read-back of a name or a
+    // booking time; the agreements say "conversation content". Anthropic
+    // does not train on retained data without the customer's permission,
+    // which is what the catalog's sentences say (model-retention.ts).
+    const offenders = statements().filter(
+      ({ clause }) =>
+        /keeps (conversation )?inputs|inputs for (no more than|up to)/i.test(clause) ||
+        /No training on any of it/.test(clause),
+    );
+    // The website's own Anthropic organisation handles no patient
+    // information and is a different account; its row is not this promise.
+    expect(offenders.filter(({ where }) => !where.includes("this website"))).toEqual([]);
+  });
 });
 
 /**

@@ -218,6 +218,8 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * sentences (packages/catalog model-retention.ts), which the BAA 1.6.0 draft
  * and the DPA share, still naming no vendor and still stating the provider's
  * agreement as a promise about when it is signed (release gates 14 and 17).
+ * The annex's heading says the provider keeps "conversation content", where
+ * it said "inputs": it keeps and deletes inputs and outputs alike.
  * Section 9 no longer says "The Business Associate Agreement states the
  * same": BAA 1.5.0, the version signed today, still carries the old clause,
  * and the corrected one is the 1.6.0 draft, which only the owner can release.
@@ -946,7 +948,8 @@ export default function TermsPage() {
           </li>
           <li>
             <strong>
-              The AI model provider keeps inputs for up to {MODEL_STANDARD_RETENTION_DAYS} days.
+              The AI model provider keeps conversation content for up to{" "}
+              {MODEL_STANDARD_RETENTION_DAYS} days.
             </strong>{" "}
             Our model provider&apos;s own business associate agreement covers its service only
             under its standard retention, which we do not control: it keeps conversation content

@@ -116,14 +116,25 @@ and review forms post to Resend **directly**, outside that transport discipline
 invariant "every message declares whether it may carry PHI" is enforced in
 `apps/app` alone.
 
-**The escalation emails are a decision still to make.** The spec sends urgent alerts and
-handover requests to the clinic's named contact, and a daily summary email. An alert that
-names a caller or a treatment carries PHI. Two designs satisfy the rules above: alerts
-that carry no patient detail and link into the 2FA-gated portal, or minimum PHI sent only
-through SES `healdesk-phi`, never Resend. Record the choice here and in
-[hipaa-risk-analysis.md](./hipaa-risk-analysis.md) (T13) before building them. The spec's
-"Text or email address" option for those alerts conflicts with "no SMS anywhere in v1";
-until that is resolved, they are email only.
+**The escalation emails are pointers, and carry no PHI** (decided in the owner-approved
+funnel and portal plan of 6 October 2026, Annex X3 and X5, and the spec's "Anything about a
+patient is a pointer into the portal"; built 19 October 2026). The urgent alert, the
+handover alert, and the booking-request, deposit-to-collect and calendar-check alerts (L7,
+L10, L11, L12, L34) say what kind of thing happened, on which channel and at which
+practice, and link into the clinic portal, where who, when and what open only after
+sign-in and the passkey step-up. They never carry a name, a number, a time, a service or
+any words from a conversation, so they go on Resend with `phiClass: "none"`: the sender
+refuses any other class on Resend (`apps/app/src/lib/email/send.ts`), and every payload
+passes the allowlist and the link scanner at send time (`apps/app/src/lib/email/lint.ts`:
+ids, a channel id, a flag and a link to our public origin, never `HEALDESK_APP_URL` and
+never a single-use token). They are queued in the outbox in the transaction that records
+what they report (`apps/app/src/lib/notices/booking-alerts.ts`) and go to the clinic's one
+address; the urgent alert is sent the moment that transaction commits. The minimum-PHI
+variant over SES was not chosen. The email that replaced them, the desk's link to
+`/booking/<token>` (a page whose link is its only key), is no longer sent. The daily
+summary will follow the same rule. The spec's "Text or email address" option for these
+alerts conflicts with "no SMS anywhere in v1"; they are email only. The same choice is
+recorded in [hipaa-risk-analysis.md](./hipaa-risk-analysis.md) (T13).
 
 **Verify current terms directly with each vendor.** Plan requirements change, and this
 table will drift. This table is the register, and it is internal: there is no public

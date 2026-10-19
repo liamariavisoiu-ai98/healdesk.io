@@ -63,6 +63,9 @@ export const metadata: Metadata = {
  * of a HIPAA-ready organisation, two years for flagged content alone, and no
  * limit for what the law requires; the section now prints the catalog's
  * exceptions sentence (packages/catalog model-retention.ts), naming no vendor.
+ * It says "conversation content" where it said "inputs": the provider keeps
+ * and deletes inputs and outputs alike, and an output can carry patient
+ * information too, a read-back of a name or a booking time.
  */
 export default function DataDeletionPage() {
   const email = (
@@ -115,9 +118,9 @@ export default function DataDeletionPage() {
             is yours to delete. The record of each conversation, without what was
             said, is also deleted automatically {TRANSCRIPT_RETENTION_DAYS} days after it took
             place. Email {email} from the owner&apos;s address on the account. Our AI model
-            provider keeps conversation inputs for no more than {MODEL_STANDARD_RETENTION_DAYS}{" "}
+            provider keeps conversation content for no more than {MODEL_STANDARD_RETENTION_DAYS}{" "}
             days under the standard retention of its own agreement, which we do not control, and
-            then deletes them. {MODEL_RETENTION_EXCEPTIONS}
+            then deletes it. {MODEL_RETENTION_EXCEPTIONS}
           </li>
         </ul>
       </Section>

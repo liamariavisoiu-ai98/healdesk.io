@@ -8,25 +8,41 @@ refuses an account bound to it, and go-live refuses it
 then 1.5.0 (docs/baa-v1.5.0.txt) is what clinics sign, and this text and its
 hashes may still change.
 
-What is new against 1.5.0: the second paragraph of clause 13, Subcontractors,
-on Anthropic. 1.5.0 says Anthropic retains conversation content "for 30 days,
-for abuse detection and security", that content the law requires it to keep
-may be retained "for up to two years", and that "the service it provides under
-that agreement cannot run with shorter retention". Anthropic's own
-documentation, read on 19 October 2026, says none of that of the models the
-product calls, claude-opus-5-5 and claude-sonnet-5-5. A HIPAA-ready API
-organisation runs under standard retention, which deletes conversation content
-within 30 days and is given no purpose; content its automated trust-and-safety
-systems flag as violating its usage policy may be kept for up to two years; it
-may keep what the law requires it to keep, with no limit stated; and only its
-Covered Models (Claude Fable and Claude Mythos, 5 and 5.1), which the product
-does not call, require 30 days of retention. 1.6.0 says so, in the sentences
-packages/catalog/src/model-retention.ts holds for every surface that states
-the retention (MODEL_RETENTION_AGREEMENT), and keeps the rest of the
-paragraph: Anthropic named, its business associate agreement a promise about
-when it is signed, and healdesk's own covenant not to train on PHI. Every
-other clause is 1.5.0's own clause object, word for word, and the preamble
-differs only in its version line.
+What is new against 1.5.0: three clauses, all about Anthropic. The second
+paragraph of clause 13, Subcontractors: 1.5.0 says Anthropic retains
+conversation content "for 30 days, for abuse detection and security", that
+content the law requires it to keep may be retained "for up to two years", and
+that "the service it provides under that agreement cannot run with shorter
+retention". Anthropic's own documentation, read on 19 October 2026, says none
+of that of the models the product calls, claude-opus-5-5 and
+claude-sonnet-5-5. A HIPAA-ready API organisation runs under standard
+retention and cannot also have zero data retention; standard retention deletes
+conversation content within 30 days and is given no purpose; content its
+automated trust-and-safety systems flag as violating its usage policy may be
+kept for up to two years; it may keep what the law requires it to keep, with
+no limit stated; and only its Covered Models (Claude Fable and Claude Mythos,
+5 and 5.1), which the product does not call, require 30 days of retention.
+1.6.0 says so, in the sentences packages/catalog/src/model-retention.ts holds
+for every surface that states the retention (MODEL_RETENTION_AGREEMENT). It
+attributes the 30 days to Anthropic's standard retention rather than to
+Anthropic's business associate agreement, which nobody at healdesk has read
+yet, and says why the window exists: Anthropic offers its service under a
+business associate agreement only with that retention, which healdesk does not
+control. It keeps the rest of the paragraph: Anthropic named, its business
+associate agreement a promise about when it is signed, and healdesk's own
+covenant not to train on PHI.
+
+Two clauses point at that paragraph, and 1.5.0's name the purpose it no longer
+states. In clause 4, the state-law clause, item c's exception to deletion and
+the subcontractor paragraph's are what the Subcontractors clause says a
+subcontractor may keep "for the periods that clause states", where 1.5.0's are
+what it may keep "for abuse detection and security, or because a law requires
+it", kept "for that purpose and period only, and used for nothing else"; the
+standard retention, outside 1.5.0's exception, is now inside it. The DPA
+shares this wording. In clause 17, Term, Anthropic may keep its copies "only
+for the periods that clause states", where 1.5.0 says "the purposes and
+periods". Every other clause is 1.5.0's own clause object, word for word, and
+the preamble differs only in its version line.
 
 Rendered for a sample practice: covered-entity status "yes"; no booking system
 yet, so the assistant books live into the Google Calendar the practice
@@ -35,11 +51,12 @@ business associate agreement. The specialty shows as the golden test passes
 it, an id rather than the catalogue's display name. From the title line on,
 the sample is exactly what apps/app/tests/baa-golden.test.ts pins as 1.6.0 /
 covered_estimated (SHA-256
-5b37c787a4326f1940fd644bdc29ddec740a8fa9955d7051c82f17a795a40fa4). The clauses
-that render only for some practices follow in Appendix A, the calendar
-election in Appendix B, and the Google Calendar disclosure the practice ticks
-before connecting in Appendix C; none of the three changes with this draft.
-Source: packages/catalog/src/baa.ts (template 1.6.0), model-retention.ts,
+7607e52be87438f2c1c20fcec8ca8a273ea1ee8474d78f4f6601b0e497b453f7). The clauses
+that render only for some practices follow in Appendix A, where A3's clause 4
+carries the state-law change too, the calendar election in Appendix B, and the
+Google Calendar disclosure the practice ticks before connecting in Appendix C;
+the election and the disclosure do not change with this draft. Source:
+packages/catalog/src/baa.ts (template 1.6.0), model-retention.ts,
 calendar-terms.ts, subprocessor-notice.ts and google-calendar-disclosure.ts.
 
 ------------------------------------------------------------------------------
@@ -247,11 +264,10 @@ EFFECTIVE 13 September 2026
        days after that. healdesk will have each subcontractor that holds the
        information delete it in time for Practice to meet the deadline the law
        sets. The only exception is what the clause headed "Subcontractors"
-       says a subcontractor may keep for abuse detection and security, or
-       because a law requires it. That is kept for that purpose and period
-       only, and used for nothing else. healdesk keeps only a record of the
-       request, for no longer than it needs one to make sure the information
-       stays deleted, and uses it for nothing else;
+       says a subcontractor may keep, for the periods that clause states, and
+       that is kept for those periods only. healdesk keeps only a record of
+       the request, for no longer than it needs one to make sure the
+       information stays deleted, and uses it for nothing else;
     d. give Practice the information it holds that Practice needs for any risk
        assessment, data protection or impact assessment, or cybersecurity
        audit those laws require of Practice, and misrepresent no fact relevant
@@ -285,16 +301,15 @@ EFFECTIVE 13 September 2026
   handles patient information, by the written agreement that clause requires,
   to meet the obligations this clause places on healdesk for that information.
   The only exception to a subcontractor's duty to delete is what that clause
-  says it may keep for abuse detection and security, or because a law requires
-  it. Practice's Google Calendar, its payment processor and its Instagram,
-  Messenger and WhatsApp accounts are Practice's own services, which Practice
-  connects, where it uses them, under its own accounts with their providers.
-  They are not healdesk's subcontractors. healdesk sends patient information
-  to them only to add appointments to the calendar as the clause headed
-  "Google Calendar", or a calendar election that takes its place, provides; to
-  create the payment links the clause headed "Payments" describes; and to
-  reply on Instagram, Messenger or WhatsApp inside a conversation the person
-  started there.
+  says it may keep, for the periods that clause states. Practice's Google
+  Calendar, its payment processor and its Instagram, Messenger and WhatsApp
+  accounts are Practice's own services, which Practice connects, where it uses
+  them, under its own accounts with their providers. They are not healdesk's
+  subcontractors. healdesk sends patient information to them only to add
+  appointments to the calendar as the clause headed "Google Calendar", or a
+  calendar election that takes its place, provides; to create the payment
+  links the clause headed "Payments" describes; and to reply on Instagram,
+  Messenger or WhatsApp inside a conversation the person started there.
 
   Practice will tell healdesk of any request under the state privacy laws that
   healdesk must act on, with the information healdesk needs to act on it. It
@@ -612,15 +627,17 @@ EFFECTIVE 13 September 2026
   conversation. healdesk's language-model provider is Anthropic. Anthropic
   receives the content of each conversation, to generate the assistant's
   replies, only under a business associate agreement with healdesk signed
-  before any patient's information reaches it. Under that agreement Anthropic
-  keeps conversation content for no more than the 30 days of its standard
-  retention, and then deletes it. Two exceptions apply even then: content its
-  automated trust-and-safety systems flag as violating its usage policy, which
-  it may keep for up to two years, and content the law requires it to keep,
-  which it may keep for as long as the law requires. Anthropic does not use
-  that content to train its models without healdesk's permission, which
-  healdesk will not give. healdesk may not use PHI to train, fine-tune or
-  evaluate any model, its own or a third party's.
+  before any patient's information reaches it. Anthropic keeps conversation
+  content for no more than the 30 days of its standard retention, and then
+  deletes it. Anthropic offers its service under a business associate
+  agreement only with that standard retention, which healdesk does not
+  control. Two exceptions apply even then: content its automated
+  trust-and-safety systems flag as violating its usage policy, which it may
+  keep for up to two years, and content the law requires it to keep, which it
+  may keep for as long as the law requires. Anthropic does not use that
+  content to train its models without healdesk's permission, which healdesk
+  will not give. healdesk may not use PHI to train, fine-tune or evaluate any
+  model, its own or a third party's.
 
   healdesk will give Practice its current list of its subcontractors on
   Practice's written request to healdesk's email address in the Notices
@@ -747,9 +764,9 @@ EFFECTIVE 13 September 2026
   healdesk cannot delete one practice's information from a database backup, so
   copies in backups are destroyed as those backups expire, within 35 days
   after the destruction above. Anthropic may keep what the Subcontractors
-  clause describes, only for the purposes and periods that clause states.
-  Until these copies are destroyed this agreement protects them. healdesk uses
-  and discloses its backup copies only to restore its systems, and destroys
+  clause describes, only for the periods that clause states. Until these
+  copies are destroyed this agreement protects them. healdesk uses and
+  discloses its backup copies only to restore its systems, and destroys
   Practice's PHI again in anything it restores.
 
   Where returning or destroying any other PHI is not feasible, healdesk will
@@ -1125,11 +1142,10 @@ services Practice connects; it is given in full:
        days after that. healdesk will have each subcontractor that holds the
        information delete it in time for Practice to meet the deadline the law
        sets. The only exception is what the clause headed "Subcontractors"
-       says a subcontractor may keep for abuse detection and security, or
-       because a law requires it. That is kept for that purpose and period
-       only, and used for nothing else. healdesk keeps only a record of the
-       request, for no longer than it needs one to make sure the information
-       stays deleted, and uses it for nothing else;
+       says a subcontractor may keep, for the periods that clause states, and
+       that is kept for those periods only. healdesk keeps only a record of
+       the request, for no longer than it needs one to make sure the
+       information stays deleted, and uses it for nothing else;
     d. give Practice the information it holds that Practice needs for any risk
        assessment, data protection or impact assessment, or cybersecurity
        audit those laws require of Practice, and misrepresent no fact relevant
@@ -1163,16 +1179,16 @@ services Practice connects; it is given in full:
   handles patient information, by the written agreement that clause requires,
   to meet the obligations this clause places on healdesk for that information.
   The only exception to a subcontractor's duty to delete is what that clause
-  says it may keep for abuse detection and security, or because a law requires
-  it. Practice's payment processor and its Instagram, Messenger and WhatsApp
-  accounts are Practice's own services, which Practice connects, where it uses
-  them, under its own accounts with their providers. So is any Google Calendar
-  that a calendar election connects. They are not healdesk's subcontractors.
-  healdesk sends patient information to them only to create the payment links
-  the clause headed "Payments" describes; to reply on Instagram, Messenger or
-  WhatsApp inside a conversation the person started there; and, where a
-  calendar election for a location provides for it, to add appointments to
-  that location's calendar.
+  says it may keep, for the periods that clause states. Practice's payment
+  processor and its Instagram, Messenger and WhatsApp accounts are Practice's
+  own services, which Practice connects, where it uses them, under its own
+  accounts with their providers. So is any Google Calendar that a calendar
+  election connects. They are not healdesk's subcontractors. healdesk sends
+  patient information to them only to create the payment links the clause
+  headed "Payments" describes; to reply on Instagram, Messenger or WhatsApp
+  inside a conversation the person started there; and, where a calendar
+  election for a location provides for it, to add appointments to that
+  location's calendar.
 
   Practice will tell healdesk of any request under the state privacy laws that
   healdesk must act on, with the information healdesk needs to act on it. It

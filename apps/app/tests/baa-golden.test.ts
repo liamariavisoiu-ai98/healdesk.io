@@ -104,16 +104,17 @@ const VARIANTS: Record<string, Partial<BaaVariables>> = {
 const GOLDEN: Record<string, Record<string, string>> = {
   // Drafted on 2026-10-19, NOT released (agreement-changes.md §16): 1.5.0
   // with Anthropic's retention as Anthropic's documentation states it for
-  // the models the product calls. A draft's hashes may move until its
+  // the models the product calls, and the state-law and Term clauses'
+  // references to it naming no purpose. A draft's hashes may move until its
   // release; from then on they are the record. No covered_verified_boulevard,
   // as in 1.3.0 to 1.5.0: it refuses verified reporting.
   "1.6.0": {
-    covered_estimated: "5b37c787a4326f1940fd644bdc29ddec740a8fa9955d7051c82f17a795a40fa4",
-    notcovered_estimated: "8556fe1dea61f135a3aeed1029502b1ba8e5f688ef5166262fb8df0fd4d97e2c",
-    unknown_estimated: "bbf9c1c62f155309a42d795d771c2a13193cb0b51cc2483c76bb7c94164a5ad9",
+    covered_estimated: "7607e52be87438f2c1c20fcec8ca8a273ea1ee8474d78f4f6601b0e497b453f7",
+    notcovered_estimated: "9703ef684ea5d5d65e9dc8b484ada62b19baeabe24eb4f3aabcfb9f5b2e53829",
+    unknown_estimated: "0ce715cfc7ee2312da8537f80b93db5a8370c194979946ef5a599c4c55a2d3a3",
     // Identical to covered_estimated by design, as in 1.2.x to 1.5.0: no
     // clause reads outboundMessaging.
-    covered_outbound: "5b37c787a4326f1940fd644bdc29ddec740a8fa9955d7051c82f17a795a40fa4",
+    covered_outbound: "7607e52be87438f2c1c20fcec8ca8a273ea1ee8474d78f4f6601b0e497b453f7",
   },
   // Released on 2026-10-14 and offered from that day (agreement-changes.md
   // §15): 1.4.0 with the transcript's copy deleted once delivery is
@@ -1731,20 +1732,24 @@ describe("1.5.0: the transcript's copy deleted once delivery is confirmed", () =
  * above SUBCONTRACTORS_1_6; agreement-changes.md §16). 1.5.0 says 30 days
  * "for abuse detection and security", two years for law-required content and
  * "cannot run with shorter retention", none of which Anthropic says of those
- * models. These pin that 1.6.0 changes that paragraph and nothing else, and
+ * models. The state-law clause's two exceptions to deletion and the Term
+ * clause's sentence on Anthropic's copies point at that paragraph, and
+ * 1.5.0's name the purpose it no longer states, so they change with it.
+ * These pin that 1.6.0 changes those three clauses and nothing else, that no
+ * sentence of any 1.6.0 document gives Anthropic's retention a purpose, and
  * that it cannot be signed or go live until the owner releases it.
  */
 const V160 = "1.6.0";
 
 /** variant → sha256, for 1.6.0, over 1.3.0's own variants. A draft's: they move with it until its release. */
 const GOLDEN_1_6: Record<string, string> = {
-  uncovered_nobaa: "e57a86b0a08f4ea8c8730e1e665ec7141a3af405b2cf47cfaecd0e73f87a711e",
-  uncovered_personal: "54271edec28888e20c0979d7ce39c30f82cc89afa54ec1c9bf68e4f267d4c9f3",
-  notused_mindbody: "ab87d9e12ed8deb940bab2ee0d55a5c5c6ba06cec2f83e8f55c0c5a00c32cfd5",
-  notused_other: "dfd11259c6ca28ebfac975bf927c25055348f538d4a337a72efe148740bdc56b",
-  live_calcom: "5b292d7f6725ac96ad658c688d683503bc1793a0b1e117a8ae7077dbb90a3994",
-  live_highlevel_personal: "d01da6593c104c09724ab6afe49093aa135af1eb17eb98352601b297f877693b",
-  live_calendly_nobaa: "761f17cc7e2c5a60c941b4bb9b1d599977a1009ef6d685dc8129bd04265f1430",
+  uncovered_nobaa: "dade462a19b6c2e7f8e1640f79c3e0c3d4b83297137d2e2fb417159a150b0c7c",
+  uncovered_personal: "1e50689890164ff6a629a5da42fe9b3a9b3accb5ff7a1d88679c305f5eed94cb",
+  notused_mindbody: "1290cd8fd6e850840eceb9c475db944d178f5895628f6afa5c5815e156a1e302",
+  notused_other: "04a3b44aa24da89c0155d124eee4734cc9670d1aef9f0e75222a924655070ba0",
+  live_calcom: "c2d55bb393fdf74f1044a59e16744a53eae0b21e4448d03dc5569fd3ac249da1",
+  live_highlevel_personal: "d145621def8ec813d12532df0e32da03374fab902125dd5a5883b55c2b50d818",
+  live_calendly_nobaa: "885758086fa7db48d1c3e02899b0b7ed6f490e28dee9a562231cfa0e16592927",
 };
 
 describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () => {
@@ -1789,10 +1794,13 @@ describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () 
     expect(text).toContain("Version 1.6.0 — executed electronically");
   });
 
-  test("every clause but subcontractors is 1.5.0's own object, in the same order", () => {
+  /** The clauses 1.6.0 changes: Anthropic's paragraph, and the two that point at it. */
+  const CHANGED = ["subcontractors", "state-law", "term"];
+
+  test("every clause but those three is 1.5.0's own object, in the same order", () => {
     expect(v160().clauses.map((c) => c.id)).toEqual(v150().clauses.map((c) => c.id));
     v160().clauses.forEach((clause, i) => {
-      if (clause.id === "subcontractors") expect(clause).not.toBe(v150().clauses[i]);
+      if (CHANGED.includes(clause.id)) expect(clause, clause.id).not.toBe(v150().clauses[i]);
       else expect(clause, clause.id).toBe(v150().clauses[i]);
     });
     for (const overrides of everyVariant()) {
@@ -1813,15 +1821,21 @@ describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () 
     expect(sub160[0]).toBe(sub150[0]);
     expect(sub160[1]).not.toBe(sub150[1]);
     expect(sub160[2]).toBe(sub150[2]);
-    // The rest of the document is 1.5.0's, line for line, on every variant.
+    // The rest of the document is 1.5.0's, line for line, on every variant,
+    // once the three changed clauses are taken out of both.
     for (const overrides of everyVariant()) {
       const label = JSON.stringify(overrides);
+      const variables = { ...BASE, ...overrides };
       const strip = (text: string, version: string) =>
-        unwrap(text)
-          .replace(`Version ${version} —`, "Version —")
-          .replace(unwrap(body(version, "subcontractors")), "SUBCONTRACTORS");
+        CHANGED.reduce(
+          (flat, id) => {
+            const clause = getBaaTemplate(version)!.clauses.find((c) => c.id === id)!;
+            return flat.replace(unwrap(clause.body(variables)), id.toUpperCase());
+          },
+          unwrap(text).replace(`Version ${version} —`, "Version —"),
+        );
       expect(strip(render(overrides).text, V160), label).toBe(
-        strip(prepareBaa(v150(), { ...BASE, ...overrides }).text, V150),
+        strip(prepareBaa(v150(), variables).text, V150),
       );
     }
     expect(() => render(VARIANTS.covered_verified_boulevard!)).toThrow(
@@ -1847,6 +1861,53 @@ describe("1.6.0: Anthropic's retention as Anthropic documents it (a draft)", () 
     expect(unwrap(body(V150, "subcontractors"))).toContain(
       "Anthropic retains conversation content for 30 days, for abuse detection and security",
     );
+  });
+
+  test("the state-law and Term clauses point at that paragraph without giving it a purpose", () => {
+    // 1.5.0's state-law clause excepts what the Subcontractors clause "says a
+    // subcontractor may keep for abuse detection and security, or because a
+    // law requires it", and its Term clause lets Anthropic keep copies "only
+    // for the purposes and periods that clause states". 1.6.0's paragraph
+    // states no purpose, so both point at its periods; the state-law clause
+    // is the one the DPA shares (stateLawClauseBody160).
+    for (const overrides of everyVariant()) {
+      const variables = { ...BASE, ...overrides };
+      const label = JSON.stringify(overrides);
+      const stateLaw = (version: string) =>
+        unwrap(getBaaTemplate(version)!.clauses.find((c) => c.id === "state-law")!.body(variables));
+      const term = (version: string) =>
+        unwrap(getBaaTemplate(version)!.clauses.find((c) => c.id === "term")!.body(variables));
+      expect(stateLaw(V160), label).toContain(
+        'The only exception is what the clause headed "Subcontractors" says a subcontractor may ' +
+          "keep, for the periods that clause states, and that is kept for those periods only.",
+      );
+      expect(stateLaw(V160), label).toContain(
+        "The only exception to a subcontractor's duty to delete is what that clause says it may " +
+          "keep, for the periods that clause states.",
+      );
+      expect(term(V160), label).toContain(
+        "Anthropic may keep what the Subcontractors clause describes, only for the periods that clause states.",
+      );
+      expect(term(V160).replace("only for the periods", "only for the purposes and periods"), label).toBe(
+        term(V150),
+      );
+      // 1.5.0 is frozen and keeps what it said.
+      expect(stateLaw(V150), label).toContain("may keep for abuse detection and security");
+      expect(term(V150), label).toContain("only for the purposes and periods that clause states");
+    }
+  });
+
+  test("no 1.6.0 document gives Anthropic's retention a purpose its documentation does not state", () => {
+    // Checked on the whole rendered text of every variant, not the
+    // Subcontractors paragraph alone: until 19 October 2026 the paragraph was
+    // corrected and the two clauses pointing at it still said "for abuse
+    // detection and security", which only the paragraph's check could not see.
+    for (const overrides of everyVariant()) {
+      const text = unwrap(render(overrides).text);
+      expect(text, JSON.stringify(overrides)).not.toMatch(
+        /abuse detection|purposes and periods|for that purpose and period|cannot run with|never trains/,
+      );
+    }
   });
 
   test("the variants are distinct documents, and none is a 1.5.0 document", () => {

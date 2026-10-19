@@ -161,7 +161,8 @@ const TERMS_1_3_0: Readonly<Record<string, BaaExplainerTerm>> = {
 
 /**
  * 1.3.0's nine bullets. 1.4.0, 1.5.0 and the 1.6.0 draft show the same list,
- * the same object: their Term clause is 1.3.0's own, no bullet speaks of
+ * the same object: their Term clauses say the same in plain terms (1.6.0's
+ * differs only in one phrase about Anthropic), no bullet speaks of
  * transcripts, and none of Anthropic's retention.
  */
 const BULLETS_1_3_0: readonly BaaExplainerTerm[] = BAA_EXPLAINER.terms.map(

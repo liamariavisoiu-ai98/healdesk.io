@@ -4,13 +4,16 @@
 -- migration changes no table, so drizzle generated it empty (--custom);
 -- everything below is the part drizzle cannot express.
 --
--- 1.6.0 is 1.5.0 with the Subcontractors clause's paragraph on Anthropic said
+-- 1.6.0 is 1.5.0 with three clauses changed so Anthropic's retention is said
 -- as Anthropic's own documentation says it for the models the product calls:
--- conversation content kept no more than the 30 days of its standard
--- retention, two years for flagged content alone, law-required content for
--- as long as the law requires, and no training without healdesk's permission
--- (packages/catalog/src/baa.ts, above SUBCONTRACTORS_1_6; model-retention.ts;
--- docs/counsel/agreement-changes.md §16). It is registered in BAA_TEMPLATES
+-- the Subcontractors clause (conversation content kept no more than the 30
+-- days of its standard retention, two years for flagged content alone,
+-- law-required content for as long as the law requires, no training without
+-- healdesk's permission), the state-law clause's exception to deletion, and
+-- the Term clause, which keeps Anthropic's copies "only for the periods" the
+-- Subcontractors clause states rather than "the purposes and periods"
+-- (packages/catalog/src/baa.ts, SUBCONTRACTORS_1_6, stateLawClauseBody160
+-- and TERM_1_6; model-retention.ts; docs/counsel/agreement-changes.md §16). It is registered in BAA_TEMPLATES
 -- after 1.5.0 with approvedByCounsel false, so checkout does not offer it and
 -- signing, provisioning and go-live all refuse it.
 --
@@ -22,7 +25,7 @@
 --
 -- The destruction rule is different: it is an allow-list read by version, so
 -- a version left off it reads as the thirty days, which 1.6.0's Term clause
--- (1.3.0's own object, as 1.4.0's and 1.5.0's is) does not state.
+-- (1.3.0's, changed only in that one phrase about Anthropic) does not state.
 -- DESTRUCTION_RULES in lib/offboarding/offboarding.ts gives every registered
 -- version its rule, drafts included, and the parity test in
 -- tests/destruction-clock.test.ts holds this function to that map version for
@@ -56,7 +59,7 @@ AS $$
 $$;--> statement-breakpoint
 
 COMMENT ON FUNCTION app_destruction_rule(text) IS
-  'The destruction rule a stored agreement version states: export_or_ninety for BAA 1.6.0 (a draft until the owner releases it), 1.5.0, 1.4.0 and 1.3.0, whose Term clause is the same object, and DPA 1.0.0 (dpa/1.0.0), thirty_days for every other version, an unknown one and NULL. The SQL mirror of DESTRUCTION_RULES in lib/offboarding/offboarding.ts (parity test in tests/destruction-clock.test.ts); 1.6.0 added by baa_draft_1_6_0.';--> statement-breakpoint
+  'The destruction rule a stored agreement version states: export_or_ninety for BAA 1.6.0 (a draft until the owner releases it), 1.5.0, 1.4.0 and 1.3.0, whose Term clauses state the same export-or-ninety rule, and DPA 1.0.0 (dpa/1.0.0), thirty_days for every other version, an unknown one and NULL. The SQL mirror of DESTRUCTION_RULES in lib/offboarding/offboarding.ts (parity test in tests/destruction-clock.test.ts); 1.6.0 added by baa_draft_1_6_0.';--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
 -- The posture, re-asserted: a later widening fails here, not in production.

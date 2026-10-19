@@ -4669,7 +4669,10 @@ export const BAA_TEMPLATES: readonly BaaTemplate[] = [
   // product calls (above SUBCONTRACTORS_1_6; agreement-changes.md §16).
   // After the release it follows, as a draft is (isBaaVersionAcceptable), and
   // never offered, signed or accepted at go-live while approvedByCounsel is
-  // false. Releasing it is the owner's call: it then moves to [0].
+  // false. Releasing it is the owner's call: it then moves to [0]. Until it
+  // does, checkout offers 1.5.0's retention clause, so apps/web's launch
+  // tracker (lib/admin/seo/launch.ts, baa-1-6-0-retention) holds the release
+  // as an item that blocks go-live.
   {
     version: "1.6.0",
     publishedOn: "2026-10-19",

@@ -75,3 +75,15 @@ export async function requirePortal(slug: string): Promise<PortalContext> {
   if (!grant) notFound();
   return { userId, clinicId: grant.clinicId, clinicSlug: grant.slug };
 }
+
+/**
+ * Like `requirePortal`, for a route handler that answers JSON: the same
+ * membership check, but a stranger or a signed-out browser gets `null`
+ * instead of a redirect the page's own fetch would follow into a sign-in page.
+ */
+export async function portalOrNull(slug: string): Promise<PortalContext | null> {
+  const userId = await currentUserId();
+  if (!userId) return null;
+  const grant = (await portalGrants(userId)).find((g) => g.slug === slug);
+  return grant ? { userId, clinicId: grant.clinicId, clinicSlug: grant.slug } : null;
+}

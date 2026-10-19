@@ -15,6 +15,7 @@ import {
   queueAfterCancellationNotices,
   runDestructionNotices,
 } from "@/lib/offboarding/after-cancellation";
+import { runMetaTokenWatch } from "@/lib/meta/token-watch";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { runOpsDigestJob } from "@/lib/ops/digest";
@@ -101,6 +102,18 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("daily-summary", () => runDailySummaryJob({ now }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));
   await record("connection-health", () => runConnectionHealthJob({ now }));
+  // Every six hours: ask Meta whether each clinic's Facebook, Instagram and
+  // WhatsApp logins still work, and mark the dropped ones so the portal offers
+  // Reconnect (lib/meta/token-watch.ts). Not a switched job: it only marks.
+  if (hour % 6 === 2) {
+    await record("meta-token-watch", async () => {
+      const r = await runMetaTokenWatch();
+      return {
+        status: r.failures ? "failed" : "ok",
+        note: `${r.checked} checked, ${r.marked} marked${r.failures ? `, ${r.failures} failed` : ""}`,
+      };
+    });
+  }
   // §C.4: booking requests whose link or proposed times have lapsed become
   // `expired`. Not a switched job: a pure function of the clock over rows
   // that already exist, like the sweep below. (It ran inside the call-back

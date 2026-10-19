@@ -48,7 +48,7 @@ export default async function SettingsPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ connect?: string | string[]; calendar?: string | string[] }>;
+  searchParams: Promise<{ connect?: string | string[]; calendar?: string | string[]; meta?: string | string[] }>;
 }) {
   const { slug } = await params;
   const portal = await requirePortal(slug);
@@ -74,7 +74,7 @@ export default async function SettingsPage({
     actor: page.actorContext,
     now,
   });
-  const { connect, calendar } = await searchParams;
+  const { connect, calendar, meta } = await searchParams;
   const calendarCard = await readCalendarCard({
     slug: portal.clinicSlug,
     clinicId: portal.clinicId,
@@ -109,6 +109,7 @@ export default async function SettingsPage({
           <ChannelsCard
             view={view}
             phoneSteps={ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null}
+            metaOutcome={typeof meta === "string" ? meta : null}
           />
           <TalkCard view={view} />
           <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />

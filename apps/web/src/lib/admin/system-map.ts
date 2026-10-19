@@ -693,7 +693,7 @@ export const KEYS: readonly KeyDef[] = [
     home: "clinic",
     label: "Each clinic's Instagram, Messenger or WhatsApp login",
     need: "required",
-    rotation: { kind: "only-if", when: "a clinic disconnects or Meta revokes it", how: "Make a new link with run-task.sh channels-link (meta for Facebook and Instagram, whatsapp for WhatsApp) and send it to the clinic. The set-up wizard's Connect with Facebook button won't come back by itself: it shows only until one of the clinic's Meta logins is connected, nothing tells the engine when Meta revokes one, and WhatsApp has no button in the portal." },
+    rotation: { kind: "only-if", when: "a clinic disconnects, or Meta drops the login (the clinic removes healdesk, changes its Facebook password, or Meta invalidates it)", how: "The clinic presses Reconnect in Settings → Channels, or Connect there or at set-up's channels step; Home lists it under Needs attention. A send Meta refuses, or the check every six hours, marks the login so the button returns. For a clinic that cannot, make a new link with run-task.sh channels-link (meta for Facebook and Instagram, whatsapp for WhatsApp) and send it." },
   },
   {
     id: "clinic.stripe",
@@ -1248,7 +1248,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "AYA answers in Instagram and Messenger",
     carries: "AYA's reply, inside Meta's 24-hour window only",
     example:
-      "The clinic presses Connect with Facebook at the channels step of its set-up and picks its Page; an Instagram account linked to that Page connects with it. A link you send works too. From then on AYA's answer appears in the same chat thread.",
+      "The clinic presses Connect with Facebook at the channels step of its set-up, or in Settings, and picks its Page; an Instagram account linked to that Page connects with it. If Meta later drops the login, Home says so and the button comes back as Reconnect. From then on AYA's answer appears in the same chat thread.",
     // The Facebook login's return address is built from the portal's.
     keys: ["aws.META_APP_ID", "aws.META_LOGIN_CONFIG_ID", "aws.BETTER_AUTH_URL", "clinic.meta"],
     dependsOn: "meta-app",
@@ -1256,7 +1256,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phiNote: META_SCOPE,
     build: "built",
     buildNote:
-      "The Connect with Facebook button is on the set-up wizard's channels step, not in Settings. It shows only until one of the clinic's Meta logins is connected, and only once the Facebook login's keys are in (without them the clinic is told to email us). For any later connection you make the clinic's link with run-task.sh channels-link and send it.",
+      "The button is on the set-up wizard's channels step and in Settings → Channels (Reconnect once connected), and shows only once the Facebook login's keys are in (without them the clinic is told to email us). Meta dropping a login is noticed by a send it refuses and by a check every six hours (Graph /me with the stored token); either marks the login, Home lists it and the button returns. Meta's Deauthorize Callback is not used: it names a Facebook user, which we do not store. Replacing the connected Page or Instagram account with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same one does not. A link from run-task.sh channels-link still works for any clinic that needs one.",
   },
   {
     id: "app-whatsapp",
@@ -1266,14 +1266,14 @@ export const BRIDGES: readonly BridgeDef[] = [
     title: "AYA answers on WhatsApp",
     carries: "AYA's reply, inside Meta's 24-hour window only",
     example:
-      "You send the clinic a WhatsApp link; it connects its number through Meta's sign-up window, and it goes live once that WhatsApp account has a payment method.",
+      "The clinic presses Connect WhatsApp at set-up's channels step or in Settings, connects its number through Meta's sign-up window, and it goes live once that WhatsApp account has a payment method. If Meta drops the login the button comes back as Reconnect.",
     keys: ["aws.META_APP_ID", "aws.META_WHATSAPP_CONFIG_ID", "clinic.meta"],
     dependsOn: "meta-app",
     phi: true,
     phiNote: META_SCOPE,
     build: "built",
     buildNote:
-      "The portal has no WhatsApp button: set-up's Connect with Facebook links Instagram and Messenger only. You make the clinic's WhatsApp link with run-task.sh channels-link (choosing whatsapp) and send it.",
+      "The Connect WhatsApp button is on set-up's channels step and in Settings → Channels (Reconnect once connected, or when Meta drops the login: a refused send or the six-hourly check marks it). It opens /c/<slug>/whatsapp, which runs the same embedded sign-up as the emailed link. Replacing the connected number with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same number does not. The clinic still adds its own payment method inside Meta's window. run-task.sh channels-link (choosing whatsapp) still works for operators.",
   },
   {
     id: "app-gcal",

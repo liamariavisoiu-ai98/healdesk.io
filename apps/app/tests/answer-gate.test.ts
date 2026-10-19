@@ -3,9 +3,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 import {
   assistantMayAnswer,
   coverageModeOf,
+  patientDataRefused,
   decideAnswer,
+  servicesEnded,
   voiceAnswerDecision,
   type AnswerFacts,
+  type PassThroughReason,
 } from "@/lib/billing/answering";
 import { setOverageMode } from "@/lib/billing/entitlements";
 import { identifierRef } from "@/lib/identifier-ref";
@@ -59,6 +62,7 @@ function facts(
     now: NOW,
     isSynthetic: false,
     agreement: "in_effect",
+    agreementCovers: true,
     billing: billing === null ? null : { ...base, ...billing },
     channelRow: { enabled: true, liveAt: new Date("2026-10-02T00:00:00Z") },
     pause: { pausedAt: null, pausedUntil: null },
@@ -98,6 +102,27 @@ describe("decideAnswer: every rule (BD22)", () => {
     [
       "the agreement before billing",
       facts({ agreement: "ended", billing: { status: "suspended" } }),
+      "no_agreement",
+    ],
+    // ...and its kind still covering the practice (app_agreement_kind_sufficient).
+    [
+      "an agreement whose kind no longer covers a production clinic (a DPA practice now covered)",
+      facts({ agreementCovers: false }),
+      "agreement_insufficient",
+    ],
+    [
+      "the kind before billing",
+      facts({ agreementCovers: false, billing: { status: "suspended" } }),
+      "agreement_insufficient",
+    ],
+    [
+      "the kind does not matter on synthetic data",
+      facts({ agreementCovers: false, isSynthetic: true, billing: null, channelRow: null }),
+      "answer",
+    ],
+    [
+      "no agreement still says so before the kind",
+      facts({ agreement: "none", agreementCovers: false }),
       "no_agreement",
     ],
     // 1. Billing (BD9, R8, R21).
@@ -370,6 +395,37 @@ describe("decideAnswer: where a refusal goes", () => {
       directLine: null,
     });
   });
+
+  test("an agreement that no longer covers the practice still goes to its direct line, but never to the assistant", () => {
+    // Still a customer who has to sign again: not an ended practice, so a
+    // call with a direct line is put through (lib/voice/retell.ts)...
+    expect(servicesEnded("agreement_insufficient")).toBe(false);
+    expect(decideAnswer(facts({ agreementCovers: false }))).toEqual({
+      decision: "pass_through",
+      reason: "agreement_insufficient",
+      fallback: "direct_line",
+      directLine: LINE,
+    });
+    // ...and with none it is closed, never answered by the safe script, and
+    // the website's contact form keeps nothing.
+    expect(patientDataRefused("agreement_insufficient")).toBe(true);
+    const fallsBack: PassThroughReason[] = [
+      "unpaid",
+      "not_active",
+      "suspended",
+      "not_purchased",
+      "channel_not_live",
+      "channel_off",
+      "ai_paused",
+      "outside_coverage",
+      "allowance_cap",
+    ];
+    for (const reason of fallsBack) expect(patientDataRefused(reason), reason).toBe(false);
+    for (const reason of ["no_agreement", "canceled", "cancel_before_start"] as const) {
+      expect(servicesEnded(reason), reason).toBe(true);
+      expect(patientDataRefused(reason), reason).toBe(true);
+    }
+  });
 });
 
 describe("coverageModeOf (BD23)", () => {
@@ -471,6 +527,41 @@ describeDb("assistantMayAnswer, reading the facts (R1)", () => {
         decision: "answer",
       });
     }
+  });
+
+  test("a production clinic whose DPA no longer covers it refuses with agreement_insufficient, as the database does", async () => {
+    const c = await seedClinic("gate-kind");
+    await makeProduction(c.clinicId);
+    await seedEntitled(c.clinicId, { planStartedAt: WINDOW_START });
+    await seedChannels(c.clinicId, [{ channel: "voice", liveAt: LIVE }]);
+    await setDirectLine(c.clinicId, LINE);
+    // A DPA practice of a regime that is HIPAA once it is a covered entity.
+    await getMigratorPool().query(
+      `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = false
+        where id = $1`,
+      [c.clinicId],
+    );
+    expect(
+      await assistantMayAnswer({ clinicId: c.clinicId, channel: "voice", now: NOW, actor }),
+    ).toEqual({ decision: "answer" });
+
+    // It tells us it now bills insurance: covered, so the DPA no longer covers it.
+    await getMigratorPool().query(`update clinics set is_covered_entity = true where id = $1`, [
+      c.clinicId,
+    ]);
+    const { rows } = await getMigratorPool().query<{ accepts: boolean }>(
+      `select app_clinic_accepts_phi($1) as accepts`,
+      [c.clinicId],
+    );
+    expect(rows[0]!.accepts).toBe(false);
+    expect(
+      await assistantMayAnswer({ clinicId: c.clinicId, channel: "voice", now: NOW, actor }),
+    ).toEqual({
+      decision: "pass_through",
+      reason: "agreement_insufficient",
+      fallback: "direct_line",
+      directLine: LINE,
+    });
   });
 
   test("a production clinic with no billing row refuses with not_active (fail closed)", async () => {

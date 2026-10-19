@@ -59,10 +59,13 @@ Its own long-lived Node process from the same image (`node --import tsx src/voic
 - **Each turn**: the caller's words since the agent last spoke go to the shared brain; the reply is
   sent whole, never streamed, because the guard reads all of it first. A newer request supersedes an
   older one still being answered. A reminder gets a fixed line.
-- **Degradation ends at a person**: a gate that refuses the call (paused, capped, suspended) or a model
-  that fails twice running transfers the caller to the direct line (`transfer_number`); with no
-  direct line the assistant takes the caller's details; once the Services have ended it closes the call
-  with a fixed line. An outbound call is ended at once and refused by the ingest as a security event.
+- **Degradation ends at a person**: a gate that refuses the call (paused, capped, suspended, and after
+  the Services have ended, the Terms' pass-through), a call whose start fails while the direct line
+  can still be read, or a model that fails twice running transfers the caller to the direct line
+  (`transfer_number`). With no direct line the assistant takes the caller's details, except once the
+  Services have ended or the clinic's agreement no longer covers it (`agreement_insufficient`): then
+  nothing may process the caller, and the call is closed with a fixed line. An outbound call is ended
+  at once and refused by the ingest as a security event.
 - **On hang-up**: the existing post-call ingest (`lib/voice/ingest.ts`), idempotent on the call id,
   records the conversation, turns the request into a booking request for the desk, counts the minutes,
   and now queues the transcript in the same transaction, emailed straight after.

@@ -4,7 +4,11 @@ import { and, eq, gt, sql } from "drizzle-orm";
 import { bookingRequests, clinicChannels, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
-import { assistantMayAnswer, servicesEnded, type AnswerDecision } from "@/lib/billing/answering";
+import {
+  assistantMayAnswer,
+  patientDataRefused,
+  type AnswerDecision,
+} from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { describeError, log } from "@/lib/log";
 import { cleanFirstName, createBookingRequest } from "@/lib/meta/booking-requests";
@@ -40,13 +44,14 @@ import type { WebChatClinic } from "./web-chat";
  * answering (switched Off, the header's pause, the allowance cap, a
  * suspension), and while she is answering too, for a widget whose chat
  * failed to start. Never for a clinic that has left, whose Services have
- * ended (no agreement in effect, cancelled), that did not buy website chat,
- * or whose website chat has never been live: nothing may be kept for those.
+ * ended (no agreement in effect, cancelled), whose agreement no longer covers
+ * it (a DPA practice now a covered entity, which the database refuses patient
+ * rows for), that did not buy website chat, or whose website chat has never
+ * been live: nothing may be kept for those.
  * Nor while the PHI gate is closed (app_clinic_accepts_phi, asked through
- * clinicAcceptsPhi): a practice whose re-sign to the BAA is unsigned, or
- * whose agreement no longer covers it, would have the message refused by the
- * database, so the form takes nothing and says to call the practice instead,
- * and nothing is written or retried.
+ * clinicAcceptsPhi): a practice whose re-sign to the BAA is unsigned would
+ * have the message refused by the database, so the form takes nothing and
+ * says to call the practice instead, and nothing is written or retried.
  *
  * A form that takes nothing carries `callLine`, the fixed "please call the
  * practice on {number}" line the widget shows in its place, with the
@@ -115,7 +120,7 @@ async function callLineFor(tx: TenantTx, clinicName: string): Promise<string> {
 function refusesMessages(decision: AnswerDecision): boolean {
   if (decision.decision === "answer") return false;
   return (
-    servicesEnded(decision.reason) ||
+    patientDataRefused(decision.reason) ||
     decision.reason === "not_purchased" ||
     decision.reason === "channel_not_live"
   );

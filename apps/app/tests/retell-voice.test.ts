@@ -423,14 +423,21 @@ describeDb("the Retell voice endpoint", () => {
     const urgent = "I'm having a severe reaction to my filler";
     const c = await call(port, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_urgent_later`);
     await c.waitFor((r) => responses(r).length >= 1);
-    c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: urgent }] });
+    // As Retell sends it: the opening line, spoken, is in the transcript.
+    const opening = String(responses(c.received)[0]!.content);
+    c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "agent", content: opening }, { role: "user", content: urgent }] });
     await c.waitFor((r) => responses(r).length >= 2);
     expect(String(responses(c.received)[1]!.content)).toMatch(/call 911/);
     expect(modelSaw).toHaveLength(0);
     c.send({
       interaction_type: "response_required",
       response_id: 2,
-      transcript: [{ role: "agent", content: String(responses(c.received)[1]!.content) }, { role: "user", content: "When are you open?" }],
+      transcript: [
+        { role: "agent", content: opening },
+        { role: "user", content: urgent },
+        { role: "agent", content: String(responses(c.received)[1]!.content) },
+        { role: "user", content: "When are you open?" },
+      ],
     });
     await c.waitFor((r) => responses(r).length >= 3);
     expect(responses(c.received)[2]).toMatchObject({ response_id: 2, content: "We're open weekdays nine to five." });

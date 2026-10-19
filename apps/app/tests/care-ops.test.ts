@@ -357,7 +357,12 @@ describeDb("care operations", () => {
     const tooEarly = data<{ status: string; message?: string }>(
       await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "agent released", step: "agent" }, OPERATOR),
     );
-    expect(tooEarly).toMatchObject({ status: "error", message: expect.stringMatching(/^Not before \d{4}-\d{2}-\d{2}: until then the clinic's agent passes forwarded calls/) });
+    expect(tooEarly).toMatchObject({
+      status: "error",
+      message: expect.stringMatching(
+        /^Not before \d{4}-\d{2}-\d{2}: until then the clinic's agent passes forwarded calls through to its direct line\. After that day, release the agent and its number at Retell, delete every call Retell holds for the clinic since its calls were first deleted, then record it\.$/,
+      ),
+    });
     const unknown = data<{ status: string }>(
       await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "both", step: "everything" }, OPERATOR),
     );

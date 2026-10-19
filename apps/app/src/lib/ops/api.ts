@@ -3121,7 +3121,8 @@ export type CareView = {
      * vendor"): the clinic's calls deleted at Retell by the time its data is
      * destroyed here (`deadline`, destroyDueAt), and its agent and number
      * released no earlier than the end of the pass-through (`agentNotBefore`),
-     * since until then the agent passes forwarded calls to the direct line.
+     * since until then the agent passes forwarded calls to the direct line,
+     * with every call Retell took for it since the first step deleted too.
      * Each outstanding until recorded. Null while the clinic is not
      * offboarding.
      */
@@ -3585,9 +3586,9 @@ async function opMarkExportDelivered(
  * The operator's record of a step at the voice vendor (Retell), done in the
  * vendor's console, since nothing in apps/app talks to it: `step` "calls"
  * (the default), the clinic's calls deleted, owed by the destruction date;
- * or "agent", its agent and number released, refused until the pass-through
- * has ended, because until then the agent is what passes a forwarded call to
- * the clinic's direct line. The care view shows each outstanding, with its
+ * or "agent", its agent and number released and every call Retell took for
+ * it since deleted, refused until the pass-through has ended, because until
+ * then the agent is what passes a forwarded call to the clinic's direct line. The care view shows each outstanding, with its
  * date, until recorded; each is recorded once, as a security event naming
  * the operator (recordVoiceVendorDeletion in lib/offboarding).
  */
@@ -3605,7 +3606,7 @@ async function opMarkVoiceVendorDataDeleted(
     const notBefore = passThroughEndsAt(clinic.offboardingStartedAt);
     if (Date.now() < notBefore.getTime()) {
       return care.error(
-        `Not before ${asDate(notBefore)}: until then the clinic's agent passes forwarded calls through to its direct line. Release the agent and its number at Retell after that day, then record it.`,
+        `Not before ${asDate(notBefore)}: until then the clinic's agent passes forwarded calls through to its direct line. After that day, release the agent and its number at Retell, delete every call Retell holds for the clinic since its calls were first deleted, then record it.`,
       );
     }
   }

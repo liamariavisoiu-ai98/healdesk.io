@@ -925,13 +925,18 @@ async function alertUndeliveredExport(
  *     "each subcontractor that holds PHI for Practice delete it by the same
  *     time";
  *   - `agent`: the clinic's agent and AYA's number released, and not before
- *     the pass-through has ended (passThroughEndsAt). Until then the agent is
- *     what carries a forwarded call to our endpoint, which passes it through
- *     to the direct line (lib/voice/retell.ts), so releasing it early cut
- *     those callers off: the care page used to ask for "the clinic's calls
- *     and agent" by the destruction date, which can be day 29, a day before
- *     the pass-through ends (the audit's R8 item 4). The record is refused
- *     before then.
+ *     the pass-through has ended (passThroughEndsAt), and with them every
+ *     call Retell holds for the clinic made since the first step. Until the
+ *     pass-through ends the agent is what carries a forwarded call to our
+ *     endpoint, which passes it through to the direct line
+ *     (lib/voice/retell.ts), so releasing it early cut those callers off:
+ *     the care page used to ask for "the clinic's calls and agent" by the
+ *     destruction date, which can be day 29, a day before the pass-through
+ *     ends (the audit's R8 item 4). But each of those passed-through calls
+ *     is a new call record at Retell, the caller's number and the time, so
+ *     the last step deletes them too: nothing of the clinic's callers stays
+ *     with the vendor. The record is refused before the pass-through ends,
+ *     and the account's closure waits for it (drizzle/0092).
  *
  * Both are kept as the record that the vendor's copy went; neither holds a
  * patient.
@@ -948,7 +953,7 @@ const VOICE_VENDOR_EVENTS: Record<VoiceVendorStep, string> = {
 
 export type VoiceVendorDeletion = { recordedAt: Date; recordedBy: string; how: string | null };
 
-/** Record one of the two vendor steps (the clinic's calls deleted, by default; or its agent released). */
+/** Record one of the two vendor steps (the clinic's calls deleted, by default; or its agent released, with every call since). */
 export async function recordVoiceVendorDeletion(input: {
   clinicId: string;
   clinicSlug: string;

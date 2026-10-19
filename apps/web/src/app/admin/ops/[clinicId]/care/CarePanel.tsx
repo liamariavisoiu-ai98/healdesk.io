@@ -469,7 +469,7 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
     const how = window.prompt(
       step === "calls"
         ? "How were the clinic's calls deleted at Retell? (one line, no patient details)"
-        : "How were the clinic's agent and number released at Retell? (one line, no patient details)",
+        : "How were the clinic's agent and number released, and its calls since deleted, at Retell? (one line, no patient details)",
     );
     if (!how) return;
     start(async () => setProblem(describe(await actions.markVoiceVendorDataDeleted(how, step))));
@@ -495,19 +495,21 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
   const agentStep = vendor ? (
     vendor.agentRecordedAt ? (
       <li>
-        Agent and number released at Retell: recorded {vendor.agentRecordedAt} by {vendor.agentRecordedBy}
+        Agent and number released, and the calls since deleted, at Retell: recorded {vendor.agentRecordedAt} by{" "}
+        {vendor.agentRecordedBy}
         {vendor.agentHow ? ` (${vendor.agentHow})` : ""}.
       </li>
     ) : vendor.agentReleasable ? (
       <li className="text-red-deep">
         Outstanding: the pass-through ended {vendor.agentNotBefore}. Release the clinic&rsquo;s agent and its number in
-        Retell&rsquo;s console, then record it.
+        Retell&rsquo;s console, delete every call Retell holds for the clinic since its calls were first deleted (the
+        calls passed through to its direct line), then record it. Its account closes only once this is recorded.
       </li>
     ) : (
       <li>
         Not before {vendor.agentNotBefore ?? "the pass-through ends"}: release the clinic&rsquo;s agent and its number at
-        Retell. Until then the agent is what passes forwarded calls through to the clinic&rsquo;s direct line, so releasing
-        it early cuts those callers off.
+        Retell, and delete every call it took since its calls were first deleted. Until then the agent is what passes
+        forwarded calls through to the clinic&rsquo;s direct line, so releasing it early cuts those callers off.
       </li>
     )
   ) : null;
@@ -547,9 +549,10 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
     return (
       <div className="text-sm">
         <p>
-          Patient data destroyed on {c.destroyedOn}. The account closes once the pass-through has ended: its sign-in and
-          setup go, and the clinic row, the audit log, the agreements, the billing records, the notices sent, the incidents
-          and the record of its notice addresses remain.
+          Patient data destroyed on {c.destroyedOn}. The account closes once the pass-through has ended and nothing is left
+          to finish (the agent&rsquo;s release below, an open incident, a notice still to go, the Stripe Connect link): its
+          sign-in ends and its setup goes, and the clinic row, the audit log, the access history, the agreements, the
+          billing records, the notices sent, the incidents and the notice address remain.
         </p>
         {vendorStep ? <ol className="mt-2 grid gap-2">{vendorStep}</ol> : null}
         {problem ? <p className="text-red-deep mt-2 text-xs">{problem}</p> : null}

@@ -119,6 +119,10 @@ export function createVoiceServer(options: VoiceServerOptions = {}): { server: S
       chain = chain.then(() => session.handle(raw)).catch((error) => log.error("retell message failed", { clinicId, error: describeError(error) }));
     });
     const finish = () => {
+      // Told at once, not in turn: a start still being read behind the
+      // chain must not say its line, or record it as heard, on a call that
+      // has already ended.
+      session.socketClosed();
       void chain.finally(() => session.finish().finally(() => sessions.delete(session)));
     };
     ws.on("close", finish);

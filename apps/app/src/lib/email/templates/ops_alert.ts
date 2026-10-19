@@ -178,6 +178,16 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The hourly sync could not set the fallback number of the clinic's AYA number in Retell to its direct line. The code says why: duplicate (two clinics name the same AYA number, whose fallback is cleared; fix the wrong one in Ops), missing (Retell has no such number), not_kept (Retell answered but did not keep it, or failed while setting it), rejected, unreachable or database; key_refused (Retell refused HEALDESK_RETELL_API_KEY) and retell_unreachable (three numbers in a row timed out) stop the run for every clinic. Until it is fixed, outage mode and a voice task started during a database outage cannot send that clinic's calls to its direct line. Check the number in Retell's dashboard and HEALDESK_RETELL_API_KEY.",
   },
+  voice_direct_line_loops: {
+    title: "A clinic's direct line forwards back to AYA",
+    action:
+      "The clinic's direct line is the same as its published number or its AYA number, so a call put through to it would come straight back to AYA and never reach a person. Until it changes, AYA treats the clinic as having no direct line: a call she would pass through is answered with the fixed safe script, or closed where the Services have ended, and no call is transferred. The code is the answer gate's decision on the call that found it. Ask the clinic for a direct line that reaches a person and does not forward back to us, and check its published number.",
+  },
+  voice_test_mode_refused: {
+    title: "A call was refused in voice test mode",
+    action:
+      "Real calls are off (HEALDESK_VOICE_REAL_CALLS), so the voice endpoint answers only the demo clinic, and it refused a call for the clinic below. Phase not_made_up means the clinic is not the demo clinic: its Retell agent or its call forwarding already points at the endpoint, which must not happen before every agreement in the chain is signed, so find out why and point it back. Phase check_failed means the endpoint could not tell within its start deadline whether the clinic is made up, usually because the database could not be read. The code says where the call went: transferred to the clinic's direct line, or closed with the closing line. Nothing of the call was kept.",
+  },
   plan_start_after_cancel: {
     title: "A plan started on a subscription set to cancel",
     action:

@@ -20,6 +20,7 @@ import { readPlatformCompliance } from "@/lib/compliance/platform";
 import { vendorLapses, type VendorLapses } from "@/lib/compliance/vendor-coverage";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import { withTenant } from "@/lib/tenant";
+import { usableLine } from "@/lib/voice/fallback-line";
 
 import { effectiveIncluded, getEntitlements, hasPlanStarted } from "./entitlements";
 import { deliverCriticalAfterCommit } from "./notices";
@@ -171,6 +172,17 @@ export type AnswerFacts = {
    */
   isSynthetic: boolean;
   /**
+   * healdesk's own made-up demo clinic (app_clinic_is_demo, drizzle/0057),
+   * the one clinic the voice line's test mode answers (lib/voice/
+   * test-calls.ts). It is synthetic for good, so its channels can never go
+   * live (app_channel_live_ok needs production data), and its not-yet-live
+   * voice channel answers rather than passing the call through: a test call
+   * hears AYA, not a transfer to its direct line. Nothing it answers can be
+   * a first answer or take it live, both of which need a live channel
+   * (lib/channels/events.ts). Unset reads as false.
+   */
+  isDemo?: boolean;
+  /**
    * The location's organisation and its agreements (app_agreement_in_effect,
    * drizzle/0048): one is in effect; it had one and every one has been
    * terminated (`ended`); or none was ever bound to it (`none`). Ending the
@@ -219,7 +231,11 @@ export type AnswerFacts = {
   /** The location's clinic_channels row for this channel, or null when it has none. */
   channelRow: { enabled: boolean; liveAt: Date | null } | null;
   pause: ClinicPause;
-  /** clinic_settings.direct_line_e164. */
+  /**
+   * clinic_settings.direct_line_e164, when a call may be put through to it
+   * (lib/voice/fallback-line.ts, usableLine): null when it is the clinic's
+   * published number or its AYA number, which forward back to us.
+   */
   directLine: string | null;
   /** Voice only. */
   coverageMode: CoverageMode;
@@ -387,7 +403,8 @@ function billingRefusal(
  *   2. the channel was not bought: `not_purchased`;
  *   3. the channel row: missing is live on a synthetic clinic and
  *      `channel_not_live` elsewhere (R1); switched Off is `channel_off`; not
- *      live yet is `channel_not_live`;
+ *      live yet is `channel_not_live`, except the demo clinic's voice, which
+ *      can never go live and answers (see `AnswerFacts.isDemo`);
  *   4. the header's pause: `ai_paused`;
  *   5. voice in After hours only coverage while the clinic is open and not
  *      closed today: `outside_coverage`. Unknown hours or a bad time zone
@@ -432,7 +449,8 @@ export function decideAnswer(facts: AnswerFacts): AnswerDecision {
     if (!facts.isSynthetic) return refuse("channel_not_live");
   } else {
     if (!facts.channelRow.enabled) return refuse("channel_off");
-    if (facts.channelRow.liveAt === null) return refuse("channel_not_live");
+    const demoVoice = channel === "voice" && facts.isDemo === true && facts.isSynthetic;
+    if (facts.channelRow.liveAt === null && !demoVoice) return refuse("channel_not_live");
   }
 
   // 4. The pause.
@@ -482,10 +500,13 @@ export async function assistantMayAnswer(input: AssistantMayAnswerInput): Promis
   return (await runGate(input)).decision;
 }
 
-/** The gate's work, and whether the clinic exists at all (an unknown id raises no alert). */
+/**
+ * The gate's work, whether the clinic exists at all (an unknown id raises no
+ * alert), and whether its direct line is set but forwards back to us.
+ */
 async function runGate(
   input: AssistantMayAnswerInput,
-): Promise<{ decision: AnswerDecision; isKnownClinic: boolean }> {
+): Promise<{ decision: AnswerDecision; isKnownClinic: boolean; lineLoops?: boolean }> {
   const now = input.now ?? new Date();
   const { channel, actor } = input;
   const meter = meterForChannel(channel);
@@ -499,6 +520,8 @@ async function runGate(
         dataClassification: clinics.dataClassification,
         billingClinicId: clinics.billingClinicId,
         organizationId: clinics.organizationId,
+        publishedPhone: clinics.publishedPhoneE164,
+        assistantNumber: clinics.assistantNumberE164,
       })
       .from(clinics)
       .where(eq(clinics.id, tx.clinicId))
@@ -524,16 +547,19 @@ async function runGate(
     // organisation's rows (baa_acceptances is FORCE RLS, 0031).
     // And whether the clinic's kind of agreement still covers it, as the
     // database's patient-data gate decides it (app_clinic_accepts_phi).
+    // And whether it is healdesk's demo clinic (AnswerFacts.isDemo).
     const agreementRows = await tx.db.execute<{
       in_effect: boolean;
       any_bound: boolean;
       kind_covers: boolean;
+      is_demo: boolean;
     }>(
       sql`select exists (select 1 from app_agreement_in_effect(c.organization_id)) as in_effect,
                  exists (select 1 from baa_acceptances b
                           where b.organization_id = c.organization_id) as any_bound,
                  (c.agreement_kind is null
-                  or app_agreement_kind_sufficient(c.regulatory_regime, c.agreement_kind, c.is_covered_entity)) as kind_covers
+                  or app_agreement_kind_sufficient(c.regulatory_regime, c.agreement_kind, c.is_covered_entity)) as kind_covers,
+                 app_clinic_is_demo(c.id) as is_demo
             from clinics c
            where c.id = ${tx.clinicId}`,
     );
@@ -559,17 +585,22 @@ async function runGate(
       if (today) closedToday = await closedOn(tx.db, tx.clinicId, today);
     }
 
+    // A line that would send the caller back to us is no line at all.
+    const directLine = usableLine(settings?.directLine, [clinic.publishedPhone, clinic.assistantNumber]);
+
     return {
       billingClinicId: clinic.billingClinicId ?? tx.clinicId,
       organizationId: clinic.organizationId,
       isSynthetic: clinic.dataClassification === "synthetic",
+      isDemo: agreementRow?.is_demo === true,
       agreement,
       agreementCovers: agreementRow?.kind_covers !== false,
       // The vendors' agreements, platform-wide (platform_compliance, 0090).
       lapsedVendors: vendorLapses(await readPlatformCompliance(tx.db, now), channel),
       channelRow: row ?? null,
       pause: { pausedAt: settings?.pausedAt ?? null, pausedUntil: settings?.pausedUntil ?? null },
-      directLine: settings?.directLine ?? null,
+      directLine,
+      lineLoops: Boolean(settings?.directLine) && directLine === null,
       coverageMode,
       openNow,
       closedToday,
@@ -622,6 +653,7 @@ async function runGate(
     channel,
     now,
     isSynthetic: location.isSynthetic,
+    isDemo: location.isDemo,
     agreement: location.agreement,
     agreementCovers: location.agreementCovers,
     lapsedVendors: location.lapsedVendors,
@@ -661,7 +693,7 @@ async function runGate(
       if (queued) await deliverCriticalAfterCommit(billingClinicId);
     }
   }
-  return { decision, isKnownClinic: true };
+  return { decision, isKnownClinic: true, lineLoops: location.lineLoops };
 }
 
 const VOICE_GATE_ACTOR: ActorContext = { type: "service", serviceName: "voice-gate" };
@@ -680,15 +712,27 @@ const VOICE_GATE_ACTOR: ActorContext = { type: "service", serviceName: "voice-ga
  * over), when nothing may process the caller and the call is closed with a
  * fixed line (CLOSED_LINE). Either is a configuration gap only a person can
  * close, so ops hears of it here, once an hour per clinic and reason (R25).
+ *
+ * A direct line that is the clinic's published number or its AYA number is
+ * no direct line (runGate): putting a call through to it would bring it
+ * straight back, round and round. Ops hears of that on any call, answered or
+ * not, so it is fixed before a pause needs the line.
  */
 export async function voiceAnswerDecision(clinicId: string, now?: Date): Promise<AnswerDecision> {
-  const { decision, isKnownClinic } = await runGate({
+  const { decision, isKnownClinic, lineLoops } = await runGate({
     clinicId,
     channel: "voice",
     now,
     actor: VOICE_GATE_ACTOR,
   });
-  if (isKnownClinic && decision.decision === "pass_through" && decision.directLine === null) {
+  if (isKnownClinic && lineLoops) {
+    // Not awaited: the caller is waiting on this gate, and the alert's
+    // first raising in an hour sends an email.
+    void notifyOps("voice_direct_line_loops", {
+      clinicId,
+      code: decision.decision === "answer" ? "answer" : decision.reason,
+    });
+  } else if (isKnownClinic && decision.decision === "pass_through" && decision.directLine === null) {
     await notifyOps("voice_fallback_no_direct_line", { clinicId, code: decision.reason });
   }
   return decision;

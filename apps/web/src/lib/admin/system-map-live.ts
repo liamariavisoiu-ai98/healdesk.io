@@ -84,14 +84,14 @@ async function host(): Promise<HostReach> {
       return {
         state: "silent",
         cause: "server-error",
-        message: "if the host is on, check that it has HEALDESK_PROVISION_SECRET and HEALDESK_ADMIN_EMAIL",
+        message: "if Host shows Active rather than Switching, check that the engine has HEALDESK_PROVISION_SECRET and HEALDESK_ADMIN_EMAIL",
       };
     case "timeout":
       return { state: "silent", cause: "no-answer", message: "no answer in time" };
     case "unreachable":
       return { state: "silent", cause: "no-answer", message: "nothing answered at its address" };
     default:
-      return { state: "silent", cause: "server-error", message: "it answered with an error the console could not read" };
+      return { state: "silent", cause: "server-error", message: "the console could not read its answer" };
   }
 }
 

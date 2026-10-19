@@ -37,7 +37,7 @@ export const STATUS_MEANING: Record<BridgeStatus, string> = {
   "needs-key": "Built and ready: it is waiting for you to add a key.",
   off: "Built, and switched off: held back on purpose until something else is done first, or an optional key not added.",
   broken: "A live check failed, or two copies of a key disagree. Fix these first.",
-  unknown: "Lives on the AWS host, which did not answer (usually standby), runs a version too old to say, or refused or was not asked.",
+  unknown: "Lives on the AWS host, which did not answer (usually standby), answered with an error, runs a version too old to say, or refused or was not asked.",
   "to-build": "Not built yet, or only half built.",
   parked: "Phase two: kept in the code, fenced out of v1.",
   "not-checked": "Its keys live where this page cannot look: your computer, GitHub, or AWS's one-off jobs.",

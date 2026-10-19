@@ -1876,7 +1876,7 @@ function hostUnread(live: LiveInputs): string {
       return "Can't check: this deployment is missing the seal or the engine's address, so the engine was not asked.";
     case "silent":
       if (live.host.cause === "outdated") return "Can't check: the engine is up but runs an older version that does not report its keys. Deploy it (deploy-app.yml).";
-      if (live.host.cause === "server-error") return `Can't check right now: the engine answered with a server error (${live.host.message}).`;
+      if (live.host.cause === "server-error") return `Can't check right now: the AWS host answered with an error (${live.host.message}).`;
       return "Can't check right now: the AWS host could not be read. It may be in standby (see Host).";
     default:
       return "Can't check right now: the AWS host could not be read.";
@@ -2056,7 +2056,7 @@ export function assess(live: LiveInputs): MapView {
       live.host.cause === "outdated"
         ? "The engine is up but runs an older version that does not know this page's check. Deploy it (deploy-app.yml) to see its keys."
         : live.host.cause === "server-error"
-          ? `The engine answered with a server error, so its keys could not be checked: ${live.host.message}.`
+          ? `The AWS host answered with an error, so its keys could not be checked: ${live.host.message}.`
           : "The AWS host could not be read, so its keys could not be checked. If it is in standby, turn it on from Host to see them.";
     todos.push({ kind: "check", text, bridge: "web-app", key: null });
   }
@@ -2110,7 +2110,7 @@ function hostText(host: HostReach): string {
       return "This deployment is missing the seal or the engine's address, so the AWS host was not asked.";
     case "silent":
       if (host.cause === "outdated") return `The AWS host answered, but ${host.message}, so its keys show as "can't check".`;
-      if (host.cause === "server-error") return `The AWS host answered with a server error (${host.message}), so its keys show as "can't check".`;
+      if (host.cause === "server-error") return `The AWS host answered with an error (${host.message}), so its keys show as "can't check".`;
       return `The AWS host could not be read (${host.message}), so its keys show as "can't check". It may be in standby: see Host.`;
     case "refused":
       return `The AWS host refused the signed call: ${host.message}`;

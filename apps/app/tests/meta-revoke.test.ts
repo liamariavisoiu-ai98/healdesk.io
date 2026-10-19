@@ -100,6 +100,18 @@ async function connections(clinicId: string) {
   );
 }
 
+/** The meta_revoke_by_hand alerts raised for a clinic: their code and provider, ids only. */
+async function byHand(clinicId: string) {
+  return (
+    await getMigratorPool().query<{ code: string; provider: string }>(
+      `select fields->>'code' as code, fields->>'provider' as provider from ops_alerts
+        where event = 'meta_revoke_by_hand' and fields->>'clinicId' = $1
+        order by fields->>'provider', fields->>'code'`,
+      [clinicId],
+    )
+  ).rows;
+}
+
 async function leave(clinicId: string) {
   await withTenant({ clinicId, actor: ACTOR }, (tx) => startOffboarding(tx, "operator"));
 }
@@ -400,6 +412,13 @@ describeDb("revoking healdesk's Meta access when the service ends", () => {
       ).rows.map((r) => r.o),
     );
     expect(outcomes).toEqual(["nothing_to_unsubscribe"]);
+    // Whoever set the subscription up in Meta's dashboard is the only one who
+    // can end it, so ops is told once, with ids only (the review's #15).
+    expect(await byHand(c.clinicId)).toEqual([
+      { code: "no_asset_on_record", provider: "meta-whatsapp" },
+    ]);
+    await revokeMetaAccess([c.clinicId], { fetchImpl: graph.fetchImpl });
+    expect(await byHand(c.clinicId)).toHaveLength(1);
   });
 
   test("ops is told once a connection has been refused META_REVOKE_ALERT_AFTER times, and when destruction's last try is refused too", async () => {
@@ -449,5 +468,82 @@ describeDb("revoking healdesk's Meta access when the service ends", () => {
     expect((await destroyDueClinics()).map((d) => d.clinicId)).toContain(c.clinicId);
     expect(await alerts("destruction")).toBe(1);
     expect(await connections(c.clinicId)).toEqual([]);
+  });
+  // The review's N3: an operator's pasted WhatsApp token keeps the number's id
+  // and no business account id, so the in-service check could not see that
+  // the other location's number might be on the leaving one's account, and
+  // unsubscribed it. The same holds for a pasted Instagram token and its Page.
+  test("a WhatsApp account or Page that a clinic in service may be on, through a connection with no account or Page on record, is left subscribed and ops is told to check", async () => {
+    const leaving = await seedClinic("meta-revoke-unknown-a");
+    const staying = await seedClinic("meta-revoke-unknown-b");
+    const attach = (clinicId: string, input: Parameters<typeof attachMetaChannel>[1]) =>
+      withTenant({ clinicId, actor: ACTOR }, (tx) => attachMetaChannel(tx, input));
+    await attach(leaving.clinicId, {
+      platform: "whatsapp",
+      externalId: "590000000000001",
+      accessToken: "EAAB-a-waba",
+      details: { wabaId: "590000000000009" },
+      via: "embedded_signup",
+    });
+    await attach(leaving.clinicId, {
+      platform: "messenger",
+      externalId: "590000000000007",
+      accessToken: "EAAB-a-page",
+      via: "facebook_login",
+    });
+    // The other location's, pasted by an operator: no wabaId, no pageId.
+    await attach(staying.clinicId, {
+      platform: "whatsapp",
+      externalId: "590000000000002",
+      accessToken: "EAAB-b-pasted-waba",
+    });
+    await attach(staying.clinicId, {
+      platform: "instagram",
+      externalId: "590000000000003",
+      accessToken: "EAAB-b-pasted-page",
+    });
+    await leave(leaving.clinicId);
+
+    const graph = fakeGraph();
+    expect(await revokeMetaAccess([leaving.clinicId], { fetchImpl: graph.fetchImpl })).toEqual({
+      clinics: 1,
+      revoked: 2,
+      failed: 0,
+    });
+    expect(graph.calls).toEqual([]);
+    expect((await connections(leaving.clinicId)).every((r) => r.status === "revoked")).toBe(true);
+    const outcomes = await inTenant(leaving.clinicId, async (q) =>
+      (
+        await q.query<{ o: string }>(
+          `select metadata->>'outcome' as o from audit_log where resource_type = 'provider_connection' and metadata->>'reason' = 'service_ended'`,
+        )
+      ).rows.map((r) => r.o),
+    );
+    expect(outcomes).toEqual(["possibly_shared", "possibly_shared"]);
+    expect(await byHand(leaving.clinicId)).toEqual([
+      { code: "asset_unverified", provider: "meta-messenger" },
+      { code: "asset_unverified", provider: "meta-whatsapp" },
+    ]);
+    expect((await resolveMetaChannel("590000000000002"))?.clinicId).toBe(staying.clinicId);
+    expect((await resolveMetaChannel("590000000000003"))?.clinicId).toBe(staying.clinicId);
+
+    // A connection the database can place settles it: with the other
+    // location's account on record and not this one, the account is taken off.
+    const third = await seedClinic("meta-revoke-unknown-c");
+    await attach(third.clinicId, {
+      platform: "whatsapp",
+      externalId: "590000000000011",
+      accessToken: "EAAB-c-waba",
+      details: { wabaId: "590000000000019" },
+      via: "embedded_signup",
+    });
+    await leave(staying.clinicId);
+    await leave(third.clinicId);
+    const last = fakeGraph();
+    await revokeMetaAccess([third.clinicId], { fetchImpl: last.fetchImpl });
+    expect(
+      last.calls.map((call) => call.url.replace(/^https:\/\/graph\.facebook\.com\/v[\d.]+/, "")),
+    ).toEqual(["/590000000000019/subscribed_apps"]);
+    expect(await byHand(third.clinicId)).toEqual([]);
   });
 });

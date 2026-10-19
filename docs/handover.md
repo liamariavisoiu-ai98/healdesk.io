@@ -511,7 +511,11 @@ The destruction steps, in order:
    subscribed a Page or WhatsApp Business account another clinic in service still uses.
    After six refusals for a connection, or a refusal on the last try before destruction,
    ops gets a `meta_revoke_failed` alert: have the practice remove healdesk from the Page's
-   or WhatsApp account's connected apps.
+   or WhatsApp account's connected apps. A `meta_revoke_by_hand` alert means healdesk
+   could not ask Meta at all: the connection has no Page or account id on record (an
+   operator pasted its token), or another clinic in service has such a connection, so the
+   Page or account was left subscribed in case it is theirs. Check which numbers or
+   Instagram accounts are on it in Meta Business Suite before anyone removes healdesk.
 2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
    <id> --all --requested-by "…"` (on the AWS host: `bash run-task.sh patient-export
    <clinic id>` in CloudShell, which stores it in the export bucket), hand it over, and record the handover on the care

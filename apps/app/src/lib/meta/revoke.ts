@@ -51,7 +51,14 @@ import { META_PROVIDERS } from "./providers";
  * tell it. So before each call, app_meta_asset_in_service() asks whether the
  * Page or account still serves a clinic that has not left. If it does, Meta is
  * not asked, and only this clinic's token is erased (`shared_in_service`):
- * the other clinic's own connection keeps the subscription it needs.
+ * the other clinic's own connection keeps the subscription it needs. An
+ * operator's pasted token keeps only the number's or the Instagram account's
+ * id, never the account or Page it is on, so while any clinic in service has
+ * such a connection of the same kind, the Page or account may be its too:
+ * then Meta is not asked either, this clinic's token is erased
+ * (`possibly_shared`), and ops is told to check by hand
+ * (`meta_revoke_by_hand`), since only Meta can say which account a number
+ * is on. A live clinic is never unsubscribed on a guess.
  *
  * ## When Meta refuses
  *
@@ -65,8 +72,11 @@ import { META_PROVIDERS } from "./providers";
  * (lib/offboarding/offboarding.ts): the token goes with the data on the day
  * the agreement sets, and a person has the Page or account remove the app.
  * A connection with no Page or account on record (an operator's pasted
- * token) has nothing healdesk can unsubscribe: its token is erased and the
- * audit says so (`nothing_to_unsubscribe`), never that it was revoked at Meta.
+ * token), or whose token cannot be read, has nothing healdesk can
+ * unsubscribe: its token is erased, the audit says so
+ * (`nothing_to_unsubscribe`), never that it was revoked at Meta, and ops is
+ * told to have the subscription ended by hand (`meta_revoke_by_hand`), since
+ * whoever set it up in Meta's dashboard is the only one who can.
  *
  * Graph is asked with no transaction open (lib/meta/graph.ts, rule 3): the
  * tokens are read in one tenant transaction, Meta is called, and the
@@ -99,7 +109,16 @@ export type MetaRevokeOutcome =
   /** No Page or account on record: nothing to unsubscribe, the token erased alone. */
   | "nothing_to_unsubscribe"
   /** The Page or account still serves a clinic in service: left subscribed, this token erased. */
-  | "shared_in_service";
+  | "shared_in_service"
+  /**
+   * A clinic in service has a connection of the same kind with no Page or
+   * account on record, so it may be on this one: left subscribed, this token
+   * erased, ops told to check by hand.
+   */
+  | "possibly_shared";
+
+/** Why ops is asked to end a leaving clinic's subscription at Meta by hand (meta_revoke_by_hand's `code`). */
+export type MetaRevokeByHand = "no_asset_on_record" | "no_token" | "asset_unverified";
 
 export type MetaRevokeResult = {
   /** Clinics looked at. */
@@ -177,12 +196,23 @@ export async function revokeMetaAccess(
   return result;
 }
 
-/** Whether the Page or account still serves a clinic, other than this one, that has not left. */
-async function inServiceElsewhere(target: Target, clinicId: string): Promise<boolean> {
-  const result = await unsafeDb.execute<{ used: boolean }>(
+/**
+ * Whether the Page or account may still serve a clinic, other than this one,
+ * that has not left: `in_service` when one's connection names it, `unknown`
+ * when none does but one's connection of the same kind names no Page or
+ * account, null when nobody else can be using it.
+ */
+async function inServiceElsewhere(
+  target: Target,
+  clinicId: string,
+): Promise<"in_service" | "unknown" | null> {
+  const result = await unsafeDb.execute<{ used: string | null }>(
     sql`select app_meta_asset_in_service(${target.kind}, ${target.id}, ${clinicId}::uuid) as used`,
   );
-  return result.rows[0]?.used === true;
+  const used = result.rows[0]?.used ?? null;
+  // Anything but the two codes the function returns is read as in use: a
+  // wrong guess here must leave a subscription standing, never end one.
+  return used === null ? null : used === "unknown" ? "unknown" : "in_service";
 }
 
 async function revokeFor(
@@ -234,14 +264,18 @@ async function revokeFor(
   if (held.length === 0) return { revoked: 0, failed: 0 };
 
   // 2. Meta, with no transaction open: each Page or account once, and never
-  //    one another clinic in service still uses.
-  const atMeta = new Map<string, "revoked" | "already_gone" | "shared_in_service" | "failed">();
+  //    one another clinic in service still uses, or may.
+  const atMeta = new Map<
+    string,
+    "revoked" | "already_gone" | "shared_in_service" | "possibly_shared" | "failed"
+  >();
   for (const h of held) {
     if (!h.target || !h.token) continue;
     const key = `${h.target.kind}:${h.target.id}`;
     if (atMeta.has(key)) continue;
-    if (await inServiceElsewhere(h.target, clinicId)) {
-      atMeta.set(key, "shared_in_service");
+    const elsewhere = await inServiceElsewhere(h.target, clinicId);
+    if (elsewhere !== null) {
+      atMeta.set(key, elsewhere === "in_service" ? "shared_in_service" : "possibly_shared");
       continue;
     }
     try {
@@ -270,6 +304,7 @@ async function revokeFor(
       : (atMeta.get(`${h.target.kind}:${h.target.id}`) ?? "failed");
   const refused = held.filter((h) => outcomeOf(h) === "failed");
   const alertFor: Held[] = [];
+  const byHand: { h: Held; code: MetaRevokeByHand }[] = [];
   await withTenant({ clinicId, actor }, async (tx) => {
     for (const h of held) {
       const outcome = outcomeOf(h);
@@ -295,8 +330,21 @@ async function revokeFor(
         resourceId: h.connectionId,
         metadata: { provider: h.provider, outcome, reason: "service_ended" },
       });
+      if (outcome === "nothing_to_unsubscribe") {
+        byHand.push({ h, code: h.target ? "no_token" : "no_asset_on_record" });
+      } else if (outcome === "possibly_shared") {
+        byHand.push({ h, code: "asset_unverified" });
+      }
     }
   });
+  for (const { h, code } of byHand) {
+    await notifyOpsOnce("meta_revoke_by_hand", {
+      clinicId,
+      connectionId: h.connectionId,
+      provider: h.provider,
+      code,
+    });
+  }
   for (const h of alertFor) {
     await notifyOpsOnce("meta_revoke_failed", {
       clinicId,

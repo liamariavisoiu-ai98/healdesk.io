@@ -431,17 +431,28 @@ GRANT EXECUTE ON FUNCTION app_expire_notice_addresses() TO healdesk_app;--> stat
 
 -- -----------------------------------------------------------------------------
 -- app_meta_asset_in_service: whether a Facebook Page or a WhatsApp Business
--- account still serves another clinic that has not left. Meta's
+-- account may still serve another clinic that has not left. Meta's
 -- subscribed_apps edge is the Page's or the account's, not the clinic's, so
 -- unsubscribing it for one leaving location would end every other location's
 -- messages on it (lib/meta/revoke.ts). A Page serves a clinic through its
--- Messenger row (externalId) or its Instagram row (pageId); an account
--- through a WhatsApp row (wabaId). Any row not revoked counts. Walks the
+-- Messenger row (externalId, always the Page's id) or its Instagram row
+-- (pageId); an account through a WhatsApp row (wabaId). Any row not revoked
+-- counts. The answer:
+--   in_service  such a row, at a clinic in service other than except_clinic,
+--               names the Page or account;
+--   unknown     none names it, but such a clinic holds a row of the same kind
+--               that names no Page or account at all: an operator's pasted
+--               token (opAttachMetaChannel) keeps only the number's or the
+--               Instagram account's id, and only Meta knows which account or
+--               Page that is on, so it may be this one (the review's N3);
+--   NULL        neither: nobody else in service can be using it.
+-- lib/meta/revoke.ts unsubscribes only on NULL, and on unknown tells ops to
+-- check by hand, so a live clinic is never unsubscribed on a guess. Walks the
 -- clinics, since provider_connections is FORCEd, and puts the tenant back.
--- A boolean only.
+-- A code only.
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION app_meta_asset_in_service(asset_kind text, asset_id text, except_clinic uuid)
-RETURNS boolean
+RETURNS text
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
@@ -450,10 +461,10 @@ AS $$
 DECLARE
   previous text := current_setting('app.clinic_id', true);
   c record;
-  found_one boolean := false;
+  answer text := NULL;
 BEGIN
   IF asset_kind NOT IN ('page', 'waba') OR asset_id IS NULL OR asset_id !~ '^[0-9]{1,32}$' THEN
-    RETURN false;
+    RETURN NULL;
   END IF;
   FOR c IN
     SELECT cl.id FROM clinics cl
@@ -470,16 +481,26 @@ BEGIN
                AND ((p.provider = 'meta-messenger' AND p.metadata->>'externalId' = asset_id)
                     OR (p.provider = 'meta-instagram' AND p.metadata->>'pageId' = asset_id)))
               OR (asset_kind = 'waba' AND p.provider = 'meta-whatsapp' AND p.metadata->>'wabaId' = asset_id))) THEN
-      found_one := true;
+      answer := 'in_service';
       EXIT;
+    END IF;
+    IF answer IS NULL AND EXISTS (
+      SELECT 1 FROM provider_connections p
+       WHERE p.clinic_id = c.id
+         AND p.status <> 'revoked'
+         AND ((asset_kind = 'page' AND p.provider = 'meta-instagram'
+               AND coalesce(p.metadata->>'pageId', '') !~ '^[0-9]{1,32}$')
+              OR (asset_kind = 'waba' AND p.provider = 'meta-whatsapp'
+                  AND coalesce(p.metadata->>'wabaId', '') !~ '^[0-9]{1,32}$'))) THEN
+      answer := 'unknown';
     END IF;
   END LOOP;
   PERFORM set_config('app.clinic_id', coalesce(previous, ''), true);
-  RETURN found_one;
+  RETURN answer;
 END
 $$;--> statement-breakpoint
 COMMENT ON FUNCTION app_meta_asset_in_service(text, text, uuid) IS
-  'Whether a Facebook Page (asset_kind page) or a WhatsApp Business account (waba) still serves a clinic other than except_clinic that has not left, through a Meta connection not revoked. For lib/meta/revoke.ts, which leaves such an asset subscribed. A boolean only.';--> statement-breakpoint
+  'Whether a Facebook Page (asset_kind page) or a WhatsApp Business account (waba) may still serve a clinic other than except_clinic that has not left: in_service when a Meta connection not revoked names it, unknown when none does but one of the same kind names no Page or account (an operator''s pasted token), NULL otherwise. For lib/meta/revoke.ts, which unsubscribes only on NULL. A code only.';--> statement-breakpoint
 REVOKE ALL ON FUNCTION app_meta_asset_in_service(text, text, uuid) FROM PUBLIC;--> statement-breakpoint
 GRANT EXECUTE ON FUNCTION app_meta_asset_in_service(text, text, uuid) TO healdesk_app;--> statement-breakpoint
 

@@ -229,15 +229,19 @@ export async function readPracticeInputs(
 
 /**
  * A channel's earlier pass at exactly this input version: the same questions
- * of the same brain, answered right. Reused instead of asking the model again.
+ * of the same brain, answered right, or passed by an operator's decision on
+ * a run they flagged. Reused instead of asking the model again, with the
+ * result row's own status: a decision passes the result and leaves each case
+ * as the judge left it ("review"), so its status is never worked out again
+ * from the cases, which would send the same cases back to review.
  */
 export async function passedResultAt(
   tx: TenantTx,
   channel: Channel,
   inputVersion: string,
-): Promise<PracticeCaseResult[] | null> {
+): Promise<{ status: PracticeResultStatus; cases: PracticeCaseResult[] } | null> {
   const [row] = await tx.db
-    .select({ cases: practiceQuestionResults.cases })
+    .select({ status: practiceQuestionResults.status, cases: practiceQuestionResults.cases })
     .from(practiceQuestionResults)
     .where(
       and(
@@ -249,7 +253,7 @@ export async function passedResultAt(
     )
     .orderBy(desc(practiceQuestionResults.createdAt))
     .limit(1);
-  return row?.cases ?? null;
+  return row ?? null;
 }
 
 // -----------------------------------------------------------------------------
@@ -319,8 +323,11 @@ export type RunVerdict =
  * A run's verdict from its channels: an error anywhere is an error (nothing
  * was learnt); any case failed on the clinic's own data is the clinic's to
  * fix, in the section that most cases failed on; any other failure, or a
- * judge's, is a review; otherwise a pass. Not-applicable cases are neither:
- * the pass approves the script the cases that were asked read, and a case
+ * judge's, is a review; otherwise a pass. A channel whose result passed adds
+ * nothing: a fresh one has no case failed or in review by construction
+ * (channelStatus), and a reused one an operator passed keeps the judge's
+ * "review" on its cases, which the decision already settled. Not-applicable
+ * cases are neither: the pass approves the script the cases that were asked read, and a case
  * the runtime cannot ask yet holds go-live through Gate B instead
  * (lib/compliance/gate-b.ts, casesNotAskable), so no channel goes live on a
  * pass that did not ask it.
@@ -332,6 +339,7 @@ export function runVerdict(
   const counts = new Map<PracticeSection, number>();
   let review = 0;
   for (const outcome of outcomes) {
+    if (outcome.status === "passed") continue;
     for (const kase of outcome.cases) {
       if (kase.status === "failed" && kase.attribution?.kind === "clinic_data") {
         counts.set(

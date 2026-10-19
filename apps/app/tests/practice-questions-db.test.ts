@@ -835,6 +835,75 @@ describeDb("the practice questions, against the database", () => {
     expect(await queued()).toHaveLength(1);
   });
 
+  test("an operator's pass on a run that a later errored run left behind opens the gate on the next run, which asks the model nothing and opens no second review", async () => {
+    await setAnswers();
+    const flagged = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, flagged, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("fail"),
+      }),
+    ).toBe("in_review");
+    // A later run at the same inputs that cannot reach the model: an errored
+    // run supersedes no review, so the flagged run's stays open.
+    await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      requestPracticeQuestions(tx, { reason: "sweep" }),
+    );
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const id = await dueQueued();
+      await runOnePracticeRun(clinic.clinicId, id, {
+        responder: model(),
+        metaResponder: null,
+        judge: async () => {
+          throw new Error("unreachable");
+        },
+      });
+    }
+    const gate = () =>
+      withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        practiceQuestionsGate(tx, "web"),
+      );
+    expect(await gate()).toEqual({ open: false, why: "error" });
+    const [review] = await inTenant(
+      clinic.clinicId,
+      async (c) =>
+        (
+          await c.query<{ id: string }>(`select id from audit_review_queue where run_id = $1`, [
+            flagged,
+          ])
+        ).rows,
+    );
+    expect(
+      (
+        (
+          await runOperation(
+            "decidePracticeReview",
+            { clinicId: clinic.clinicId, reviewId: review!.id, decision: "pass" },
+            OPERATOR,
+          )
+        ).body as { data: { status: string } }
+      ).data.status,
+    ).toBe("updated");
+    // The errored run is still the latest, so the pass asks again at once.
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([{ reason: "ops" }]);
+    const quiet = model();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, await dueQueued(), {
+        responder: quiet,
+        metaResponder: null,
+        judge: judge("fail"),
+      }),
+    ).toBe("passed");
+    expect(quiet.calls).toBe(0);
+    expect(await gate()).toEqual({ open: true, why: "passed" });
+    const [reviews] = await inTenant(
+      clinic.clinicId,
+      async (c) => (await c.query(`select count(*)::int as n from audit_review_queue`)).rows,
+    );
+    expect(reviews).toEqual({ n: 1 });
+  });
+
   test("a review's decision is about its own run: refused once what the questions read has changed, which asks for the run that replaces it", async () => {
     await setAnswers();
     const runId = await dueQueued();

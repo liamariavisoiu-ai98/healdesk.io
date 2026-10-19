@@ -304,6 +304,13 @@ export async function decidePracticeReview(input: {
           channels: results.filter((r) => r.status !== "error").map((r) => r.channel),
           now,
         });
+        // A later run at the same inputs (one that could not reach the model)
+        // is the latest, so the gate still reads that one. Ask again: the run
+        // reuses this pass, channel by channel, with no model call, and opens
+        // the gate in two minutes instead of after the sweep's back-off.
+        if ((await readPracticeState(tx)).latest?.id !== run.id) {
+          await requestPracticeQuestions(tx, { reason: "ops", now });
+        }
       } else {
         const count = results.reduce(
           (n, r) =>

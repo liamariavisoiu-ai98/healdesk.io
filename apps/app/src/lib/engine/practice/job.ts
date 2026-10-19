@@ -15,12 +15,7 @@ import {
 import { withTenant } from "@/lib/tenant";
 
 import { anthropicPracticeJudge } from "./judge";
-import {
-  channelStatus,
-  runPracticeChannel,
-  type ChannelOutcome,
-  type PracticeRunDeps,
-} from "./runner";
+import { runPracticeChannel, type ChannelOutcome, type PracticeRunDeps } from "./runner";
 import {
   claimPastDueReviews,
   claimPracticeRun,
@@ -116,8 +111,9 @@ export async function runOnePracticeRun(
         outcomes.push({
           channel: input.channel,
           inputVersion: version,
-          status: channelStatus(earlier),
-          cases: earlier,
+          // The row's status, never the cases': an operator's pass leaves them at "review".
+          status: earlier.status,
+          cases: earlier.cases,
           reused: true,
         });
         continue;

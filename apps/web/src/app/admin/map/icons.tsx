@@ -7,7 +7,7 @@ import type { IconName } from "@/lib/admin/system-map";
  * not carry and should not grow for twenty shapes.
  */
 
-type ExtraIcon = "key" | "play" | "pause" | "next" | "prev" | "close" | "alert" | "check" | "wrench" | "question" | "dot";
+type ExtraIcon = "key" | "play" | "pause" | "next" | "prev" | "close" | "alert" | "check" | "wrench" | "question" | "dot" | "refresh";
 
 const PATHS: Record<IconName | ExtraIcon, React.ReactNode> = {
   user: (
@@ -145,6 +145,7 @@ const PATHS: Record<IconName | ExtraIcon, React.ReactNode> = {
   wrench: <path d="M14.5 6.5a4.5 4.5 0 0 0 5.6 5.6L13 19.2a2.5 2.5 0 0 1-3.6-3.6l7.1-7.1zM14.5 6.5l-1.6-1.6a4.5 4.5 0 0 1 6.2 6.2" />,
   question: <path d="M9.2 9a3 3 0 1 1 4.3 2.7c-.9.5-1.5 1.2-1.5 2.3M12 17.5h.01" />,
   dot: <circle cx="12" cy="12" r="3" fill="currentColor" />,
+  refresh: <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5" />,
 };
 
 export type AnyIcon = keyof typeof PATHS;

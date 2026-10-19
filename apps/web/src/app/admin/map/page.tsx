@@ -51,8 +51,8 @@ export default async function SystemMapPage() {
       <h1 className="font-display text-[28px] leading-tight font-semibold tracking-[-0.02em]">System map</h1>
       <p className="text-muted mt-3 max-w-[80ch] text-[15.6px]">
         Every tool healdesk runs on, grouped by what it does, and the connections between them. Arrows show which way
-        information travels and colours show whether the keys are in place right now; tap anything to see each
-        connection and its key. Checked live when this page loaded, {new Date(view.checkedAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC.
+        information travels and colours show whether the keys are in place right now, checked live and again every five
+        minutes while this page is open; tap anything to see each connection and its key.
       </p>
       <SystemMap view={view} recordRotation={recordRotationAction} />
     </main>

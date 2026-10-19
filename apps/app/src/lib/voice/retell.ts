@@ -1,7 +1,10 @@
+import { eq } from "drizzle-orm";
+
+import { clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { answerTurn, EMPTY_CAPTURE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
-import { servicesEnded, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
+import { assistantMayNotFallBack, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { voiceDisclosure } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
@@ -156,26 +159,53 @@ export class RetellCallSession {
       this.facts = await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => ((await clinicHasLeft(tx)) ? null : assistantFacts(tx)));
     } catch (error) {
       log.error("retell call could not start", { clinicId: this.clinicId, error: describeError(error) });
+      // A settings failure still ends at a person when the direct line can
+      // be read on its own; closed only when it cannot.
       this.closing = true;
-      this.say(0, CLOSED_LINE, { endCall: true });
+      const line = await this.directLineAlone();
+      if (line) this.say(0, TROUBLE_TRANSFER_LINE, { transferTo: line });
+      else this.say(0, CLOSED_LINE, { endCall: true });
       return;
     }
     this.directLine = this.facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
 
-    if (!this.facts || (decision.decision === "pass_through" && servicesEnded(decision.reason))) {
-      this.closing = true;
-      this.say(0, CLOSED_LINE, { endCall: true });
-      return;
-    }
     if (decision.decision === "pass_through" && decision.directLine) {
-      // Paused, capped or suspended: the caller goes to a person, never to silence.
+      // Paused, capped, suspended, or the service ended (the Terms'
+      // pass-through, sections 2 and 7): the caller goes to a person, never
+      // to silence. Every degradation path ends at the direct line.
       this.closing = true;
       this.say(0, TRANSFER_LINE, { transferTo: decision.directLine });
+      return;
+    }
+    // No direct line, and the clinic has left, its Services have ended, or
+    // its agreement no longer covers it (agreement_insufficient): nothing may
+    // process the caller, so the call is closed with the fixed line, never
+    // answered by the safe script.
+    if (!this.facts || (decision.decision === "pass_through" && assistantMayNotFallBack(decision.reason))) {
+      this.closing = true;
+      this.say(0, CLOSED_LINE, { endCall: true });
       return;
     }
     this.gateAnswered = decision.decision === "answer";
     this.disclosurePlayedAt = now;
     this.say(0, `${voiceDisclosure({ clinicName: this.facts.clinicName, channel: "voice" })} ${this.facts.greeting.phone}`);
+  }
+
+  /** The clinic's direct line, read alone for a call whose start failed; null when that fails too. */
+  private async directLineAlone(): Promise<string | null> {
+    try {
+      return await withTenant({ clinicId: this.clinicId, actor: ACTOR }, async (tx) => {
+        const [row] = await tx.db
+          .select({ line: clinicSettings.directLineE164 })
+          .from(clinicSettings)
+          .where(eq(clinicSettings.clinicId, tx.clinicId))
+          .limit(1);
+        return row?.line ?? null;
+      });
+    } catch (error) {
+      log.error("retell direct line not read", { clinicId: this.clinicId, error: describeError(error) });
+      return null;
+    }
   }
 
   /** One message from Retell. Never throws: a fault is logged and the caller hears a fixed line. */

@@ -51,19 +51,20 @@ import { withTenant } from "@/lib/tenant";
  * days after it (Stripe's retries, a dead letter replayed by a person); a
  * clamp that bites tells ops the days it cost (offboarding_started_late). An
  * operator and the setup closure end the service when they act, so they get
- * the moment of the call. In between, by a person: the agent is switched off
- * at the voice vendor and the clinic is told how to remove forwarding (terms
- * §7); the export is produced (`exportClinic`, `npm run patient-export --
+ * the moment of the call. In between, by a person: the clinic is told how to
+ * remove forwarding (terms §7), while the agent at the voice vendor stays on
+ * to pass forwarded calls through to its direct line; the export is produced (`exportClinic`, `npm run patient-export --
  * --all`) and handed over, and only a record of its reaching the practice
  * stamps `export_delivered_at` (`markExportDelivered`): the operator's record
  * of the handover, or the practice's own download of the complete export
  * from the portal's Conversations screen, once its browser reports the whole
  * file arrived (lib/portal/conversations.ts), so producing an export never
  * counts as delivering it; E2 to E6 tell the practice each step
- * (lib/offboarding/after-cancellation.ts); and the clinic's calls and agent are
- * deleted at the voice vendor, Retell, and recorded on the care page
- * (`recordVoiceVendorDeletion`), which shows the step outstanding, with its
- * deadline, until it is.
+ * (lib/offboarding/after-cancellation.ts); and the clinic's calls are deleted
+ * at the voice vendor, Retell, by the destruction date, and its agent released
+ * once the pass-through has ended, each recorded on the care page
+ * (`recordVoiceVendorDeletion`), which shows each step outstanding, with its
+ * date, until it is.
  *
  * ## Which rule, and why
  *
@@ -190,10 +191,13 @@ import { withTenant } from "@/lib/tenant";
  * still identifies a person: keeping it would leave patient-derived rows
  * behind a destruction record that says none remain.
  *
- * Vendor-side data (the clinic's calls and agent at the voice vendor) is
- * deleted in the vendor's console by the operator and recorded as a
- * voice_vendor_data_deleted security event; this job cannot reach it and does
- * not claim to.
+ * Vendor-side data is the operator's, in the vendor's console, and this job
+ * cannot reach it and does not claim to: the clinic's calls at the voice
+ * vendor are deleted by the destruction date and recorded as a
+ * voice_vendor_data_deleted security event, and its agent and number are
+ * released only once the pass-through has ended, since the agent is what
+ * passes a forwarded call to the direct line until then
+ * (voice_vendor_agent_released; "The voice vendor", below).
  *
  * The clinic's one address is read before anything is deleted and written
  * beside the destroyed stamp (clinics.destruction_notice_address, 0086), so
@@ -895,30 +899,55 @@ async function alertUndeliveredExport(
 }
 
 // -----------------------------------------------------------------------------
-// The voice vendor's copy: an operator step, recorded
+// The voice vendor: two operator steps, recorded
 // -----------------------------------------------------------------------------
 
 /**
- * The security event an operator's record of deleting the clinic's calls and
- * agent at the voice vendor (Retell) writes. Nothing in apps/app talks to the
- * vendor, so the deletion is done in its console and recorded here; the care
- * page shows the step outstanding, with its deadline, until it is.
+ * Nothing in apps/app talks to the voice vendor's console, so what it holds
+ * for a leaving clinic is an operator's two steps, each done in Retell's
+ * console and recorded here as a security event, and each shown on the care
+ * page outstanding until it is:
+ *
+ *   - `calls`: the clinic's calls at Retell, PHI, deleted by the time its
+ *     data is destroyed here (destroyDueAt): BAA 1.3.0's Term clause has
+ *     "each subcontractor that holds PHI for Practice delete it by the same
+ *     time";
+ *   - `agent`: the clinic's agent and AYA's number released, and not before
+ *     the pass-through has ended (passThroughEndsAt). Until then the agent is
+ *     what carries a forwarded call to our endpoint, which passes it through
+ *     to the direct line (lib/voice/retell.ts), so releasing it early cut
+ *     those callers off: the care page used to ask for "the clinic's calls
+ *     and agent" by the destruction date, which can be day 29, a day before
+ *     the pass-through ends (the audit's R8 item 4). The record is refused
+ *     before then.
+ *
+ * Both are kept as the record that the vendor's copy went; neither holds a
+ * patient.
  */
 export const VOICE_VENDOR_DELETION_EVENT = "voice_vendor_data_deleted";
+export const VOICE_AGENT_RELEASE_EVENT = "voice_vendor_agent_released";
+
+export type VoiceVendorStep = "calls" | "agent";
+
+const VOICE_VENDOR_EVENTS: Record<VoiceVendorStep, string> = {
+  calls: VOICE_VENDOR_DELETION_EVENT,
+  agent: VOICE_AGENT_RELEASE_EVENT,
+};
 
 export type VoiceVendorDeletion = { recordedAt: Date; recordedBy: string; how: string | null };
 
-/** Record that the operator deleted the clinic's calls and agent at the voice vendor. */
+/** Record one of the two vendor steps (the clinic's calls deleted, by default; or its agent released). */
 export async function recordVoiceVendorDeletion(input: {
   clinicId: string;
   clinicSlug: string;
   how: string;
   actorLabel: string;
+  step?: VoiceVendorStep;
   ipAddress?: string | null;
   userAgent?: string | null;
 }): Promise<void> {
   await recordSecurityEvent(unsafeDb, {
-    event: VOICE_VENDOR_DELETION_EVENT,
+    event: VOICE_VENDOR_EVENTS[input.step ?? "calls"],
     actorLabel: input.actorLabel,
     ipAddress: input.ipAddress ?? null,
     userAgent: input.userAgent ?? null,
@@ -926,8 +955,11 @@ export async function recordVoiceVendorDeletion(input: {
   });
 }
 
-/** The first record of the vendor deletion for this clinic, or null while it is outstanding. */
-export async function voiceVendorDeletionOf(clinicId: string): Promise<VoiceVendorDeletion | null> {
+/** The first record of one vendor step for this clinic, or null while it is outstanding. */
+export async function voiceVendorDeletionOf(
+  clinicId: string,
+  step: VoiceVendorStep = "calls",
+): Promise<VoiceVendorDeletion | null> {
   const [row] = await unsafeDb
     .select({
       occurredAt: securityEvents.occurredAt,
@@ -937,7 +969,7 @@ export async function voiceVendorDeletionOf(clinicId: string): Promise<VoiceVend
     .from(securityEvents)
     .where(
       and(
-        eq(securityEvents.event, VOICE_VENDOR_DELETION_EVENT),
+        eq(securityEvents.event, VOICE_VENDOR_EVENTS[step]),
         sql`${securityEvents.metadata}->>'clinicId' = ${clinicId}`,
       ),
     )

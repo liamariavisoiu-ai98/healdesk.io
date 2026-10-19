@@ -78,11 +78,13 @@ import { KIND_SHAPE } from "@/lib/email/kind-rules";
 import {
   destructionPlan,
   markExportDelivered,
+  passThroughEndsAt,
   recordVoiceVendorDeletion,
   startOffboarding,
   voiceVendorDeletionOf,
   type DestructionBasis,
   type DestructionRule,
+  type VoiceVendorStep,
 } from "@/lib/offboarding/offboarding";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { revokeMetaAccess } from "@/lib/meta/revoke";
@@ -3114,15 +3116,25 @@ export type CareView = {
       latestDestroyAt: string;
     } | null;
     /**
-     * The operator step at the voice vendor: the clinic's calls and agent
-     * deleted at Retell by the time its data is destroyed here (destroyDueAt),
-     * outstanding until recorded. Null while the clinic is not offboarding.
+     * The two operator steps at the voice vendor (lib/offboarding, "The voice
+     * vendor"): the clinic's calls deleted at Retell by the time its data is
+     * destroyed here (`deadline`, destroyDueAt), and its agent and number
+     * released no earlier than the end of the pass-through (`agentNotBefore`),
+     * since until then the agent passes forwarded calls to the direct line.
+     * Each outstanding until recorded. Null while the clinic is not
+     * offboarding.
      */
     voiceVendorDeletion: {
       deadline: string;
       recordedAt: string | null;
       recordedBy: string | null;
       how: string | null;
+      agentNotBefore: string;
+      /** The pass-through has ended, so the release may be recorded. */
+      agentReleasable: boolean;
+      agentRecordedAt: string | null;
+      agentRecordedBy: string | null;
+      agentHow: string | null;
     } | null;
   };
   /**
@@ -3195,6 +3207,8 @@ async function opGetClinicCare(
   if (!clinic) return opsProblem("No such clinic.", 404, "invalid_args");
   const plan = destructionPlan(clinic);
   const vendorDeletion = plan ? await voiceVendorDeletionOf(clinic.id) : null;
+  const agentRelease = plan ? await voiceVendorDeletionOf(clinic.id, "agent") : null;
+  const agentNotBefore = plan ? passThroughEndsAt(plan.endedAt) : null;
 
   const view = await withTenant(
     { clinicId: clinic.id, actor: actorFor(operator), request: operator.request },
@@ -3239,14 +3253,20 @@ async function opGetClinicCare(
                 latestDestroyAt: plan.latestDestroyAt.toISOString(),
               }
             : null,
-          voiceVendorDeletion: plan
-            ? {
-                deadline: plan.destroyDueAt.toISOString(),
-                recordedAt: vendorDeletion?.recordedAt.toISOString() ?? null,
-                recordedBy: vendorDeletion?.recordedBy ?? null,
-                how: vendorDeletion?.how ?? null,
-              }
-            : null,
+          voiceVendorDeletion:
+            plan && agentNotBefore
+              ? {
+                  deadline: plan.destroyDueAt.toISOString(),
+                  recordedAt: vendorDeletion?.recordedAt.toISOString() ?? null,
+                  recordedBy: vendorDeletion?.recordedBy ?? null,
+                  how: vendorDeletion?.how ?? null,
+                  agentNotBefore: agentNotBefore.toISOString(),
+                  agentReleasable: Date.now() >= agentNotBefore.getTime(),
+                  agentRecordedAt: agentRelease?.recordedAt.toISOString() ?? null,
+                  agentRecordedBy: agentRelease?.recordedBy ?? null,
+                  agentHow: agentRelease?.how ?? null,
+                }
+              : null,
         },
         patientRights: { amendments: amendmentCount?.n ?? 0, corrections: correctionCount?.n ?? 0 },
         deletionRequests: deletionRequests.map((d) => ({
@@ -3561,11 +3581,14 @@ async function opMarkExportDelivered(
 }
 
 /**
- * The operator's record that the clinic's calls and agent were deleted at the
- * voice vendor (Retell), in the vendor's console: nothing in apps/app talks
- * to the vendor yet. The care view shows the step outstanding, with its
- * deadline, until this is recorded; it is recorded once, as a security event
- * naming the operator (recordVoiceVendorDeletion in lib/offboarding).
+ * The operator's record of a step at the voice vendor (Retell), done in the
+ * vendor's console, since nothing in apps/app talks to it: `step` "calls"
+ * (the default), the clinic's calls deleted, owed by the destruction date;
+ * or "agent", its agent and number released, refused until the pass-through
+ * has ended, because until then the agent is what passes a forwarded call to
+ * the clinic's direct line. The care view shows each outstanding, with its
+ * date, until recorded; each is recorded once, as a security event naming
+ * the operator (recordVoiceVendorDeletion in lib/offboarding).
  */
 async function opMarkVoiceVendorDataDeleted(
   args: Record<string, unknown>,
@@ -3574,7 +3597,18 @@ async function opMarkVoiceVendorDataDeleted(
   const clinic = await clinicById(stringArg(args, "clinicId"));
   if (!clinic) return care.error("No such clinic.");
   if (!clinic.offboardingStartedAt) return care.error("Start offboarding first; the vendor's copy goes on the way out.");
-  const earlier = await voiceVendorDeletionOf(clinic.id);
+  const stepArg = args.step === undefined ? "calls" : args.step;
+  if (stepArg !== "calls" && stepArg !== "agent") return care.error("Say which Retell step: the calls, or the agent.");
+  const step: VoiceVendorStep = stepArg;
+  if (step === "agent") {
+    const notBefore = passThroughEndsAt(clinic.offboardingStartedAt);
+    if (Date.now() < notBefore.getTime()) {
+      return care.error(
+        `Not before ${asDate(notBefore)}: until then the clinic's agent passes forwarded calls through to its direct line. Release the agent and its number at Retell after that day, then record it.`,
+      );
+    }
+  }
+  const earlier = await voiceVendorDeletionOf(clinic.id, step);
   if (earlier) return care.error(`Already recorded on ${asDate(earlier.recordedAt)} by ${earlier.recordedBy}.`);
   const how = incidentText(stringArg(args, "how", 200), "how");
   if (typeof how !== "string") return care.error(how.error);
@@ -3582,6 +3616,7 @@ async function opMarkVoiceVendorDataDeleted(
     clinicId: clinic.id,
     clinicSlug: clinic.slug,
     how,
+    step,
     actorLabel: operator.email,
     ipAddress: operator.request.ipAddress ?? null,
     userAgent: operator.request.userAgent ?? null,

@@ -1148,6 +1148,72 @@ describe("the care page's patient-rights operations carry no patient data (revie
   });
 });
 
+describe("the care page's two Retell steps (the audit's R8 item 4)", () => {
+  function careWith(voiceVendorDeletion: Record<string, unknown>) {
+    return {
+      data: {
+        clinic: {
+          id: CLINIC,
+          slug: "care-clinic",
+          name: "Care Clinic",
+          dataClassification: "synthetic",
+          isCoveredEntity: true,
+          wentLiveAt: null,
+          offboardingStartedAt: "2026-11-01T15:00:00.000Z",
+          exportDeliveredAt: null,
+          destroyAfter: "2026-12-01T15:00:00.000Z",
+          destroyedAt: null,
+          destruction: null,
+          voiceVendorDeletion,
+        },
+        patientRights: { amendments: 0, corrections: 0 },
+        deletionRequests: [],
+        recipients: [],
+        deliveries: [],
+        incidents: [],
+      },
+    };
+  }
+
+  test("the calls' deadline and the agent's earliest release are read apart; an older apps/app's view has no agent date", async () => {
+    reply(
+      careWith({
+        deadline: "2026-11-30T15:00:00.000Z",
+        recordedAt: null,
+        recordedBy: null,
+        how: null,
+        agentNotBefore: "2026-12-01T15:00:00.000Z",
+        agentReleasable: false,
+        agentRecordedAt: null,
+        agentRecordedBy: null,
+        agentHow: null,
+      }),
+    );
+    const read = await opsClient.fetchClinicCare(CLINIC);
+    if (!read.ok) throw new Error(read.message);
+    expect(read.data.clinic.voiceVendorDeletion).toMatchObject({
+      deadline: "2026-11-30 15:00 UTC",
+      agentNotBefore: "2026-12-01 15:00 UTC",
+      agentReleasable: false,
+    });
+    reply(careWith({ deadline: "2026-11-30T15:00:00.000Z", recordedAt: null, recordedBy: null, how: null }));
+    const older = await opsClient.fetchClinicCare(CLINIC);
+    if (!older.ok) throw new Error(older.message);
+    expect(older.data.clinic.voiceVendorDeletion).toMatchObject({ agentNotBefore: null, agentReleasable: false });
+  });
+
+  test("each record names its step: the calls by default, the agent when asked", async () => {
+    reply({ data: { status: "updated" } });
+    await opsClient.markVoiceVendorDataDeleted(CLINIC, "calls deleted in the console");
+    reply({ data: { status: "updated" } });
+    await opsClient.markVoiceVendorDataDeleted(CLINIC, "agent released", "agent");
+    expect(sent).toEqual([
+      { op: "markVoiceVendorDataDeleted", args: { clinicId: CLINIC, how: "calls deleted in the console", step: "calls" } },
+      { op: "markVoiceVendorDataDeleted", args: { clinicId: CLINIC, how: "agent released", step: "agent" } },
+    ]);
+  });
+});
+
 // -----------------------------------------------------------------------------
 // The clinic's Instagram, Messenger and WhatsApp switches
 // -----------------------------------------------------------------------------

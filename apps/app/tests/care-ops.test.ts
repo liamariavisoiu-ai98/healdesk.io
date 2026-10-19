@@ -1,3 +1,4 @@
+import { FORWARDING_PASS_THROUGH_DAYS } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
 
 import { runOperation, type CareView, type OpenIncidentOutcome, type Operator } from "@/lib/ops/api";
@@ -298,11 +299,12 @@ describeDb("care operations", () => {
 
     await runOperation("startOffboarding", { clinicId: c.clinicId, reason: "cancelled by email" }, OPERATOR);
     view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
-    expect(view.clinic.voiceVendorDeletion).toEqual({
+    expect(view.clinic.voiceVendorDeletion).toMatchObject({
       deadline: view.clinic.destruction!.destroyDueAt,
       recordedAt: null,
       recordedBy: null,
       how: null,
+      agentRecordedAt: null,
     });
 
     // The operator's note is scanned like every other: no patient in it.
@@ -312,13 +314,14 @@ describeDb("care operations", () => {
     expect(withPhone.status).toBe("error");
 
     const recorded = data<{ status: string }>(
-      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "agent and calls deleted in Retell's console" }, OPERATOR),
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "calls deleted in Retell's console" }, OPERATOR),
     );
     expect(recorded.status).toBe("updated");
     view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
     expect(view.clinic.voiceVendorDeletion).toMatchObject({
       recordedBy: "ops@healdesk.test",
-      how: "agent and calls deleted in Retell's console",
+      how: "calls deleted in Retell's console",
+      agentRecordedAt: null,
     });
     expect(view.clinic.voiceVendorDeletion!.recordedAt).not.toBeNull();
 
@@ -332,5 +335,60 @@ describeDb("care operations", () => {
       [c.clinicId],
     );
     expect(rows).toEqual([{ actor_label: "ops@healdesk.test" }]);
+  }, 120_000);
+
+  test("the Retell agent is released only once the pass-through has ended, since until then it passes forwarded calls to the direct line", async () => {
+    // The audit's R8 item 4: the care page asked for "the clinic's calls and
+    // agent" by the destruction date, which can be day 29, while forwarded
+    // calls pass through the agent until day 30 (FORWARDING_PASS_THROUGH_DAYS).
+    const c = await seedClinic("care-retell-agent");
+    await runOperation("startOffboarding", { clinicId: c.clinicId, reason: "cancelled by email" }, OPERATOR);
+    let view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
+    const started = await getMigratorPool().query<{ at: Date }>(`select offboarding_started_at as at from clinics where id = $1`, [c.clinicId]);
+    const passThroughEnds = new Date(started.rows[0]!.at.getTime() + FORWARDING_PASS_THROUGH_DAYS * 86_400_000);
+    expect(view.clinic.voiceVendorDeletion).toMatchObject({
+      agentNotBefore: passThroughEnds.toISOString(),
+      agentReleasable: false,
+      agentRecordedAt: null,
+    });
+    // The calls are owed by the destruction date, which is before the agent may go.
+    expect(new Date(view.clinic.voiceVendorDeletion!.deadline).getTime()).toBeLessThan(passThroughEnds.getTime());
+
+    const tooEarly = data<{ status: string; message?: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "agent released", step: "agent" }, OPERATOR),
+    );
+    expect(tooEarly).toMatchObject({ status: "error", message: expect.stringMatching(/^Not before \d{4}-\d{2}-\d{2}: until then the clinic's agent passes forwarded calls/) });
+    const unknown = data<{ status: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "both", step: "everything" }, OPERATOR),
+    );
+    expect(unknown.status).toBe("error");
+
+    // The pass-through ends: the release may be recorded, once, on its own record.
+    await getMigratorPool().query(
+      `update clinics set offboarding_started_at = offboarding_started_at - make_interval(days => $2),
+                          destroy_after = destroy_after - make_interval(days => $2) where id = $1`,
+      [c.clinicId, FORWARDING_PASS_THROUGH_DAYS + 1],
+    );
+    view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
+    expect(view.clinic.voiceVendorDeletion!.agentReleasable).toBe(true);
+    const released = data<{ status: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "agent and number released in Retell", step: "agent" }, OPERATOR),
+    );
+    expect(released.status).toBe("updated");
+    view = data<CareView>(await runOperation("getClinicCare", { clinicId: c.clinicId }, OPERATOR));
+    expect(view.clinic.voiceVendorDeletion).toMatchObject({
+      recordedAt: null,
+      agentRecordedBy: "ops@healdesk.test",
+      agentHow: "agent and number released in Retell",
+    });
+    const again = data<{ status: string }>(
+      await runOperation("markVoiceVendorDataDeleted", { clinicId: c.clinicId, how: "again", step: "agent" }, OPERATOR),
+    );
+    expect(again.status).toBe("error");
+    const { rows } = await getMigratorPool().query<{ event: string }>(
+      `select event from security_events where event like 'voice_vendor_%' and metadata->>'clinicId' = $1`,
+      [c.clinicId],
+    );
+    expect(rows).toEqual([{ event: "voice_vendor_agent_released" }]);
   }, 120_000);
 });

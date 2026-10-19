@@ -2393,12 +2393,24 @@ export type CareView = {
       destroyDueAt: string;
       latestDestroyAt: string;
     } | null;
-    /** The clinic's calls and agent deleted at the voice vendor: outstanding until recordedAt. */
+    /**
+     * The two steps at the voice vendor: the clinic's calls deleted at Retell
+     * by `deadline` (its destruction), outstanding until recordedAt; and its
+     * agent and number released no earlier than `agentNotBefore`, the end of
+     * the pass-through, since until then the agent passes forwarded calls to
+     * the direct line. `agentNotBefore` is null from an apps/app that does
+     * not split the two yet.
+     */
     voiceVendorDeletion: {
       deadline: string;
       recordedAt: string | null;
       recordedBy: string | null;
       how: string | null;
+      agentNotBefore: string | null;
+      agentReleasable: boolean;
+      agentRecordedAt: string | null;
+      agentRecordedBy: string | null;
+      agentHow: string | null;
     } | null;
   };
   /**
@@ -2595,6 +2607,11 @@ function readVoiceVendorDeletion(value: unknown): CareView["clinic"]["voiceVendo
     recordedAt: optionalInstant(d.recordedAt, "care.clinic.voiceVendorDeletion.recordedAt")?.at ?? null,
     recordedBy: optionalText(d.recordedBy, "care.clinic.voiceVendorDeletion.recordedBy"),
     how: optionalText(d.how, "care.clinic.voiceVendorDeletion.how"),
+    agentNotBefore: optionalInstant(d.agentNotBefore, "care.clinic.voiceVendorDeletion.agentNotBefore")?.at ?? null,
+    agentReleasable: d.agentReleasable === undefined ? false : bool(d.agentReleasable, "care.clinic.voiceVendorDeletion.agentReleasable"),
+    agentRecordedAt: optionalInstant(d.agentRecordedAt, "care.clinic.voiceVendorDeletion.agentRecordedAt")?.at ?? null,
+    agentRecordedBy: optionalText(d.agentRecordedBy, "care.clinic.voiceVendorDeletion.agentRecordedBy"),
+    agentHow: optionalText(d.agentHow, "care.clinic.voiceVendorDeletion.agentHow"),
   };
 }
 
@@ -2630,8 +2647,9 @@ export function startOffboarding(clinicId: string, reason: string) {
 export function markExportDelivered(clinicId: string, how: string) {
   return careWrite("markExportDelivered", { clinicId, how });
 }
-export function markVoiceVendorDataDeleted(clinicId: string, how: string) {
-  return careWrite("markVoiceVendorDataDeleted", { clinicId, how });
+/** The record of a step at Retell: the clinic's calls deleted (by its destruction), or its agent released (after the pass-through). */
+export function markVoiceVendorDataDeleted(clinicId: string, how: string, step: "calls" | "agent" = "calls") {
+  return careWrite("markVoiceVendorDataDeleted", { clinicId, how, step });
 }
 
 /**

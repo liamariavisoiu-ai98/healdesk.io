@@ -24,7 +24,7 @@ type Actions = {
   resolve: (incidentId: string, resolution: string) => Promise<OpsResult<CareOutcome>>;
   startOffboarding: (reason: string) => Promise<OpsResult<CareOutcome>>;
   markExportDelivered: (how: string) => Promise<OpsResult<CareOutcome>>;
-  markVoiceVendorDataDeleted: (how: string) => Promise<OpsResult<CareOutcome>>;
+  markVoiceVendorDataDeleted: (how: string, step: "calls" | "agent") => Promise<OpsResult<CareOutcome>>;
   markErasureVendorDeleted: (erasureId: string, step: "retell", how: ErasureStepOutcome) => Promise<OpsResult<CareOutcome>>;
 };
 
@@ -465,40 +465,92 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
   const c = view.clinic;
   const plan = c.destruction;
   const vendor = c.voiceVendorDeletion;
-  const recordVendorDeletion = () => {
-    const how = window.prompt("How were the clinic's calls and agent deleted at Retell? (one line, no patient details)");
+  const recordVendorStep = (step: "calls" | "agent") => {
+    const how = window.prompt(
+      step === "calls"
+        ? "How were the clinic's calls deleted at Retell? (one line, no patient details)"
+        : "How were the clinic's agent and number released at Retell? (one line, no patient details)",
+    );
     if (!how) return;
-    start(async () => setProblem(describe(await actions.markVoiceVendorDataDeleted(how))));
+    start(async () => setProblem(describe(await actions.markVoiceVendorDataDeleted(how, step))));
   };
-  const vendorStep = vendor ? (
+  // Two steps, two dates (apps/app lib/offboarding, "The voice vendor"): the
+  // calls are PHI, owed by the destruction; the agent is what passes a
+  // forwarded call to the direct line, so it stays until the pass-through
+  // ends. Until 19 October this asked for "the calls and agent" by the
+  // destruction date, which can be a day before the pass-through ends.
+  const callsStep = vendor ? (
     vendor.recordedAt ? (
       <li>
-        Calls and agent deleted at Retell: recorded {vendor.recordedAt} by {vendor.recordedBy}
+        Calls deleted at Retell: recorded {vendor.recordedAt} by {vendor.recordedBy}
         {vendor.how ? ` (${vendor.how})` : ""}.
       </li>
     ) : (
       <li className="text-red-deep">
-        Outstanding: delete the clinic&rsquo;s calls and agent in Retell&rsquo;s console by {vendor.deadline}, when its data is
-        destroyed here, then record it.
+        Outstanding: delete the clinic&rsquo;s calls in Retell&rsquo;s console by {vendor.deadline}, when its data is destroyed
+        here, then record it. Leave its agent and number in place until the pass-through ends.
       </li>
     )
   ) : null;
+  const agentStep = vendor ? (
+    vendor.agentRecordedAt ? (
+      <li>
+        Agent and number released at Retell: recorded {vendor.agentRecordedAt} by {vendor.agentRecordedBy}
+        {vendor.agentHow ? ` (${vendor.agentHow})` : ""}.
+      </li>
+    ) : vendor.agentReleasable ? (
+      <li className="text-red-deep">
+        Outstanding: the pass-through ended {vendor.agentNotBefore}. Release the clinic&rsquo;s agent and its number in
+        Retell&rsquo;s console, then record it.
+      </li>
+    ) : (
+      <li>
+        Not before {vendor.agentNotBefore ?? "the pass-through ends"}: release the clinic&rsquo;s agent and its number at
+        Retell. Until then the agent is what passes forwarded calls through to the clinic&rsquo;s direct line, so releasing
+        it early cuts those callers off.
+      </li>
+    )
+  ) : null;
+  const vendorStep = vendor ? (
+    <>
+      {callsStep}
+      {agentStep}
+    </>
+  ) : null;
   const vendorButton =
-    vendor && !vendor.recordedAt ? (
-      <button
-        type="button"
-        disabled={pending}
-        onClick={recordVendorDeletion}
-        className="border-line-strong rounded-full border px-3 py-1 text-xs font-bold"
-      >
-        Record Retell deletion
-      </button>
+    vendor && (!vendor.recordedAt || (vendor.agentReleasable && !vendor.agentRecordedAt)) ? (
+      <>
+        {!vendor.recordedAt ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => recordVendorStep("calls")}
+            className="border-line-strong rounded-full border px-3 py-1 text-xs font-bold"
+          >
+            Record Retell call deletion
+          </button>
+        ) : null}
+        {vendor.agentReleasable && !vendor.agentRecordedAt ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => recordVendorStep("agent")}
+            className="border-line-strong rounded-full border px-3 py-1 text-xs font-bold"
+          >
+            Record Retell agent release
+          </button>
+        ) : null}
+      </>
     ) : null;
 
   if (c.destroyedOn) {
     return (
       <div className="text-sm">
-        <p>Patient data destroyed on {c.destroyedOn}. The clinic row, the audit log, the signed agreement and the billing history remain.</p>
+        <p>
+          Patient data destroyed on {c.destroyedOn}. The account closes once the pass-through has ended: its sign-in and
+          setup go, and the clinic row, the audit log, the agreements, the billing records, the notices sent, the incidents
+          and the record of its notice addresses remain.
+        </p>
         {vendorStep ? <ol className="mt-2 grid gap-2">{vendorStep}</ol> : null}
         {problem ? <p className="text-red-deep mt-2 text-xs">{problem}</p> : null}
         {vendorButton ? <div className="mt-4 flex flex-wrap gap-2">{vendorButton}</div> : null}
@@ -519,7 +571,8 @@ function Offboarding({ view, actions }: { view: CareView; actions: Actions }) {
               : `Rule: the export, then ninety days (${ruleSource(plan)}). Destroyed at ${plan.exportDueAt}, a day before the thirty days are up, if the export is recorded by then; otherwise at the first hourly run after it is recorded; and at ${plan.latestDestroyAt}, a day before the ninety days are up, if it never is.`}
           </li>
           <li>
-            Switch the agent off at the voice vendor and send the clinic the forwarding-removal codes (onboarding page, &ldquo;To undo&rdquo;).
+            Send the clinic the forwarding-removal codes (onboarding page, &ldquo;To undo&rdquo;). Leave its agent on at the voice
+            vendor: it passes forwarded calls through to the clinic&rsquo;s direct line until the pass-through ends.
           </li>
           <li>
             Produce the return bundle on the app host:

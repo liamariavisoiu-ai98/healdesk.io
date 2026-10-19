@@ -500,21 +500,43 @@ the same rule as the database's floor):
 
 The destruction steps, in order:
 
-1. Switch the clinic's voice agent off at the vendor and send it the forwarding-removal
-   codes, so its calls fall through to its own line.
+1. Send the clinic the forwarding-removal codes, so its calls reach its own line again.
+   Leave its voice agent on at the vendor: until the pass-through ends (the end plus
+   `FORWARDING_PASS_THROUGH_DAYS`, 30) the agent is what carries a forwarded call to our
+   endpoint, which passes it straight through to the clinic's direct line. Its Meta access
+   is revoked without you: at the Stripe deletion, at an operator's "Start offboarding",
+   and by the hourly `meta-revoke` step after anything else (a termination, a refusal
+   from Meta), which takes the app off the clinic's Page and WhatsApp account with the
+   tokens we hold and erases the tokens (`apps/app/src/lib/meta/revoke.ts`). A
+   `meta-revoke` run that keeps failing names what Meta refused in the logs.
 2. Produce the return bundle with `npm run patient-export -w @healdesk/app -- --clinic
    <id> --all --requested-by "…"` (on the AWS host: `bash run-task.sh patient-export
    <clinic id>` in CloudShell, which stores it in the export bucket), hand it over, and record the handover on the care
    page. Producing it records nothing: the care page refuses the record until a bundle
    has been produced since offboarding started, and the stamp is the database's, at the
    moment of the record (`app_mark_export_delivered()`).
-3. Delete the clinic's calls and agent in Retell's console by the time its data is
-   destroyed here, and record it on the care page ("Record Retell deletion"). Nothing in
-   apps/app reaches Retell; the care page shows the step outstanding, with its deadline,
-   until it is recorded, after destruction too.
+3. Delete the clinic's calls in Retell's console by the time its data is destroyed here,
+   and record it on the care page ("Record Retell call deletion"). The calls are PHI, and
+   the BAA has every subcontractor delete it by the same time. Nothing in apps/app reaches
+   Retell; the care page shows the step outstanding, with its deadline, until it is
+   recorded, after destruction too.
 4. `offboarding-destroy` runs every hour and, on the day the rule gives, deletes every
    patient row, suppressions, consent records and contact attempts included, revokes the
    connections, and writes one security event and one `clinic data destroyed` log line.
+5. Once the pass-through has ended, and not before, release the clinic's agent and AYA's
+   number in Retell's console and record it ("Record Retell agent release"; the care page
+   refuses the record until that day). Releasing them earlier cuts off the callers still
+   forwarded to us.
+6. The same hourly job then closes the account (`apps/app/src/lib/offboarding/
+   account-closure.ts`, `app_close_clinic_account()` in drizzle/0091): once the data is
+   destroyed and the pass-through has ended, it deletes the sign-in (memberships, and each
+   user whose last membership that was, with its sessions and factors), the setup (agent
+   configuration, settings and their history, report recipients, practice questions,
+   website reads, the clinic row's setup columns) and our notes, and keeps only what
+   `KEPT_FOR_GOOD` lists, each with its reason: the clinic row, the audit log, the
+   agreements, the billing records, the notices and their ledger, the incidents and the
+   record of the notice addresses. After a restore, `npm run destroy-due` closes the
+   accounts due again too.
 
 Export first, then destroy; the agreement's obligations persist until it is done.
 

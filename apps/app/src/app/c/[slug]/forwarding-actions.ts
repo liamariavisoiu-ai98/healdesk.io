@@ -26,7 +26,7 @@ import { withTenant } from "@/lib/tenant";
  * data only: whether a call arrived and whether its number came through.
  */
 
-async function context(slug: string): Promise<{ clinicId: string; actor: ActorContext }> {
+async function contextFor(slug: string): Promise<{ clinicId: string; actor: ActorContext }> {
   const portal = await requirePortal(String(slug));
   const actor = await portalActor(portal);
   return {
@@ -37,7 +37,7 @@ async function context(slug: string): Promise<{ clinicId: string; actor: ActorCo
 
 /** "Test it now": open the clinic's own forwarding-test window. */
 export async function startForwardingTestAction(slug: string): Promise<StartForwardingTestResult> {
-  const { clinicId, actor } = await context(slug);
+  const { clinicId, actor } = await contextFor(slug);
   const result = await withTenant({ clinicId, actor }, (tx) => clinicStartForwardingTest(tx));
   if (result.ok) refresh();
   return result;
@@ -49,7 +49,7 @@ export async function startForwardingTestAction(slug: string): Promise<StartForw
  * so the status word reads what the result moved.
  */
 export async function forwardingTestStatusAction(slug: string): Promise<ForwardingTestView | null> {
-  const { clinicId, actor } = await context(slug);
+  const { clinicId, actor } = await contextFor(slug);
   const view = await withTenant({ clinicId, actor }, (tx) => readForwardingTest(tx));
   if (!view || view.state.kind === "passed") refresh();
   return view;
@@ -60,7 +60,7 @@ export async function savePhoneLineAction(
   slug: string,
   input: { phoneSystem: unknown; carrier: unknown },
 ): Promise<PhoneLineResult> {
-  const { clinicId, actor } = await context(slug);
+  const { clinicId, actor } = await contextFor(slug);
   return withTenant({ clinicId, actor }, (tx) => savePhoneLine(tx, input));
 }
 

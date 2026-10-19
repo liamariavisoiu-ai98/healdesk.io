@@ -588,6 +588,37 @@ describe("when the chat is not answering", () => {
     expect(q(root, ".call").textContent).toContain("Please call the practice");
   });
 
+  test("a reply after the visitor clicked the page's own text leaves keys to the page", async () => {
+    answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
+    answer("message", { status: 200, body: { mode: "chat", reply: "Sure.", token: "t1", ended: false } });
+    const root = await load();
+    await open(root);
+    q<HTMLTextAreaElement>(root, "textarea").value = "Hello";
+    q<HTMLFormElement>(root, ".compose").dispatchEvent(new Event("submit", { cancelable: true }));
+    // A click on plain text: focus goes to the body, not to a control.
+    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    (root.activeElement as HTMLElement | null)?.blur();
+    await settle();
+    expect(messages(root).at(-1)).toBe("Assistant: Sure.");
+    expect(root.activeElement).toBeNull();
+  });
+
+  test("the contact form's answer leaves focus on the clinic's page if the visitor went there", async () => {
+    answer("start", { status: 200, body: { mode: "contact_form", reason: "paused", form: { takesMessages: true, times: TIMES } } });
+    answer("contact", { status: 200, body: { mode: "received", reply: "Thanks." } });
+    const root = await load();
+    await open(root);
+    q<HTMLInputElement>(root, "#first").value = "Jamie";
+    q<HTMLInputElement>(root, "#phone").value = "415 555 0199";
+    q<HTMLFormElement>(root, ".form").dispatchEvent(new Event("submit", { cancelable: true }));
+    const search = document.createElement("input");
+    document.body.appendChild(search);
+    search.focus();
+    await settle();
+    expect(q(root, ".received").textContent).toBe("Thanks.");
+    expect(document.activeElement).toBe(search);
+  });
+
   test("a slow first open leaves focus on the clinic's page if the visitor went back there", async () => {
     answer("start", { status: 200, body: { mode: "chat", opening: OPENING, token: "t0" } });
     const root = await load();

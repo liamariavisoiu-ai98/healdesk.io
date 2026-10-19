@@ -75,6 +75,7 @@
   var busy = false; // a message is waiting for its reply
   var started = null; // the start request, once made; cleared when it may be tried again
   var failures = 0; // messages in a row that did not reach the engine
+  var away = 0; // times the visitor has gone to the page outside the bubble
   var turns = 0; // messages answered in this chat
   var lastAnswer = 0; // when the engine last answered in this chat
   var view = "loading"; // loading | chat | form | call | done
@@ -165,6 +166,13 @@
     }
   });
   input.addEventListener("input", grow);
+  // Inside the shadow root, events reach the document retargeted to the host.
+  doc.addEventListener("pointerdown", function (event) {
+    if (event.target !== host) away += 1;
+  }, true);
+  doc.addEventListener("focusin", function (event) {
+    if (event.target !== host) away += 1;
+  }, true);
   win.addEventListener("pagehide", function (event) {
     // A page kept for Back (persisted) comes back with the chat on screen,
     // so it stays open; if it never comes back, the quiet time sends it.
@@ -190,19 +198,27 @@
       return;
     }
     if (!started) {
+      var since = away;
       started = start();
       started.then(function (ok) {
         if (ok === "retry") started = null;
-        if (focusIsOurs()) focusFirst();
+        if (focusIsOurs(since)) focusFirst();
       });
     } else {
       focusFirst();
     }
   }
 
-  /** Focus is in the bubble or nowhere: never pull it back from the clinic's own page. */
-  function focusIsOurs() {
-    return !!root.activeElement || doc.activeElement === doc.body || doc.activeElement === host || !doc.activeElement;
+  /**
+   * Whether an answer that lands now may move focus: it is still in the
+   * bubble, or it fell out (a view hid what held it) and the visitor has not
+   * clicked or tabbed into the clinic's own page since `since` (a snapshot of
+   * `away`). Never pull it back from the page they went to.
+   */
+  function focusIsOurs(since) {
+    if (root.activeElement) return true;
+    var active = doc.activeElement;
+    return away === since && (!active || active === doc.body || active === host);
   }
 
   function focusFirst() {
@@ -282,6 +298,7 @@
   function send() {
     var text = input.value.trim();
     if (!text || busy || view !== "chat") return;
+    var since = away;
     busy = true;
     sendButton.disabled = true;
     endButton.hidden = true;
@@ -318,7 +335,7 @@
         if (view === "chat") endButton.hidden = !talking;
         // Never pull focus back from the clinic's own page, where the visitor
         // may have gone while the reply was on its way.
-        if (focusIsOurs()) {
+        if (focusIsOurs(since)) {
           if (view === "chat") input.focus();
           else focusFirst();
         }
@@ -465,7 +482,8 @@
       if (!name.input.value.trim()) bad.push("first_name");
       if (!tel.input.value.trim()) bad.push("phone");
       if (!picked) bad.push("preferred_time");
-      if (bad.length) return mark(bad);
+      if (bad.length) return mark(bad, away);
+      var since = away;
       submit.disabled = true;
       setStatus("Sending…");
       post("contact", { firstName: name.input.value.trim(), phone: tel.input.value.trim(), preferredTime: picked.value }).then(function (res) {
@@ -476,9 +494,9 @@
           clearContact();
           var done = el("p", { class: "received", tabindex: "-1" }, String(res.data.reply || "Thanks. The practice will call you back."));
           contactArea.appendChild(done);
-          done.focus();
+          if (focusIsOurs(since)) done.focus();
         } else if (res.status === 400 && Array.isArray(res.data.fields)) {
-          mark(res.data.fields);
+          mark(res.data.fields, since);
         } else if (res.status === 429) {
           setStatus("That's a lot of messages at once. Please wait a little, then try again.");
         } else if (transient(res) && ++misses < 2) {
@@ -488,12 +506,12 @@
         } else {
           if (transient(res)) started = null;
           showCall();
-          focusFirst();
+          if (focusIsOurs(since)) focusFirst();
         }
       });
     });
 
-    function mark(problems) {
+    function mark(problems, since) {
       var first = null;
       [
         ["first_name", name.input, name.error, "Please enter your first name."],
@@ -507,7 +525,7 @@
       });
       if (problems.indexOf("unknown_field") !== -1 && !first) setStatus("Something went wrong. Please call the practice.");
       if (first === group) first = group.querySelector("input:checked") || group.querySelector("input");
-      if (first) first.focus();
+      if (first && focusIsOurs(since)) first.focus();
     }
   }
 

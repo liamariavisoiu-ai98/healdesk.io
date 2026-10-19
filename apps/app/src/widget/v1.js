@@ -17,9 +17,12 @@
  * When the chat is not answering (switched off, paused, capped, our endpoint
  * failing), the bubble becomes the contact form the engine offers; when even
  * that takes nothing, it tells the visitor to call the practice (CLAUDE.md,
- * "Failure": a visitor always reaches someone). The engine does not send
- * the practice's number, so that line points to the number on the clinic's
- * own website, where the bubble sits.
+ * "Failure": a visitor always reaches someone). The engine sends the line to
+ * show, with the practice's published number in it, as the offer's
+ * `callLine` or a refused message's 409 `reply` (lib/chat/contact-form.ts);
+ * it is shown as text. Where no line came back (the engine unreachable, a
+ * 503, a closed form it could not read), or the line names no number, the
+ * bubble points to the number on the clinic's own website, where it sits.
  *
  * Built to sit on any page: a closed shadow root for the host page's styles,
  * no dependencies, no innerHTML and no inline style or eval, so it runs under
@@ -428,7 +431,7 @@
   function fallBack(res) {
     var form = res.data && res.data.mode === "contact_form" ? res.data.form : null;
     if (form && form.takesMessages === true && Array.isArray(form.times) && form.times.length) showForm(form.times);
-    else showCall(res.status === 429 ? "Please try again in a minute, or call." : "");
+    else showCall(res.status === 429 ? "Please try again in a minute, or call." : "", form && form.callLine);
   }
 
   function showChat() {
@@ -507,7 +510,8 @@
           setStatus("That didn't send. Please try again.");
         } else {
           if (transient(res)) started = null;
-          showCall();
+          // A 409 is the engine refusing it now, with the practice's line to call.
+          showCall("", res.status === 409 && res.data.mode === "closed" ? res.data.reply : "");
           if (focusIsOurs(since)) focusFirst();
         }
       });
@@ -531,13 +535,20 @@
     }
   }
 
-  function showCall(lead) {
+  /**
+   * The way to call. `line` is the engine's fixed "please call the practice
+   * on {number}" line, shown as text; without one, or when it names no
+   * number (a clinic with none published), the number on this website.
+   */
+  function showCall(lead, line) {
     view = "call";
     clearContact();
+    var given = typeof line === "string" ? line.trim() : "";
     var box = el("div", { class: "call", tabindex: "-1" });
     box.appendChild(el("h3", {}, "Please call the practice"));
     box.appendChild(el("p", {}, "The chat isn't available right now." + (lead ? " " + lead : "")));
-    box.appendChild(el("p", {}, "Its phone number is on this website."));
+    if (given) box.appendChild(el("p", { class: "line" }, given));
+    if (given.replace(/\D/g, "").length < 7) box.appendChild(el("p", {}, "Its phone number is on this website."));
     box.appendChild(el("p", { class: "fine" }, "If it's an emergency, call 911."));
     contactArea.appendChild(box);
   }

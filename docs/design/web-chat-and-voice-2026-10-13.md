@@ -66,9 +66,12 @@ runs under a strict CSP and Trusted Types once the page allows the script and co
   new chat first, so every conversation's opening line is on screen.
 - **Not answering** (any `contact_form` reply, two failures in a row to reach us, or an answer the
   browser hides because the page is not the clinic's site): the contact form when it takes messages,
-  otherwise a line saying to call the practice. The engine does not send the practice's number, so the
-  line points to the number on the clinic's own website; returning `publishedPhoneE164` in the contact
-  form offer would let the bubble show it. A start that failed is asked again when the bubble reopens.
+  otherwise a line saying to call the practice. The engine sends that line, the fixed "please call the
+  practice on {number}" with the clinic's published number (`callPracticeLine`), as the offer's
+  `callLine` and as the `reply` of a contact message refused with 409 `closed`; the bubble shows it as
+  text. Only where no line comes back (a network failure, a 503, the closed form sent when the offer
+  itself could not be read) or the line names no number (none published) does the bubble point to the
+  number on the clinic's own website instead. A start that failed is asked again when the bubble reopens.
 - **Known limits.** The bubble runs in the clinic's page, so a script there that wraps `fetch` (a
   session-replay or tag-manager script) can see what a visitor types; only a frame served from
   `apps/app` would hide it, and the engine's origin check would have to allow for that. The script is

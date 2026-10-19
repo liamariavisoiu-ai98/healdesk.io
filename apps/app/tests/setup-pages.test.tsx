@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { setupLine, WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import { loadSetupState } from "@/lib/setup/state";
 import { publicOrigin, publicUrl } from "@/lib/public-url";
 
@@ -125,6 +125,16 @@ async function voiceReady(clinic: PortalClinic, options: { directLine: boolean }
     ]),
   );
 }
+
+describe("what the wizard and the welcome email promise about website chat", () => {
+  test("pasting the line is a step, and answering after it is phrased as design until production does it on the paste", () => {
+    // CLAUDE.md, "Copy first, then the switch": website chat goes live only
+    // once an operator confirms the line is on the site (web-chat-on-paste).
+    expect(setupLine("web", "finish_setup")).toBe(
+      "Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.",
+    );
+  });
+});
 
 describeDb("the setup wizard's pages", () => {
   beforeAll(async () => {
@@ -296,6 +306,10 @@ describeDb("the setup wizard's pages", () => {
         const words = text(html);
         expect(words).toContain("Website chat Waiting on you Paste one line on your website.");
         expect(words).toContain("The line for your website");
+        // Production goes live on an operator's confirmation, not on the paste
+        // (LAUNCH_PROMISES, web-chat-on-paste), so the line is phrased as design.
+        expect(words).toContain("AYA is designed to start answering there once it’s in.");
+        expect(words).not.toContain("AYA starts answering there");
         // Go-live is automatic: a chat on the live site is a real one (WP2).
         expect(words).toContain(WEB_CHAT_COUNTS_LINE);
         expect(words).toContain(

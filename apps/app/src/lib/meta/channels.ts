@@ -361,6 +361,14 @@ export async function sendMetaReply(
     tx.audit.record({ action: "create", resourceType: "meta_front_door_reply", resourceId: tx.clinicId, metadata: { platform: owner.platform, outcome: "outside_window" } });
     return { status: "outside_window" };
   }
+  // When the login the send uses was saved, read before the token: a
+  // reconnect that commits while Meta is refusing the old token is a new
+  // login, and the mark below must not land on it.
+  const [read] = await tx.db
+    .select({ updatedAt: providerConnections.updatedAt })
+    .from(providerConnections)
+    .where(and(eq(providerConnections.id, owner.connectionId), eq(providerConnections.clinicId, tx.clinicId)))
+    .limit(1);
   try {
     await withCredentials(tx.db, { clinicId: tx.clinicId, connectionId: owner.connectionId }, async (credentials) => {
       const accessToken = credentials.accessToken;
@@ -372,7 +380,7 @@ export async function sendMetaReply(
     // Reconnect. Written in a transaction of its own and not awaited here,
     // because the caller's is about to roll back on this throw and the mark
     // must survive it, and waiting would hold two pooled connections.
-    if (isTokenInvalid(error)) markMetaConnectionBroken(tx.clinicId, owner.connectionId, "token_invalid");
+    if (isTokenInvalid(error)) markMetaConnectionBroken(tx.clinicId, owner.connectionId, "token_invalid", read?.updatedAt);
     throw error;
   }
   return { status: "sent" };

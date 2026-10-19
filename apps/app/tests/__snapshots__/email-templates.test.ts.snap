@@ -7873,7 +7873,7 @@ exports[`each template's output > welcome, for clients: the snapshot 1`] = `
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Your practice: check what we read from your website</li><li>How AYA works: tone, greetings and where urgent calls go</li><li>Calendar: how bookings reach your team</li><li>Your channels: what each one needs from you</li></ul>
 <p style="margin:0 0 16px;">Each step saves as you finish it, so you can stop and come back. You have until Friday 6 November to finish: if nothing is answering clients by the end of that day, the account closes. We&#39;ll remind you before then.</p>
 <p style="margin:0 0 16px;">Your channels:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Website chat: after setup, you paste one line on your website and AYA starts answering there.</li><li>Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don&#39;t change your call forwarding until then.</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.</li><li>Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don&#39;t change your call forwarding until then.</li></ul>
 <p style="margin:0 0 16px;">Your order:</p>
 <p style="margin:0 0 4px;"><strong>Package:</strong> AYA Voice + Web Chat</p>
 <p style="margin:0 0 4px;"><strong>Included each month:</strong> 500 voice minutes and 300 chat conversations</p>
@@ -7916,7 +7916,7 @@ Each step saves as you finish it, so you can stop and come back. You have until 
 
 Your channels:
 
-- Website chat: after setup, you paste one line on your website and AYA starts answering there.
+- Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.
 - Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don't change your call forwarding until then.
 
 Your order:
@@ -7982,7 +7982,7 @@ exports[`each template's output > welcome, for patients: the snapshot 1`] = `
 <ul style="margin:0 0 16px;padding-left:20px;"><li>Your practice: check what we read from your website</li><li>How AYA works: tone, greetings and where urgent calls go</li><li>Calendar: how bookings reach your team</li><li>Your channels: what each one needs from you</li></ul>
 <p style="margin:0 0 16px;">Each step saves as you finish it, so you can stop and come back. You have until Friday 6 November to finish: if nothing is answering patients by the end of that day, the account closes. We&#39;ll remind you before then.</p>
 <p style="margin:0 0 16px;">Your channels:</p>
-<ul style="margin:0 0 16px;padding-left:20px;"><li>Website chat: after setup, you paste one line on your website and AYA starts answering there.</li><li>Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don&#39;t change your call forwarding until then.</li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.</li><li>Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don&#39;t change your call forwarding until then.</li></ul>
 <p style="margin:0 0 16px;">Your order:</p>
 <p style="margin:0 0 4px;"><strong>Package:</strong> AYA Voice + Web Chat</p>
 <p style="margin:0 0 4px;"><strong>Included each month:</strong> 500 voice minutes and 300 chat conversations</p>
@@ -8025,7 +8025,7 @@ Each step saves as you finish it, so you can stop and come back. You have until 
 
 Your channels:
 
-- Website chat: after setup, you paste one line on your website and AYA starts answering there.
+- Website chat: after setup, you paste one line on your website, and AYA is designed to start answering there.
 - Phone: after setup, we show you exactly what to dial to forward calls from your main line. Don't change your call forwarding until then.
 
 Your order:

@@ -15,7 +15,7 @@ import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { waitingSentence } from "@/lib/portal/waiting-words";
 import { claimLines } from "@/lib/reporting/claim-words";
 import { claimsPayload } from "@/lib/reporting/claims";
-import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
+import { channelNextStep, channelStatusLabel, setupSentence } from "@/lib/setup/channels";
 import { wizardFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
 import { withTenant } from "@/lib/tenant";
@@ -31,7 +31,9 @@ export const dynamic = "force-dynamic";
  * Home (plan Part F1; spec, "Home: what happened, and is everything
  * working"). Before go-live: what needs the clinic, the build tracker and
  * Talk to your AYA (locked until every stage is done, naming what is left),
- * each channel's status in words with no dates, and when the plan starts.
+ * each channel's status in words, never an opening date (channelStatusLabel,
+ * the wizard's: once live, since when, and a pause until when), and when the
+ * plan starts.
  *
  * After go-live: first the "Waiting for you" card, counts only, one tap into
  * Bookings (lib/portal/waiting-words.ts); then Needs attention, which adds a
@@ -245,10 +247,11 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
         <ul className="mt-3 grid gap-2">
           {state.channels.map((c) => (
             <li key={c.channel} className="border-line rounded-xl border bg-white px-4 py-3">
-              <p className="flex items-center justify-between gap-3">
+              <p className="flex flex-wrap items-center justify-between gap-2">
                 <span className="font-semibold">{CHANNEL_NAMES[c.channel]}</span>
-                <span className="bg-paper-2 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold">
-                  {channelStatusWord(c.status)}
+                {/* The wizard's label; it wraps rather than overflows, as "Paused until …" can. */}
+                <span className="bg-paper-2 max-w-full rounded-full px-3 py-1 text-xs font-semibold">
+                  {channelStatusLabel(c, state.clinic.timezone, now)}
                 </span>
               </p>
               <p className="text-muted mt-1 text-sm">

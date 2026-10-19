@@ -32,7 +32,12 @@ import { getBillingSummary } from "@/lib/billing/summary";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { readMetaConnectView, type MetaConnectView } from "@/lib/meta/reconnect";
-import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
+import {
+  channelNextStep,
+  channelStatusLabel,
+  channelStatusWord,
+  setupSentence,
+} from "@/lib/setup/channels";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
 import { formatPhone } from "@/lib/setup/help";
 import { wizardFinished } from "@/lib/setup/screens";
@@ -61,7 +66,8 @@ export type SettingsView = {
     key: SettingKey | null;
     name: string;
     on: boolean;
-    statusWord: string;
+    /** Where the channel stands, with its time where it has one: the wizard's label (channelStatusLabel). */
+    statusLabel: string;
     line: string;
     switchLine: string;
     applies: string | null;
@@ -76,7 +82,7 @@ export type SettingsView = {
       key: SettingKey;
       name: string;
       on: boolean;
-      statusWord: string;
+      statusLabel: string;
       switchLine: string;
     }[];
   }[];
@@ -210,14 +216,14 @@ export async function readSettingsView(input: {
     metaConnect: tenant.meta.connect,
     applies,
     channels: state.channels.map((c) => {
-      const statusWord = channelStatusWord(c.status);
+      const statusLabel = channelStatusLabel(c, clinic.timezone, now);
       if (c.channel === "meta") {
         return {
           channel: c.channel,
           key: null,
           name: CHANNEL_NAMES[c.channel],
           on: c.enabled,
-          statusWord,
+          statusLabel,
           line: setupSentence(c.channel, channelNextStep(c, finished)),
           switchLine: SWITCH_LINES[c.channel],
           applies: applies.channel_instagram ?? null,
@@ -229,7 +235,7 @@ export async function readSettingsView(input: {
               name: META_PLATFORM_NAMES[platform],
               on,
               // Off is the platform's own; otherwise it stands where the Meta channel does.
-              statusWord: on ? statusWord : channelStatusWord("off"),
+              statusLabel: on ? statusLabel : channelStatusWord("off"),
               switchLine: `Off leaves ${META_PLATFORM_NAMES[platform]} messages for your team to answer in ${META_PLATFORM_NAMES[platform]}.`,
             };
           }),
@@ -241,7 +247,7 @@ export async function readSettingsView(input: {
         key,
         name: CHANNEL_NAMES[c.channel],
         on: c.enabled,
-        statusWord,
+        statusLabel,
         line: setupSentence(c.channel, channelNextStep(c, finished)),
         switchLine: SWITCH_LINES[c.channel],
         applies: applies[key] ?? null,

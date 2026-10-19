@@ -104,7 +104,7 @@ export function ChannelsCard({
               applies={c.applies}
               initial={c.on}
             />
-            <StatusLine word={c.statusWord} line={c.line} />
+            <StatusLine label={c.statusLabel} line={c.line} />
           </div>
         ) : (
           // The Meta channel: a switch for each platform the clinic has
@@ -122,13 +122,13 @@ export function ChannelsCard({
                   applies={c.applies}
                   initial={p.on}
                 />
-                <StatusLine word={p.statusWord} />
+                <StatusLine label={p.statusLabel} />
               </div>
             ))}
             {c.platforms.length === 0 ? (
               <>
                 <p className="pt-3 font-semibold">{c.name}</p>
-                <StatusLine word={c.statusWord} line={c.line} />
+                <StatusLine label={c.statusLabel} line={c.line} />
               </>
             ) : (
               <StatusLine line={c.line} />
@@ -200,12 +200,13 @@ export function ChannelsCard({
 // BAA 1.4.0 gives the clinic no period to shorten (lib/portal/settings.ts).
 
 /** A channel's status word, and the one line on what happens next. */
-function StatusLine({ word, line }: { word?: string; line?: string }) {
+/** A channel's status label (the wizard's, with its time) and its line. */
+function StatusLine({ label, line }: { label?: string; line?: string }) {
   return (
     <p className="text-muted -mt-1 pb-3 text-sm">
-      {word ? (
-        <span className="bg-paper-2 text-ink mr-2 inline-block rounded-full px-2 py-0.5 text-xs font-semibold">
-          {word}
+      {label ? (
+        <span className="bg-paper-2 text-ink mr-2 inline-block max-w-full rounded-full px-2 py-0.5 text-xs font-semibold">
+          {label}
         </span>
       ) : null}
       {line}

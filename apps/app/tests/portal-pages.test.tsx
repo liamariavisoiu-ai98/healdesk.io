@@ -373,6 +373,48 @@ describeDb("the portal's screens, before and after go-live", () => {
       expect(await axeViolations(html, "Home")).toEqual([]);
     });
 
+    test("Home and Settings say since when a channel is live, and until when a pause runs, as the wizard does", async () => {
+      // Until 19 October 2026 both showed a bare "Live" or "Paused": only the
+      // wizard's step 4 used channelStatusLabel, so the three screens disagreed.
+      const pause = (set: string) =>
+        inTenant(clinic.clinicId, (c) =>
+          c.query(`update clinic_settings set ${set} where clinic_id = $1`, [clinic.clinicId]),
+        );
+      /** Settings' status pills carrying exactly this label, one per channel. */
+      const settingsPills = (html: string, label: RegExp) =>
+        html.match(new RegExp(`<span[^>]*rounded-full[^>]*>${label.source}</span>`, "g")) ?? [];
+      const SINCE = /Live since 14 October(?: 2026)?/;
+      const UNTIL = /Paused until \d{1,2}(?::\d{2})? [ap]m [A-Z]{2,5} on Monday 2 March 2099/;
+      const OPEN_ENDED = /Paused until you switch AYA back on/;
+      await setChannels(`live_at = '2026-10-14T15:00:00Z'`);
+      try {
+        const home = text(await render("home"));
+        expect(home).toMatch(new RegExp(`Website chat ${SINCE.source} `));
+        expect(home).toMatch(new RegExp(`Phone ${SINCE.source} `));
+        expect(settingsPills(await render("settings"), SINCE)).toHaveLength(2);
+
+        await pause(`ai_paused_at = now(), ai_paused_until = '2099-03-02T19:00:00Z'`);
+        const pausedHome = text(await render("home"));
+        expect(pausedHome).toMatch(new RegExp(`Website chat ${UNTIL.source} `));
+        expect(pausedHome).toMatch(new RegExp(`Phone ${UNTIL.source} `));
+        expect(settingsPills(await render("settings"), UNTIL)).toHaveLength(2);
+
+        await pause(`ai_paused_until = null`);
+        const heldHome = text(await render("home"));
+        expect(heldHome).toMatch(new RegExp(`Website chat ${OPEN_ENDED.source} `));
+        expect(heldHome).toMatch(new RegExp(`Phone ${OPEN_ENDED.source} `));
+        const held = await render("settings");
+        expect(settingsPills(held, OPEN_ENDED)).toHaveLength(2);
+        // No bare word left on either screen.
+        expect(settingsPills(held, /(?:Live|Paused)/)).toEqual([]);
+        expect(heldHome).not.toMatch(/(?:Website chat|Phone) (?:Live|Paused) (?!since |until )/);
+        expect(await axeViolations(held, "settings")).toEqual([]);
+      } finally {
+        await pause(`ai_paused_at = null, ai_paused_until = null`);
+        await setChannels(`live_at = now() - interval '1 day'`);
+      }
+    });
+
     test("Billing after the plan starts: when it started, the next charge from Stripe, and what Auto-renew off does now", async () => {
       worldAfterStart();
       const html = await render("billing");

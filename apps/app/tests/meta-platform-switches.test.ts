@@ -234,7 +234,7 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
         key: "channel_instagram",
         name: "Instagram",
         on: true,
-        statusWord: before.statusWord,
+        statusLabel: before.statusLabel,
         switchLine: "Off leaves Instagram messages for your team to answer in Instagram.",
       },
       {
@@ -242,7 +242,7 @@ describeDb("Instagram, Messenger and WhatsApp switches", () => {
         key: "channel_whatsapp",
         name: "WhatsApp",
         on: false,
-        statusWord: "Off",
+        statusLabel: "Off",
         switchLine: "Off leaves WhatsApp messages for your team to answer in WhatsApp.",
       },
     ]);

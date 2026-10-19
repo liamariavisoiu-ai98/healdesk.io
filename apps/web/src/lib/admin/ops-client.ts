@@ -222,7 +222,6 @@ type OperatorOp =
   | "setBookingRequirements"
   | "setClinicTimezone"
   | "setConnectionPhiBasis"
-  | "issueSetupLink"
   | "retryCalendarWrite"
   | "listCalendarWrites"
   // The booking mode and the Google Calendar (plan §10): Auto-confirm, the
@@ -3609,23 +3608,6 @@ export function setClinicTimezone(clinicId: string, timezone: string) {
 
 export function setConnectionPhiBasis(clinicId: string, input: { connectionId: string; basis: PhiBasis | null; note?: string }) {
   return simple("setConnectionPhiBasis", { clinicId, connectionId: input.connectionId, basis: input.basis, ...(input.note ? { note: input.note } : {}) });
-}
-
-/** Same shape as the connect link: the URL comes back once, composed upstream. */
-export function issueSetupLink(clinicId: string, to: string | null): Promise<OpsResult<IssueLinkOutcome>> {
-  const args: Record<string, unknown> = { clinicId };
-  if (to) args.to = to;
-  return callOps("issueSetupLink", "write", args, (value) => {
-    const data = object(value, "issueSetupLink");
-    if (state(data, "issueSetupLink") !== "issued") return refusal(data, "issueSetupLink");
-    return {
-      status: "issued",
-      url: url(data.url, "issueSetupLink.url"),
-      expiresAt: text(data.expiresAt, "issueSetupLink.expiresAt"),
-      delivery: readDelivery(data.delivery),
-      auditRecorded: bool(data.auditRecorded, "issueSetupLink.auditRecorded"),
-    };
-  });
 }
 
 export type RetryCalendarWriteOutcome =

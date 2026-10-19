@@ -1,6 +1,7 @@
 "use server";
 
 import type { PublicKeyCredentialCreationOptionsJSON } from "@simplewebauthn/server";
+import { cookies } from "next/headers";
 
 import {
   finishPasskeyRegistration,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/factors/passkeys";
 import { requirePortal } from "@/lib/portal/access";
 import { portalNext, sessionBinding } from "@/lib/portal/step-up";
+import { isPayingBrowser, PAYING_BROWSER_COOKIE } from "@/lib/sign-in/paying-browser";
 
 import { requestMeta } from "../request-meta";
 
@@ -68,6 +70,12 @@ export async function finishAddDevice(
     response: input?.response,
     deviceLabel: input?.label,
     request: await requestMeta(),
+    // Whether this is the browser that paid, which alone adds a first
+    // passkey without the device email (O3; lib/sign-in/paying-browser.ts).
+    payingBrowser: isPayingBrowser(
+      portal.userId,
+      (await cookies()).get(PAYING_BROWSER_COOKIE)?.value,
+    ),
   });
   return finished.ok
     ? { ok: true, next: portalNext(portal.clinicSlug, input?.next) }

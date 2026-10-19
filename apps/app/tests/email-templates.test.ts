@@ -370,6 +370,24 @@ describe("the welcome email (B1)", () => {
     expect(voice).toContain("Past the allowance: $104 for each started block of 100 extra voice minutes\n");
   });
 
+  test("cancelling online is Billing's Auto-renew, and the signed agreement downloads from Billing", () => {
+    const { text, html } = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome"));
+    // Not a reply to this email: the portal's own switch (plan Part F6).
+    expect(text).not.toMatch(/reply to this email and we'll cancel/i);
+    expect(text).toContain(
+      "To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won't start, and nothing more is charged.",
+    );
+    expect(text).toContain(`Open Billing: ${WELCOME_ENTRY.fixture.billingUrl}`);
+    expect(WELCOME_ENTRY.fixture.billingUrl).toMatch(/\/c\/[a-z0-9-]+\/billing#switches$/);
+    // The agreement's download, beside the Terms (plan C4).
+    expect(text).toContain(
+      `Download your signed agreement (PDF): ${WELCOME_ENTRY.fixture.agreementUrl}`,
+    );
+    expect(WELCOME_ENTRY.fixture.agreementUrl).toMatch(/\/c\/[a-z0-9-]+\/billing\/agreement$/);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.agreementUrl}"`);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.billingUrl}"`);
+  });
+
   test("Help: the voicemail line in the plan's words while one is set, and nothing while not", () => {
     const set = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome", "clients"));
     expect(set.text).toContain(

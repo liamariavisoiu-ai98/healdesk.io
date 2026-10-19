@@ -4506,8 +4506,10 @@ exports[`each template's output > welcome, for clients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">The extra-block prices are provisional until we&#39;ve measured what each minute and conversation costs us.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
 <p style="margin:0 0 16px;">Monthly billing ($520) starts the day AYA first answers a client. Until then, nothing more is charged. The setup fee is non-refundable.</p>
-<p style="margin:0 0 16px;">To cancel before your plan starts, reply to this email and we&#39;ll cancel it for you. Nothing more is charged.</p>
-<p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms.</p>
+<p style="margin:0 0 16px;">To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won&#39;t start, and nothing more is charged.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/glow-med-spa/billing#switches" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Billing</a></p>
+<p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms. Your signed agreement is in Billing too.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/glow-med-spa/billing/agreement" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Download your signed agreement (PDF)</a></p>
 <p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include client details.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -4554,9 +4556,13 @@ Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8
 
 Monthly billing ($520) starts the day AYA first answers a client. Until then, nothing more is charged. The setup fee is non-refundable.
 
-To cancel before your plan starts, reply to this email and we'll cancel it for you. Nothing more is charged.
+To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won't start, and nothing more is charged.
 
-Your order is under healdesk's Terms of Service, version 2026-10-07.1, at healdesk.io/terms.
+Open Billing: https://app.healdesk.test/c/glow-med-spa/billing#switches
+
+Your order is under healdesk's Terms of Service, version 2026-10-07.1, at healdesk.io/terms. Your signed agreement is in Billing too.
+
+Download your signed agreement (PDF): https://app.healdesk.test/c/glow-med-spa/billing/agreement
 
 Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include client details.
 
@@ -4609,8 +4615,10 @@ exports[`each template's output > welcome, for patients: the snapshot 1`] = `
 <p style="margin:0 0 16px;">The extra-block prices are provisional until we&#39;ve measured what each minute and conversation costs us.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8xUGZpeHR1cmU" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Your setup-fee receipt</a></p>
 <p style="margin:0 0 16px;">Monthly billing ($520) starts the day AYA first answers a patient. Until then, nothing more is charged. The setup fee is non-refundable.</p>
-<p style="margin:0 0 16px;">To cancel before your plan starts, reply to this email and we&#39;ll cancel it for you. Nothing more is charged.</p>
-<p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms.</p>
+<p style="margin:0 0 16px;">To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won&#39;t start, and nothing more is charged.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/glow-med-spa/billing#switches" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Billing</a></p>
+<p style="margin:0 0 16px;">Your order is under healdesk&#39;s Terms of Service, version 2026-10-07.1, at healdesk.io/terms. Your signed agreement is in Billing too.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/glow-med-spa/billing/agreement" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Download your signed agreement (PDF)</a></p>
 <p style="margin:0 0 16px;">Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don&#39;t include patient details.</p>
 <p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/help/call" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Book a five-minute call</a></p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -4657,9 +4665,13 @@ Your setup-fee receipt: https://invoice.stripe.com/i/acct_1Pfixture/test_YWNjdF8
 
 Monthly billing ($520) starts the day AYA first answers a patient. Until then, nothing more is charged. The setup fee is non-refundable.
 
-To cancel before your plan starts, reply to this email and we'll cancel it for you. Nothing more is charged.
+To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won't start, and nothing more is charged.
 
-Your order is under healdesk's Terms of Service, version 2026-10-07.1, at healdesk.io/terms.
+Open Billing: https://app.healdesk.test/c/glow-med-spa/billing#switches
+
+Your order is under healdesk's Terms of Service, version 2026-10-07.1, at healdesk.io/terms. Your signed agreement is in Billing too.
+
+Download your signed agreement (PDF): https://app.healdesk.test/c/glow-med-spa/billing/agreement
 
 Questions? Reply to this email, or write to hello@healdesk.io. Or leave a message on (888) 555-0100: we reply the next business day. Please don't include patient details.
 

@@ -132,7 +132,6 @@ import { keyPresence } from "@/lib/ops/key-presence";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
 import { sendConnectLink } from "@/lib/email/connect-link";
-import { sendSetupLink } from "@/lib/email/setup-link";
 import { env } from "@/lib/env";
 import { recordDailyQuota } from "@/lib/email/quota";
 import { publicOriginProblem, publicUrl } from "@/lib/public-url";
@@ -409,7 +408,6 @@ const OPERATIONS = [
   "setBookingRequirements",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "issueSetupLink",
   "retryCalendarWrite",
   "listCalendarWrites",
   // The Google Calendar connection (plan §10): mail the location's calendar
@@ -527,7 +525,6 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "setBookingRequirements",
   "setClinicTimezone",
   "setConnectionPhiBasis",
-  "issueSetupLink",
   // Mutating because it moves the appointment's calendar columns and may
   // create a booking in the clinic's calendar.
   "retryCalendarWrite",
@@ -1057,8 +1054,6 @@ export async function runOperation(
       return opSetClinicTimezone(args, operator);
     case "setConnectionPhiBasis":
       return opSetConnectionPhiBasis(args, operator);
-    case "issueSetupLink":
-      return opIssueSetupLink(args, operator);
     case "retryCalendarWrite":
       return opRetryCalendarWrite(args, operator);
     case "listCalendarWrites":
@@ -3774,44 +3769,6 @@ async function opSetConnectionPhiBasis(
   }
   const auditRecorded = await audit(operator, "connection_phi_basis_set", { clinicSlug: clinic.slug, provider: found.provider, phiBasis: basis });
   return ok({ status: "updated", auditRecorded } satisfies SwitchState);
-}
-
-/** §H.2: resend (or issue for the first time) the setup link. Same shape and same care as the connect link. */
-async function opIssueSetupLink(
-  args: Record<string, unknown>,
-  operator: Operator,
-): Promise<OpsOutcome> {
-  const clinic = await clinicById(stringArg(args, "clinicId"));
-  if (!clinic) return ok({ status: "error", message: "No such clinic." } satisfies IssueConnectLinkState);
-  const to = stringArg(args, "to", MAX_EMAIL_LENGTH)?.toLowerCase();
-  if (to !== undefined && !EMAIL_SHAPED.test(to)) {
-    return ok({ status: "error", message: "That doesn't look like an email address." } satisfies IssueConnectLinkState);
-  }
-  const originProblem = publicOriginProblem();
-  if (originProblem) return ok({ status: "error", message: originProblem } satisfies IssueConnectLinkState);
-  const { token, expiresAt } = await issueConnectionLink(
-    clinic.id,
-    { purpose: "setup" },
-    { actor: actorFor(operator), request: operator.request },
-  );
-  const url = publicUrl(`/setup/${token}`);
-  let delivery: ConnectLinkDelivery = { attempted: false };
-  if (to) {
-    const result = await sendSetupLink({ to, clinicId: clinic.id, clinicName: clinic.name, specialty: clinic.specialty, url, expiresAt });
-    delivery = result.status === "sent" ? { attempted: true, status: "sent" } : { attempted: true, status: result.status, reason: result.reason };
-  }
-  const auditRecorded = await audit(operator, "setup_link_issued", {
-    clinicId: clinic.id,
-    expiresInHours: Math.round((expiresAt.getTime() - Date.now()) / 3_600_000),
-    delivery: delivery.attempted ? delivery.status : "not_attempted",
-  });
-  return ok({
-    status: "issued",
-    url,
-    expiresAt: `${expiresAt.toISOString().replace("T", " ").slice(0, 16)} UTC`,
-    delivery,
-    auditRecorded,
-  } satisfies IssueConnectLinkState);
 }
 
 export type RetryCalendarWriteState =

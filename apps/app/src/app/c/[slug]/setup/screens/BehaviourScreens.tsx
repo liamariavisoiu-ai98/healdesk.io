@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import type { SetupStripeView } from "@/lib/setup/payments";
+
 import { Choice, Field, ScreenShell } from "../ScreenShell";
 
 /**
@@ -199,6 +201,8 @@ export function DepositsScreen(
   props: Common & {
     services: readonly { name: string; depositUsd: number | null }[];
     collectionLine: string;
+    /** The payment account, for a package with a chat channel. */
+    stripe?: SetupStripeView;
   },
 ) {
   const anyDeposit = props.services.some((s) => (s.depositUsd ?? 0) > 0);
@@ -214,6 +218,7 @@ export function DepositsScreen(
       screen="deposits"
       title="Do any treatments need a deposit?"
       intro={<p>{props.collectionLine}</p>}
+      lead={props.stripe?.offered ? <StripeConnect stripe={props.stripe} /> : undefined}
       skipCost={props.skipCost}
       backHref={props.backHref}
       payload={() => ({
@@ -271,6 +276,59 @@ export function DepositsScreen(
         )
       ) : null}
     </ScreenShell>
+  );
+}
+
+/**
+ * Connect Stripe, or do it later in Settings → Payments, which is the
+ * default: saving this screen without it changes nothing about deposits but
+ * how they are collected. Outside the screen's form, so leaving for Stripe
+ * loses no amount typed below; the step-up and Stripe's sign-in come back
+ * here (lib/setup/payments.ts).
+ */
+function StripeConnect({ stripe }: { stripe: SetupStripeView }) {
+  return (
+    <div className="border-line rounded-xl border bg-white px-4 py-3 text-sm">
+      <p className="font-semibold">Deposits paid in chat</p>
+      {stripe.outcome ? (
+        <p
+          role="status"
+          className={`mt-2 rounded-lg border px-3 py-2 ${stripe.outcome.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"}`}
+        >
+          {stripe.outcome.text}
+        </p>
+      ) : null}
+      {stripe.isConnected ? (
+        <p className="text-muted mt-1">
+          Your Stripe account is connected. In chat, AYA sends a secure link and the deposit is paid
+          straight into it. Change it in Settings → Payments.
+        </p>
+      ) : (
+        <>
+          <p className="text-muted mt-1">
+            Connect your Stripe account and AYA can send a secure link in chat, paid straight into
+            it. AYA never takes a card number.
+          </p>
+          <p className="mt-2">
+            <span className="font-semibold">Do it later in Settings → Payments</span>, or connect it
+            now: it needs Face ID or your screen lock, then your Stripe sign-in, and brings you back
+            here.
+          </p>
+          {stripe.available ? (
+            <a
+              href={stripe.href}
+              className="border-line mt-3 inline-flex min-h-11 items-center rounded-full border px-5 font-semibold"
+            >
+              Connect Stripe
+            </a>
+          ) : (
+            <p className="text-muted mt-2">
+              Email hello@healdesk.io and we&rsquo;ll connect it with you.
+            </p>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

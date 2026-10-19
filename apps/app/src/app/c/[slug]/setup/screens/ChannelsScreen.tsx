@@ -1,18 +1,30 @@
 "use client";
 
-import { SendStepsForm } from "../../SendStepsForm";
+import { useId, useState } from "react";
+
+import type { ForwardingView } from "@/lib/setup/forwarding";
+
+import { sendPhoneStepsAction } from "../../steps-actions";
 import { ScreenShell } from "../ScreenShell";
 
 /**
  * Step 4 · Your channels (plan Part E): each bought channel with its status
- * word and what it needs, never a date. Phone shows no number and no
- * forwarding codes until voice is ready for the clinic: nobody forwards
- * calls to an assistant that cannot answer yet (spec, "The forwarding step").
- * A ready channel's one step (the website line, the forwarding, the Facebook
- * login) is named here in words; the screen that carries it out comes with
- * the channel itself, so this one links to none yet. Once phone is ready on
- * our side, its row carries AYA's number and "Email these steps" (O11), so
- * the owner can send the forwarding to whoever looks after the line.
+ * word and what it needs, never a date, and, where the channel is ready for
+ * it, the one step itself:
+ *
+ *   - Website chat: the line to paste, once the channel is open (ready on our
+ *     side), with a Copy button (lib/setup/snippet.ts);
+ *   - Instagram, Messenger & WhatsApp: "Connect with Facebook", the Meta
+ *     login (/api/meta/login), until a platform is connected;
+ *   - Phone: nothing about forwarding until voice is ready for the clinic
+ *     (lib/setup/forwarding.ts); then AYA's number, the codes for the
+ *     clinic's carrier and coverage mode with a carrier picker, the undo
+ *     codes, "Email these to my office manager" (O11, the action Settings
+ *     uses) and "Book a five-minute call and we'll do it with you", with
+ *     equal weight.
+ *
+ * Every step sits in the screen's `lead`, outside its form, because the
+ * Facebook button and the email are forms of their own.
  */
 
 export type ChannelRow = {
@@ -22,6 +34,22 @@ export type ChannelRow = {
   status: string;
   /** What happens next, in one or two sentences. */
   line: string;
+  /** Website chat, once open: the line to paste. */
+  snippet?: string | null;
+  /** Instagram, Messenger & WhatsApp: what is connected, and whether the login can start. */
+  meta?: { connected: string[]; canConnect: boolean } | null;
+  /** Phone, once ready for the clinic: the forwarding steps. */
+  forwarding?: ForwardingView | null;
+  /** Phone, ready but for the direct line: where to set it. */
+  directLineHref?: string | null;
+};
+
+/** What the Meta login's return said, when it came back here instead of to Facebook. */
+const META_PROBLEMS: Record<string, string> = {
+  not_configured:
+    "Connecting Facebook and Instagram isn't switched on here. Email hello@healdesk.io and we'll connect them with you.",
+  throttled:
+    "That was tried several times in a short space of time. Wait a few minutes and try again.",
 };
 
 export function ChannelsScreen(props: {
@@ -29,52 +57,322 @@ export function ChannelsScreen(props: {
   backHref: string | null;
   rows: readonly ChannelRow[];
   callBookingUrl: string | null;
-  /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
-  phoneSteps?: { numberLabel: string } | null;
+  /** `?meta=` from a Meta login that could not start. */
+  metaProblem?: string | null;
 }) {
-  const phone = props.rows.some((row) => row.channel === "voice");
+  const phone = props.rows.find((row) => row.channel === "voice");
+  const metaProblem = props.metaProblem ? META_PROBLEMS[props.metaProblem] : undefined;
   return (
     <ScreenShell
       slug={props.slug}
       screen="channels"
       title="Your channels"
       intro={<p>Where each channel you bought stands, and what it needs from you.</p>}
+      lead={
+        <>
+          {metaProblem ? (
+            <p
+              role="status"
+              className="rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-red-800"
+            >
+              {metaProblem}
+            </p>
+          ) : null}
+          <ul className="grid gap-3">
+            {props.rows.map((row) => (
+              <li key={row.channel} className="border-line rounded-xl border bg-white px-4 py-3">
+                <p className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-semibold">{row.name}</span>
+                  <span className="bg-paper-2 shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold">
+                    {row.status}
+                  </span>
+                </p>
+                <p className="text-muted mt-1 text-sm">{row.line}</p>
+                {row.snippet ? <Snippet snippet={row.snippet} /> : null}
+                {row.meta ? <MetaConnect slug={props.slug} meta={row.meta} /> : null}
+                {row.forwarding ? (
+                  <Forwarding
+                    slug={props.slug}
+                    forwarding={row.forwarding}
+                    callBookingUrl={props.callBookingUrl}
+                  />
+                ) : row.directLineHref ? (
+                  <p className="mt-2 text-sm">
+                    The forwarding steps appear here once your direct line is set: calls go there
+                    whenever AYA can&rsquo;t answer.{" "}
+                    <a href={row.directLineHref} className="font-semibold underline">
+                      Set your direct line
+                    </a>
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {phone && !phone.forwarding && props.callBookingUrl ? (
+            <p className="text-sm">
+              When phone is ready, setting call forwarding is easier with someone on the line.{" "}
+              <a
+                href={props.callBookingUrl}
+                className="font-semibold underline"
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                Book a five-minute call and we&rsquo;ll do it with you
+              </a>
+              .
+            </p>
+          ) : null}
+        </>
+      }
       skipCost=""
       skippable={false}
       backHref={props.backHref}
       submitLabel="Done"
       payload={() => ({})}
-    >
-      <ul className="grid gap-3">
-        {props.rows.map((row) => (
-          <li key={row.channel} className="rounded-xl border border-line bg-white px-4 py-3">
-            <p className="flex flex-wrap items-center justify-between gap-2">
-              <span className="font-semibold">{row.name}</span>
-              <span className="shrink-0 whitespace-nowrap rounded-full bg-paper-2 px-3 py-1 text-xs font-semibold">
-                {row.status}
-              </span>
-            </p>
-            <p className="text-muted mt-1 text-sm">{row.line}</p>
-            {row.channel === "voice" && props.phoneSteps ? (
-              <SendStepsForm slug={props.slug} numberLabel={props.phoneSteps.numberLabel} />
-            ) : null}
-          </li>
-        ))}
-      </ul>
-      {phone && props.callBookingUrl ? (
-        <p className="text-sm">
-          When phone is ready, setting call forwarding is easier with someone on the line.{" "}
-          <a
-            href={props.callBookingUrl}
-            className="font-semibold underline"
-            rel="noopener noreferrer"
-            target="_blank"
-          >
-            Book a five-minute call and we&rsquo;ll do it with you
-          </a>
-          .
+    />
+  );
+}
+
+/** Copy to the clipboard, saying so politely; selecting the text is the fallback. */
+function CopyButton({ text, label, targetId }: { text: string; label: string; targetId: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            setCopied(true);
+          } catch {
+            const field = document.getElementById(targetId);
+            if (field instanceof HTMLTextAreaElement) field.select();
+            setCopied(false);
+          }
+        }}
+        className="border-line min-h-11 rounded-full border px-5 text-sm font-semibold"
+      >
+        {label}
+      </button>
+      <span role="status" aria-live="polite" className="text-muted ml-2 text-sm">
+        {copied ? "Copied" : ""}
+      </span>
+    </>
+  );
+}
+
+function Snippet({ snippet }: { snippet: string }) {
+  const id = useId();
+  return (
+    <div className="mt-3 grid gap-2 text-sm">
+      <label htmlFor={id} className="font-semibold">
+        The line for your website
+      </label>
+      <textarea
+        id={id}
+        readOnly
+        rows={2}
+        value={snippet}
+        className="border-line bg-paper-2 w-full rounded-xl border px-3 py-2 font-mono text-xs"
+      />
+      <p className="text-muted">
+        Paste it once, just before <code>&lt;/body&gt;</code>, on every page of your website, or
+        send it to whoever looks after your site. AYA starts answering there once it&rsquo;s in.
+      </p>
+      <p>
+        <CopyButton text={snippet} label="Copy the line" targetId={id} />
+      </p>
+    </div>
+  );
+}
+
+function MetaConnect({
+  slug,
+  meta,
+}: {
+  slug: string;
+  meta: { connected: string[]; canConnect: boolean };
+}) {
+  if (meta.connected.length > 0) {
+    return <p className="mt-2 text-sm">Connected: {meta.connected.join(", ")}.</p>;
+  }
+  if (!meta.canConnect) {
+    return (
+      <p className="text-muted mt-2 text-sm">
+        Email hello@healdesk.io and we&rsquo;ll connect them with you.
+      </p>
+    );
+  }
+  return (
+    <form method="post" action="/api/meta/login" className="mt-3 grid gap-2 text-sm">
+      <input type="hidden" name="clinic" value={slug} />
+      <p className="text-muted">
+        Sign in with Facebook and choose your practice&rsquo;s Page. An Instagram professional
+        account linked to that Page connects at the same time. AYA is designed to reply only to
+        people who message you, within 24 hours of their message, and to move anyone describing a
+        medical condition to a call.
+      </p>
+      <p>
+        <button
+          type="submit"
+          className="bg-ink min-h-11 rounded-full px-5 text-sm font-bold text-white"
+        >
+          Connect with Facebook
+        </button>
+      </p>
+    </form>
+  );
+}
+
+function Forwarding({
+  slug,
+  forwarding,
+  callBookingUrl,
+}: {
+  slug: string;
+  forwarding: ForwardingView;
+  callBookingUrl: string | null;
+}) {
+  const pickerId = useId();
+  const numberId = useId();
+  const [carrier, setCarrier] = useState(forwarding.carrier);
+  const shown =
+    forwarding.carriers.find((c) => c.id === carrier) ??
+    forwarding.carriers[forwarding.carriers.length - 1]!;
+  return (
+    <div className="mt-3 grid gap-3 text-sm">
+      <div>
+        <p className="font-semibold">Forward your main line&rsquo;s calls to AYA</p>
+        <p id={numberId} className="mt-1 text-2xl font-semibold tracking-tight">
+          {forwarding.ayaNumber}
         </p>
+        <p className="mt-1">
+          <CopyButton text={forwarding.ayaNumberE164} label="Copy the number" targetId={numberId} />
+        </p>
+      </div>
+      {forwarding.phoneSystem === "voip" ? null : (
+        <div className="grid gap-1">
+          <label htmlFor={pickerId} className="font-semibold">
+            Who provides your main line
+          </label>
+          <select
+            id={pickerId}
+            value={carrier}
+            onChange={(event) => setCarrier(event.target.value as typeof carrier)}
+            className="border-line min-h-11 rounded-xl border bg-white px-3"
+          >
+            {forwarding.carriers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <div>
+        <p className="font-semibold">The steps</p>
+        <ol className="mt-1 grid list-decimal gap-1 pl-5">
+          {shown.steps.map((step) => (
+            <li key={`${step.label}${step.dial}`}>
+              {step.label}
+              {step.dial ? <strong className="ml-1 font-mono">{step.dial}</strong> : null}
+            </li>
+          ))}
+        </ol>
+      </div>
+      <div>
+        <p className="font-semibold">To undo it at any time</p>
+        <ul className="mt-1 grid gap-1">
+          {shown.undo.map((step) => (
+            <li key={`${step.label}${step.dial}`}>
+              {step.label}
+              {step.dial ? <strong className="ml-1 font-mono">{step.dial}</strong> : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+      {shown.notes.length > 0 ? (
+        <ul className="text-muted grid list-disc gap-1 pl-5">
+          {shown.notes.map((note) => (
+            <li key={note}>{note}</li>
+          ))}
+        </ul>
       ) : null}
-    </ScreenShell>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <EmailSteps slug={slug} />
+        {callBookingUrl ? (
+          <div className="border-line rounded-xl border px-3 py-3">
+            <p className="font-semibold">Rather do it together?</p>
+            <a
+              href={callBookingUrl}
+              rel="noopener noreferrer"
+              target="_blank"
+              className="border-line mt-2 inline-flex min-h-11 items-center rounded-full border px-5 font-semibold"
+            >
+              Book a five-minute call and we&rsquo;ll do it with you
+            </a>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "Email these to my office manager": O11, through the same server action as
+ * Settings → Channels (app/c/[slug]/steps-actions.ts), which reads AYA's
+ * number itself and sends only once phone is ready on our side.
+ */
+function EmailSteps({ slug }: { slug: string }) {
+  const fieldId = useId();
+  const statusId = useId();
+  const [to, setTo] = useState("");
+  const [working, setWorking] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  return (
+    <form
+      noValidate
+      aria-describedby={statusId}
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setWorking(true);
+        setResult(null);
+        try {
+          setResult(await sendPhoneStepsAction(slug, to));
+        } catch {
+          setResult({ ok: false, message: "The email didn't go. Try again in a minute." });
+        }
+        setWorking(false);
+      }}
+      className="border-line grid gap-2 rounded-xl border px-3 py-3"
+    >
+      <label htmlFor={fieldId} className="font-semibold">
+        Email these to my office manager
+      </label>
+      <input
+        id={fieldId}
+        type="email"
+        autoComplete="off"
+        value={to}
+        onChange={(event) => setTo(event.target.value)}
+        placeholder="maria@example.com"
+        className="border-line min-h-11 rounded-xl border bg-white px-3"
+      />
+      <button
+        type="submit"
+        disabled={working}
+        className="bg-ink min-h-11 rounded-full px-5 text-sm font-bold text-white disabled:opacity-50"
+      >
+        {working ? "Sending…" : "Email the steps"}
+      </button>
+      <p
+        id={statusId}
+        role="status"
+        aria-live="polite"
+        className={result ? (result.ok ? "text-sm" : "text-sm text-red-800") : "sr-only"}
+      >
+        {result?.message ?? ""}
+      </p>
+    </form>
   );
 }

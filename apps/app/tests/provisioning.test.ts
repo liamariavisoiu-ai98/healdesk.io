@@ -10,7 +10,7 @@ import {
 import { BAA_ASSENT_LABEL } from "@healdesk/catalog";
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { signAgreement } from "@/lib/agreements";
+import { getAgreement, signAgreement } from "@/lib/agreements";
 import {
   ProvisioningError,
   provisionClinic,
@@ -733,18 +733,93 @@ describeDb("provisioning", () => {
     ).rejects.toThrow(/not a purchase/);
   });
 
-  test("two clinics cannot be provisioned onto one Stripe subscription", async () => {
-    await expect(
-      provisionClinic(
-        validRequest({
-          clinicName: "Second On Same Sub",
-          contactEmail: "dup@example.test",
-          agreementId: await signFor("Second On Same Sub", "dup@example.test"),
-          stripeCustomerId: "cus_other",
-          stripeSubscriptionId: "sub_provisioned",
-        }),
+  test("an existing clinic for the subscription or the customer is a replay: one practice, one clinic", async () => {
+    const customer = `cus_replay_${randomUUID().slice(0, 8)}`;
+    const subscription = `sub_replay_${randomUUID().slice(0, 8)}`;
+    const first = await provisionClinic(
+      validRequest({
+        clinicName: "Customer Replay Clinic",
+        contactEmail: "replay@customer.test",
+        agreementId: await signFor("Customer Replay Clinic", "replay@customer.test"),
+        idempotencyKey: subscription,
+        stripeCustomerId: customer,
+        stripeSubscriptionId: subscription,
+      }),
+    );
+    expect(first.replayed).toBe(false);
+    // clinics is not FORCEd, so its owner counts across tenants (entitlements is).
+    const clinics = async (name: string) =>
+      Number(
+        (
+          await getMigratorPool().query<{ n: number }>(
+            `select count(*)::int as n from clinics where name = $1`,
+            [name],
+          )
+        ).rows[0]!.n,
+      );
+
+    // The same subscription under another key (plan C1: the subscription is
+    // a replay, not a unique-index failure Stripe would retry for days).
+    const sameSubscription = await provisionClinic(
+      validRequest({
+        clinicName: "Customer Replay Clinic",
+        contactEmail: "replay@customer.test",
+        agreementId: await signFor("Customer Replay Clinic", "replay@customer.test"),
+        idempotencyKey: `other_key_${randomUUID()}`,
+        stripeCustomerId: customer,
+        stripeSubscriptionId: subscription,
+      }),
+    );
+    expect(sameSubscription).toEqual({
+      organizationId: first.organizationId,
+      clinicId: first.clinicId,
+      clinicSlug: first.clinicSlug,
+      replayed: true,
+    });
+
+    // A second subscription for the same customer: a replay, flagged, so the
+    // route tells ops; its agreement is never bound to anything.
+    const secondAgreement = await signFor("Customer Replay Clinic", "replay@customer.test");
+    const secondSubscription = await provisionClinic(
+      validRequest({
+        clinicName: "Customer Replay Clinic",
+        contactEmail: "replay@customer.test",
+        agreementId: secondAgreement,
+        idempotencyKey: `sub_second_${randomUUID().slice(0, 8)}`,
+        stripeCustomerId: customer,
+        stripeSubscriptionId: `sub_second_${randomUUID().slice(0, 8)}`,
+      }),
+    );
+    expect(secondSubscription).toEqual({
+      organizationId: first.organizationId,
+      clinicId: first.clinicId,
+      clinicSlug: first.clinicSlug,
+      replayed: true,
+      duplicateSubscription: true,
+    });
+    expect(await clinics("Customer Replay Clinic")).toBe(1);
+    expect((await getAgreement(secondAgreement))!.organizationId).toBeNull();
+
+    // Two deliveries racing past the read before the transaction still make
+    // one clinic: the lock and the second look inside it.
+    const racing = `cus_race_${randomUUID().slice(0, 8)}`;
+    const [a, b] = await Promise.all(
+      ["a", "b"].map(async (n) =>
+        provisionClinic(
+          validRequest({
+            clinicName: `Race Clinic ${n}`,
+            contactEmail: `race-${n}@customer.test`,
+            agreementId: await signFor(`Race Clinic ${n}`, `race-${n}@customer.test`),
+            idempotencyKey: `sub_race_${n}_${randomUUID().slice(0, 8)}`,
+            stripeCustomerId: racing,
+            stripeSubscriptionId: `sub_race_${n}_${randomUUID().slice(0, 8)}`,
+          }),
+        ),
       ),
-    ).rejects.toMatchObject({ cause: { code: "23505" } });
+    );
+    expect(a!.clinicId).toBe(b!.clinicId);
+    expect([a!.replayed, b!.replayed].sort()).toEqual([false, true]);
+    expect((await clinics("Race Clinic a")) + (await clinics("Race Clinic b"))).toBe(1);
   });
 
   /* ------------------------------------ what the signed acceptance decides (plan C15) */

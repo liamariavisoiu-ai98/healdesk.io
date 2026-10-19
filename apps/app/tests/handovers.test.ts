@@ -10,7 +10,7 @@ import { auth } from "@/lib/auth";
 import { sendWebChatMessage, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { hashSessionToken } from "@/lib/factors/step-ups";
 import { contacts } from "@/db/schema";
-import { attachHandoverCaller, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
+import { attachHandoverCaller, CallbackNumberHeldError, linkCallHandovers, raiseHandover } from "@/lib/handovers/record";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
 import { attachMetaChannel, setMetaFrontDoor } from "@/lib/meta/channels";
 import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
@@ -279,8 +279,9 @@ describeDb("handovers: the table", () => {
       exportPatient(tx, { phone: "+14155550161", requestedBy: "practice" }),
     );
     expect(person.handovers).toHaveLength(2);
-    // And the chats behind them, which erasure treats as theirs.
-    expect(person.conversations.map((v) => v.id).sort()).toEqual([alone, shared].sort());
+    // And the chat behind one that erasure would take with them; not the one
+    // someone else's request holds.
+    expect(person.conversations.map((v) => v.id)).toEqual([alone]);
     const clinic = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "practice", "portal_download"));
     expect(clinic.handovers).toHaveLength(2);
 
@@ -328,9 +329,32 @@ describeDb("handovers: the table", () => {
     } finally {
       await pool.query(`alter table handovers enable trigger handovers_guard`);
     }
-    await getMigratorPool().query(`update conversations set started_at = now() - interval '1 hour' where id = $1`, [back]);
+    await inTenant(c.clinicId, (q) => q.query(`update conversations set started_at = now() - interval '1 hour' where id = $1`, [back]));
     expect((await reapplyErasures()).failures).toBe(0);
     expect(await handoverRows(c.clinicId)).toEqual([]);
+    const chats = await inTenant(c.clinicId, async (q) => (await q.query(`select id from conversations where id = $1`, [back])).rows);
+    expect(chats).toEqual([]);
+  });
+
+  test("named by a handover's id, a number a contact also carries is refused, never widened to that patient's record", async () => {
+    const c = await seedClinic("handover-held");
+    await inTenant(c.clinicId, (q) =>
+      q.query(`insert into contacts (clinic_id, phone, full_name) values ($1, '+14155550181', 'Pat Patient')`, [c.clinicId]),
+    );
+    const chat = await conversationRow(c.clinicId, { channel: "web_chat" });
+    await raise(c.clinicId, { channel: "web_chat", conversationId: chat });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      attachHandoverCaller(tx, { conversationId: chat, capture: { firstName: "Sam", phone: "415 555 0181" } }),
+    );
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => erasePerson(tx, { contactId: chat, requestedBy: "practice" })),
+    ).rejects.toBeInstanceOf(CallbackNumberHeldError);
+    await expect(
+      withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportPatient(tx, { contactId: chat, requestedBy: "practice" })),
+    ).rejects.toBeInstanceOf(CallbackNumberHeldError);
+    const left = await inTenant(c.clinicId, async (q) => (await q.query(`select id from contacts`)).rows.length);
+    expect(left).toBe(1);
+    expect(await handoverRows(c.clinicId)).toHaveLength(1);
   });
 
   test("a call's handover the database missed linking is linked before anything relies on it", async () => {

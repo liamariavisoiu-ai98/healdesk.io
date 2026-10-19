@@ -883,11 +883,13 @@ export async function erasePerson(
       .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, input.contactId)))
       .limit(1);
     // Someone who only asked for a person in web chat has no contact: the
-    // number they left is on their handover, named by its id in the same
-    // place (drizzle/0085). Ids are UUIDs, so one cannot be the other's.
+    // number they left is on their handover, named by its id or its chat's
+    // in the same place (drizzle/0085). Ids are UUIDs, so one cannot be the
+    // other's. Refused when a contact carries the number too, which may be a
+    // patient's own (handoverCallback).
     const callback = contact ? null : await handoverCallback(tx, input.contactId);
     if (!contact && !callback) throw new ErasureContactNotFound();
-    phone = contact ? (contact.phone ?? undefined) : callback!;
+    phone = contact ? (contact.phone ?? undefined) : callback!.phone;
     email = contact?.email?.toLowerCase() ?? undefined;
     if (!phone && !email) {
       throw new Error("That contact has no telephone number or email address to find the person by.");

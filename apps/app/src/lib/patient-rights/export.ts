@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import {
   appointments,
@@ -258,6 +258,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   let phone = query.phone;
   let email = query.email?.toLowerCase();
   const contactId = query.contactId;
+  let callback: { phone: string; handoverId: string } | null = null;
   if (contactId !== undefined) {
     if (phone || email) throw new Error("Name the person by a contact's id, or by their details, not both.");
     if (!CONTACT_ID.test(contactId)) throw new Error("A contact's id is its uuid.");
@@ -266,11 +267,12 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
       .from(contacts)
       .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)))
       .limit(1);
-    // A handover's id names someone who only left a call-back number in web
-    // chat, which no contact holds (drizzle/0085), as erasure does.
-    const callback = contact ? null : await handoverCallback(tx, contactId);
+    // A handover's id, or its chat's, names someone who only left a
+    // call-back number in web chat, which no contact holds (drizzle/0085),
+    // as erasure does, and is refused when a contact carries the number too.
+    callback = contact ? null : await handoverCallback(tx, contactId);
     if (!contact && !callback) throw new ExportContactNotFound();
-    phone = contact ? (contact.phone ?? undefined) : callback!;
+    phone = contact ? (contact.phone ?? undefined) : callback!.phone;
     email = contact?.email?.toLowerCase() ?? undefined;
   } else if (!phone && !email) {
     throw new Error("A phone number, an email address or a contact's id is required.");
@@ -332,8 +334,9 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
             ),
           )
       : [];
-  // The web chat behind a call-back handover is the person's too, as erasure
-  // treats it: the conversation row holds no contact to find it by.
+  // The web chat behind a call-back handover is the person's too, where
+  // erasure would take it with them: no contact on it, and nothing of anyone
+  // else's holding it. The conversation row holds no contact to find it by.
   const known = new Set(convos.map((v) => v.id));
   const chatIds = [...new Set(asked.map((h) => h.conversationId).filter((id): id is string => id !== null && !known.has(id)))];
   if (chatIds.length) {
@@ -341,7 +344,17 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
       ...(await tx.db
         .select()
         .from(conversations)
-        .where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.id, chatIds), eq(conversations.channel, "web_chat")))),
+        .where(
+          and(
+            eq(conversations.clinicId, tx.clinicId),
+            inArray(conversations.id, chatIds),
+            eq(conversations.channel, "web_chat"),
+            isNull(conversations.contactId),
+            sql`not exists (select 1 from booking_requests r where r.conversation_id = ${conversations.id})`,
+            sql`not exists (select 1 from appointments a where a.conversation_id = ${conversations.id})`,
+            sql`not exists (select 1 from record_amendments ra where ra.conversation_id = ${conversations.id})`,
+          ),
+        )),
     );
   }
   const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((c) => c.id));
@@ -397,12 +410,12 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   tx.audit.record({
     action: "export",
     resourceType: "patient_bundle",
-    resourceIds: ids,
+    resourceIds: callback ? [...ids, callback.handoverId] : ids,
     resultCount: everyId.length,
     metadata: {
       requestedBy: query.requestedBy,
       rows: everyId.length,
-      by: contactId ? "contact_id" : "details",
+      by: callback ? "handover" : contactId ? "contact_id" : "details",
     },
   });
 

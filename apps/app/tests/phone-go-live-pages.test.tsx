@@ -25,7 +25,9 @@ import { renderPage } from "./setup/render-page";
  *     saved, so the steps emailed on are the ones on the screen;
  *   - "Test it now" opens the clinic's own forwarding-test window, says it
  *     is waiting, and says what the call showed once it lands; it is offered
- *     only while phone waits on forwarding, and a passed test is never wiped.
+ *     only while phone waits on forwarding, and a passed test is never wiped;
+ *   - Settings' "Which calls reach AYA" carries the forwarding steps for the
+ *     mode chosen (the change itself is tests/forwarding-panels.test.ts).
  */
 
 const portal = { userId: "", clinicId: "", clinicSlug: "" };
@@ -87,6 +89,16 @@ async function wizard(): Promise<string> {
   );
 }
 
+async function settings(): Promise<string> {
+  const { default: SettingsPage } = await import("@/app/c/[slug]/settings/page");
+  return renderPage(
+    <SettingsPage
+      params={Promise.resolve({ slug: portal.clinicSlug })}
+      searchParams={Promise.resolve({})}
+    />,
+  );
+}
+
 async function clinicRow() {
   const { rows } = await getMigratorPool().query<{
     carrier: string | null;
@@ -134,6 +146,7 @@ describeDb("phone go-live on the clinic's screens", () => {
     clinic = await provisionPortalClinic("fwdpages", { plan: "voice-webchat-1000-1000" });
     as(clinic);
     await import("@/app/c/[slug]/setup/page");
+    await import("@/app/c/[slug]/settings/page");
     await import("@/app/c/[slug]/forwarding-actions");
   }, 300_000);
 
@@ -326,5 +339,42 @@ describeDb("phone go-live on the clinic's screens", () => {
       message: "Phone is live already: AYA is answering your forwarded calls.",
     });
     expect((await clinicRow()).forwarding_test_until).toBeNull();
+  });
+
+  test("Settings → Channels: the steps for the mode chosen beside it, and Test it now while phone waits", async () => {
+    const html = await settings();
+    const words = text(html);
+    expect(words).toContain("Which calls reach AYA");
+    expect(words).toContain("Your call forwarding steps for this choice");
+    expect(words).toContain("What runs your main line");
+    // AT&T, Overflow and after hours: busy and no-answer forwarding, and its undo.
+    expect(words).toContain("*905125550142#");
+    expect(words).toContain("*91#");
+    expect(words).toContain("Waiting for call forwarding");
+    expect(html).toMatch(/<button type="button"[^>]*>Test it now<\/button>/);
+    expect(brokenLinks(html, clinic.clinicSlug)).toEqual([]);
+    expect(await axeViolations(html, "Settings")).toEqual([]);
+
+    // Live: the steps stay beside the choice; the test has nothing left to prove.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update clinic_channels set live_at = now(), waiting_on = null where channel = 'voice'`,
+      ),
+    );
+    const live = text(await settings());
+    expect(live).toContain("Your call forwarding steps for this choice");
+    expect(live).not.toContain("Waiting for call forwarding");
+
+    // Before phone is ready for forwarding: no steps, no number, no test.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update clinic_channels set live_at = null, ready_at = null, waiting_on = null where channel = 'voice'`,
+      ),
+    );
+    const before = text(await settings());
+    expect(before).toContain("Which calls reach AYA");
+    expect(before).not.toContain("Your call forwarding steps for this choice");
+    expect(before).not.toContain("*905125550142#");
+    expect(before).not.toContain("Test it now");
   });
 });

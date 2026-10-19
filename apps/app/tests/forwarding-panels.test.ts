@@ -10,6 +10,9 @@ import { forwardingView, type ForwardingView } from "@/lib/setup/forwarding";
 /**
  * The forwarding screen's client panels, in a DOM (wave 2, R5):
  *
+ *   - Settings' "Which calls reach AYA": changing it shows the forwarding
+ *     steps again, for the new mode, after the undo for the one just left
+ *     (spec, "Every switch in the portal"), and the page is read again;
  *   - the phone-system picker beside the carrier picker, saving each pick;
  *   - "Test it now": the window opens, the screen waits, and says what the
  *     call showed once it lands.
@@ -18,18 +21,24 @@ import { forwardingView, type ForwardingView } from "@/lib/setup/forwarding";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const mocks = vi.hoisted(() => ({
+  saveSetting: vi.fn(),
+  coverageSaved: vi.fn(),
   savePhoneLine: vi.fn(),
   start: vi.fn(),
   status: vi.fn(),
 }));
+vi.mock("@/app/c/[slug]/settings/actions", () => ({ saveSettingAction: mocks.saveSetting }));
 vi.mock("@/app/c/[slug]/forwarding-actions", () => ({
+  coverageSavedAction: mocks.coverageSaved,
   savePhoneLineAction: mocks.savePhoneLine,
   startForwardingTestAction: mocks.start,
   forwardingTestStatusAction: mocks.status,
 }));
 
+const { CoverageSetting } = await import("@/app/c/[slug]/settings/CoverageSetting");
 const { ForwardingStepsPanel } = await import("@/app/c/[slug]/ForwardingStepsPanel");
 const { ForwardingTestPanel } = await import("@/app/c/[slug]/ForwardingTestPanel");
+const { FeedbackProvider } = await import("@/app/c/[slug]/feedback");
 
 const AYA = "+15125550142";
 
@@ -50,6 +59,8 @@ let root: Root;
 
 beforeEach(() => {
   for (const mock of Object.values(mocks)) mock.mockReset();
+  mocks.saveSetting.mockResolvedValue({ ok: true, toast: "Saved." });
+  mocks.coverageSaved.mockResolvedValue(undefined);
   mocks.savePhoneLine.mockResolvedValue({ ok: true });
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -70,6 +81,92 @@ async function flush() {
     await Promise.resolve();
   });
 }
+
+describe("Settings: changing which calls reach AYA shows the forwarding steps again", () => {
+  test("the steps for the mode chosen, then, after a change, the old mode's undo and the new mode's steps", async () => {
+    await act(async () => {
+      root.render(
+        h(
+          FeedbackProvider,
+          null,
+          h(CoverageSetting, {
+            slug: "glow",
+            legend: "Which calls reach AYA",
+            line: "Your call forwarding steps follow this choice.",
+            options: COVERAGE_MODE_OPTIONS,
+            initial: "overflow_after_hours",
+            views: views(),
+          }),
+        ),
+      );
+    });
+    // Folded away, but there: AT&T's busy and no-answer codes for the mode chosen.
+    expect(container.querySelector("details")).not.toBeNull();
+    expect(words()).toContain("Your call forwarding steps for this choice");
+    expect(words()).toContain("*905125550142#");
+    expect(words()).not.toContain("Change your call forwarding to match");
+
+    const allCalls = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
+      (r) => r.value === "all_calls",
+    )!;
+    await act(async () => {
+      allCalls.click();
+    });
+    await flush();
+    expect(mocks.saveSetting).toHaveBeenCalledWith("glow", "coverage_mode", "all_calls");
+    expect(mocks.coverageSaved).toHaveBeenCalledWith("glow");
+    const shown = words();
+    expect(shown).toContain("Change your call forwarding to match");
+    expect(shown).toContain("First, undo what you set for Overflow and after hours");
+    // AT&T's busy and no-answer cancels, then all-call forwarding.
+    expect(shown).toContain("*91#");
+    expect(shown).toContain("Then set it up for All calls");
+    expect(shown).toContain("*725125550142#");
+    expect(container.querySelector("section details")).toBeNull();
+
+    // Back to where the line was set up: nothing to change, the steps fold away again.
+    const overflow = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
+      (r) => r.value === "overflow_after_hours",
+    )!;
+    await act(async () => {
+      overflow.click();
+    });
+    await flush();
+    expect(words()).not.toContain("Change your call forwarding to match");
+  });
+
+  test("a save the server refuses changes nothing on screen", async () => {
+    mocks.saveSetting.mockResolvedValue({
+      ok: false,
+      message: "That setting isn't part of your plan.",
+    });
+    await act(async () => {
+      root.render(
+        h(
+          FeedbackProvider,
+          null,
+          h(CoverageSetting, {
+            slug: "glow",
+            legend: "Which calls reach AYA",
+            line: "",
+            options: COVERAGE_MODE_OPTIONS,
+            initial: "overflow_after_hours",
+            views: views(),
+          }),
+        ),
+      );
+    });
+    const allCalls = [...container.querySelectorAll<HTMLInputElement>('input[type="radio"]')].find(
+      (r) => r.value === "all_calls",
+    )!;
+    await act(async () => {
+      allCalls.click();
+    });
+    await flush();
+    expect(words()).not.toContain("Change your call forwarding to match");
+    expect(mocks.coverageSaved).not.toHaveBeenCalled();
+  });
+});
 
 describe("the phone-system picker", () => {
   test("a cloud phone system shows the admin rule and hides the carrier; each pick is saved", async () => {

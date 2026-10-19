@@ -63,3 +63,13 @@ export async function savePhoneLineAction(
   const { clinicId, actor } = await context(slug);
   return withTenant({ clinicId, actor }, (tx) => savePhoneLine(tx, input));
 }
+
+/**
+ * Settings' "Which calls reach AYA" was saved: read the page again, so
+ * Safety net's undo steps follow the new mode as the steps shown beside the
+ * choice already do (settings/CoverageSetting.tsx).
+ */
+export async function coverageSavedAction(slug: string): Promise<void> {
+  await requirePortal(String(slug));
+  refresh();
+}

@@ -4238,7 +4238,13 @@ async function opEmailEvent(args: Record<string, unknown>): Promise<OpsOutcome> 
 }
 
 /** Why apps/web held a signer's copy back (apps/web/src/lib/email/agreement-copy.ts). */
-const COPY_WITHHELD_CODES: ReadonlySet<string> = new Set(["already_sent_today", "unsafe_text"]);
+const COPY_WITHHELD_CODES: ReadonlySet<string> = new Set([
+  "already_sent_today",
+  "unsafe_text",
+  "daily_cap",
+  "send_failed",
+  "transport_unavailable",
+]);
 
 /**
  * A signer's copy of the agreement apps/web held back: one ops alert, with the

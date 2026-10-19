@@ -870,6 +870,8 @@ export const BRIDGES: readonly BridgeDef[] = [
     keys: ["vercel.HEALDESK_PROVISION_SECRET", "aws.HEALDESK_PROVISION_SECRET", "vercel.HEALDESK_APP_URL", "aws.HEALDESK_ADMIN_EMAIL"],
     phi: false,
     build: "built",
+    buildNote:
+      "While the host is off, a signer's agreement copy still owed reaches no one here: the signer is told on the page that it did not go and to email hello@ for it.",
     proof: "ops",
   },
 

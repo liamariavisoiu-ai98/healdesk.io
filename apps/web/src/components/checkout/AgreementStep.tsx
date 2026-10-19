@@ -614,7 +614,7 @@ export function AgreementStep({
           <>
             <p className="text-muted mt-5 text-xs">
               Signing as {email || "your clinic's email"} · {signingDate()} · A copy is emailed to
-              you, or sent by a person if it can&apos;t go at once.
+              you, and this page says if it can&apos;t be.
             </p>
 
             <label className="mt-4 flex min-h-11 cursor-pointer items-start gap-3">

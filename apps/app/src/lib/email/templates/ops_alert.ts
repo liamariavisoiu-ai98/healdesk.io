@@ -466,9 +466,9 @@ const WORDING: Record<OpsEvent, Wording> = {
       "apps/app refused an email of the kind below for the clinic below before sending it: something it was to carry is outside the payload allowlist, or a link in it is not one an email may carry. The clinic has not received it. Read apps/app's error lines for the kind, fix what it was given, and send the clinic what it needed by hand meanwhile.",
   },
   agreement_copy_withheld: {
-    title: "A signer's copy of the agreement was held back",
+    title: "A signer's copy of the agreement is still owed",
     action:
-      "Someone signed at the checkout, and the copy of the agreement was not emailed to the address they gave: a copy already went to that address today, or the names on it carry something that is not safe to mail to an address nobody confirmed. The signature is on record under the agreement id below. If the signer is genuine, send them the copy by hand from hello@.",
+      "Someone signed at the checkout, and the copy of the agreement was not emailed to the address they gave. The code says why: a copy already went to that address today, the names on it carry something not safe to mail to an address nobody confirmed, the day's copies to such addresses are spent, or the send failed or had no transport. The signature is on record under the agreement id below. If the signer is genuine, send them the copy by hand from hello@.",
   },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",

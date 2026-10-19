@@ -103,4 +103,35 @@ describe("send", () => {
       (await send({ to: "a@b.test", subject: "s", text: "t", idempotencyKey: "hd-x-1-1" })).status,
     ).toBe("failed");
   });
+
+  /**
+   * Annex X1.8: plain text first, with a light HTML twin built from the
+   * same words. Before 19 October 2026 every email this site sent but the
+   * agreement copy was text alone.
+   */
+  test("a text email goes with its HTML twin, built from the text and nothing else", async () => {
+    const text = [
+      "Hi,",
+      "",
+      "Here is the demo: https://healdesk.io/demo/smith-dental-k7q2mz9xwa",
+      "",
+      "--",
+      "Replies reach the healdesk team. Please leave out patient details.",
+    ].join("\n");
+    await send({ to: "a@b.test", subject: "Your demo", text, tag: "demo-ready" });
+    const html = String(calls[0]!.body.html);
+    expect(calls[0]!.body.text).toBe(text);
+    expect(html.startsWith("<!doctype html>")).toBe(true);
+    expect(html).toContain('<a href="https://healdesk.io/demo/smith-dental-k7q2mz9xwa"');
+    expect(html).toContain("Replies reach the healdesk team. Please leave out patient details.");
+    expect(html).not.toMatch(/<img|src=|<table/i);
+    expect(new TextEncoder().encode(html).length).toBeLessThan(100 * 1024);
+  });
+
+  test("an HTML body the caller renders is sent as it is, and a text too long for a twin goes alone", async () => {
+    await send({ to: "a@b.test", subject: "s", text: "t", html: "<p>own</p>" });
+    expect(calls[0]!.body.html).toBe("<p>own</p>");
+    await send({ to: "a@b.test", subject: "s", text: "x".repeat(110 * 1024) });
+    expect(calls[1]!.body).not.toHaveProperty("html");
+  });
 });

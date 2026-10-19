@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { htmlTwinOfText } from "@healdesk/catalog";
+
 import { site } from "@/lib/site";
 
 import { noteDailyQuota, quotaFromHeader } from "./quota";
@@ -29,6 +31,10 @@ import { noteDailyQuota, quotaFromHeader } from "./quota";
  *   - the same link in the footer, and the postal address from legal.ts
  *   - a From that is a real person at a subdomain that is NOT one of the cold
  *     outreach domains (docs/handover.md); the two reputations never mix
+ *   - an HTML twin of the text (Annex X1.8): one column, system fonts, no
+ *     images and nothing fetched, under 100 KB, built from the text itself
+ *     by the catalog's htmlTwinOfText unless the caller renders its own
+ *     (the agreement copy), so the two can never say different things
  *
  * Whether a message MAY be sent at all is decided by the caller with
  * `canEmail()` in lib/leads.ts, which checks consent, unsubscribe and bounce
@@ -50,7 +56,10 @@ export type OutboundEmail = {
    * address, because Resend keeps the key in its logs.
    */
   idempotencyKey?: string;
-  /** An HTML alternative to `text`, for a message whose words the catalog renders both ways. */
+  /**
+   * An HTML alternative to `text`, for a message whose words the catalog
+   * renders both ways. Absent, `send()` builds the twin from the text.
+   */
   html?: string;
   /**
    * Files sent with the message, as Resend's API takes them: a name and the
@@ -126,6 +135,10 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
     return { status: "skipped", reason: "no transport configured" };
   }
 
+  // The light HTML twin (X1.8). Null only for a text over the size ceiling,
+  // which then goes as text alone rather than clipped by Gmail.
+  const html = message.html ?? htmlTwinOfText(message.subject, message.text);
+
   const headers: Record<string, string> = {};
   if (message.unsubscribeUrl) {
     headers["List-Unsubscribe"] = `<${message.unsubscribeUrl}>`;
@@ -146,7 +159,7 @@ export async function send(message: OutboundEmail): Promise<SendResult> {
         reply_to: message.replyTo ?? site.email,
         subject: message.subject,
         text: message.text,
-        ...(message.html ? { html: message.html } : {}),
+        ...(html ? { html } : {}),
         ...(message.attachments?.length
           ? {
               attachments: message.attachments.map((file) => ({

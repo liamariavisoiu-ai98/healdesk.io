@@ -37,6 +37,7 @@ export * from "./direct-booking-addendum";
 export * from "./dpa";
 export * from "./dpa-calendar-election";
 export * from "./dpa-explainer";
+export * from "./email-html";
 export * from "./forwarding";
 export * from "./google-calendar-disclosure";
 export * from "./message-language";

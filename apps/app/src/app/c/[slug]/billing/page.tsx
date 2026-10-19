@@ -369,26 +369,27 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                 current={{ planId: bought.id, interval: summary.interval }}
                 pending={view.pendingChange}
               />
+              {/*
+                The promise as designed (CLAUDE.md, "Copy first, then the
+                switch"): what a location costs and that it is added here.
+                Until createLocationClinic exists the button is not offered,
+                and the gap is LAUNCH_PROMISES' "extra-locations"; nothing
+                here sends the clinic to an inbox that cannot add one either.
+              */}
               <div className="border-line mt-2 border-t pt-3">
                 <h3 className="font-semibold">Add a location</h3>
                 {location ? (
                   <p className="text-muted mt-1 text-sm">
-                    Each extra location is {portalMoney(location.recurringUsd * 100)}{" "}
+                    Each further location is added to this plan from Billing, at your plan&rsquo;s
+                    price again: {portalMoney(location.recurringUsd * 100)}{" "}
                     {summary.interval === "year" ? "a year" : "a month"} plus a{" "}
-                    {portalMoney(location.setupFeeUsd * 100)} setup fee, with the allowances pooled.
+                    {portalMoney(location.setupFeeUsd * 100)} setup fee, charged once. It renews on
+                    the same date as your plan, and the allowances are pooled across your locations.
                   </p>
                 ) : null}
                 {LOCATION_CLINICS_READY ? (
                   <AddLocation slug={portal.clinicSlug} interval={summary.interval} />
-                ) : (
-                  <p className="mt-2 text-sm">
-                    To add one, email{" "}
-                    <a href="mailto:hello@healdesk.io" className="font-semibold underline">
-                      hello@healdesk.io
-                    </a>{" "}
-                    and we&rsquo;ll set it up with you.
-                  </p>
-                )}
+                ) : null}
               </div>
             </section>
           )}

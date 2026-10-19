@@ -935,13 +935,61 @@ describe("what skipping step 1 costs, from what is stored", () => {
     expect(skipCost(prefilled, "services")).toBe(
       "the prices we read from your website stay unchecked, and AYA isn't built until you check them.",
     );
-    // An empty practice: the old lines, which are true of it.
+    // An empty practice: the old basics line, which is true of it. With no
+    // priced service AYA isn't built at all (answersMissing), which the old
+    // services line, "AYA quotes no prices", hid.
     expect(skipCost(setupState(), "basics")).toBe(
       "AYA can't tell callers your address or the number to reach you on.",
     );
     expect(skipCost(setupState(), "services")).toBe(
-      "AYA quotes no prices; she offers to book a consultation instead.",
+      "AYA isn't built until at least one service has its price, so no channel can go live.",
     );
+    expect(answersMissing(setupState())).toContain("a service with its price");
+  });
+
+  test("hours and the most-asked question hold the whole build, and their skip lines say so", () => {
+    // Until 19 October 2026 the most-asked question's line said AYA "answers
+    // your most common question less well until you add it in Knowledge",
+    // where Knowledge has no field for it and AYA isn't built without it; and
+    // a chat-only practice read only "AYA can't say when you're open".
+    const voice = { channel: "voice" } as SetupState["channels"][number];
+    const web = { channel: "web" } as SetupState["channels"][number];
+    for (const channels of [[web], [voice, web]]) {
+      const empty = setupState({ channels });
+      expect(answersMissing(empty)).toEqual(
+        expect.arrayContaining(["your hours", "your most-asked question"]),
+      );
+      expect(skipCost(empty, "hours")).toBe(
+        "AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.",
+      );
+      expect(skipCost(empty, "question")).toBe(
+        "AYA isn't built until you add it, so no channel can go live. You can add it later from Setup.",
+      );
+    }
+    // Hours the website read filled, not yet confirmed: still not built.
+    const hours = { mon: [["09:00", "17:00"]] } as unknown as SetupState["clinic"]["openingHours"];
+    const read = setupState({ clinic: { ...setupState().clinic, openingHours: hours } });
+    expect(answersMissing(read)).toContain("your hours");
+    expect(skipCost(read, "hours")).toBe(
+      "the hours we filled in stay unconfirmed, and AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.",
+    );
+    // Already answered: a skip on a revisit keeps what is there.
+    const done = setupState({
+      clinic: {
+        ...setupState().clinic,
+        openingHours: hours,
+        onboarding: { hours_confirmed: at.toISOString() },
+      },
+      knowledge: {
+        ...setupState().knowledge,
+        mostAsked: { question: "Parking?", answer: "Behind the building." },
+      },
+    });
+    expect(answersMissing(done)).not.toEqual(
+      expect.arrayContaining(["your hours", "your most-asked question"]),
+    );
+    expect(skipCost(done, "hours")).toBe("AYA keeps the hours you confirmed.");
+    expect(skipCost(done, "question")).toBe("AYA keeps the answer you saved.");
   });
 
   test("read prices count as set up only once the services screen is saved", () => {

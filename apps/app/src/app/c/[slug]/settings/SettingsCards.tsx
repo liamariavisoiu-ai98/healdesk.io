@@ -6,6 +6,7 @@ import type { SettingsView } from "@/lib/portal/settings-view";
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import type { ForwardingView } from "@/lib/setup/forwarding";
 import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
+import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 
 import { portalMetaOutcome } from "@/lib/meta/portal-return";
 
@@ -238,19 +239,20 @@ export function TalkCard({ view }: { view: SettingsView }) {
           key={g.key}
           slug={view.slug}
           settingKey={g.key}
-          label={
-            g.key === "phone_greeting"
-              ? "When AYA answers a call"
-              : "When someone opens a chat or sends a message"
-          }
+          label={g.key === "phone_greeting" ? GREETING_LABELS.phone : GREETING_LABELS.chat}
           before={
-            <p className="border-line bg-paper-2 rounded-xl border px-4 py-3 text-sm">
-              {g.lockedLine}
-              <span className="text-muted mt-1 block text-xs">
-                Always first, on every {g.key === "phone_greeting" ? "call" : "conversation"}. It
-                can&rsquo;t be changed.
-              </span>
-            </p>
+            <>
+              <p className="border-line bg-paper-2 rounded-xl border px-4 py-3 text-sm">
+                {g.lockedLine}
+                <span className="text-muted mt-1 block text-xs">
+                  Always first, on every {g.key === "phone_greeting" ? "call" : "website chat"}. It
+                  can&rsquo;t be changed.
+                </span>
+              </p>
+              {g.key === "chat_greeting" && view.bought.meta ? (
+                <p className="text-muted mt-2 text-sm">{META_GREETING_NOTE}</p>
+              ) : null}
+            </>
           }
           initial={g.isDefault ? "" : g.text}
           placeholder={g.isDefault ? g.text : undefined}

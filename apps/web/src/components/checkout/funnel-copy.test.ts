@@ -11,7 +11,8 @@ import { usd } from "@/lib/pricing";
 
 import { type AgreementResult, AgreementStep } from "./AgreementStep";
 import { ClinicStep } from "./ClinicStep";
-import { PackageStep } from "./PackageStep";
+import { type DemoCheckout } from "./DemoPackageExtras";
+import { DEMO_INCLUDES, PackageStep } from "./PackageStep";
 import { ReviewStep } from "./ReviewStep";
 import { SetupRequestForm } from "./SetupRequestForm";
 
@@ -534,6 +535,33 @@ describe("the package step", () => {
     expect(text(packageStep(initialFunnel({ plan: "voice-metachat" })))).toContain(
       "This sets up one location. Add more from Billing after setup: $580/mo + $1,394 setup fee each.",
     );
+  });
+
+  test("a demo buyer is told the support there is, and one thing about locations", () => {
+    // Until 19 October 2026 the demo's package step said "+ 24/7 support
+    // included · unlimited modifications", where support is the portal's help
+    // chat and hello@ (plan Decisions, "Support"), and offered "Get a quote
+    // from sales" for more locations two lines above a fixed price for them.
+    const demo: DemoCheckout = {
+      clinicName: "Glow Med Spa",
+      roi: { priceUsd: 450, priceSource: "the clinic's site", bookingRate: 0.3, repeat: null },
+    };
+    const words = text(
+      h(PackageStep, {
+        state: initialFunnel({ plan: "voice-metachat" }),
+        demo,
+        onPackage: noop,
+        onSteps: noop,
+        onInterval: noop,
+        onContinue: noop,
+      }),
+    );
+    expect(words).toContain(DEMO_INCLUDES);
+    expect(words).toContain("support in your portal and at hello@healdesk.io");
+    expect(words).not.toMatch(/24\/7 support|unlimited modifications/i);
+    expect(words).not.toMatch(/quote from sales|More than one location\?/i);
+    // The one locations line, with its fixed price, as every buyer reads it.
+    expect(words.match(/This sets up one location\. Add more from Billing after setup: /g)).toHaveLength(1);
   });
 
   test("a practice with no website cannot pick Web Chat", () => {

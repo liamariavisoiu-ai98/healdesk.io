@@ -22,7 +22,10 @@ import { helpLine } from "./welcome";
 export type CalendarStatePayload = {
   /** When the backend recorded the change. */
   changedAt: string;
-  /** Where the clinic reconnects: the wizard's calendar step until Settings → Calendar ships. */
+  /**
+   * Where the clinic reconnects: Settings → Calendar, whose reconnect sends
+   * "reconnected" (lib/notices/calendar-state.ts says why not the wizard).
+   */
   calendarUrl: string;
   helpPhoneE164: string | null;
 };
@@ -74,7 +77,7 @@ export const CALENDAR_STOPPED_ENTRY: TemplateEntry<CalendarStatePayload> = {
   get fixture(): CalendarStatePayload {
     return {
       changedAt: "2026-10-12T14:32:00Z",
-      calendarUrl: publicUrl("/c/radiance-med-spa/setup?s=calendar"),
+      calendarUrl: publicUrl("/c/radiance-med-spa/settings#calendar"),
       helpPhoneE164: "+18885550100",
     };
   },
@@ -85,7 +88,7 @@ export const CALENDAR_RECONNECTED_ENTRY: TemplateEntry<CalendarStatePayload> = {
   get fixture(): CalendarStatePayload {
     return {
       changedAt: "2026-10-12T15:10:00Z",
-      calendarUrl: publicUrl("/c/radiance-med-spa/setup?s=calendar"),
+      calendarUrl: publicUrl("/c/radiance-med-spa/settings#calendar"),
       helpPhoneE164: null,
     };
   },

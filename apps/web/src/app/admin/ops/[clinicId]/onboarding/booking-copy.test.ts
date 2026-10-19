@@ -104,7 +104,19 @@ function page(
   platforms: OnboardingView["meta"]["platforms"] = null,
   channels: OnboardingView["channels"] = null,
 ): string {
-  const view: OnboardingView = {
+  return text(
+    h(OnboardingPanel, { view: { ok: true, data: viewOf(booking, platforms, channels) }, actions: ACTIONS }),
+  );
+}
+
+function viewOf(
+  booking: BookingView | "unreadable" | null,
+  platforms: OnboardingView["meta"]["platforms"] = null,
+  channels: OnboardingView["channels"] = null,
+  clinic: Partial<OnboardingView["clinic"]> = {},
+  agent: OnboardingView["agent"] = null,
+): OnboardingView {
+  return {
     clinic: {
       id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
       slug: "glow-a1b2c3",
@@ -115,6 +127,7 @@ function page(
       attributionMode: "estimated",
       isCoveredEntity: true,
       phoneSystemType: "landline",
+      coverageMode: "overflow_after_hours",
       callRouting: "conditional",
       callRoutingConfirmedAt: null,
       carrier: null,
@@ -122,6 +135,7 @@ function page(
       publishedPhoneE164: null,
       openingHoursPresent: false,
       wentLiveAt: null,
+      ...clinic,
     },
     steps: [],
     forwardingTest: { windowUntil: null, observed: null },
@@ -133,7 +147,7 @@ function page(
       bookingRequests: { waiting: 0, accepted: 0, confirmed: 0, declined: 0 },
     },
     forwarding: null,
-    agent: null,
+    agent,
     goLive: { ok: false, missing: [], notBuilt: [] },
     requirements: {
       fields: [],
@@ -149,7 +163,6 @@ function page(
     booking,
     channels,
   };
-  return text(h(OnboardingPanel, { view: { ok: true, data: view }, actions: ACTIONS }));
 }
 
 /** The booking card alone: from its section title to the time zone's. */
@@ -384,5 +397,54 @@ describe("the channels card", () => {
 
   test("an apps/app with no channel states says so rather than showing nothing", () => {
     expect(page(null)).toContain("apps/app sent no channel states");
+  });
+});
+
+/**
+ * The phone card, trimmed (plan Part K: no two-mode routing). The select it
+ * had, "Practice answers first" or "AYA answers everything", could not say
+ * the spec's "after hours only" and rewrote the clinic's own choice when an
+ * operator changed it. And the deposit note said a payment link "waits on
+ * 10DLC", which implies texting, which v1 never does.
+ */
+describe("the phone card shows the clinic's coverage and offers no routing of its own", () => {
+  const panel = (view: OnboardingView) =>
+    renderToStaticMarkup(h(OnboardingPanel, { view: { ok: true, data: view }, actions: ACTIONS }));
+
+  test("the clinic's mode, read-only, in the spec's words", () => {
+    const html = panel(viewOf(null, null, null, { coverageMode: "after_hours_only" }));
+    const said = text(h("div", { dangerouslySetInnerHTML: { __html: html } }));
+    expect(said).toContain("Which calls reach AYA");
+    expect(said).toContain("After hours only: AYA answers only while you're closed.");
+    expect(said).toContain("The clinic chooses this in its setup or Settings");
+    expect(said).not.toMatch(/Call routing|Practice answers first|AYA answers everything|saving confirms it/);
+    expect(html).not.toContain('name="callRouting"');
+  });
+
+  test("an apps/app that does not report the mode reads as not reported, not as a guess", () => {
+    const html = panel(viewOf(null, null, null, { coverageMode: null }));
+    expect(text(h("div", { dangerouslySetInnerHTML: { __html: html } }))).toContain(
+      "Which calls reach AYA Not reported by apps/app.",
+    );
+  });
+
+  test("a deposit the desk collects says AYA never texts, and nothing implies a text channel", () => {
+    const html = panel(
+      viewOf(null, null, null, {}, {
+        version: 1,
+        greeting: "Thanks for calling.",
+        services: [],
+        escalationPhone: null,
+        escalationHours: null,
+        notes: null,
+        depositPolicy: { required: true, amountUsd: 50, collection: "front_desk" },
+        approvedAt: null,
+        approvedByLabel: null,
+      }),
+    );
+    const said = text(h("div", { dangerouslySetInnerHTML: { __html: html } }));
+    expect(said).toContain("The clinic takes a booking deposit");
+    expect(said).toContain("AYA never texts anyone");
+    expect(said).not.toMatch(/10DLC|text channel/i);
   });
 });

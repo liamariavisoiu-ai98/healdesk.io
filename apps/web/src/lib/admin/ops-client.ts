@@ -77,6 +77,7 @@
  */
 
 import {
+  COVERAGE_MODES,
   GUARANTEE_FAILURES,
   GUARANTEE_OUTCOMES,
   INCIDENT_INFORMATION_TYPES,
@@ -91,6 +92,7 @@ import {
   getPlan,
   sign,
   type AgreementTerminationReason,
+  type CoverageModeId,
   type GuaranteeFailure,
   type GuaranteeOutcome,
   type IncidentInformationType,
@@ -1842,6 +1844,13 @@ export type OnboardingView = {
     attributionMode: "estimated" | "verified";
     isCoveredEntity: boolean | null;
     phoneSystemType: "landline" | "voip" | "unknown";
+    /**
+     * Which calls reach AYA, the clinic's own choice of the spec's three
+     * modes, made in its wizard or Settings. Null when apps/app does not say,
+     * as one deployed before this console read it (the deploy-order rule).
+     */
+    coverageMode: CoverageModeId | null;
+    /** The two-mode routing it is derived into. Not offered here: it cannot say "after hours only". */
     callRouting: "conditional" | "always";
     callRoutingConfirmedAt: string | null;
     carrier: string | null;
@@ -2064,6 +2073,11 @@ function readOnboardingView(value: unknown): OnboardingView {
       attributionMode: literal(clinic.attributionMode, ["estimated", "verified"], "clinic.attributionMode"),
       isCoveredEntity: typeof clinic.isCoveredEntity === "boolean" ? clinic.isCoveredEntity : null,
       phoneSystemType: literal(clinic.phoneSystemType, ["landline", "voip", "unknown"], "clinic.phoneSystemType"),
+      // Read leniently: an apps/app that does not send it, or sends a mode
+      // this console does not know, shows "not reported", never a malformed panel.
+      coverageMode: (COVERAGE_MODES as readonly unknown[]).includes(clinic.coverageMode)
+        ? (clinic.coverageMode as CoverageModeId)
+        : null,
       callRouting: literal(clinic.callRouting, ["conditional", "always"], "clinic.callRouting"),
       callRoutingConfirmedAt: optionalString(clinic.callRoutingConfirmedAt),
       carrier: optionalString(clinic.carrier),

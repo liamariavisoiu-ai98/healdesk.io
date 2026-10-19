@@ -122,7 +122,9 @@ export const SETTING_CHANNELS: Readonly<Record<SettingKey, readonly Channel[]>> 
   coverage_mode: ["voice"],
   tone: ["web", "meta", "voice"],
   phone_greeting: ["voice"],
-  chat_greeting: ["web", "meta"],
+  // Website chat's alone: a Meta reply opens with the channel's fixed line
+  // instead (lib/setup/greetings.ts, GREETING_LABELS).
+  chat_greeting: ["web"],
   // Instagram, Messenger and WhatsApp answer in English only: the Meta front
   // door's reply guard reads English, so its language is not a choice.
   languages: ["web", "voice"],
@@ -306,7 +308,7 @@ async function write(
       }
       const field = key === "phone_greeting" ? "phoneGreeting" : "chatGreeting";
       const saved = await save({ [field]: value as string | null });
-      const which = key === "phone_greeting" ? "Callers hear" : "People read";
+      const which = key === "phone_greeting" ? "Callers hear" : "Your website chat shows";
       return saved[field] === null
         ? `Greeting back to the default. ${which} it after the line that says AYA is an AI assistant.`
         : `Greeting saved. ${which} it after the line that says AYA is an AI assistant.`;

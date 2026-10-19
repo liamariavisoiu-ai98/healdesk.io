@@ -26,6 +26,7 @@ import { autoConfirmView, rightNowLine } from "@/lib/setup/calendar";
 import {
   actionLine,
   channelNextStep,
+  channelStatusLabel,
   channelStatusWord,
   isClinicAction,
   setupLine,
@@ -207,6 +208,33 @@ describe("each channel's next step", () => {
     expect(actionLine("voice", "forwarding")).toBe("Set call forwarding on your main line");
     expect(channelStatusWord("setting_up")).toBe("Being prepared");
     expect(channelStatusWord("waiting")).toBe("Waiting on you");
+  });
+
+  test("step 4's status carries its time: live since when, paused until when", () => {
+    const now = new Date("2026-10-19T16:00:00Z");
+    const zone = "America/New_York";
+    const live = { status: "live" as const, liveAt: new Date("2026-10-14T15:00:00Z"), pausedUntil: null };
+    expect(channelStatusLabel(live, zone, now)).toBe("Live since 14 October");
+    // The day is the clinic's: 02:00 UTC on the 15th is still the 14th in New York.
+    expect(
+      channelStatusLabel({ ...live, liveAt: new Date("2026-10-15T02:00:00Z") }, zone, now),
+    ).toBe("Live since 14 October");
+    expect(
+      channelStatusLabel(
+        { status: "paused", liveAt: live.liveAt, pausedUntil: new Date("2026-10-20T18:00:00Z") },
+        zone,
+        now,
+      ),
+    ).toBe("Paused until 2 pm EDT on Tuesday 20 October");
+    expect(
+      channelStatusLabel({ status: "paused", liveAt: live.liveAt, pausedUntil: null }, zone, now),
+    ).toBe("Paused until you switch AYA back on");
+    // A channel that has not opened has no time to show: never an opening date.
+    for (const status of ["waiting", "setting_up", "off"] as const) {
+      expect(channelStatusLabel({ status, liveAt: null, pausedUntil: null }, zone, now)).toBe(
+        channelStatusWord(status),
+      );
+    }
   });
 
   test("phone never asks for forwarding before voice is ready", () => {
@@ -964,13 +992,61 @@ describe("what skipping step 1 costs, from what is stored", () => {
     expect(skipCost(prefilled, "services")).toBe(
       "the prices we read from your website stay unchecked, and AYA isn't built until you check them.",
     );
-    // An empty practice: the old lines, which are true of it.
+    // An empty practice: the old basics line, which is true of it. With no
+    // priced service AYA isn't built at all (answersMissing), which the old
+    // services line, "AYA quotes no prices", hid.
     expect(skipCost(setupState(), "basics")).toBe(
       "AYA can't tell callers your address or the number to reach you on.",
     );
     expect(skipCost(setupState(), "services")).toBe(
-      "AYA quotes no prices; she offers to book a consultation instead.",
+      "AYA isn't built until at least one service has its price, so no channel can go live.",
     );
+    expect(answersMissing(setupState())).toContain("a service with its price");
+  });
+
+  test("hours and the most-asked question hold the whole build, and their skip lines say so", () => {
+    // Until 19 October 2026 the most-asked question's line said AYA "answers
+    // your most common question less well until you add it in Knowledge",
+    // where Knowledge has no field for it and AYA isn't built without it; and
+    // a chat-only practice read only "AYA can't say when you're open".
+    const voice = { channel: "voice" } as SetupState["channels"][number];
+    const web = { channel: "web" } as SetupState["channels"][number];
+    for (const channels of [[web], [voice, web]]) {
+      const empty = setupState({ channels });
+      expect(answersMissing(empty)).toEqual(
+        expect.arrayContaining(["your hours", "your most-asked question"]),
+      );
+      expect(skipCost(empty, "hours")).toBe(
+        "AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.",
+      );
+      expect(skipCost(empty, "question")).toBe(
+        "AYA isn't built until you add it, so no channel can go live. You can add it later from Setup.",
+      );
+    }
+    // Hours the website read filled, not yet confirmed: still not built.
+    const hours = { mon: [["09:00", "17:00"]] } as unknown as SetupState["clinic"]["openingHours"];
+    const read = setupState({ clinic: { ...setupState().clinic, openingHours: hours } });
+    expect(answersMissing(read)).toContain("your hours");
+    expect(skipCost(read, "hours")).toBe(
+      "the hours we filled in stay unconfirmed, and AYA isn't built until your hours are confirmed, so no channel can go live. You can confirm them later in Knowledge.",
+    );
+    // Already answered: a skip on a revisit keeps what is there.
+    const done = setupState({
+      clinic: {
+        ...setupState().clinic,
+        openingHours: hours,
+        onboarding: { hours_confirmed: at.toISOString() },
+      },
+      knowledge: {
+        ...setupState().knowledge,
+        mostAsked: { question: "Parking?", answer: "Behind the building." },
+      },
+    });
+    expect(answersMissing(done)).not.toEqual(
+      expect.arrayContaining(["your hours", "your most-asked question"]),
+    );
+    expect(skipCost(done, "hours")).toBe("AYA keeps the hours you confirmed.");
+    expect(skipCost(done, "question")).toBe("AYA keeps the answer you saved.");
   });
 
   test("read prices count as set up only once the services screen is saved", () => {

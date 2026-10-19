@@ -34,6 +34,17 @@ import { SetupOfferBanner } from "./SetupOfferBanner";
 import { FIELD_LABEL, PrimaryButton, Reassurance, StepShell } from "./StepShell";
 
 /**
+ * What a demo buyer's setup fee comes with, one line under the open package
+ * (DemoPlanPicker's `includes`). Support is what the plan defines it as
+ * (Decisions, "Support"): the portal's help chat and hello@healdesk.io,
+ * which the team answers on business days, never "24/7 support". And the
+ * clinic changes its own answers and settings, as often as it likes; we do
+ * not promise to make changes for it.
+ */
+export const DEMO_INCLUDES =
+  "+ support in your portal and at hello@healdesk.io · change your answers and settings as often as you like · no hidden costs";
+
+/**
  * Step 1, the package (the owner's pricing sheet, 13 October 2026): one of
  * the five packages, then a usage step for each product it has, voice in
  * minutes and chat in conversations, 100 to 1,500 in steps of 100, monthly or
@@ -126,7 +137,7 @@ export function PackageStep({
             roi={roiInputs}
             offer={offer}
             noWebsite={state.noWebsite}
-            includes="+ 24/7 support included · unlimited modifications · no hidden costs"
+            includes={DEMO_INCLUDES}
           />
         </>
       ) : (
@@ -154,18 +165,10 @@ export function PackageStep({
         <StepControls pkg={pkg} plan={plan} interval={state.interval} onSteps={onSteps} />
       ) : null}
 
-      {/* Every package covers one location; more is quoted by the team. */}
-      {demo ? (
-        <div className="border-line mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border bg-white px-5 py-4">
-          <span className="text-sm font-semibold">More than one location?</span>
-          <a
-            href="/contact"
-            className="border-line hover:border-line-strong rounded-full border px-4 py-2 text-sm font-bold transition-colors"
-          >
-            Get a quote from sales
-          </a>
-        </div>
-      ) : null}
+      {/* Every package covers one location, and a further one is the same
+          plan again at a fixed price, added from Billing: PlanSummary's
+          locationsLine says so to every buyer, so there is no quote to ask
+          sales for (spec, "More than one location"). */}
 
       {/* One region, always in the page, so a change of package or step is heard. */}
       <div className="mt-6" role="status" aria-live="polite">

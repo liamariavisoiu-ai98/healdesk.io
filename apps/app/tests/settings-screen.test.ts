@@ -14,6 +14,7 @@ import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
 import { SIGN_IN_ACTOR_LABEL } from "@/lib/portal/actor";
 import { SETTING_CHANNELS } from "@/lib/portal/settings";
+import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 import { saveNeverSay } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
 
@@ -736,6 +737,14 @@ describeDb("Settings", () => {
       ok: true,
       toast: expect.stringMatching(/^Greeting back to the default\./),
     });
+    // Said of website chat alone: Instagram, Messenger and WhatsApp never use it.
+    use(complete);
+    const toast = await save("chat_greeting", "Hello! What can we help you with?");
+    expect(toast).toMatchObject({ ok: true });
+    expect((toast as { toast: string }).toast).toContain("Your website chat shows it after the line");
+    expect((toast as { toast: string }).toast).not.toMatch(/Instagram|Messenger|WhatsApp/);
+    expect(await save("chat_greeting", null)).toMatchObject({ ok: true });
+    use(chatOnly);
   });
 
   // The 19 October audit: the greeting is said after the locked AI line,
@@ -803,6 +812,14 @@ describeDb("Settings", () => {
     expect(html).toMatch(/class="font-semibold">WhatsApp<\/p>/);
     expect(html).not.toMatch(/class="font-semibold">Messenger<\/p>/);
     expect(html).not.toMatch(/class="font-semibold">Instagram, Messenger &amp; WhatsApp<\/p>/);
+    // The chat greeting is website chat's: a Meta reply never says it, so it
+    // is not labelled as applying to messages, and a clinic with the Meta
+    // channels is told they open with their own line (19 October audit).
+    expect(html).toContain(GREETING_LABELS.chat);
+    expect(html).not.toContain("When someone opens a chat or sends a message");
+    expect(html.replace(/&#x27;|&rsquo;/g, "'").replace(/&#39;/g, "'")).toContain(
+      META_GREETING_NOTE,
+    );
 
     use(chatOnly);
     const chat = await render();
@@ -812,6 +829,8 @@ describeDb("Settings", () => {
     expect(chat).not.toContain("Which calls reach AYA");
     expect(chat).not.toContain("Transfer live calls");
     expect(chat).not.toContain("When AYA answers a call");
+    expect(chat).toContain(GREETING_LABELS.chat);
+    expect(chat.replace(/&#x27;|&#39;/g, "'")).not.toContain(META_GREETING_NOTE);
     expect(brokenLinks(chat, portal.clinicSlug)).toEqual([]);
   });
 

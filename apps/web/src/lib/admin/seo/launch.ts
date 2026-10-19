@@ -119,6 +119,16 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: true,
   },
   {
+    id: "daily-summary",
+    promise:
+      "A summary email at the start of each working day, with every booking and booking request and every request still open; the week's first carries the weekly recap",
+    where: "Settings → Alerts, the setup wizard, the spec's Daily summary switch",
+    status: "owner",
+    left: "Built: the summary (L13) and the recap (L14) are queued through the outbox. Switch on the daily-summary and weekly-recap jobs in /admin, with billing-notices (the sender), before the first clinic goes live: while they are off, a clinic with the summary on hears about a waiting request only when it is taken and when it expires.",
+    evidence: "apps/app/src/lib/scheduler/daily-summary.ts, apps/app/src/lib/scheduler/weekly-recap.ts, apps/app/drizzle/0087_claims_and_summary.sql",
+    blocksGoLive: true,
+  },
+  {
     id: "direct-booking-addendum",
     promise: "A clinic can elect direct booking under its agreement",
     where: "Setup, agreement",

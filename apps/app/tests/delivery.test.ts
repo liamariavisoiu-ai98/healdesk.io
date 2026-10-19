@@ -11,7 +11,6 @@ import { findUnhealthyConnections, runConnectionHealthJob } from "@/lib/schedule
 import { JOB_CONNECTION_HEALTH, heartbeatAgeSeconds, setJobEnabled } from "@/lib/scheduler/jobs";
 import { sendDueReports } from "@/lib/scheduler/monthly-report";
 import { runTick } from "@/lib/scheduler/tick";
-import { sendDueRecaps, weekKey } from "@/lib/scheduler/weekly-recap";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -167,66 +166,8 @@ describeDb("delivery", () => {
     });
   });
 
-  describe("weekly recap", () => {
-    // Monday 14 September 2026, 09:00 in New York.
-    const monday = new Date("2026-09-14T13:00:00Z");
-
-    test("isoweek keys are stable", () => {
-      expect(weekKey(monday)).toBe("2026-W38");
-      expect(weekKey(new Date("2026-01-01T00:00:00Z"))).toBe("2026-W01");
-    });
-
-    test("sends counts on the clinic's Monday morning, once, and never for an empty week", async () => {
-      const busy = await seedClinic("recap-busy");
-      const quiet = await seedClinic("recap-quiet");
-      for (const c of [busy, quiet]) {
-        await makeProduction(c.clinicId, new Date(monday.getTime() - 30 * DAY));
-        await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-          addRecipient(tx, { email: `${c.slug}@example-clinic.test`, addedBy: "test" }),
-        );
-      }
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 2 * DAY), recoveryReason: "rang_unanswered", booked: true });
-      // A legacy call-back reason is not a call answered that would have rung out.
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 2 * DAY), recovered: true });
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 3 * DAY) });
-      // Outside the window: last month.
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 20 * DAY), recovered: true });
-
-      const transport = new FakeTransport();
-      const run = await sendDueRecaps(monday, transport);
-      expect(run.sent).toBe(1);
-      expect(transport.sent).toHaveLength(1);
-      const text = transport.sent[0]!.message.text;
-      expect(text).toMatch(/Conversations handled:\s+3/);
-      expect(text).toMatch(/would otherwise have rung out:\s+1/);
-      expect(text).toMatch(/booked from those conversations:\s+1/);
-      // v1 claims only: never revenue, collected or recovered.
-      expect(text).not.toMatch(/revenue|collected|recovered|monthly report/i);
-
-      expect((await sendDueRecaps(monday, transport)).sent).toBe(0);
-      expect(transport.sent).toHaveLength(1);
-
-      // Tuesday: not due.
-      const tuesday = new Date(monday.getTime() + DAY);
-      await seedConversation(busy.clinicId, { startedAt: tuesday });
-      expect((await sendDueRecaps(tuesday, transport)).sent).toBe(0);
-    });
-
-    test("the first recap arrives on day seven whatever the weekday", async () => {
-      const c = await seedClinic("recap-first");
-      const wentLive = new Date("2026-09-03T14:00:00Z"); // a Thursday
-      await makeProduction(c.clinicId, wentLive);
-      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        addRecipient(tx, { email: "first@example-clinic.test", addedBy: "test" }),
-      );
-      await seedConversation(c.clinicId, { startedAt: new Date(wentLive.getTime() + 2 * DAY), recovered: true });
-
-      const daySeven = new Date(wentLive.getTime() + 7 * DAY + 3600_000); // Thursday again
-      const transport = new FakeTransport();
-      expect((await sendDueRecaps(daySeven, transport)).sent).toBe(1);
-      expect((await ledger(c.clinicId)).map((r) => r.period_key)).toEqual(["first-week"]);
-    });
-  });
+  // The weekly recap moved onto the outbox with the daily summary (WP4):
+  // tests/claims-and-summary.test.ts.
 
   describe("annual renewal reminder (BD17, R32)", () => {
     test("each notice has a window, so a missed run is caught up and a late 30-day one is never sent", () => {
@@ -413,6 +354,9 @@ describeDb("delivery", () => {
           "connection-health",
           "monthly-report",
           "nightly-sync",
+          // The daily summary (drizzle/0087) and the weekly recap alone, hourly
+          // behind their switches, each on the clinic's own clock.
+          "daily-summary",
           "weekly-recap",
           // The Stripe launch's hourly jobs (drizzle/0043), each behind its switch.
           // billing-notices left the tick: the email platform sends notices

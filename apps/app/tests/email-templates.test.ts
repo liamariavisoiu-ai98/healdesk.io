@@ -173,7 +173,6 @@ describe("the template registry", () => {
       (byPackage[pending.package] ??= []).push(kind);
     }
     expect(byPackage).toEqual({
-      WP4: ["daily_summary", "weekly_recap"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
       WP9: ["agreement_to_sign"],
       WP11: ["website_changes"],
@@ -183,7 +182,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, and after cancellation E3 to E6", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, and the claims function's L13 and L14", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -251,6 +250,8 @@ describe("the template registry", () => {
       "export_ready",
       "export_reminder",
       "data_destroyed",
+      "daily_summary",
+      "weekly_recap",
     ]);
   });
 

@@ -51,6 +51,7 @@ import {
   type CoverageModeId,
   type OnboardingState,
   type RegulatoryRegime,
+  SERVICE_PRICE_KINDS,
   type ServicePriceKind,
   TRANSCRIPT_RETENTION_DAYS_OPTIONS,
   type TranscriptRetentionDays,
@@ -1132,6 +1133,23 @@ export const appointments = pgTable(
      */
     calendarId: text("calendar_id"),
 
+    /**
+     * The clinic's own listed price for the booked service when the booking
+     * was made (drizzle/0087): what "booked value" multiplies by (spec, "What
+     * v1 can prove": bookings times the clinic's own configured prices,
+     * labelled booked value, never revenue; lib/reporting/claims.ts). The
+     * low end of the price as Knowledge → Prices states it: an exact price,
+     * the start of a "from" price or a range, or the price of one unit for a
+     * per-unit price, which the claims count apart and never multiply into a
+     * total. Both null when the booking named no service on the clinic's
+     * list, or the service has no price there. Written once, at insert, by
+     * insertAppointment (lib/meta/booking-requests.ts); a trigger refuses a
+     * change, so a price edited in Knowledge later never rewrites what was
+     * booked.
+     */
+    listedPriceCents: integer("listed_price_cents"),
+    listedPriceKind: text("listed_price_kind").$type<ServicePriceKind>(),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1140,6 +1158,10 @@ export const appointments = pgTable(
       .defaultNow(),
   },
   (t) => [
+    check(
+      "appointments_listed_price_check",
+      sql`(${t.listedPriceCents} is null and ${t.listedPriceKind} is null) or (${t.listedPriceCents} >= 0 and ${t.listedPriceKind} in (${sqlList(SERVICE_PRICE_KINDS)}))`,
+    ),
     check(
       "appointments_duration_check",
       sql`${t.durationMinutes} is null or ${t.durationMinutes} between 5 and 480`,

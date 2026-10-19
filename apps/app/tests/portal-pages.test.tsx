@@ -271,8 +271,35 @@ describeDb("the portal's screens, before and after go-live", () => {
     }
 
     test("Home: AYA is answering, no tracker, the channels live, the plan's start, and the broken calendar first to fix", async () => {
+      // A caller AYA answered this week and took a request from, waiting for
+      // the team (WP4's "Waiting for you" card and the week's numbers).
+      await inTenant(clinic.clinicId, async (c) => {
+        const { rows } = await c.query<{ id: string }>(
+          `insert into contacts (clinic_id, phone, full_name) values ($1, '+14155550134', 'Maria Lopez') returning id`,
+          [clinic.clinicId],
+        );
+        await c.query(
+          `insert into conversations (clinic_id, contact_id, channel, recovery_reason, outcome, started_at)
+           values ($1, $2, 'voice', 'after_hours', 'qualified_no_booking', now() - interval '3 hours')`,
+          [clinic.clinicId, rows[0]!.id],
+        );
+        await c.query(
+          `insert into booking_requests (clinic_id, contact_id, channel, preferred_window, treatment, token_hash, expires_at, created_at)
+           values ($1, $2, 'voice', 'Thursday afternoon', 'Consultation', $3, now() + interval '7 days', now() - interval '2 hours')`,
+          [clinic.clinicId, rows[0]!.id, randomBytes(32)],
+        );
+      });
       const html = await render("home");
       const words = text(html);
+      // The first card: counts and an age, one tap into Bookings, nobody named.
+      expect(words.indexOf("Waiting for you:")).toBeLessThan(words.indexOf("Needs attention"));
+      expect(words).toContain("Waiting for you: 1 person to call back (oldest 2 h) Open Bookings");
+      expect(html).toContain(`href="/c/${portal.clinicSlug}/bookings"`);
+      // This week, from the claims function.
+      expect(words).toContain(
+        "This week The last 7 days. Conversations handled 1 Phone 1 call · 1 would otherwise have rung out Website chat 0 chats Booking requests taken 1 · 0 confirmed by your team",
+      );
+      expect(words).not.toMatch(/Maria|Lopez|4155550134|Consultation|Thursday afternoon|revenue/);
       expect(words).not.toContain("AYA isn’t answering patients yet");
       expect(words).not.toContain("Building your AYA");
       expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Talk to your AYA<\/button>/);

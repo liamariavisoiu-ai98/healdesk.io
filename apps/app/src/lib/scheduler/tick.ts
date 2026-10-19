@@ -26,6 +26,7 @@ import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
 import { runConnectionHealthJob } from "./connection-health";
+import { runDailySummaryJob } from "./daily-summary";
 import { runDmarcReviewJob } from "./dmarc-review";
 import { runIncidentDeadlinesJob } from "./incident-deadlines";
 import { heartbeat } from "./jobs";
@@ -91,6 +92,11 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("billing-requests", () => runBillingRequestsJob({ now }));
   // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
+  // The daily summary (L13) and, while none can carry it, the weekly recap
+  // alone (L14): hourly, each behind its switch, each deciding per clinic
+  // from the clinic's own clock whether its opening time or its Monday has
+  // come. The summary first, so a Monday it goes on carries the recap.
+  await record("daily-summary", () => runDailySummaryJob({ now }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));
   await record("connection-health", () => runConnectionHealthJob({ now }));
   // §C.4: booking requests whose link or proposed times have lapsed become

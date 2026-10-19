@@ -28,6 +28,7 @@ import { CHANNEL_READY_ENTRY } from "./channel_ready";
 import { CONNECT_CONNECTED_ENTRY } from "./connect_connected";
 import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
 import { DATA_DESTROYED_ENTRY } from "./data_destroyed";
+import { DAILY_SUMMARY_ENTRY } from "./daily_summary";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { EXPORT_READY_ENTRY } from "./export_ready";
 import { EXPORT_REMINDER_ENTRY } from "./export_reminder";
@@ -66,6 +67,7 @@ import { SUSPENDED_FOR_CAUSE_ENTRY } from "./suspended_for_cause";
 import { TERMS_NOTICE_ENTRY } from "./terms_notice";
 import type { EmailTemplate } from "./types";
 import { USAGE_100_ENTRY, USAGE_80_ENTRY } from "./usage_alert";
+import { WEEKLY_RECAP_ENTRY } from "./weekly_recap";
 import { WELCOME_ENTRY } from "./welcome";
 
 /**
@@ -183,6 +185,11 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   export_ready: EXPORT_READY_ENTRY,
   export_reminder: EXPORT_REMINDER_ENTRY,
   data_destroyed: DATA_DESTROYED_ENTRY,
+  // The claims function's emails (M6, package WP4): L13, the daily summary,
+  // and L14, the weekly recap, which goes alone only while no summary can
+  // carry it.
+  daily_summary: DAILY_SUMMARY_ENTRY,
+  weekly_recap: WEEKLY_RECAP_ENTRY,
 };
 
 /**
@@ -195,7 +202,6 @@ export type OwingPackage =
   | "B"
   | "WP1"
   | "WP3"
-  | "WP4"
   | "WP5"
   | "WP6"
   | "WP7"
@@ -292,13 +298,12 @@ export const PENDING_TEMPLATES: Record<
     | "export_ready"
     | "export_reminder"
     | "data_destroyed"
+    | "daily_summary"
+    | "weekly_recap"
     | BillingTemplatedKind
   >,
   PendingTemplate
 > = {
-  // WP4: the claims function's emails.
-  daily_summary: { owner: "plan", package: "WP4", ships: "M6 (L13)" },
-  weekly_recap: { owner: "plan", package: "WP4", ships: "M6 (L14, retargeted)" },
   // The runtime's routed/answered counter: blocked, owned by no package yet.
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },

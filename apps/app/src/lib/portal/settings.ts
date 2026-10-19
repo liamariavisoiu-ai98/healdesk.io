@@ -435,8 +435,8 @@ async function write(
       const on = requireBoolean(value, key);
       await save({ dailySummary: on });
       return on
-        ? "Daily summary on. It arrives at the start of each working day."
-        : "Daily summary off. Booking requests and urgent alerts still arrive the moment they happen.";
+        ? "Daily summary on. It arrives at the start of each working day, and the week's first carries your weekly recap."
+        : "Daily summary off. Booking requests and urgent alerts still arrive the moment they happen, and your weekly recap comes on its own each Monday.";
     }
 
     case "transfer_live_calls": {

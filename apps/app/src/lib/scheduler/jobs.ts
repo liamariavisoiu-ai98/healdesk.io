@@ -25,7 +25,19 @@ export const JOB_RETENTION_PURGE = "retention-purge";
 export const JOB_HEARTBEAT = "heartbeat";
 export const JOB_CONNECTION_HEALTH = "connection-health";
 export const JOB_ANNUAL_RENEWAL_REMINDER = "annual-renewal-reminder";
+/**
+ * The weekly recap (L14, lib/scheduler/weekly-recap.ts), seeded off by
+ * drizzle/0034: hourly from the tick, last week's recap on each live
+ * clinic's Monday, only while no daily summary can carry it.
+ */
 export const JOB_WEEKLY_RECAP = "weekly-recap";
+/**
+ * The daily summary (L13, lib/scheduler/daily-summary.ts), seeded off by
+ * drizzle/0087: hourly from the tick, at each live clinic's opening time on
+ * its working days, while its Daily summary switch is on. The owner switches
+ * it on with the email launch set, once the sender's own switch is on.
+ */
+export const JOB_DAILY_SUMMARY = "daily-summary";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 /**

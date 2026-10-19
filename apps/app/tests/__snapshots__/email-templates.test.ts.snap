@@ -2112,6 +2112,172 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > daily_summary, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your daily summary from AYA</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">14 conversations handled · 3 waiting for you.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Here&#39;s what AYA did at Radiance Med Spa since your last summary.</p>
+<p style="margin:0 0 4px;"><strong>Conversations handled:</strong> 14</p>
+<p style="margin:0 0 4px;"><strong>Phone:</strong> 9 calls · 6 would otherwise have rung out</p>
+<p style="margin:0 0 4px;"><strong>Website chat:</strong> 5 chats</p>
+<p style="margin:0 0 4px;"><strong>Booking requests taken:</strong> 4 · 2 confirmed by your team</p>
+<p style="margin:0 0 4px;"><strong>Booked value at your listed prices:</strong> $450 across 2 bookings</p>
+<p style="margin:0 0 4px;"><strong>Deposits collected:</strong> 1 · $50</p>
+<p style="margin:0 0 16px;">Sent to you as they happened: 1 urgent report and 2 requests to speak with a person.</p>
+<p style="margin:0 0 16px;">Since your last summary, every booking and booking request:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li style="margin:0 0 4px;">Phone call · Confirmed by your team · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=5d0c1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b">Open in healdesk</a></li><li style="margin:0 0 4px;">Website chat · Waiting for you · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=6e1d2b3c-4d5e-4f60-9b7c-8d9e0f1a2b3c">Open in healdesk</a></li><li style="margin:0 0 4px;">Phone call · Waiting for you · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=7f2e3c4d-5e6f-4071-8c8d-9e0f1a2b3c4d">Open in healdesk</a></li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li style="margin:0 0 4px;">1 person left a message on your website · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings">Open in healdesk</a></li></ul>
+<p style="margin:0 0 16px;">Booking requests from before that are still waiting for your team:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li style="margin:0 0 4px;">Website chat · Waiting for you · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=8a3f4d5e-6f70-4182-9d9e-0f1a2b3c4d5e">Open in healdesk</a></li></ul>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/bookings" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Bookings</a></p>
+<p style="margin:0 0 16px;">This email carries no client details on purpose: who, when and what for open in healdesk once you sign in.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Stop these emails: <a href="https://app.healdesk.test/email/stop/MGMxZDJlM2YtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwOmNvbW1lcmNpYWw.TLcKqMnQEtCn3vQBSN9UQqnW4L-5ZRnDlzsRCCoPR6M">https://app.healdesk.test/email/stop/MGMxZDJlM2YtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwOmNvbW1lcmNpYWw.TLcKqMnQEtCn3vQBSN9UQqnW4L-5ZRnDlzsRCCoPR6M</a></p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "14 conversations handled · 3 waiting for you.",
+  "subject": "Your daily summary from AYA",
+  "text": "Here's what AYA did at Radiance Med Spa since your last summary.
+
+Conversations handled: 14
+Phone: 9 calls · 6 would otherwise have rung out
+Website chat: 5 chats
+Booking requests taken: 4 · 2 confirmed by your team
+Booked value at your listed prices: $450 across 2 bookings
+Deposits collected: 1 · $50
+
+Sent to you as they happened: 1 urgent report and 2 requests to speak with a person.
+
+Since your last summary, every booking and booking request:
+
+- Phone call · Confirmed by your team: https://app.healdesk.test/c/radiance-med-spa/bookings?request=5d0c1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b
+- Website chat · Waiting for you: https://app.healdesk.test/c/radiance-med-spa/bookings?request=6e1d2b3c-4d5e-4f60-9b7c-8d9e0f1a2b3c
+- Phone call · Waiting for you: https://app.healdesk.test/c/radiance-med-spa/bookings?request=7f2e3c4d-5e6f-4071-8c8d-9e0f1a2b3c4d
+
+- 1 person left a message on your website: https://app.healdesk.test/c/radiance-med-spa/bookings
+
+Booking requests from before that are still waiting for your team:
+
+- Website chat · Waiting for you: https://app.healdesk.test/c/radiance-med-spa/bookings?request=8a3f4d5e-6f70-4182-9d9e-0f1a2b3c4d5e
+
+Open Bookings: https://app.healdesk.test/c/radiance-med-spa/bookings
+
+This email carries no client details on purpose: who, when and what for open in healdesk once you sign in.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+Stop these emails: https://app.healdesk.test/email/stop/MGMxZDJlM2YtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwOmNvbW1lcmNpYWw.TLcKqMnQEtCn3vQBSN9UQqnW4L-5ZRnDlzsRCCoPR6M
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > daily_summary, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your daily summary from AYA</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">14 conversations handled · 3 waiting for you.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Here&#39;s what AYA did at Radiance Med Spa since your last summary.</p>
+<p style="margin:0 0 4px;"><strong>Conversations handled:</strong> 14</p>
+<p style="margin:0 0 4px;"><strong>Phone:</strong> 9 calls · 6 would otherwise have rung out</p>
+<p style="margin:0 0 4px;"><strong>Website chat:</strong> 5 chats</p>
+<p style="margin:0 0 4px;"><strong>Booking requests taken:</strong> 4 · 2 confirmed by your team</p>
+<p style="margin:0 0 4px;"><strong>Booked value at your listed prices:</strong> $450 across 2 bookings</p>
+<p style="margin:0 0 4px;"><strong>Deposits collected:</strong> 1 · $50</p>
+<p style="margin:0 0 16px;">Sent to you as they happened: 1 urgent report and 2 requests to speak with a person.</p>
+<p style="margin:0 0 16px;">Since your last summary, every booking and booking request:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li style="margin:0 0 4px;">Phone call · Confirmed by your team · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=5d0c1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b">Open in healdesk</a></li><li style="margin:0 0 4px;">Website chat · Waiting for you · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=6e1d2b3c-4d5e-4f60-9b7c-8d9e0f1a2b3c">Open in healdesk</a></li><li style="margin:0 0 4px;">Phone call · Waiting for you · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=7f2e3c4d-5e6f-4071-8c8d-9e0f1a2b3c4d">Open in healdesk</a></li></ul>
+<ul style="margin:0 0 16px;padding-left:20px;"><li style="margin:0 0 4px;">1 person left a message on your website · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings">Open in healdesk</a></li></ul>
+<p style="margin:0 0 16px;">Booking requests from before that are still waiting for your team:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li style="margin:0 0 4px;">Website chat · Waiting for you · <a href="https://app.healdesk.test/c/radiance-med-spa/bookings?request=8a3f4d5e-6f70-4182-9d9e-0f1a2b3c4d5e">Open in healdesk</a></li></ul>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/bookings" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Open Bookings</a></p>
+<p style="margin:0 0 16px;">This email carries no patient details on purpose: who, when and what for open in healdesk once you sign in.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Stop these emails: <a href="https://app.healdesk.test/email/stop/MGMxZDJlM2YtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwOmNvbW1lcmNpYWw.TLcKqMnQEtCn3vQBSN9UQqnW4L-5ZRnDlzsRCCoPR6M">https://app.healdesk.test/email/stop/MGMxZDJlM2YtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwOmNvbW1lcmNpYWw.TLcKqMnQEtCn3vQBSN9UQqnW4L-5ZRnDlzsRCCoPR6M</a></p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "14 conversations handled · 3 waiting for you.",
+  "subject": "Your daily summary from AYA",
+  "text": "Here's what AYA did at Radiance Med Spa since your last summary.
+
+Conversations handled: 14
+Phone: 9 calls · 6 would otherwise have rung out
+Website chat: 5 chats
+Booking requests taken: 4 · 2 confirmed by your team
+Booked value at your listed prices: $450 across 2 bookings
+Deposits collected: 1 · $50
+
+Sent to you as they happened: 1 urgent report and 2 requests to speak with a person.
+
+Since your last summary, every booking and booking request:
+
+- Phone call · Confirmed by your team: https://app.healdesk.test/c/radiance-med-spa/bookings?request=5d0c1a2b-3c4d-4e5f-8a6b-7c8d9e0f1a2b
+- Website chat · Waiting for you: https://app.healdesk.test/c/radiance-med-spa/bookings?request=6e1d2b3c-4d5e-4f60-9b7c-8d9e0f1a2b3c
+- Phone call · Waiting for you: https://app.healdesk.test/c/radiance-med-spa/bookings?request=7f2e3c4d-5e6f-4071-8c8d-9e0f1a2b3c4d
+
+- 1 person left a message on your website: https://app.healdesk.test/c/radiance-med-spa/bookings
+
+Booking requests from before that are still waiting for your team:
+
+- Website chat · Waiting for you: https://app.healdesk.test/c/radiance-med-spa/bookings?request=8a3f4d5e-6f70-4182-9d9e-0f1a2b3c4d5e
+
+Open Bookings: https://app.healdesk.test/c/radiance-med-spa/bookings
+
+This email carries no patient details on purpose: who, when and what for open in healdesk once you sign in.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+Stop these emails: https://app.healdesk.test/email/stop/MGMxZDJlM2YtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAwOmNvbW1lcmNpYWw.TLcKqMnQEtCn3vQBSN9UQqnW4L-5ZRnDlzsRCCoPR6M
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > data_destroyed, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -7184,6 +7350,128 @@ exports[`each template's output > website_message, for patients: the snapshot 1`
 Open Bookings: https://app.healdesk.test/c/radiance-med-spa/bookings
 
 This email carries no patient details on purpose: they open in healdesk once you sign in.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > weekly_recap, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your week with AYA</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">61 conversations handled at Radiance Med Spa last week.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Your week with AYA, Monday 5 October to Sunday 11 October:</p>
+<p style="margin:0 0 4px;"><strong>Conversations handled:</strong> 61</p>
+<p style="margin:0 0 4px;"><strong>Phone:</strong> 38 calls · 27 would otherwise have rung out</p>
+<p style="margin:0 0 4px;"><strong>Website chat:</strong> 23 chats</p>
+<p style="margin:0 0 4px;"><strong>Booking requests taken:</strong> 15 · 11 confirmed by your team</p>
+<p style="margin:0 0 4px;"><strong>Booked value at your listed prices:</strong> $3,125 across 9 bookings · 2 bookings priced per unit, not added in</p>
+<p style="margin:0 0 4px;"><strong>Deposits collected:</strong> 4 · $200</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See this week on Home</a></p>
+<p style="margin:0 0 16px;">Your daily summary is off, so this comes on its own each Monday. With the summary on, each working day brings every booking and booking request, and the week&#39;s first carries this recap: https://app.healdesk.test/c/radiance-med-spa/settings#alerts</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "61 conversations handled at Radiance Med Spa last week.",
+  "subject": "Your week with AYA",
+  "text": "Your week with AYA, Monday 5 October to Sunday 11 October:
+
+Conversations handled: 61
+Phone: 38 calls · 27 would otherwise have rung out
+Website chat: 23 chats
+Booking requests taken: 15 · 11 confirmed by your team
+Booked value at your listed prices: $3,125 across 9 bookings · 2 bookings priced per unit, not added in
+Deposits collected: 4 · $200
+
+See this week on Home: https://app.healdesk.test/c/radiance-med-spa
+
+Your daily summary is off, so this comes on its own each Monday. With the summary on, each working day brings every booking and booking request, and the week's first carries this recap: https://app.healdesk.test/c/radiance-med-spa/settings#alerts
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > weekly_recap, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your week with AYA</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">61 conversations handled at Radiance Med Spa last week.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Your week with AYA, Monday 5 October to Sunday 11 October:</p>
+<p style="margin:0 0 4px;"><strong>Conversations handled:</strong> 61</p>
+<p style="margin:0 0 4px;"><strong>Phone:</strong> 38 calls · 27 would otherwise have rung out</p>
+<p style="margin:0 0 4px;"><strong>Website chat:</strong> 23 chats</p>
+<p style="margin:0 0 4px;"><strong>Booking requests taken:</strong> 15 · 11 confirmed by your team</p>
+<p style="margin:0 0 4px;"><strong>Booked value at your listed prices:</strong> $3,125 across 9 bookings · 2 bookings priced per unit, not added in</p>
+<p style="margin:0 0 4px;"><strong>Deposits collected:</strong> 4 · $200</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See this week on Home</a></p>
+<p style="margin:0 0 16px;">Your daily summary is off, so this comes on its own each Monday. With the summary on, each working day brings every booking and booking request, and the week&#39;s first carries this recap: https://app.healdesk.test/c/radiance-med-spa/settings#alerts</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "61 conversations handled at Radiance Med Spa last week.",
+  "subject": "Your week with AYA",
+  "text": "Your week with AYA, Monday 5 October to Sunday 11 October:
+
+Conversations handled: 61
+Phone: 38 calls · 27 would otherwise have rung out
+Website chat: 23 chats
+Booking requests taken: 15 · 11 confirmed by your team
+Booked value at your listed prices: $3,125 across 9 bookings · 2 bookings priced per unit, not added in
+Deposits collected: 4 · $200
+
+See this week on Home: https://app.healdesk.test/c/radiance-med-spa
+
+Your daily summary is off, so this comes on its own each Monday. With the summary on, each working day brings every booking and booking request, and the week's first carries this recap: https://app.healdesk.test/c/radiance-med-spa/settings#alerts
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

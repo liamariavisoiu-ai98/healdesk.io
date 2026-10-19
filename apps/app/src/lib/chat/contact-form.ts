@@ -3,11 +3,13 @@ import { and, eq, gt, sql } from "drizzle-orm";
 
 import { bookingRequests, clinicChannels, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
 import { assistantMayAnswer, servicesEnded, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { describeError, log } from "@/lib/log";
 import { cleanFirstName, createBookingRequest } from "@/lib/meta/booking-requests";
 import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { formatPhone } from "@/lib/setup/help";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 import { upsertCallerContact } from "@/lib/voice/ingest";
 
@@ -40,6 +42,16 @@ import type { WebChatClinic } from "./web-chat";
  * failed to start. Never for a clinic that has left, whose Services have
  * ended (no agreement in effect, cancelled), that did not buy website chat,
  * or whose website chat has never been live: nothing may be kept for those.
+ * Nor while the PHI gate is closed (app_clinic_accepts_phi, asked through
+ * clinicAcceptsPhi): a practice whose re-sign to the BAA is unsigned, or
+ * whose agreement no longer covers it, would have the message refused by the
+ * database, so the form takes nothing and says to call the practice instead,
+ * and nothing is written or retried.
+ *
+ * A form that takes nothing carries `callLine`, the fixed "please call the
+ * practice on {number}" line the widget shows in its place, with the
+ * clinic's published number; a message sent to it anyway is refused with the
+ * same line.
  *
  * Rate-limited twice: per address and clinic in this process, and per clinic
  * from the requests themselves, so several web tasks cannot multiply it.
@@ -71,10 +83,33 @@ export type ContactFormOffer = {
   /** False: the form shows the practice's own number and takes nothing. */
   takesMessages: boolean;
   times: readonly { id: ContactTimeId; label: string }[];
+  /** Only while it takes nothing: the line the widget shows instead of the form. */
+  callLine?: string;
 };
 
 /** The form that takes nothing: the widget shows the practice's own number. */
 export const CLOSED_FORM: ContactFormOffer = { takesMessages: false, times: CONTACT_TIMES };
+
+/**
+ * The fixed line a form that takes nothing shows in its place: the
+ * practice's published number, the line every caller dials, or no number
+ * where it has none. Never anything a person typed.
+ */
+export function callPracticeLine(clinicName: string, publishedE164: string | null): string {
+  return publishedE164
+    ? `To reach ${clinicName}, please call the practice on ${formatPhone(publishedE164)}.`
+    : `To reach ${clinicName}, please call the practice directly.`;
+}
+
+/** The clinic's name and published number, for the line, inside its tenant. */
+async function callLineFor(tx: TenantTx, clinicName: string): Promise<string> {
+  const [row] = await tx.db
+    .select({ phone: clinics.publishedPhoneE164 })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  return callPracticeLine(clinicName, row?.phone ?? null);
+}
 
 /** The gate's refusals that leave nothing a message could be kept under. */
 function refusesMessages(decision: AnswerDecision): boolean {
@@ -102,17 +137,28 @@ async function webHasBeenLive(tx: TenantTx): Promise<boolean> {
   return clinic?.classification === "synthetic";
 }
 
+/**
+ * Whether a message may be kept for the clinic now, read inside its tenant:
+ * it has not left, the PHI gate takes its data, and its website chat has
+ * been live. The order matters only for cost; each refuses alone.
+ */
+async function keepsMessages(tx: TenantTx, lock: boolean): Promise<boolean> {
+  if (await clinicHasLeft(tx, { lock })) return false;
+  if (!(await clinicAcceptsPhi(tx.db, tx.clinicId))) return false;
+  return webHasBeenLive(tx);
+}
+
 /** Whether the form takes a message now, given the gate's decision for website chat. */
 export async function contactFormOffer(
-  clinic: Pick<WebChatClinic, "clinicId">,
+  clinic: Pick<WebChatClinic, "clinicId" | "name">,
   decision: AnswerDecision,
 ): Promise<ContactFormOffer> {
-  const takesMessages =
-    !refusesMessages(decision) &&
-    (await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) =>
-      (await clinicHasLeft(tx, { lock: false })) ? false : webHasBeenLive(tx),
-    ));
-  return { takesMessages, times: CONTACT_TIMES };
+  return withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => {
+    if (!refusesMessages(decision) && (await keepsMessages(tx, false))) {
+      return { takesMessages: true, times: CONTACT_TIMES };
+    }
+    return { takesMessages: false, times: CONTACT_TIMES, callLine: await callLineFor(tx, clinic.name) };
+  });
 }
 
 /**
@@ -120,7 +166,7 @@ export async function contactFormOffer(
  * failing): asked afresh, and closed if even that fails. Never throws.
  */
 export async function contactFormOfferSafely(
-  clinic: Pick<WebChatClinic, "clinicId">,
+  clinic: Pick<WebChatClinic, "clinicId" | "name">,
   now: Date = new Date(),
 ): Promise<ContactFormOffer> {
   try {
@@ -190,7 +236,8 @@ export function messageLeftLine(clinicName: string): string {
 export type LeaveMessageResult =
   | { status: "received"; reply: string }
   | { status: "invalid"; problems: FieldProblem[] }
-  | { status: "closed" }
+  /** Nothing may be kept now; `reply` is the line the widget shows instead, when it could be read. */
+  | { status: "closed"; reply?: string }
   | { status: "rate_limited" };
 
 /**
@@ -213,12 +260,14 @@ export async function leaveWebsiteMessage(
     now,
     actor: ACTOR,
   });
-  if (refusesMessages(decision)) return { status: "closed" };
-
   const { fields } = read;
   const label = CONTACT_TIMES.find((t) => t.id === fields.time)!.label;
   const outcome = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, async (tx) => {
-    if ((await clinicHasLeft(tx)) || !(await webHasBeenLive(tx))) return "closed" as const;
+    // Asked before anything is written: a closed PHI gate refuses here with
+    // the line, rather than in the database's trigger with an error.
+    if (refusesMessages(decision) || !(await keepsMessages(tx, true))) {
+      return { closed: await callLineFor(tx, clinic.name) };
+    }
     const [recent] = await tx.db
       .select({ n: sql<number>`count(*)::int` })
       .from(bookingRequests)
@@ -261,7 +310,7 @@ export async function leaveWebsiteMessage(
     });
     return "received" as const;
   });
-  if (outcome === "closed") return { status: "closed" };
+  if (typeof outcome === "object") return { status: "closed", reply: outcome.closed };
   if (outcome === "rate_limited") {
     log.warn("website message refused: the clinic's hourly limit", { clinicId: clinic.clinicId });
     return { status: "rate_limited" };

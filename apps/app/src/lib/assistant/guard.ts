@@ -545,6 +545,47 @@ export function guardAssistantReply(
   return { ok: true };
 }
 
+// -----------------------------------------------------------------------------
+// The clinic's greeting
+// -----------------------------------------------------------------------------
+
+/**
+ * A greeting that undoes the AI line before it: one that has AYA say she is a
+ * person or a member of staff ("I'm Sarah, a real person", "this is the
+ * front desk", "you're talking to a real person"), or that she is not an AI.
+ * An offer of a person is no claim to be one ("if you'd rather talk to a
+ * real person, just ask").
+ */
+const UNDOES_DISCLOSURE: readonly RegExp[] = [
+  /\b(?:i['’]?m|i am|this is|my name is|you['’]re (?:talking|speaking|chatting) (?:to|with)|you['’]ve reached)\s+(?:[\p{L}'’-]+,?\s+)?(?:(?:just|only|actually|really)\s+)?(?:(?:a|an|the|your|one of the|part of the|on the|a member of(?: the)?)\s+)?(?:real\s+|actual\s+|live\s+)?(?:person|human(?: being)?|receptionist|front desk|nurse|staff member|member of (?:the\s+)?(?:staff|team)|team member)\b/iu,
+  /\bnot (?:an? )?(?:ai|bot|robot|machine|computer|automated)\b/i,
+  /\b(?:a\s+)?real (?:person|human)\s+(?:here|speaking|answering)\b|^\W*real (?:person|human)\b/i,
+];
+
+export function undoesDisclosure(greeting: string): boolean {
+  return UNDOES_DISCLOSURE.some((pattern) => pattern.test(greeting));
+}
+
+export type GreetingRefusal = GuardRefusal | "undoes_disclosure";
+
+/**
+ * The clinic's own greeting, said after the locked AI line on every call and
+ * shown after it in every web chat (opening.ts): the same guard as any reply
+ * (guardAssistantReply: the never-say list, a price off the menu, card
+ * details, "HIPAA compliant", clinical content, a language no screen reads,
+ * a booking said to be made), and nothing that undoes the AI line. Asked
+ * when the clinic saves it (lib/setup/settings.ts) and again each time it
+ * is said, since the menu and the never-say list can change after it was
+ * saved; refused there, the default greeting is said instead.
+ */
+export function guardGreeting(
+  greeting: string,
+  facts: Pick<AssistantFacts, "neverSay"> & ScreenFacts,
+): { ok: true } | { ok: false; reason: GreetingRefusal } {
+  if (undoesDisclosure(greeting)) return { ok: false, reason: "undoes_disclosure" };
+  return guardAssistantReply(greeting, facts);
+}
+
 /** The line a refused reply becomes. */
 export function guardedLine(reason: GuardRefusal, clinicName: string): string {
   if (reason === "price") {

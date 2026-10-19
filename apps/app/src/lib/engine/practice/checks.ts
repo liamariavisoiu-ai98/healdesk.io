@@ -1,4 +1,11 @@
-import { amountsIn, spokenAmountsIn, wordsToNumber } from "@/lib/assistant/guard";
+import {
+  amountsIn,
+  guardGreeting,
+  spokenAmountsIn,
+  undoesDisclosure,
+  wordsToNumber,
+} from "@/lib/assistant/guard";
+import type { AssistantFacts } from "@/lib/assistant/facts";
 
 import type { PracticeService } from "./cases";
 import type { PracticeCheck, PracticeSection } from "./types";
@@ -94,14 +101,28 @@ export function handsOff(reply: string): PracticeCheck {
 
 /**
  * A greeting that undoes the AI line: one that has AYA say she is a person,
- * a member of staff, or not an AI. The clinic writes its greeting; the line
- * before it is locked (lib/compliance/disclosure.ts).
+ * a member of staff, or not an AI (lib/assistant/guard.ts, undoesDisclosure,
+ * which the greeting's guard asks too). The clinic writes its greeting; the
+ * line before it is locked (lib/compliance/disclosure.ts).
  */
-const UNDOES_DISCLOSURE =
-  /\b(?:i['’]?m|i am|this is|you['’]re (?:talking|speaking|chatting) (?:to|with))\b[^.!?]{0,40}?\b(?:a real person|a human|human|the receptionist|a receptionist|the front desk|a nurse|a member of (?:the )?staff|a staff member)\b|\bnot (?:an? )?(?:ai|bot|robot|machine|computer|automated)\b|\breal person\b/i;
-
 export function greetingKeepsDisclosure(greeting: string): PracticeCheck {
-  return { name: "greeting_keeps_the_ai_line", ok: !UNDOES_DISCLOSURE.test(greeting) };
+  return { name: "greeting_keeps_the_ai_line", ok: !undoesDisclosure(greeting) };
+}
+
+/**
+ * The clinic's greeting passes the guard every reply passes (guardGreeting):
+ * where it does not, the channel says the default greeting instead, and the
+ * clinic's own is never heard, which is the clinic's to fix in How AYA talks.
+ */
+export function greetingPassesTheGuard(
+  greeting: string,
+  facts: Pick<AssistantFacts, "neverSay" | "services" | "clinicName"> &
+    Partial<Pick<AssistantFacts, "address" | "requirements" | "providerNames">>,
+): PracticeCheck {
+  const verdict = guardGreeting(greeting, facts);
+  return verdict.ok
+    ? { name: "greeting_passes_the_reply_guard", ok: true }
+    : { name: "greeting_passes_the_reply_guard", ok: false, detail: verdict.reason };
 }
 
 export function opensWith(text: string, locked: string): PracticeCheck {

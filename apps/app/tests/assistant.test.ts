@@ -2,7 +2,8 @@ import { URGENT_LEAVE_NUMBER_LINE, URGENT_TEAM_TOLD_LINE } from "@healdesk/catal
 import { describe, expect, test } from "vitest";
 
 import type { AssistantFacts } from "@/lib/assistant/facts";
-import { amountsIn, cardNumberIn, guardAssistantReply, guardedLine } from "@/lib/assistant/guard";
+import { amountsIn, cardNumberIn, guardAssistantReply, guardedLine, guardGreeting } from "@/lib/assistant/guard";
+import { openingLine } from "@/lib/assistant/opening";
 import { assistantTurnContext, buildAssistantPrompt, priceText } from "@/lib/assistant/prompt";
 import { MODEL_CONFIG, modelRequest, readModelResponse } from "@/lib/assistant/responder";
 import {
@@ -371,6 +372,45 @@ describe("the guard", () => {
   test("a card number is cut; a phone number is not", () => {
     expect(cardNumberIn("card 4242-4242-4242-4242 thanks")).toEqual({ text: "card [card number removed] thanks", found: true });
     expect(cardNumberIn("call me on 415 555 0192")).toEqual({ text: "call me on 415 555 0192", found: false });
+  });
+});
+
+// The 19 October audit: the locked AI line always came first, but the
+// clinic's greeting after it was screened only for clinical content, and
+// was said on every call unguarded.
+describe("the clinic's greeting", () => {
+  test.each([
+    ["I'm Sarah, a real person.", "undoes_disclosure"],
+    ["Hi, this is the front desk at Radiance.", "undoes_disclosure"],
+    ["You're talking to a real person, not a bot.", "undoes_disclosure"],
+    ["Thanks for calling! Lip filler is just $400 this month.", "price"],
+    ["Thanks for calling. Our results are guaranteed results!", "never_say"],
+    ["Welcome! We're HIPAA compliant.", "hipaa_claim"],
+    ["Bienvenue chez nous, comment puis-je vous aider ?", "language"],
+  ])("gets the same guard as any reply: %j is refused", (greeting, reason) => {
+    expect(guardGreeting(greeting, FACTS)).toEqual({ ok: false, reason });
+  });
+
+  test.each([
+    "Thanks for calling Radiance Med Spa. How can I help you today?",
+    "How can I help you today?",
+    "Thanks for calling. If you'd rather talk to a real person, just ask.",
+    "Thanks for calling! A consultation is $150, and I can help you book one.",
+  ])("an ordinary greeting passes: %j", (greeting) => {
+    expect(guardGreeting(greeting, FACTS)).toEqual({ ok: true });
+  });
+
+  test("a refused greeting is never said: the default follows the AI line instead", () => {
+    const sarah = { ...FACTS, greeting: { phone: "I'm Sarah, a real person.", chat: "We're HIPAA compliant!" } };
+    const call = openingLine(sarah, "voice");
+    expect(call).toMatch(/^Hi, I'm an AI assistant for Radiance Med Spa/);
+    expect(call).not.toContain("Sarah");
+    expect(call.endsWith("Thanks for calling Radiance Med Spa. How can I help you today?")).toBe(true);
+    const chat = openingLine(sarah, "web_chat");
+    expect(chat).not.toContain("HIPAA");
+    expect(chat.endsWith("How can I help you today?")).toBe(true);
+    // A greeting that passes is said as written.
+    expect(openingLine(FACTS, "voice").endsWith("Thanks for calling.")).toBe(true);
   });
 });
 

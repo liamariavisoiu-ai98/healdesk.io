@@ -39,6 +39,7 @@ import {
 } from "./cases";
 import {
   greetingKeepsDisclosure,
+  greetingPassesTheGuard,
   handsOff,
   listedPriceChecks,
   offersConsultation,
@@ -152,6 +153,8 @@ type Brain = {
   locked: string;
   /** The clinic's own greeting, after the locked line. */
   greeting: string;
+  /** Whether the clinic's greeting passes the reply guard, or the channel says the default instead. */
+  greetingGuarded: PracticeCheck;
   /** Every figure the clinic configured: its prices and deposits. */
   figures: Set<number>;
   ask(
@@ -214,6 +217,10 @@ function assistantBrain(
     opening: openingLine(facts, channel),
     locked: disclosureFor({ clinicName: facts.clinicName, channel }),
     greeting: channel === "voice" ? facts.greeting.phone : facts.greeting.chat,
+    greetingGuarded: greetingPassesTheGuard(
+      channel === "voice" ? facts.greeting.phone : facts.greeting.chat,
+      facts,
+    ),
     figures: figuresOf(facts.services),
     vet,
     // As the fixed line reads it (lib/assistant/turn.ts personNumber): on a
@@ -287,6 +294,8 @@ function metaBrain(
     opening: null,
     locked: greeting,
     greeting: "",
+    // A Meta thread opens with the channel's own line, and no clinic greeting.
+    greetingGuarded: { name: "greeting_passes_the_reply_guard", ok: true },
     figures: figuresOf(facts.services),
     vet,
     urgentNumber: vet ? (facts.vetReferralPhone ?? null) : (facts.urgentPhone ?? facts.phone),
@@ -481,16 +490,20 @@ async function evaluate(
     };
     const opens = opensWith(brain.opening ?? "", brain.locked);
     const keeps = greetingKeepsDisclosure(brain.greeting);
-    if (!opens.ok)
-      return { ...base, status: "failed", checks: [opens, keeps], attribution: ENGINE };
-    if (!keeps.ok)
+    // The channel says the default where the guard refuses the clinic's
+    // greeting (lib/assistant/opening.ts), so the opening line still holds;
+    // the clinic's own greeting is never heard, which is the clinic's to fix.
+    const guarded = brain.greetingGuarded;
+    const checks = [opens, keeps, guarded];
+    if (!opens.ok) return { ...base, status: "failed", checks, attribution: ENGINE };
+    if (!keeps.ok || !guarded.ok)
       return {
         ...base,
         status: "failed",
-        checks: [opens, keeps],
+        checks,
         attribution: { kind: "clinic_data", section: "how_aya_talks", count: 1 },
       };
-    return { ...base, checks: [opens, keeps] };
+    return { ...base, checks };
   }
 
   if (kase.id === "listed_price" && !kase.service) {

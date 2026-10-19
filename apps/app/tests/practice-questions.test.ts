@@ -466,6 +466,25 @@ describe("a channel's run, through the brain the channel answers with", () => {
     });
   });
 
+  test("a greeting the guard refuses fails the disclosure too: the channel says the default, and the clinic's own is the clinic's to fix", async () => {
+    const facts = {
+      ...FACTS,
+      greeting: { ...FACTS.greeting, phone: "Thanks for calling! We're HIPAA compliant." },
+    };
+    const outcome = await runPracticeChannel({ channel: "voice", facts }, KNOWLEDGE, deps());
+    const disclosure = byId(outcome.cases, "disclosure");
+    expect(disclosure).toMatchObject({
+      status: "failed",
+      attribution: { kind: "clinic_data", section: "how_aya_talks", count: 1 },
+    });
+    expect(disclosure.checks).toContainEqual({
+      name: "greeting_passes_the_reply_guard",
+      ok: false,
+      detail: "hipaa_claim",
+    });
+    expect(disclosure.answered[0]).not.toContain("HIPAA");
+  });
+
   test("a judge's failure is a review, never a failed run; a judge that cannot be reached is an error", async () => {
     const failing = await runPracticeChannel(
       { channel: "web", facts: FACTS },

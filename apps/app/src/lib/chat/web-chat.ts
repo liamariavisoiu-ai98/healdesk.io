@@ -203,7 +203,7 @@ export function readToken(value: unknown, clinicId: string, now: Date = new Date
 // The conversation
 // -----------------------------------------------------------------------------
 
-function openingLine(facts: Pick<AssistantFacts, "clinicName" | "greeting">): string {
+function openingLine(facts: AssistantFacts): string {
   return assistantOpeningLine(facts, "web_chat");
 }
 

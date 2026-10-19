@@ -228,6 +228,11 @@ export const OPS_EVENTS = [
   // lib/notices/booking-alerts.ts (urgentAlertNotQueued), with the clinic,
   // the channel and the conversation when it has one. Ids only.
   "urgent_alert_not_queued",
+  // /sign-in/help's I3 access requests to hello@ reached the day's cap
+  // (lib/sign-in/help.ts ACCESS_REQUEST_DAILY_CAP): once a UTC day, with the
+  // cap as `count` and the day as `windowStart`; the requests past it are in
+  // the security log and in sign_in_help_unmatched.
+  "access_requests_capped",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

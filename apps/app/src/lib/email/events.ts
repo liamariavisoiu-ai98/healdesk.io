@@ -5,7 +5,7 @@ import { log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { countsAtSend, recordEmailEvent } from "./health";
+import { holdsNoLedgerRow, recordEmailEvent } from "./health";
 import { locksOutClinic, toSomeoneNamed } from "./kind-rules";
 
 /**
@@ -113,7 +113,7 @@ export async function applyEmailEvent(event: RelayedEmailEvent): Promise<{ recor
 
   // A kind no ledger row holds: its sends are counted at send time, and an
   // undeliverable event is counted here, with or without a clinic.
-  if (undeliverable && event.kind && countsAtSend(event.kind)) {
+  if (undeliverable && event.kind && holdsNoLedgerRow(event.kind)) {
     await recordEmailEvent({
       app: "app",
       kind: event.kind,

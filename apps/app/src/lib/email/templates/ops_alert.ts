@@ -445,6 +445,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Someone reported a complication or an urgent symptom, and the clinic's urgent alert could not be queued, so the clinic has not been emailed about it. They were given the fixed urgent reply (emergency services, then the clinic's own number), or, where the message could not be recorded at all, asked to contact the practice directly. Phone the clinic now: tell them an urgent message came in on the channel below at about the time this alert was raised; if its conversation was recorded, its transcript reaches their address when it ends. Then read apps/app's error lines for the failure, usually the database.",
   },
+  access_requests_capped: {
+    title: "Sign-in help reached today's cap for emails to hello@",
+    action:
+      "The I can't get in page has sent hello@ as many access requests today as it may, so the rest go unmailed until midnight UTC: the cap keeps the form from spending the day's emails that sign-in links and urgent alerts need. Read today's sign_in_help_unmatched alerts and the security log's sign-in help rows for the clinics that asked, and look for a flood from one place.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:

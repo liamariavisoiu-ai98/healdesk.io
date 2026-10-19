@@ -36,11 +36,23 @@ import { isDirectKind, KIND_SHAPE } from "./kind-rules";
 /** Kinds whose sends the ops log already counts for the digest: I1 and I4. */
 const COUNTED_IN_THE_OPS_LOG: ReadonlySet<string> = new Set(["ops_alert", "flag_alert"]);
 
-/** A direct kind with no ledger row and no ops-log row: its sends are counted here. */
-export function countsAtSend(kind: string): boolean {
+/**
+ * Kinds that write their own row here before they send, as the claim that
+ * dedupes and caps them, so sendEmail must not write a second: I3's access
+ * request (lib/sign-in/help.ts).
+ */
+const CLAIMED_BEFORE_SENDING: ReadonlySet<string> = new Set(["access_request"]);
+
+/** A direct kind no ledger row and no ops-log row holds: its email health is counted here. */
+export function holdsNoLedgerRow(kind: string): boolean {
   return (
     isDirectKind(kind) && !DIRECT_KIND_REGISTRY[kind].ledger && !COUNTED_IN_THE_OPS_LOG.has(kind)
   );
+}
+
+/** Whether sendEmail records this kind's sends: a kind no ledger holds, unless it claims its own. */
+export function countsAtSend(kind: string): boolean {
+  return holdsNoLedgerRow(kind) && !CLAIMED_BEFORE_SENDING.has(kind);
 }
 
 export type EmailEvent = {

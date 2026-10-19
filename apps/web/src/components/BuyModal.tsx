@@ -61,11 +61,21 @@ import { site } from "@/lib/site";
  * are also kept in sessionStorage, which is what brings a reload or Stripe's
  * cancel page back to them.)
  *
- * ## Nothing is preselected from here
+ * ## Preselected only from a pricing card
  *
  * The package is preselected only from a pricing card or a `?plan` link
- * (plan Part A3), and both of those reach /get-started. Opened from the
- * navbar or a demo, the flow starts with the buyer's own choice.
+ * (plan Part A3). A pricing card opens this flow in place, with its package
+ * at its steps and its interval already chosen (plan A1: `plan` and
+ * `interval` in the prefill); a `?plan` link reaches /get-started. Opened
+ * from the navbar or a demo, the flow starts with the buyer's own choice.
+ *
+ * A card's choice is the one prefill that may replace a flow already open:
+ * a buyer who closes the purchase, changes the calculator and presses its
+ * button again means the new package. So a different card choice remounts
+ * the flow, which restores every other answer from sessionStorage and puts
+ * the card's package over them, exactly as /get-started?plan= does on a
+ * fresh load. It can only happen while the dialog is closed, and dismissal
+ * is refused once a signature exists, so no signed purchase is remounted.
  *
  * ## Opened from a homepage demo
  *
@@ -128,7 +138,17 @@ export type BuyPrefill = {
   specialty?: string;
   /** Captured by the chat gate, the best prefill available. */
   email?: string;
+  /**
+   * A pricing card's plan (`voice-metachat-500-300`), or any id `planLink`
+   * reads: the package at its steps, chosen before the flow opened.
+   */
+  plan?: string;
+  /** The interval the card was priced in. Only with `plan`. */
+  interval?: BillingInterval;
 };
+
+/** A pricing card's choice, and the mount it belongs to: a new choice is a new mount. */
+type CardChoice = { plan: string; interval: BillingInterval; mount: number };
 
 /** The homepage demo this purchase opens from: see "Opened from a homepage demo" above. */
 export type BuyDemo = {
@@ -175,6 +195,7 @@ export function BuyModalProvider({
    */
   const [isOpen, setIsOpen] = useState(false);
   const [prefill, setPrefill] = useState<BuyPrefill>({});
+  const [card, setCard] = useState<CardChoice | null>(null);
   /** Asked once, on the first open; null until it answers. */
   const [answer, setAnswer] = useState<ModeAnswer | null>(null);
   const [progress, setProgress] = useState<CheckoutProgress>({
@@ -194,12 +215,23 @@ export function BuyModalProvider({
     // Seeds only the first mount. CheckoutFlow reads it in a lazy initialiser,
     // so reopening never overwrites a form the buyer has already filled in.
     if (next) setPrefill(next);
+    // A card's package is the exception: see "Preselected only from a
+    // pricing card" above.
+    if (next?.plan) {
+      const plan = next.plan;
+      const interval = next.interval ?? initialInterval;
+      setCard((current) =>
+        current && current.plan === plan && current.interval === interval
+          ? current
+          : { plan, interval, mount: (current?.mount ?? 0) + 1 },
+      );
+    }
     setMounted(true);
     // The dialog element is rendered from the first paint, so this works even
     // on the very first open, before CheckoutFlow has mounted inside it.
     if (!dialogRef.current?.open) dialogRef.current?.showModal();
     setIsOpen(true);
-  }, []);
+  }, [initialInterval]);
 
   const close = useCallback(() => {
     dialogRef.current?.close();
@@ -294,7 +326,9 @@ export function BuyModalProvider({
             />
           ) : (
             <CheckoutFlow
-              initialInterval={initialInterval}
+              key={card?.mount ?? 0}
+              initialPlan={card?.plan}
+              initialInterval={card?.interval ?? initialInterval}
               initialState={
                 answer.mode === "pilot"
                   ? {

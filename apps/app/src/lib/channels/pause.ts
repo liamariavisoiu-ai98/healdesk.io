@@ -321,6 +321,11 @@ async function queuePauseEmails(
  * can still move it: an operator's override, never the header's.
  */
 async function refuseWhileAgreementToSign(tx: TenantTx): Promise<void> {
+  // The pause lock first, which a re-sign opening holds on every clinic it
+  // pauses until it commits: asked before it, a press could find no re-sign,
+  // wait on the lock, and then lift the pause the re-sign had just set. Taken
+  // again by the write below, which a transaction may.
+  await lockPause(tx);
   if (await openResignHoldsPause(tx)) {
     throw new PauseError(
       "AYA stays paused until your updated agreement is signed. Sign it in Billing, under Your agreement.",

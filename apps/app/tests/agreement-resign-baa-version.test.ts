@@ -907,6 +907,56 @@ describeDb("re-signing a newer BAA over an older one", () => {
     });
   });
 
+  test("a press of the header racing the DPA re-sign waits for it, and then refuses rather than lift its pause", async () => {
+    const practice = await dpaPractice("bvrace");
+    const location = await seedLocation(practice, "bvracetwo", "dpa");
+    // Sessions waiting on the location's pause lock, and on no other.
+    const waiting = async (n: number) => {
+      for (let i = 0; i < 200; i += 1) {
+        const { rows } = await getMigratorPool().query<{ n: number }>(
+          `select count(*)::int as n from pg_locks
+            where locktype = 'advisory' and not granted
+              and ((classid::bigint << 32) | objid::bigint) = hashtextextended($1, 0)`,
+          [`ai-pause:${location}`],
+        );
+        if (rows[0]!.n >= n) return;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      throw new Error(`fewer than ${n} sessions ever waited on an advisory lock`);
+    };
+    // A third session holds the location's pause lock, as any write of its pause does.
+    const blocker = await getMigratorPool().connect();
+    try {
+      await blocker.query("begin");
+      await blocker.query(`select pg_advisory_xact_lock(hashtextextended($1, 0))`, [
+        `ai-pause:${location}`,
+      ]);
+      // Ops records Yes: the re-sign pauses the account, then waits for the location.
+      const recorded = yes(practice.clinicId);
+      await waiting(1);
+      // The location's staff press "turn back on" meanwhile.
+      const pressed = withTenant({ clinicId: location, actor: OPERATOR }, (tx) =>
+        resumeAya(tx, { actorLabel: "Front desk iPad" }),
+      ).then(
+        () => "resumed",
+        (error: unknown) => error,
+      );
+      await waiting(2);
+      await blocker.query("commit");
+      expect(await recorded).toMatchObject({ status: "recorded" });
+      expect(await pressed).toBeInstanceOf(PauseError);
+    } finally {
+      blocker.release();
+    }
+    expect(await pause(location)).toMatchObject({ ai_paused_by_label: AGREEMENT_PAUSE_LABEL });
+    const voice = await assistantMayAnswer({
+      clinicId: location,
+      channel: "voice",
+      actor: OPERATOR,
+    });
+    expect(voice).toMatchObject({ decision: "pass_through" });
+  });
+
   test("a BAA version's re-sign pauses no location either", async () => {
     const practice = await baaPractice("bvorgbaa");
     const location = await seedLocation(practice, "bvorgbaatwo");

@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { loadSetupState } from "@/lib/setup/state";
-import { publicUrl } from "@/lib/public-url";
+import { publicOrigin, publicUrl } from "@/lib/public-url";
 
 import { axeViolations } from "./setup/axe";
 import {
@@ -280,7 +280,7 @@ describeDb("the setup wizard's pages", () => {
       delete process.env.META_LOGIN_CONFIG_ID;
       const off = await wizard({ s: "channels" });
       expect(off).not.toContain("/api/meta/login");
-      expect(text(off)).toContain("Email hello@healdesk.io and we’ll connect them with you.");
+      expect(text(off)).toContain("Email hello@healdesk.io and we’ll connect Facebook and Instagram with you.");
 
       // A login that could not start comes back here and says why.
       const back = text(await wizard({ s: "channels", meta: "not_configured" }));
@@ -395,7 +395,7 @@ describeDb("the setup wizard's pages", () => {
       return new Request("https://app.healdesk.test/api/meta/login", {
         method: "POST",
         body: new URLSearchParams(fields),
-        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "vitest" },
+        headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "vitest", origin: publicOrigin() },
       });
     }
 

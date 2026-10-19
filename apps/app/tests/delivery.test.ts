@@ -409,6 +409,9 @@ describeDb("delivery", () => {
           "booking-request-expiry",
           "booking-requirements-defaults",
           "connection-health",
+          // Every six hours from hour 2: Meta logins that have been dropped
+          // are marked so the portal offers Reconnect (lib/meta/token-watch.ts).
+          "meta-token-watch",
           "monthly-report",
           "nightly-sync",
           "weekly-recap",
@@ -469,6 +472,7 @@ describeDb("delivery", () => {
         if (job === "address-changes") continue; // a sweep: applies only the changes whose 72 hours are up
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
+        if (job === "meta-token-watch") continue; // a check, not a switched job: marks only logins Meta says are dead
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
         expect(status, job).toBe("disabled");
       }

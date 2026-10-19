@@ -30,7 +30,7 @@ export const PORTAL_META_OUTCOMES: Record<string, { ok: boolean; text: string }>
   whatsapp_connected: { ok: true, text: "WhatsApp is connected. AYA can reply there now." },
   not_configured: {
     ok: false,
-    text: "Connecting this isn't switched on here. Email hello@healdesk.io and we'll connect it with you.",
+    text: "Connecting Facebook and Instagram isn't switched on here. Email hello@healdesk.io and we'll connect them with you.",
   },
   throttled: { ok: false, text: "That was tried several times in a short space of time. Wait a few minutes and try again." },
   cancelled: { ok: false, text: "Facebook's sign-in was closed before it finished, so nothing was changed. You can try again." },

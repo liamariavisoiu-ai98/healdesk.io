@@ -13,7 +13,8 @@ import { readSettingsView } from "@/lib/portal/settings-view";
 import { readSetupState } from "@/lib/setup/state";
 import { withTenant } from "@/lib/tenant";
 
-import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { closePools, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { inTenant } from "./setup/factories";
 import { provisionPortalClinic, type PortalClinic } from "./setup/portal-clinic";
 
 /**
@@ -172,11 +173,13 @@ const view = (clinic: PortalClinic) =>
   withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) => readMetaConnectView(tx.db, tx.clinicId));
 
 async function brokenRows(clinic: PortalClinic) {
-  const { rows } = await getMigratorPool().query<{ provider: string; broken: boolean; last_error: string | null; status: string }>(
-    `select provider, broken_at is not null as broken, last_error, status from provider_connections where clinic_id = $1 order by provider`,
-    [clinic.clinicId],
+  return inTenant(clinic.clinicId, async (c) =>
+    (
+      await c.query<{ provider: string; broken: boolean; last_error: string | null; status: string }>(
+        `select provider, broken_at is not null as broken, last_error, status from provider_connections order by provider`,
+      )
+    ).rows,
   );
-  return rows;
 }
 
 describeDb("a dropped Meta login", () => {
@@ -199,9 +202,8 @@ describeDb("a dropped Meta login", () => {
 
     // A second mark is a no-op: one audit row, however many sends fail.
     await markMetaConnectionBroken(clinic.clinicId, id, "token_invalid");
-    const audits = await getMigratorPool().query(
-      `select 1 from audit_log where clinic_id = $1 and metadata->>'outcome' = 'needs_reconnect'`,
-      [clinic.clinicId],
+    const audits = await inTenant(clinic.clinicId, (c) =>
+      c.query(`select 1 from audit_log where metadata->>'outcome' = 'needs_reconnect'`),
     );
     expect(audits.rowCount).toBe(1);
 

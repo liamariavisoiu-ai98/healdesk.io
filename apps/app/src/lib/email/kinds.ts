@@ -188,8 +188,11 @@ export const NOTICE_KIND_REGISTRY = {
   // L31: suspended for a legal or security reason. Critical, like billing's
   // `suspended`: calls go to the direct line from then on.
   suspended_for_cause: kind("L31", "transactional", "critical", null, "any_hour", "plan"),
-  // L32: a pointer to a patient's request, which ops records by hand.
-  patient_request: kind("L32", "transactional", "normal", null, "any_hour", "plan"),
+  // L32: a pointer to a patient's request, which ops records by hand. It
+  // waits for daytime: its clock is five business days, its reminders fall
+  // due at the first hourly run of a clinic-local day, and a pointer at 3 am
+  // helps nobody (lib/patient-rights/patient-requests.ts).
+  patient_request: kind("L32", "transactional", "normal", null, "daytime", "plan"),
   // L33: changes to features the clinic already has. Transactional, never
   // promotional, with its own one-click switch.
   product_update: kind("L33", "transactional", "normal", "product_updates", "daytime", "plan"),

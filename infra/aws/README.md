@@ -698,6 +698,7 @@ bash run-task.sh patient-export CLINIC_ID   # offboarding
 bash run-task.sh patient-export CLINIC_ID CONTACT_ID WHO_ASKED   # one person's bundle
 bash run-task.sh erase-person CLINIC_ID CONTACT_ID WHO_ASKED you@healdesk.io   # [RECEIVED_AT]
 bash run-task.sh amend-contact CLINIC_ID CONTACT_ID FIELDS_TO_CLEAR WHO_ASKED you@healdesk.io
+bash run-task.sh patient-request CLINIC_ID KIND you@healdesk.io   # [RECEIVED_AT] [CONTACT_ID]
 bash run-task.sh demo-clinic "Fictional Practice" "Your Name" you@healdesk.io   # once, ever
 bash run-task.sh channels-link CLINIC_ID   # [meta|whatsapp] [days, 1 to 30]
 ```
@@ -752,6 +753,14 @@ erasure the day the request came (an ISO date), for an amendment the fields to c
 `phone`, `email`; new values wait for the portal). Each has the runtime role's `DATABASE_URL`,
 erasure also `HEALDESK_IDENTIFIER_REF_KEY`, and no task role: neither calls an AWS service. Their
 result (the request id, counts, any deadline) is in the task's log stream, ids and numbers only.
+`patient-request` records a request a patient made to healdesk itself and passes it to the
+practice (`apps/app/scripts/ops-patient-request.ts`; `docs/handover.md`, "A request a patient makes
+to us"): `run-task.sh` passes the clinic's id, what was asked (`access`, `amendment`, `accounting`,
+`deletion` or `other`), the operator's work address and, optionally, the day the request came and
+a contact's id, nothing of the patient's. It has the runtime role's `DATABASE_URL`,
+`BETTER_AUTH_URL` for the link its email (L32) carries, and no task role. Its result (the
+request's id, the day the practice is asked to mark it received by, and what is left to do by
+hand) is in the task's log stream.
 `reapply-erasures` takes no arguments: after a restore it deletes again every person whose
 deletion the restored database still remembers (`docs/handover.md`, "Restoring", step 5), with the
 runtime URL and `HEALDESK_IDENTIFIER_REF_KEY`, and exits 1 if any clinic could not be done.

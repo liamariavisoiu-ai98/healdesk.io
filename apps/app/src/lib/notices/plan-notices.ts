@@ -14,6 +14,7 @@ import type { ChannelReadyPayload } from "@/lib/email/templates/channel_ready";
 import type { ExportReadyPayload } from "@/lib/email/templates/export_ready";
 import type { ExportReminderPayload } from "@/lib/email/templates/export_reminder";
 import type { PassThroughEndingPayload } from "@/lib/email/templates/pass_through_ending";
+import type { PatientRequestPayload } from "@/lib/email/templates/patient_request";
 import type { DailySummaryPayload } from "@/lib/email/templates/daily_summary";
 import type {
   GuaranteeClaimReceivedPayload,
@@ -133,7 +134,12 @@ export type PlanNoticePayloads = {
   website_changes: WebsiteChangesPayload;
   /** Dedupe `support_request:<escalation id>`: once per escalation (lib/support/escalate.ts). */
   support_request: SupportRequestPayload;
-  patient_request: OwedPayload;
+  /**
+   * Dedupe `patient_request:<id>` when the operator records it, and
+   * `patient_request:<id>:reminder:<1|2>` for the sweep's two reminders
+   * (lib/patient-rights/patient-requests.ts): once each.
+   */
+  patient_request: PatientRequestPayload;
   /**
    * After cancellation (lib/offboarding/after-cancellation.ts). Dedupe
    * `pass_through_ending:<7|1>`: once a week ahead and once a day ahead.

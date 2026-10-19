@@ -416,6 +416,10 @@ describeDb("delivery", () => {
           // switched job, because the practice was told AYA is paused until
           // it signs.
           "agreement-resigns",
+          // L32's reminders and ops alerts (drizzle/0093): a sweep, not a
+          // switched job, because the BAA's five business days wait for no
+          // switch.
+          "patient-requests",
           // The website re-reads (the website_drift migration): the missing
           // and corrected reads and the minute queue's backstop, behind
           // site-reads; the monthly drift check, behind website-drift.
@@ -438,6 +442,7 @@ describeDb("delivery", () => {
         if (job === "destruction-notices") continue; // a sweep: E6 to an address captured at destruction
         if (job === "after-cancellation") continue; // a sweep: queues E3–E5 for clinics whose service ended
         if (job === "agreement-resigns") continue; // a sweep: L22's reminders for the open re-signs only
+        if (job === "patient-requests") continue; // a sweep: L32's reminders for the unmarked requests only
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -450,6 +455,7 @@ describeDb("delivery", () => {
       expect(jobs["destruction-notices"]).toBe("ok");
       expect(jobs["after-cancellation"]).toBe("ok");
       expect(jobs["agreement-resigns"]).toBe("ok");
+      expect(jobs["patient-requests"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

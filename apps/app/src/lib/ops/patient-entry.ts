@@ -22,6 +22,14 @@ import {
 } from "@/lib/patient-rights/erasure";
 import { amendContact } from "@/lib/patient-rights/export";
 import {
+  isPatientRequestKind,
+  PATIENT_REQUEST_KIND_LABELS,
+  PatientRequestContactNotFound,
+  PatientRequestHostLapsed,
+  recordPatientRequest,
+  type PatientRequestKind,
+} from "@/lib/patient-rights/patient-requests";
+import {
   isPatientRequester,
   REQUESTER_LABELS,
   type PatientRequester,
@@ -30,7 +38,9 @@ import { withTenant } from "@/lib/tenant";
 
 /**
  * Patient data entered by an operator: a deletion request's number and
- * address, an amendment's words, a contact's corrected details.
+ * address, an amendment's words, a contact's corrected details; and the one
+ * entry that takes no patient data at all, a patient's own request passed to
+ * the practice (L32, ops:patient-request, by ids and closed choices only).
  *
  * These are entered on the app host, never through apps/web. The care page
  * used to take them in forms, and each crossed a Vercel server action into
@@ -388,6 +398,116 @@ export async function amendContactFromShell(input: {
     fields: fields.join(","),
   });
   return { status: "corrected", fields };
+}
+
+// -----------------------------------------------------------------------------
+// A request from a patient, passed to the practice (L32)
+// -----------------------------------------------------------------------------
+
+export type ShellPatientRequestOutcome =
+  | {
+      status: "recorded";
+      requestId: string;
+      /** The day the practice is asked to mark it received by: the fifth business day. */
+      replyBy: string;
+      /** Whether a contact was named; when not, the operator tells the practice who asked, by telephone. */
+      contactNamed: boolean;
+      /** Whether L32 carries its link (false only where no public origin is set). */
+      linked: boolean;
+    }
+  | { status: "error"; message: string };
+
+/** The BAA gate's refusal (app_enforce_baa_gate), found down the error's causes. */
+function baaGateRefused(error: unknown): boolean {
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth += 1) {
+    if (typeof current !== "object") return false;
+    const { code, message } = current as { code?: unknown; message?: unknown };
+    if (code === "23514" && typeof message === "string" && /refusing to write PHI/.test(message)) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
+ * Record a request a patient made to healdesk itself about their
+ * information at a practice, and queue L32 to the practice (BAA 1.5.1
+ * clause 14; lib/patient-rights/patient-requests.ts). By ids and closed
+ * choices only: the clinic, what was asked, the contact it is about when the
+ * operator can name one, and when it reached us. Nothing of the patient's
+ * is taken here, typed or otherwise: the reply says what to tell the
+ * practice by telephone instead.
+ */
+export async function recordPatientRequestFromShell(input: {
+  clinicId: string;
+  kind: string | undefined;
+  contactId?: string;
+  receivedAt?: string;
+  operator: ShellOperator;
+}): Promise<ShellPatientRequestOutcome> {
+  const error = (message: string): ShellPatientRequestOutcome => ({ status: "error", message });
+  const byTelephone =
+    "Pass the request to the practice by telephone, on its published number, within five business days of when it reached us.";
+  const clinic = await clinicFor(input.clinicId);
+  if (!clinic) return error("No such clinic.");
+  if (clinic.destroyedAt) {
+    return error(`This clinic's data has already been destroyed, so nothing is recorded here. ${byTelephone}`);
+  }
+  if (!isPatientRequestKind(input.kind)) {
+    return error(
+      `What did they ask for? One of: ${Object.entries(PATIENT_REQUEST_KIND_LABELS)
+        .map(([id, label]) => `${id} (${label})`)
+        .join("; ")}.`,
+    );
+  }
+  const contactId = input.contactId?.trim() || undefined;
+  if (contactId && !UUID_SHAPED.test(contactId)) return error("A contact's id is a uuid.");
+  const receivedAt = pastMoment(input.receivedAt, "When did the request reach us?");
+  if (receivedAt && !(receivedAt instanceof Date)) return error(receivedAt.error);
+
+  let recorded: Awaited<ReturnType<typeof recordPatientRequest>>;
+  try {
+    recorded = await withTenant({ clinicId: clinic.id, actor: actor(input.operator) }, (tx) =>
+      recordPatientRequest(tx, {
+        kind: input.kind as PatientRequestKind,
+        contactId: contactId ?? null,
+        receivedAt,
+        recordedBy: input.operator.label,
+      }),
+    );
+  } catch (thrown) {
+    if (thrown instanceof PatientRequestContactNotFound) return error(thrown.message);
+    if (thrown instanceof PatientRequestHostLapsed) {
+      return error(
+        `AWS's or the database host's business associate agreement is not in force (see /admin/compliance), so nothing new is kept where patient data lives, and nothing is recorded. ${byTelephone}`,
+      );
+    }
+    if (baaGateRefused(thrown)) {
+      return error(
+        `This clinic takes no new patient data: it is production without an agreement in effect that covers its data, or it has started to leave. Nothing is recorded. ${byTelephone}`,
+      );
+    }
+    throw thrown;
+  }
+  log.info("patient request recorded", {
+    clinicId: clinic.id,
+    requestId: recorded.id,
+    kind: input.kind,
+  });
+  await securityEvent(input.operator, "patient_request_recorded", {
+    clinicSlug: clinic.slug,
+    requestId: recorded.id,
+    kind: input.kind,
+    contactNamed: recorded.contactNamed,
+  });
+  return {
+    status: "recorded",
+    requestId: recorded.id,
+    replyBy: recorded.replyBy,
+    contactNamed: recorded.contactNamed,
+    linked: recorded.linked,
+  };
 }
 
 // -----------------------------------------------------------------------------

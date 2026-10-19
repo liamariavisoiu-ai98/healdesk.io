@@ -370,6 +370,7 @@ locals {
     patient_export   = local.export_task_family
     erase_person     = "${local.name}-erase-person"
     amend_contact    = "${local.name}-amend-contact"
+    patient_request  = "${local.name}-patient-request"
     reapply_erasures = "${local.name}-reapply-erasures"
     demo_clinic      = "${local.name}-demo-clinic"
     channels_link    = "${local.name}-channels-link"

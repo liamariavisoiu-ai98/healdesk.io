@@ -17,7 +17,7 @@ import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door"
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
-import { erasePerson } from "@/lib/patient-rights/erasure";
+import { erasePerson, reapplyErasures } from "@/lib/patient-rights/erasure";
 import { exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { purgeClinic } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
@@ -279,15 +279,58 @@ describeDb("handovers: the table", () => {
       exportPatient(tx, { phone: "+14155550161", requestedBy: "practice" }),
     );
     expect(person.handovers).toHaveLength(2);
+    // And the chats behind them, which erasure treats as theirs.
+    expect(person.conversations.map((v) => v.id).sort()).toEqual([alone, shared].sort());
     const clinic = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => exportClinic(tx, "practice", "portal_download"));
     expect(clinic.handovers).toHaveLength(2);
 
-    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+    const erased = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
       erasePerson(tx, { phone: "+14155550161", requestedBy: "practice" }),
     );
+    expect(erased.deleted).toMatchObject({ handovers: 2, conversations: 1 });
     expect(await handoverRows(c.clinicId)).toEqual([]);
     const left = await inTenant(c.clinicId, async (q) => (await q.query<{ id: string }>(`select id from conversations order by id`)).rows.map((r) => r.id));
     expect(left).toEqual([shared]);
+  });
+
+  test("on the host a person is named by an id: a handover's, or its chat's, names someone who only left a call-back number", async () => {
+    const c = await seedClinic("handover-by-id");
+    const chat = await conversationRow(c.clinicId, { channel: "web_chat" });
+    await raise(c.clinicId, { channel: "web_chat", conversationId: chat });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      attachHandoverCaller(tx, { conversationId: chat, capture: { firstName: "Ari", phone: "415 555 0171" } }),
+    );
+    const [row] = await handoverRows(c.clinicId);
+    const bundle = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      exportPatient(tx, { contactId: row!.id, requestedBy: "practice" }),
+    );
+    expect(bundle.handovers.map((h) => h.id)).toEqual([row!.id]);
+    expect(bundle.conversations.map((v) => v.id)).toEqual([chat]);
+    // By the chat's conversation id, the address the practice sees.
+    const erased = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      erasePerson(tx, { contactId: chat, requestedBy: "practice" }),
+    );
+    expect(erased.deleted).toMatchObject({ handovers: 1, conversations: 1 });
+    expect(await handoverRows(c.clinicId)).toEqual([]);
+
+    // A restore brings the row back: re-applying the erasure takes it again.
+    const back = await conversationRow(c.clinicId, { channel: "web_chat" });
+    const pool = getMigratorPool();
+    await pool.query(`alter table handovers disable trigger handovers_guard`);
+    try {
+      await inTenant(c.clinicId, (q) =>
+        q.query(
+          `insert into handovers (clinic_id, channel, conversation_id, callback_phone, callback_first_name, created_at)
+           values ($1, 'web_chat', $2, '+14155550171', 'Ari', now() - interval '1 hour')`,
+          [c.clinicId, back],
+        ),
+      );
+    } finally {
+      await pool.query(`alter table handovers enable trigger handovers_guard`);
+    }
+    await getMigratorPool().query(`update conversations set started_at = now() - interval '1 hour' where id = $1`, [back]);
+    expect((await reapplyErasures()).failures).toBe(0);
+    expect(await handoverRows(c.clinicId)).toEqual([]);
   });
 
   test("a call's handover the database missed linking is linked before anything relies on it", async () => {

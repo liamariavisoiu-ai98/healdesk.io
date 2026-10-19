@@ -16,7 +16,7 @@ import {
   type ErasureVendorStamp,
 } from "@/db/schema";
 import { clearHoldsForErasure } from "@/lib/booking/holds";
-import { linkCallHandovers } from "@/lib/handovers/record";
+import { handoverCallback, linkCallHandovers } from "@/lib/handovers/record";
 import { identifierRef } from "@/lib/identifier-ref";
 import { addBusinessDays } from "@/lib/incidents/incidents";
 import { describeError, log } from "@/lib/log";
@@ -191,6 +191,8 @@ export type ErasureCounts = {
   holds: number;
   /** Deposits of their appointments, with the Connect events that last touched them (drizzle/0067). */
   deposits: number;
+  /** Their requests for a person, found by the call-back number they gave (drizzle/0085). */
+  handovers: number;
 };
 
 function noCounts(): ErasureCounts {
@@ -209,6 +211,7 @@ function noCounts(): ErasureCounts {
     amendments: 0,
     holds: 0,
     deposits: 0,
+    handovers: 0,
   };
 }
 
@@ -642,6 +645,9 @@ async function eraseSurveyed(
   for (const phone of s.phones)
     add(counts, await eraseContact(tx, { phone, requestedBy, before }));
 
+  for (const email of s.emails)
+    add(counts, await eraseContact(tx, { email, requestedBy, before }));
+
   // A web chat's handover holds the number the visitor gave for the call
   // back, on the handover and on no contact, so the contacts above never
   // reach it: it goes by the number, and so does its chat, with its queued
@@ -658,6 +664,7 @@ async function eraseSurveyed(
         ),
       )
       .returning({ conversationId: handovers.conversationId });
+    counts.handovers += asked.length;
     const chats = asked.map((h) => h.conversationId).filter((id): id is string => id !== null);
     if (chats.length) {
       const gone = await tx.db
@@ -678,8 +685,6 @@ async function eraseSurveyed(
       counts.conversations += gone.length;
     }
   }
-  for (const email of s.emails)
-    add(counts, await eraseContact(tx, { email, requestedBy, before }));
 
   // A call with no caller ID: no contact led to its conversation, but its
   // raw payload named the person, so the conversation it became goes too,
@@ -877,9 +882,13 @@ export async function erasePerson(
       .from(contacts)
       .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, input.contactId)))
       .limit(1);
-    if (!contact) throw new ErasureContactNotFound();
-    phone = contact.phone ?? undefined;
-    email = contact.email?.toLowerCase() ?? undefined;
+    // Someone who only asked for a person in web chat has no contact: the
+    // number they left is on their handover, named by its id in the same
+    // place (drizzle/0085). Ids are UUIDs, so one cannot be the other's.
+    const callback = contact ? null : await handoverCallback(tx, input.contactId);
+    if (!contact && !callback) throw new ErasureContactNotFound();
+    phone = contact ? (contact.phone ?? undefined) : callback!;
+    email = contact?.email?.toLowerCase() ?? undefined;
     if (!phone && !email) {
       throw new Error("That contact has no telephone number or email address to find the person by.");
     }
@@ -1138,6 +1147,19 @@ async function recover(tx: TenantTx, refs: ReadonlySet<string>, before: Date): P
       )),
   ];
   for (const r of evidence) candidatePhones.add(r.phone);
+  // A web chat visitor's call-back number, which no contact holds (drizzle/0085).
+  for (const r of await tx.db
+    .select({ phone: handovers.callbackPhone })
+    .from(handovers)
+    .where(
+      and(
+        eq(handovers.clinicId, tx.clinicId),
+        isNotNull(handovers.callbackPhone),
+        lte(handovers.createdAt, before),
+      ),
+    )) {
+    if (r.phone) candidatePhones.add(r.phone);
+  }
 
   return {
     phones: [...candidatePhones].filter((p) => refs.has(phoneRef(p))),

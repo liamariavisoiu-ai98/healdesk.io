@@ -17,7 +17,7 @@ import {
   transactions,
   webhookEvents,
 } from "@/db/schema";
-import { linkCallHandovers } from "@/lib/handovers/record";
+import { handoverCallback, linkCallHandovers } from "@/lib/handovers/record";
 import type { TenantTx } from "@/lib/tenant";
 
 import { amendmentsFor, withAmendments, type RecordAmendment } from "./amendments";
@@ -266,9 +266,12 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
       .from(contacts)
       .where(and(eq(contacts.clinicId, tx.clinicId), eq(contacts.id, contactId)))
       .limit(1);
-    if (!contact) throw new ExportContactNotFound();
-    phone = contact.phone ?? undefined;
-    email = contact.email?.toLowerCase() ?? undefined;
+    // A handover's id names someone who only left a call-back number in web
+    // chat, which no contact holds (drizzle/0085), as erasure does.
+    const callback = contact ? null : await handoverCallback(tx, contactId);
+    if (!contact && !callback) throw new ExportContactNotFound();
+    phone = contact ? (contact.phone ?? undefined) : callback!;
+    email = contact?.email?.toLowerCase() ?? undefined;
   } else if (!phone && !email) {
     throw new Error("A phone number, an email address or a contact's id is required.");
   }
@@ -311,21 +314,6 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
   const bookings = ids.length
     ? (await tx.db.select().from(bookingRequests).where(and(eq(bookingRequests.clinicId, tx.clinicId), inArray(bookingRequests.contactId, ids)))).map(withoutDigest)
     : [];
-  const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((c) => c.id));
-  const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
-  const appointmentAmendments = await amendmentsFor(tx, "appointment", appts.map((a) => a.id));
-  const holds = ids.length
-    ? await tx.db
-        .select({ id: slotHolds.id, startsAt: slotHolds.startsAt, endsAt: slotHolds.endsAt, status: slotHolds.status, createdAt: slotHolds.createdAt })
-        .from(slotHolds)
-        .where(and(eq(slotHolds.clinicId, tx.clinicId), inArray(slotHolds.contactId, ids)))
-    : [];
-  const deposits = appts.length
-    ? await tx.db
-        .select(DEPOSIT_COLUMNS)
-        .from(depositPayments)
-        .where(and(eq(depositPayments.clinicId, tx.clinicId), inArray(depositPayments.appointmentId, appts.map((a) => a.id))))
-    : [];
   // A call's handover the database missed linking is linked first, so it is
   // found through its conversation like the rest.
   await linkCallHandovers(tx);
@@ -344,6 +332,34 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
             ),
           )
       : [];
+  // The web chat behind a call-back handover is the person's too, as erasure
+  // treats it: the conversation row holds no contact to find it by.
+  const known = new Set(convos.map((v) => v.id));
+  const chatIds = [...new Set(asked.map((h) => h.conversationId).filter((id): id is string => id !== null && !known.has(id)))];
+  if (chatIds.length) {
+    convos.push(
+      ...(await tx.db
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.clinicId, tx.clinicId), inArray(conversations.id, chatIds), eq(conversations.channel, "web_chat")))),
+    );
+  }
+  const conversationAmendments = await amendmentsFor(tx, "conversation", convos.map((c) => c.id));
+  const bookingAmendments = await amendmentsFor(tx, "booking_request", bookings.map((b) => b.id));
+  const appointmentAmendments = await amendmentsFor(tx, "appointment", appts.map((a) => a.id));
+  const holds = ids.length
+    ? await tx.db
+        .select({ id: slotHolds.id, startsAt: slotHolds.startsAt, endsAt: slotHolds.endsAt, status: slotHolds.status, createdAt: slotHolds.createdAt })
+        .from(slotHolds)
+        .where(and(eq(slotHolds.clinicId, tx.clinicId), inArray(slotHolds.contactId, ids)))
+    : [];
+  const deposits = appts.length
+    ? await tx.db
+        .select(DEPOSIT_COLUMNS)
+        .from(depositPayments)
+        .where(and(eq(depositPayments.clinicId, tx.clinicId), inArray(depositPayments.appointmentId, appts.map((a) => a.id))))
+    : [];
+
 
   const everyId = [
     ...ids,

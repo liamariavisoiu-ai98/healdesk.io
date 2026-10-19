@@ -728,6 +728,11 @@ recorded by CloudTrail. So on the AWS host: by contact id, through run-task.sh o
 - `ops:erase-person` runs as a one-off task with `HEALDESK_ERASURE_CLINIC_ID`,
   `HEALDESK_ERASURE_CONTACT_ID`, `HEALDESK_ERASURE_REQUESTED_BY`, optionally
   `HEALDESK_ERASURE_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR`.
+  Someone who only asked AYA for a person in website chat and left a number has no
+  contact: the number is on their handover (drizzle/0085), and the id of their chat's
+  conversation (the address of that conversation in the practice's portal), or the
+  handover's own id, goes where a contact's id is asked for, here and in
+  `patient-export`'s `HEALDESK_EXPORT_CONTACT_ID`.
 - `ops:amend-contact` runs as one only to clear fields, with `HEALDESK_AMEND_CLINIC_ID`,
   `HEALDESK_AMEND_CONTACT_ID`, `HEALDESK_AMEND_CLEAR`, `HEALDESK_AMEND_REQUESTED_BY` and
   `HEALDESK_OPS_OPERATOR`.

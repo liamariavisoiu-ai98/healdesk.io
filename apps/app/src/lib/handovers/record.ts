@@ -1,5 +1,5 @@
 import { toE164 } from "@healdesk/connectors";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { conversations, handovers, type HandoverPlatform } from "@/db/schema";
 import type { BookingCapture } from "@/lib/assistant/turn";
@@ -168,4 +168,25 @@ export async function linkCallHandovers(tx: TenantTx): Promise<number> {
     )
     .returning({ id: handovers.id });
   return linked.length;
+}
+
+/**
+ * The call-back number a web chat handover holds, by the handover's id or
+ * its chat's conversation id (the address the practice sees in its portal):
+ * how an erasure or an export names someone who only asked for a person and
+ * left a number, whom no contact holds. Null for any other id.
+ */
+export async function handoverCallback(tx: TenantTx, id: string): Promise<string | null> {
+  const [row] = await tx.db
+    .select({ phone: handovers.callbackPhone })
+    .from(handovers)
+    .where(
+      and(
+        eq(handovers.clinicId, tx.clinicId),
+        isNotNull(handovers.callbackPhone),
+        or(eq(handovers.id, id), eq(handovers.conversationId, id)),
+      ),
+    )
+    .limit(1);
+  return row?.phone ?? null;
 }

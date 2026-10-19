@@ -161,6 +161,11 @@ export function demoSiteProfile(session: DemoSession, website: string): SiteProf
       .map((f) => ({ question: clean(f.question), answer: clean(f.answer) }))
       .filter((f): f is { question: string; answer: string } => f.question !== null && f.answer !== null)
       .slice(0, LIMIT.faqs),
+    // The demo row keeps no insurance answer (lib/demo/profile.ts has no such
+    // field), so this hides nothing: it is the honest "not read". apps/app
+    // reads the website again for exactly this question when the practice is
+    // one the answer matters for (the `insurance` re-read, wave 2 R11: a DPA
+    // "No" practice whose site may say it accepts insurance).
     acceptsInsurance: "unknown",
     practiceKind,
     dropped: 0,

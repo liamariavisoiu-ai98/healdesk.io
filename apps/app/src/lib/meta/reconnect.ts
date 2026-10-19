@@ -3,7 +3,7 @@ import { and, eq, inArray, isNotNull, isNull, lte, sql } from "drizzle-orm";
 import type { Transaction } from "@/db";
 import { providerConnections } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
-import { eraseCredentials } from "@/lib/connections/store";
+import { eraseCredentials, withCredentials } from "@/lib/connections/store";
 import { env } from "@/lib/env";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -178,6 +178,34 @@ export async function replacesConnectedAsset(
     const current = rows.find((r) => r.provider === META_PROVIDERS[i.platform]);
     return current !== undefined && current.externalId !== i.externalId;
   });
+}
+
+/**
+ * The registration PIN sealed with the clinic's WhatsApp connection, when
+ * that connection is the number `phoneNumberId`. Registering a number again
+ * needs the two-step PIN it was registered with (graph.ts,
+ * registerPhoneNumber): a fresh one is refused by Meta, and every retry with
+ * another fresh one is a wrong guess against the number. So a reconnect of
+ * the same number reuses this one. Undefined for a first connect, a
+ * different number, or a connection whose credentials were erased.
+ */
+export async function storedRegistrationPin(tx: TenantTx, phoneNumberId: string): Promise<string | undefined> {
+  const [row] = await tx.db
+    .select({ id: providerConnections.id })
+    .from(providerConnections)
+    .where(
+      and(
+        eq(providerConnections.clinicId, tx.clinicId),
+        eq(providerConnections.provider, META_PROVIDERS.whatsapp),
+        sql`${providerConnections.metadata} ->> 'externalId' = ${phoneNumberId}`,
+      ),
+    )
+    .limit(1);
+  if (!row) return undefined;
+  const pin = await withCredentials(tx.db, { clinicId: tx.clinicId, connectionId: row.id }, async (credentials) =>
+    credentials.registrationPin ?? null,
+  );
+  return pin && /^\d{6}$/.test(pin) ? pin : undefined;
 }
 
 /**

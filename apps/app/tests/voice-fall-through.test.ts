@@ -9,9 +9,10 @@ vi.mock("@/lib/ops/notify", () => ({
 }));
 // No database here: any tenant read fails as one that refuses would,
 // unless a test hands back what the read would have returned.
-const tenant = vi.hoisted(() => ({ result: undefined as unknown }));
+const tenant = vi.hoisted(() => ({ result: undefined as unknown, hang: false }));
 vi.mock("@/lib/tenant", () => ({
   withTenant: async () => {
+    if (tenant.hang) return new Promise(() => {});
     if (tenant.result !== undefined) return tenant.result;
     throw new Error("connect ECONNREFUSED");
   },
@@ -97,6 +98,7 @@ const details = (to: string | null) =>
 
 beforeEach(() => {
   tenant.result = undefined;
+  tenant.hang = false;
   forgetDirectLines();
   notified.length = 0;
 });
@@ -220,6 +222,45 @@ describe("a call that cannot read the database", () => {
     await settled(s);
     expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
     expect(notified[0]!.fields.code).toBe("transferred_gate");
+  });
+
+  test("a caller who hangs up before the fall-through speaks hears nothing, and ops is told so", async () => {
+    rememberDirectLine(CLINIC, DIRECT);
+    const events: { disclosurePlayedAt?: Date }[] = [];
+    const { s, responses } = session({
+      fallbackLine: (input) => fallbackLineFor(input, { key: null }),
+      ingest: async (event) => {
+        events.push(event);
+        return {} as never;
+      },
+    });
+    await s.open();
+    await s.finish();
+    expect(responses()).toEqual([]);
+    expect(notified).toEqual([{ event: "voice_call_start_failed", fields: { clinicId: CLINIC, code: "hung_up" } }]);
+    expect(events[0]!.disclosurePlayedAt).toBeUndefined();
+  });
+
+  test("a gate line that arrives while the lookup runs is used at once, without waiting out the grace", async () => {
+    let gateDone: (d: unknown) => void = () => {};
+    const { s, responses } = session({
+      startDeadlineMs: 20,
+      gate: () => new Promise((resolve) => (gateDone = resolve)) as never,
+      fallbackLine: async () => {
+        gateDone({ decision: "pass_through", reason: "ai_paused", directLine: DIRECT });
+        await new Promise((r) => setTimeout(r, 5));
+        return null;
+      },
+    });
+    // The facts read then hangs, so the late start would hold this for five seconds.
+    tenant.hang = true;
+    const started = Date.now();
+    await s.open();
+    await s.handle(details(AYA));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(responses()).toEqual([expect.objectContaining({ content: TROUBLE_TRANSFER_LINE, transfer_number: DIRECT })]);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    await s.finish();
   });
 
   test("a caller who hangs up during a slow start is recorded as having heard nothing", async () => {

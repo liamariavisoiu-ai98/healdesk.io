@@ -309,6 +309,10 @@ export class RetellCallSession {
       }
     }
     if (this.outbound) return;
+    // A line that would send the caller back to us is no line at all; and a
+    // slow gate may have named one while the lookup ran.
+    if (found?.line === this.calledNumber) found = null;
+    found ??= gateLine();
     if (!found && lateStart) {
       // Nowhere holds a line, and the start was slow rather than failed:
       // give it longer to answer the call normally before closing.
@@ -326,7 +330,8 @@ export class RetellCallSession {
       found = gateLine();
     }
     if (this.recording) {
-      // Hung up before anything was said: nothing to say, nowhere it went.
+      // Hung up, or the process is shutting down, before anything was said:
+      // nothing to say, nowhere it went.
       void notifyOps("voice_call_start_failed", { clinicId: this.clinicId, code: "hung_up" });
       return;
     }

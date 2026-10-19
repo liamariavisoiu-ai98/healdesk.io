@@ -35,11 +35,13 @@ import { attestPlatform } from "./setup/platform";
  * Part L, "re-acceptance of a superseded BAA"; Annex X5 L22, "a new BAA
  * version"): WP9's re-sign row, link, screen and reminders, with a kind of
  * `baa_version`. The hourly job opens one by itself once a release's floor
- * (app_baa_version_acceptable) has passed the version in force, and AYA
- * pauses only there; the operator's broadcast opens one for every account on
- * an older version, pausing nothing while the version is still acceptable,
- * and the job pauses it once the floor passes it. Synthetic clinics and fake
- * mail throughout.
+ * (app_baa_version_acceptable) has passed the version in force; the
+ * operator's broadcast opens one for every account on an older version.
+ * Neither ever pauses AYA (owner, 19 October 2026): the version signed
+ * governs until the newer one is, and the signature is chased instead, with
+ * an ops alert at 7 days. The DPA→BAA re-sign, which does pause, at every
+ * location of the organisation, is here where it meets the organisation.
+ * Synthetic clinics and fake mail throughout.
  *
  * 1.5.0 is the older version: released, registered, and below today's floor
  * (1.5.1). A release that kept it acceptable for an overlap is stood in for

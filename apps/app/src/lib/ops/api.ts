@@ -706,7 +706,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "recordGuaranteeClaim",
   "sendGuaranteeFinding",
   "suspendForCause",
-  // Mutating: re-signs opened, AYA paused where the floor says, L22 sent.
+  // Mutating: re-signs opened and L22 sent; AYA never paused (resignHoldsPause).
+  // Refused, changing nothing, while BAA-version re-signs are switched off.
   "startBaaVersionResigns",
   // Mutating: an address change entered or stopped, a covered-entity answer recorded.
   "changeClinicEmail",

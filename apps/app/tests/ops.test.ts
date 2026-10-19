@@ -82,6 +82,17 @@ const clinic = (over: Partial<ClinicOverview> = {}): ClinicOverview => ({
   ...over,
 });
 
+/**
+ * BAA-version re-signs' switch (lib/agreements/baa-version-ready.ts): on here
+ * unless a test turns it off, so the card's words for each setting are
+ * tested whatever the constant ships as.
+ */
+const resignsSwitch = vi.hoisted(() => ({ ready: true }));
+vi.mock("@/lib/agreements/baa-version-ready", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/agreements/baa-version-ready")>();
+  return { ...actual, baaVersionResignsReady: () => resignsSwitch.ready };
+});
+
 describe("clinic blockers", () => {
   test("flags production with no signed BAA as blocked", () => {
     // The database is already refusing patient data in this state. The console
@@ -143,6 +154,31 @@ describe("clinic blockers", () => {
         message: `Live under BAA v1.2.0, which has been superseded: its re-sign to v${CURRENT_BAA_VERSION} opens by itself (L22). AYA keeps answering under v1.2.0 until it's signed; we're told at 7 days to phone the practice.`,
       },
     ]);
+  });
+
+  test("with BAA-version re-signs switched off, the card says none opens and a person phones the practice", () => {
+    resignsSwitch.ready = false;
+    try {
+      const live = blockersFor(
+        clinic({ dataClassification: "production", baaSignedAt: new Date(), baaVersion: "1.2.0" }),
+      );
+      expect(live).toEqual([
+        {
+          level: "attention",
+          message: `Live under BAA v1.2.0, which has been superseded. BAA-version re-signs are switched off, so its re-sign to v${CURRENT_BAA_VERSION} does not open and no L22 goes: phone the practice. AYA keeps answering under v1.2.0.`,
+        },
+      ]);
+      const synthetic = blockersFor(clinic({ baaVersion: "1.0.0" }));
+      expect(synthetic[0]).toEqual({
+        level: "attention",
+        message: `BAA v1.0.0 has been superseded, and BAA-version re-signs are switched off: the practice can't sign v${CURRENT_BAA_VERSION}, so go-live waits. Phone the practice to tell it why.`,
+      });
+      for (const b of [...live, ...synthetic]) {
+        expect(b.message).not.toMatch(/opens by itself|re-sign link|told at 7 days/);
+      }
+    } finally {
+      resignsSwitch.ready = true;
+    }
   });
 
   test("go-live is automatic: a synthetic clinic's card says so, not the voice-era checklist (WP2)", () => {

@@ -42,8 +42,9 @@ export type OrganisationResign = {
  * is signed (the BAA's Notices and interpretation clause: the later version
  * "replaces any earlier version of it ... from the effective date forward",
  * and healdesk cannot amend it alone), so the practice keeps AYA answering
- * under it. The signature is chased instead: L22 and its reminders at 3 and
- * 7 days, and ops told at 7 days, separately when the version is below the
+ * under it. The signature is chased instead, while BAA-version re-signs are
+ * switched on (BAA_VERSION_RESIGNS_READY): L22 and its reminders at 3 and 7
+ * days, and ops told at 7 days, separately when the version is below the
  * floor go-live accepts, to phone the practice (lib/agreements/resign.ts).
  */
 export function resignHoldsPause(resign: Pick<OrganisationResign, "reason">): boolean {

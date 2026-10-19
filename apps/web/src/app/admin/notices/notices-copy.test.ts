@@ -169,6 +169,11 @@ describe("the notices page", () => {
     const off = render(EMPTY);
     expect(button(off.html)).toContain('disabled=""');
     expect(off.text).toContain(WAITING);
+    // Nothing is said to happen by itself while it is off.
+    expect(off.text).not.toContain("starts those practices by itself");
+    expect(off.text).toContain(
+      "While it is switched off nothing opens, by this button or by itself, and a re-sign already open is held: no reminder, no alert at 7 days, and its link signs nothing.",
+    );
 
     // An older apps/app's reply has no switch: disabled too, saying why.
     const older = render({ ok: true, data: { ...EMPTY.data, baaVersionResigns: null } as never });
@@ -182,6 +187,9 @@ describe("the notices page", () => {
     });
     expect(button(on.html)).not.toContain('disabled=""');
     expect(on.text).not.toContain(WAITING);
+    expect(on.text).toContain(
+      "Once a release moves the floor past a version, the hourly job starts those practices by itself, and we're told at 7 days to phone each one still unsigned.",
+    );
     expect(resignsOffLine({ ready: true, waiting: null })).toBeNull();
   });
 });

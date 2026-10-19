@@ -11,6 +11,7 @@ import { sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import type { ForwardingTestObservation } from "@/db/schema";
+import { baaVersionResignsReady } from "@/lib/agreements/baa-version-ready";
 import { agreementTemplateReleased } from "@/lib/agreements/kind";
 
 /**
@@ -208,18 +209,25 @@ export function blockersFor(clinic: ClinicOverview): ClinicBlocker[] {
     // clinic card shows the first item, and on a synthetic clinic this one
     // decides whether it can go live at all (app_mark_clinic_production
     // refuses it). Not "blocked": nothing is refused that the practice's
-    // signature does not fix, and the hourly job opens its re-sign by itself
-    // (lib/agreements/resign.ts, wave 2 R11). A live clinic below the floor
-    // keeps AYA answering under the version it signed (owner, 19 October
-    // 2026), and ops is told at 7 days to phone it.
+    // signature does not fix. A live clinic below the floor keeps AYA
+    // answering under the version it signed (owner, 19 October 2026). With
+    // BAA-version re-signs switched on, the hourly job opens its re-sign by
+    // itself (lib/agreements/resign.ts, wave 2 R11) and ops is told at 7 days
+    // to phone it; switched off (BAA_VERSION_RESIGNS_READY), none opens, no
+    // L22 goes and no alert comes, so the card says a person phones it now.
     const dpa = agreementKindOfVersion(clinic.baaVersion) === "dpa";
+    const resigns = baaVersionResignsReady();
     blockers.push({
       level: "attention",
       message: dpa
         ? `The data protection agreement ${clinic.baaVersion} is not released: the practice can't go live under it until it is.`
         : live
-          ? `Live under BAA v${clinic.baaVersion}, which has been superseded: its re-sign to v${CURRENT_BAA_VERSION} opens by itself (L22). AYA keeps answering under v${clinic.baaVersion} until it's signed; we're told at 7 days to phone the practice.`
-          : `BAA v${clinic.baaVersion} has been superseded: the practice signs v${CURRENT_BAA_VERSION} from its re-sign link (L22) before go-live.`,
+          ? resigns
+            ? `Live under BAA v${clinic.baaVersion}, which has been superseded: its re-sign to v${CURRENT_BAA_VERSION} opens by itself (L22). AYA keeps answering under v${clinic.baaVersion} until it's signed; we're told at 7 days to phone the practice.`
+            : `Live under BAA v${clinic.baaVersion}, which has been superseded. BAA-version re-signs are switched off, so its re-sign to v${CURRENT_BAA_VERSION} does not open and no L22 goes: phone the practice. AYA keeps answering under v${clinic.baaVersion}.`
+          : resigns
+            ? `BAA v${clinic.baaVersion} has been superseded: the practice signs v${CURRENT_BAA_VERSION} from its re-sign link (L22) before go-live.`
+            : `BAA v${clinic.baaVersion} has been superseded, and BAA-version re-signs are switched off: the practice can't sign v${CURRENT_BAA_VERSION}, so go-live waits. Phone the practice to tell it why.`,
     });
   }
 

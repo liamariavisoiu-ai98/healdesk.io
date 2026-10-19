@@ -441,8 +441,10 @@ function BaaResignForm({
         business associate agreement is older than the current version gets its re-sign and the
         email with its link, then reminders at 3 and 7 days, and we&rsquo;re told at 7. AYA keeps
         answering while it signs, whatever its version: the agreement it signed governs until the
-        newer one is. Once a release moves the floor past a version, the hourly job starts those
-        practices by itself, and we&rsquo;re told at 7 days to phone each one still unsigned.
+        newer one is.{" "}
+        {off
+          ? "While it is switched off nothing opens, by this button or by itself, and a re-sign already open is held: no reminder, no alert at 7 days, and its link signs nothing."
+          : "Once a release moves the floor past a version, the hourly job starts those practices by itself, and we're told at 7 days to phone each one still unsigned."}
       </p>
       <div>
         <button

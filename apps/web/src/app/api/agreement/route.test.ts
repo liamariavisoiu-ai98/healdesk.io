@@ -347,6 +347,34 @@ describe("POST /api/agreement holds the copy to an address nobody confirmed to P
     expect(mailboxOf("alex.chen+p6@radiance.com")).toBe("alex.chen@radiance.com");
   });
 
+  /**
+   * The review of 19 October 2026: a copy held back had no queue before
+   * payment, so nobody knew to send it. apps/app is told, once per mailbox
+   * and day, with the agreement's id and the code only.
+   */
+  test("a copy held back is told to ops once per mailbox and day, ids and codes only", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const relayed = () =>
+      resend.mock.calls
+        .filter(([url]) => String(url) === "http://app.test/api/ops")
+        .map(([, init]) => JSON.parse(String(init?.body)) as { op: string; args: Record<string, unknown> });
+    await sign(null, signature("info@radiance.com"));
+    expect(relayed()).toEqual([]);
+    const second = (await (await sign(null, signature("info+again@radiance.com"))).json()) as { agreementId: string };
+    await sign(null, signature("info@radiance.com"));
+    expect(relayed()).toEqual([
+      { op: "agreementCopyWithheld", args: { agreementId: second.agreementId, code: "already_sent_today" } },
+    ]);
+    expect(JSON.stringify(relayed())).not.toContain("radiance.com");
+    const unsafe = (await (await sign(null, signature("x@stranger.com", { signatoryName: "Call 5125550100" }))).json()) as {
+      agreementId: string;
+    };
+    expect(relayed()[1]).toEqual({
+      op: "agreementCopyWithheld",
+      args: { agreementId: unsafe.agreementId, code: "unsafe_text" },
+    });
+  });
+
   test("two signings to one mailbox at the same moment send one copy", async () => {
     const [a, b] = await Promise.all([
       sign(null, signature("info@radiance.com")),

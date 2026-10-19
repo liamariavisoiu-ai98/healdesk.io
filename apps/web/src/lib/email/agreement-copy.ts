@@ -4,6 +4,7 @@ import { isSafeTypedText, renderAgreementCopy } from "@healdesk/catalog";
 import { renderAgreementPdf } from "@healdesk/catalog/agreement-pdf";
 import { agreementPdfRecordOf, type AgreementRecord } from "@healdesk/catalog/checkout-record";
 
+import { relayAgreementCopyWithheld } from "@/lib/admin/ops-client";
 import { recordAgreementCopy } from "@/lib/checkout/records";
 import { normalizeEmail } from "@/lib/leads";
 import { rateLimit, releaseRateLimit } from "@/lib/rate-limit";
@@ -57,8 +58,10 @@ import { emailKey, sendSafely } from "./index";
  *     address or a number to call.
  *
  * A copy either rule holds back is `withheld`, never failed: the signature
- * stands, the buyer is told why in a sentence, and the record shows the copy
- * is still owed, so a person sends it.
+ * stands, the buyer is told why in a sentence, the record shows the copy is
+ * still owed, and ops is told, once per mailbox and day, with the agreement's
+ * id and the reason's code (apps/app's agreementCopyWithheld), so a person
+ * sends it: before payment there is no account and no other queue it is in.
  */
 
 /** Whether the signer's address is one we confirmed (pilot mode's setup link). */
@@ -94,6 +97,21 @@ export function mailboxOf(address: string): string {
 /** The shared counter's key: a digest of the mailbox, never the address. */
 function copyLimitKey(address: string): string {
   return `agreement-copy:${createHash("sha256").update(mailboxOf(address)).digest("hex").slice(0, 32)}`;
+}
+
+/**
+ * Tell ops that a copy was held back, at most once per mailbox and day.
+ * Never throws, and bounded by the relay's short timeout.
+ */
+async function tellOpsWithheld(record: AgreementRecord, code: "already_sent_today" | "unsafe_text"): Promise<void> {
+  try {
+    const key = `agreement-copy-withheld:${createHash("sha256").update(mailboxOf(record.signatoryEmail)).digest("hex").slice(0, 32)}`;
+    if (!(await rateLimit(key, 1, COPY_WINDOW_MS)).ok) return;
+    const relayed = await relayAgreementCopyWithheld(record.id, code);
+    if (!relayed.ok) console.warn(`[healdesk] withheld copy not told to ops (${relayed.code})`, { agreementId: record.id });
+  } catch {
+    console.warn("[healdesk] withheld copy not told to ops", { agreementId: record.id });
+  }
 }
 
 /** Whether every typed field the copy carries is safe to mail to an address nobody confirmed. */
@@ -158,6 +176,7 @@ export async function deliverAgreementCopy(
   if (!options.addressConfirmed) {
     if (!copyTextIsSafe(record)) {
       console.warn("[healdesk] signed copy withheld: unsafe typed text", { agreementId: record.id });
+      await tellOpsWithheld(record, "unsafe_text");
       return { status: "withheld", reason: "unsafe_text" };
     }
     // The day's one place is taken now, before the send, so a second signing
@@ -165,6 +184,7 @@ export async function deliverAgreementCopy(
     const key = copyLimitKey(record.signatoryEmail);
     if (!(await rateLimit(key, 1, COPY_WINDOW_MS)).ok) {
       console.warn("[healdesk] signed copy withheld: one already went to this address today", { agreementId: record.id });
+      await tellOpsWithheld(record, "already_sent_today");
       return { status: "withheld", reason: "already_sent_today" };
     }
     limitKey = key;

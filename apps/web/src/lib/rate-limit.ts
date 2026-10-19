@@ -113,6 +113,8 @@ export const SHARED_KEY_PREFIXES: readonly string[] = [
   // confirmed: once per address per day, keyed on a digest of the address
   // (lib/email/agreement-copy.ts).
   "agreement-copy:",
+  // Ops is told once per mailbox and day that a copy was held back (P6).
+  "agreement-copy-withheld:",
 ];
 
 export function isGlobalCapKey(key: string): boolean {

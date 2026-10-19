@@ -327,4 +327,24 @@ describeDb("the emailEvent relay", () => {
       await relay({ type: "sent", at: "2026-10-06T15:00:00Z", kind: "nurture_1", app: "leadgen" }),
     ).toMatchObject({ status: 400 });
   });
+
+  /** P6 withheld on apps/web, before payment: no account, no queue, so ops is told. */
+  test("a copy apps/web held back raises one ops alert, with the agreement's id and the code only", async () => {
+    const agreementId = crypto.randomUUID();
+    const run = async (args: Record<string, unknown>) => {
+      const parsed = parseEnvelope(JSON.stringify({ op: "agreementCopyWithheld", args }));
+      if (!parsed.ok) return parsed.outcome;
+      return runOperation(parsed.envelope.op, parsed.envelope.args, OPERATOR);
+    };
+    expect(await run({ agreementId, code: "already_sent_today" })).toEqual({
+      status: 200,
+      body: { data: { raised: true } },
+    });
+    expect(await alerts("agreement_copy_withheld")).toEqual([
+      { agreementId, code: "already_sent_today" },
+    ]);
+    expect(await run({ agreementId, code: "owner@radiance.test" })).toMatchObject({ status: 400 });
+    expect(await run({ agreementId: "not-an-id", code: "unsafe_text" })).toMatchObject({ status: 400 });
+  });
 });
+

@@ -341,7 +341,9 @@ type RelayOp =
   | "bookingSwitch"
   | "emailQuota"
   // The daily cron's setup requests past their promised reply (WP5).
-  | "setupRepliesPastDue";
+  | "setupRepliesPastDue"
+  // A signer's copy of the agreement held back (P6), for a person to send.
+  | "agreementCopyWithheld";
 
 type OpName = OperatorOp | RelayOp;
 
@@ -860,6 +862,28 @@ export function relayWebEmailEvent(event: {
       app: "web",
       ...(event.eventId ? { eventId: event.eventId } : {}),
     },
+    { context: false, timeoutMs: EMAIL_QUOTA_TIMEOUT_MS },
+  );
+}
+
+/**
+ * Tell apps/app that the signer's copy of an agreement was held back (P6:
+ * one already went to the mailbox today, or the names on it are not safe to
+ * mail), so ops is alerted and a person sends it: before payment there is no
+ * account and no queue to show it in. The agreement's id and the code only.
+ * A relay op with a short timeout, like emailQuota: the signature has been
+ * recorded, and an apps/app in standby, or one older than 19 October 2026
+ * that does not know the op, costs the alert, never the buyer's answer.
+ */
+export function relayAgreementCopyWithheld(
+  agreementId: string,
+  code: "already_sent_today" | "unsafe_text",
+): Promise<OpsResult<{ raised: boolean }>> {
+  return send(
+    "agreementCopyWithheld",
+    "write",
+    (value) => ({ raised: bool(object(value, "agreementCopyWithheld").raised, "agreementCopyWithheld.raised") }),
+    { agreementId, code },
     { context: false, timeoutMs: EMAIL_QUOTA_TIMEOUT_MS },
   );
 }

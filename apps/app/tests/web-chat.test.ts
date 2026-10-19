@@ -10,9 +10,11 @@ import { setPhoneSettings } from "@/lib/onboarding/phone";
 import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, queuedNotices, seedClinic, seedEntitled, setWeekdayHours } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * The web chat (lib/chat/web-chat.ts, app/api/widget/v1): the opening line,
@@ -90,6 +92,9 @@ describeDb("the web chat", () => {
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
     await getMigratorPool().query(`update scheduled_jobs set enabled = true where name = 'transcript-emails'`);
   }, 180_000);
 

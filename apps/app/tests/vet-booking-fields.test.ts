@@ -30,6 +30,7 @@ import { addRecipient } from "@/lib/reporting/recipients";
 import { withTenant } from "@/lib/tenant";
 import { bookingRequestFrom, type VoiceCallEvent } from "@/lib/voice/ingest";
 import { RetellCallSession } from "@/lib/voice/retell";
+import { COVERAGE_VENDORS } from "@/lib/compliance/vendor-coverage";
 
 import {
   closePools,
@@ -48,6 +49,7 @@ import {
   seedEntitled,
   setWeekdayHours,
 } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * A veterinary booking's animal name and species (owner, 6 October 2026; the
@@ -205,6 +207,9 @@ describeDb("collected on a call and in a chat, refused on Meta, shown to the des
   beforeAll(async () => {
     await runMigrations();
     await truncateAll();
+    // The vendors' agreements in force, as a launched platform holds them
+    // (the answer gate reads them, lib/compliance/vendor-coverage.ts).
+    await attestPlatform(COVERAGE_VENDORS);
     await getMigratorPool().query(
       `update scheduled_jobs set enabled = true where name = 'transcript-emails'`,
     );

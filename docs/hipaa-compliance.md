@@ -106,6 +106,23 @@ by scoping.
 Struck-through rows stay because a BAA table is a checklist of who is in the path, and
 "we evaluated this and did not adopt it" is worth recording once.
 
+**The chain is enforced, not only recorded** (the owner's decision of 19 October 2026).
+Each vendor's agreement is attested on `/admin/compliance` (`platform_compliance`), and
+the answer gate reads it on every conversation of a production clinic
+(`apps/app/src/lib/compliance/vendor-coverage.ts`). Withdrawn there, or past a recorded
+expiry with no renewal, or never recorded, it stops AYA where that vendor sits: Anthropic,
+AWS or the database host on every channel, Retell on phone. The fallbacks that already
+exist take over: calls go to each clinic's direct line (closed when it has none), website
+chat becomes the contact form, Meta messages wait unanswered. While AWS's or the
+database host's agreement is the one lapsed, nothing new is kept either: the contact form
+takes no message and a passed-through call is not recorded. Nothing is deleted, and AYA
+answers again once a renewal is recorded. Ops is warned 30 and 7 days before a recorded
+expiry and told at once of a lapse (`vendor_agreement_expiring`,
+`vendor_agreement_lapsed`), which is a reason to open an incident: patient data may have
+reached the vendor between the agreement's real end and the stop. Meta messages that
+arrive during a host lapse are still stored by the Meta webhook, as before; that is the
+one path the stop does not hold back.
+
 **Resend is the row that needs care.** It signs no BAA and has no equivalent of
 SES's TLS-REQUIRE, so there is no way to make a PHI-bearing message fail closed
 on it. `apps/app` therefore restricts it to messages declared `phiClass: "none"`

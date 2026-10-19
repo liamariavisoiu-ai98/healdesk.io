@@ -5,7 +5,7 @@ import type { ActorContext } from "@/lib/audit";
 import { assistantFacts, type AssistantFacts } from "@/lib/assistant/facts";
 import { openingLine } from "@/lib/assistant/opening";
 import { answerTurn, EMPTY_CAPTURE, type AssistantResponder, type BookingCapture } from "@/lib/assistant/turn";
-import { patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
+import { assistantFallbackRefused, patientDataRefused, voiceAnswerDecision, type AnswerDecision } from "@/lib/billing/answering";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
@@ -130,6 +130,13 @@ export class RetellCallSession {
   /** AYA gave the caller a real answer at least once, not only the failure line. */
   private answered = false;
   private closing = false;
+  /**
+   * The gate refused with a reason after which nothing may be kept
+   * (patientDataRefused: the Services ended, the agreement no longer covers
+   * the practice, the host's agreement lapsed): the call is put through or
+   * closed, and not recorded at hang-up.
+   */
+  private keepsNothing = false;
   private finished: Promise<IngestResult | null> | null = null;
 
   constructor(
@@ -176,6 +183,7 @@ export class RetellCallSession {
       return;
     }
     this.directLine = this.facts?.directLine ?? (decision.decision === "pass_through" ? decision.directLine : null);
+    this.keepsNothing = decision.decision === "pass_through" && patientDataRefused(decision.reason);
 
     if (decision.decision === "pass_through" && decision.directLine) {
       // Paused, capped, suspended, or the service ended (the Terms'
@@ -185,11 +193,11 @@ export class RetellCallSession {
       this.say(0, TRANSFER_LINE, { transferTo: decision.directLine });
       return;
     }
-    // No direct line, and the clinic has left, its Services have ended, or
-    // its agreement no longer covers it (agreement_insufficient): nothing may
-    // process the caller, so the call is closed with the fixed line, never
-    // answered by the safe script.
-    if (!this.facts || (decision.decision === "pass_through" && patientDataRefused(decision.reason))) {
+    // No direct line, and the clinic has left, its Services have ended, its
+    // agreement no longer covers it, or a vendor's agreement on the call's
+    // path has lapsed: the call is closed with the fixed line, never
+    // answered by the safe script, which is AYA herself.
+    if (!this.facts || (decision.decision === "pass_through" && assistantFallbackRefused(decision.reason))) {
       this.closing = true;
       this.say(0, CLOSED_LINE, { endCall: true });
       return;
@@ -349,6 +357,12 @@ export class RetellCallSession {
   private async record(): Promise<IngestResult | null> {
     this.closing = true;
     await Promise.all(this.sending);
+    if (this.keepsNothing) {
+      // Nothing may be kept for this call: no conversation, no minutes, no transcript.
+      log.info("retell call not recorded: nothing may be kept", { clinicId: this.clinicId });
+      this.turns = [];
+      return null;
+    }
     const endedAt = this.now();
     const startedAt = this.startedAt ?? this.openedAt;
     const event: VoiceCallEvent = {

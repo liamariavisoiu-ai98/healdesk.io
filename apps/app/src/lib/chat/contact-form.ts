@@ -47,7 +47,11 @@ import type { WebChatClinic } from "./web-chat";
  * ended (no agreement in effect, cancelled), whose agreement no longer covers
  * it (a DPA practice now a covered entity, which the database refuses patient
  * rows for), that did not buy website chat, or whose website chat has never
- * been live: nothing may be kept for those.
+ * been live: nothing may be kept for those. Nor while AWS's or the database
+ * host's own agreement has lapsed (host_agreement_lapsed,
+ * lib/compliance/vendor-coverage.ts): nothing new is kept where patient data
+ * lives. The model provider's lapse alone keeps the form taking messages, as
+ * no model is in it.
  * Nor while the PHI gate is closed (app_clinic_accepts_phi, asked through
  * clinicAcceptsPhi): a practice whose re-sign to the BAA is unsigned would
  * have the message refused by the database, so the form takes nothing and

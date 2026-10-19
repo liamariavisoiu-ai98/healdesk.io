@@ -12,6 +12,7 @@ import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
 import { bindAgreementInEffect, inTenant, seedClinic } from "./setup/factories";
+import { attestPlatform } from "./setup/platform";
 
 /**
  * The Retell voice endpoint (src/voice/server.ts, lib/voice/retell.ts), end to
@@ -290,6 +291,64 @@ describeDb("the Retell voice endpoint", () => {
     expect(await opened(withoutLine.clinicId)).toEqual([
       expect.objectContaining({ response_id: 0, content: CLOSED_LINE, end_call: true }),
     ]);
+  });
+
+  test("a lapsed vendor's agreement: Retell's sends calls to the direct line or closes them; the host's also keeps no record", async () => {
+    try {
+      // A production practice under its agreement, as go-live leaves one.
+      const live = async (name: string, line: string | null) => {
+        const clinic = await seedClinic(name);
+        await bindAgreementInEffect(clinic.clinicId);
+        await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now() where id = $1`, [clinic.clinicId]);
+        if (line) {
+          await inTenant(clinic.clinicId, (client) =>
+            client.query(
+              `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, $2)
+               on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+              [clinic.clinicId, line],
+            ),
+          );
+        }
+        return clinic;
+      };
+      const opening = async (clinicId: string, callId: string) => {
+        const c = await call(port, `/llm-websocket/${SECRET}/${clinicId}/${callId}`);
+        await c.waitFor((r) => responses(r).length >= 1);
+        c.send({ interaction_type: "call_details", call: { call_id: callId, from_number: "+14155550177", direction: "inbound", start_timestamp: Date.now() - 30_000 } });
+        const first = responses(c.received)[0];
+        await c.close();
+        return first;
+      };
+      let asked = false;
+      modelAnswer = () => {
+        asked = true;
+        return { reply: "model" };
+      };
+
+      // Nothing attested yet in this file: the host's agreement is not in force.
+      const hostLapsed = await live("retell-host-lapsed", "+14155550127");
+      expect(await opening(hostLapsed.clinicId, "call_host_lapsed")).toMatchObject({ content: TRANSFER_LINE, transfer_number: "+14155550127" });
+
+      // Every vendor in force but Retell: phone's own vendor.
+      await attestPlatform(["anthropic", "aws", "database_host"]);
+      const retellLine = await live("retell-vendor-line", "+14155550128");
+      expect(await opening(retellLine.clinicId, "call_vendor_line")).toMatchObject({ content: TRANSFER_LINE, transfer_number: "+14155550128" });
+      const retellNone = await live("retell-vendor-closed", null);
+      expect(await opening(retellNone.clinicId, "call_vendor_closed")).toMatchObject({ content: CLOSED_LINE, end_call: true });
+      expect(asked).toBe(false);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await Promise.all([...server.sessions].map((s) => s.finish()));
+      // The host's lapse keeps nothing: no conversation for its call. Retell's
+      // alone leaves the host covering the record, so the transferred call is kept.
+      const count = async (clinicId: string) =>
+        (await inTenant(clinicId, (client) => client.query(`select id from conversations`))).rows.length;
+      expect(await count(hostLapsed.clinicId)).toBe(0);
+      expect(await count(retellLine.clinicId)).toBe(1);
+    } finally {
+      // Put back as the file found it: nothing attested.
+      await getMigratorPool().query(`truncate platform_compliance`);
+    }
   });
 
   test("an urgent caller hears 911 and the urgent number, and the model is never asked", async () => {

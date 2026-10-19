@@ -69,8 +69,13 @@ const MAX = { name: 120, clinic: 160, topic: 40, preferredTime: 120, notes: 600,
 const PER_CALL_LIMIT = 3;
 const PER_CALL_WINDOW_MS = 60 * 60 * 1000;
 
-/** Bounds the inbox, not a person. Demo calls are capped upstream too. Shared across instances (lib/rate-limit.ts). */
-const DAILY_LIMIT = 200;
+/**
+ * Bounds the day's mail, not a person: each "start" is two emails, and
+ * Resend's free plan stops every email at 100 a day, sign-in links and urgent
+ * alerts included. Shared across instances (lib/rate-limit.ts). Demo calls
+ * are capped upstream too.
+ */
+const DAILY_LIMIT = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 const TOPICS = new Set(["start", "pricing", "discount", "terms", "sales_session", "other"]);

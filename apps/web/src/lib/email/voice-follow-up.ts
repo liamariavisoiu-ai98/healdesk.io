@@ -1,3 +1,5 @@
+import { isSafeTypedText } from "@healdesk/catalog";
+
 import type { CheckoutMode } from "@/lib/checkout-mode";
 import { site } from "@/lib/site";
 
@@ -57,7 +59,11 @@ export function voiceSetupLinkEmail(input: {
   mode: CheckoutMode;
   unsubscribeUrl: string;
 }): RenderedEmail {
-  const { name, clinic, link, mode } = input;
+  const { name, link, mode } = input;
+  // The clinic's name as AYA heard it, from a caller nobody has checked: in
+  // a commercial email to an address only spoken, it is printed only when it
+  // is a name (the catalog's isSafeTypedText), never a link or a number.
+  const clinic = isSafeTypedText(input.clinic, 160) ? input.clinic.trim() : "";
   // Their first name as heard, or none: firstName() refuses anything that is not one.
   const first = name ? firstName(name) : "there";
   const greeting = first === "there" ? "Hi," : `Hi ${first},`;

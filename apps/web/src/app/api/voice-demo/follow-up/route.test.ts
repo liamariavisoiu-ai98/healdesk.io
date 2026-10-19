@@ -286,4 +286,26 @@ describe("the owner's setup-link email", () => {
     expect(response.status).toBe(503);
     expect(sent).toHaveLength(0);
   });
+
+  /** The review of 19 October 2026: the spoken clinic name went into a commercial email unchecked. */
+  test("a clinic name that is not a name stays out of the owner's email, and reaches the team", async () => {
+    await post({ ...START, clinic: "Radiance, call 5125550100" });
+    expect(String(sent[0]!.body.text)).not.toContain("5125550100");
+    expect(String(sent[0]!.body.text)).toContain("start setting up AYA Voice + Web Chat:");
+    expect(String(sent[1]!.body.text)).toContain("Radiance, call 5125550100");
+  });
 });
+
+/** Each "start" is two emails, and Resend's free plan stops all of them at 100 a day. */
+describe("the day's cap", () => {
+  test("twenty follow-ups a day across the site, then AYA gives the team's address", async () => {
+    for (let i = 0; i < 20; i += 1) {
+      expect((await post({ email: `sam${i}@clinic.com`, topic: "pricing" })).status).toBe(200);
+    }
+    const capped = await post({ email: "sam20@clinic.com", topic: "pricing" });
+    expect(capped.status).toBe(429);
+    expect(((await capped.json()) as { message: string }).message).toContain("hello@healdesk.io");
+    expect(sent).toHaveLength(20);
+  });
+});
+

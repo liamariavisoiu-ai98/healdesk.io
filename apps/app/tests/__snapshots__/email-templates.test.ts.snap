@@ -8595,9 +8595,9 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Paste one line on your website and AYA starts answering there.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Paste one line on your website, and AYA is designed to start answering there.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">AYA is ready to answer chats on Radiance Med Spa&#39;s website. One step is left, and it&#39;s yours: paste this line once, just before &lt;/body&gt;, on every page of your website.</p>
+<p style="margin:0 0 16px;">Website chat is ready for Radiance Med Spa&#39;s website. One step is left, and it&#39;s yours: paste this line once, just before &lt;/body&gt;, on every page of your website. AYA is designed to start answering there once it&#39;s in.</p>
 <pre style="margin:0 0 16px;padding:12px;background:#f6f8fa;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-all;">&lt;script src=&quot;https://app.healdesk.test/widget/v1.js&quot; data-clinic=&quot;radiance-med-spa&quot; async&gt;&lt;/script&gt;</pre>
 <p style="margin:0 0 16px;">Once it’s on your site, every chat there is a real one and counts toward your plan. To try AYA first, use Talk to your AYA in healdesk.</p>
 <p style="margin:0 0 16px;">If someone else looks after your website, send it to them from Settings: we email them the line and where it goes, and nothing else.</p>
@@ -8611,9 +8611,9 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 </div>
 </body>
 </html>",
-  "preheader": "Paste one line on your website and AYA starts answering there.",
+  "preheader": "Paste one line on your website, and AYA is designed to start answering there.",
   "subject": "Website chat is ready: one step left",
-  "text": "AYA is ready to answer chats on Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website.
+  "text": "Website chat is ready for Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website. AYA is designed to start answering there once it's in.
 
 <script src="https://app.healdesk.test/widget/v1.js" data-clinic="radiance-med-spa" async></script>
 
@@ -8654,7 +8654,7 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">One line to paste on the practice&#39;s website.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Radiance Med Spa asked us to send you this line for its website. Paste it once, just before &lt;/body&gt;, on every page of the site, and AYA, the practice&#39;s AI assistant from healdesk, answers chats there once it&#39;s in.</p>
+<p style="margin:0 0 16px;">Radiance Med Spa asked us to send you this line for its website. Paste it once, just before &lt;/body&gt;, on every page of the site. AYA, the practice&#39;s AI assistant from healdesk, is designed to start answering chats there once it&#39;s in.</p>
 <pre style="margin:0 0 16px;padding:12px;background:#f6f8fa;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-all;">&lt;script src=&quot;https://app.healdesk.test/widget/v1.js&quot; data-clinic=&quot;radiance-med-spa&quot; async&gt;&lt;/script&gt;</pre>
 <p style="margin:0 0 16px;">Questions? Reply to this email and a person at healdesk answers.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -8668,7 +8668,7 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 </html>",
   "preheader": "One line to paste on the practice's website.",
   "subject": "Website chat line from Radiance Med Spa",
-  "text": "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site, and AYA, the practice's AI assistant from healdesk, answers chats there once it's in.
+  "text": "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site. AYA, the practice's AI assistant from healdesk, is designed to start answering chats there once it's in.
 
 <script src="https://app.healdesk.test/widget/v1.js" data-clinic="radiance-med-spa" async></script>
 
@@ -8702,9 +8702,9 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 }</style>
 </head>
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
-<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Paste one line on your website and AYA starts answering there.</span>
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">Paste one line on your website, and AYA is designed to start answering there.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">AYA is ready to answer chats on Radiance Med Spa&#39;s website. One step is left, and it&#39;s yours: paste this line once, just before &lt;/body&gt;, on every page of your website.</p>
+<p style="margin:0 0 16px;">Website chat is ready for Radiance Med Spa&#39;s website. One step is left, and it&#39;s yours: paste this line once, just before &lt;/body&gt;, on every page of your website. AYA is designed to start answering there once it&#39;s in.</p>
 <pre style="margin:0 0 16px;padding:12px;background:#f6f8fa;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-all;">&lt;script src=&quot;https://app.healdesk.test/widget/v1.js&quot; data-clinic=&quot;radiance-med-spa&quot; async&gt;&lt;/script&gt;</pre>
 <p style="margin:0 0 16px;">Once it’s on your site, every chat there is a real one and counts toward your plan. To try AYA first, use Talk to your AYA in healdesk.</p>
 <p style="margin:0 0 16px;">If someone else looks after your website, send it to them from Settings: we email them the line and where it goes, and nothing else.</p>
@@ -8718,9 +8718,9 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 </div>
 </body>
 </html>",
-  "preheader": "Paste one line on your website and AYA starts answering there.",
+  "preheader": "Paste one line on your website, and AYA is designed to start answering there.",
   "subject": "Website chat is ready: one step left",
-  "text": "AYA is ready to answer chats on Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website.
+  "text": "Website chat is ready for Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website. AYA is designed to start answering there once it's in.
 
 <script src="https://app.healdesk.test/widget/v1.js" data-clinic="radiance-med-spa" async></script>
 
@@ -8761,7 +8761,7 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 <body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
 <span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">One line to paste on the practice&#39;s website.</span>
 <div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
-<p style="margin:0 0 16px;">Radiance Med Spa asked us to send you this line for its website. Paste it once, just before &lt;/body&gt;, on every page of the site, and AYA, the practice&#39;s AI assistant from healdesk, answers chats there once it&#39;s in.</p>
+<p style="margin:0 0 16px;">Radiance Med Spa asked us to send you this line for its website. Paste it once, just before &lt;/body&gt;, on every page of the site. AYA, the practice&#39;s AI assistant from healdesk, is designed to start answering chats there once it&#39;s in.</p>
 <pre style="margin:0 0 16px;padding:12px;background:#f6f8fa;color:#1f2328;border:1px solid #d0d7de;border-radius:6px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;font-size:13px;line-height:1.4;white-space:pre-wrap;word-break:break-all;">&lt;script src=&quot;https://app.healdesk.test/widget/v1.js&quot; data-clinic=&quot;radiance-med-spa&quot; async&gt;&lt;/script&gt;</pre>
 <p style="margin:0 0 16px;">Questions? Reply to this email and a person at healdesk answers.</p>
 <hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
@@ -8775,7 +8775,7 @@ exports[`website chat's line in O10 and O11 > the snapshots, for patients and fo
 </html>",
   "preheader": "One line to paste on the practice's website.",
   "subject": "Website chat line from Radiance Med Spa",
-  "text": "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site, and AYA, the practice's AI assistant from healdesk, answers chats there once it's in.
+  "text": "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site. AYA, the practice's AI assistant from healdesk, is designed to start answering chats there once it's in.
 
 <script src="https://app.healdesk.test/widget/v1.js" data-clinic="radiance-med-spa" async></script>
 

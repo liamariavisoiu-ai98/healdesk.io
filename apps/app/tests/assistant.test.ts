@@ -149,6 +149,26 @@ describe("the guard", () => {
     expect(amountsIn("twelve dollars and fifty cents, ciento cincuenta dólares")).toEqual([1250, 15000]);
   });
 
+  // Round 2: the same in Spanish, with no currency word.
+  test("a Spanish price said in words with no currency word is read too, with the same skips for counts, places and years", () => {
+    for (const text of ["El relleno cuesta doscientos.", "Son seiscientos por sesión.", "El botox cuesta diez por unidad.", "Cuesta mil doscientos, dependiendo de la zona."]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: false, reason: "price" });
+    }
+    for (const text of [
+      "La consulta cuesta ciento cincuenta.",
+      "Tenemos más de doscientos clientes.",
+      "Mil gracias por escribir.",
+      "Abiertos desde dos mil diez.",
+      "Estamos a doscientos metros del metro.",
+    ]) {
+      expect(guardAssistantReply(text, FACTS), text).toEqual({ ok: true });
+    }
+    expect(amountsIn("Cuesta ciento cincuenta, o son doscientos con la otra zona.")).toEqual([15000, 20000]);
+    expect(amountsIn("Doce por unidad.")).toEqual([1200]);
+    // A place is not a price (the sentence itself is the language check's to judge).
+    expect(amountsIn("Estamos en el consultorio doscientos.")).toEqual([]);
+  });
+
   test("the never-say list, whatever the case, quotes or dashes", () => {
     expect(guardAssistantReply("You'll get Guaranteed   Results!", FACTS)).toEqual({ ok: false, reason: "never_say" });
     expect(guardAssistantReply("It's practically painless.", FACTS)).toEqual({ ok: false, reason: "never_say" });

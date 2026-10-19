@@ -124,7 +124,9 @@ const SPOKEN_DOLLARS = /\b(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,2}))?\s?(?:dollars|
 //     twenty-four hour clock ("we close at seventeen hundred");
 //   - a number, in digits or words, said by the unit ("twelve a unit", "12
 //     per unit", "six hundred a syringe");
-//   - Spanish number words before "dólares" ("ciento cincuenta dólares").
+//   - Spanish number words, read the same ways (spanishAmounts): before
+//     "dólares", by the unit, and with "cien", "-cientos" or "mil" in them
+//     ("cuesta ciento cincuenta", "son doscientos").
 //
 // A bare number with none of these ("it's fifty") is not read: it is as often
 // a count or a time as a price, and the prompt asks for prices as listed.
@@ -317,14 +319,72 @@ function spanishToNumber(words: string): number | null {
   return seen ? total + current : null;
 }
 
-/** The cents of each amount said in words, English and Spanish: "two hundred dollars", "a hundred and fifty". */
-export function spokenAmountsIn(text: string): number[] {
-  const out = wordAmounts(text);
+const ES_RUN = new RegExp(`(?<![\\p{L}])${ES_WORD}(?:\\s+${ES_WORD})*`, "giu");
+const ES_PER_UNIT = new RegExp(
+  `(?<![$\\d.,\\p{L}])(\\d+(?:[.,]\\d{1,2})?|${ES_WORD}(?:\\s+${ES_WORD})*)\\s+(?:por|cada|la|el)\\s+(?:unidad|jeringa|vial|ml|[áa]rea|zona)(?![\\p{L}])`,
+  "giu",
+);
+/** A Spanish number with "cien", "-cientos" or "mil" in it: one said as a price with no currency word. */
+const ES_MAGNITUDE = /(?:cien(?:to)?|ient[oa]s|mil)(?![\p{L}])/iu;
+/** What may follow such a number as a price: the end of a clause, or a word that runs on ("doscientos por sesión"). */
+const ES_PRICE_ENDS =
+  /^(?:\s*$|\s*[.,;:!?)\]—–]|\s+-\s|\s+(?:por|o|a|hasta|m[áa]s|con|cada|seg[uú]n|dependiendo|en total|si|pero|y|al)(?![\p{L}]))/iu;
+/** What leads a Spanish number that is a place: "consultorio doscientos", "en el doscientos". */
+const ES_PLACE_LEADS =
+  /(?:(?<![\p{L}])(?:suite|consultorio|oficina|n[uú]mero|piso|sala|local|calle|avenida|av\.|carretera|ruta|salida|el)|n[ºo°]\.?|#)\s*$/iu;
+/** A word before a year said aloud: "desde dos mil diez", "fundada en mil novecientos noventa". */
+const ES_YEAR_LEADS = /(?<![\p{L}])(?:desde|en|año|del|fundad[oa]s?\s+en|abiert[oa]s?\s+en)\s+$/iu;
+
+/** The run without a trailing "y", "un" or "una", which belong to what follows ("doscientos y la consulta"). */
+function trimSpanishRun(run: string): string {
+  return run.replace(/(?:\s+(?:y|un|una|uno))+$/iu, "");
+}
+
+/**
+ * Every amount said in Spanish number words, in cents, in the order they
+ * come: before "dólares" ("ciento cincuenta dólares"); by the unit ("doce por
+ * unidad"); and with "cien", "-cientos" or "mil" in it and no currency word
+ * ("cuesta ciento cincuenta", "son doscientos"), where it ends or runs on
+ * into a clause, the same skips as in English: a noun after it ("doscientos
+ * clientes", "mil gracias"), a place before it ("consultorio doscientos") or
+ * a year ("desde dos mil diez").
+ */
+function spanishAmounts(text: string): number[] {
+  const found: { at: number; cents: number }[] = [];
+  const taken: [number, number][] = [];
   for (const m of text.matchAll(ES_DOLLARS)) {
     const value = spanishToNumber(m[1]!);
-    if (value !== null) out.push(value * 100);
+    if (value === null) continue;
+    found.push({ at: m.index!, cents: value * 100 });
+    taken.push([m.index!, m.index! + m[0].length]);
   }
-  return out;
+  for (const m of text.matchAll(ES_PER_UNIT)) {
+    if (taken.some(([a, b]) => m.index! >= a && m.index! < b)) continue;
+    const said = m[1]!;
+    const value = /^\d/.test(said) ? Number(said.replace(",", ".")) : spanishToNumber(trimSpanishRun(said));
+    if (value === null || !Number.isFinite(value)) continue;
+    found.push({ at: m.index!, cents: Math.round(value * 100) });
+    taken.push([m.index!, m.index! + m[0].length]);
+  }
+  for (const m of text.matchAll(ES_RUN)) {
+    const run = trimSpanishRun(m[0]);
+    if (!ES_MAGNITUDE.test(run)) continue;
+    const start = m.index!;
+    const end = start + run.length;
+    if (taken.some(([a, b]) => start < b && end > a)) continue;
+    const before = text.slice(0, start);
+    if (!ES_PRICE_ENDS.test(text.slice(end)) || ES_PLACE_LEADS.test(before)) continue;
+    const value = spanishToNumber(run);
+    if (value === null) continue;
+    if (value > 1900 && value < 2100 && ES_YEAR_LEADS.test(before)) continue;
+    found.push({ at: start, cents: value * 100 });
+  }
+  return found.sort((a, b) => a.at - b.at).map((f) => f.cents);
+}
+
+/** The cents of each amount said in words, English and Spanish: "two hundred dollars", "a hundred and fifty", "son doscientos". */
+export function spokenAmountsIn(text: string): number[] {
+  return [...wordAmounts(text), ...spanishAmounts(text)];
 }
 
 /**

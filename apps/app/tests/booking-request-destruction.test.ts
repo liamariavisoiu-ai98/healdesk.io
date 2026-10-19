@@ -1,4 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { getBaaTemplate, type BaaVariables } from "@healdesk/catalog";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -9,6 +12,7 @@ import {
   markExportDelivered,
   startOffboarding,
 } from "@/lib/offboarding/offboarding";
+import { KEPT_FOR_GOOD, KEPT_IN_PART } from "@/lib/offboarding/account-closure";
 import { exportClinic } from "@/lib/patient-rights/export";
 import { eraseContact, purgeClinic } from "@/lib/retention/purge";
 import { withTenant } from "@/lib/tenant";
@@ -188,45 +192,38 @@ async function backdateOffboarding(clinicId: string, days: number): Promise<void
 }
 
 /**
- * What destruction keeps, table by table, and why. Every other table with a
- * clinic_id is destroyed: destroyClinicData deletes it, and
- * app_mark_clinic_destroyed() refuses to record the destruction while any of
- * its rows is left. A new table with a clinic_id fails the catalog test below
- * until it is put on one side or the other, so it cannot slip past the record
- * of a destruction that says nothing of the clinic's patients remains.
+ * What happens to every table with a clinic_id when a clinic leaves, three
+ * ways. Destruction deletes the patient rows (destroyClinicData), and
+ * app_mark_clinic_destroyed() refuses to record it while any is left. The
+ * account's closure, once the pass-through has ended, deletes the sign-in,
+ * the setup and our notes (app_close_clinic_account, drizzle/0096). Every
+ * other table is KEPT_FOR_GOOD (lib/offboarding/account-closure.ts), each
+ * for a reason the agreements or the law give: the spec keeps "only the
+ * signed agreement and the billing records the law requires". Until 19
+ * October 2026 this file kept its own list, which held agent_configs, the
+ * settings, the memberships and the website reads for good. A new table with
+ * a clinic_id fails the catalog test below until it is put on one of the
+ * three, so it cannot slip past a destruction record that says nothing of
+ * the clinic's patients remains, or a closure that says the account is gone.
  */
-const KEPT_AT_DESTRUCTION: Record<string, string> = {
-  agent_configs: "what the agent says for the clinic (greeting, services, hours); no patient",
-  audit_log: "append-only, and the record that the destruction ran",
-  billing_notices: "billing evidence: the billing-email outbox, no patient",
-  billing_requests: "billing evidence, which the runtime role cannot delete (0050)",
-  billing_transitions: "billing evidence: the history of the billing status",
-  calendar_elections: "contract evidence: each is part of the signed agreement; append-only for every role, no patient (0057)",
-  channel_events: "billing evidence: the plan start and every step-up were charged from it",
-  clinic_channels: "the channels bought; no DELETE for the runtime role, and no patient",
-  clinic_memberships: "who could reach the clinic's records: access history",
-  clinic_settings: "the portal's switches; no patient",
-  clinic_settings_history:
-    "append-only by grant, like the audit log: which of the clinic's own numbers calls went to, and when; no patient",
-  clinic_touches: "our own notes on the account, never a patient",
-  connection_links: "append-only by grant: single-use credential links, no patient",
-  entitlements: "the plan and its allowances; no patient",
-  incidents: "the record of each incident and of its notice",
-  overage_invoices: "billing evidence",
-  practice_question_runs: "what approved the agent's words (lib/engine/practice): synthetic cases, never deleted by the runtime role, no patient",
-  practice_question_results: "the synthetic cases and AYA's answers to them, per channel and input version; no patient",
-  audit_review_queue: "ops-only decisions on those synthetic runs, and who made them; no patient",
-  site_rereads: "each read of the clinic's own public website after purchase (lib/website): business data like agent_configs, never deleted by the runtime role, no patient",
-  website_changes: "what those reads found on the clinic's website and whether it confirmed or ignored each: its own published business data, no patient",
-  report_deliveries: "the ledger of every email sent to the clinic",
-  report_recipients: "the clinic's own addresses for its email",
-  sign_in_address_changes:
-    "the record of each change of the clinic's address, the notice address its agreement names; business contact data, no patient (0084)",
-  agreement_resigns:
-    "the record of each re-sign from the DPA to the BAA: which agreement covered the practice, and when; contract metadata, no patient (0088)",
-  sync_runs: "append-only by grant: what each sync ran, no patient",
-  usage_events: "billing evidence: the usage ledger the clinic was charged from",
-};
+
+/** The tables app_close_clinic_account() deletes a clinic's rows from, read from its source. */
+async function deletedAtClosure(): Promise<string[]> {
+  const { rows } = await getMigratorPool().query<{ prosrc: string }>(
+    `select p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'app_close_clinic_account'`,
+  );
+  expect(rows).toHaveLength(1);
+  return [
+    ...new Set(
+      [
+        ...rows[0]!.prosrc.matchAll(
+          /delete\s+from\s+([a-z_]+)\s+[a-z]+\s+where\s+[a-z]+\.clinic_id\s*=\s*target_clinic/gi,
+        ),
+      ].map((m) => m[1]!),
+    ),
+  ].sort();
+}
 
 /** Every table with a clinic_id column, from the catalog. */
 async function clinicTables(): Promise<string[]> {
@@ -1332,21 +1329,26 @@ describeDb("booking requests at destruction, erasure and purge", () => {
   // 1.3.0), except the last, which runs the restore steps docs/handover.md
   // gives so they cannot quietly stop working.
 
-  test("every table with a clinic_id is destroyed, and checked before the destruction is recorded, or kept on purpose", async () => {
+  test("every table with a clinic_id is destroyed and checked before the destruction is recorded, deleted when the account closes, or kept on purpose", async () => {
     const tables = await clinicTables();
     const checked = await checkedBeforeDestroyed();
-    // Guard against either query matching nothing and the test passing vacuously.
+    const closed = await deletedAtClosure();
+    const kept = Object.keys(KEPT_FOR_GOOD);
+    // Guard against any query matching nothing and the test passing vacuously.
     expect(tables.length).toBeGreaterThan(20);
     expect(checked).toContain("booking_requests");
+    expect(closed).toContain("agent_configs");
 
-    expect(checked.filter((t) => !tables.includes(t))).toEqual([]);
-    expect(checked.filter((t) => t in KEPT_AT_DESTRUCTION)).toEqual([]);
-    expect(Object.keys(KEPT_AT_DESTRUCTION).filter((t) => !tables.includes(t))).toEqual([]);
-    // The one that matters: a clinic table on neither list would outlive a
-    // destruction recorded as complete.
-    expect(tables.filter((t) => !checked.includes(t) && !(t in KEPT_AT_DESTRUCTION))).toEqual(
-      [],
-    );
+    for (const list of [checked, closed, kept]) expect(list.filter((t) => !tables.includes(t))).toEqual([]);
+    // One fate each: nothing destruction deletes is kept or left for the
+    // closure, and the closure keeps only the part KEPT_IN_PART names.
+    expect(checked.filter((t) => closed.includes(t) || kept.includes(t))).toEqual([]);
+    expect(closed.filter((t) => kept.includes(t))).toEqual([...KEPT_IN_PART].sort());
+    // The one that matters: a clinic table on none of the three would outlive
+    // a destruction recorded as complete, or a closed account.
+    expect(
+      tables.filter((t) => !checked.includes(t) && !closed.includes(t) && !kept.includes(t)),
+    ).toEqual([]);
   });
 
   test("destruction takes the hashes of who messaged the clinic, and the database records it only once they are gone", async () => {
@@ -1708,5 +1710,69 @@ describeDb("booking requests at destruction, erasure and purge", () => {
       `select 1 from pg_trigger where tgname = 'clinics_insert_guard' and tgenabled = 'O'`,
     );
     expect(rows).toHaveLength(1);
+  });
+});
+
+// The review's N5, older than the account closure: an audit row whose actor
+// is a connector names its provider connection (audit_log.actor_connection_id,
+// ON DELETE SET NULL), and audit_log_actor_shape needs that id for a
+// connector. Destruction deletes every connection, so a clinic with one such
+// row could never be destroyed: the delete would fail and roll the whole
+// destruction back. Nothing writes one today. These two hold it there: the
+// first fails the moment code builds a connector actor, and the second shows
+// why, so whoever lifts the first makes destruction handle the row first.
+describe("connector actors in the audit log", () => {
+  test("no code builds an audit actor of type connector, which destruction cannot yet survive", () => {
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    const hits: string[] = [];
+    const walk = (dir: string) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.(ts|tsx)$/.test(entry.name)) {
+          readFileSync(path, "utf8")
+            .split("\n")
+            .forEach((line, i) => {
+              if (/type:\s*["'`]connector["'`]/.test(line)) {
+                hits.push(`${relative(root, path)}:${i + 1}`);
+              }
+            });
+        }
+      }
+    };
+    walk(join(root, "src"));
+    walk(join(root, "scripts"));
+    // The one allowed: the ActorContext member itself, in lib/audit.ts.
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatch(/^src\/lib\/audit\.ts:\d+$/);
+  });
+});
+
+describeDb("a connector actor's audit row against destruction", () => {
+  beforeAll(async () => {
+    await runMigrations();
+  }, 180_000);
+
+  afterAll(async () => {
+    await closePools();
+  });
+
+  test("deleting the connection a connector-actor audit row names is refused, so destruction would roll back", async () => {
+    const c = await seedClinic("connector-actor");
+    await expect(
+      inTenant(c.clinicId, async (q) => {
+        const { rows } = await q.query<{ id: string }>(
+          `insert into provider_connections (clinic_id, provider, ciphertext, iv, auth_tag, wrapped_dek, key_version)
+           values ($1, 'mindbody', 'x', 'x', 'x', 'x', 'test') returning id`,
+          [c.clinicId],
+        );
+        await q.query(
+          `insert into audit_log (clinic_id, actor_type, actor_label, actor_connection_id, action, resource_type)
+           values ($1, 'connector', 'sync', $2, 'read', 'appointment')`,
+          [c.clinicId, rows[0]!.id],
+        );
+        await q.query(`delete from provider_connections where id = $1`, [rows[0]!.id]);
+      }),
+    ).rejects.toMatchObject({ code: "23514", constraint: "audit_log_actor_shape" });
   });
 });

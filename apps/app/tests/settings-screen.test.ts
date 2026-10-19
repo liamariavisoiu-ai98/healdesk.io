@@ -14,6 +14,7 @@ import { unsubscribeToken } from "@/lib/email/unsubscribe";
 import { NOT_A_DEVICE_LABEL } from "@/lib/notices/setting-changed";
 import { SIGN_IN_ACTOR_LABEL } from "@/lib/portal/actor";
 import { SETTING_CHANNELS } from "@/lib/portal/settings";
+import { failureLines } from "@/lib/portal/settings-view";
 import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 import { saveNeverSay } from "@/lib/setup/knowledge";
 import { withTenant } from "@/lib/tenant";
@@ -142,6 +143,33 @@ async function setLive(live: boolean, channel?: "voice" | "web" | "meta") {
     );
   });
 }
+
+describe("Safety net's failure table", () => {
+  const planEnds = (bought: { web: boolean; meta: boolean; voice: boolean }) =>
+    failureLines({ bought, allowance: null }).find((line) => line.when === "Your plan ends")!.then;
+
+  test("once the plan ends, website chat takes no messages and asks visitors to call; it never promises a contact form", () => {
+    // The widget of a clinic that has left keeps nothing (BAA clause 17;
+    // lib/chat/contact-form.ts keepsMessages) and shows the practice's
+    // number instead. Until 19 October this row said "shows a contact form",
+    // and for a chat-only clinic it repeated the pause's sentence.
+    for (const bought of [
+      { web: true, meta: false, voice: false },
+      { web: true, meta: true, voice: false },
+      { web: true, meta: false, voice: true },
+      { web: true, meta: true, voice: true },
+    ]) {
+      const line = planEnds(bought);
+      expect(line).toContain("Website chat takes no more messages: it asks visitors to call your practice instead, until you remove its line from your site.");
+      expect(line).not.toMatch(/contact form/i);
+    }
+    expect(planEnds({ web: true, meta: false, voice: true })).toMatch(/^For 30 days calls still reach your direct line through us/);
+    expect(planEnds({ web: true, meta: true, voice: false })).toContain("Messages wait for your team in the apps.");
+    // The pause still turns the chat into its contact form: that is the spec's.
+    const paused = failureLines({ bought: { web: true, meta: false, voice: false }, allowance: null }).find((l) => l.when === "AYA is paused")!;
+    expect(paused.then).toBe("Website chat shows a contact form.");
+  });
+});
 
 describeDb("Settings", () => {
   beforeAll(async () => {

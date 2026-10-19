@@ -325,6 +325,29 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "The attestation for the vendor in Code was withdrawn or passed its expiry, so AYA has stopped answering where that vendor serves: every channel for anthropic, aws and database_host, phone for retell. Calls go to each clinic's direct line, website chat is the contact form (which keeps nothing while aws or database_host is the one lapsed), and Meta messages wait unanswered. Open an incident on /admin/incidents now: patient data may have gone to the vendor between the agreement's real end and this stop. AYA answers again the moment a renewed attestation is recorded on /admin/compliance.",
   },
+  // `code` is what the closure waits on (app_account_closure_waiting_on).
+  account_closure_waiting: {
+    title: "A leaving practice's account cannot close yet",
+    action:
+      "The clinic below has had its data destroyed and its pass-through has ended, but its account stays open, its sign-in and setup with it, until one thing is done. For code voice_agent, release its agent and number in Retell's console, delete every call Retell holds for it, and record it on its care page. For code incident_open, finish and resolve its open incident. For code critical_notice, a critical notice to the practice is still waiting to go: see why on its care page. For code stripe_connect, its Stripe Connect link is still in place: turn on billing-reconcile, or disconnect it from the Billing page. The hourly job closes the account once nothing is left.",
+  },
+  account_closure_failed: {
+    title: "A leaving practice's account closure failed",
+    action:
+      "The hourly job tried to close the account of the clinic below and the database refused, so its sign-in and setup are still there. Read the error lines for account closure in apps/app's log; the job tries again every hour.",
+  },
+  // `phase` retries or destruction; the connection and provider name the row.
+  meta_revoke_failed: {
+    title: "Meta would not take healdesk off a leaving practice",
+    action:
+      "Meta keeps refusing to take healdesk's app off the Facebook Page or WhatsApp Business account of the clinic below, which has left. For phase retries the token is kept and the hourly run tries again. For phase destruction the last try failed and the clinic's data, its token included, is destroyed now, as its agreement requires. Either way, ask the practice to remove healdesk from the Page's or the WhatsApp account's connected apps in Meta Business Suite, or remove the subscription from the app's dashboard, so no message reaches healdesk again.",
+  },
+  // `code` says why; the connection and provider name the row.
+  meta_revoke_by_hand: {
+    title: "End a leaving practice's Meta subscription by hand",
+    action:
+      "The clinic below has left, and healdesk erased its Meta token, but could not take its app off the Page or WhatsApp Business account itself. For code no_asset_on_record, healdesk holds no Page or account id for the connection (an operator pasted its token); for code no_token, the token could not be read. For either, ask the practice to remove healdesk from the Page's or the WhatsApp account's connected apps in Meta Business Suite, or end the subscription where it was set up in the app's dashboard. For code asset_unverified, another clinic in service has a connection of the same kind that healdesk holds no Page or account id for, so the Page or account was left subscribed in case it is that clinic's too: check in Meta Business Suite which numbers or Instagram accounts are on it, leave it if the other clinic's is, and otherwise have the leaving practice remove healdesk from it.",
+  },
   // L32's clock (lib/patient-rights/patient-requests.ts), once per request
   // each: the clinic's and the request's ids.
   patient_request_due_soon: {

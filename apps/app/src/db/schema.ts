@@ -612,6 +612,33 @@ export const clinics = pgTable(
      * is sent, or once DESTRUCTION_NOTICE_DAYS have passed without a send.
      */
     destructionNoticeAddress: text("destruction_notice_address"),
+    /**
+     * The account was closed (lib/offboarding/account-closure.ts): once the
+     * data is destroyed and calls no longer pass through, its sign-in was
+     * ended and its address taken off it, and its setup and business data
+     * went, keeping only the signed agreement, the billing records and the
+     * records the agreements and the law need (the keep-list there). The
+     * database's to stamp, like destroyed_at: app_close_clinic_account()
+     * writes it, the runtime role has no UPDATE on it, a new clinic cannot
+     * carry it, and the tables the closure emptied refuse new rows after it
+     * (drizzle/0096).
+     */
+    accountClosedAt: timestamp("account_closed_at", { withTimezone: true }),
+    /**
+     * The agreement's notice address once the account is closed: the BAA's
+     * Notices clause sends notices to "the email address on Practice's
+     * healdesk account", and the closure takes that address off the sign-in,
+     * while the agreement's duties outlive it (a breach report while backups
+     * or a subcontractor's retained copies still hold the practice's data;
+     * clauses 12, 17 and 20). Business contact data, never a patient's,
+     * written by app_close_clinic_account() beside the closure, read by
+     * billingRecipients() for a closed account, and cleared at
+     * `noticeAddressUntil`: six years after the service ended, since the
+     * clauses give the retained copies no end ("for as long as the law
+     * requires") and the signed agreement itself is kept six years.
+     */
+    noticeAddress: text("notice_address"),
+    noticeAddressUntil: timestamp("notice_address_until", { withTimezone: true }),
 
     // --- Billing across locations and the deposit account (0043). ---
     /**
@@ -702,6 +729,11 @@ export const clinics = pgTable(
     check(
       "clinics_destruction_notice_address_check",
       sql`${t.destructionNoticeAddress} is null or (${t.destroyedAt} is not null and char_length(${t.destructionNoticeAddress}) between 3 and 254 and ${t.destructionNoticeAddress} ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')`,
+    ),
+    // Held only by a closed account, only an address, and only with its end.
+    check(
+      "clinics_notice_address_check",
+      sql`${t.noticeAddress} is null or (${t.accountClosedAt} is not null and ${t.noticeAddressUntil} is not null and char_length(${t.noticeAddress}) between 3 and 254 and ${t.noticeAddress} ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')`,
     ),
   ],
 );
@@ -4713,7 +4745,8 @@ export type AddressChangeStopper = (typeof ADDRESS_CHANGE_STOPPERS)[number];
  * The confirmation token is never stored, only its SHA-256, as sign-in links
  * keep theirs. The runtime role may move the state columns and never DELETE:
  * the row is the written record that the practice gave healdesk a new notice
- * address (the agreements' Notices clause), and destruction keeps it.
+ * address (the agreements' Notices clause), and destruction and the
+ * account's closure keep it.
  */
 export const signInAddressChanges = pgTable(
   "sign_in_address_changes",
@@ -6010,7 +6043,10 @@ export const auditReviewQueue = pgTable(
 
 export type AuditReviewRow = typeof auditReviewQueue.$inferSelect;
 
-/** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
+/**
+ * Tables carrying a clinic_id, and therefore requiring RLS. Held to the catalog
+ * by tests/rls-drift.test.ts, which fails on a table on one side only.
+ */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
   "provider_connections",
@@ -6061,6 +6097,8 @@ export const TENANT_SCOPED_TABLES = [
   "agreement_resigns",
   "site_rereads",
   "website_changes",
+  "transcript_emails",
+  "handovers",
   "conversation_flags",
   "patient_requests",
 ] as const;

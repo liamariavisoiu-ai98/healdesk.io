@@ -675,9 +675,16 @@
       "breakpoints": true
     },
     {
+      "idx": 96,
+      "version": "7",
+      "when": 1792426331384,
+      "tag": "0096_account_closure",
+      "breakpoints": true
+    },
+    {
       "idx": 97,
       "version": "7",
-      "when": 1792429491432,
+      "when": 1792432717150,
       "tag": "0097_practice_questions_only",
       "breakpoints": true
     }

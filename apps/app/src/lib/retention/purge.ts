@@ -11,6 +11,7 @@ import {
   conversations,
   handovers,
   metaBookingDrafts,
+  metaInboundMessages,
   patientRequests,
   reconciliationExceptions,
   recordAmendments,
@@ -19,7 +20,10 @@ import {
   transactions,
   webhookEvents,
 } from "@/db/schema";
-import { CHAT_THREAD_IDLE_RETENTION_DAYS } from "@/lib/billing/housekeeping";
+import {
+  CHAT_THREAD_IDLE_RETENTION_DAYS,
+  META_MESSAGE_REF_RETENTION_DAYS,
+} from "@/lib/billing/housekeeping";
 import { DRAFT_TTL_HOURS } from "@/lib/meta/booking-requests";
 import { linkCallHandovers } from "@/lib/handovers/record";
 import type { TenantTx } from "@/lib/tenant";
@@ -106,6 +110,12 @@ import type { TenantTx } from "@/lib/tenant";
  *     Until BAA 1.3.0's release gate 9 (PT-28) a payload never processed was
  *     never deleted;
  *   - a half-collected Meta draft: a day (DRAFT_TTL_HOURS);
+ *   - a handled Meta message's keyed reference (meta_inbound_messages), kept
+ *     only to recognise Meta's redelivery: seven days
+ *     (META_MESSAGE_REF_RETENTION_DAYS), or the record clock if shorter.
+ *     Until 19 October 2026 only billing-housekeeping deleted these, and it
+ *     ships switched off (drizzle/0043), so the "purged after 7 days" in
+ *     lib/meta/inbound.ts held only once someone switched it on;
  *   - a deposit: with its appointment, or, once its appointment is gone, the
  *     record clock after it was made (app_purge_deposit_payments, 0067);
  *   - a patient's request passed to the practice (L32, drizzle/0094): the
@@ -188,6 +198,79 @@ export const SLOT_HOLD_RETENTION_DAYS = 7;
  */
 export const SYNC_HOLDS_PURGE_HOURS = 6;
 
+/**
+ * What the nightly purge does with each table that has a clinic_id: the
+ * tables it deletes from, each with its clock, and every other, with the
+ * reason the purge leaves it (a separate clock, a separate job, or a record
+ * the purge has no period for). tests/retention.test.ts holds this map to
+ * the catalog, so a new tenant table fails it until someone decides which
+ * side it is on, and holds the purged side to what purgeClinic deletes.
+ */
+export const PURGE_COVERAGE: Readonly<{
+  purged: Readonly<Record<string, string>>;
+  notPurged: Readonly<Record<string, string>>;
+}> = {
+  purged: {
+    conversations: "the record clock after it took place (its transcript reference sooner, by the media clock)",
+    appointments: "the record clock after its time, once no remaining request holds it",
+    booking_requests: "the record clock after its latest date (app_purge_booking_requests)",
+    transactions: "the record clock after it was collected (phase two)",
+    reconciliation_exceptions: "with the transaction or appointment it was about (phase two)",
+    contacts: "once nothing of theirs is kept, and the record clock after last written",
+    record_amendments: "with the request, appointment or conversation it amends",
+    deposit_payments: "with its appointment, or the record clock after it was made (app_purge_deposit_payments)",
+    webhook_events: "thirty days after it arrived once processed, the record clock if never, the transcript clock at most",
+    meta_booking_drafts: "a day (DRAFT_TTL_HOURS)",
+    chat_threads: "thirty days after its last message, or the record or transcript clock if shorter",
+    meta_inbound_messages: "seven days (META_MESSAGE_REF_RETENTION_DAYS), or the record clock if shorter",
+    slot_holds: "a week once it no longer blocks, or the record clock if shorter",
+    handovers: "with its conversation or thread (cascade), and in any case the record clock after it was asked",
+    patient_requests: "the record clock after it reached healdesk, marked received or not",
+  },
+  notPurged: {
+    conversation_flags:
+      "no clock of its own: goes with the conversation or thread it flags, by cascade, when the purge deletes that",
+    transcript_emails:
+      "its own clock: the outbox job deletes each sealed copy on delivery and never keeps one past 30 days, and the receipt goes with its conversation by cascade (lib/conversations/transcript-outbox.ts)",
+    erasure_requests: "its own clock: expireErasureRecords, hourly, BACKUP_RETENTION_DAYS after the deletion",
+    suppressions: "a person's \"stop\", which must outlast what it stopped: goes with the person's erasure, or the clinic's destruction",
+    consent_records: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
+    contact_attempts: "append-only evidence: goes with the person's erasure, or the clinic's destruction",
+    clinic_closures: "the clinic's closed days, no patient: go with its destruction",
+    clinic_providers: "the clinic's providers, no patient: go with its destruction",
+    clinic_provider_services: "which services each provider offers, no patient: go with its destruction",
+    clinic_setup_screens: "setup progress, no patient: goes with the destruction",
+    provider_connections: "the clinic's credentials, no patient: erased on disconnect, deleted at destruction",
+    audit_log: "append-only by grant: the record of how the data was handled, the purge's own runs included",
+    sync_runs: "append-only by grant (phase two): what each sync ran, no patient; goes when the account closes",
+    connection_links: "single-use links, no patient: go when the account closes",
+    clinic_memberships: "the access history, no patient: revoked when the account closes, and kept",
+    agent_configs: "the clinic's setup, no patient: goes when the account closes",
+    clinic_settings: "the clinic's switches, no patient: go when the account closes",
+    clinic_settings_history: "append-only by grant, no patient: goes when the account closes",
+    report_recipients: "the clinic's own addresses: go when the account closes",
+    clinic_touches: "our notes on the account, never a patient: go when the account closes",
+    practice_question_runs: "synthetic cases, no patient: go when the account closes",
+    practice_question_results: "synthetic cases and answers, no patient: go when the account closes",
+    audit_review_queue: "ops decisions on synthetic runs, no patient: go when the account closes",
+    site_rereads: "reads of the clinic's public website, no patient: go when the account closes",
+    website_changes: "what those reads found, no patient: go when the account closes",
+    entitlements: "a billing record, kept (lib/offboarding/account-closure.ts, KEPT_FOR_GOOD)",
+    billing_transitions: "a billing record, kept",
+    billing_requests: "a billing record, kept",
+    billing_notices: "the notices given, no patient: kept",
+    report_deliveries: "the ledger of the notices, no patient: kept",
+    overage_invoices: "a billing record, kept",
+    usage_events: "a billing record, kept",
+    channel_events: "a billing record, kept",
+    clinic_channels: "a billing record, kept",
+    calendar_elections: "part of the signed agreement, kept",
+    agreement_resigns: "contract metadata, kept",
+    sign_in_address_changes: "the record of the notice addresses, kept",
+    incidents: "the record of each incident and its notice, kept",
+  },
+};
+
 export type PurgeResult = {
   clinicId: string;
   skipped: "sync_running" | null;
@@ -203,6 +286,8 @@ export type PurgeResult = {
   slotHoldsDeleted: number;
   /** Deposits whose appointment the record clock took (drizzle/0067). */
   depositsDeleted: number;
+  /** Handled Meta messages' keyed references past their seven days. */
+  metaMessageRefsDeleted: number;
   /** Handovers past the record clock that their conversation or thread did not take with it (drizzle/0092). */
   handoversDeleted: number;
   /** Patients' requests passed to the practice, past the record clock (drizzle/0094). */
@@ -273,6 +358,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     chatThreadsDeleted: 0,
     slotHoldsDeleted: 0,
     depositsDeleted: 0,
+    metaMessageRefsDeleted: 0,
     handoversDeleted: 0,
     patientRequestsDeleted: 0,
   };
@@ -611,6 +697,20 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     .returning({ ref: chatThreads.partyRef });
   result.chatThreadsDeleted = quietThreads.length;
 
+  // 8. Handled Meta messages' references: an HMAC of each message's id
+  //    (lib/meta/inbound.ts), kept only so that Meta's redelivery of a batch
+  //    is not answered twice, which happens within hours. Seven days, or the
+  //    record clock when shorter, so no trace of a message outlives the
+  //    record of its conversation.
+  const refsBefore = new Date(
+    Math.max(daysAgo(now, META_MESSAGE_REF_RETENTION_DAYS).getTime(), recordBefore.getTime()),
+  );
+  const refs = await tx.db
+    .delete(metaInboundMessages)
+    .where(and(eq(metaInboundMessages.clinicId, tx.clinicId), lt(metaInboundMessages.receivedAt, refsBefore)))
+    .returning({ ref: metaInboundMessages.messageRef });
+  result.metaMessageRefsDeleted = refs.length;
+
   // The audit row says what kind and how many — never which person.
   const total =
     result.mediaCleared +
@@ -624,6 +724,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.chatThreadsDeleted +
     result.slotHoldsDeleted +
     result.depositsDeleted +
+    result.metaMessageRefsDeleted +
     result.handoversDeleted +
     result.patientRequestsDeleted;
   if (total > 0) {
@@ -643,6 +744,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         chatThreads: result.chatThreadsDeleted,
         slotHolds: result.slotHoldsDeleted,
         deposits: result.depositsDeleted,
+        metaMessageRefs: result.metaMessageRefsDeleted,
         handovers: result.handoversDeleted,
         patientRequests: result.patientRequestsDeleted,
         mediaDays: clinic.mediaDays,

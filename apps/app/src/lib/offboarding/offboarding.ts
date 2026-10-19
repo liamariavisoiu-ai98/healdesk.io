@@ -11,6 +11,7 @@ import {
   clinicSetupScreens,
   contacts,
   conversations,
+  handovers,
   metaBookingDrafts,
   metaInboundMessages,
   providerConnections,
@@ -543,6 +544,10 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // deleted here first so the count is in the record and the stamp's check
   // names it.
   await del("transcript_emails", () => tx.db.delete(transcriptEmails).where(eq(transcriptEmails.clinicId, c)).returning({ id: transcriptEmails.id }));
+  // Handovers (drizzle/0085) go with their conversations and threads by the
+  // foreign keys' cascades; deleted here first so the count is in the record
+  // and the stamp's check names them.
+  await del("handovers", () => tx.db.delete(handovers).where(eq(handovers.clinicId, c)).returning({ id: handovers.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
   // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
   await del("chat_threads", () => tx.db.delete(chatThreads).where(eq(chatThreads.clinicId, c)).returning({ id: chatThreads.partyRef }));

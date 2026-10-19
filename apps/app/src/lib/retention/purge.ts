@@ -9,6 +9,7 @@ import {
   clinics,
   contacts,
   conversations,
+  handovers,
   metaBookingDrafts,
   reconciliationExceptions,
   recordAmendments,
@@ -106,6 +107,11 @@ import type { TenantTx } from "@/lib/tenant";
  *   - a deposit: with its appointment, or, once its appointment is gone, the
  *     record clock after it was made (app_purge_deposit_payments, 0067).
  *
+ * A handover (someone asked for a person, drizzle/0085) is part of the
+ * record of the conversation it was asked in, and holds nothing of its own:
+ * it goes with that conversation, or with its messaging thread, and in any
+ * case the record clock after it was asked.
+ *
  * Each cutoff taken by one of these periods is a day early (periodCutoff):
  * the job runs at 03 and 09 UTC, so a cutoff of exactly the period kept a
  * row up to eighteen hours past it, or a day more after a missed tick, and
@@ -187,6 +193,8 @@ export type PurgeResult = {
   slotHoldsDeleted: number;
   /** Deposits whose appointment the record clock took (drizzle/0067). */
   depositsDeleted: number;
+  /** Handovers past the record clock that their conversation or thread did not take with it (drizzle/0085). */
+  handoversDeleted: number;
 };
 
 const promised = new Map<string, boolean>();
@@ -253,6 +261,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     chatThreadsDeleted: 0,
     slotHoldsDeleted: 0,
     depositsDeleted: 0,
+    handoversDeleted: 0,
   };
 
   const [running] = await tx.db
@@ -477,6 +486,15 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
       .returning({ id: conversations.id });
     result.conversationsDeleted += gone.length;
   }
+  // A handover goes with its conversation or thread (the foreign keys'
+  // cascades), and in any case at the record clock after it was asked: a
+  // call whose conversation was never written leaves one pointing at
+  // nothing (drizzle/0085).
+  const oldHandovers = await tx.db
+    .delete(handovers)
+    .where(and(eq(handovers.clinicId, tx.clinicId), lt(handovers.createdAt, recordBefore)))
+    .returning({ id: handovers.id });
+  result.handoversDeleted = oldHandovers.length;
 
   // 4. Contacts nothing refers to any more, and that are themselves old. A
   //    request still inside the clock keeps its person: a Meta request reuses
@@ -577,7 +595,8 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
     result.webhookEventsDeleted +
     result.chatThreadsDeleted +
     result.slotHoldsDeleted +
-    result.depositsDeleted;
+    result.depositsDeleted +
+    result.handoversDeleted;
   if (total > 0) {
     tx.audit.record({
       action: "delete",
@@ -595,6 +614,7 @@ export async function purgeClinic(tx: TenantTx, now: Date = new Date()): Promise
         chatThreads: result.chatThreadsDeleted,
         slotHolds: result.slotHoldsDeleted,
         deposits: result.depositsDeleted,
+        handovers: result.handoversDeleted,
         mediaDays: clinic.mediaDays,
         transcriptDays,
         recordDays: clinic.recordDays,

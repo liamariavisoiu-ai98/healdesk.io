@@ -1396,7 +1396,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings does not yet list a caller who asked for a person, or a message left while AYA was off: nothing records them yet.",
+      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings lists, under Needs you, everyone who asked AYA for a person, on the phone, in website chat or on Instagram, Messenger or WhatsApp, until the desk marks them handled, and each message left on the website's contact form while AYA was off or paused.",
   },
   {
     id: "connectors-app",

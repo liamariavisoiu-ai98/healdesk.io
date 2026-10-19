@@ -23,6 +23,7 @@ import {
 } from "@/lib/conversations/transcript-outbox";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { env } from "@/lib/env";
+import { attachHandoverCaller, raiseHandover } from "@/lib/handovers/record";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
@@ -355,9 +356,14 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
       }
       // L11: they asked for a person. Once per conversation, and not after
       // an urgent alert, which already has the clinic looking at it.
+      // Kept for Bookings' Needs you as well as alerted, with the number
+      // they give for the call back (lib/handovers/record.ts).
       if (turn.handoff && !state.handoverAlerted && !next.urgentAlerted) {
-        await notifyBookingAlert(tx, "handover", { conversationId, channel: "web" });
+        await raiseHandover(tx, { channel: "web_chat", conversationId });
         next.handoverAlerted = true;
+      }
+      if (next.handoverAlerted) {
+        await attachHandoverCaller(tx, { conversationId, capture: turn.capture, timeZone: facts.timeZone });
       }
       if (!next.requestId) {
         next.requestId = await takeRequest(tx, facts, conversationId, turn.capture);

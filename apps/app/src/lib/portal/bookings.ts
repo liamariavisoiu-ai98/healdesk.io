@@ -1,13 +1,17 @@
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 
 import {
   appointments,
   bookingRequests,
   clinics,
   contacts,
+  conversations,
+  handovers,
   type BookedVia,
   type CalendarWriteStatus,
   type DepositStatus,
+  type HandoverChannel,
+  type HandoverPlatform,
 } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { writableConnection } from "@/lib/booking/calendar";
@@ -46,9 +50,10 @@ import { logPatientAccess, type PatientPage, type PatientTx } from "./patient-pa
  * the passkey (logPatientAccess) in that transaction: one for the requests
  * shown, one for the appointments. A message left on the website while AYA
  * was off is a request (source 'contact_form', package F) and sits in Needs
- * you with the rest, worded by `requestWords`. A handover has no record of
- * its own to list: its alert (L11) and the conversation's transcript carry
- * it.
+ * you with the rest, worded by `requestWords`. Someone who asked AYA for a
+ * person (L11) is a handover (drizzle/0085, lib/handovers/record.ts): open
+ * ones sit in Needs you, with an access row of their own, until the desk
+ * marks one handled (markHandoverHandled).
  *
  * Server only.
  */
@@ -141,10 +146,25 @@ export type BookedAppointment = {
   amendments: { text: string; requestedAt: Date }[];
 };
 
+/** Someone asked AYA for a person, and the desk has not marked it handled. */
+export type HandoverView = {
+  id: string;
+  channel: HandoverChannel;
+  platform: HandoverPlatform | null;
+  askedAt: Date;
+  /** The call's or web chat's conversation, to open in Conversations; null for Meta, and for a call not yet written. */
+  conversationId: string | null;
+  /** From the conversation's contact: the caller's number, or the one a web chat visitor gave. */
+  firstName: string | null;
+  phone: string | null;
+};
+
 export type BookingsScreen = {
   timeZone: string;
   /** Open requests, oldest first. */
   open: BookingRequestView[];
+  /** Open handovers, oldest first. */
+  handovers: HandoverView[];
   /** Deposits a booking left for the front desk, while the appointment is ahead. */
   deposits: BookedAppointment[];
   /** Lapsed requests, newest first. */
@@ -181,6 +201,7 @@ export async function readBookingsScreen(
     { now, limit: 50 },
   );
   const booked = await readBookedAppointments(tx, now);
+  const asked = await readOpenHandovers(tx);
   let focus: BookingRequestView | null = null;
   if (focusId !== null) {
     focus =
@@ -204,6 +225,13 @@ export async function readBookingsScreen(
       resourceIds: booked.map((a) => a.id),
     });
   }
+  if (asked.length > 0) {
+    await logPatientAccess(tx, {
+      action: "read",
+      resourceType: "handover",
+      resourceIds: asked.map((h) => h.id),
+    });
+  }
 
   const deposits = booked.filter(
     (a) =>
@@ -214,6 +242,7 @@ export async function readBookingsScreen(
   return {
     timeZone: open[0]?.timeZone ?? missed[0]?.timeZone ?? (await clinicZone(tx)),
     open,
+    handovers: asked,
     deposits,
     missed,
     booked,
@@ -454,4 +483,128 @@ export async function markAppointmentOutcome(
     },
   });
   return { ok: true, status: outcome, changed: true };
+}
+
+/** How many open handovers Needs you lists at most: the oldest first, so none is buried. */
+export const MAX_OPEN_HANDOVERS = 100;
+
+/**
+ * The open handovers, oldest first, with the name and number of the
+ * conversation's contact where it has one (a call's caller, or the number a
+ * web chat visitor gave). A Meta handover has neither: the desk answers it in
+ * the platform's own inbox. A call's conversation is written when the call
+ * ends, so one still going has none yet.
+ */
+async function readOpenHandovers(tx: TenantTx): Promise<HandoverView[]> {
+  const rows = await tx.db
+    .select({
+      id: handovers.id,
+      channel: handovers.channel,
+      platform: handovers.platform,
+      askedAt: handovers.createdAt,
+      conversationId: handovers.conversationId,
+      firstName: contacts.fullName,
+      phone: contacts.phone,
+    })
+    .from(handovers)
+    .leftJoin(
+      conversations,
+      and(eq(conversations.clinicId, handovers.clinicId), eq(conversations.id, handovers.conversationId)),
+    )
+    .leftJoin(
+      contacts,
+      and(eq(contacts.clinicId, conversations.clinicId), eq(contacts.id, conversations.contactId)),
+    )
+    .where(and(eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)))
+    .orderBy(asc(handovers.createdAt), asc(handovers.id))
+    .limit(MAX_OPEN_HANDOVERS);
+  return rows.map((r) => ({
+    id: r.id,
+    channel: r.channel,
+    platform: r.platform,
+    askedAt: r.askedAt,
+    conversationId: r.conversationId,
+    firstName: r.firstName,
+    phone: r.phone,
+  }));
+}
+
+/** How Bookings words a handover: where they asked, and how the desk reaches them. */
+export function handoverWords(view: Pick<HandoverView, "channel" | "platform" | "conversationId" | "phone">): {
+  /** "on the phone", "in your website chat", "on Instagram". */
+  via: string;
+  /** What to do, when there is no number to call. */
+  reach: string | null;
+} {
+  if (view.channel === "meta") {
+    const platform =
+      view.platform === "instagram" ? "Instagram" : view.platform === "whatsapp" ? "WhatsApp" : "Messenger";
+    return {
+      via: `on ${platform}`,
+      reach: `Reply to them in your ${platform} inbox. Nothing they wrote is kept here.`,
+    };
+  }
+  if (view.channel === "voice") {
+    return {
+      via: "on the phone",
+      reach: view.phone
+        ? null
+        : view.conversationId
+          ? "The caller's number wasn't shown. Their call is in Conversations."
+          : "The call was still going. Its record and the caller's number appear here when it ends.",
+    };
+  }
+  return {
+    via: "in your website chat",
+    reach: view.phone ? null : "They didn't leave a number. The chat's transcript was emailed to you.",
+  };
+}
+
+/** Thrown inside the patient transaction for an id that is not this clinic's handover, so it rolls back with no row. */
+export class HandoverNotFoundError extends Error {
+  constructor() {
+    super("Not one of this clinic's handovers.");
+    this.name = "HandoverNotFoundError";
+  }
+}
+
+export type HandoverResult = { ok: true; changed: boolean; handledAt: Date };
+
+/**
+ * The desk has dealt with a handover: marked once, by the device whose
+ * passkey is live, in the action's patient transaction (withPatientPage),
+ * with an access row for the handover it read and an update row for the
+ * change, each naming the passkey. The database stamps the time and never
+ * reopens it (drizzle/0085), so marking one already handled changes
+ * nothing. An id that is not one of this clinic's handovers throws
+ * HandoverNotFoundError, so the transaction rolls back and leaves no row.
+ */
+export async function markHandoverHandled(tx: PatientTx, handoverId: string): Promise<HandoverResult> {
+  if (!UUID.test(handoverId)) throw new HandoverNotFoundError();
+  const [row] = await tx.db
+    .select({ handledAt: handovers.handledAt })
+    .from(handovers)
+    .where(and(eq(handovers.id, handoverId), eq(handovers.clinicId, tx.clinicId)))
+    .for("update")
+    .limit(1);
+  if (!row) throw new HandoverNotFoundError();
+  await logPatientAccess(tx, { action: "read", resourceType: "handover", resourceId: handoverId });
+  if (row.handledAt) return { ok: true, changed: false, handledAt: row.handledAt };
+  const label = tx.page.stepUp.deviceLabel.trim().slice(0, 200) || "Your team";
+  const [updated] = await tx.db
+    .update(handovers)
+    .set({ handledAt: sql`clock_timestamp()`, handledByLabel: label, handledByUserId: tx.page.portal.userId })
+    .where(and(eq(handovers.id, handoverId), eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)))
+    .returning({ handledAt: handovers.handledAt });
+  tx.audit.record({
+    action: "update",
+    resourceType: "handover",
+    resourceId: handoverId,
+    metadata: {
+      outcome: "handled",
+      passkeyId: tx.page.stepUp.passkeyId,
+      stepUpId: tx.page.stepUp.stepUpId,
+    },
+  });
+  return { ok: true, changed: true, handledAt: updated?.handledAt ?? new Date() };
 }

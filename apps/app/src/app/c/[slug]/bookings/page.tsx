@@ -1,5 +1,6 @@
 import { collectedFieldRows } from "@healdesk/catalog";
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { MAX_WRITE_ATTEMPTS } from "@/lib/booking/calendar";
@@ -8,12 +9,14 @@ import {
   BOOKED_LOOKBACK_DAYS,
   bookingRequestPath,
   bookingsPath,
+  handoverWords,
   isDecidable,
   MISSED_DAYS,
   readBookingsScreen,
   requestWords,
   withFreeTimes,
   type BookedAppointment,
+  type HandoverView,
 } from "@/lib/portal/bookings";
 import { portalMoment, portalMoney } from "@/lib/portal/format";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
@@ -24,6 +27,7 @@ import { PatientPageGuard } from "../PatientPageGuard";
 import { PortalShell } from "../PortalShell";
 
 import { DecideForm } from "./DecideForm";
+import { HandoverControl } from "./HandoverControl";
 import { OutcomeControl } from "./OutcomeControl";
 
 export const metadata: Metadata = {
@@ -39,7 +43,8 @@ export const dynamic = "force-dynamic";
  * with its deposit, and the queue of anything that needs staff.
  *
  * - **Needs you:** each open request, with "Call {first name}" and Confirm,
- *   Propose and Decline; and each deposit a booking left for the front desk.
+ *   Propose and Decline; each person who asked AYA for a person, with "Mark
+ *   handled"; and each deposit a booking left for the front desk.
  * - **Missed:** requests that lapsed. They were told the practice would call.
  * - **Booked by AYA:** her appointments, with the deposit and one click for
  *   Showed, No-show or Cancelled.
@@ -106,7 +111,7 @@ export default async function BookingsPage({
           <h2 id="needs-you" className="text-xl font-semibold">
             Needs you
           </h2>
-          {open.length === 0 && screen.deposits.length === 0 ? (
+          {open.length === 0 && screen.handovers.length === 0 && screen.deposits.length === 0 ? (
             <p className="border-line mt-3 rounded-xl border bg-white px-4 py-3">
               Nothing needs you right now.
             </p>
@@ -127,6 +132,24 @@ export default async function BookingsPage({
                 </li>
               ))}
             </ul>
+          ) : null}
+          {screen.handovers.length > 0 ? (
+            <>
+              <h3 className="mt-6 font-semibold">Asked for a person</h3>
+              <ul className="mt-2 grid gap-2">
+                {screen.handovers.map((h) => (
+                  <li key={h.id}>
+                    <HandoverCard
+                      slug={page.portal.clinicSlug}
+                      view={h}
+                      zone={zone}
+                      now={now}
+                      readOnly={readOnly}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </>
           ) : null}
           {screen.deposits.length > 0 ? (
             <>
@@ -378,6 +401,51 @@ function RequestCard(props: {
           proposedSlots={r.proposedSlots.map((s) => ({ at: s.at, label: s.label }))}
         />
       )}
+    </article>
+  );
+}
+
+/**
+ * Someone asked AYA for a person: where and when, the number to call when
+ * the conversation has one, and "Mark handled". Nothing they said: a call's
+ * or web chat's words went to the clinic in the transcript email, and a Meta
+ * message is answered in the platform's own inbox.
+ */
+function HandoverCard(props: {
+  slug: string;
+  view: HandoverView;
+  zone: string;
+  now: Date;
+  readOnly: boolean;
+}) {
+  const { view: h, zone, now } = props;
+  const words = handoverWords(h);
+  return (
+    <article
+      id={`handover-${h.id}`}
+      aria-labelledby={`handover-${h.id}-name`}
+      className="border-line rounded-xl border bg-white p-4"
+    >
+      <h4 id={`handover-${h.id}-name`} className="font-semibold">
+        {firstNameOf(h.firstName) ?? "Someone"} asked for a person {words.via}
+      </h4>
+      <p className="text-muted mt-1 text-sm">
+        Asked {portalMoment(h.askedAt, zone, now)}.
+      </p>
+      <CallLink name={h.firstName} phone={h.phone} />
+      {words.reach ? <p className="mt-2 text-sm">{words.reach}</p> : null}
+      {h.conversationId ? (
+        <p className="mt-2 text-sm">
+          <Link
+            prefetch={false}
+            href={`/c/${props.slug}/conversations/${h.conversationId}`}
+            className="font-semibold underline"
+          >
+            Open the conversation
+          </Link>
+        </p>
+      ) : null}
+      {props.readOnly ? null : <HandoverControl slug={props.slug} handoverId={h.id} />}
     </article>
   );
 }

@@ -10,6 +10,7 @@ import {
   contacts,
   conversations,
   depositPayments,
+  handovers,
   metaBookingDrafts,
   slotHolds,
   suppressions,
@@ -83,6 +84,12 @@ export type PatientBundle = {
   bookingRequests: Amended<Omit<typeof bookingRequests.$inferSelect, "tokenHash">>[];
   /** Deposits taken through the clinic's own Stripe account for their appointments: never the Stripe account id or event id. */
   depositPayments: DepositRecord[];
+  /**
+   * The times they asked AYA for a person in one of these conversations
+   * (drizzle/0085): the channel, when, and when the desk marked it handled.
+   * The clinic's bundle carries every one, Meta's by their thread's keyed reference.
+   */
+  handovers: HandoverRecord[];
   /** Times the assistant held for them on a call (plan §11.8): when, for how long, and what became of it. */
   slotHolds: { id: string; startsAt: Date; endsAt: Date; status: string; createdAt: Date }[];
   /** Every audit row that touched any of the ids above: the accounting of disclosures. */
@@ -99,6 +106,22 @@ export type PatientBundle = {
   messagingThreads?: MessagingThreadRecord[];
   /** The whole clinic's bundle only: half-collected Meta bookings (a first name, a number, a time). */
   metaBookingDrafts?: (typeof metaBookingDrafts.$inferSelect)[];
+};
+
+export type HandoverRecord = Omit<typeof handovers.$inferSelect, "handledByUserId">;
+
+const HANDOVER_COLUMNS = {
+  id: handovers.id,
+  clinicId: handovers.clinicId,
+  channel: handovers.channel,
+  platform: handovers.platform,
+  externalCallId: handovers.externalCallId,
+  conversationId: handovers.conversationId,
+  partyRef: handovers.partyRef,
+  metaConversationId: handovers.metaConversationId,
+  createdAt: handovers.createdAt,
+  handledAt: handovers.handledAt,
+  handledByLabel: handovers.handledByLabel,
 };
 
 export type RawPayloadRecord = {
@@ -299,6 +322,12 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
         .from(depositPayments)
         .where(and(eq(depositPayments.clinicId, tx.clinicId), inArray(depositPayments.appointmentId, appts.map((a) => a.id))))
     : [];
+  const asked = convos.length
+    ? await tx.db
+        .select(HANDOVER_COLUMNS)
+        .from(handovers)
+        .where(and(eq(handovers.clinicId, tx.clinicId), inArray(handovers.conversationId, convos.map((v) => v.id))))
+    : [];
 
   const everyId = [
     ...ids,
@@ -316,6 +345,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
       .map((a) => a.id),
     ...holds.map((h) => h.id),
     ...deposits.map((d) => d.id),
+    ...asked.map((h) => h.id),
   ];
   const accounting = everyId.length
     ? await tx.db
@@ -355,6 +385,7 @@ export async function exportPatient(tx: TenantTx, query: PatientQuery): Promise<
     contactAttempts: attempts,
     bookingRequests: withAmendments(bookings, bookingAmendments),
     depositPayments: deposits,
+    handovers: asked,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
   };
@@ -450,6 +481,7 @@ export async function exportClinic(
     .from(slotHolds)
     .where(eq(slotHolds.clinicId, c));
   const deposits = await tx.db.select(DEPOSIT_COLUMNS).from(depositPayments).where(eq(depositPayments.clinicId, c));
+  const asked = await tx.db.select(HANDOVER_COLUMNS).from(handovers).where(eq(handovers.clinicId, c));
   const accounting = await tx.db.select().from(auditLog).where(eq(auditLog.clinicId, c));
   // Clause 17's "an export of the patient information it holds": the raw
   // payloads can hold a vendor's transcript, which no other table does, and
@@ -492,6 +524,7 @@ export async function exportClinic(
     contactAttempts: attempts,
     bookingRequests: withAmendments(bookings, bookingAmendments),
     depositPayments: deposits,
+    handovers: asked,
     slotHolds: holds,
     accountingOfDisclosures: accounting,
     rawPayloads: payloads,

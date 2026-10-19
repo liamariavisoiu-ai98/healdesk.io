@@ -10,7 +10,7 @@ import {
   stepsReason,
   type StepsSentPayload,
 } from "@/lib/email/templates/steps_sent";
-import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
+import { printableClinicName } from "@/lib/email/lint";
 import { audienceFor } from "@/lib/email/templates/context";
 import { unsubscribeHeaders, stepsStopUrl } from "@/lib/email/unsubscribe";
 import { describeError, log } from "@/lib/log";
@@ -217,7 +217,6 @@ export async function sendStepsOn(
             routing,
             callUrl: emailCallUrl(),
           };
-    assertPayloadAllowed(payload, KIND);
     const stopUrl = stepsStopUrl(input.clinicId, deliveryId);
     // The name as the email may print it, or none (lib/email/lint.ts).
     const printed = printableClinicName(clinic.name);

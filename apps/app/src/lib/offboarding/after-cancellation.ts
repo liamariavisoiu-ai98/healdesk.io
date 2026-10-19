@@ -6,7 +6,7 @@ import { clinicChannels, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { readCoverageMode } from "@/lib/billing/answering";
 import type { ForwardingFacts } from "@/lib/billing/notices";
-import { assertPayloadAllowed, printableClinicName } from "@/lib/email/lint";
+import { printableClinicName } from "@/lib/email/lint";
 import { verdictOf } from "@/lib/email/outbox";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
@@ -423,7 +423,6 @@ export async function sendDestructionNotice(
 
     let result;
     try {
-      assertPayloadAllowed(payload, "data_destroyed");
       // The name as the email may print it, or none (lib/email/lint.ts).
       const printed = printableClinicName(clinic.name);
       const rendered = renderDataDestroyed(payload, {

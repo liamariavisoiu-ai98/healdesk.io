@@ -216,6 +216,33 @@ describeDb("a change of the clinic's address", () => {
     expect(sent[0]!.message.text).toContain("someone at a practice asked");
   });
 
+  /**
+   * The check of 19 October 2026: O5's sender checked its payload itself
+   * before sendEmail, so a refusal never reached sendEmail's reporting.
+   * Here the old address, masked, is past the allowlist's 120 characters.
+   */
+  test("a payload the allowlist refuses is told to ops, as every direct kind's refusal is", async () => {
+    await getMigratorPool().query(`truncate ops_alerts`);
+    await getMigratorPool().query(`update "user" set email = $1 where id = $2`, [
+      `owner@${"x".repeat(130)}.test`,
+      clinic.staffUserId,
+    ]);
+    const { sent, transport } = fakeTransport();
+    const outcome = await ask("front@radiance.test", transport);
+    expect(outcome).toMatchObject({ status: "requested", emailed: false });
+    expect(sent).toEqual([]);
+    const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+      `select fields from ops_alerts where event = 'email_refused'`,
+    );
+    expect(rows.map((r) => r.fields)).toEqual([
+      {
+        kind: "address_change_confirm",
+        clinicId: clinic.clinicId,
+        windowStart: new Date().toISOString().slice(0, 10),
+      },
+    ]);
+  });
+
   test("refuses a malformed address, the current one, another sign-in's, and a second open change", async () => {
     const { transport } = fakeTransport();
     expect(await ask("not an address", transport)).toMatchObject({ status: "refused" });

@@ -11,7 +11,6 @@ import { findUnhealthyConnections, runConnectionHealthJob } from "@/lib/schedule
 import { JOB_CONNECTION_HEALTH, heartbeatAgeSeconds, setJobEnabled } from "@/lib/scheduler/jobs";
 import { sendDueReports } from "@/lib/scheduler/monthly-report";
 import { runTick } from "@/lib/scheduler/tick";
-import { sendDueRecaps, weekKey } from "@/lib/scheduler/weekly-recap";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -167,66 +166,8 @@ describeDb("delivery", () => {
     });
   });
 
-  describe("weekly recap", () => {
-    // Monday 14 September 2026, 09:00 in New York.
-    const monday = new Date("2026-09-14T13:00:00Z");
-
-    test("isoweek keys are stable", () => {
-      expect(weekKey(monday)).toBe("2026-W38");
-      expect(weekKey(new Date("2026-01-01T00:00:00Z"))).toBe("2026-W01");
-    });
-
-    test("sends counts on the clinic's Monday morning, once, and never for an empty week", async () => {
-      const busy = await seedClinic("recap-busy");
-      const quiet = await seedClinic("recap-quiet");
-      for (const c of [busy, quiet]) {
-        await makeProduction(c.clinicId, new Date(monday.getTime() - 30 * DAY));
-        await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-          addRecipient(tx, { email: `${c.slug}@example-clinic.test`, addedBy: "test" }),
-        );
-      }
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 2 * DAY), recoveryReason: "rang_unanswered", booked: true });
-      // A legacy call-back reason is not a call answered that would have rung out.
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 2 * DAY), recovered: true });
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 3 * DAY) });
-      // Outside the window: last month.
-      await seedConversation(busy.clinicId, { startedAt: new Date(monday.getTime() - 20 * DAY), recovered: true });
-
-      const transport = new FakeTransport();
-      const run = await sendDueRecaps(monday, transport);
-      expect(run.sent).toBe(1);
-      expect(transport.sent).toHaveLength(1);
-      const text = transport.sent[0]!.message.text;
-      expect(text).toMatch(/Conversations handled:\s+3/);
-      expect(text).toMatch(/would otherwise have rung out:\s+1/);
-      expect(text).toMatch(/booked from those conversations:\s+1/);
-      // v1 claims only: never revenue, collected or recovered.
-      expect(text).not.toMatch(/revenue|collected|recovered|monthly report/i);
-
-      expect((await sendDueRecaps(monday, transport)).sent).toBe(0);
-      expect(transport.sent).toHaveLength(1);
-
-      // Tuesday: not due.
-      const tuesday = new Date(monday.getTime() + DAY);
-      await seedConversation(busy.clinicId, { startedAt: tuesday });
-      expect((await sendDueRecaps(tuesday, transport)).sent).toBe(0);
-    });
-
-    test("the first recap arrives on day seven whatever the weekday", async () => {
-      const c = await seedClinic("recap-first");
-      const wentLive = new Date("2026-09-03T14:00:00Z"); // a Thursday
-      await makeProduction(c.clinicId, wentLive);
-      await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
-        addRecipient(tx, { email: "first@example-clinic.test", addedBy: "test" }),
-      );
-      await seedConversation(c.clinicId, { startedAt: new Date(wentLive.getTime() + 2 * DAY), recovered: true });
-
-      const daySeven = new Date(wentLive.getTime() + 7 * DAY + 3600_000); // Thursday again
-      const transport = new FakeTransport();
-      expect((await sendDueRecaps(daySeven, transport)).sent).toBe(1);
-      expect((await ledger(c.clinicId)).map((r) => r.period_key)).toEqual(["first-week"]);
-    });
-  });
+  // The weekly recap moved onto the outbox with the daily summary (WP4):
+  // tests/claims-and-summary.test.ts.
 
   describe("annual renewal reminder (BD17, R32)", () => {
     test("each notice has a window, so a missed run is caught up and a late 30-day one is never sent", () => {
@@ -315,7 +256,7 @@ describeDb("delivery", () => {
   });
 
   describe("connection health", () => {
-    test("finds the dead, the stale and the stuck, and mails ops one digest", async () => {
+    test("finds the dead, the stale and the stuck, raises only the dead at once, and mails nothing itself", async () => {
       const stale = await seedClinic("health-stale");
       const revoked = await seedClinic("health-revoked");
       const stuck = await seedClinic("health-stuck");
@@ -361,16 +302,18 @@ describeDb("delivery", () => {
       expect(byClinic[stuck.clinicId]).toBe("stuck");
       expect(byClinic[fine.clinicId]).toBeUndefined();
 
+      // Since WP5 the job sends no email of its own: every finding is in the
+      // 07:00 ops digest (lib/ops/digest.ts), and only a revoked connection
+      // is raised at once, as one ops alert with ids and a category.
       await setJobEnabled(JOB_CONNECTION_HEALTH, true, fine.staffUserId);
-      process.env.HEALDESK_OPS_EMAIL = "ops@healdesk.test";
-      const transport = new FakeTransport();
-      const outcome = await runConnectionHealthJob({ transport });
+      await getMigratorPool().query(`delete from ops_alerts where event = 'connection_broken'`);
+      const outcome = await runConnectionHealthJob();
       expect(outcome.status).toBe("ok");
-      expect(transport.sent).toHaveLength(1);
-      expect(transport.sent[0]!.target.to).toBe("ops@healdesk.test");
-      expect(transport.sent[0]!.message.text).toContain(stale.clinicId);
-      // Ids only. The clinic's name is not in the digest; nor is any patient.
-      expect(transport.sent[0]!.message.text).not.toContain("Clinic");
+      const { rows: raised } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+        `select fields from ops_alerts where event = 'connection_broken'`,
+      );
+      expect(raised.map((r) => r.fields.clinicId)).toEqual([revoked.clinicId]);
+      expect(JSON.stringify(raised)).not.toContain("Clinic");
     });
 
     test("never reports a Google Calendar connection: it never syncs, and its health is the calendar watch's", async () => {
@@ -411,6 +354,9 @@ describeDb("delivery", () => {
           "connection-health",
           "monthly-report",
           "nightly-sync",
+          // The daily summary (drizzle/0087) and the weekly recap alone, hourly
+          // behind their switches, each on the clinic's own clock.
+          "daily-summary",
           "weekly-recap",
           // The Stripe launch's hourly jobs (drizzle/0043), each behind its switch.
           // billing-notices left the tick: the email platform sends notices
@@ -426,6 +372,12 @@ describeDb("delivery", () => {
           // Its switch widens it: off, it still runs for the clinics whose
           // agreement states the export rule (C19, 12 October 2026).
           "offboarding-destroy",
+          // After cancellation (drizzle/0086): E6 to the address captured at
+          // destruction, right after it and hourly until it goes; and E3, E4
+          // and E5 queued for every clinic whose service has ended. Sweeps,
+          // not switched jobs.
+          "destruction-notices",
+          "after-cancellation",
           // The setup reminder (drizzle/0056), hourly behind its switch: each
           // clinic's reminder waits for that clinic's own daytime.
           "setup-reminders",
@@ -443,6 +395,10 @@ describeDb("delivery", () => {
           // L8, "Request still open" (drizzle/0082), hourly behind its switch:
           // each clinic's goes at its own opening hour.
           "requests-still-open",
+          // WP5 (drizzle/0085): the internal health flags and the ops watch,
+          // hourly behind their switches. The ops digest joins from 07 UTC.
+          "health-flags",
+          "ops-watch",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.
@@ -470,6 +426,8 @@ describeDb("delivery", () => {
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
+        if (job === "destruction-notices") continue; // a sweep: E6 to an address captured at destruction
+        if (job === "after-cancellation") continue; // a sweep: queues E3–E5 for clinics whose service ended
         expect(status, job).toBe("disabled");
       }
       expect(jobs["offboarding-destroy"]).toBe("ok");
@@ -479,6 +437,8 @@ describeDb("delivery", () => {
       expect(jobs["address-changes"]).toBe("ok");
       expect(jobs["channel-states"]).toBe("ok");
       expect(jobs["ai-pause"]).toBe("ok");
+      expect(jobs["destruction-notices"]).toBe("ok");
+      expect(jobs["after-cancellation"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);
     });
   });

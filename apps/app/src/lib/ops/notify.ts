@@ -158,6 +158,17 @@ export const OPS_EVENTS = [
   // fields only: `code` says why (no account, billing detail not matched,
   // Stripe unavailable), with the clinic's id when the address is one.
   "sign_in_help_unmatched",
+  // Connection health (lib/scheduler/connection-health.ts): a connection
+  // revoked or in error, the one finding sent at once since WP5 folded the
+  // job's email into the 07:00 ops digest (Annex X6). Once per connection
+  // and state; every finding is in the digest every morning.
+  "connection_broken",
+  // E6, "Your data has been destroyed", could not reach the address
+  // captured at destruction (lib/offboarding/after-cancellation.ts): the
+  // mail provider refused it (`phase` rejected), this side refused to send
+  // it (`refused`), or a week of hourly attempts passed (`expired`). The
+  // address is cleared either way, so ops writes to the practice by hand.
+  "destruction_notice_undelivered",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

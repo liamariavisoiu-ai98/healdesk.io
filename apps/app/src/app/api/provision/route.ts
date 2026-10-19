@@ -5,6 +5,11 @@ import {
 } from "@healdesk/catalog";
 import { after } from "next/server";
 
+import {
+  announceDeadLetter,
+  markIntentPaidSeen,
+  recordProvisionFailure,
+} from "@/lib/checkout/dead-letter";
 import { checkoutRecordsOf, importCheckoutRecords } from "@/lib/checkout/import";
 import {
   findIntent,
@@ -59,6 +64,12 @@ import { sendWelcomeEmail } from "@/lib/setup/welcome-email";
  * backstop (lib/setup/welcome-email.ts). The booking-request fields the old
  * setup link asked about are the specialty's defaults, settled at
  * provisioning (lib/setup/seed.ts).
+ *
+ * A paid purchase it cannot finish gets B3 instead ("one step on our side"),
+ * once: at its refusal, or when its retryable failures reach the dead-letter
+ * count (lib/checkout/dead-letter.ts). The first paid relay for a purchase is
+ * stamped before provisioning runs, so the ops watch can say when one has
+ * waited ten minutes for an account (lib/ops/watch.ts).
  *
  * Note the ordering: the signature is verified before the body is parsed as
  * JSON, so an unauthenticated caller can't make us do work.
@@ -145,8 +156,10 @@ export async function POST(request: Request): Promise<Response> {
       try {
         imported = await importCheckoutRecords(intentRef, records);
       } catch (error) {
-        // A database fault, not a refusal: 500, so Stripe redelivers.
+        // A database fault, not a refusal: 500, so Stripe redelivers. Counted
+        // against a purchase imported by an earlier delivery, if there is one.
         log.error("checkout records could not be imported", { error: describeError(error) });
+        await countRetryableFailure(intentRef);
         return problem("Could not complete setup.", 500);
       }
       if (!imported.ok) {
@@ -161,6 +174,10 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
     const intent = await findIntent(intentRef);
+    // A paid relay reached this host for the purchase: the ops watch's clock
+    // starts here, in a statement of its own that provisioning cannot roll
+    // back (lib/checkout/dead-letter.ts).
+    if (intent) await markIntentPaidSeen(intentRef);
     if (!intent) {
       await afterResponse(() => notifyOps("provisioning_rejected", { field: "ref", source: "intent" }));
       return problem("Unknown purchase.", 422, "ref");
@@ -194,7 +211,14 @@ export async function POST(request: Request): Promise<Response> {
       await refuseIntent(intentRef, error);
       return problem(error.message, 422, error.field);
     }
-    throw error;
+    // Anything else before provisioning (a fault reading the purchase, or a
+    // bug on one stored payload that throws every time) is counted like a
+    // failure of provisioning itself, so a deterministic one dead-letters
+    // the order and the buyer gets B3, instead of a bare 500 that Stripe
+    // redelivers for three days with nobody told. Never echo the payload.
+    log.error("provisioning could not start", { error: describeError(error) });
+    await countRetryableFailure(intentRef);
+    return problem("Could not complete setup.", 500);
   }
 
   // 4. Provision.
@@ -258,6 +282,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     // Never echo the payload: it carries the buyer's contact details.
     log.error("provisioning failed", { error: describeError(error) });
+    await countRetryableFailure(intentRef);
     return problem("Could not complete setup.", 500);
   }
 }
@@ -297,6 +322,19 @@ async function refuseIntent(ref: string, error: ProvisioningError): Promise<void
     await notifyOps("provisioning_rejected", { field: error.field ?? null, source: "intent" });
     if (firstRefusal) await sendOrderConfirmedDelayed(firstRefusal);
   });
+}
+
+/**
+ * One more failure a redelivery could fix, for a purchase still without an
+ * account. The one that reaches the dead-letter count tells ops and sends B3,
+ * after the response; the answer is still 500, so Stripe keeps redelivering
+ * and a later attempt can still make the account. Never throws.
+ */
+async function countRetryableFailure(ref: string): Promise<void> {
+  const counted = await recordProvisionFailure(ref);
+  if (counted.status === "dead_lettered") {
+    await afterResponse(() => announceDeadLetter(counted.intent, counted.failures));
+  }
 }
 
 /** After the response when Next can schedule it; at once outside a request (tests, scripts). */

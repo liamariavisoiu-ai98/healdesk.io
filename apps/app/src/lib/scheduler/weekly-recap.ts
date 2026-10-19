@@ -1,143 +1,160 @@
-import { and, count, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 
-import { appointments, conversations } from "@/db/schema";
+import { billingNotices, clinics, clinicSettings } from "@/db/schema";
+import { readChannelStates } from "@/lib/channels/state";
 import { describeError, log } from "@/lib/log";
+import { enqueuePlanNotice } from "@/lib/notices/plan-notices";
 import { listClinics } from "@/lib/ops/clinics";
-import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
-import { claimDelivery, deliveredAlready, listRecipients, recordDelivery } from "@/lib/reporting/recipients";
-import { withTenant } from "@/lib/tenant";
+import { publicUrl } from "@/lib/public-url";
+import { claimsPayload, readClaims } from "@/lib/reporting/claims";
+import { withTenant, type TenantTx } from "@/lib/tenant";
 
-import { JOB_WEEKLY_RECAP, runJob } from "./jobs";
-
-/**
- * The weekly recap: the first feedback a clinic gets, seven days in, not
- * thirty. Aggregate only — counts, never a person — so it goes through the
- * same recipient list and ledger as the monthly report and is safe on any
- * transport.
- *
- * When: on the clinic's own Monday between 08:00 and 09:59 local time, for
- * the seven days ending Sunday; and, in the first month, on day 7 after
- * go-live regardless of weekday, because the first one is the one that
- * sells. A recap over a week with no conversations at all sends nothing —
- * an email saying zero is worse than silence.
- *
- * What it may claim is fixed by the v1 spec ("What v1 can prove, and what it
- * cannot"): conversations handled, calls answered that would otherwise have
- * rung out, and appointments booked. Never revenue, never "collected", never
- * "recovered": attribution is phase two. TODO(v1): deposits collected and
- * booked value (bookings times the clinic's own listed prices) belong here
- * too, once an appointment carries its deposit's paid time and a snapshot of
- * the listed price at booking; neither exists yet, so neither is shown.
- */
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function localParts(at: Date, timezone: string): { weekday: number; hour: number } {
-  const parts = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short", hour: "numeric", hour12: false }).formatToParts(at);
-  const weekdayName = parts.find((p) => p.type === "weekday")?.value ?? "Mon";
-  const hour = Number(parts.find((p) => p.type === "hour")?.value ?? "0") % 24;
-  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekdayName);
-  return { weekday, hour };
-}
-
-/** ISO-week key for the ledger, e.g. "2026-W37". */
-export function weekKey(at: Date): string {
-  const d = new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
-  const day = d.getUTCDay() || 7;
-  d.setUTCDate(d.getUTCDate() + 4 - day);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  const week = Math.ceil(((d.getTime() - yearStart.getTime()) / DAY_MS + 1) / 7);
-  return `${d.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
-export type WeeklyFigures = { handled: number; answeredWouldHaveRungOut: number; booked: number };
+import { earliest, hoursOf, ON_ITS_WAY, queuedAlready } from "./daily-summary";
+import { JOB_WEEKLY_RECAP, runJob, type JobOutcome } from "./jobs";
+import { isoWeekOf, lastWeek, localClock, mondayOf } from "./summary-clock";
 
 /**
- * The reasons that mean a call reached the assistant because nobody at the
- * clinic could take it. Not `missed_call_callback`: v1 places no calls, and
- * that legacy value is never counted as a call answered.
+ * L14, "Your week with AYA" (Annex X5), alone: last week's claims, on the
+ * clinic's Monday, only while no daily summary can carry them. While the
+ * summary goes, the week's first one carries this recap
+ * (lib/scheduler/daily-summary.ts) and nothing goes from here (X3,
+ * "Designed merges"). No summary can carry it while the clinic's Daily
+ * summary switch is off, or while no opening hours are on file to send one
+ * at.
+ *
+ * Retargeted onto the outbox (Annex X6): it used to mail every
+ * report_recipients address itself, through getTransport, with its own
+ * ledger rows. Now it is one `weekly_recap` notice to the clinic's one
+ * address, resolved by the sender at send time (lib/email/outbox.ts), and
+ * report_recipients is not read here at all.
+ *
+ * Hourly from the tick, behind its switch (seeded off, drizzle/0034): the
+ * first run on the clinic's Monday from 08:00 its time, and before 20:00,
+ * queues the recap of the Monday-to-Sunday week before, once
+ * (`weekly_recap:<that week>`). It goes for a production clinic with a
+ * channel that was live during that week, and never for a week with no
+ * conversations at all: an email saying zero is worse than silence. What it
+ * may claim is the claims function's (lib/reporting/claims.ts): never
+ * revenue, never "collected" outside deposits collected, never "recovered".
  */
-const RANG_OUT_REASONS = ["after_hours", "line_busy", "rang_unanswered"] as const;
 
-export async function sendDueRecaps(now: Date, transport?: EmailTransport): Promise<{ sent: number; skipped: number; failed: number }> {
-  const out = { sent: 0, skipped: 0, failed: 0 };
-  const actor = { type: "service", serviceName: "weekly-recap" } as const;
+const ACTOR = { type: "service", serviceName: "weekly-recap" } as const;
 
-  for (const clinic of await listClinics()) {
-    try {
-      if (clinic.dataClassification !== "production" || !clinic.wentLiveAt || clinic.destroyedAt) {
-        out.skipped += 1;
-        continue;
-      }
-      const { weekday, hour } = localParts(now, clinic.timezone);
-      const daysLive = (now.getTime() - clinic.wentLiveAt.getTime()) / DAY_MS;
-      const firstWeek = daysLive >= 7 && daysLive < 8;
-      const monday = weekday === 1 && hour >= 8 && hour < 10 && daysLive >= 7;
-      if (!firstWeek && !monday) {
-        out.skipped += 1;
-        continue;
-      }
-      const periodKey = firstWeek ? "first-week" : weekKey(now);
-      const end = now;
-      const start = new Date(now.getTime() - 7 * DAY_MS);
+/** The local hour on Monday from which the recap may be queued. */
+export const RECAP_FROM_HOUR = 8;
+const RECAP_UNTIL_HOUR = 20;
 
-      const sent = await withTenant({ clinicId: clinic.id, actor }, async (tx) => {
-        if (await deliveredAlready(tx, { kind: "weekly", periodKey })) return "skipped" as const;
-        const recipients = await listRecipients(tx);
-        if (recipients.length === 0) return "skipped" as const;
+export type WeeklyRecapOutcome =
+  "queued" | "already_queued" | "not_live" | "not_due" | "in_summary" | "empty";
 
-        const inWeek = and(eq(conversations.clinicId, tx.clinicId), gte(conversations.startedAt, start), lt(conversations.startedAt, end));
-        const [handled] = await tx.db.select({ value: count() }).from(conversations).where(inWeek);
-        const [rangOut] = await tx.db
-          .select({ value: count() })
-          .from(conversations)
-          .where(and(inWeek, eq(conversations.channel, "voice"), inArray(conversations.recoveryReason, [...RANG_OUT_REASONS])));
-        const [booked] = await tx.db
-          .select({ value: count() })
-          .from(appointments)
-          .innerJoin(conversations, eq(appointments.conversationId, conversations.id))
-          .where(and(eq(appointments.clinicId, tx.clinicId), inWeek));
-        tx.audit.record({ action: "read", resourceType: "conversation", resultCount: handled?.value ?? 0, metadata: { purpose: "weekly_recap" } });
-
-        const figures: WeeklyFigures = { handled: handled?.value ?? 0, answeredWouldHaveRungOut: rangOut?.value ?? 0, booked: booked?.value ?? 0 };
-        if (figures.handled === 0) return "skipped" as const;
-
-        const text =
-          `Hi,\n\nYour week with AYA at ${clinic.name}:\n\n` +
-          `  Conversations handled:   ${figures.handled}\n` +
-          `  Calls answered that would otherwise have rung out:   ${figures.answeredWouldHaveRungOut}\n` +
-          `  Appointments booked from those conversations:   ${figures.booked}\n\n` +
-          `Reply to this email with anything that looked wrong on a call and we will pull it up.\n`;
-
-        let any = false;
-        for (const recipient of recipients) {
-          const claim = await claimDelivery(tx, { kind: "weekly", periodKey, recipient: recipient.email });
-          if (!claim) continue;
-          const result = await (transport ?? getTransport("none")).send(
-            { to: recipient.email, clinicId: tx.clinicId, clinicName: clinic.name },
-            { subject: `${clinic.name}: your week with AYA`, text, html: "", phiClass: "none" },
-          );
-          await recordDelivery(tx, claim, result.status === "sent" ? { status: "sent", messageId: result.messageId } : { status: result.status, reason: result.reason });
-          if (result.status === "sent") any = true;
-          else if (result.status === "failed") return "failed" as const;
-        }
-        return any ? ("sent" as const) : ("skipped" as const);
-      });
-      out[sent] += 1;
-    } catch (error) {
-      out.failed += 1;
-      log.error("weekly recap failed", { clinicId: clinic.id, error: describeError(error) });
+/** Queue last week's recap for one clinic, if it is due and no summary carries it. */
+export async function queueWeeklyRecapFor(
+  clinicId: string,
+  now: Date,
+): Promise<WeeklyRecapOutcome> {
+  return withTenant({ clinicId, actor: ACTOR }, async (tx) => {
+    const [clinic] = await tx.db
+      .select({
+        slug: clinics.slug,
+        timezone: clinics.timezone,
+        openingHours: clinics.openingHours,
+        dataClassification: clinics.dataClassification,
+        offboardingStartedAt: clinics.offboardingStartedAt,
+        destroyedAt: clinics.destroyedAt,
+        dailySummary: clinicSettings.dailySummary,
+      })
+      .from(clinics)
+      .leftJoin(clinicSettings, eq(clinicSettings.clinicId, clinics.id))
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    if (
+      !clinic ||
+      clinic.dataClassification !== "production" ||
+      clinic.offboardingStartedAt ||
+      clinic.destroyedAt
+    ) {
+      return "not_live";
     }
-  }
-  return out;
+    const clock = localClock(now, clinic.timezone);
+    if (clock.day !== "mon" || clock.hour < RECAP_FROM_HOUR || clock.hour >= RECAP_UNTIL_HOUR) {
+      return "not_due";
+    }
+    const week = lastWeek(clock.date, clinic.timezone);
+    const states = await readChannelStates(tx.db, tx.clinicId, now);
+    const liveSince = earliest(states.map((s) => s.liveAt));
+    if (!liveSince || liveSince.getTime() >= week.to.getTime()) return "not_live";
+
+    // No settings row reads as the default, which is on.
+    const summaryOn = clinic.dailySummary !== false;
+    const hoursKnown = hoursOf(clinic.openingHours) !== null;
+    if (summaryOn && hoursKnown) return "in_summary";
+    // A summary this week already carried it (it went at opening, and the
+    // switch was turned off after).
+    if (await summaryCarriedRecap(tx, mondayOf(clock.date))) return "in_summary";
+
+    const dedupeKey = `weekly_recap:${isoWeekOf(week.startOn)}`;
+    if (await queuedAlready(tx, "weekly_recap", dedupeKey)) return "already_queued";
+
+    const claims = await readClaims(tx, { from: week.from, to: week.to }, "weekly_recap");
+    if (claims.handled === 0) return "empty";
+
+    const queued = await enqueuePlanNotice(tx.db, tx.clinicId, "weekly_recap", dedupeKey, {
+      weekStartOn: week.startOn,
+      weekEndOn: week.endOn,
+      weekClaims: claimsPayload(claims),
+      isSummaryOff: !summaryOn,
+      homeUrl: publicUrl(`/c/${clinic.slug}`),
+      settingsUrl: publicUrl(
+        summaryOn ? `/c/${clinic.slug}/knowledge#hours` : `/c/${clinic.slug}/settings#alerts`,
+      ),
+    });
+    return queued ? "queued" : "already_queued";
+  });
 }
 
-export async function runWeeklyRecapJob(options: { now?: Date; transport?: EmailTransport } = {}) {
+/** Whether a daily summary on its way this week carried last week's recap. */
+async function summaryCarriedRecap(tx: TenantTx, monday: string): Promise<boolean> {
+  const [row] = await tx.db
+    .select({ id: billingNotices.id })
+    .from(billingNotices)
+    .where(
+      and(
+        eq(billingNotices.clinicId, tx.clinicId),
+        eq(billingNotices.kind, "daily_summary"),
+        gte(billingNotices.dedupeKey, `daily_summary:${monday}`),
+        sql`jsonb_typeof(${billingNotices.payload} -> 'weekClaims') = 'object'`,
+        ON_ITS_WAY,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
+export async function runWeeklyRecapJob(options: { now?: Date } = {}): Promise<JobOutcome> {
   const now = options.now ?? new Date();
   return runJob(
     JOB_WEEKLY_RECAP,
     async () => {
-      const r = await sendDueRecaps(now, options.transport);
-      return `${r.sent} recap(s) sent, ${r.skipped} skipped` + (r.failed ? `, ${r.failed} failed` : "") + ".";
+      const counts: Partial<Record<WeeklyRecapOutcome | "failed", number>> = {};
+      for (const clinic of await listClinics()) {
+        if (clinic.destroyedAt || clinic.offboardingStartedAt) continue;
+        if (clinic.dataClassification !== "production") continue;
+        let outcome: WeeklyRecapOutcome | "failed";
+        try {
+          outcome = await queueWeeklyRecapFor(clinic.id, now);
+        } catch (error) {
+          outcome = "failed";
+          log.error("weekly recap failed for a clinic", {
+            clinicId: clinic.id,
+            error: describeError(error),
+          });
+        }
+        counts[outcome] = (counts[outcome] ?? 0) + 1;
+      }
+      return (
+        `${counts.queued ?? 0} recap(s) queued, ${counts.in_summary ?? 0} in the daily summary, ` +
+        `${counts.empty ?? 0} empty, ${counts.failed ?? 0} failed.`
+      );
     },
     now,
   );

@@ -51,6 +51,7 @@ import {
   type CoverageModeId,
   type OnboardingState,
   type RegulatoryRegime,
+  SERVICE_PRICE_KINDS,
   type ServicePriceKind,
   TRANSCRIPT_RETENTION_DAYS_OPTIONS,
   type TranscriptRetentionDays,
@@ -566,6 +567,17 @@ export const clinics = pgTable(
     destroyAfter: timestamp("destroy_after", { withTimezone: true }),
     /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
+    /**
+     * Where E6, "Your data has been destroyed", goes: the clinic's one
+     * address, read in the destruction's own transaction before anything is
+     * deleted and written beside the destroyed stamp
+     * (lib/offboarding/after-cancellation.ts), so the email never depends on
+     * a sign-in that may not outlive the destruction. Only a destroyed clinic
+     * holds one (a CHECK). Business contact data, never a patient's. It is
+     * the clinic row's, which destruction keeps, and it goes itself once E6
+     * is sent, or once DESTRUCTION_NOTICE_DAYS have passed without a send.
+     */
+    destructionNoticeAddress: text("destruction_notice_address"),
 
     // --- Billing across locations and the deposit account (0043). ---
     /**
@@ -651,6 +663,11 @@ export const clinics = pgTable(
     check(
       "clinics_website_check",
       sql`${t.website} is null or (char_length(${t.website}) between 4 and 200 and ${t.website} !~ '[[:space:][:cntrl:]]')`,
+    ),
+    // Held only by a clinic already destroyed, and only an address.
+    check(
+      "clinics_destruction_notice_address_check",
+      sql`${t.destructionNoticeAddress} is null or (${t.destroyedAt} is not null and char_length(${t.destructionNoticeAddress}) between 3 and 254 and ${t.destructionNoticeAddress} ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')`,
     ),
   ],
 );
@@ -1116,6 +1133,23 @@ export const appointments = pgTable(
      */
     calendarId: text("calendar_id"),
 
+    /**
+     * The clinic's own listed price for the booked service when the booking
+     * was made (drizzle/0087): what "booked value" multiplies by (spec, "What
+     * v1 can prove": bookings times the clinic's own configured prices,
+     * labelled booked value, never revenue; lib/reporting/claims.ts). The
+     * low end of the price as Knowledge → Prices states it: an exact price,
+     * the start of a "from" price or a range, or the price of one unit for a
+     * per-unit price, which the claims count apart and never multiply into a
+     * total. Both null when the booking named no service on the clinic's
+     * list, or the service has no price there. Written once, at insert, by
+     * insertAppointment (lib/meta/booking-requests.ts); a trigger refuses a
+     * change, so a price edited in Knowledge later never rewrites what was
+     * booked.
+     */
+    listedPriceCents: integer("listed_price_cents"),
+    listedPriceKind: text("listed_price_kind").$type<ServicePriceKind>(),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1124,6 +1158,10 @@ export const appointments = pgTable(
       .defaultNow(),
   },
   (t) => [
+    check(
+      "appointments_listed_price_check",
+      sql`(${t.listedPriceCents} is null and ${t.listedPriceKind} is null) or (${t.listedPriceCents} >= 0 and ${t.listedPriceKind} in (${sqlList(SERVICE_PRICE_KINDS)}))`,
+    ),
     check(
       "appointments_duration_check",
       sql`${t.durationMinutes} is null or ${t.durationMinutes} between 5 and 480`,
@@ -3443,6 +3481,22 @@ export const checkoutIntents = pgTable(
     provisionedUserId: text("provisioned_user_id"),
     /** Provisioning refused this intent: /welcome says so instead of waiting. */
     provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
+    /**
+     * When a paid first invoice's relay first reached /api/provision for this
+     * purchase (WP5): the database's clock, written before provisioning runs
+     * and kept whatever it does. Ten minutes later with no account, the ops
+     * watch raises `paid_intent_without_clinic` (lib/ops/watch.ts). The relay
+     * is the only caller, and it calls only for a paid first invoice (or, in
+     * development, for the unpaid path that provisions at once).
+     */
+    paidSeenAt: timestamp("paid_seen_at", { withTimezone: true }),
+    /**
+     * How many provisioning attempts failed in a way a retry could fix (a 500
+     * that Stripe redelivers). At PROVISION_DEAD_LETTER_AT the purchase is
+     * dead-lettered: ops is told, B3 goes to the buyer, and /welcome stops
+     * waiting; later redeliveries still provision (lib/checkout/dead-letter.ts).
+     */
+    provisionFailures: integer("provision_failures").notNull().default(0),
     /**
      * Stripe's hosted page for the paid first invoice, where the setup-fee
      * receipt is, as the invoice.paid relay passed it to provisioning (0056).

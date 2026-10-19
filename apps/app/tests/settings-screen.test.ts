@@ -554,9 +554,17 @@ describeDb("Settings", () => {
         optionalEmailAllowed(tx, "daily_summary"),
       );
     expect(await allowed()).toBe(true);
-    expect(await save("daily_summary", false)).toMatchObject({ ok: true });
+    // The toast names what changes with it: the recap goes alone on Mondays
+    // (lib/scheduler/weekly-recap.ts), or rides the week's first summary.
+    expect(await save("daily_summary", false)).toMatchObject({
+      ok: true,
+      toast: expect.stringMatching(/your weekly recap comes on its own each Monday\./),
+    });
     expect(await allowed()).toBe(false);
-    expect(await save("daily_summary", true)).toMatchObject({ ok: true });
+    expect(await save("daily_summary", true)).toMatchObject({
+      ok: true,
+      toast: expect.stringMatching(/the week's first carries your weekly recap\./),
+    });
     expect(await allowed()).toBe(true);
 
     const { GET, POST } = await import("@/app/email/stop/[token]/route");

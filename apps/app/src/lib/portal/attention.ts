@@ -1,3 +1,5 @@
+import type { Channel } from "@healdesk/catalog";
+
 import {
   SCREEN_DEFINITIONS,
   resumeScreen,
@@ -27,8 +29,11 @@ import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
  * device that can open patient details. After go-live, a calendar that
  * stopped working: bookings quietly become requests the desk must confirm,
  * which is worth a line once patients are booking, and not before, when the
- * calendar step of setup says it already. A quiet channel waits for the
- * claims function (WP4).
+ * calendar step of setup says it already. And a channel that has gone quiet
+ * (the spec's "a channel that has gone quiet"): live, answering, and nothing
+ * has reached AYA there for a week (lib/reporting/claims.ts,
+ * QUIET_CHANNEL_DAYS), with the one thing to check for that channel. Only the
+ * clinic's own line: the internal health flags stay with ops (WP5).
  *
  * After go-live, a change the practice questions did not pass (lib/engine/
  * practice: failed on the clinic's own data, or in review with our team)
@@ -50,9 +55,12 @@ export type AttentionId =
   | "payment_account"
   | "website_changes"
   | "calendar_disconnected"
+  | "quiet_channel"
   | "double_checking";
 
 export type AttentionItem = {
+  /** Unique within the list: a quiet channel's carries its channel, `quiet_channel:voice`. */
+  key?: string;
   id: AttentionId;
   text: string;
   action: { label: string; href: string };
@@ -76,6 +84,8 @@ export type AttentionFacts = {
   practice?: PracticeState;
   /** Whether any channel has gone live: before then, the tracker shows the practice questions. */
   live?: boolean;
+  /** Live channels nothing has reached for a week (readQuietChannels). */
+  quietChannels?: readonly Channel[];
 };
 
 export function needsAttention(facts: AttentionFacts): AttentionItem[] {
@@ -180,6 +190,17 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
     });
   }
 
+  if (facts.live) {
+    for (const channel of facts.quietChannels ?? []) {
+      items.push({
+        key: `quiet_channel:${channel}`,
+        id: "quiet_channel",
+        text: QUIET_CHANNEL_WORDS[channel],
+        action: screenLink(slug, "settings", "#channels", "Check it in Settings"),
+      });
+    }
+  }
+
   const changes = facts.websiteChanges ?? 0;
   if (changes > 0) {
     items.push({
@@ -206,6 +227,17 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
 
   return items;
 }
+
+/**
+ * What a quiet channel's line says: what has not happened for a week, and
+ * the one thing that most often stops it, which the clinic checks itself.
+ */
+const QUIET_CHANNEL_WORDS: Record<Channel, string> = {
+  voice:
+    "No calls have reached AYA for a week. Check that call forwarding is still set on your line.",
+  web: "No one has used your website chat for a week. Check that the chat is still on your website.",
+  meta: "No messages have reached AYA on Instagram, Messenger or WhatsApp for a week. Check that they're still connected.",
+};
 
 /**
  * Whether the calendar a clinic connected has stopped working: the

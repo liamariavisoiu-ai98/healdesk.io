@@ -335,18 +335,14 @@ export async function sendWebChatMessage(clinic: WebChatClinic, rawToken: unknow
       // plan start or step-up. On any such message, so a chat whose first
       // reply failed counts from its first real one. Never undoes the
       // conversation (lib/channels/events.ts).
-      await recordFirstAnswer(
-        tx,
-        {
-          channel: "web",
-          source: "runtime",
-          gateAnswered: true,
-          personAnswered: turn.source !== "fallback",
-          localTest: isLocalOrigin(deps.origin),
-          conversationId,
-        },
-        now,
-      );
+      await recordFirstAnswer(tx, {
+        channel: "web",
+        source: "runtime",
+        gateAnswered: true,
+        personAnswered: turn.source !== "fallback",
+        localTest: isLocalOrigin(deps.origin),
+        conversationId,
+      });
       const next: ChatState = { ...state, capture: turn.capture };
       if (turn.urgent && !state.urgentAlerted) {
         await notifyBookingAlert(tx, "urgent", { conversationId, channel: "web" });

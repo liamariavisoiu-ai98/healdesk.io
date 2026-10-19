@@ -4,7 +4,8 @@ import { sql } from "drizzle-orm";
 import { unsafeDb } from "@/db";
 import { recordSecurityEvent } from "@/lib/audit";
 import { describeError, log } from "@/lib/log";
-import { getTransport, type EmailTransport } from "@/lib/reporting/deliver";
+import { META_PROVIDERS } from "@/lib/meta/providers";
+import { notifyOpsOnce } from "@/lib/ops/notify";
 
 import { JOB_CONNECTION_HEALTH, runJob } from "./jobs";
 
@@ -17,17 +18,31 @@ import { JOB_CONNECTION_HEALTH, runJob } from "./jobs";
  * nothing else):
  *
  *   revoked  — status 'revoked' or 'error'
- *   stale    — active/degraded with no ok/partial sync in 48 hours
+ *   stale    — active/degraded with no ok/partial sync in 48 hours, for a
+ *              provider that syncs at all
  *   stuck    — webhooks unprocessed for over an hour, or signature failures
  *              in the last day
  *
- * One digest email to ops per run when anything is wrong, never one message
- * per condition per clinic; and a security event per run so the console can
- * show the last finding without reading mail.
+ * What reaches ops, since WP5 folded this job's email into the 07:00 ops
+ * digest (Annex X6, "Connection health: folded into the ops digest, and sent
+ * at once only when critical"):
+ *
+ *   - every finding, in the digest's connection-health section, once a day
+ *     (lib/ops/digest.ts reads findUnhealthyConnections itself, so it shows
+ *     them whether or not this job is switched on);
+ *   - at once, only a revoked or errored connection: `connection_broken`,
+ *     through notifyOpsOnce, once per connection and state. A dead Meta
+ *     token is a channel that has stopped answering patients; a stale sync
+ *     or a stuck queue is phase two's and can wait for the morning.
+ *
+ * And a security event per run, so the console can show the last finding
+ * without reading mail.
  *
  * Google Calendar connections are left out. They never sync, so every one
  * would read as stale, and their health is the calendar watch's, which
- * alerts the clinic and ops once per breakage (plan §9.3).
+ * alerts the clinic and ops once per breakage (plan §9.3). The Meta
+ * platforms' sealed tokens never sync either, so they are never stale; a
+ * revoked one is still found.
  */
 export type HealthFinding = {
   clinicId: string;
@@ -37,44 +52,77 @@ export type HealthFinding = {
   detail: string;
 };
 
+/** One row of app_connection_health(), as the digest also reads it. */
+export type ConnectionHealthRow = {
+  clinicId: string;
+  connectionId: string;
+  provider: string;
+  status: string;
+  lastOkSyncAt: Date | null;
+  unprocessedWebhooks: number;
+  invalidSignatures24h: number;
+};
+
 const STALE_MS = 48 * 60 * 60 * 1000;
 
-export async function findUnhealthyConnections(now: Date = new Date()): Promise<HealthFinding[]> {
+/** Providers whose connection is a sealed token and never syncs. */
+const NEVER_SYNCS: ReadonlySet<string> = new Set([
+  GOOGLE_CALENDAR_PROVIDER,
+  ...Object.values(META_PROVIDERS),
+]);
+
+/** Every connection's health across tenants. Status, dates and counts; no credential, no patient. */
+export async function readConnectionHealth(): Promise<ConnectionHealthRow[]> {
   const result = await unsafeDb.execute<{
     clinic_id: string;
     connection_id: string;
     provider: string;
     status: string;
-    last_ok_sync_at: Date | null;
+    last_ok_sync_at: Date | string | null;
     unprocessed_webhooks: string | number;
     invalid_signatures_24h: string | number;
   }>(sql`select * from app_connection_health()`);
-  const rows = ((result as unknown as { rows?: unknown[] }).rows ?? result) as (typeof result extends { rows: infer R } ? R : never)[number][];
+  const rows = (result as unknown as { rows?: Record<string, unknown>[] }).rows ?? [];
+  return rows.map((row) => ({
+    clinicId: String(row.clinic_id),
+    connectionId: String(row.connection_id),
+    provider: String(row.provider),
+    status: String(row.status),
+    lastOkSyncAt: row.last_ok_sync_at ? new Date(row.last_ok_sync_at as string) : null,
+    unprocessedWebhooks: Number(row.unprocessed_webhooks ?? 0),
+    invalidSignatures24h: Number(row.invalid_signatures_24h ?? 0),
+  }));
+}
 
+export async function findUnhealthyConnections(now: Date = new Date()): Promise<HealthFinding[]> {
   const findings: HealthFinding[] = [];
-  for (const row of rows) {
+  for (const row of await readConnectionHealth()) {
     if (row.provider === GOOGLE_CALENDAR_PROVIDER) continue;
-    const base = { clinicId: row.clinic_id, connectionId: row.connection_id, provider: row.provider };
+    const base = { clinicId: row.clinicId, connectionId: row.connectionId, provider: row.provider };
     if (row.status === "revoked" || row.status === "error") {
       findings.push({ ...base, condition: "revoked", detail: `status ${row.status}` });
-    } else if (row.status === "active" || row.status === "degraded") {
-      const last = row.last_ok_sync_at ? new Date(row.last_ok_sync_at).getTime() : null;
+    } else if ((row.status === "active" || row.status === "degraded") && !NEVER_SYNCS.has(row.provider)) {
+      const last = row.lastOkSyncAt ? row.lastOkSyncAt.getTime() : null;
       if (last === null || now.getTime() - last > STALE_MS) {
-        findings.push({ ...base, condition: "stale", detail: last ? `last good sync ${Math.round((now.getTime() - last) / 3_600_000)}h ago` : "never synced" });
+        findings.push({
+          ...base,
+          condition: "stale",
+          detail: last ? `last good sync ${Math.round((now.getTime() - last) / 3_600_000)}h ago` : "never synced",
+        });
       }
     }
-    const unprocessed = Number(row.unprocessed_webhooks ?? 0);
-    const invalid = Number(row.invalid_signatures_24h ?? 0);
-    if (unprocessed > 0 || invalid > 0) {
-      findings.push({ ...base, condition: "stuck", detail: `${unprocessed} unprocessed over 1h, ${invalid} bad signatures in 24h` });
+    if (row.unprocessedWebhooks > 0 || row.invalidSignatures24h > 0) {
+      findings.push({
+        ...base,
+        condition: "stuck",
+        detail: `${row.unprocessedWebhooks} unprocessed over 1h, ${row.invalidSignatures24h} bad signatures in 24h`,
+      });
     }
   }
   return findings;
 }
 
-export async function runConnectionHealthJob(
-  options: { now?: Date; transport?: EmailTransport } = {},
-) {
+export async function runConnectionHealthJob(options: { now?: Date } = {}) {
   const now = options.now ?? new Date();
   return runJob(
     JOB_CONNECTION_HEALTH,
@@ -82,22 +130,15 @@ export async function runConnectionHealthJob(
       const findings = await findUnhealthyConnections(now);
       if (findings.length === 0) return "All connections healthy.";
 
-      const ops = process.env.HEALDESK_OPS_EMAIL ?? process.env.HEALDESK_ADMIN_EMAIL;
-      const lines = findings.map(
-        (f) => `- clinic ${f.clinicId} · ${f.provider} · ${f.condition}: ${f.detail}`,
-      );
-      if (ops) {
-        const transport = options.transport ?? getTransport("none");
-        const sent = await transport.send(
-          { to: ops, clinicId: "00000000-0000-0000-0000-000000000000", clinicName: "healdesk ops" },
-          {
-            subject: `[healdesk] ${findings.length} connection finding${findings.length === 1 ? "" : "s"}`,
-            text: `Connection health at ${now.toISOString()}:\n\n${lines.join("\n")}\n\nIds only; open the console for the clinic.\n`,
-            html: "",
-            phiClass: "none",
-          },
-        );
-        if (sent.status === "failed") log.error("ops digest not sent", { reason: sent.reason });
+      // Critical only: the rest wait for the 07:00 digest.
+      const broken = findings.filter((f) => f.condition === "revoked");
+      for (const finding of broken) {
+        await notifyOpsOnce("connection_broken", {
+          clinicId: finding.clinicId,
+          connectionId: finding.connectionId,
+          provider: finding.provider,
+          status: "revoked",
+        });
       }
       try {
         await recordSecurityEvent(unsafeDb, {
@@ -108,7 +149,11 @@ export async function runConnectionHealthJob(
       } catch (error) {
         log.error("could not record health findings", { error: describeError(error) });
       }
-      return `${findings.length} finding(s): ${findings.map((f) => f.condition).join(", ")}.` + (ops ? " Digest sent." : " No HEALDESK_OPS_EMAIL; not mailed.");
+      return (
+        `${findings.length} finding(s): ${findings.map((f) => f.condition).join(", ")}.` +
+        (broken.length > 0 ? ` ${broken.length} broken, raised to ops.` : "") +
+        " The rest are in the 07:00 digest."
+      );
     },
     now,
   );

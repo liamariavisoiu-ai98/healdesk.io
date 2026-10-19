@@ -16,3 +16,14 @@ export function downloadJson(filename: string, body: string): void {
   // Long enough for the browser to start the save; the object is the export, so it goes after.
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
+
+/**
+ * The SHA-256 of the export as received, in hex: what the browser reports
+ * after cancellation, so that only a file that arrived in full records the
+ * export as delivered (lib/portal/export-receipt.ts). UTF-8, as the server
+ * digests it.
+ */
+export async function digestOf(body: string): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  return [...new Uint8Array(bytes)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}

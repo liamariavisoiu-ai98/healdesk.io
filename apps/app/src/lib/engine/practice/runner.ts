@@ -25,6 +25,7 @@ import {
   META_NEVER_SAY_REASON,
   openWithGreeting,
   parseModelReply,
+  PRICE_REFUSAL,
   urgentLine,
   type FrontDoorFacts,
   type FrontDoorResponder,
@@ -404,7 +405,7 @@ function refusedBy(
     const count = ownNeverSayIn(text, knowledge.ownNeverSay);
     return count > 0 ? { kind: "clinic_data", section: "never_say", count } : ENGINE;
   }
-  if (answer.guard === "price") {
+  if (answer.guard === "price" || answer.guard === PRICE_REFUSAL) {
     const wrong = practiceAmountsIn(text).filter((c) => !brain.figures.has(c));
     const named = sectionsNaming(wrong, knowledge.texts);
     return named ? { kind: "clinic_data", ...named } : ENGINE;

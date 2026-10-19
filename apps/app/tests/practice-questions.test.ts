@@ -662,6 +662,44 @@ describe("Instagram, Messenger and WhatsApp, through the front door's read half"
     expect(byId(outcome.cases, "unknown").status).toBe("passed");
     expect(outcome.status).toBe("passed");
   });
+
+  test("a figure off the menu on Meta is refused by the guard, and the practice question fails", async () => {
+    const outcome = await runPracticeChannel(
+      { channel: "meta", facts: META, languages: ["en"] },
+      KNOWLEDGE,
+      deps({
+        metaResponder: async (system, text) =>
+          /How much is/.test(text)
+            ? JSON.stringify({ reply: "That's $10 per unit.", booking: { wants: false } })
+            : metaModel(system, text),
+        judge: judge("pass"),
+      }),
+    );
+    expect(byId(outcome.cases, "listed_price")).toMatchObject({
+      status: "failed",
+      sources: ["handoff"],
+      attribution: { kind: "engine" },
+    });
+  });
+
+  test("a wrong figure the clinic's own words state is the clinic's to fix, on Meta as on the other channels", async () => {
+    const outcome = await runPracticeChannel(
+      { channel: "meta", facts: META, languages: ["en"] },
+      { ...KNOWLEDGE, texts: { ...KNOWLEDGE.texts, quick_answers: ["Any offers? It's $10 a unit this month."] } },
+      deps({
+        metaResponder: async (system, text) =>
+          /How much is/.test(text)
+            ? JSON.stringify({ reply: "That's $10 per unit.", booking: { wants: false } })
+            : metaModel(system, text),
+        judge: judge("pass"),
+      }),
+    );
+    expect(byId(outcome.cases, "listed_price").attribution).toEqual({
+      kind: "clinic_data",
+      section: "quick_answers",
+      count: 1,
+    });
+  });
 });
 
 describe("the run's verdict", () => {

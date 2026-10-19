@@ -15,6 +15,7 @@ import {
   guardReply,
   handoffLine,
   NEVER_SAY_HEADING,
+  PRICE_REFUSAL,
   probeVerdict,
 } from "@/lib/meta/front-door";
 import { parseMetaEvents, signMetaBody, verifyMetaSignature } from "@/lib/meta/webhook";
@@ -79,7 +80,7 @@ describe("the guard", () => {
   test("refuses one of the clinic's own service names however it is written, and lets the price through without it", () => {
     // The one Meta rule, (2) and (5): Meta signs no BAA, so no treatment name
     // goes into a Meta message, even one the person wrote first.
-    const context = { clinicName: "Radiance", serviceNames: SERVICES };
+    const context = { clinicName: "Radiance", serviceNames: SERVICES, prices: [300, 600] };
     for (const reply of [
       "Lip filler is $300 to $600 here — call the practice to book.",
       "Yes, we do BOTOX. Call the practice to book.",
@@ -93,8 +94,11 @@ describe("the guard", () => {
     expect(guardReply("Thanks for messaging Botox Bar! Call the practice to book.", bar)).toEqual({ ok: true });
     expect(guardReply("Botox Bar offers Botox — call the practice to book.", bar)).toEqual({ ok: false, reason: "a treatment name" });
     // The names come from the facts: every configured service, approved or not.
-    expect(guardContextFor({ clinicName: "Radiance", services: [], serviceNames: ["Lip filler"] })).toEqual({ clinicName: "Radiance", serviceNames: ["Lip filler"], publishedTimes: [] });
-    expect(guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }], publishedTimes: [540] })).toEqual({ clinicName: "Radiance", serviceNames: ["Botox"], publishedTimes: [540] });
+    // With them the menu's figures, the only ones a reply may name.
+    expect(guardContextFor({ clinicName: "Radiance", services: [], serviceNames: ["Lip filler"] })).toEqual({ clinicName: "Radiance", serviceNames: ["Lip filler"], publishedTimes: [], prices: [] });
+    expect(
+      guardContextFor({ clinicName: "Radiance", services: [{ name: "Botox", priceFromUsd: null, priceToUsd: null }, { name: "Peel", priceFromUsd: 120, priceToUsd: 180 }], publishedTimes: [540] }),
+    ).toEqual({ clinicName: "Radiance", serviceNames: ["Botox", "Peel"], publishedTimes: [540], prices: [120, 180] });
   });
 
   test("refuses a reply that names an everyday skin or hair condition, acknowledged or not", () => {
@@ -113,8 +117,8 @@ describe("the guard", () => {
     }
     // An acknowledgement is still named as one: the fixed patterns read first.
     expect(guardReply("Sorry to hear about your acne! Call the practice to book.")).toEqual({ ok: false, reason: "an acknowledgement" });
-    // The price without the condition goes out.
-    expect(guardReply("Yes, the practice offers that: it's $150. Call the practice to book.", { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true });
+    // The price without the condition goes out, where it is on the menu.
+    expect(guardReply("Yes, the practice offers that: it's $150. Call the practice to book.", { clinicName: "Radiance", serviceNames: SERVICES, prices: [150] })).toEqual({ ok: true });
   });
 
   test("refuses promotional wording", () => {
@@ -201,7 +205,7 @@ describe("the guard", () => {
     expect(prompt).toMatch(/Mention a promotion/);
     // A service is on the menu so the model knows what was asked, with its
     // price, but it is no longer a fact the model may state.
-    expect(prompt).toMatch(/- Consultation: from \$0/);
+    expect(prompt).toMatch(/- Consultation: \$0(\n|$)/);
     const [, statable = ""] = prompt.split("FACTS YOU MAY STATE:");
     expect(statable.split("THE PRACTICE'S MENU")[0]).not.toMatch(/Consultation/);
     expect(prompt).toMatch(/THE PRACTICE'S MENU[^\n]*never write its name/);
@@ -218,6 +222,37 @@ describe("the guard", () => {
     }
     expect(FRONT_DOOR_PROBES.length).toBeGreaterThanOrEqual(12);
     expect(FRONT_DOOR_PROBES.map((p) => p.id)).toEqual(expect.arrayContaining(["alts", "surname"]));
+  });
+
+  // The 19 October audit: a fixed price (from equal to to) was written "from
+  // $X", and a price with one bound set was withheld as "no published price".
+  test("the prompt states each menu price as the menu does", () => {
+    const prompt = buildFrontDoorPrompt({
+      clinicName: "Radiance",
+      phone: "+1 415 555 0199",
+      websiteHint: null,
+      services: [
+        { name: "Consultation", priceFromUsd: 150, priceToUsd: 150 },
+        { name: "Botox", priceFromUsd: 12, priceToUsd: 12, priceKind: "per_unit", unit: "unit" },
+        { name: "Peel", priceFromUsd: 300, priceToUsd: null, priceKind: "from" },
+        { name: "Lift", priceFromUsd: null, priceToUsd: 900 },
+        { name: "Laser", priceFromUsd: 300, priceToUsd: 600, priceKind: "range" },
+        { name: "Filler", priceFromUsd: null, priceToUsd: null },
+      ],
+      notes: null,
+      escalationHours: null,
+      requirements: [],
+      deferredRequirements: [],
+      neverSay: [],
+    });
+    expect(prompt).toContain("- Consultation: $150\n");
+    expect(prompt).toContain("- Botox: $12 per unit\n");
+    expect(prompt).toContain("- Peel: from $300\n");
+    expect(prompt).toContain("- Lift: up to $900\n");
+    expect(prompt).toContain("- Laser: $300 to $600\n");
+    expect(prompt).toMatch(/- Filler: no published price(\n|$)/);
+    expect(prompt).not.toMatch(/from \$150/);
+    expect(prompt).toMatch(/Give a price that is not on the practice's menu/);
   });
 
   test("the prompt asks for no greeting: the code opens a first reply with the channel's, so the model starts with the substance (BAA 1.3.0 gate 20)", () => {
@@ -602,6 +637,45 @@ describeDb("the front door, end to end", () => {
     );
     expect(audit.rows.map((a) => a.metadata.guarded ?? null)).toEqual(["a treatment name", null, "a treatment name"]);
     expect(JSON.stringify(audit.rows)).not.toMatch(/lip/i);
+  });
+
+  // The 19 October audit: the prompt invites a price and the guard read
+  // none, so any figure went out on Instagram, Messenger and WhatsApp.
+  test("a figure off the menu is replaced by the hand-off line, written or said; the menu's own goes out", async () => {
+    const pageId = "623456789012399";
+    const c = await seedClinic("meta-prices");
+    await bindAgreementInEffect(c.clinicId);
+    await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now(), went_live_at = now() where id = $1`, [c.clinicId]);
+    await seedEntitled(c.clinicId, { channelRows: [{ channel: "meta", liveAt: new Date() }] });
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await setPhoneSettings(tx, { publishedPhoneE164: "+14155550197" });
+      await updateAgentConfig(tx, {
+        greeting: "Hi",
+        services: [{ name: "Lip filler", priceFromUsd: 300, priceToUsd: 600, durationMinutes: 30 }],
+        escalationPhone: null,
+        escalationHours: null,
+        notes: null,
+      });
+      await approveAgentConfig(tx, "Dr Chen");
+      await attachMetaChannel(tx, { platform: "messenger", externalId: pageId, accessToken: "EAAB-page-token-5555555555" });
+      await setMetaFrontDoor(tx, true);
+    });
+    const handoff = handoffLine({ clinicName: "meta-prices Clinic", phone: "+14155550197" });
+
+    __setMetaRuntimeForTests(async () => "That's $450. Call the practice to book.", sender);
+    await post(inbound("how much is it?", pageId));
+    expect(sent[0]!.text.endsWith(handoff)).toBe(true);
+    __setMetaRuntimeForTests(async () => "That's four hundred and fifty dollars. Call the practice to book.", sender);
+    await post(inbound("how much is it?", pageId));
+    expect(sent[1]!.text).toBe(handoff);
+    __setMetaRuntimeForTests(async () => "That's $300 to $600. Call the practice to book.", sender);
+    await post(inbound("how much is it?", pageId));
+    expect(sent[2]!.text).toBe("That's $300 to $600. Call the practice to book.");
+
+    const audit = await inTenant(c.clinicId, (client) =>
+      client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'meta_front_door_reply' order by occurred_at`),
+    );
+    expect(audit.rows.map((a) => a.metadata.guarded ?? null)).toEqual([PRICE_REFUSAL, PRICE_REFUSAL, null]);
   });
 
   test("the switch refuses a synthetic clinic, one with no phone to hand off to, and one whose agreement in effect is not released (BAA 1.3.0 gate 19)", async () => {

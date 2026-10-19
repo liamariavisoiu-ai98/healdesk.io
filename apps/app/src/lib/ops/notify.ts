@@ -147,6 +147,17 @@ export const OPS_EVENTS = [
   // channel waits on its line there: an operator looks at the site and
   // confirms it, because an Origin header proves nothing. Once per clinic.
   "web_widget_to_confirm",
+  // A change of a clinic's one address (lib/sign-in/address-change.ts, plan
+  // Part D5): due, and held back because Stripe would not take the new
+  // email (`code` stripe or stripe_unconfigured), retried each hour; or
+  // closed without effect because the new address became another sign-in's,
+  // or the sign-in's own address moved some other way (`code`).
+  "address_change_stalled",
+  "address_change_failed",
+  // /sign-in/help (plan Part D5): a request that sent no link, as structured
+  // fields only: `code` says why (no account, billing detail not matched,
+  // Stripe unavailable), with the clinic's id when the address is one.
+  "sign_in_help_unmatched",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

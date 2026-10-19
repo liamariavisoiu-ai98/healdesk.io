@@ -9,11 +9,13 @@ import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { readCalendarCard } from "@/lib/portal/settings-calendar";
 import { readSettingsView } from "@/lib/portal/settings-view";
 import { sessionBinding } from "@/lib/portal/step-up";
+import { loadOpenAddressChange } from "@/lib/sign-in/address-change";
 import { formatPhone } from "@/lib/setup/help";
 import { withTenant } from "@/lib/tenant";
 
 import { PortalShell } from "../PortalShell";
 
+import { AddressControl } from "./AddressControl";
 import { FeedbackProvider } from "../feedback";
 import { CalendarCard } from "./CalendarCard";
 import {
@@ -87,6 +89,16 @@ export default async function SettingsPage({
   const factors = await readSignInFactors(portal.userId, await sessionBinding(portal));
   const tz = page.state.clinic.timezone;
   const settingsPath = `/c/${portal.clinicSlug}/settings`;
+  const change = await loadOpenAddressChange(portal.clinicId, page.actorContext);
+  const openChange = change
+    ? {
+        newEmail: change.newEmail,
+        state:
+          change.status === "awaiting_confirmation"
+            ? `We've emailed a link to it, and nothing changes until it's used. The link works until ${portalMoment(change.confirmExpiresAt!, tz, now)}.`
+            : `It takes effect at ${portalMoment(change.effectiveAt!, tz, now)}. Until then, sign-in links still come to this address${change.source === "operator" ? ", and we entered it after a call with your practice" : ""}.`,
+      }
+    : null;
 
   return (
     <PortalShell {...shell}>
@@ -117,6 +129,7 @@ export default async function SettingsPage({
             backupCodesLeft={factors.backupCodesLeft}
             addDeviceHref={`/c/${portal.clinicSlug}/protect?next=${encodeURIComponent(settingsPath)}`}
             addBackupHref={`/c/${portal.clinicSlug}/setup?s=backup`}
+            addressControl={<AddressControl slug={portal.clinicSlug} open={openChange} />}
           />
         </div>
       </FeedbackProvider>

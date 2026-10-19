@@ -447,6 +447,10 @@ describeDb("delivery", () => {
           // switched job, because "no longer than it needs one" waits for no
           // switch.
           "erasure-expiry",
+          // A change of a clinic's address takes effect when its 72 hours are
+          // up (plan Part D5): a sweep, not a switched job, because the clinic
+          // was told the moment.
+          "address-changes",
           // Channel events (drizzle/0076): a sweep, not a switched job, over
           // inputs the clinic and the operator set.
           "channel-states",
@@ -462,6 +466,7 @@ describeDb("delivery", () => {
         if (job === "booking-request-expiry") continue; // a sweep, not a switched job: pure function of the clock, reports a count
         if (job === "welcome-email") continue; // a sweep: retries only a welcome provisioning recorded as owed
         if (job === "erasure-expiry") continue; // a sweep: empties and deletes only expired deletion records
+        if (job === "address-changes") continue; // a sweep: applies only the changes whose 72 hours are up
         if (job === "offboarding-destroy") continue; // widening: runs for 1.3.0 and DPA clinics, switch or not
         if (job === "channel-states") continue; // a sweep: moves production clinics' channels on as their inputs allow
         if (job === "ai-pause") continue; // a sweep: records the end of a timed pause the clinic set
@@ -471,6 +476,7 @@ describeDb("delivery", () => {
       expect(jobs["booking-request-expiry"]).toBe("ok");
       expect(jobs["welcome-email"]).toBe("ok");
       expect(jobs["erasure-expiry"]).toBe("ok");
+      expect(jobs["address-changes"]).toBe("ok");
       expect(jobs["channel-states"]).toBe("ok");
       expect(jobs["ai-pause"]).toBe("ok");
       expect(out.some((o) => o.status === "threw")).toBe(false);

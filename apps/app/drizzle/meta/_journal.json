@@ -589,6 +589,13 @@
       "when": 1792396935749,
       "tag": "0083_operator_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792396963295,
+      "tag": "0084_address_change",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,311 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`O5 from ops' changeClinicEmail > to the old address and to the new: the snapshots 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in address is changing</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It takes effect on Friday, October 9 at 10:32 AM EDT.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">After a call with Radiance Med Spa, we&#39;re changing its healdesk address from f•••@radiancemedspa.com to i•••@radiancemedspa.com. The change takes effect on Friday, October 9 at 10:32 AM EDT.</p>
+<p style="margin:0 0 16px;">From then, sign-in links, billing email and notices under Radiance Med Spa&#39;s agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.</p>
+<p style="margin:0 0 16px;">We&#39;re writing to both addresses. If you didn&#39;t ask for this, reply to this email before Friday, October 9 at 10:32 AM EDT and we&#39;ll stop it. Nothing changes before then.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It takes effect on Friday, October 9 at 10:32 AM EDT.",
+  "subject": "Your healdesk sign-in address is changing",
+  "text": "After a call with Radiance Med Spa, we're changing its healdesk address from f•••@radiancemedspa.com to i•••@radiancemedspa.com. The change takes effect on Friday, October 9 at 10:32 AM EDT.
+
+From then, sign-in links, billing email and notices under Radiance Med Spa's agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.
+
+We're writing to both addresses. If you didn't ask for this, reply to this email before Friday, October 9 at 10:32 AM EDT and we'll stop it. Nothing changes before then.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`O5 from ops' changeClinicEmail > to the old address and to the new: the snapshots 2`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in address is changing</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It takes effect on Friday, October 9 at 10:32 AM EDT.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">After a call with Radiance Med Spa, we&#39;re changing its healdesk address from f•••@radiancemedspa.com to i•••@radiancemedspa.com. The change takes effect on Friday, October 9 at 10:32 AM EDT.</p>
+<p style="margin:0 0 16px;">From then, sign-in links, billing email and notices under Radiance Med Spa&#39;s agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.</p>
+<p style="margin:0 0 16px;">We&#39;re writing to both addresses. If this isn&#39;t right, reply to this email before Friday, October 9 at 10:32 AM EDT and we&#39;ll stop it.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because Radiance Med Spa is moving its healdesk address to this one.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It takes effect on Friday, October 9 at 10:32 AM EDT.",
+  "subject": "Your healdesk sign-in address is changing",
+  "text": "After a call with Radiance Med Spa, we're changing its healdesk address from f•••@radiancemedspa.com to i•••@radiancemedspa.com. The change takes effect on Friday, October 9 at 10:32 AM EDT.
+
+From then, sign-in links, billing email and notices under Radiance Med Spa's agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.
+
+We're writing to both addresses. If this isn't right, reply to this email before Friday, October 9 at 10:32 AM EDT and we'll stop it.
+
+—
+You're receiving this because Radiance Med Spa is moving its healdesk address to this one.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > address_change_confirm, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Confirm this address for healdesk</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">The link works once, for 72 hours.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa asked to make this address its healdesk address, in place of f•••@radiancemedspa.com. It would become the practice&#39;s sign-in, its billing email and the address for notices under its agreement with healdesk.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/address-change/Qm7tR2xV9cK4pL8wN3sJ6hF1dB5gZ0yAeU2iOqXvTkM" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm this address</a></p>
+<p style="margin:0 0 16px;">The link works once, for 72 hours. Once you confirm, the change takes effect 72 hours later, and until then f•••@radiancemedspa.com can stop it.</p>
+<p style="margin:0 0 16px;">If you didn&#39;t expect this, ignore this email. Nothing changes unless the link is used.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because someone at Radiance Med Spa asked to make this address its healdesk address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "The link works once, for 72 hours.",
+  "subject": "Confirm this address for healdesk",
+  "text": "Radiance Med Spa asked to make this address its healdesk address, in place of f•••@radiancemedspa.com. It would become the practice's sign-in, its billing email and the address for notices under its agreement with healdesk.
+
+Confirm this address: https://app.healdesk.test/address-change/Qm7tR2xV9cK4pL8wN3sJ6hF1dB5gZ0yAeU2iOqXvTkM
+
+The link works once, for 72 hours. Once you confirm, the change takes effect 72 hours later, and until then f•••@radiancemedspa.com can stop it.
+
+If you didn't expect this, ignore this email. Nothing changes unless the link is used.
+
+—
+You're receiving this because someone at Radiance Med Spa asked to make this address its healdesk address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > address_change_confirm, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Confirm this address for healdesk</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">The link works once, for 72 hours.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa asked to make this address its healdesk address, in place of f•••@radiancemedspa.com. It would become the practice&#39;s sign-in, its billing email and the address for notices under its agreement with healdesk.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/address-change/Qm7tR2xV9cK4pL8wN3sJ6hF1dB5gZ0yAeU2iOqXvTkM" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Confirm this address</a></p>
+<p style="margin:0 0 16px;">The link works once, for 72 hours. Once you confirm, the change takes effect 72 hours later, and until then f•••@radiancemedspa.com can stop it.</p>
+<p style="margin:0 0 16px;">If you didn&#39;t expect this, ignore this email. Nothing changes unless the link is used.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because someone at Radiance Med Spa asked to make this address its healdesk address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "The link works once, for 72 hours.",
+  "subject": "Confirm this address for healdesk",
+  "text": "Radiance Med Spa asked to make this address its healdesk address, in place of f•••@radiancemedspa.com. It would become the practice's sign-in, its billing email and the address for notices under its agreement with healdesk.
+
+Confirm this address: https://app.healdesk.test/address-change/Qm7tR2xV9cK4pL8wN3sJ6hF1dB5gZ0yAeU2iOqXvTkM
+
+The link works once, for 72 hours. Once you confirm, the change takes effect 72 hours later, and until then f•••@radiancemedspa.com can stop it.
+
+If you didn't expect this, ignore this email. Nothing changes unless the link is used.
+
+—
+You're receiving this because someone at Radiance Med Spa asked to make this address its healdesk address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > address_changing, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in address is changing</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It takes effect on Friday, October 9 at 10:32 AM EDT.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa&#39;s healdesk address is changing from f•••@radiancemedspa.com to i•••@radiancemedspa.com. It was asked for in Settings and confirmed from the new address, and it takes effect on Friday, October 9 at 10:32 AM EDT.</p>
+<p style="margin:0 0 16px;">From then, sign-in links, billing email and notices under Radiance Med Spa&#39;s agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.</p>
+<p style="margin:0 0 16px;">If you didn&#39;t ask for this, stop it before Friday, October 9 at 10:32 AM EDT. Sign in with a link to this address, and stop it in Settings, under Sign-in.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/settings#sign-in" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Stop this change</a></p>
+<p style="margin:0 0 16px;">Or reply to this email and we&#39;ll stop it for you.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It takes effect on Friday, October 9 at 10:32 AM EDT.",
+  "subject": "Your healdesk sign-in address is changing",
+  "text": "Radiance Med Spa's healdesk address is changing from f•••@radiancemedspa.com to i•••@radiancemedspa.com. It was asked for in Settings and confirmed from the new address, and it takes effect on Friday, October 9 at 10:32 AM EDT.
+
+From then, sign-in links, billing email and notices under Radiance Med Spa's agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.
+
+If you didn't ask for this, stop it before Friday, October 9 at 10:32 AM EDT. Sign in with a link to this address, and stop it in Settings, under Sign-in.
+
+Stop this change: https://app.healdesk.test/c/radiance-med-spa/settings#sign-in
+
+Or reply to this email and we'll stop it for you.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > address_changing, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in address is changing</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It takes effect on Friday, October 9 at 10:32 AM EDT.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Radiance Med Spa&#39;s healdesk address is changing from f•••@radiancemedspa.com to i•••@radiancemedspa.com. It was asked for in Settings and confirmed from the new address, and it takes effect on Friday, October 9 at 10:32 AM EDT.</p>
+<p style="margin:0 0 16px;">From then, sign-in links, billing email and notices under Radiance Med Spa&#39;s agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.</p>
+<p style="margin:0 0 16px;">If you didn&#39;t ask for this, stop it before Friday, October 9 at 10:32 AM EDT. Sign in with a link to this address, and stop it in Settings, under Sign-in.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance-med-spa/settings#sign-in" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Stop this change</a></p>
+<p style="margin:0 0 16px;">Or reply to this email and we&#39;ll stop it for you.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It takes effect on Friday, October 9 at 10:32 AM EDT.",
+  "subject": "Your healdesk sign-in address is changing",
+  "text": "Radiance Med Spa's healdesk address is changing from f•••@radiancemedspa.com to i•••@radiancemedspa.com. It was asked for in Settings and confirmed from the new address, and it takes effect on Friday, October 9 at 10:32 AM EDT.
+
+From then, sign-in links, billing email and notices under Radiance Med Spa's agreement with healdesk go to i•••@radiancemedspa.com, and no longer to f•••@radiancemedspa.com.
+
+If you didn't ask for this, stop it before Friday, October 9 at 10:32 AM EDT. Sign in with a link to this address, and stop it in Settings, under Sign-in.
+
+Stop this change: https://app.healdesk.test/c/radiance-med-spa/settings#sign-in
+
+Or reply to this email and we'll stop it for you.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > ai_paused, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -4577,6 +4883,108 @@ Questions? Reply to this email, or write to hello@healdesk.io. Or leave a messag
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > sign_in_help_link, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in link, after your request for help</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It works once, for the next 15 minutes.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Someone asked for help signing in to healdesk with this address, and the billing detail they gave matched the account&#39;s. Here is a link that signs in.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/link/Hc4nV8qL2xR6tY0wK3mP7sZ1jD5gB9fAeU2iOoXvTkN" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Sign in</a></p>
+<p style="margin:0 0 16px;">It works once, for the next 15 minutes. Patient details still open only with Face ID or the screen lock on a device you&#39;ve added.</p>
+<p style="margin:0 0 16px;">If that wasn&#39;t someone at your practice, reply to this email and we&#39;ll look into it. Nobody can sign in without the link in it.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because someone asked for help signing in to healdesk with this address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It works once, for the next 15 minutes.",
+  "subject": "Your healdesk sign-in link, after your request for help",
+  "text": "Someone asked for help signing in to healdesk with this address, and the billing detail they gave matched the account's. Here is a link that signs in.
+
+Sign in: https://app.healdesk.test/link/Hc4nV8qL2xR6tY0wK3mP7sZ1jD5gB9fAeU2iOoXvTkN
+
+It works once, for the next 15 minutes. Patient details still open only with Face ID or the screen lock on a device you've added.
+
+If that wasn't someone at your practice, reply to this email and we'll look into it. Nobody can sign in without the link in it.
+
+—
+You're receiving this because someone asked for help signing in to healdesk with this address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > sign_in_help_link, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your healdesk sign-in link, after your request for help</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">It works once, for the next 15 minutes.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">Someone asked for help signing in to healdesk with this address, and the billing detail they gave matched the account&#39;s. Here is a link that signs in.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/link/Hc4nV8qL2xR6tY0wK3mP7sZ1jD5gB9fAeU2iOoXvTkN" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">Sign in</a></p>
+<p style="margin:0 0 16px;">It works once, for the next 15 minutes. Patient details still open only with Face ID or the screen lock on a device you&#39;ve added.</p>
+<p style="margin:0 0 16px;">If that wasn&#39;t someone at your practice, reply to this email and we&#39;ll look into it. Nobody can sign in without the link in it.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because someone asked for help signing in to healdesk with this address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "It works once, for the next 15 minutes.",
+  "subject": "Your healdesk sign-in link, after your request for help",
+  "text": "Someone asked for help signing in to healdesk with this address, and the billing detail they gave matched the account's. Here is a link that signs in.
+
+Sign in: https://app.healdesk.test/link/Hc4nV8qL2xR6tY0wK3mP7sZ1jD5gB9fAeU2iOoXvTkN
+
+It works once, for the next 15 minutes. Patient details still open only with Face ID or the screen lock on a device you've added.
+
+If that wasn't someone at your practice, reply to this email and we'll look into it. Nobody can sign in without the link in it.
+
+—
+You're receiving this because someone asked for help signing in to healdesk with this address.
 Replies reach the healdesk team. Please leave out patient details.
 healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
 US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States

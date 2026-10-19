@@ -13,6 +13,7 @@ import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
+import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
@@ -168,6 +169,18 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
     return {
       status: "ok",
       note: `${result.resent} resent, ${result.unsent} still unsent, ${result.failed} failed`,
+    };
+  });
+  // A change of a clinic's one address takes effect 72 hours after it was
+  // confirmed, and an unused confirmation link closes after 72 hours (plan
+  // Part D5). Not a switched job, like the welcome email's backstop: the
+  // clinic was told the moment, and a switch that ships off would break it.
+  // Each change is applied under its own row lock (lib/sign-in/address-change.ts).
+  await record("address-changes", async () => {
+    const r = await runAddressChangesJob();
+    return {
+      status: "ok",
+      note: `${r.applied} applied, ${r.expired} expired, ${r.failed} failed, ${r.waiting} waiting`,
     };
   });
   // Phase two, like the monthly report.

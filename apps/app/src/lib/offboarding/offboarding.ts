@@ -249,7 +249,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
  */
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
-    // A draft until the owner releases it (drizzle/0090); no clinic can be
+    // A draft until the owner releases it (drizzle/0091); no clinic can be
     // bound to it before then. Its Term clause is 1.3.0's with one phrase about
     // Anthropic changed, and states the same rule.
     "1.6.0": "export_or_ninety",

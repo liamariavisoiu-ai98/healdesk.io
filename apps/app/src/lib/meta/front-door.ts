@@ -614,6 +614,13 @@ function withoutOwnWords(reply: string, context: GuardContext): string {
   return phrases.reduce((text, phrase) => withoutPhrase(text, phrase), reply);
 }
 
+/**
+ * The reason guardReply records when a reply says an entry on the clinic's
+ * never-say list. Exported so the practice questions credit that refusal to
+ * the clinic's list, as they do the calls and website chat guard's never_say.
+ */
+export const META_NEVER_SAY_REASON = "a never-say phrase";
+
 /** Deterministic: a reply that trips any line is not sent. */
 export function guardReply(reply: string, context: GuardContext = {}): GuardVerdict {
   if (!reply.trim()) return { ok: false, reason: "empty" };
@@ -648,7 +655,7 @@ export function guardReply(reply: string, context: GuardContext = {}): GuardVerd
   // inside the clinic's own name or address, so "Painless Laser Studio" can
   // still say who it is, while "cheapest in Austin" or "Glow Med Spa is the
   // best" is refused (neverSayIn).
-  if (context.neverSay && neverSayIn(reply, context.neverSay, clinicOwnWords(context))) return { ok: false, reason: "a never-say phrase" };
+  if (context.neverSay && neverSayIn(reply, context.neverSay, clinicOwnWords(context))) return { ok: false, reason: META_NEVER_SAY_REASON };
   return { ok: true };
 }
 

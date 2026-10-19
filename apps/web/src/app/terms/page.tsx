@@ -203,7 +203,7 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * window are unchanged.
  *
  * Revised on 19 October 2026 as LEGAL_VERSION 2026-10-19.1, for the model
- * provider's retention (docs/counsel/agreement-changes.md § 16). Section 9
+ * provider's retention (docs/counsel/agreement-changes.md § 17). Section 9
  * and the annex's model item said the provider keeps conversation content
  * "for 30 days, for abuse detection and security", that content the law
  * requires it to keep may be kept "for up to two years", and that its service
@@ -221,7 +221,7 @@ const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD",
  * The annex's heading says the provider keeps "conversation content", where
  * it said "inputs": it keeps and deletes inputs and outputs alike.
  * Section 9 no longer says "The Business Associate Agreement states the
- * same": BAA 1.5.0, the version signed today, still carries the old clause,
+ * same": BAA 1.5.1, the version signed today, still carries the old clause,
  * and the corrected one is the 1.6.0 draft, which only the owner can release.
  * When it is released, that sentence can come back.
  */

@@ -6,7 +6,7 @@
 > spec's source doc. Still current: §2 (AWS BAA), §3 (Anthropic: HIPAA-ready org, no
 > zero-retention request, which means standard retention, no more than 30 days for the
 > models the product calls, which the clinic agreement must disclose; agreement-changes.md
-> § 16) and §10's rule against HIPAA and PCI badges. Out of date:
+> § 17) and §10's rule against HIPAA and PCI badges. Out of date:
 >
 > - **§1 Synthflow** is replaced by **Retell**: self-sign the BAA and DPA in Retell's
 >   click-agreements portal, confirm the executed text names the services in use, set
@@ -323,7 +323,7 @@ values, const values, property names, or regex patterns.
 - **Trust-and-safety retention pierces both ZDR and the BAA** — flagged content up to
   2 years, classification scores up to 7. Another reason to keep prompts clinically neutral.
   Anthropic may also keep what the law requires it to keep, for as long as the law requires:
-  its pages state no limit for that, so neither may our copy (agreement-changes.md § 16)
+  its pages state no limit for that, so neither may our copy (agreement-changes.md § 17)
 - **The BAA doesn't follow you to Bedrock or Google Cloud** — there the cloud provider is
   the data processor and you need *their* BAA
 - **Their own sources conflict** on Claude Code and Computer Use. Anthropic's stated

@@ -100,7 +100,7 @@ import { wrap } from "./wrap";
  *     sentence, which gave law-required content two years, the 30 days a
  *     purpose and the service "cannot run with shorter retention", none of
  *     which Anthropic says of the models the product calls
- *     (agreement-changes.md §16), and said Anthropic's agreement was in
+ *     (agreement-changes.md §17), and said Anthropic's agreement was in
  *     place; it is now, as in the BAA, signed before any client's
  *     information reaches Anthropic. The DPA was unreleased, so it was
  *     corrected in place and its hashes regenerated;

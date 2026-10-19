@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { CARRIERS, CARRIER_SERVICE_NUMBERS, COVERAGE_MODES } from "@healdesk/catalog";
+import { CARRIERS, CARRIER_SERVICE_NUMBERS, COVERAGE_MODES, PATIENT_MODEL_IDS } from "@healdesk/catalog";
 import { SETTING_KEYS } from "@/lib/portal/settings";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -217,6 +217,9 @@ describe("the request", () => {
     });
     const request = supportRequest({ system, messages: [{ role: "user", content: "Hi" }] });
     expect(request.model).toBe("claude-opus-5-5");
+    // On the patient-data key, so one of the models whose retention the terms
+    // and agreements describe; never a Covered Model (model-retention.ts).
+    expect(PATIENT_MODEL_IDS).toContain(SUPPORT_MODEL);
     expect(request.output_config).toEqual({ effort: "low" });
     expect(request.tool_choice).toEqual({ type: "auto" });
     const blocks = request.system as Anthropic.TextBlockParam[];

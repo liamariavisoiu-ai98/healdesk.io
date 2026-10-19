@@ -29,7 +29,7 @@ import type { AssistantChannel } from "./facts";
  * keep content for at least 30 days, so an environment variable naming one
  * would quietly make "no more than 30 days" false in a signed agreement.
  * Moving a channel onto one needs the wording, the terms and a new BAA
- * version first (docs/counsel/agreement-changes.md §16).
+ * version first (docs/counsel/agreement-changes.md §17).
  *
  * Every channel runs at low effort. Opus 5.5 and Sonnet 5.5 think adaptively
  * whether or not the request says so, and low effort keeps that short; the

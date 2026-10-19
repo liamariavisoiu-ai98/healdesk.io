@@ -339,7 +339,7 @@ describe("the site makes none of the claims it may not make", () => {
  * to keep is kept as long as the law requires, with no cap, and "cannot run
  * with shorter retention" is true only of Anthropic's Covered Models, which
  * the product does not call (packages/catalog model-retention.ts;
- * agreement-changes.md § 16, which corrects finding A3's misquote). So no
+ * agreement-changes.md § 17, which corrects finding A3's misquote). So no
  * sentence may give the law's exception the two years, and none may carry the
  * Covered Models' requirement or a purpose Anthropic does not state.
  */

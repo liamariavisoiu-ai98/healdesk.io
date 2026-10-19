@@ -83,7 +83,7 @@ describe("the terms describe v1 as the spec defines it", () => {
     // than 30 days under the standard retention of a HIPAA-ready
     // organisation, two years for flagged content alone, and as long as the
     // law requires for what the law requires (packages/catalog
-    // model-retention.ts; agreement-changes.md § 16). Section 9 prints the
+    // model-retention.ts; agreement-changes.md § 17). Section 9 prints the
     // catalog's sentences; the annex its exceptions sentence.
     expect(text).toContain(MODEL_RETENTION_PUBLIC);
     expect(text).toContain(
@@ -104,7 +104,7 @@ describe("the terms describe v1 as the spec defines it", () => {
     expect(text).not.toMatch(/covered models? require/i);
     expect(text).not.toMatch(/law requires it to keep[^.]*two years/);
     expect(text).not.toMatch(/never trains/);
-    // BAA 1.5.0, the version signed today, still carries the old clause, so
+    // BAA 1.5.1, the version signed today, still carries the old clause, so
     // the terms do not say the agreement states the same until the 1.6.0
     // draft is released.
     expect(text).not.toContain("The Business Associate Agreement states the same");

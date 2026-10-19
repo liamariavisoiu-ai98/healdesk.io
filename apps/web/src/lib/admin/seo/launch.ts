@@ -141,6 +141,15 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     blocksGoLive: false,
   },
   {
+    id: "baa-1-6-0-retention",
+    promise: "The AI model provider's retention is as terms section 9 states it: no more than 30 days, flagged content up to two years, what the law requires for as long as it requires",
+    where: "Terms section 9 and its annex, data deletion page, homepage FAQ, the business associate agreement signed at checkout",
+    status: "owner",
+    left: "Checkout still offers BAA 1.5.1, whose Subcontractors clause gives the 30 days a purpose, keeps law-required content two years and says the service cannot run with shorter retention, and terms section 1 lets the BAA win. Release BAA 1.6.0 (or send it to counsel first): move it to BAA_TEMPLATES[0] with approvedByCounsel true, decide the floor and any overlap after reading the marketing Sheet for anyone who signed 1.5.1, add the release migration as 0081 did, then restore terms section 9's \"The Business Associate Agreement states the same\" under a new LEGAL_VERSION. No clinic goes live under 1.5.1's retention clause.",
+    evidence: "packages/catalog/src/baa.ts (template 1.6.0), docs/baa-v1.6.0.txt, docs/counsel/agreement-changes.md section 17",
+    blocksGoLive: true,
+  },
+  {
     id: "direct-booking-addendum",
     promise: "A clinic can elect direct booking under its agreement",
     where: "Setup, agreement",

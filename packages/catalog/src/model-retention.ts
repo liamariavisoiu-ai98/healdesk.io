@@ -7,12 +7,12 @@
  * retention page with an ellipsis that cut out "As a result, if a chat or
  * session is flagged", which is what ties the two years to flagged content
  * alone, and its wording was then copied into the terms, the homepage FAQ,
- * /data-deletion, the subprocessor register, BAA 1.2.1 to 1.5.0 and the DPA.
+ * /data-deletion, the subprocessor register, BAA 1.2.1 to 1.5.1 and the DPA.
  * Those copies gave law-required content a two-year cap Anthropic does not
  * state, gave the 30 days a purpose ("abuse detection and security") its pages
  * do not give for these models, and said the service "cannot run with shorter
  * retention", which Anthropic says only of its Covered Models
- * (docs/counsel/agreement-changes.md §16).
+ * (docs/counsel/agreement-changes.md §17).
  *
  * What Anthropic's documentation says for the models the product calls,
  * checked on MODEL_RETENTION_VERIFIED_ON against MODEL_RETENTION_SOURCES:
@@ -119,7 +119,7 @@ export const MODEL_RETENTION_PUBLIC =
  * The retention is Anthropic's standard retention, not a term of its business
  * associate agreement: nobody at healdesk has read that agreement yet (it is
  * signed in the HIPAA-ready organisation's Console, agreement-changes.md
- * § 16.5), and the sources describe the organisation, not the agreement's
+ * § 17.5), and the sources describe the organisation, not the agreement's
  * text. Until 19 October 2026 the sentence began "Under that agreement
  * Anthropic keeps", which made the 30 days read as a promise in a contract
  * healdesk had not seen. The second sentence is why the window exists, which

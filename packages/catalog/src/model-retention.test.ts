@@ -14,7 +14,7 @@ import {
 
 /**
  * The model provider's retention, held to Anthropic's documentation for the
- * models the product calls (docs/counsel/agreement-changes.md §16). Every
+ * models the product calls (docs/counsel/agreement-changes.md §17). Every
  * surface that states the retention reads these sentences, so a word wrong
  * here is wrong everywhere: the checks are on the sentences themselves.
  */

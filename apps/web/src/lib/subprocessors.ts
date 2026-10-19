@@ -169,7 +169,7 @@ export const SUBPROCESSORS: readonly Subprocessor[] = [
     // no more than 30 days under standard retention, two years for flagged
     // content alone, and the law's own period for what the law requires. It
     // said "which its covered models require" until then, which is true only
-    // of Anthropic's Covered Models (agreement-changes.md § 16). It says
+    // of Anthropic's Covered Models (agreement-changes.md § 17). It says
     // "conversation content", as the agreements do, where it said "inputs",
     // and states training as the catalog's sentences do: not without our
     // permission, which we do not give.

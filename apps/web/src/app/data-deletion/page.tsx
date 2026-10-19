@@ -23,7 +23,7 @@ export const metadata: Metadata = {
  *
  * Adopted 3 Oct 2026 by the owner without external counsel review, with the
  * model provider's two-year exception added beside its 30 days
- * (docs/counsel/agreement-changes.md, finding A3, corrected in § 16). Three audiences, because
+ * (docs/counsel/agreement-changes.md, finding A3, corrected in § 17). Three audiences, because
  * the answer differs: a visitor to this site, whose data we control; a clinic,
  * whose connections and account we hold; and a patient who messaged a
  * clinic, whose record the clinic controls under its Business Associate
@@ -55,7 +55,7 @@ export const metadata: Metadata = {
  * seven days after the email first went.
  *
  * Revised 19 October 2026 (LEGAL_VERSION 2026-10-19.1), for the model
- * provider's retention (docs/counsel/agreement-changes.md § 16): the clinic
+ * provider's retention (docs/counsel/agreement-changes.md § 17): the clinic
  * section said the provider keeps inputs "for 30 days under its own
  * agreement, which we cannot shorten", and may keep flagged or law-required
  * content "for up to two years". Anthropic's documentation, for the models

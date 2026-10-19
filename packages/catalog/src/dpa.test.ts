@@ -105,7 +105,7 @@ const VARIANTS: Record<string, Partial<DpaVariables>> = {
  * is confirmed (BAA 1.5.0's clauses 11 and 14 in this document's words; the
  * sample was 97058d2d…ad05), and on 19 October 2026 for Anthropic's retention
  * as Anthropic's documentation states it for the models the product calls
- * (BAA 1.6.0's Subcontractors paragraph; agreement-changes.md §16; the sample
+ * (BAA 1.6.0's Subcontractors paragraph; agreement-changes.md §17; the sample
  * was a84117ed…9e55), and again that day for the review of that change: the
  * retention attributed to Anthropic's standard retention with the reason for
  * it, Anthropic's agreement signed before any client's information reaches
@@ -423,7 +423,7 @@ describe("what the DPA says", () => {
     // the law's own period for what the law requires. Until 19 October 2026
     // this was BAA 1.2.1's sentence, which gave law-required content two
     // years and the service "cannot run with shorter retention"
-    // (agreement-changes.md §16); 1.2.1 to 1.5.0 are frozen, so the DPA now
+    // (agreement-changes.md §17); 1.2.1 to 1.5.1 are frozen, so the DPA now
     // reads as the 1.6.0 draft does.
     const baa160 = unwrap(
       prepareBaa(getBaaTemplate("1.6.0")!, {

@@ -6,14 +6,14 @@ import type { OpsResult, ResendTranscriptOutcome, TranscriptDeliveriesView } fro
 import { TRANSCRIPT_RESENDABLE, TRANSCRIPT_WINDOWS, type TranscriptStatus } from "@/lib/admin/transcript-status";
 
 /** What each status means for the operator, in the words the owner would tell a clinic. */
-const LABELS: Record<TranscriptStatus, { name: string; note: string; tone: "ok" | "bad" | "plain" }> = {
+export const LABELS: Record<TranscriptStatus, { name: string; note: string; tone: "ok" | "bad" | "plain" }> = {
   delivered: { name: "Delivered", note: "SES reported it delivered; our copy is deleted.", tone: "ok" },
-  bounced: { name: "Bounced", note: "The clinic's mail server refused it. We keep the copy and retry.", tone: "bad" },
-  pending: { name: "Waiting to send", note: "Queued; the outbox sends it within a minute or retries.", tone: "plain" },
+  bounced: { name: "Bounced", note: "SES reported a bounce, rejection or complaint. We keep the copy and retry hourly; Send again brings the retry forward.", tone: "bad" },
+  pending: { name: "Waiting to send", note: "Queued. A failed send is retried after growing waits, up to an hour apart, until SES accepts it.", tone: "plain" },
   sent: { name: "Sent, not confirmed", note: "Handed to SES; waiting for its delivery report.", tone: "plain" },
   open: { name: "Chat still going", note: "A web chat's transcript is emailed when it ends.", tone: "plain" },
-  unconfirmed: { name: "Deleted unanswered", note: "SES gave no answer for 72 hours, so the copy was deleted.", tone: "bad" },
-  expired: { name: "Deleted after 30 days", note: "Never delivered in 30 days, so the copy was deleted.", tone: "bad" },
+  unconfirmed: { name: "Deleted unanswered", note: "SES accepted it but gave no delivery report for 72 hours, so the copy was deleted. The clinic may still have it.", tone: "bad" },
+  expired: { name: "Deleted after 30 days", note: "Not delivered within 30 days, so the copy was deleted. Nothing is left to send.", tone: "bad" },
 };
 
 const ORDER: TranscriptStatus[] = ["bounced", "unconfirmed", "expired", "pending", "sent", "open", "delivered"];
@@ -97,7 +97,7 @@ export function TranscriptsPanel({
         </h2>
         <p className={`mt-2 text-sm font-semibold ${attention > 0 ? "text-red-deep" : "text-done"}`}>
           {attention > 0
-            ? `${attention} transcript${attention === 1 ? "" : "s"} bounced or never confirmed.`
+            ? `${attention} transcript${attention === 1 ? "" : "s"} bounced, went unconfirmed or expired.`
             : "Nothing bounced or went unconfirmed."}
         </p>
         <dl className="mt-3 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

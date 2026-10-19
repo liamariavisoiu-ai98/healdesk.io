@@ -7,7 +7,7 @@ import { requireOperator } from "@/lib/admin/operator";
 import { fetchTranscriptDeliveries, resendTranscript as resendUpstream } from "@/lib/admin/ops-client";
 import { isHostUnreachable } from "@/lib/host/state";
 
-import { TRANSCRIPT_WINDOWS } from "@/lib/admin/transcript-status";
+import { transcriptWindow } from "@/lib/admin/transcript-status";
 
 import { TranscriptsPanel } from "./TranscriptsPanel";
 
@@ -40,8 +40,7 @@ export default async function TranscriptsPage({
   const { clinicId } = await params;
   if (!UUID.test(clinicId)) notFound();
   const { days: rawDays } = await searchParams;
-  const asked = Number(Array.isArray(rawDays) ? rawDays[0] : rawDays);
-  const days = TRANSCRIPT_WINDOWS.find((w) => w === asked) ?? 30;
+  const days = transcriptWindow(rawDays);
 
   const view = await fetchTranscriptDeliveries(clinicId, days);
   if (isHostUnreachable(view)) {

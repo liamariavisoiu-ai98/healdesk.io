@@ -12,3 +12,9 @@ export const TRANSCRIPT_RESENDABLE: readonly TranscriptStatus[] = ["pending", "s
 
 /** The windows the receipts page offers, in days; the engine allows 1 to 366. */
 export const TRANSCRIPT_WINDOWS = [7, 30, 90] as const;
+
+/** The window a `?days=` asks for: one of the offered windows, else 30. Anything else never reaches the engine. */
+export function transcriptWindow(raw: string | string[] | undefined): number {
+  const asked = Number(Array.isArray(raw) ? raw[0] : raw);
+  return TRANSCRIPT_WINDOWS.find((w) => w === asked) ?? 30;
+}

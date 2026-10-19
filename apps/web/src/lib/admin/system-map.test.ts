@@ -8,6 +8,7 @@ import {
   BRIDGES,
   GROUPS,
   KEYS,
+  NOT_KEYS,
   STORIES,
   THEMES,
   TOOLS,
@@ -144,10 +145,51 @@ describe("the registry", () => {
     }
   });
 
-  test("the deploy shelf's and your computer's keys are the ones the scripts and .env.example name", () => {
+  /**
+   * The other way round: every variable either app reads is a key on the map
+   * or a setting NOT_KEYS names, so a new secret cannot be added to the code
+   * and stay off the map. A read is `process.env.NAME`, `process.env["NAME"]`,
+   * or one of the helpers that take a name (apps/app's `optional` and
+   * `required`, apps/web's `pastedSetting`); a name held in a constant and
+   * read through it is not seen, which is why those few are on the map by
+   * hand and the forward test above holds them.
+   */
+  test("every variable either app reads is on the map or named as a setting", () => {
+    const READS = [
+      /process\.env\.([A-Z][A-Z0-9_]+)/g,
+      /process\.env\[\s*["'`]([A-Z][A-Z0-9_]+)["'`]\s*\]/g,
+      /\b(?:optional|required|pastedSetting)\(\s*["']([A-Z][A-Z0-9_]+)["']/g,
+    ];
+    const readsIn = (dir: string) => {
+      const names = new Set<string>();
+      for (const file of walk(dir)) {
+        const text = readFileSync(file, "utf8");
+        for (const re of READS) for (const m of text.matchAll(re)) names.add(m[1]!);
+      }
+      return names;
+    };
+    const web = readsIn(WEB_SRC);
+    const app = readsIn(join(REPO, "apps", "app", "src"));
+    const onMap = (homes: string[]) => new Set(KEYS.filter((k) => homes.includes(k.home)).map((k) => k.env));
+
+    const webKeys = onMap(["vercel"]);
+    const appKeys = onMap(["aws", "aws-ci"]);
+    const unseen = [
+      ...[...web].filter((n) => !webKeys.has(n) && !(n in NOT_KEYS)).map((n) => `apps/web reads ${n}`),
+      ...[...app].filter((n) => !appKeys.has(n) && !(n in NOT_KEYS)).map((n) => `apps/app reads ${n}`),
+    ];
+    expect(unseen, "add it to KEYS in system-map.ts, or to NOT_KEYS with the reason it is not a key").toEqual([]);
+
+    // A setting nothing reads any more comes off the list, so it stays short and true.
+    const stale = Object.keys(NOT_KEYS).filter((n) => !web.has(n) && !app.has(n));
+    expect(stale, "no longer read by either app: remove from NOT_KEYS").toEqual([]);
+  });
+
+  test("the deploy-only and your computer's keys are the ones the AWS setup and .env.example name", () => {
     const paste = readFileSync(join(REPO, "infra", "aws", "scripts", "put-external-secrets.sh"), "utf8");
+    const ssm = readFileSync(join(REPO, "infra", "aws", "ssm.tf"), "utf8");
     const example = readFileSync(join(REPO, ".env.example"), "utf8");
-    for (const k of KEYS.filter((k) => k.home === "aws-ci")) expect(paste).toContain(k.env);
+    for (const k of KEYS.filter((k) => k.home === "aws-ci")) expect(paste.includes(k.env!) || ssm.includes(k.env!), k.id).toBe(true);
     for (const k of KEYS.filter((k) => k.home === "computer")) expect(example).toContain(`${k.env}=`);
   });
 });

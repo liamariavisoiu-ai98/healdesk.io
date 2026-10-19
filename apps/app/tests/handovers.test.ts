@@ -81,6 +81,7 @@ vi.mock("@/app/c/[slug]/PatientPageGuard", async () => {
 
 const { default: BookingsPage } = await import("@/app/c/[slug]/bookings/page");
 const { markHandover } = await import("@/app/c/[slug]/bookings/handover-actions");
+const { MAX_OPEN_HANDOVERS, olderHandoversLine } = await import("@/lib/portal/bookings");
 
 const describeDb = hasTestDatabase ? describe : describe.skip;
 const ACTOR = { type: "service", serviceName: "handover-test" } as const;
@@ -791,7 +792,14 @@ describeDb("handovers on Bookings", () => {
     expect(page).toContain("Asked for a person");
     expect(page).toContain("Maria asked for a person on the phone");
     expect(page).toContain("Call Maria");
-    expect(page).toContain("The caller's number appears here once the call's record is written, when it ends.");
+    // A number the caller gave AYA is not kept here: Bookings says where it is.
+    expect(page).toContain(
+      "This is the number they called from. If they gave AYA a different one, it's in the call's transcript, which is emailed to you when the call ends.",
+    );
+    expect(page).toContain(
+      "The caller's number appears here once the call ends, if it was shown. If they gave AYA one, it's in the call's transcript, which is emailed to you when the call ends.",
+    );
+    expect(page).not.toContain("Their call is in Conversations.");
     expect(page).toContain("Someone asked for a person in your website chat");
     expect(page).toContain("They haven't left a number. The chat's transcript is emailed to you when it ends.");
     expect(page).toContain("Someone asked for a person on Instagram");
@@ -806,6 +814,67 @@ describeDb("handovers on Bookings", () => {
     expect([...reads[0]!.resource_ids!].sort()).toEqual([...ids].sort());
     expect(reads[0]!.actor_label).toBe("Front desk Mac");
     expect(reads[0]!.metadata).toMatchObject({ passkeyId: factorId });
+  }, 60_000);
+
+  test("a call whose caller ID was withheld says the number they gave AYA is in the transcript email, not in Conversations", async () => {
+    const call = await conversationRow(a.clinicId, { channel: "voice", callId: "call_withheld" });
+    await raise(a.clinicId, { channel: "voice", callId: "call_withheld" });
+    const link = await signIn(a.userId);
+    browse(link, `/c/${a.clinicSlug}/bookings`);
+    await stepUpWithPasskey(link);
+    const html = await renderBookings(a.clinicSlug);
+    const page = text(html);
+    expect(page).toContain("Someone asked for a person on the phone");
+    expect(page).toContain(
+      "The caller's number wasn't shown. If they gave AYA one, it's in the call's transcript, which is emailed to you when the call ends.",
+    );
+    expect(html).toContain(`/c/${a.clinicSlug}/conversations/${call}`);
+  }, 60_000);
+
+  test("Needs you lists the newest open handovers first, so a new one is never behind old ones nobody marked, and says how many more there are", async () => {
+    // More open handovers than Needs you lists, all older than the next.
+    await inTenant(a.clinicId, (client) =>
+      client.query(
+        `insert into handovers (clinic_id, channel, external_call_id)
+         select $1, 'voice', 'call_old_' || g from generate_series(1, $2::int) g order by g`,
+        [a.clinicId, MAX_OPEN_HANDOVERS],
+      ),
+    );
+    await raise(a.clinicId, { channel: "voice", callId: "call_newest" });
+    const rows = await handoverRows(a.clinicId);
+    expect(rows).toHaveLength(MAX_OPEN_HANDOVERS + 1);
+    const oldest = rows[0]!;
+    const newest = rows.at(-1)!;
+    expect([oldest.external_call_id, newest.external_call_id]).toEqual(["call_old_1", "call_newest"]);
+
+    const link = await signIn(a.userId);
+    browse(link, `/c/${a.clinicSlug}/bookings`);
+    await stepUpWithPasskey(link);
+    const html = await renderBookings(a.clinicSlug);
+    // The one the L11 email just pointed at is on the screen it links to, first.
+    expect(html).toContain(`id="handover-${newest.id}"`);
+    expect(html).not.toContain(`id="handover-${oldest.id}"`);
+    expect(html.indexOf(`id="handover-${newest.id}"`)).toBeLessThan(html.indexOf(`id="handover-${rows[1]!.id}"`));
+    expect(html.match(/id="handover-[0-9a-f-]{36}"/g)).toHaveLength(MAX_OPEN_HANDOVERS);
+    expect(text(html)).toContain(
+      `Showing the ${MAX_OPEN_HANDOVERS} most recent of ${MAX_OPEN_HANDOVERS + 1}. One older one is not shown: mark the ones your team has dealt with, and the rest appear here.`,
+    );
+    // The access row names the handovers shown, and only those.
+    const reads = (await auditRows(a.clinicId)).filter((r) => r.action === "read" && r.resource_type === "handover");
+    expect(reads.at(-1)!.resource_ids).toHaveLength(MAX_OPEN_HANDOVERS);
+    expect(reads.at(-1)!.resource_ids).not.toContain(oldest.id);
+  }, 60_000);
+
+  test("the line under a capped list counts the older ones; a list that fits says nothing", async () => {
+    expect(olderHandoversLine(140, 100)).toBe(
+      "Showing the 100 most recent of 140. 40 older ones are not shown: mark the ones your team has dealt with, and the rest appear here.",
+    );
+    const chat = await conversationRow(a.clinicId, { channel: "web_chat" });
+    await raise(a.clinicId, { channel: "web_chat", conversationId: chat });
+    const link = await signIn(a.userId);
+    browse(link, `/c/${a.clinicSlug}/bookings`);
+    await stepUpWithPasskey(link);
+    expect(text(await renderBookings(a.clinicSlug))).not.toContain("most recent of");
   }, 60_000);
 
   test("Mark handled: once, by the device and its passkey; it leaves Needs you; another clinic's is not found", async () => {

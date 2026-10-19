@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, inArray, isNull, min, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNull, min, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import {
@@ -157,8 +157,10 @@ export type BookingsScreen = {
   timeZone: string;
   /** Open requests, oldest first. */
   open: BookingRequestView[];
-  /** Open handovers, oldest first. */
+  /** Open handovers, newest first, at most MAX_OPEN_HANDOVERS of them. */
   handovers: HandoverView[];
+  /** How many handovers are open in all: more than `handovers` holds once the oldest are past the cap. */
+  openHandoverCount: number;
   /** Deposits a booking left for the front desk, while the appointment is ahead. */
   deposits: BookedAppointment[];
   /** Lapsed requests, newest first. */
@@ -196,6 +198,8 @@ export async function readBookingsScreen(
   );
   const booked = await readBookedAppointments(tx, now);
   const asked = await readOpenHandovers(tx);
+  const openHandoverCount =
+    asked.length < MAX_OPEN_HANDOVERS ? asked.length : await countOpenHandovers(tx);
   let focus: BookingRequestView | null = null;
   if (focusId !== null) {
     focus =
@@ -232,6 +236,7 @@ export async function readBookingsScreen(
     timeZone: open[0]?.timeZone ?? missed[0]?.timeZone ?? (await clinicZone(tx)),
     open,
     handovers: asked,
+    openHandoverCount,
     deposits,
     missed,
     booked,
@@ -274,9 +279,9 @@ export type WaitingCounts = {
  * name, number, time or service, only how many, and when the oldest request
  * was taken.
  *
- * A handover has no record that says whether anyone has dealt with it yet
- * (Bookings lists none either, above), so there is no count of handovers
- * waiting: each one was emailed the moment it happened.
+ * Open handovers are not counted here: Bookings lists them under Needs
+ * you until the desk marks them handled, and each was emailed the moment it
+ * happened.
  */
 export async function readWaitingCounts(tx: TenantTx, now: Date = new Date()): Promise<WaitingCounts> {
   const [open] = await tx.db
@@ -543,11 +548,18 @@ export async function markAppointmentOutcome(
   return { ok: true, status: outcome, changed: true };
 }
 
-/** How many open handovers Needs you lists at most: the oldest first, so none is buried. */
+/**
+ * How many open handovers Needs you lists at most: the newest first, so the
+ * one an L11 email has just pointed at is always on the screen it links to,
+ * however many older ones nobody marked. The page says how many more there
+ * are (openHandoverCount). Unlike a request, a handover never lapses: it
+ * names no time the person was promised, so there is nothing to miss, and
+ * the record clock deletes it with the rest (lib/retention/purge.ts).
+ */
 export const MAX_OPEN_HANDOVERS = 100;
 
 /**
- * The open handovers, oldest first, with a name and number to call: the one
+ * The open handovers, newest first, with a name and number to call: the one
  * a web chat visitor gave for the call back, or a call's caller. A Meta handover has neither: the desk answers it in
  * the platform's own inbox. A call's conversation is written when the call
  * ends, so one still going has none yet.
@@ -588,7 +600,7 @@ async function readOpenHandovers(tx: TenantTx): Promise<HandoverView[]> {
       and(eq(contacts.clinicId, conversations.clinicId), eq(contacts.id, conversations.contactId)),
     )
     .where(and(eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)))
-    .orderBy(asc(handovers.createdAt), asc(handovers.id))
+    .orderBy(desc(handovers.createdAt), desc(handovers.id))
     .limit(MAX_OPEN_HANDOVERS);
   return rows.map((r) => ({
     id: r.id,
@@ -601,11 +613,31 @@ async function readOpenHandovers(tx: TenantTx): Promise<HandoverView[]> {
   }));
 }
 
+/** Every open handover, counted without reading one: only how many. */
+async function countOpenHandovers(tx: TenantTx): Promise<number> {
+  const [row] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(handovers)
+    .where(and(eq(handovers.clinicId, tx.clinicId), isNull(handovers.handledAt)));
+  return row?.n ?? 0;
+}
+
+/**
+ * What Needs you says under its handovers when there are more open than it
+ * lists: how many older ones are not shown, and how they come into view.
+ */
+export function olderHandoversLine(total: number, shown: number): string {
+  const older = total - shown;
+  return `Showing the ${shown} most recent of ${total}. ${
+    older === 1 ? "One older one is" : `${older} older ones are`
+  } not shown: mark the ones your team has dealt with, and the rest appear here.`;
+}
+
 /** How Bookings words a handover: where they asked, and how the desk reaches them. */
 export function handoverWords(view: Pick<HandoverView, "channel" | "platform" | "conversationId" | "phone">): {
   /** "on the phone", "in your website chat", "on Instagram". */
   via: string;
-  /** What to do, when there is no number to call. */
+  /** What to do, or where the number they gave is, beside any number to call. */
   reach: string | null;
 } {
   if (view.channel === "meta") {
@@ -617,13 +649,16 @@ export function handoverWords(view: Pick<HandoverView, "channel" | "platform" | 
     };
   }
   if (view.channel === "voice") {
+    // A number the caller gave AYA is not kept on the handover: it is in
+    // the call's transcript, the only copy of what was said.
+    const given = "it's in the call's transcript, which is emailed to you when the call ends.";
     return {
       via: "on the phone",
       reach: view.phone
-        ? null
+        ? `This is the number they called from. If they gave AYA a different one, ${given}`
         : view.conversationId
-          ? "The caller's number wasn't shown. Their call is in Conversations."
-          : "The caller's number appears here once the call's record is written, when it ends.",
+          ? `The caller's number wasn't shown. If they gave AYA one, ${given}`
+          : `The caller's number appears here once the call ends, if it was shown. If they gave AYA one, ${given}`,
     };
   }
   return {

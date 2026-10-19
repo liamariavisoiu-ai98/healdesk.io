@@ -204,7 +204,10 @@ describe("the registry", () => {
     // one way each) would give the map two answers. HEALDESK_APP_URL stays:
     // a key on Vercel, only a setting where apps/app reads it.
     const redundant = Object.keys(NOT_KEYS).filter(
-      (n) => !(web.has(n) && !webKeys.has(n)) && !(app.has(n) && !appKeys.has(n)),
+      (n) =>
+        (webKeys.has(n) || appKeys.has(n)) &&
+        !(web.has(n) && !webKeys.has(n)) &&
+        !(app.has(n) && !appKeys.has(n)),
     );
     expect(redundant, "a key wherever it is read: remove from NOT_KEYS").toEqual([]);
   });

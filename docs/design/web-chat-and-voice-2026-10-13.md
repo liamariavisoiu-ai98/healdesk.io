@@ -79,8 +79,8 @@ Its own long-lived Node process from the same image (`node --import tsx src/voic
   flips the channel live" is not wired either.
 - **Retell's protocol fields**: `transfer_number` on a response, and the `call_details` event's
   `from_number`, `direction` and `start_timestamp`, are written from Retell's custom-LLM WebSocket
-  reference as it was known; check them against the current reference and a test call on a synthetic
-  clinic before any real call.
+  reference as it was known; check them against the current reference and a test call on the demo
+  clinic (the only one the endpoint answers until `voice_real_calls`) before any real call.
 - **A call in progress when its task dies** is lost with its words: the session is in memory until the
   hang-up. The load balancer drains a task for up to an hour before ECS stops it, so a deploy does not
   cut calls; a crash does. Retell's own call-ended webhook could backstop it; not built.

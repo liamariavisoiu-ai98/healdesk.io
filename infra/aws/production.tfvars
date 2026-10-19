@@ -53,8 +53,9 @@ web_memory            = 1024
 web_desired           = 1
 worker_desired        = 1
 
-# The Retell voice endpoint: off until a clinic has bought voice and
-# HEALDESK_RETELL_LLM_SECRET is pasted. Turned on, one task of a quarter vCPU
+# The Retell voice endpoint: off until HEALDESK_RETELL_LLM_SECRET is pasted,
+# for a test call on the demo clinic or, with voice_real_calls, a clinic that
+# has bought voice. Turned on, one task of a quarter vCPU
 # and 1 GB, about $8.51 a month; voice_desired = 2 survives losing a task
 # mid-call.
 enable_voice  = false

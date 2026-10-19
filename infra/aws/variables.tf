@@ -248,7 +248,7 @@ variable "worker_desired" {
 }
 
 variable "enable_voice" {
-  description = "Run the Retell voice endpoint (apps/app/src/voice/server.ts): its own task definition and service, healdesk-<env>-voice, from the same image as the web tier, with its own target group and a listener rule for /llm-websocket/* on app_domain (ecs.tf, alb.tf), and its below-desired alarm. Off by default, so the lean profile pays for no voice task: turn it on with the first clinic that has bought voice, once HEALDESK_RETELL_LLM_SECRET has been pasted with put-external-secrets.sh. Turning it off again makes the apply wait while the voice tasks drain, up to an hour (the service's delete timeout is 65 minutes, inside infra.yml's 90): do it in a quiet hour."
+  description = "Run the Retell voice endpoint (apps/app/src/voice/server.ts): its own task definition and service, healdesk-<env>-voice, from the same image as the web tier, with its own target group and a listener rule for /llm-websocket/* on app_domain (ecs.tf, alb.tf), and its below-desired alarm. Off by default, so the lean profile pays for no voice task: turn it on once HEALDESK_RETELL_LLM_SECRET has been pasted with put-external-secrets.sh, for a test call on the demo clinic (which may come before the agreements) and, with voice_real_calls, for the first clinic that has bought voice. Turning it off again makes the apply wait while the voice tasks drain, up to an hour (the service's delete timeout is 65 minutes, inside infra.yml's 90): do it in a quiet hour."
   type        = bool
   default     = false
 }

@@ -29,7 +29,7 @@ import { withTenant } from "@/lib/tenant";
 const ACTOR: ActorContext = { type: "agent", serviceName: "retell-voice" };
 
 /** Whether real patients' calls may be answered: only HEALDESK_VOICE_REAL_CALLS=1. */
-export function voiceRealCallsAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+export function voiceRealCallsAllowed(env: Readonly<Record<string, string | undefined>> = process.env): boolean {
   return env.HEALDESK_VOICE_REAL_CALLS?.trim() === "1";
 }
 

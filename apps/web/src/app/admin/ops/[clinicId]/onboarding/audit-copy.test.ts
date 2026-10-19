@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { OnboardingView } from "@/lib/admin/ops-client";
 
-import { OnboardingPanel } from "./OnboardingPanel";
+import { OnboardingPanel, rerunSaid } from "./OnboardingPanel";
 
 /**
  * The onboarding page offers no way to pass an audit by hand (19 October
@@ -157,7 +157,7 @@ describe("no audit is passed by hand on the onboarding page", () => {
     expect(said).not.toMatch(/I checked AYA.s answers/);
     expect(said).not.toMatch(/Until the practice questions exist/);
     const line =
-      "Its practice questions haven't passed. They run by themselves after each change the clinic makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one. audit";
+      "Its practice questions haven't passed. While the practice-questions job is on in Ops, they run by themselves once the clinic's answers are set up, and again after each change it makes; a run they flag waits for you in Reviews (/admin/reviews), and your decision there is the only way an operator passes one. audit";
     expect(said.split(line)).toHaveLength(3);
     // Website chat's own step is a fact an operator looks at, and stays.
     expect(said).toContain("The line is on their website");
@@ -180,6 +180,32 @@ describe("no audit is passed by hand on the onboarding page", () => {
         NOT_AUDITED.map((c) => ({ ...c, liveAt: "2026-10-15T09:00:00.000Z", missing: [] })),
       ),
     ).not.toContain("Ask the practice questions again");
+  });
+
+  test("once asked, the console says only what is true: whether the job is on, the answers it waits for, and a write the security log missed", () => {
+    const on = rerunSaid({ status: "updated", auditRecorded: true, jobEnabled: true });
+    expect(on).toBe(
+      "Asked: the practice questions run again for every channel in about two minutes, once the clinic's answers are set up. If they flag something, it waits in Reviews.",
+    );
+    // The job ships off (drizzle/0080): nothing runs, and the console says so.
+    expect(rerunSaid({ status: "updated", auditRecorded: true, jobEnabled: false })).toBe(
+      "Asked, but the practice-questions job is off in Ops, so nothing runs until it is switched on. Then they run for every channel within two minutes, once the clinic's answers are set up.",
+    );
+    // An older apps/app does not say: the line names the condition rather than promising a run.
+    const unknown = rerunSaid({ status: "updated", auditRecorded: true, jobEnabled: null });
+    expect(unknown).toContain("while the practice-questions job is on in Ops");
+    expect(unknown).not.toMatch(/^Asked: the practice questions run again/);
+    // A write that missed the security log says so, as the page's other writes do.
+    expect(rerunSaid({ status: "updated", auditRecorded: false, jobEnabled: true })).toBe(
+      `${on} Done, but the audit entry could not be written. Tell whoever keeps the security log.`,
+    );
+    // A refusal is apps/app's own sentence.
+    expect(
+      rerunSaid({
+        status: "refused",
+        message: "A run of the practice questions waits in Reviews: decide it there.",
+      }),
+    ).toBe("A run of the practice questions waits in Reviews: decide it there.");
   });
 
   test("a version approved before the retirement, as apps/app still reports it, is said as it was recorded", () => {

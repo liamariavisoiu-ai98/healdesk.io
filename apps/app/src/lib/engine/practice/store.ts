@@ -1,7 +1,20 @@
 import { createHash } from "node:crypto";
 
 import { NEVER_SAY_DEFAULTS, type Channel } from "@healdesk/catalog";
-import { and, desc, eq, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import {
   agentConfigs,
@@ -229,15 +242,19 @@ export async function readPracticeInputs(
 
 /**
  * A channel's earlier pass at exactly this input version: the same questions
- * of the same brain, answered right. Reused instead of asking the model again.
+ * of the same brain, answered right, or passed by an operator's decision on
+ * a run they flagged. Reused instead of asking the model again, with the
+ * result row's own status: a decision passes the result and leaves each case
+ * as the judge left it ("review"), so its status is never worked out again
+ * from the cases, which would send the same cases back to review.
  */
 export async function passedResultAt(
   tx: TenantTx,
   channel: Channel,
   inputVersion: string,
-): Promise<PracticeCaseResult[] | null> {
+): Promise<{ status: PracticeResultStatus; cases: PracticeCaseResult[] } | null> {
   const [row] = await tx.db
-    .select({ cases: practiceQuestionResults.cases })
+    .select({ status: practiceQuestionResults.status, cases: practiceQuestionResults.cases })
     .from(practiceQuestionResults)
     .where(
       and(
@@ -249,7 +266,7 @@ export async function passedResultAt(
     )
     .orderBy(desc(practiceQuestionResults.createdAt))
     .limit(1);
-  return row?.cases ?? null;
+  return row ?? null;
 }
 
 // -----------------------------------------------------------------------------
@@ -319,8 +336,11 @@ export type RunVerdict =
  * A run's verdict from its channels: an error anywhere is an error (nothing
  * was learnt); any case failed on the clinic's own data is the clinic's to
  * fix, in the section that most cases failed on; any other failure, or a
- * judge's, is a review; otherwise a pass. Not-applicable cases are neither:
- * the pass approves the script the cases that were asked read, and a case
+ * judge's, is a review; otherwise a pass. A channel whose result passed adds
+ * nothing: a fresh one has no case failed or in review by construction
+ * (channelStatus), and a reused one an operator passed keeps the judge's
+ * "review" on its cases, which the decision already settled. Not-applicable
+ * cases are neither: the pass approves the script the cases that were asked read, and a case
  * the runtime cannot ask yet holds go-live through Gate B instead
  * (lib/compliance/gate-b.ts, casesNotAskable), so no channel goes live on a
  * pass that did not ask it.
@@ -332,6 +352,7 @@ export function runVerdict(
   const counts = new Map<PracticeSection, number>();
   let review = 0;
   for (const outcome of outcomes) {
+    if (outcome.status === "passed") continue;
     for (const kase of outcome.cases) {
       if (kase.status === "failed" && kase.attribution?.kind === "clinic_data") {
         counts.set(
@@ -453,7 +474,9 @@ export async function recordPracticeRun(
       return { status: "queued", alerts };
     }
     await finish({ status: "error", lastError: "model_unreachable" });
-    if (!queued)
+    // Ops hears of a streak once, at its first errored run; the sweep asks
+    // again after its back-off, and errors_in_a_row is the escalation (job.ts).
+    if (!queued && !(await previousRunErrored(tx, run.id)))
       alerts.push({
         event: "practice_question_failed",
         fields: { clinicId: tx.clinicId, runId: run.id, outcome: "error" },
@@ -557,6 +580,25 @@ export async function recordPracticeRun(
     talkToAyaBuilt: input.talkToAyaBuilt,
   });
   return { status: "passed", alerts };
+}
+
+/** Whether the clinic's run of the questions finished before `runId` (the latest such) also errored. */
+async function previousRunErrored(tx: TenantTx, runId: string): Promise<boolean> {
+  const [previous] = await tx.db
+    .select({ status: practiceQuestionRuns.status })
+    .from(practiceQuestionRuns)
+    .where(
+      and(
+        eq(practiceQuestionRuns.clinicId, tx.clinicId),
+        ne(practiceQuestionRuns.id, runId),
+        notAnOverride(),
+        inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
+        isNotNull(practiceQuestionRuns.finishedAt),
+      ),
+    )
+    .orderBy(desc(practiceQuestionRuns.finishedAt))
+    .limit(1);
+  return previous?.status === "error";
 }
 
 /** Close a claimed run with nothing asked: the clinic has left. Only while it is still ours. */
@@ -859,24 +901,24 @@ export type StalledPractice =
 export async function stalledPractice(
   tx: Pick<TenantTx, "db" | "clinicId">,
 ): Promise<StalledPractice | null> {
-  const recent = await tx.db
+  const finished = (...more: SQL[]) =>
+    and(
+      eq(practiceQuestionRuns.clinicId, tx.clinicId),
+      notAnOverride(),
+      inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
+      isNotNull(practiceQuestionRuns.finishedAt),
+      ...more,
+    );
+  const [latest] = await tx.db
     .select({
       id: practiceQuestionRuns.id,
       status: practiceQuestionRuns.status,
       finishedAt: practiceQuestionRuns.finishedAt,
     })
     .from(practiceQuestionRuns)
-    .where(
-      and(
-        eq(practiceQuestionRuns.clinicId, tx.clinicId),
-        notAnOverride(),
-        inArray(practiceQuestionRuns.status, [...PRACTICE_COMPLETED_STATUSES]),
-        isNotNull(practiceQuestionRuns.finishedAt),
-      ),
-    )
+    .where(finished())
     .orderBy(desc(practiceQuestionRuns.finishedAt))
-    .limit(50);
-  const latest = recent[0];
+    .limit(1);
   if (!latest) return null;
   if (latest.status === "in_review") {
     const [open] = await tx.db
@@ -893,12 +935,33 @@ export async function stalledPractice(
     return open ? null : { kind: "review_gone", runId: latest.id };
   }
   if (latest.status !== "error") return null;
-  let errorsInARow = 0;
-  while (errorsInARow < recent.length && recent[errorsInARow]!.status === "error") errorsInARow += 1;
+  // The streak, however long: every errored run since the latest that did
+  // not error, counted and started in the database, so its first run, which
+  // keys the one alert, stays the same while it grows.
+  const [lastOther] = await tx.db
+    .select({ finishedAt: practiceQuestionRuns.finishedAt })
+    .from(practiceQuestionRuns)
+    .where(finished(ne(practiceQuestionRuns.status, "error")))
+    .orderBy(desc(practiceQuestionRuns.finishedAt))
+    .limit(1);
+  const inStreak = finished(
+    eq(practiceQuestionRuns.status, "error"),
+    ...(lastOther?.finishedAt ? [gt(practiceQuestionRuns.finishedAt, lastOther.finishedAt)] : []),
+  );
+  const [first] = await tx.db
+    .select({ id: practiceQuestionRuns.id })
+    .from(practiceQuestionRuns)
+    .where(inStreak)
+    .orderBy(asc(practiceQuestionRuns.finishedAt))
+    .limit(1);
+  const [counted] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(practiceQuestionRuns)
+    .where(inStreak);
   return {
     kind: "error",
-    errorsInARow,
-    firstErrorRunId: recent[errorsInARow - 1]!.id,
+    errorsInARow: counted?.n ?? 1,
+    firstErrorRunId: first?.id ?? latest.id,
     lastFinishedAt: latest.finishedAt!,
   };
 }

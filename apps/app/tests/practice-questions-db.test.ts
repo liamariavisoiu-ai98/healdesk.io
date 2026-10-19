@@ -14,6 +14,7 @@ import {
   readPracticeState,
   recordPracticeRun,
   requestPracticeQuestions,
+  stalledPractice,
 } from "@/lib/engine/practice/store";
 import { getCalendarConnection } from "@/lib/connections/google-calendar";
 import { runOperation, type Operator } from "@/lib/ops/api";
@@ -833,6 +834,181 @@ describeDb("the practice questions, against the database", () => {
     expect(await alerts()).toBe(1);
     await sweepPracticeQuestions({ now: hours(24.1) });
     expect(await queued()).toHaveLength(1);
+    // Each errored run's own alert went once, for the streak's first: the
+    // re-asks after it are the sweep's to escalate, not three more emails.
+    const perRun = (
+      await getMigratorPool().query<{ n: number }>(
+        `select count(*)::int as n from ops_alerts
+          where event = 'practice_question_failed' and fields->>'clinicId' = $1 and fields->>'outcome' = 'error'`,
+        [clinic.clinicId],
+      )
+    ).rows[0]!.n;
+    expect(perRun).toBe(1);
+  });
+
+  test("a streak longer than any window is counted from its start, and its alert goes once however long it runs", async () => {
+    await setAnswers();
+    // The run the answers asked for, out of the way and long before the streak.
+    await inTenant(clinic.clinicId, (c) =>
+      c.query(
+        `update practice_question_runs
+            set status = 'superseded', requested_at = now() - interval '200 days', finished_at = now() - interval '200 days'
+          where status = 'queued'`,
+      ),
+    );
+    const read = (await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      readPracticeInputs(tx),
+    ))!;
+    // 55 runs that could not reach the model, a day apart, the latest a minute ago.
+    const errored = (n: number, since: string) =>
+      inTenant(clinic.clinicId, (c) =>
+        c.query(
+          `insert into practice_question_runs (clinic_id, status, reason, requested_at, run_after, started_at, finished_at, attempts, input_version, last_error)
+           select $1, 'error', 'sweep', t, t, t, t, 3, $2, 'model_unreachable'
+             from (select now() - $4::interval - (g || ' days')::interval as t from generate_series(0, $3 - 1) g) s`,
+          [clinic.clinicId, read.inputVersion, n, since],
+        ),
+      );
+    await errored(55, "1 minute");
+    const streak = async () =>
+      (
+        await getMigratorPool().query<{ count: string }>(
+          `select fields->>'count' as count from ops_alerts
+            where event = 'practice_question_failed' and fields->>'clinicId' = $1 and fields->>'outcome' = 'errors_in_a_row'`,
+          [clinic.clinicId],
+        )
+      ).rows;
+    await sweepPracticeQuestions({ now: new Date() });
+    expect(await streak()).toEqual([{ count: "55" }]);
+    // One more errored run: the same streak, so no second alert.
+    await errored(1, "0 seconds");
+    await sweepPracticeQuestions({ now: new Date() });
+    expect(await streak()).toEqual([{ count: "55" }]);
+    const stalled = await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      stalledPractice(tx),
+    );
+    expect(stalled).toMatchObject({ kind: "error", errorsInARow: 56 });
+  });
+
+  test("an operator's pass on a run that a later errored run left behind opens the gate on the next run, which asks the model nothing and opens no second review", async () => {
+    await setAnswers();
+    const flagged = await dueQueued();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, flagged, {
+        responder: model(),
+        metaResponder: null,
+        judge: judge("fail"),
+      }),
+    ).toBe("in_review");
+    // A later run at the same inputs that cannot reach the model: an errored
+    // run supersedes no review, so the flagged run's stays open.
+    await withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+      requestPracticeQuestions(tx, { reason: "sweep" }),
+    );
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const id = await dueQueued();
+      await runOnePracticeRun(clinic.clinicId, id, {
+        responder: model(),
+        metaResponder: null,
+        judge: async () => {
+          throw new Error("unreachable");
+        },
+      });
+    }
+    const gate = () =>
+      withTenant({ clinicId: clinic.clinicId, actor: ACTOR }, (tx) =>
+        practiceQuestionsGate(tx, "web"),
+      );
+    expect(await gate()).toEqual({ open: false, why: "error" });
+    const [review] = await inTenant(
+      clinic.clinicId,
+      async (c) =>
+        (
+          await c.query<{ id: string }>(`select id from audit_review_queue where run_id = $1`, [
+            flagged,
+          ])
+        ).rows,
+    );
+    expect(
+      (
+        (
+          await runOperation(
+            "decidePracticeReview",
+            { clinicId: clinic.clinicId, reviewId: review!.id, decision: "pass" },
+            OPERATOR,
+          )
+        ).body as { data: { status: string } }
+      ).data.status,
+    ).toBe("updated");
+    // The errored run is still the latest, so the pass asks again at once.
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([{ reason: "ops" }]);
+    const quiet = model();
+    expect(
+      await runOnePracticeRun(clinic.clinicId, await dueQueued(), {
+        responder: quiet,
+        metaResponder: null,
+        judge: judge("fail"),
+      }),
+    ).toBe("passed");
+    expect(quiet.calls).toBe(0);
+    expect(await gate()).toEqual({ open: true, why: "passed" });
+    const [reviews] = await inTenant(
+      clinic.clinicId,
+      async (c) => (await c.query(`select count(*)::int as n from audit_review_queue`)).rows,
+    );
+    expect(reviews).toEqual({ n: 1 });
+  });
+
+  test("the questions are not asked again over a run waiting in Reviews; once it is decided they are, and the reply says whether the job is on", async () => {
+    await setAnswers();
+    const flagged = await dueQueued();
+    await runOnePracticeRun(clinic.clinicId, flagged, {
+      responder: model(),
+      metaResponder: null,
+      judge: judge("fail"),
+    });
+    const rerun = async () =>
+      (
+        (await runOperation("rerunPracticeQuestions", { clinicId: clinic.clinicId }, OPERATOR))
+          .body as { data: Record<string, unknown> }
+      ).data;
+    expect(await rerun()).toEqual({
+      status: "refused",
+      message: expect.stringMatching(
+        /^A run of the practice questions waits in Reviews: decide it there\./,
+      ),
+    });
+    expect((await runs()).filter((r) => r.status === "queued")).toEqual([]);
+    const [review] = await inTenant(
+      clinic.clinicId,
+      async (c) =>
+        (
+          await c.query<{ id: string; status: string }>(
+            `select id, status from audit_review_queue where run_id = $1`,
+            [flagged],
+          )
+        ).rows,
+    );
+    expect(review!.status).toBe("open");
+    // Failed in Reviews with no section (our side to put right): asking again is allowed.
+    await runOperation(
+      "decidePracticeReview",
+      { clinicId: clinic.clinicId, reviewId: review!.id, decision: "fail" },
+      OPERATOR,
+    );
+    // The job ships off (drizzle/0080), and the reply says so.
+    expect(await rerun()).toEqual({ status: "updated", auditRecorded: true, jobEnabled: false });
+    expect((await runs()).filter((r) => r.status === "queued")).toMatchObject([{ reason: "ops" }]);
+    await getMigratorPool().query(
+      `update scheduled_jobs set enabled = true where name = 'practice-questions'`,
+    );
+    try {
+      expect(await rerun()).toMatchObject({ status: "updated", jobEnabled: true });
+    } finally {
+      await getMigratorPool().query(
+        `update scheduled_jobs set enabled = false where name = 'practice-questions'`,
+      );
+    }
   });
 
   test("a review's decision is about its own run: refused once what the questions read has changed, which asks for the run that replaces it", async () => {

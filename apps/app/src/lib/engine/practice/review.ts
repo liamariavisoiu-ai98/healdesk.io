@@ -304,6 +304,13 @@ export async function decidePracticeReview(input: {
           channels: results.filter((r) => r.status !== "error").map((r) => r.channel),
           now,
         });
+        // A later run at the same inputs (one that could not reach the model)
+        // is the latest, so the gate still reads that one. Ask again: the run
+        // reuses this pass, channel by channel, with no model call, and opens
+        // the gate in two minutes instead of after the sweep's back-off.
+        if ((await readPracticeState(tx)).latest?.id !== run.id) {
+          await requestPracticeQuestions(tx, { reason: "ops", now });
+        }
       } else {
         const count = results.reduce(
           (n, r) =>
@@ -348,14 +355,46 @@ export async function decidePracticeReview(input: {
   );
 }
 
-/** An operator asks for the questions again (after a fix on our side): queued like any change. */
+export type RerunOutcome = { status: "updated" } | { status: "refused"; message: string };
+
+/**
+ * An operator asks for the questions again (after a fix on our side, or a
+ * run that could not finish): queued like any change. Refused while a run of
+ * theirs waits in Reviews: any run that records an outcome supersedes the
+ * open review (store.ts, recordPracticeRun), so asking now would set the
+ * flagged cases aside undecided, and a re-ask that happened to pass would
+ * open the gate on them with no person having looked. The review is decided
+ * in Reviews; failing it there without naming a section is how to ask again.
+ */
 export async function rerunPracticeQuestions(input: {
   clinicId: string;
   actor: ActorContext;
   request?: RequestContext;
   now?: Date;
-}): Promise<void> {
-  await withTenant({ clinicId: input.clinicId, actor: input.actor, request: input.request }, (tx) =>
-    requestPracticeQuestions(tx, { reason: "ops", now: input.now }),
+}): Promise<RerunOutcome> {
+  return withTenant(
+    { clinicId: input.clinicId, actor: input.actor, request: input.request },
+    async (tx) => {
+      const [open] = await tx.db
+        .select({ id: auditReviewQueue.id })
+        .from(auditReviewQueue)
+        .where(
+          and(
+            eq(auditReviewQueue.clinicId, tx.clinicId),
+            eq(auditReviewQueue.kind, "practice_questions"),
+            eq(auditReviewQueue.status, "open"),
+          ),
+        )
+        .limit(1);
+      if (open) {
+        return {
+          status: "refused",
+          message:
+            "A run of the practice questions waits in Reviews: decide it there. Asking them again now would set it aside undecided; failing it there without naming a section lets you ask again.",
+        };
+      }
+      await requestPracticeQuestions(tx, { reason: "ops", now: input.now });
+      return { status: "updated" };
+    },
   );
 }

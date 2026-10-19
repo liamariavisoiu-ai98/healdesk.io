@@ -1459,9 +1459,23 @@ describe("the practice questions' review queue (/admin/reviews)", () => {
     });
     expect(sent[1]).toEqual({ op: "decidePracticeReview", args: { clinicId: CLINIC, reviewId: REVIEW, decision: "fail", section: "prices" } });
 
+    // An apps/app that predates jobEnabled (19 October 2026): not known, never a guess.
     reply({ data: { status: "updated", auditRecorded: true } });
-    expect(await opsClient.rerunPracticeQuestions(CLINIC)).toEqual({ ok: true, data: { status: "updated", auditRecorded: true } });
+    expect(await opsClient.rerunPracticeQuestions(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "updated", auditRecorded: true, jobEnabled: null },
+    });
     expect(sent[2]).toEqual({ op: "rerunPracticeQuestions", args: { clinicId: CLINIC } });
+    reply({ data: { status: "updated", auditRecorded: false, jobEnabled: false } });
+    expect(await opsClient.rerunPracticeQuestions(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "updated", auditRecorded: false, jobEnabled: false },
+    });
+    reply({ data: { status: "refused", message: "A run of the practice questions waits in Reviews: decide it there." } });
+    expect(await opsClient.rerunPracticeQuestions(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "A run of the practice questions waits in Reviews: decide it there." },
+    });
   });
 
   test("a website re-read sends only the clinic, and reads back the read's id or a refusal", async () => {

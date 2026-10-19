@@ -1520,6 +1520,12 @@ export async function answerFrontDoor(
     responder: FrontDoorResponder | null;
     thread?: ThreadInput;
     now?: Date;
+    /**
+     * Told when the screen finds the message urgent, before anything is
+     * written: the urgent alert (L12) is queued in this transaction, so a
+     * caller whose transaction then fails knows the alert went with it.
+     */
+    onUrgent?: () => void;
   },
 ): Promise<FrontDoorAnswer | null> {
   const facts = await frontDoorFacts(tx);
@@ -1544,6 +1550,7 @@ export async function answerFrontDoor(
   let answer: Draft = draft.answer;
   const { extracted, wants } = draft;
   const screened = draft.answer.screened;
+  if (screened === "urgent") input.onUrgent?.();
 
   // The writes, from here to the commit, with the clinic's row held
   // (clinicHasLeft, FOR SHARE): an offboarding that started while the model

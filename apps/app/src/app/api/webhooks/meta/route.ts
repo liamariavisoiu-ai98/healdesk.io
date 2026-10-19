@@ -8,6 +8,7 @@ import { touchChatThread } from "@/lib/chat/threads";
 import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { hostCoversPatientData } from "@/lib/compliance/vendor-coverage";
 import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
+import { urgentAlertNotQueued } from "@/lib/notices/booking-alerts";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
@@ -230,15 +231,31 @@ export async function POST(request: Request): Promise<Response> {
       // it created survives a send that fails, which would otherwise roll it
       // back after the message id was claimed, so a redelivery could never
       // make it again.
-      const answer = await withTenant({ clinicId: owner.clinicId, actor }, (tx) =>
-        answerFrontDoor(tx, {
-          platform: message.platform,
-          text: message.text,
-          responder,
-          thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
-          now: sentAt,
-        }),
-      );
+      //
+      // The urgent alert (L12) is queued inside that transaction. If the
+      // transaction then fails, the alert goes with it, the message is
+      // already claimed so Meta's redelivery is never answered, and nobody
+      // hears: ops is told instead, to phone the clinic. A savepoint failure
+      // inside notifyBookingAlert tells ops on its own.
+      let urgentScreened = false;
+      let answer: Awaited<ReturnType<typeof answerFrontDoor>>;
+      try {
+        answer = await withTenant({ clinicId: owner.clinicId, actor }, (tx) =>
+          answerFrontDoor(tx, {
+            platform: message.platform,
+            text: message.text,
+            responder,
+            thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
+            now: sentAt,
+            onUrgent: () => {
+              urgentScreened = true;
+            },
+          }),
+        );
+      } catch (error) {
+        if (urgentScreened) await urgentAlertNotQueued(owner.clinicId, { channel: "meta" });
+        throw error;
+      }
       if (!answer) {
         skipped += 1;
         continue;

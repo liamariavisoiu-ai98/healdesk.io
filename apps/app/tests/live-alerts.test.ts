@@ -791,6 +791,78 @@ describeDb("the live alerts' hooks", () => {
     );
   });
 
+  /**
+   * Main's fix (e097325f) tells ops when the alert's own savepoint fails. On
+   * Meta the alert is queued inside the answer's transaction, and the message
+   * is claimed before it, so a transaction that failed after queuing took the
+   * alert with it, Meta's redelivery was never answered, and nobody heard.
+   */
+  test("Meta: an urgent message whose answer's transaction fails is told to ops, to phone the clinic", async () => {
+    const c = await seedClinic("alert-meta-urgent-rollback");
+    const pageId = "990000000000002";
+    await setWeekdayHours(c.clinicId);
+    await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      await setPhoneSettings(tx, { publishedPhoneE164: "+14155550142" });
+      await updateAgentConfig(tx, {
+        greeting: "Hi",
+        services: [],
+        escalationPhone: null,
+        escalationHours: null,
+        notes: null,
+      });
+      await approveAgentConfig(tx, "Dr Chen");
+      await attachMetaChannel(tx, {
+        platform: "messenger",
+        externalId: pageId,
+        accessToken: "EAAB-messenger-token-0123456789",
+      });
+      await setMetaFrontDoor(tx, true);
+    });
+    await senderOn(c);
+    const transport = new FakeTransport();
+    const sent: Parameters<MetaSender>[0][] = [];
+    __setMetaRuntimeForTests(
+      async () => "unused",
+      async (input) => void sent.push(input),
+      transport,
+    );
+    const raw = JSON.stringify({
+      object: "page",
+      entry: [
+        {
+          id: pageId,
+          messaging: [
+            {
+              sender: { id: "user-urgent-rollback" },
+              recipient: { id: pageId },
+              message: { mid: `m-${randomUUID()}`, text: URGENT_WORDS },
+            },
+          ],
+        },
+      ],
+    });
+    // The answer's audit row is written at its commit: refused, the whole
+    // transaction rolls back, the queued alert with it.
+    const answered = await refusing("audit_log", "new.resource_type = 'meta_front_door_reply'", () =>
+      metaWebhook(
+        new Request("http://app.test/api/webhooks/meta", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-hub-signature-256": signMetaBody(raw, process.env.META_APP_SECRET!),
+          },
+          body: raw,
+        }),
+      ),
+    );
+    expect(await answered.json()).toMatchObject({ answered: 0, skipped: 1 });
+    expect(await queuedNotices(c.clinicId)).toEqual([]);
+    expect(sent).toEqual([]);
+    expect(await urgentMisses(c.clinicId)).toEqual([
+      { clinicId: c.clinicId, channel: "meta", conversationId: null },
+    ]);
+  });
+
   test("L9: each request that lapses queues one 'missed' alert, in the transaction that lapses it", async () => {
     const c = await seedClinic("alert-missed");
     const contactId = await seedContact(c.clinicId, "+15550100777");

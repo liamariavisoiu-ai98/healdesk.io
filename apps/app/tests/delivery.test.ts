@@ -347,7 +347,7 @@ describeDb("delivery", () => {
   });
 
   describe("connection health", () => {
-    test("finds the dead, the stale and the stuck, and mails ops one digest", async () => {
+    test("finds the dead, the stale and the stuck, raises only the dead at once, and mails nothing itself", async () => {
       const stale = await seedClinic("health-stale");
       const revoked = await seedClinic("health-revoked");
       const stuck = await seedClinic("health-stuck");
@@ -393,16 +393,18 @@ describeDb("delivery", () => {
       expect(byClinic[stuck.clinicId]).toBe("stuck");
       expect(byClinic[fine.clinicId]).toBeUndefined();
 
+      // Since WP5 the job sends no email of its own: every finding is in the
+      // 07:00 ops digest (lib/ops/digest.ts), and only a revoked connection
+      // is raised at once, as one ops alert with ids and a category.
       await setJobEnabled(JOB_CONNECTION_HEALTH, true, fine.staffUserId);
-      process.env.HEALDESK_OPS_EMAIL = "ops@healdesk.test";
-      const transport = new FakeTransport();
-      const outcome = await runConnectionHealthJob({ transport });
+      await getMigratorPool().query(`delete from ops_alerts where event = 'connection_broken'`);
+      const outcome = await runConnectionHealthJob();
       expect(outcome.status).toBe("ok");
-      expect(transport.sent).toHaveLength(1);
-      expect(transport.sent[0]!.target.to).toBe("ops@healdesk.test");
-      expect(transport.sent[0]!.message.text).toContain(stale.clinicId);
-      // Ids only. The clinic's name is not in the digest; nor is any patient.
-      expect(transport.sent[0]!.message.text).not.toContain("Clinic");
+      const { rows: raised } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+        `select fields from ops_alerts where event = 'connection_broken'`,
+      );
+      expect(raised.map((r) => r.fields.clinicId)).toEqual([revoked.clinicId]);
+      expect(JSON.stringify(raised)).not.toContain("Clinic");
     });
 
     test("never reports a Google Calendar connection: it never syncs, and its health is the calendar watch's", async () => {
@@ -472,6 +474,10 @@ describeDb("delivery", () => {
           // The practice questions' sweep (drizzle/0080), hourly behind the
           // practice-questions switch; the runs go every minute from their queue.
           "practice-questions-sweep",
+          // WP5 (drizzle/0081): the internal health flags and the ops watch,
+          // hourly behind their switches. The ops digest joins from 07 UTC.
+          "health-flags",
+          "ops-watch",
           // The deletion records' own clock (drizzle/0063): a sweep, not a
           // switched job, because "no longer than it needs one" waits for no
           // switch.

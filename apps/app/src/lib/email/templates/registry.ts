@@ -18,6 +18,7 @@ import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
 import { LOCATION_ADDED_ENTRY } from "./location_added";
 import { OPS_ALERT_FIXTURE, renderOpsAlert } from "./ops_alert";
+import { OPS_DIGEST_ENTRY } from "./ops_digest";
 import { ORDER_CONFIRMED_DELAYED_ENTRY } from "./order_confirmed_delayed";
 import { OVERAGE_INVOICED_ENTRY } from "./overage_invoiced";
 import { PAYMENT_ACTION_REQUIRED_ENTRY } from "./payment_action_required";
@@ -124,6 +125,8 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The practice questions (M4, package B): O8 and O9.
   assistant_ready: ASSISTANT_READY_ENTRY,
   practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
+  // WP5: I2, the 07:00 ops digest.
+  ops_digest: OPS_DIGEST_ENTRY,
 };
 
 /**
@@ -204,6 +207,7 @@ export const PENDING_TEMPLATES: Record<
     | "support_escalation"
     | "assistant_ready"
     | "practice_questions_failed"
+    | "ops_digest"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -248,8 +252,8 @@ export const PENDING_TEMPLATES: Record<
   export_ready: { owner: "plan", package: "WP6", ships: "M6 (E4)" },
   export_reminder: { owner: "plan", package: "WP6", ships: "M6 (E5)" },
   data_destroyed: { owner: "plan", package: "WP6", ships: "M6 (E6)" },
-  // WP5: the ops digest and the internal alerts.
-  ops_digest: { owner: "plan", package: "WP5", ships: "Gate A (I2)" },
+  // I4 waits for the flags themselves (package H's conversation_flags), which
+  // do not exist yet; WP5 built I2 and leaves this one named to it.
   flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },
 };
 

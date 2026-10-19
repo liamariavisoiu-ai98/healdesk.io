@@ -30,15 +30,19 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "A paid order could not be provisioned. Check the order in the console and finish it by hand.",
   },
+  // Raised by /api/provision when a paid order's third attempt fails in a
+  // way a retry could fix (lib/checkout/dead-letter.ts). `requestId` is the
+  // purchase's ref; `attempts` how many failed.
   provisioning_dead_lettered: {
-    title: "Provisioning stopped retrying",
+    title: "Provisioning a paid order keeps failing",
     action:
-      "Provisioning for a paid order used every retry. Finish it from the console and email the buyer the date it will be ready.",
+      "Setting up the account for the paid order below failed on each of the attempts counted, and the buyer has been emailed that it needs one step on our side, with the next business day as the day we will write by. Stripe keeps sending the payment for up to three days and each delivery tries again, so fix the cause (the request id is the purchase's ref; apps/app's error lines for provisioning say what failed), and the next delivery makes the account and sends the welcome email. If it cannot be made in time, email the buyer yourself by that day.",
   },
+  // Raised by the ops watch (lib/ops/watch.ts), once per purchase.
   paid_intent_without_clinic: {
     title: "A paid order has no clinic",
     action:
-      "Payment arrived more than ten minutes ago and no clinic exists for it. Check provisioning for this order.",
+      "A paid order's first invoice reached apps/app more than ten minutes ago and no account exists for it, and nothing has refused it. The request id is the purchase's ref, and attempts is how many tries failed so far. Check provisioning's error lines for it, and the Stripe event's deliveries.",
   },
   duplicate_subscription: {
     title: "A clinic has two subscriptions",
@@ -83,14 +87,19 @@ const WORDING: Record<OpsEvent, Wording> = {
     title: "A setup request reply is past due",
     action: "We promised a reply to a setup request by a date that has passed. Reply today.",
   },
+  // Raised by the ops watch once per purchase: B3's day has passed in New
+  // York and the order still has no account.
   provisioning_follow_up_past_due: {
     title: "An order follow-up is past due",
     action:
-      "We promised a buyer an update on their order by a date that has passed. Email them today.",
+      "We told a buyer we would email their sign-in link by a day that has now passed, and their account still does not exist. Email them today, then finish the order. The request id is the purchase's ref.",
   },
+  // Raised by the ops watch once per request: L25's day has passed in New
+  // York with no reply marked in the console.
   support_reply_past_due: {
     title: "A support reply is past due",
-    action: "A support escalation is past the reply date we gave. Reply today.",
+    action:
+      "A support escalation from the portal is past the reply day we gave the practice, and no reply is marked. Reply to it from hello@ today, then mark it replied on the console's Support page. If you already replied, mark it there so this stops.",
   },
   practice_question_review_past_due: {
     title: "A practice-question review is past due",
@@ -100,15 +109,19 @@ const WORDING: Record<OpsEvent, Wording> = {
     title: "An updated agreement is unsigned",
     action: "A clinic has not signed its updated agreement after seven days. Call the clinic.",
   },
+  // The internal health flags (lib/ops/health-flags.ts): never shown to
+  // the clinic. Once per clinic.
   no_interactions_48_hours: {
     title: "A live clinic has been quiet for 48 hours",
     action:
-      "No interactions on any channel for 48 hours after go-live. Check the clinic's forwarding and channels.",
+      "No interactions on any channel for 48 hours after go-live. Something is wrong with the deployment, not with the clinic: check the clinic's forwarding and channels.",
   },
+  // Once per quiet stretch: conversationId, when present, is the last call
+  // before it, so a later stretch raises again.
   no_inbound_calls_14_days: {
     title: "No inbound calls for 14 days",
     action:
-      "A live phone channel has had no inbound calls for 14 days. Check the clinic's call forwarding.",
+      "A live phone channel has had no inbound calls for 14 days. That is almost always forwarding that was set up, then removed or broken: check the clinic's call forwarding.",
   },
   billing_request_dead_lettered: {
     title: "A billing request stopped retrying",
@@ -267,6 +280,11 @@ const WORDING: Record<OpsEvent, Wording> = {
     title: "Confirm a clinic's website chat is on its site",
     action:
       "The clinic below has website chat waiting on its line, and the chat was opened from what claims to be its website. A claim is not proof, so website chat stays off until you look: open the clinic's website, check the chat is there and answers, then press \"The line is on their website\" on the clinic's onboarding page in the console.",
+  },
+  connection_broken: {
+    title: "A clinic's connection stopped working",
+    action:
+      "A clinic's stored connection below is revoked or in error. For a Meta platform (provider meta-messenger, meta-instagram or meta-whatsapp) that channel cannot reply to anyone until the clinic connects it again from Facebook login: call the clinic. Every connection finding is in the 07:00 digest as well.",
   },
   transcript_undelivered: {
     title: "A transcript could not be emailed",

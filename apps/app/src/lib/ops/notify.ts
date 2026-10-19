@@ -147,6 +147,11 @@ export const OPS_EVENTS = [
   // channel waits on its line there: an operator looks at the site and
   // confirms it, because an Origin header proves nothing. Once per clinic.
   "web_widget_to_confirm",
+  // Connection health (lib/scheduler/connection-health.ts): a connection
+  // revoked or in error, the one finding sent at once since WP5 folded the
+  // job's email into the 07:00 ops digest (Annex X6). Once per connection
+  // and state; every finding is in the digest every morning.
+  "connection_broken",
 ] as const;
 export type OpsEvent = (typeof OPS_EVENTS)[number];
 

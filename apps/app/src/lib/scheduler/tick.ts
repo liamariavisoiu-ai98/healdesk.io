@@ -11,6 +11,9 @@ import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
+import { runOpsDigestJob } from "@/lib/ops/digest";
+import { runHealthFlagsJob } from "@/lib/ops/health-flags";
+import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
 
@@ -140,6 +143,17 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // none asked for, the review-past-due alert, and O8 for a complete tracker.
   // The runs themselves go every minute from their own queue.
   await record("practice-questions-sweep", () => runPracticeQuestionsSweep({ now }));
+  // The internal health flags (WP5), hourly behind their switch, which ships
+  // off: a clinic quiet for 48 hours after going live, a phone line with no
+  // call for 14 days, each raised to ops once (lib/ops/health-flags.ts).
+  await record("health-flags", () => runHealthFlagsJob({ now }));
+  // The ops watch's hourly run (WP5): the minute's purchase checks, and the
+  // support replies past their day, which read every clinic's outbox
+  // (lib/ops/watch.ts). Every minute from the billing-minute queue as well.
+  await record("ops-watch", () => runOpsWatchJob({ now, supportReplies: true }));
+  // I2, the ops digest (WP5): at 07 UTC, or the first tick after it, once a
+  // UTC day; a tick that finds today's sent does nothing (lib/ops/digest.ts).
+  if (hour >= 7) await record("ops-digest", () => runOpsDigestJob({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));

@@ -92,12 +92,15 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
   const scope = carriesUnsubscribe(kind) ? "commercial" : null;
   return {
     clinicName:
-      kind === "ops_alert" || kind === "sign_in_link" || kind === "device_changed"
+      kind === "ops_alert" ||
+      kind === "ops_digest" ||
+      kind === "sign_in_link" ||
+      kind === "device_changed"
         ? null
         : "Radiance Med Spa",
     audience,
     reason:
-      kind === "ops_alert"
+      kind === "ops_alert" || kind === "ops_digest"
         ? OPS_REASON
         : kind === "sign_in_link"
           ? SIGN_IN_REASON
@@ -186,11 +189,11 @@ describe("the template registry", () => {
         "product_update",
       ],
       WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
-      WP5: ["ops_digest", "flag_alert"],
+      WP5: ["flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, and the practice questions' O8 and O9", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, the practice questions' O8 and O9, and I2", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -234,6 +237,7 @@ describe("the template registry", () => {
       "support_escalation",
       "assistant_ready",
       "practice_questions_failed",
+      "ops_digest",
     ]);
   });
 

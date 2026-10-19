@@ -128,6 +128,11 @@ import {
 import type { MetaPlatform } from "@/lib/meta/front-door";
 import { clinicHealth, recordTouch, type ClinicHealth } from "@/lib/ops/health";
 import { hostStandbyCheck } from "@/lib/ops/host-standby";
+import {
+  opListSupportRequests,
+  opMarkSupportReplied,
+  opSetupRepliesPastDue,
+} from "@/lib/ops/promise-ops";
 import { keyPresence } from "@/lib/ops/key-presence";
 import { addRecipient, listRecipients, removeRecipient } from "@/lib/reporting/recipients";
 import { issueConnectionLink } from "@/lib/connections/links";
@@ -469,6 +474,16 @@ const OPERATIONS = [
   // keeps the day's highest and alerts once, and no audit row, so it is not
   // in MUTATING_OPERATIONS. Machine to machine, like emailEvent.
   "emailQuota",
+  // Dated promises (WP5; lib/ops/promise-ops.ts). setupRepliesPastDue is
+  // machine to machine, like emailQuota: apps/web's daily cron hands over
+  // the ids of setup requests unanswered past the day P2 promised, and each
+  // raises one ops alert; it writes the ops log only, so it is not in
+  // MUTATING_OPERATIONS. listSupportRequests reads the support chat's
+  // escalations and their reply days for /admin/support; markSupportReplied
+  // is the operator's mark that hello@ replied, a security event.
+  "setupRepliesPastDue",
+  "listSupportRequests",
+  "markSupportReplied",
 ] as const;
 
 export type OpName = (typeof OPERATIONS)[number];
@@ -534,6 +549,8 @@ const MUTATING_OPERATIONS: ReadonlySet<OpName> = new Set<OpName>([
   "disconnectCalendar",
   // Mutating: it queues an email of patient information to the clinic.
   "resendTranscript",
+  // Mutating: the operator's mark that a support request was replied to.
+  "markSupportReplied",
 ]);
 
 export function isOpName(value: unknown): value is OpName {
@@ -1080,6 +1097,12 @@ export async function runOperation(
       return ok({ directBooking: env.directBookingEnabled() });
     case "emailQuota":
       return opEmailQuota(args);
+    case "setupRepliesPastDue":
+      return opSetupRepliesPastDue(args);
+    case "listSupportRequests":
+      return opListSupportRequests();
+    case "markSupportReplied":
+      return opMarkSupportReplied(args, operator);
     default: {
       // Unreachable, and it is the compiler's job to keep it that way: adding a
       // name to OPERATIONS without a case above fails to assign here. The

@@ -118,6 +118,35 @@ export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
  */
 export const JOB_PRACTICE_QUESTIONS = "practice-questions";
 /**
+ * The internal health flags (WP5; spec, "The first 48 hours" and the voice
+ * plan's fourteen days), seeded OFF by drizzle/0081. Hourly from the tick:
+ * a clinic whose channels went live 48 hours ago with no interaction on any
+ * of them, and a live phone channel with no inbound call for 14 days, each
+ * raised once through notifyOpsOnce (lib/ops/health-flags.ts). Internal: it
+ * reaches ops only, never the clinic. The owner switches it on from /admin's
+ * job list with the go-live set (Gate B), when the first clinic goes live.
+ */
+export const JOB_HEALTH_FLAGS = "health-flags";
+/**
+ * I2, the 07:00 ops digest (WP5; Annex X5), seeded ON by drizzle/0081, like
+ * incident-deadlines, because it only mails ops, ids and counts: from the
+ * hourly tick at 07 UTC and after, once a UTC day, every queue with the age
+ * of its oldest item, email health per kind, connection health and the
+ * day's email count (lib/ops/digest.ts). It replaced the connection-health
+ * job's own email.
+ */
+export const JOB_OPS_DIGEST = "ops-digest";
+/**
+ * The ops watch (WP5), seeded ON by drizzle/0081, because it only alerts:
+ * every minute from the billing-minute queue, a paid purchase with no
+ * account ten minutes after its relay reached this host, and B3's follow-up
+ * past its day; hourly from the tick, those and every support reply (L25)
+ * past its day with no reply marked (lib/ops/watch.ts). Each through
+ * notifyOpsOnce, once per purchase or request. Its rows lease nothing, so it
+ * runs without runJob's lock (runSwitchedJob).
+ */
+export const JOB_OPS_WATCH = "ops-watch";
+/**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.
  * The 0040 `callback-dialer` job was removed by drizzle/0041.

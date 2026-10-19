@@ -1906,6 +1906,184 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > ops_digest, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>healdesk ops digest, 2026-10-06: 5 to look at</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">3 queues waiting, 1 connection to check.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The morning&#39;s view of healdesk&#39;s queues, email and connections, for the 24 hours to 2026-10-06 07:00 UTC. Ids and counts only: look them up in the ops console.</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Bounces or complaints are over target (hard bounces under 2%, complaints under 0.05%; Resend pauses a team at 0.08%). Look at the kinds below.</li></ul>
+<p style="margin:0 0 16px;">Email sent through Resend, the whole account (both apps):</p>
+<p style="margin:0 0 4px;"><strong>Yesterday (UTC):</strong> 42</p>
+<p style="margin:0 0 4px;"><strong>Today so far:</strong> 5</p>
+<p style="margin:0 0 4px;"><strong>Hard bounces:</strong> 14.29% (target under 2%)</p>
+<p style="margin:0 0 4px;"><strong>Complaints:</strong> 0.00% (target under 0.05%)</p>
+<p style="margin:0 0 16px;">Queues with something waiting, and the age of the oldest item:</p>
+<p style="margin:0 0 4px;"><strong>outbox:</strong> 2 waiting, oldest 14 min</p>
+<p style="margin:0 0 4px;"><strong>booking_requests:</strong> 1 waiting, oldest 3 h</p>
+<p style="margin:0 0 4px;"><strong>pgboss:notices:</strong> 1 waiting, oldest 1 min</p>
+<p style="margin:0 0 16px;">Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dead letters over seven days):</p>
+<p style="margin:0 0 4px;"><strong>payment_failed:</strong> 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 4px;"><strong>ops_alert:</strong> 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 16px;">Connections that need a look (revoked ones were alerted at once):</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked</li></ul>
+<p style="margin:0 0 16px;">Google Calendar connections, by state:</p>
+<p style="margin:0 0 4px;"><strong>active:</strong> 3</p>
+<p style="margin:0 0 4px;"><strong>degraded:</strong> 1</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "3 queues waiting, 1 connection to check.",
+  "subject": "healdesk ops digest, 2026-10-06: 5 to look at",
+  "text": "The morning's view of healdesk's queues, email and connections, for the 24 hours to 2026-10-06 07:00 UTC. Ids and counts only: look them up in the ops console.
+
+- Bounces or complaints are over target (hard bounces under 2%, complaints under 0.05%; Resend pauses a team at 0.08%). Look at the kinds below.
+
+Email sent through Resend, the whole account (both apps):
+
+Yesterday (UTC): 42
+Today so far: 5
+Hard bounces: 14.29% (target under 2%)
+Complaints: 0.00% (target under 0.05%)
+
+Queues with something waiting, and the age of the oldest item:
+
+outbox: 2 waiting, oldest 14 min
+booking_requests: 1 waiting, oldest 3 h
+pgboss:notices: 1 waiting, oldest 1 min
+
+Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dead letters over seven days):
+
+payment_failed: 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead
+ops_alert: 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+
+Connections that need a look (revoked ones were alerted at once):
+
+- Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked
+
+Google Calendar connections, by state:
+
+active: 3
+degraded: 1
+
+—
+You're receiving this because this address is set as healdesk's ops alert address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
+exports[`each template's output > ops_digest, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>healdesk ops digest, 2026-10-06: 5 to look at</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">3 queues waiting, 1 connection to check.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">The morning&#39;s view of healdesk&#39;s queues, email and connections, for the 24 hours to 2026-10-06 07:00 UTC. Ids and counts only: look them up in the ops console.</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Bounces or complaints are over target (hard bounces under 2%, complaints under 0.05%; Resend pauses a team at 0.08%). Look at the kinds below.</li></ul>
+<p style="margin:0 0 16px;">Email sent through Resend, the whole account (both apps):</p>
+<p style="margin:0 0 4px;"><strong>Yesterday (UTC):</strong> 42</p>
+<p style="margin:0 0 4px;"><strong>Today so far:</strong> 5</p>
+<p style="margin:0 0 4px;"><strong>Hard bounces:</strong> 14.29% (target under 2%)</p>
+<p style="margin:0 0 4px;"><strong>Complaints:</strong> 0.00% (target under 0.05%)</p>
+<p style="margin:0 0 16px;">Queues with something waiting, and the age of the oldest item:</p>
+<p style="margin:0 0 4px;"><strong>outbox:</strong> 2 waiting, oldest 14 min</p>
+<p style="margin:0 0 4px;"><strong>booking_requests:</strong> 1 waiting, oldest 3 h</p>
+<p style="margin:0 0 4px;"><strong>pgboss:notices:</strong> 1 waiting, oldest 1 min</p>
+<p style="margin:0 0 16px;">Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dead letters over seven days):</p>
+<p style="margin:0 0 4px;"><strong>payment_failed:</strong> 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 4px;"><strong>ops_alert:</strong> 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead</p>
+<p style="margin:0 0 16px;">Connections that need a look (revoked ones were alerted at once):</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked</li></ul>
+<p style="margin:0 0 16px;">Google Calendar connections, by state:</p>
+<p style="margin:0 0 4px;"><strong>active:</strong> 3</p>
+<p style="margin:0 0 4px;"><strong>degraded:</strong> 1</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this address is set as healdesk&#39;s ops alert address.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "3 queues waiting, 1 connection to check.",
+  "subject": "healdesk ops digest, 2026-10-06: 5 to look at",
+  "text": "The morning's view of healdesk's queues, email and connections, for the 24 hours to 2026-10-06 07:00 UTC. Ids and counts only: look them up in the ops console.
+
+- Bounces or complaints are over target (hard bounces under 2%, complaints under 0.05%; Resend pauses a team at 0.08%). Look at the kinds below.
+
+Email sent through Resend, the whole account (both apps):
+
+Yesterday (UTC): 42
+Today so far: 5
+Hard bounces: 14.29% (target under 2%)
+Complaints: 0.00% (target under 0.05%)
+
+Queues with something waiting, and the age of the oldest item:
+
+outbox: 2 waiting, oldest 14 min
+booking_requests: 1 waiting, oldest 3 h
+pgboss:notices: 1 waiting, oldest 1 min
+
+Email by kind, last 24 hours (sent, failed, bounced, complaints, suppressed; dead letters over seven days):
+
+payment_failed: 3 sent, 0 failed, 1 bounced, 0 complaints, 0 suppressed, 0 dead
+ops_alert: 4 sent, 0 failed, 0 bounced, 0 complaints, 0 suppressed, 0 dead
+
+Connections that need a look (revoked ones were alerted at once):
+
+- Clinic 0c1d2e3f-0000-4000-8000-000000000000, connection 9a8b7c6d-5e4f-4321-8765-0fedcba98765: meta-whatsapp, revoked
+
+Google Calendar connections, by state:
+
+active: 3
+degraded: 1
+
+—
+You're receiving this because this address is set as healdesk's ops alert address.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;
+
 exports[`each template's output > order_confirmed_delayed, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>

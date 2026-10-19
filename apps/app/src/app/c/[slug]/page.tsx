@@ -122,27 +122,36 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
             ))}
           </ol>
           <div className="border-line mt-4 rounded-xl border bg-white px-4 py-4">
-            {/* Talk to your AYA is the engine's preview (M4). Until every
+            {/* Talk to your AYA, the preview (/c/[slug]/preview). Until every
                 blocking stage is done the button stays locked and names what
-                is left; it is never a link to a page that does not exist. */}
-            <button
-              type="button"
-              disabled
-              aria-describedby="preview-left"
-              className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
-            >
-              Talk to your AYA
-            </button>
+                is left; once they are, it is a link to the preview, which
+                checks the same tracker again itself. */}
+            {tracker.previewUnlocked ? (
+              <a
+                href={`/c/${portal.clinicSlug}/preview`}
+                aria-describedby="preview-left"
+                className="bg-ink inline-flex min-h-11 items-center rounded-full px-6 py-3 text-sm font-bold text-white"
+              >
+                Talk to your AYA
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled
+                aria-describedby="preview-left"
+                className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
+              >
+                Talk to your AYA
+              </button>
+            )}
             <p id="preview-left" className="text-muted mt-2 text-sm">
-              {tracker.left.length > 0 ? (
+              {tracker.previewUnlocked ? (
+                <>Every stage above is done: talk to her before anyone else does.</>
+              ) : (
                 <>
                   Opens when every stage above is done. Still to come:{" "}
                   {joinWords(tracker.left.map((l) => l.toLowerCase()))}.
                 </>
-              ) : (
-                // Every stage is done, and the preview itself is package C's:
-                // O8 goes out when it opens (lib/setup/tracker.ts TALK_TO_AYA_BUILT).
-                <>Every stage above is done. The preview isn&apos;t open yet; we&apos;ll email you when it is.</>
               )}{" "}
               In the preview nothing reaches {shell.audience}, and nothing is booked.
             </p>

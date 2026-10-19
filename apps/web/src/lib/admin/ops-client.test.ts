@@ -248,6 +248,30 @@ async function greetingRead(greeting: string): Promise<string> {
   return view.data.agent!.greeting;
 }
 
+describe("the clinic's coverage mode on the onboarding page (deploy order, 19 October 2026)", () => {
+  async function coverageRead(coverageMode?: unknown) {
+    const reply = onboardingWith("Thanks for calling.") as { data: { clinic: Record<string, unknown> } };
+    if (coverageMode !== undefined) reply.data.clinic.coverageMode = coverageMode;
+    replies.push({ body: reply });
+    const view = await fetchOnboarding(CLINIC);
+    if (!view.ok) throw new Error(view.message);
+    return view.data.clinic.coverageMode;
+  }
+
+  test("apps/app's mode is read as sent", async () => {
+    expect(await coverageRead("after_hours_only")).toBe("after_hours_only");
+  });
+
+  test("an apps/app that sends none, as one deployed before the console read it, reads as not reported", async () => {
+    // onboardingWith is the shape before coverageMode was read here.
+    expect(await coverageRead()).toBeNull();
+  });
+
+  test("a mode this console does not know reads as not reported, never as a malformed page", async () => {
+    expect(await coverageRead("weekends_only")).toBeNull();
+  });
+});
+
 describe("the agent's greeting reaches the textarea as stored (F2)", () => {
   test("a 590-character greeting in paragraphs comes back whole, line breaks and all", async () => {
     const paragraph = "Thanks for calling Glow Aesthetics. ".repeat(8);

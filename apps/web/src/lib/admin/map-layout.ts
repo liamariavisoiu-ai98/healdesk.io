@@ -39,7 +39,7 @@ export const BANDS: Record<Band, Rect & { title: string; note: string }> = {
     note: "Patient data lives only here: our AWS account, under business associate agreements.",
   },
   shared: { x: 16, y: 448, w: 1368, h: 170, title: "Shared by both sides", note: "Both apps use these. No patient data goes through them." },
-  shop: { x: 16, y: 630, w: 1368, h: 360, title: "Shop side", note: "healdesk.io on Vercel. No patient data, ever." },
+  shop: { x: 16, y: 630, w: 1368, h: 360, title: "Shop side", note: "healdesk.io on Vercel. It never holds patient data." },
 };
 
 export type HubId = "app" | "web";
@@ -55,17 +55,17 @@ export const HUB_AT: Record<HubId, Point> = {
 
 /** Each category card's centre, width and how many chips sit side by side. */
 export const GROUP_AT: Record<GroupId, Point & { w: number; cols: number }> = {
-  "patient-people": { x: 145, y: 245, w: 240, cols: 1 },
+  "patient-people": { x: 145, y: 212, w: 240, cols: 1 },
   "front-doors": { x: 455, y: 130, w: 210, cols: 1 },
-  vault: { x: 455, y: 355, w: 330, cols: 2 },
+  vault: { x: 455, y: 338, w: 330, cols: 2 },
   brain: { x: 1045, y: 100, w: 210, cols: 1 },
   bookings: { x: 1240, y: 240, w: 260, cols: 1 },
   "phase-two": { x: 1260, y: 380, w: 220, cols: 1 },
-  deploys: { x: 640, y: 533, w: 240, cols: 1 },
+  deploys: { x: 628, y: 533, w: 240, cols: 1 },
   payments: { x: 910, y: 533, w: 190, cols: 1 },
   email: { x: 1120, y: 533, w: 190, cols: 1 },
   "shop-people": { x: 145, y: 745, w: 240, cols: 1 },
-  selling: { x: 460, y: 905, w: 540, cols: 3 },
+  selling: { x: 470, y: 905, w: 700, cols: 4 },
   records: { x: 1150, y: 780, w: 240, cols: 1 },
 };
 

@@ -126,6 +126,8 @@ export function ChoiceSetting<T extends string>(props: {
   applies?: string | null;
   options: readonly { id: T; label: string; line?: string }[];
   initial: T;
+  /** Told of each choice the server saved, with the one it replaced. */
+  onSaved?: (next: T, before: T) => void;
 }) {
   const save = useSave(props.slug);
   const [value, setValue] = useState<T>(props.initial);
@@ -140,6 +142,7 @@ export function ChoiceSetting<T extends string>(props: {
     setBusy(true);
     const result = await save(props.settingKey, next);
     if (!result.ok) setValue(before);
+    else props.onSaved?.(next, before);
     setBusy(false);
   }
 

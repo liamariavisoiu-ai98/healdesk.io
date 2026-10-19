@@ -1543,6 +1543,14 @@ export type ForwardingTestObservation = {
   callerIdPreserved: boolean;
   /** Which forward condition fired, where the carrier told us. */
   condition: "busy" | "no_answer" | "all" | "unknown";
+  /**
+   * How it was observed. Absent: the first call in a forwarding test's
+   * window. `forwarded_call`: a call the carrier said it forwarded from the
+   * clinic's own published line, with no window open (the spec's "flips to
+   * live by itself"); it has no `windowUntil`, so it makes no call a test
+   * call.
+   */
+  via?: "forwarded_call";
 };
 
 export type DepositStatus = "none" | "pending_front_desk" | "pending_link" | "paid" | "waived";

@@ -1,4 +1,7 @@
 import { SETUP_REMINDER_EVERY_DAYS, SETUP_WINDOW_DAYS } from "@healdesk/catalog";
+import { and, eq, sql } from "drizzle-orm";
+
+import { billingNotices } from "@/db/schema";
 
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { setupLastDay, setupWindowStart } from "@/lib/clinic/setup-window";
@@ -20,7 +23,19 @@ import { readSetupState } from "./state";
  * of a clinic's channels is answering, one email every five days, six in all,
  * on days 5, 10, 15, 20, 25 and 30 of its 30-day setup window, each naming
  * every channel's single outstanding action and, for phone, the five-minute
- * call. The moment a channel is live, nothing more is queued.
+ * call. The moment a channel is live, the cadence stops.
+ *
+ * Then the spec's other rule (spec, "The first 48 hours": "Once a channel is
+ * live, any other channel still not live after 48 hours triggers one
+ * reminder of the same kind"; Annex X, O7: "a channel ready on our side and
+ * not yet live", "At most one per channel"): a channel still waiting on the
+ * clinic 48 hours after the first channel went live, or after it was itself
+ * ready on our side if that came later, gets one reminder naming its single
+ * action. Channels that come due together share one email. The 30-day
+ * window plays no part in it: the window closes only an account with
+ * nothing live, so this reminder says nothing of a deadline, and is sent
+ * after the window's last day as before it. A channel switched Off, or one
+ * still being prepared on our side, has no action to name and gets none.
  *
  * The job runs hourly from the tick, behind its switch (seeded off). For each
  * clinic it queues at most the latest reminder that is due, once (the outbox
@@ -42,6 +57,12 @@ import { readSetupState } from "./state";
  */
 
 export const SETUP_REMINDER_COUNT = SETUP_WINDOW_DAYS / SETUP_REMINDER_EVERY_DAYS;
+
+/** Once a channel is live, how long another may wait on the clinic before its one reminder. */
+export const AFTER_LIVE_REMINDER_MS = 48 * 60 * 60 * 1000;
+
+/** The outbox's dedupe key for a reminder once a channel is live: the channels it names, sorted. */
+export const AFTER_LIVE_KEY_PREFIX = "setup_reminder:live:";
 
 const ACTOR = { type: "service", serviceName: "setup-reminders" } as const;
 const DAY_MS = 86_400_000;
@@ -98,9 +119,15 @@ async function queueWithin(tx: TenantTx, now: Date): Promise<ReminderOutcome> {
   if (!state?.billing) return "not_billed";
   const { billing, clinic } = state;
   if (billing.status !== "active" && billing.status !== "provisioning") return "window_over";
-  if (clinic.offboardingStartedAt || !billing.setupDeadlineAt) return "window_over";
+  if (clinic.offboardingStartedAt) return "window_over";
+  const firstLive = state.channels
+    .map((c) => c.liveAt?.getTime())
+    .filter((t): t is number => t !== undefined)
+    .sort((a, b) => a - b)[0];
+  if (firstLive !== undefined) return queueAfterLive(tx, state, firstLive, now);
+  if (!billing.setupDeadlineAt) return "window_over";
   if (now.getTime() > billing.setupDeadlineAt.getTime()) return "window_over";
-  if (billing.planStartedAt || state.channels.some((c) => c.liveAt !== null)) return "live";
+  if (billing.planStartedAt) return "live";
 
   const n = dueReminderNumber(
     setupWindowStart(billing.setupDeadlineAt, clinic.timezone),
@@ -131,6 +158,66 @@ async function queueWithin(tx: TenantTx, now: Date): Promise<ReminderOutcome> {
     },
   );
   return queued ? "queued" : "already_queued";
+}
+
+type SetupStateRead = NonNullable<Awaited<ReturnType<typeof readSetupState>>>;
+
+/**
+ * Once a channel is live: one reminder for each other channel still waiting
+ * on the clinic 48 hours on, at most one per channel, ever. Returns "live"
+ * when none is due.
+ */
+async function queueAfterLive(
+  tx: TenantTx,
+  state: SetupStateRead,
+  firstLive: number,
+  now: Date,
+): Promise<ReminderOutcome> {
+  const { clinic } = state;
+  const finished = wizardFinished(state.screens, state.progress);
+  const reminded = await remindedAfterLive(tx);
+  const due = state.channels
+    .filter((c) => c.liveAt === null && !reminded.has(c.channel))
+    .map((c) => ({
+      channel: c.channel,
+      status: channelNextStep(c, finished),
+      since: Math.max(firstLive, c.readyAt?.getTime() ?? firstLive),
+    }))
+    .filter((row) => isClinicAction(row.status) && now.getTime() - row.since >= AFTER_LIVE_REMINDER_MS);
+  if (due.length === 0) return "live";
+  if (!isDaytime(now, clinic.timezone)) return "night";
+
+  const channels = due.map((row) => row.channel).sort();
+  const queued = await enqueuePlanNotice(
+    tx.db,
+    tx.clinicId,
+    "setup_reminder",
+    `${AFTER_LIVE_KEY_PREFIX}${channels.join("+")}`,
+    {
+      stepsLeftCount: stepsLeft(state.screens, state.progress),
+      rows: due.map(({ channel, status }) => ({ channel, status })),
+      liveRows: state.channels.filter((c) => c.liveAt !== null).map((c) => ({ channel: c.channel })),
+      setupUrl: publicUrl(`/c/${clinic.slug}/setup?s=channels`),
+      helpPhoneE164: helpContacts().phoneE164,
+      callUrl: due.some((row) => row.channel === "voice") ? emailCallUrl() : null,
+    },
+  );
+  return queued ? "queued" : "already_queued";
+}
+
+/** The channels a reminder after go-live has already named, from the outbox's own keys. */
+async function remindedAfterLive(tx: TenantTx): Promise<Set<string>> {
+  const rows = await tx.db
+    .select({ key: billingNotices.dedupeKey })
+    .from(billingNotices)
+    .where(
+      and(
+        eq(billingNotices.clinicId, tx.clinicId),
+        eq(billingNotices.kind, "setup_reminder"),
+        sql`starts_with(${billingNotices.dedupeKey}, ${AFTER_LIVE_KEY_PREFIX})`,
+      ),
+    );
+  return new Set(rows.flatMap((row) => row.key.slice(AFTER_LIVE_KEY_PREFIX.length).split("+")));
 }
 
 /** The hourly job: every clinic's due reminder. */

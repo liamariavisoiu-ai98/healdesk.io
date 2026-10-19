@@ -158,4 +158,13 @@ export const LAUNCH_PROMISES: readonly LaunchPromise[] = [
     evidence: "packages/catalog/src/direct-booking-addendum.ts",
     blocksGoLive: true,
   },
+  {
+    id: "phone-flips-live",
+    promise: "Phone goes live by itself once a call forwarded from the clinic's main line reaches AYA",
+    where: "Setup wizard (phone), Settings → Channels",
+    status: "owner",
+    left: "Built: a call the carrier says it forwarded from the clinic's published number (its Diversion or History-Info header), with the caller's number kept, meets phone's forwarding step with no test window and no operator, and the clinic's own Test it now does the same from the wizard or Settings. Left: once enable_voice is on, check on a forwarded test call that Retell passes the carrier's Diversion or History-Info header on its numbers; where it does not, Test it now is how phone goes live.",
+    evidence: "apps/app/src/lib/voice/forwarded-from.ts, apps/app/src/lib/onboarding/forwarding-test.ts, apps/app/src/lib/setup/forwarding-test-view.ts",
+    blocksGoLive: false,
+  },
 ];

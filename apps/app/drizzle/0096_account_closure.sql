@@ -163,6 +163,9 @@ END
 $$;--> statement-breakpoint
 COMMENT ON FUNCTION app_account_closure_waiting_on(uuid) IS
   'What a clinic''s account closure still waits for: not_destroyed, pass_through, voice_agent, incident_open, critical_notice or stripe_connect; NULL when it may close. For app_close_clinic_account() and app_accounts_to_close().';--> statement-breakpoint
+-- No EXECUTE for the runtime role: only the two definers below call it, as
+-- its owner, and it reads another tenant's incidents, notices and security
+-- events (tests/database-audit.test.ts lists it as internal).
 REVOKE ALL ON FUNCTION app_account_closure_waiting_on(uuid) FROM PUBLIC;--> statement-breakpoint
 
 -- -----------------------------------------------------------------------------
@@ -497,7 +500,12 @@ BEGIN
   RETURN NEW;
 END
 $$;--> statement-breakpoint
+-- A trigger function cannot be called directly, so this grant gives the
+-- runtime role nothing it can call; it is 0054's rule for
+-- app_booking_request_keys_once, which tests/database-audit.test.ts holds
+-- every definer to.
 REVOKE ALL ON FUNCTION app_refuse_after_account_closure() FROM PUBLIC;--> statement-breakpoint
+GRANT EXECUTE ON FUNCTION app_refuse_after_account_closure() TO healdesk_app;--> statement-breakpoint
 
 DO $$
 DECLARE

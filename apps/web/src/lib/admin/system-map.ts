@@ -742,6 +742,8 @@ export const NOT_KEYS: Readonly<Record<string, string>> = {
   HEALDESK_DIRECT_BOOKING_ENABLED:
     "Your switch for AYA booking by herself rather than asking the clinic. No channel calls the booking engine yet, so today it changes only the buy page's wording and reports; never set from Terraform.",
   HEALDESK_PHASE_TWO_ATTRIBUTION: "The phase-two switch, off in v1.",
+  HEALDESK_VOICE_REAL_CALLS:
+    "Your switch out of the voice line's test mode: until it is exactly 1, calls are answered and recorded for the demo clinic alone, the backstop for a lost call included.",
   // One-off jobs (apps/app/scripts), started by hand inside AWS.
   HEALDESK_EXPORT_BUCKET: "The export job's bucket: a name.",
   HEALDESK_EXPORT_KEY: "The export file's name in that bucket; not a key.",

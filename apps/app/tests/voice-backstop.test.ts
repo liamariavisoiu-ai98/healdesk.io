@@ -32,12 +32,14 @@ import {
   retellApiKey,
   runCallBackstop,
   turnsFromRetell,
+  voiceRealCallsAllowed,
   type RetellCall,
 } from "@/lib/voice/backstop";
 import { verifyRetellSignature } from "@/lib/voice/retell-signature";
 import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
+import { markDemo } from "./setup/calendar-db";
 import { inTenant, seedClinic } from "./setup/factories";
 
 /**
@@ -310,7 +312,7 @@ describeDb("the backstop against the database", () => {
     const clinic = await clinicWithNumber("backstop-lost");
     const fetchCall = vi.fn(async (callId: string) => retellCall({ call_id: callId }));
 
-    const first = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_lost" }, { apiKey: KEY, fetchCall, transport });
+    const first = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_lost" }, { apiKey: KEY, realCalls: true, fetchCall, transport });
     expect(first.status).toBe("recorded");
     expect(first.status === "recorded" && first.result.duplicate).toBe(false);
 
@@ -329,7 +331,7 @@ describeDb("the backstop against the database", () => {
     expect(transcripts).toHaveLength(1);
     expect(transcripts[0]!.message.text).toContain("Caller: Could I come in Thursday afternoon?");
 
-    const again = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_lost" }, { apiKey: KEY, fetchCall, transport });
+    const again = await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_lost" }, { apiKey: KEY, realCalls: true, fetchCall, transport });
     expect(again).toEqual({ status: "already_recorded" });
     expect(fetchCall).toHaveBeenCalledTimes(1);
     expect(await counts(clinic.clinicId)).toEqual(after);
@@ -370,7 +372,7 @@ describeDb("the backstop against the database", () => {
     const mailed = transport.sent.length;
 
     const fetchCall = vi.fn(async (callId: string) => retellCall({ call_id: callId }));
-    expect(await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_live" }, { apiKey: KEY, fetchCall, transport })).toEqual({ status: "already_recorded" });
+    expect(await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_live" }, { apiKey: KEY, realCalls: true, fetchCall, transport })).toEqual({ status: "already_recorded" });
     expect(fetchCall).not.toHaveBeenCalled();
     expect(await counts(clinic.clinicId)).toEqual(live);
     expect(transport.sent.length).toBe(mailed);
@@ -380,8 +382,8 @@ describeDb("the backstop against the database", () => {
     const clinic = await clinicWithNumber("backstop-race");
     const fetchCall = async (callId: string) => retellCall({ call_id: callId });
     const results = await Promise.all([
-      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_race" }, { apiKey: KEY, fetchCall, transport }),
-      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_race" }, { apiKey: KEY, fetchCall, transport }),
+      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_race" }, { apiKey: KEY, realCalls: true, fetchCall, transport }),
+      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_race" }, { apiKey: KEY, realCalls: true, fetchCall, transport }),
     ]);
     const recorded = results.filter((r) => r.status === "recorded" && !r.result.duplicate);
     expect(recorded).toHaveLength(1);
@@ -395,7 +397,7 @@ describeDb("the backstop against the database", () => {
     const leaky = new DrizzleQueryError("insert into contacts (phone, full_name) values ($1, $2)", ["+14155550192", "Dana"], Object.assign(new Error("canceling statement due to statement timeout"), { code: "57014" }));
     const thrown = await handleCallBackstopJob(
       { clinicId: clinic.clinicId, callId: "call_leak" },
-      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id }), ingest: async () => { throw leaky; }, transport },
+      { apiKey: KEY, realCalls: true, fetchCall: async (id) => retellCall({ call_id: id }), ingest: async () => { throw leaky; }, transport },
     ).catch((e: unknown) => e);
     expect(thrown).toBeInstanceOf(Error);
     expect(thrown).not.toBe(leaky);
@@ -404,31 +406,48 @@ describeDb("the backstop against the database", () => {
     expect((thrown as Error).message).not.toContain("Dana");
   });
 
+  test("in test mode only the demo clinic's calls are backstopped; any other clinic's is dropped without asking Retell", async () => {
+    expect(voiceRealCallsAllowed({ HEALDESK_VOICE_REAL_CALLS: "1" })).toBe(true);
+    for (const value of [undefined, "", "true", "yes", " 1", "__unset__"]) expect(voiceRealCallsAllowed({ HEALDESK_VOICE_REAL_CALLS: value })).toBe(false);
+
+    const other = await clinicWithNumber("backstop-test-mode");
+    const fetchCall = vi.fn(async (callId: string) => retellCall({ call_id: callId }));
+    expect(await runCallBackstop({ clinicId: other.clinicId, callId: "call_other_clinic" }, { apiKey: KEY, realCalls: false, fetchCall, transport })).toEqual({ status: "test_mode" });
+    expect(fetchCall).not.toHaveBeenCalled();
+    expect(await counts(other.clinicId)).toMatchObject({ conversations: 0, transcripts: 0, usage: 0 });
+
+    const demo = await clinicWithNumber("backstop-demo");
+    await markDemo(demo.clinicId);
+    const recorded = await runCallBackstop({ clinicId: demo.clinicId, callId: "call_demo_clinic" }, { apiKey: KEY, realCalls: false, fetchCall, transport });
+    expect(recorded.status).toBe("recorded");
+    expect(await counts(demo.clinicId)).toMatchObject({ conversations: 1, transcripts: 1 });
+  });
+
   test("a call to another number is not this clinic's; a call still in progress is retried; an outbound call is refused once", async () => {
     const clinic = await clinicWithNumber("backstop-refusals");
     const other = await runCallBackstop(
       { clinicId: clinic.clinicId, callId: "call_other" },
-      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, to_number: "+14155550199" }), transport },
+      { apiKey: KEY, realCalls: true, fetchCall: async (id) => retellCall({ call_id: id, to_number: "+14155550199" }), transport },
     );
     expect(other).toEqual({ status: "refused", reason: "not_this_clinic" });
 
     await expect(
-      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_ongoing" }, { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, call_status: "ongoing" }), transport }),
+      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_ongoing" }, { apiKey: KEY, realCalls: true, fetchCall: async (id) => retellCall({ call_id: id, call_status: "ongoing" }), transport }),
     ).rejects.toThrow(/in progress/);
 
     await expect(
-      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_registered" }, { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, call_status: "registered" }), transport }),
+      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_registered" }, { apiKey: KEY, realCalls: true, fetchCall: async (id) => retellCall({ call_id: id, call_status: "registered" }), transport }),
     ).rejects.toThrow(/in progress/);
     // A call that failed at Retell is final: refused, not retried.
     expect(
-      await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_error" }, { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, call_status: "error" }), transport }),
+      await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_error" }, { apiKey: KEY, realCalls: true, fetchCall: async (id) => retellCall({ call_id: id, call_status: "error" }), transport }),
     ).toEqual({ status: "refused", reason: "not_ended" });
 
     // Outbound: refused without the ingest, so the live socket's security event is not recorded twice.
     const ingest = vi.fn();
     const outbound = await runCallBackstop(
       { clinicId: clinic.clinicId, callId: "call_out" },
-      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, direction: "outbound", from_number: ASSISTANT, to_number: "+14155550192" }), ingest, transport },
+      { apiKey: KEY, realCalls: true, fetchCall: async (id) => retellCall({ call_id: id, direction: "outbound", from_number: ASSISTANT, to_number: "+14155550192" }), ingest, transport },
     );
     expect(outbound).toEqual({ status: "refused", reason: "outbound" });
     expect(ingest).not.toHaveBeenCalled();
@@ -437,13 +456,13 @@ describeDb("the backstop against the database", () => {
     expect(
       await runCallBackstop(
         { clinicId: clinic.clinicId, callId: "call_unanswered" },
-        { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, transcript_object: [{ role: "user", content: "Hello?" }] }), ingest, transport },
+        { apiKey: KEY, realCalls: true, fetchCall: async (id) => retellCall({ call_id: id, transcript_object: [{ role: "user", content: "Hello?" }] }), ingest, transport },
       ),
     ).toEqual({ status: "refused", reason: "never_answered" });
 
-    expect(await runCallBackstop({ clinicId: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f61", callId: "call_x" }, { apiKey: KEY, transport })).toEqual({ status: "unknown_clinic" });
+    expect(await runCallBackstop({ clinicId: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f61", callId: "call_x" }, { apiKey: KEY, realCalls: true, transport })).toEqual({ status: "unknown_clinic" });
 
-    await expect(runCallBackstop({ clinicId: clinic.clinicId, callId: "call_nokey" }, { apiKey: null, transport })).rejects.toThrow(/HEALDESK_RETELL_API_KEY/);
+    await expect(runCallBackstop({ clinicId: clinic.clinicId, callId: "call_nokey" }, { apiKey: null, realCalls: true, transport })).rejects.toThrow(/HEALDESK_RETELL_API_KEY/);
     expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 0, requests: 0, transcripts: 0, usage: 0 });
   });
 });

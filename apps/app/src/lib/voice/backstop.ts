@@ -1,5 +1,5 @@
 import { toE164 } from "@healdesk/connectors";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { clinics, conversations } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
@@ -88,6 +88,18 @@ export type CallBackstopPayload = { clinicId: string; callId: string };
 export function retellApiKey(source: Record<string, string | undefined> = process.env): string | null {
   const value = source.HEALDESK_RETELL_API_KEY?.trim();
   return value && value !== "__unset__" ? value : null;
+}
+
+/**
+ * The voice line's test mode, read as the voice endpoint reads it: until
+ * HEALDESK_VOICE_REAL_CALLS is exactly "1", calls are answered and recorded
+ * for healdesk's demo clinic alone (app_clinic_is_demo: billing status demo,
+ * no Stripe ids, data still synthetic), so the backstop records no other
+ * clinic's call either. A call it drops this way leaves nothing behind: no
+ * conversation, no minutes, no email, and Retell is not asked for it.
+ */
+export function voiceRealCallsAllowed(env: Record<string, string | undefined> = process.env): boolean {
+  return env.HEALDESK_VOICE_REAL_CALLS === "1";
 }
 
 export function isRetellCallId(value: unknown): value is string {
@@ -270,6 +282,8 @@ export function callEventFromRetell(
 
 export type BackstopOutcome =
   | { status: "already_recorded" }
+  /** Test mode, and not the demo clinic: dropped (voiceRealCallsAllowed). */
+  | { status: "test_mode" }
   | { status: "left" }
   | { status: "unknown_clinic" }
   | { status: "refused"; reason: BackstopRefusal }
@@ -277,6 +291,8 @@ export type BackstopOutcome =
 
 export type BackstopDeps = {
   apiKey?: string | null;
+  /** Defaults to voiceRealCallsAllowed() on the environment. */
+  realCalls?: boolean;
   fetchCall?: (callId: string, apiKey: string) => Promise<RetellCall>;
   ingest?: (event: VoiceCallEvent) => Promise<IngestResult>;
   transport?: EmailTransport;
@@ -299,6 +315,11 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
       .limit(1);
     if (!clinic) return { status: "unknown_clinic" as const };
     if (await clinicHasLeft(tx, { lock: false })) return { status: "left" as const };
+    if (!(deps.realCalls ?? voiceRealCallsAllowed())) {
+      const result = await tx.db.execute<{ demo: boolean }>(sql`select app_clinic_is_demo(${clinicId}::uuid) as demo`);
+      const rows = (result as unknown as { rows: { demo: boolean }[] }).rows;
+      if (rows[0]?.demo !== true) return { status: "test_mode" as const };
+    }
     const [existing] = await tx.db
       .select({ id: conversations.id })
       .from(conversations)
@@ -347,6 +368,8 @@ export async function handleCallBackstopJob(payload: CallBackstopPayload, deps: 
       // The usual case: the live socket got there first. Logged so a test
       // call shows the backstop ran.
       log.info("voice call backstop found the call recorded", { clinicId: payload.clinicId, status: outcome.status });
+    } else if (outcome.status === "test_mode") {
+      log.info("voice call backstop dropped a call in test mode", { clinicId: payload.clinicId, status: outcome.status });
     } else if (outcome.status === "refused" || outcome.status === "unknown_clinic") {
       log.warn("voice call backstop refused", { clinicId: payload.clinicId, status: outcome.status === "refused" ? outcome.reason : outcome.status });
     }

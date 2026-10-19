@@ -1208,7 +1208,9 @@ calls drop and the other answers the next.
    the transcript and counts the minutes, with no booking request, since what the caller asked for
    was in the dead task's memory; the clinic reads it in the transcript. It reads the words from
    Retell's own copy, so an agent that opts out of Retell storing sensitive data gets a backstop
-   with no transcript. Check on the test call: the web log shows no `retell webhook signature did
+   with no transcript. Until `HEALDESK_VOICE_REAL_CALLS` is exactly `1` the backstop, like the
+   voice line, records calls for the demo clinic alone and drops every other clinic's without
+   asking Retell. Check on the test call: the web log shows no `retell webhook signature did
    not verify`, and ten minutes later the worker log shows `voice call backstop found the call
    recorded` (the live line got there first), never `voice call recorded by the backstop`.
 

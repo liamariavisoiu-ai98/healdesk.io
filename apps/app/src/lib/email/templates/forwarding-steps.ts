@@ -12,8 +12,10 @@ import type { Block } from "./compose";
 
 /**
  * The forwarding steps an email carries (O10 and O11): AYA's number, what to
- * dial from the practice's own line for its carrier and how its calls should
- * reach AYA, and the one step that undoes it. Built here from catalog ids,
+ * dial or do for the practice's carrier and how its calls should reach AYA,
+ * each kind of line the carrier sells named in its own step, ending with the
+ * test call, and the steps that undo it. A step with nothing to dial prints
+ * as its words alone. Built here from catalog ids,
  * never stored as text: the payload holds the carrier, the phone system, the
  * routing and the number (Annex X4's allowlist), and
  * forwardingInstructions(...) words the steps, the same as the wizard's
@@ -23,7 +25,7 @@ import type { Block } from "./compose";
 export type ForwardingFields = {
   /** AYA's number, which the practice's main line forwards to. */
   ayaNumberE164: string;
-  /** The practice's carrier, when it said; null shows every carrier's codes' common form. */
+  /** The practice's carrier, when it said; null gives the catalog's "ask your carrier" steps, never a guessed code. */
   carrier: Carrier | null;
   phoneSystem: PhoneSystemType;
   /**

@@ -204,7 +204,7 @@ exports[`every branch of every billing template > canceled: service ended: every
 
 For 30 days, until Tuesday 19 January 2027, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. We don't have your carrier's codes on file, so:
 
-- Ask the carrier to remove the forwarding; or dial *73 / *91 / *93, which cancel it on most US landlines.
+- Ask the carrier to remove the forwarding: the codes that cancel busy and no-answer forwarding differ from carrier to carrier.
 
 Your website chat shows a contact form until you remove the healdesk snippet from your website.
 
@@ -229,9 +229,11 @@ exports[`every branch of every billing template > canceled: service ended: websi
   "subject": "Your healdesk service has ended",
   "text": "Your healdesk service ended on Friday 6 November, and AYA has stopped answering.
 
-For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. From the clinic's own line, dial this AT&T code:
+For 30 days, until Sunday 6 December, calls that still forward to us pass straight through to your direct line. Undo the forwarding before then, so callers keep reaching you directly. Follow these AT&T steps, dialling each code from the clinic's own line:
 
-- Cancel all-call forwarding: *73
+- Cancel all-call forwarding on AT&T Phone: *73#
+- Cancel all-call forwarding on a traditional AT&T landline: *73
+- Turn off forwarding on an AT&T mobile line: #21#
 
 Your website chat shows a contact form until you remove the healdesk snippet from your website.
 
@@ -759,10 +761,10 @@ Your plan now covers:
 
 AYA stops answering on any channel it doesn't cover.
 
-Phone isn't part of your new plan, so calls that forward to us now pass straight through to your direct line. Undo the forwarding so callers reach you directly. From the clinic's own line, dial these Spectrum (Charter) codes:
+Phone isn't part of your new plan, so calls that forward to us now pass straight through to your direct line. Undo the forwarding so callers reach you directly. Follow these Spectrum (Charter) steps, dialling each code from the clinic's own line:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- On Spectrum Voice, cancel forwarding (*73 turns off both kinds): *73
+- On Spectrum Business Voice, ask Spectrum Business to remove the forwarding.
 
 View the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
@@ -1221,10 +1223,14 @@ Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
 Reply to this email and we'll tell you what's needed to restore it.
 
-If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these AT&T codes:
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. Follow these AT&T steps, dialling each code from the clinic's own line:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy forwarding on AT&T Phone: *91#
+- Cancel no-answer forwarding on AT&T Phone: *93#
+- Cancel Safe Call Forwarding on AT&T Phone: *373#
+- On AT&T Phone, those codes don't bring back AT&T voicemail for missed calls. To send unanswered and busy calls to voicemail again on AT&T Phone for Business, sign in to your AT&T account, open Voicemail Settings and set No Answer and Busy Call Forwarding to Forward to Voice Mail; on AT&T Phone at home, ask AT&T to set them back to voicemail.
+- On a traditional AT&T landline, call AT&T on 800.288.2020 to remove busy and no-answer forwarding, or to set it back to your voicemail if that's where it went before.
+- On an AT&T mobile line, turn the forwarding off in the phone's own call-forwarding settings (AT&T lets forwarding be changed only from the phone itself).
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -1247,10 +1253,11 @@ Pay the invoice: https://invoice.stripe.com/i/acct_testplatform/test_invoice
 
 Paying what you owe healdesk restores everything at once.
 
-If your clinic's line forwards to AYA, you can undo that while this is sorted out. From the clinic's own line, dial these Verizon codes:
+If your clinic's line forwards to AYA, you can undo that while this is sorted out. Follow these Verizon steps, dialling each code from the clinic's own line:
 
-- Cancel busy forwarding: *91
-- Cancel no-answer forwarding: *93
+- Cancel busy and no-answer forwarding on a Verizon home phone: *43
+- If Verizon pointed your home phone's busy and no-answer forwarding at your assistant by service order instead, *43 doesn't undo it: ask Verizon to set it back to where it went before.
+- Cancel forwarding on a Verizon mobile line: *73
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.
@@ -1273,7 +1280,7 @@ Reply to this email and we'll tell you what's needed to restore it.
 
 If your clinic's line forwards to AYA, you can undo that while this is sorted out. We don't have your carrier's codes on file, so:
 
-- Ask the carrier to remove the forwarding; or dial *73 / *91 / *93, which cancel it on most US landlines.
+- Ask the carrier to remove the forwarding: the codes that cancel busy and no-answer forwarding differ from carrier to carrier.
 
 —
 You're receiving this because this is the address on Radiance Med Spa's healdesk account.

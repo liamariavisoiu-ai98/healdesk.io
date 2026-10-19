@@ -193,6 +193,7 @@ describe("a vet's Meta thread", () => {
       escalationHours: null,
       requirements: metaEligible(VET),
       deferredRequirements: VET.filter((f) => !f.metaEligible),
+      neverSay: [],
     });
     expect(prompt).toMatch(
       /your first name; a number the practice can call; a day or time that works best; one or two other times that could work; nothing else may be asked/,

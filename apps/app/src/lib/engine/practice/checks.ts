@@ -1,11 +1,12 @@
+import type { AssistantFacts } from "@/lib/assistant/facts";
 import {
   amountsIn,
   guardGreeting,
+  neverSayIn,
   spokenAmountsIn,
   undoesDisclosure,
   wordsToNumber,
 } from "@/lib/assistant/guard";
-import type { AssistantFacts } from "@/lib/assistant/facts";
 
 import type { PracticeService } from "./cases";
 import type { PracticeCheck, PracticeSection } from "./types";
@@ -155,20 +156,9 @@ export function sectionsNaming(
   return best;
 }
 
-function normalise(text: string): string {
-  return text
-    .replace(/[‘’ʼ]/g, "'")
-    .replace(/[“”]/g, '"')
-    .replace(/[‐‑‒–—]/g, "-")
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
 /** How many of the clinic's own never-say phrases a reply says: the guard refused it for them. */
 export function ownNeverSayIn(reply: string, own: readonly string[]): number {
-  const text = normalise(reply);
-  return own.filter((phrase) => {
-    const p = normalise(phrase).trim();
-    return p.length > 0 && text.includes(p);
-  }).length;
+  // The guards' own matcher (word starts, every channel), so the count and the
+  // refusal it explains cannot drift apart.
+  return own.filter((phrase) => neverSayIn(reply, [phrase])).length;
 }

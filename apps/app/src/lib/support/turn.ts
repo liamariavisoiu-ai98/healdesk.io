@@ -1,11 +1,12 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { FORWARDING_PASS_THROUGH_DAYS } from "@healdesk/catalog";
 
 import { log } from "@/lib/log";
 import { formatPhone } from "@/lib/setup/help";
 
 import { describeAccountState, type AccountState } from "./account-state";
 import type { EscalationResult } from "./escalate";
-import type { ForwardingSteps } from "./forwarding";
+import type { ClosedForwardingSteps, ForwardingAnswer, ForwardingSteps } from "./forwarding";
 import { supportRequest, type SupportModelClient } from "./model";
 import type { SupportLines } from "./lines";
 import type { SupportPrompt } from "./prompt";
@@ -48,7 +49,7 @@ export type SupportEvent =
 /** What the tools reach. Each is read-only but the escalation, which only sends. */
 export type SupportToolbox = {
   accountState(): Promise<AccountState | null>;
-  forwardingSteps(): Promise<ForwardingSteps | null>;
+  forwardingSteps(): Promise<ForwardingAnswer | null>;
   linkTo(setting: unknown): SupportLink | null;
   escalate(input: unknown): Promise<EscalationResult>;
 };
@@ -144,7 +145,8 @@ async function runTool(
       }
       case "get_forwarding_steps": {
         const steps = await input.tools.forwardingSteps();
-        return result(steps ? forwardingText(steps) : NO_FORWARDING_YET);
+        if (!steps) return result(NO_FORWARDING_YET);
+        return result(steps.closed ? undoOnlyText(steps) : forwardingText(steps));
       }
       case "link_to": {
         const setting = (use.input as { setting?: unknown } | null)?.setting;
@@ -204,6 +206,20 @@ async function runTool(
 
 const NO_FORWARDING_YET =
   "Nothing yet: phone isn't ready for call forwarding on healdesk's side, so there are no codes to give. Tell them not to change their call forwarding yet: the steps appear in Setup as soon as phone is ready for them.";
+
+/**
+ * A closed account: the way back only, and the reason to take it now. Never
+ * NO_FORWARDING_YET, which tells the clinic to leave its forwarding alone,
+ * the opposite of what the cancellation email asks of it.
+ */
+function undoOnlyText(steps: ClosedForwardingSteps): string {
+  return [
+    `The service has ended, so there are no codes to forward calls to AYA. If the practice forwarded its main line to AYA, tell them to undo it now: calls that still forward pass through to the direct line for only ${FORWARDING_PASS_THROUGH_DAYS} days after the service ends, and the email "Your healdesk service has ended" gives the date and the same steps. Settings has nothing left to change on a closed account.`,
+    `Carrier: ${steps.carrier}.`,
+    "To undo:",
+    ...steps.undo.map((s) => `- ${s.label}${s.dial ? ` ${s.dial}` : ""}`),
+  ].join("\n");
+}
 
 function forwardingText(steps: ForwardingSteps): string {
   const lines = [

@@ -202,7 +202,7 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
           <Section
             id="never-say"
             title="Never say"
-            intro="Phrases AYA must never use. It starts with the clinical defaults; add your own. The protections themselves stay in AYA, whatever this list holds."
+            intro="Phrases AYA must never use, on every channel: calls, website chat, Instagram, Messenger and WhatsApp. It starts with the clinical defaults; add your own. The protections themselves stay in AYA, whatever this list holds."
           >
             <NeverSayForm slug={portal.clinicSlug} initial={knowledge.neverSay} />
           </Section>

@@ -253,7 +253,7 @@ describe("the live alerts' templates", () => {
     expect(render(payload, ctx("clients")).text).toContain("no client details");
   });
 
-  test("an urgent alert links Conversations, where it is listed first; every other live alert links Bookings", () => {
+  test("an urgent alert links Conversations, which marks an urgent call or chat; every other live alert links Bookings", () => {
     const { urgent, ...rest } = ALERT_SECTION;
     expect(urgent).toBe("conversations");
     expect(new Set(Object.values(rest))).toEqual(new Set(["bookings"]));

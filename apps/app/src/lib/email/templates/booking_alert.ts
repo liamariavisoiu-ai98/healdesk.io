@@ -246,8 +246,8 @@ export const renderUrgent: EmailTemplate<BookingAlertPayload> = (payload, ctx) =
   // emergency referral clinic. Never what the person said.
   const reply =
     ctx.audience === "clients"
-      ? "which sends them to the emergency referral clinic you set, or their nearest emergency vet"
-      : "which tells them to call 911 in an emergency and gives them the urgent-help number you set, or your main number";
+      ? "which tells them to call 911 if a person is in danger and gives them the emergency referral clinic you set, or the nearest emergency vet if you set none"
+      : "which tells them to call 911 in an emergency and gives them the urgent-help number you set";
   return compose(
     {
       subject: "URGENT: a complication or urgent symptom was reported",

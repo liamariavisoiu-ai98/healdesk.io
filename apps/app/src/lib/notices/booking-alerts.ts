@@ -76,9 +76,10 @@ export type BookingAlertRef = {
 
 /**
  * The portal screen each alert links to. An urgent message is a conversation,
- * not a booking, and Conversations lists it first, marked urgent; everything
- * else, a handover included (Bookings lists the callers who asked for a
- * person), is on Bookings. The path is built either way.
+ * not a booking: Conversations marks an urgent call or chat Urgent (a call
+ * appears once it ends; a Meta thread carries no mark). Everything else is on
+ * Bookings, a handover included, where the callers who asked for a person
+ * are being listed. The path is built either way.
  */
 export const ALERT_SECTION: Readonly<Record<BookingAlertKind, PortalSection>> = {
   booking_request: "bookings",

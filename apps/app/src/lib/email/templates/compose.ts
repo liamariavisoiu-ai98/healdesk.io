@@ -44,6 +44,13 @@ export type EmailContent = {
   subject: string;
   preheader: string;
   blocks: readonly Block[];
+  /**
+   * The footer's line about reaching us. `reply` for every email but one:
+   * `write_new` for an email whose body carries a live single-use link and
+   * asks the reader to write to hello@ afresh instead (O16), so the footer
+   * does not invite the reply that would quote the link into our inbox.
+   */
+  replyLine?: "reply" | "write_new";
 };
 
 /** Gmail clips at 102 KB; this leaves room for the headers Resend adds. */
@@ -51,6 +58,14 @@ export const MAX_HTML_BYTES = 100 * 1024;
 
 /** The line every footer carries, so hello@ stays free of patient details (X1.9). */
 export const REPLY_LINE = "Replies reach the healdesk team. Please leave out patient details.";
+
+/**
+ * X1.9's line for the one email whose link must not be quoted back to us
+ * (O16): where to write instead of replying, and, as every footer says, to
+ * leave out patient details.
+ */
+export const WRITE_NEW_LINE =
+  "To reach the healdesk team, write a new email to hello@healdesk.io rather than replying. Please leave out patient details.";
 
 export class EmailCompositionError extends Error {
   constructor(message: string) {
@@ -60,10 +75,13 @@ export class EmailCompositionError extends Error {
 }
 
 /** The footer, as lines of text, in the order both renderings print them. */
-export function footerLines(ctx: TemplateContext): string[] {
+export function footerLines(
+  ctx: TemplateContext,
+  replyLine: EmailContent["replyLine"] = "reply",
+): string[] {
   return [
     ctx.reason,
-    REPLY_LINE,
+    replyLine === "write_new" ? WRITE_NEW_LINE : REPLY_LINE,
     ...(ctx.unsubscribeUrl ? [`Stop these emails: ${ctx.unsubscribeUrl}`] : []),
     SENDER_IDENTITY.entityLine,
     `${SENDER_IDENTITY.postalAddressLabel}: ${SENDER_IDENTITY.postalAddress}`,
@@ -83,7 +101,7 @@ export function compose(content: EmailContent, ctx: TemplateContext): RenderedEm
     throw new EmailCompositionError("Every email says why the recipient gets it (X1.9).");
   }
 
-  const footer = ["—", ...footerLines(ctx)].join("\n");
+  const footer = ["—", ...footerLines(ctx, content.replyLine)].join("\n");
   const text = [...content.blocks.map(blockText), footer].join("\n\n");
   const html = renderHtml(content, ctx);
 
@@ -141,7 +159,7 @@ const DARK_MODE = `@media (prefers-color-scheme: dark) {
 
 function renderHtml(content: EmailContent, ctx: TemplateContext): string {
   const blocks = content.blocks.map(blockHtml).join("\n");
-  const footer = footerLines(ctx)
+  const footer = footerLines(ctx, content.replyLine)
     .map(
       (line) =>
         `<p class="hd-muted" style="margin:0 0 6px;color:${MUTED};font-size:13px;">${linkify(line)}</p>`,

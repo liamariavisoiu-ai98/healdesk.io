@@ -4,8 +4,11 @@ import { notFound, redirect } from "next/navigation";
 
 import { HostStandbyPage } from "@/components/admin/HostStandbyNotice";
 import { enterClinicEmailChange } from "@/lib/admin/address-change";
+import { enterDeviceRecovery, enterDeviceRemoval } from "@/lib/admin/device-recovery";
 import { requireOperator } from "@/lib/admin/operator";
 import {
+  endDeviceRecovery as endRecoveryUpstream,
+  fetchClinicDevices,
   fetchClinicSignIn,
   setCoveredEntity as setCoveredEntityUpstream,
   stopClinicEmailChange as stopUpstream,
@@ -16,6 +19,7 @@ import {
 import { isHostUnreachable } from "@/lib/host/state";
 
 import { AccountPanel } from "./AccountPanel";
+import { DevicesSection } from "./DevicesSection";
 
 /**
  * /admin/ops/[clinicId]/account: the clinic's one address and the agreement
@@ -31,6 +35,13 @@ import { AccountPanel } from "./AccountPanel";
  * stops its client data at the database and starts its move to a business
  * associate agreement.
  *
+ * The clinic's devices are here too (wave 2, R4; plan Part D3, Annex X5's
+ * O3): for a clinic that has lost every device, a one-time link to its
+ * address that lets one device be added; and, after it replies to a device
+ * email it does not recognise, its devices removed and everyone signed out.
+ * Both after the call back and a fresh code, like the address change
+ * (lib/admin/device-recovery.ts).
+ *
  * Business contact data only. Every read and write is an operation on the
  * signed ops envelope; this app keeps nothing.
  */
@@ -45,7 +56,10 @@ export default async function AccountPage({ params }: { params: Promise<{ clinic
   const { clinicId } = await params;
   if (!UUID.test(clinicId)) notFound();
 
-  const view = await fetchClinicSignIn(clinicId);
+  const [view, devices] = await Promise.all([
+    fetchClinicSignIn(clinicId),
+    fetchClinicDevices(clinicId),
+  ]);
   if (isHostUnreachable(view)) {
     return <HostStandbyPage title="Account" back={{ href: "/admin/ops", label: "Back to ops" }} />;
   }
@@ -79,5 +93,36 @@ export default async function AccountPage({ params }: { params: Promise<{ clinic
     return result;
   }
 
-  return <AccountPanel view={view} actions={{ changeEmail, stopChange, setCovered }} />;
+  async function issueRecovery(input: { code: string; calledBack: boolean }) {
+    "use server";
+    // The session, the call back and a fresh code, in that order, before
+    // anything crosses (lib/admin/device-recovery.ts).
+    const result = await enterDeviceRecovery(clinicId, input);
+    revalidatePath(path);
+    return result;
+  }
+
+  async function endRecovery() {
+    "use server";
+    const result = await endRecoveryUpstream(clinicId);
+    revalidatePath(path);
+    return result;
+  }
+
+  async function removeDevices(input: { code: string; calledBack: boolean; factorIds: string[] }) {
+    "use server";
+    const result = await enterDeviceRemoval(clinicId, input);
+    revalidatePath(path);
+    return result;
+  }
+
+  return (
+    <AccountPanel
+      view={view}
+      actions={{ changeEmail, stopChange, setCovered }}
+      devices={
+        <DevicesSection view={devices} actions={{ issueRecovery, endRecovery, removeDevices }} />
+      }
+    />
+  );
 }

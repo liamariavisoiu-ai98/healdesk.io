@@ -31,6 +31,7 @@ import {
   escapeHtml,
   MAX_HTML_BYTES,
   REPLY_LINE,
+  WRITE_NEW_LINE,
 } from "@/lib/email/templates/compose";
 import {
   ACCOUNT_REASON,
@@ -191,7 +192,7 @@ describe("the template registry", () => {
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, Flag this answer's I4, and a patient's request, L32", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, Flag this answer's I4, a patient's request, L32, and the human route's O16", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -265,6 +266,7 @@ describe("the template registry", () => {
       "website_changes",
       "flag_alert",
       "patient_request",
+      "device_recovery_link",
     ]);
   });
 
@@ -342,7 +344,10 @@ describe("each template's output", () => {
       test("ends with the footer: why, the reply line, the entity and the postal address", () => {
         const r = rendered();
         for (const body of [r.text, visibleText(r.html)]) {
-          expect(body).toContain(REPLY_LINE);
+          // O16 carries a live link and asks for a new email, never a reply
+          // that would quote it to us, so its footer says the same.
+          expect(body).toContain(kind === "device_recovery_link" ? WRITE_NEW_LINE : REPLY_LINE);
+          if (kind === "device_recovery_link") expect(body).not.toContain(REPLY_LINE);
           expect(body).toContain(SENDER_IDENTITY.entityLine);
           expect(body).toContain(SENDER_IDENTITY.postalAddress);
           expect(body).toContain("You're receiving this because");
@@ -1065,6 +1070,10 @@ describe("the kind rules", () => {
   test("a bounce on a sign-in kind locks a clinic out; one on an ops alert does not", () => {
     expect(locksOutClinic("sign_in_link")).toBe(true);
     expect(locksOutClinic("sign_in_help_link")).toBe(true);
+    // O16, the human route's link: a single-use token, and a clinic that
+    // cannot receive it cannot open patient details at all.
+    expect(isLinkEmail("device_recovery_link")).toBe(true);
+    expect(locksOutClinic("device_recovery_link")).toBe(true);
     expect(locksOutClinic("order_confirmed_delayed")).toBe(true);
     expect(locksOutClinic("ops_alert")).toBe(false);
     expect(locksOutClinic("payment_failed")).toBe(false);

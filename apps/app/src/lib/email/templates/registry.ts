@@ -31,6 +31,7 @@ import { CONNECT_DISCONNECTED_ENTRY } from "./connect_disconnected";
 import { DATA_DESTROYED_ENTRY } from "./data_destroyed";
 import { DAILY_SUMMARY_ENTRY } from "./daily_summary";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
+import { DEVICE_RECOVERY_LINK_ENTRY } from "./device_recovery_link";
 import { EXPORT_READY_ENTRY } from "./export_ready";
 import { EXPORT_REMINDER_ENTRY } from "./export_reminder";
 import { FLAG_ALERT_ENTRY } from "./flag_alert";
@@ -205,6 +206,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // table (patient_requests, behind the BAA gate), the Home pointer and the
   // request's patient page (lib/patient-rights/patient-requests.ts).
   patient_request: PATIENT_REQUEST_ENTRY,
+  // Wave 2, R4 (plan Part D3): O16, the human route's link for a clinic that
+  // lost every device, mailed only to the clinic's address on file.
+  device_recovery_link: DEVICE_RECOVERY_LINK_ENTRY,
 };
 
 /**
@@ -319,6 +323,7 @@ export const PENDING_TEMPLATES: Record<
     | "website_changes"
     | "flag_alert"
     | "patient_request"
+    | "device_recovery_link"
     | BillingTemplatedKind
   >,
   PendingTemplate

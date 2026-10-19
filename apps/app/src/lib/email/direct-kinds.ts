@@ -71,6 +71,17 @@ export const DIRECT_KIND_REGISTRY = {
    * one sign-in can open several locations.
    */
   device_changed: direct("O3", "transactional", "plan", { linkEmail: false, locksOut: false }),
+  /**
+   * O16: the human route's link (plan Part D3, "Lost every device"), sent by
+   * ops' issueDeviceRecovery after a call back to the practice's published
+   * number, only to the clinic's address on file. It signs in and lets one
+   * device add its passkey, once, within 24 hours (lib/factors/recovery.ts).
+   * A clinic that cannot receive it cannot open patient details at all.
+   */
+  device_recovery_link: direct("O16", "transactional", "plan", {
+    linkEmail: true,
+    locksOut: true,
+  }),
   /** B3: "Your order is confirmed: one step on our side", when provisioning failed. */
   order_confirmed_delayed: direct("B3", "transactional", "plan", {
     linkEmail: false,

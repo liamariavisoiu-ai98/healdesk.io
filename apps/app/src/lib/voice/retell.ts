@@ -14,6 +14,7 @@ import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
+import { forwardedFromCall, type ForwardedFrom } from "./forwarded-from";
 import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
 
 /**
@@ -30,8 +31,10 @@ import { ingestCall, type IngestResult, type VoiceCallEvent } from "./ingest";
  *                   that no audio is kept (lib/compliance/disclosure.ts),
  *                   then the clinic's phone greeting. The time it was sent is
  *                   the call's disclosure_played_at.
- *   call_details    the caller's number and the call's start, kept in memory;
- *                   an outbound call is ended at once (v1 is inbound only).
+ *   call_details    the caller's number, the call's start and the lines the
+ *                   carrier says forwarded it (lib/voice/forwarded-from.ts),
+ *                   kept in memory; an outbound call is ended at once (v1 is
+ *                   inbound only).
  *   ping_pong       echoed.
  *   update_only     nothing: the transcript is this file's own.
  *   response_required / reminder_required
@@ -120,6 +123,8 @@ export class RetellCallSession {
   private urgent = false;
   private handoff = false;
   private handoverAlerted = false;
+  /** The lines the carrier says forwarded the call (lib/voice/forwarded-from.ts); in memory only. */
+  private forwardedFrom: ForwardedFrom[] = [];
   /** Alerts being sent after their commit; the call's record waits for them. */
   private sending: Promise<void>[] = [];
   private failures = 0;
@@ -254,6 +259,8 @@ export class RetellCallSession {
     const call = event.call ?? {};
     if (typeof call.from_number === "string" && call.from_number.trim()) this.callerPhone = call.from_number.trim();
     if (typeof call.start_timestamp === "number") this.startedAt = new Date(call.start_timestamp);
+
+    this.forwardedFrom = forwardedFromCall(event.call);
     if (call.direction === "outbound") {
       // healdesk places no calls. A call the vendor says we placed is a
       // misconfiguration: say nothing more, end it, and let the ingest
@@ -369,6 +376,7 @@ export class RetellCallSession {
       externalCallId: this.callId,
       clinicId: this.clinicId,
       callerPhone: this.callerPhone ?? undefined,
+      ...(this.forwardedFrom.length > 0 ? { forwardedFrom: this.forwardedFrom } : {}),
       startedAt,
       endedAt,
       durationSeconds: Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)),
@@ -388,6 +396,7 @@ export class RetellCallSession {
       return null;
     } finally {
       this.turns = [];
+      this.forwardedFrom = [];
     }
   }
 }

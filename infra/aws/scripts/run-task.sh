@@ -14,6 +14,8 @@
 #   bash infra/aws/scripts/run-task.sh erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at]
 #   bash infra/aws/scripts/run-task.sh amend-contact <clinic id> <contact id> <fields to clear> <who asked> <you@healdesk.io>
 #                                                     a person's deletion or correction request
+#   bash infra/aws/scripts/run-task.sh patient-request <clinic id> <kind> <you@healdesk.io> [received at] [contact id]
+#                                                     a patient's own request, passed to the practice (L32)
 #   bash infra/aws/scripts/run-task.sh demo-clinic "<fictional practice>" "<your name>" <you@healdesk.io>
 #                                                     healdesk's one demo clinic (scripts/demo-clinic.ts)
 #   bash infra/aws/scripts/run-task.sh channels-link <clinic id> [meta|whatsapp] [days]
@@ -44,7 +46,10 @@
 # the operator's work address, and for erasure the day the request came, for an
 # amendment the fields to clear (fullName, phone, email). Never a phone number,
 # an address or a name: the person is named by the contact's id, found in the
-# ops console first. demo-clinic takes the fictional practice's name, the
+# ops console first. patient-request (apps/app/scripts/ops-patient-request.ts)
+# takes the clinic's id, what was asked (access, amendment, accounting,
+# deletion or other), the operator's work address and, optionally, the day the
+# request came and a contact's id: nothing of the patient's. demo-clinic takes the fictional practice's name, the
 # operator's name and the operator's own address (the script refuses any
 # other), and channels-link the clinic's id, which channel and how many days
 # the link lasts: nothing of a patient's, and no secret. The bundle lands in the export bucket (infra/aws/exports.tf);
@@ -86,6 +91,7 @@ usage() {
   echo "       $0 erase-person <clinic id> <contact id> <who asked> <you@healdesk.io> [received at, e.g. 2026-10-12]" >&2
   echo "       $0 amend-contact <clinic id> <contact id> <fields to clear, e.g. phone,email> <who asked> <you@healdesk.io>" >&2
   echo "       who asked: practice | person_via_practice | representative_via_practice" >&2
+  echo "       $0 patient-request <clinic id> <access|amendment|accounting|deletion|other> <you@healdesk.io> [received at, e.g. 2026-10-12] [contact id]" >&2
   echo "       $0 demo-clinic \"<fictional practice>\" \"<your name>\" <you@healdesk.io>" >&2
   echo "       $0 channels-link <clinic id> [meta|whatsapp] [days the link lasts, 1 to 30]" >&2
   exit 64
@@ -97,6 +103,7 @@ case "$1" in
   patient-export) [ "$#" -eq 2 ] || [ "$#" -eq 4 ] || usage ;;
   erase-person) [ "$#" -eq 5 ] || [ "$#" -eq 6 ] || usage ;;
   amend-contact) [ "$#" -eq 6 ] || usage ;;
+  patient-request) [ "$#" -ge 4 ] && [ "$#" -le 6 ] || usage ;;
   demo-clinic) [ "$#" -eq 4 ] || usage ;;
   channels-link) [ "$#" -ge 2 ] && [ "$#" -le 4 ] || usage ;;
   *) [ "$#" -eq 1 ] || usage ;;
@@ -128,6 +135,10 @@ case "$1" in
     ;;
   amend-contact)
     family=healdesk-production-amend-contact
+    container=app
+    ;;
+  patient-request)
+    family=healdesk-production-patient-request
     container=app
     ;;
   demo-clinic)
@@ -207,6 +218,35 @@ if [ "$1" = amend-contact ]; then
   check_operator "$6"
   overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[{"name":"HEALDESK_AMEND_CLINIC_ID","value":"%s"},{"name":"HEALDESK_AMEND_CONTACT_ID","value":"%s"},{"name":"HEALDESK_AMEND_CLEAR","value":"%s"},{"name":"HEALDESK_AMEND_REQUESTED_BY","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}]}]}' \
     "$clinic_id" "$contact_id" "$4" "$5" "$(lower "$6")")
+fi
+# A patient's own request (L32): the clinic, what was asked from the closed
+# five, the operator, and after them, each at most once and in either order,
+# when it reached us (an ISO date or time) and the contact it is about, by
+# its uuid. Nothing of the patient's.
+if [ "$1" = patient-request ]; then
+  is_uuid "$2" || fail "the clinic id must be the clinic's uuid (the ops console shows it)"
+  case "$3" in
+    access | amendment | accounting | deletion | other) ;;
+    *) fail "what was asked is one of access, amendment, accounting, deletion, other: chosen, never typed" ;;
+  esac
+  check_operator "$4"
+  request_env=$(printf '{"name":"HEALDESK_PATIENT_REQUEST_CLINIC_ID","value":"%s"},{"name":"HEALDESK_PATIENT_REQUEST_KIND","value":"%s"},{"name":"HEALDESK_OPS_OPERATOR","value":"%s"}' \
+    "$(lower "$2")" "$3" "$(lower "$4")")
+  received=""
+  contact=""
+  shift_args=("${@:5}")
+  for extra in ${shift_args[@]+"${shift_args[@]}"}; do
+    if [ -z "$contact" ] && is_uuid "$extra"; then
+      contact=$(lower "$extra")
+      request_env="$request_env$(printf ',{"name":"HEALDESK_PATIENT_REQUEST_CONTACT_ID","value":"%s"}' "$contact")"
+    elif [ -z "$received" ] && printf '%s' "$extra" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]{1,3})?)?(Z|[+-][0-9]{2}:[0-9]{2}))?$'; then
+      received=$extra
+      request_env="$request_env$(printf ',{"name":"HEALDESK_PATIENT_REQUEST_RECEIVED_AT","value":"%s"}' "$received")"
+    else
+      fail "after the operator: when the request reached us (an ISO date or time, e.g. 2026-10-12) and the contact's uuid, each at most once; until the M5 portal nothing on AWS turns a number, an address or a name into one, and a person is never named by any of those here"
+    fi
+  done
+  overrides=$(printf '{"containerOverrides":[{"name":"app","environment":[%s]}]}' "$request_env")
 fi
 # A name for the demo clinic or its signatory: letters, digits, spaces and
 # the punctuation a practice's name has, nothing JSON would need escaped.
@@ -383,6 +423,9 @@ if [ "$1" = patient-export ]; then
 fi
 if [ "$1" = erase-person ] || [ "$1" = amend-contact ]; then
   say "its result (the request id, counts and any deadline: ids and numbers only) is in that log stream"
+fi
+if [ "$1" = patient-request ]; then
+  say "its result (the request's id, the day the practice is asked to mark it received by, and what is left to do by hand) is in that log stream"
 fi
 if [ "$1" = demo-clinic ] || [ "$1" = channels-link ]; then
   if [ "$1" = demo-clinic ]; then

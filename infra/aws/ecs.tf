@@ -346,6 +346,18 @@ locals {
         secrets     = ["DATABASE_URL"]
         environment = {}
       }
+      # A patient's own request to healdesk, passed to the practice (L32;
+      # docs/handover.md, "A request a patient makes to us";
+      # apps/app/scripts/ops-patient-request.ts). run-task.sh passes only the
+      # clinic's id, the closed kind of request, the operator's work address
+      # and, optionally, when it reached us and a contact's id: nothing of the
+      # patient's. It queues L32 with a link to the request's page in the
+      # portal, built on BETTER_AUTH_URL, so it gets that beside the runtime URL.
+      "patient-request" = {
+        script      = "scripts/ops-patient-request.ts"
+        secrets     = ["DATABASE_URL"]
+        environment = { BETTER_AUTH_URL = local.app_url }
+      }
       # After a restore, beside destroy-due (docs/handover.md, "Restoring",
       # step 5): every deletion the restored database still remembers, done
       # again. No arguments; it finds people by the keyed references its

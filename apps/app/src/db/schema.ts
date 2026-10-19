@@ -942,6 +942,10 @@ export const contacts = pgTable(
     uniqueIndex("contacts_external_idx")
       .on(t.clinicId, t.externalSource, t.externalContactId)
       .where(sql`${t.externalContactId} is not null`),
+    // The key a patient's request names its contact by, with the clinic
+    // (patient_requests_contact_fk, drizzle/0092), so a request can only name
+    // a contact of its own clinic. id is unique already.
+    unique("contacts_clinic_id_unique").on(t.clinicId, t.id),
   ],
 );
 
@@ -2765,6 +2769,109 @@ export const recordAmendments = pgTable(
       sql`char_length(btrim(${t.recordedBy})) between 1 and 320`,
     ),
     check("record_amendments_requested_check", sql`${t.requestedAt} <= ${t.recordedAt}`),
+  ],
+);
+
+/**
+ * What a patient asked healdesk for about their information at a practice
+ * (BAA 1.5.1 clause 14, its last paragraph): to see it, to have it
+ * corrected, to be told who it was disclosed to, to have it deleted, or
+ * anything else about it. Chosen by the operator, never typed.
+ */
+export const PATIENT_REQUEST_KINDS = [
+  "access",
+  "amendment",
+  "accounting",
+  "deletion",
+  "other",
+] as const;
+export type PatientRequestKind = (typeof PATIENT_REQUEST_KINDS)[number];
+
+/**
+ * A request a patient made to healdesk itself, rather than to the practice
+ * (L32 in Annex X5 of the funnel and portal plan; BAA 1.5.1 clause 14:
+ * "healdesk will not act on it. It will pass the request to Practice within
+ * five business days"). The operator records it from the app's own shell
+ * (`npm run ops:patient-request -w @healdesk/app`, by ids and closed choices
+ * only); the practice gets L32, a pointer, and the request opens on its own
+ * patient page behind the passkey step-up, where staff mark it received
+ * (lib/patient-rights/patient-requests.ts).
+ *
+ * PHI while it names a contact: whose request it is, at which practice. So
+ * tenant RLS, FORCEd, and the BAA gate (drizzle/0092). It holds no name, no
+ * number, no address and nothing typed: the person is the contact it names,
+ * read from `contacts` when the page opens, and the contact's own clock and
+ * erasure govern them. Its foreign key (clinic_id, contact_id) is written by
+ * hand in the migration, because drizzle cannot say ON DELETE SET NULL of
+ * one column: when the contact goes, by erasure or the purge, the request
+ * stays as a record without the person.
+ *
+ * `reply_by` is the fifth business day after the clinic-local day the
+ * request reached healdesk: the day by which the practice is asked to mark
+ * it received, and the BAA's own deadline for passing it on. `recorded_at`
+ * and `acknowledged_at` are the database's clock (patient_requests_guard),
+ * nothing but the acknowledgement is ever added to a row, and that once.
+ */
+export const patientRequests = pgTable(
+  "patient_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<PatientRequestKind>().notNull(),
+    /** The contact the request is about, when the operator could name one. Nulled when the contact goes. */
+    contactId: uuid("contact_id"),
+    /**
+     * Whether a contact was named when it was recorded (patient_requests_guard
+     * sets it), so a page can tell "healdesk holds no record of them" from
+     * "their details have since been deleted".
+     */
+    contactNamed: boolean("contact_named").notNull().default(false),
+    /** When the request reached healdesk: the five business days run from here. */
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+    /** The fifth business day after the clinic-local day of received_at (YYYY-MM-DD). */
+    replyBy: date("reply_by", { mode: "string" }).notNull(),
+    /** The operator's healdesk address. */
+    recordedBy: text("recorded_by").notNull(),
+    /** When it was recorded, by the database's clock (patient_requests_guard). */
+    recordedAt: timestamp("recorded_at", { withTimezone: true })
+      .notNull()
+      .default(sql`clock_timestamp()`),
+    /** When the practice marked it received, by the database's clock; once. */
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    /** The device it was marked from, by the name staff gave its passkey. */
+    acknowledgedBy: text("acknowledged_by"),
+  },
+  (t) => [
+    index("patient_requests_open_idx")
+      .on(t.clinicId, t.replyBy)
+      .where(sql`${t.acknowledgedAt} is null`),
+    index("patient_requests_contact_idx")
+      .on(t.clinicId, t.contactId)
+      .where(sql`${t.contactId} is not null`),
+    check(
+      "patient_requests_kind_check",
+      sql`${t.kind} in ('access', 'amendment', 'accounting', 'deletion', 'other')`,
+    ),
+    check(
+      "patient_requests_recorded_by_check",
+      sql`char_length(btrim(${t.recordedBy})) between 1 and 320`,
+    ),
+    check("patient_requests_received_check", sql`${t.receivedAt} <= ${t.recordedAt}`),
+    check("patient_requests_contact_check", sql`${t.contactId} is null or ${t.contactNamed}`),
+    // Five business days after a clinic-local day are five to seven calendar
+    // days after it (from a Sunday, a Saturday, any weekday), and that day is
+    // at most one either side of received_at's day in UTC.
+    check(
+      "patient_requests_reply_by_check",
+      sql`${t.replyBy} between (${t.receivedAt} at time zone 'UTC')::date + 4 and (${t.receivedAt} at time zone 'UTC')::date + 8`,
+    ),
+    check(
+      "patient_requests_acknowledged_check",
+      sql`(${t.acknowledgedAt} is null) = (${t.acknowledgedBy} is null)
+        and (${t.acknowledgedBy} is null or char_length(btrim(${t.acknowledgedBy})) between 1 and 200)`,
+    ),
   ],
 );
 
@@ -5809,6 +5916,7 @@ export const TENANT_SCOPED_TABLES = [
   "agreement_resigns",
   "site_rereads",
   "website_changes",
+  "patient_requests",
 ] as const;
 
 // -----------------------------------------------------------------------------

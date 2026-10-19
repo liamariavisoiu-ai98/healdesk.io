@@ -529,7 +529,8 @@ record of the request, no longer than we need it.
 1. **Who may ask.** The practice, and only the practice. A request the person makes to
    us directly is passed to the practice within five business days, and our reply to
    the person says we cannot act on it and have passed it on (the patient-rights
-   clause); we never contact the person afterwards.
+   clause, and "A request a patient makes to us" below); we never contact the person
+   afterwards.
 2. **Verify it.** Act on a request that comes from the practice's notice address (the
    one email address on its account, which is the agreement's notice address), or one
    confirmed from it: reply there, or call the practice's published number, before
@@ -670,7 +671,8 @@ calendar's.
 
 1. **Who may direct one.** The practice, from its notice address, verified as for a
    deletion request. A patient who asks us directly is passed to the practice within
-   five business days (docs/incident-response.md, "Patient rights requests").
+   five business days ("A request a patient makes to us" below;
+   docs/incident-response.md, "Patient rights requests").
 2. **Find the record.** Produce the patient's export (`npm run patient-export`) and read
    the id of the contact, booking request, appointment or conversation the practice
    means. Ask the
@@ -716,6 +718,49 @@ destruction delete it with that record, in the same function, and nothing delete
 on its own (drizzle/0064). The portal (M5) must show amendments beside every record it
 shows or exports.
 
+### A request a patient makes to us
+
+BAA 1.5.1 clause 14: when a patient asks healdesk itself, not the practice, to see,
+correct, account for or delete their information, or anything else about it, we do not
+act on it. We pass it to the practice within five business days, and our reply to the
+person says we cannot act on it and have passed it on. That reply is written by a
+person, once; nothing contacts the patient.
+
+1. **Record it, never on the care page.** `npm run ops:patient-request -w @healdesk/app`
+   (`scripts/ops-patient-request.ts`), by ids and closed choices only: the clinic, what
+   was asked (`access`, `amendment`, `accounting`, `deletion` or `other`), the contact it
+   is about when you can name one by its id, when it reached us (an ISO date or time;
+   the five business days run from it), and your work address. Nothing the patient wrote
+   and none of their details are typed or passed, on any host. On the AWS host it is a
+   one-off task with `HEALDESK_PATIENT_REQUEST_CLINIC_ID`, `HEALDESK_PATIENT_REQUEST_KIND`,
+   optionally `HEALDESK_PATIENT_REQUEST_CONTACT_ID` and
+   `HEALDESK_PATIENT_REQUEST_RECEIVED_AT`, and `HEALDESK_OPS_OPERATOR` in its environment
+   set by `bash run-task.sh patient-request <clinic id> <kind> <you@healdesk.io>
+   [received at] [contact id]` in CloudShell. It prints the request's id and the day the
+   practice is asked to mark it received by.
+2. **What the practice gets.** L32 at its one address, a pointer naming the clinic, the
+   kind of request and that day, linking to the request's own page in the portal, which
+   opens behind the passkey step-up and shows the contact it names. Home points at it
+   until someone marks it received.
+3. **When no contact is named** (on the AWS host nothing turns a number or an address into
+   a contact's id), telephone the practice on its published number by that day with who
+   asked and how to reach them. Never email their details.
+4. **Reply to the person** from hello@: we cannot act on the request and have passed it
+   to the practice, which answers them.
+5. **The clock.** "Mark as received" on the request's page is the practice's
+   acknowledgement. Until then the practice is reminded on the second and fourth business
+   days, and ops is told on the fourth (`patient_request_due_soon`: telephone the
+   practice that day) and once the fifth has passed (`patient_request_past_due`: pass
+   it on by telephone, then ask them to mark it).
+6. **What is refused.** A production clinic whose agreement is not in effect, or that has
+   started to leave, and any production clinic while AWS's or the database host's own
+   agreement has lapsed, takes no new patient data, so nothing is recorded: pass the
+   request on by telephone within the five business days instead.
+
+A request is kept for the record clock after it reached us, and goes with the clinic's
+data at destruction. Its contact is not kept for it: when the contact's own clock or the
+practice's deletion takes the person, the request stays without them.
+
 ### Reaching the app's shell
 
 There is no interactive shell on the AWS host, by design: ECS Exec is off
@@ -758,9 +803,10 @@ every booking request whose key is already there, which is all of them, since
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
 person gave before the deletion and after it; 0064's `record_amendments_guard` likewise
-restamps every amendment's `recorded_at`. For such a load the owner disables all four
-by name, loads every table, `booking_request_keys` included, and enables them again, in
-one transaction:
+restamps every amendment's `recorded_at`; and 0092's `patient_requests_guard` restamps
+every patient request's `recorded_at` and refuses every one the practice has already
+marked received. For such a load the owner disables all five by name, loads every
+table, `booking_request_keys` included, and enables them again, in one transaction:
 
 ```sql
 BEGIN;
@@ -768,11 +814,13 @@ ALTER TABLE clinics DISABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests DISABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests DISABLE TRIGGER erasure_requests_guard;
 ALTER TABLE record_amendments DISABLE TRIGGER record_amendments_guard;
+ALTER TABLE patient_requests DISABLE TRIGGER patient_requests_guard;
 -- the data-only load
 ALTER TABLE clinics ENABLE TRIGGER clinics_insert_guard;
 ALTER TABLE booking_requests ENABLE TRIGGER booking_requests_keys_once;
 ALTER TABLE erasure_requests ENABLE TRIGGER erasure_requests_guard;
 ALTER TABLE record_amendments ENABLE TRIGGER record_amendments_guard;
+ALTER TABLE patient_requests ENABLE TRIGGER patient_requests_guard;
 COMMIT;
 ```
 

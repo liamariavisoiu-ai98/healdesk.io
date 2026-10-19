@@ -14,6 +14,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 import { countWebsiteChanges } from "@/lib/website/store";
 
 import { readWaitingCounts, type WaitingCounts } from "./bookings";
+import { readOpenPatientRequests, type OpenPatientRequest } from "./patient-requests";
 
 /**
  * The facts Home reads beyond the setup state, in one tenant transaction:
@@ -23,8 +24,11 @@ import { readWaitingCounts, type WaitingCounts } from "./bookings";
  * for the tracker's "Going live" (lib/onboarding/go-live.ts). After go-live,
  * also the "Waiting for you" counts (lib/portal/bookings.ts), the week's
  * claims (lib/reporting/claims.ts) and the live channels that have gone
- * quiet. Counts and the practice's own account only: none of it names a
- * patient, so Home needs no step-up.
+ * quiet. And, before go-live and after, each patient's request passed to the
+ * practice that nobody has marked received (L32), by its id and its reply-by
+ * day only: the request opens on its own page, behind the step-up. Counts,
+ * ids, days and the practice's own account only: none of it names a patient,
+ * so Home needs no step-up.
  */
 export type HomeFacts = {
   addressUndeliverable: boolean;
@@ -41,6 +45,8 @@ export type HomeFacts = {
   week: Claims | null;
   /** After go-live: live channels that have heard nothing for a week (QUIET_CHANNEL_DAYS). */
   quietChannels: Channel[];
+  /** Patients' requests passed to the practice and not yet marked received (L32): ids and days. */
+  patientRequests: OpenPatientRequest[];
 };
 
 /** Home's week: the seven days to now, the stretch the spec's "this week" covers on any day. */
@@ -84,8 +90,23 @@ export async function readHomeFacts(input: {
           )
         : null,
       quietChannels: live ? await readQuietChannels(tx, channels, now) : [],
+      patientRequests: await readOpenPatientRequests(tx),
     };
   });
+}
+
+/**
+ * The same pointer for a clinic that has started to leave, whose Home shows
+ * nothing else: the BAA's duty to pass a patient's request on lasts while
+ * healdesk holds it.
+ */
+export async function readHomePatientRequests(input: {
+  clinicId: string;
+  actor: ActorContext;
+}): Promise<OpenPatientRequest[]> {
+  return withTenant({ clinicId: input.clinicId, actor: input.actor }, (tx) =>
+    readOpenPatientRequests(tx),
+  );
 }
 
 /** What go-live waits on, as Home says it (lib/onboarding/go-live.ts, goLiveSummary). */

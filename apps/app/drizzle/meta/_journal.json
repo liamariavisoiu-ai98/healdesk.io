@@ -579,8 +579,29 @@
     {
       "idx": 82,
       "version": "7",
-      "when": 1792399330670,
-      "tag": "0082_website_drift",
+      "when": 1792396881328,
+      "tag": "0082_live_alerts",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792396935749,
+      "tag": "0083_operator_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792396963295,
+      "tag": "0084_address_change",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792401598099,
+      "tag": "0085_website_drift",
       "breakpoints": true
     }
   ]

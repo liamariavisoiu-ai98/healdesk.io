@@ -274,7 +274,12 @@ function Overview({
   const total = view.bridges.length;
   const working = view.counts.working;
   const tiles: BridgeStatus[] = ["needs-key", "broken", "to-build", "off", "unknown"];
-  const host = HOST[view.host.state];
+  const host =
+    view.host.cause === "outdated"
+      ? { ...HOST.silent, label: "AWS host answering, but too old to report its keys" }
+      : view.host.cause === "server-error"
+        ? { ...HOST.silent, label: "AWS host answered with an error: its keys can't be checked" }
+        : HOST[view.host.state];
   return (
     <section aria-label="At a glance" className="grid gap-4 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
       <div className="flex items-center gap-5 rounded-lg border border-[rgb(23_42_58/0.1)] bg-white p-5">

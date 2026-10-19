@@ -11,6 +11,7 @@ import {
   isDecidable,
   MISSED_DAYS,
   readBookingsScreen,
+  requestWords,
   withFreeTimes,
   type BookedAppointment,
 } from "@/lib/portal/bookings";
@@ -170,7 +171,7 @@ export default async function BookingsPage({
                   className={`rounded-xl border bg-white p-4 ${focus?.id === r.id ? "border-ink" : "border-line"}`}
                 >
                   <p className="font-semibold">
-                    {r.firstName ?? "Someone"}, through {channelLabel(r.channel, r.platform)}
+                    {r.firstName ?? "Someone"}, {requestWords(r).via}
                   </p>
                   <p className="text-muted mt-1 text-sm">
                     Asked {portalMoment(r.createdAt, zone, now)} for {r.preferredWindow}. Lapsed{" "}
@@ -303,6 +304,7 @@ function RequestCard(props: {
   const unconfirmedDirect = r.bookedVia === "agent_direct" && r.status === "requested";
   const mode =
     r.status === "requested" ? "decide" : r.status === "rescheduling" ? "rescheduling" : "confirm";
+  const words = requestWords(r);
   const lapses =
     r.status === "rescheduling" && r.rescheduleExpiresAt
       ? portalMoment(r.rescheduleExpiresAt, zone, props.now)
@@ -317,15 +319,18 @@ function RequestCard(props: {
         <p className="text-muted text-xs font-bold tracking-[0.06em] uppercase">From your email</p>
       ) : null}
       <h3 id={`request-${r.id}-name`} className="text-lg font-semibold">
-        {r.firstName ?? "Someone"} would like to book
+        {r.firstName ?? "Someone"} {words.headline}
       </h3>
       <p className="text-muted mt-1 text-sm">
-        Through {channelLabel(r.channel, r.platform)}, {portalMoment(r.createdAt, zone, now)}.{" "}
+        {words.via.charAt(0).toUpperCase() + words.via.slice(1)},{" "}
+        {portalMoment(r.createdAt, zone, now)}.{" "}
         {r.status === "accepted"
           ? "You said you'd call to arrange it."
           : r.status === "rescheduling"
             ? "You proposed other times."
-            : "AYA told them you'd call."}
+            : r.source === "contact_form"
+              ? "They were told you'd call them back."
+              : "AYA told them you'd call."}
       </p>
       {unconfirmedDirect ? (
         <p className="bg-tint-butter mt-3 rounded-xl px-3 py-2 text-sm">
@@ -335,7 +340,7 @@ function RequestCard(props: {
       ) : null}
       <CallLink name={r.firstName} phone={r.phone} />
       <dl className="mt-3 grid gap-1 text-sm">
-        <Row label="First choice" value={r.preferredWindow} />
+        <Row label={words.timeLabel} value={r.preferredWindow} />
         {r.alternativeWindows.length ? (
           <Row label="Also works" value={r.alternativeWindows.join("; ")} />
         ) : null}

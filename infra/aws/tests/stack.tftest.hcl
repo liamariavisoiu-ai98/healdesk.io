@@ -1325,10 +1325,19 @@ run "voice_on" {
         for e in one([for c in jsondecode(aws_ecs_task_definition.voice[0].container_definitions) : c if c.name == "app"]).environment : e.name => e.value
         } == merge({
           for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : e.name => e.value
-          if !contains(["KEEP_ALIVE_TIMEOUT", "HEALDESK_SES_EVENTS_TOPIC_ARN"], e.name)
+          if !contains(["KEEP_ALIVE_TIMEOUT", "HEALDESK_SES_EVENTS_TOPIC_ARN", "HEALDESK_VOICE_ENABLED"], e.name)
       }, { PORT = "3001", HOSTNAME = "0.0.0.0" })
     )
-    error_message = "The voice process gets the web tier's plain environment, on PORT 3001 and HOSTNAME 0.0.0.0, without the web tier's keep-alive and SNS topic."
+    error_message = "The voice process gets the web tier's plain environment, on PORT 3001 and HOSTNAME 0.0.0.0, without the web tier's keep-alive, SNS topic and voice flag."
+  }
+
+  # The flag /admin/map reads to tell voice on from a pasted secret alone.
+  assert {
+    condition = contains(
+      [for e in one([for c in jsondecode(aws_ecs_task_definition.web.container_definitions) : c if c.name == "app"]).environment : "${e.name}=${e.value}"],
+      "HEALDESK_VOICE_ENABLED=1",
+    )
+    error_message = "With enable_voice on, the web task must say so in HEALDESK_VOICE_ENABLED, which the ops API's keyPresence reports."
   }
 
   assert {

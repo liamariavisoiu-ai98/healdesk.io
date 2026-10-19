@@ -220,6 +220,8 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   website_changes: "what those reads found on the clinic's website and whether it confirmed or ignored each: its own published business data, no patient",
   report_deliveries: "the ledger of every email sent to the clinic",
   report_recipients: "the clinic's own addresses for its email",
+  sign_in_address_changes:
+    "the record of each change of the clinic's address, the notice address its agreement names; business contact data, no patient (0084)",
   sync_runs: "append-only by grant: what each sync ran, no patient",
   usage_events: "billing evidence: the usage ledger the clinic was charged from",
 };

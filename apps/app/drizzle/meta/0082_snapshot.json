@@ -1,5 +1,5 @@
 {
-  "id": "b765bd12-8202-4d98-a2f8-7bd144eba066",
+  "id": "7d4ab586-6587-4f08-8532-52d447d56b79",
   "prevId": "fd69b6a1-46cc-403b-bb6b-c144df0e149b",
   "version": "7",
   "dialect": "postgresql",
@@ -1960,6 +1960,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'assistant'"
+        },
         "last_inbound_at": {
           "name": "last_inbound_at",
           "type": "timestamp with time zone",
@@ -2140,7 +2147,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "booking_requests_source_known": {
+          "name": "booking_requests_source_known",
+          "value": "\"booking_requests\".\"source\" in ('assistant', 'contact_form')"
+        },
+        "booking_requests_source_shape": {
+          "name": "booking_requests_source_shape",
+          "value": "\"booking_requests\".\"source\" = 'assistant' or (\"booking_requests\".\"channel\" = 'web_chat' and \"booking_requests\".\"conversation_id\" is null and \"booking_requests\".\"vendor_call_id\" is null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.calendar_elections": {
@@ -8549,202 +8565,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.site_rereads": {
-      "name": "site_rereads",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reason": {
-          "name": "reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'queued'"
-        },
-        "website": {
-          "name": "website",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "requested_at": {
-          "name": "requested_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "run_after": {
-          "name": "run_after",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "lease_until": {
-          "name": "lease_until",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempts": {
-          "name": "attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "failure": {
-          "name": "failure",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "changes": {
-          "name": "changes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "site_rereads_queued_idx": {
-          "name": "site_rereads_queued_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"site_rereads\".\"status\" = 'queued'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "site_rereads_running_idx": {
-          "name": "site_rereads_running_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"site_rereads\".\"status\" = 'running'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "site_rereads_clinic_idx": {
-          "name": "site_rereads_clinic_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "requested_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "site_rereads_clinic_id_clinics_id_fk": {
-          "name": "site_rereads_clinic_id_clinics_id_fk",
-          "tableFrom": "site_rereads",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "site_rereads_clinic_read_key": {
-          "name": "site_rereads_clinic_read_key",
-          "nullsNotDistinct": false,
-          "columns": [
-            "clinic_id",
-            "id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "site_rereads_reason_check": {
-          "name": "site_rereads_reason_check",
-          "value": "\"site_rereads\".\"reason\" in ('missing', 'corrected', 'drift', 'ops')"
-        },
-        "site_rereads_status_check": {
-          "name": "site_rereads_status_check",
-          "value": "\"site_rereads\".\"status\" in ('queued', 'running', 'read', 'failed', 'superseded')"
-        },
-        "site_rereads_failure_check": {
-          "name": "site_rereads_failure_check",
-          "value": "\"site_rereads\".\"failure\" is null or \"site_rereads\".\"failure\" in ('unreadable', 'rate_limited', 'unavailable', 'network', 'refused', 'invalid')"
-        },
-        "site_rereads_website_check": {
-          "name": "site_rereads_website_check",
-          "value": "char_length(\"site_rereads\".\"website\") between 4 and 200 and \"site_rereads\".\"website\" !~ '[[:space:][:cntrl:]]'"
-        },
-        "site_rereads_attempts_check": {
-          "name": "site_rereads_attempts_check",
-          "value": "\"site_rereads\".\"attempts\" >= 0"
-        },
-        "site_rereads_changes_check": {
-          "name": "site_rereads_changes_check",
-          "value": "\"site_rereads\".\"changes\" is null or \"site_rereads\".\"changes\" >= 0"
-        },
-        "site_rereads_finished_check": {
-          "name": "site_rereads_finished_check",
-          "value": "(\"site_rereads\".\"status\" in ('read', 'failed', 'superseded')) = (\"site_rereads\".\"finished_at\" is not null)"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.slot_holds": {
       "name": "slot_holds",
       "schema": "",
@@ -10961,206 +10781,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.website_changes": {
-      "name": "website_changes",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "clinic_id": {
-          "name": "clinic_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "reread_id": {
-          "name": "reread_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "section": {
-          "name": "section",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "item_key": {
-          "name": "item_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "fingerprint": {
-          "name": "fingerprint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "before": {
-          "name": "before",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "after": {
-          "name": "after",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'new'"
-        },
-        "detected_at": {
-          "name": "detected_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "decided_at": {
-          "name": "decided_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "decided_by_label": {
-          "name": "decided_by_label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "website_changes_fingerprint_idx": {
-          "name": "website_changes_fingerprint_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "fingerprint",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "website_changes_new_idx": {
-          "name": "website_changes_new_idx",
-          "columns": [
-            {
-              "expression": "clinic_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "detected_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"website_changes\".\"state\" = 'new'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "website_changes_clinic_id_clinics_id_fk": {
-          "name": "website_changes_clinic_id_clinics_id_fk",
-          "tableFrom": "website_changes",
-          "tableTo": "clinics",
-          "columnsFrom": [
-            "clinic_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "website_changes_reread_fk": {
-          "name": "website_changes_reread_fk",
-          "tableFrom": "website_changes",
-          "tableTo": "site_rereads",
-          "columnsFrom": [
-            "clinic_id",
-            "reread_id"
-          ],
-          "columnsTo": [
-            "clinic_id",
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "website_changes_section_check": {
-          "name": "website_changes_section_check",
-          "value": "\"website_changes\".\"section\" in ('practice', 'prices', 'hours', 'providers', 'policies', 'quick_answers')"
-        },
-        "website_changes_kind_check": {
-          "name": "website_changes_kind_check",
-          "value": "\"website_changes\".\"kind\" in ('added', 'removed', 'changed')"
-        },
-        "website_changes_state_check": {
-          "name": "website_changes_state_check",
-          "value": "\"website_changes\".\"state\" in ('new', 'confirmed', 'ignored', 'superseded')"
-        },
-        "website_changes_fingerprint_check": {
-          "name": "website_changes_fingerprint_check",
-          "value": "\"website_changes\".\"fingerprint\" ~ '^[0-9a-f]{64}$'"
-        },
-        "website_changes_item_key_check": {
-          "name": "website_changes_item_key_check",
-          "value": "char_length(\"website_changes\".\"item_key\") between 1 and 300 and \"website_changes\".\"item_key\" !~ '[[:cntrl:]]'"
-        },
-        "website_changes_values_check": {
-          "name": "website_changes_values_check",
-          "value": "(\"website_changes\".\"kind\" = 'added' and \"website_changes\".\"before\" is null and \"website_changes\".\"after\" is not null) or (\"website_changes\".\"kind\" = 'removed' and \"website_changes\".\"before\" is not null and \"website_changes\".\"after\" is null) or (\"website_changes\".\"kind\" = 'changed' and \"website_changes\".\"before\" is not null and \"website_changes\".\"after\" is not null)"
-        },
-        "website_changes_decided_check": {
-          "name": "website_changes_decided_check",
-          "value": "(\"website_changes\".\"state\" in ('confirmed', 'ignored')) = (\"website_changes\".\"decided_at\" is not null) and (\"website_changes\".\"decided_at\" is null) = (\"website_changes\".\"decided_by_label\" is null)"
-        },
-        "website_changes_decided_by_check": {
-          "name": "website_changes_decided_by_check",
-          "value": "\"website_changes\".\"decided_by_label\" is null or char_length(\"website_changes\".\"decided_by_label\") between 1 and 200"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.account": {

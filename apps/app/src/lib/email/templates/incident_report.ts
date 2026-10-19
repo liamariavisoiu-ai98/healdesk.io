@@ -36,8 +36,11 @@ import type { EmailTemplate } from "./types";
  *
  * The identification of each person affected is never emailed (X5): Resend
  * carries this email and signs no business associate agreement. A breach
- * report says that list comes separately, by secure transfer, as the
- * agreement provides. Nor does the email state any deadline: the
+ * report points to the incident's page in the portal instead (`listUrl`,
+ * wave 2 R11), where the practice reads the list behind its passkey step-up
+ * (lib/portal/incidents.ts): the secure transfer the agreement's Safeguards
+ * clause provides. A report queued before that page existed carries no
+ * link and says the list comes by secure transfer, as it did. Nor does the email state any deadline: the
  * agreements' is "without unreasonable delay and in no case later than 60
  * calendar days", and healdesk's own 24-hour target is internal (owner,
  * 12 October 2026). A report is as complete as healdesk can make it when it
@@ -60,6 +63,12 @@ export type IncidentReportPayload = {
   mitigationRows: readonly { code: IncidentMitigation }[];
   /** An update to an earlier report about the same incident. */
   isUpdate: boolean;
+  /**
+   * A breach's: the incident's page in the portal, where the list of who it
+   * affected is read behind the passkey step-up. publicUrl of
+   * /c/<slug>/incidents/<id>; absent on a report queued before the page.
+   */
+  listUrl?: string;
 };
 
 const WHAT: Record<ReportableClass, { subject: string; noun: string }> = {
@@ -140,14 +149,22 @@ export const renderIncidentReport: EmailTemplate<IncidentReportPayload> = (paylo
             text: "We'll tell you what we've done about it in an update.",
           },
         ] as const)),
-    ...(payload.kind === "breach"
+    ...(payload.kind === "breach" && payload.listUrl
       ? ([
           {
             type: "paragraph",
-            text: "This email names no one. We'll give you the identification of each person affected separately, by secure transfer, as your agreement provides, along with anything else you need for notices of your own.",
+            text: `This email names no one. The identification of each ${ctx.audience === "clients" ? "client" : "patient"} affected is on this incident's page in healdesk, behind your passkey, as your agreement provides: it's never emailed. We'll tell you in an update if it isn't complete yet.`,
           },
+          { type: "action", label: "See who was affected", url: payload.listUrl },
         ] as const)
-      : []),
+      : payload.kind === "breach"
+        ? ([
+            {
+              type: "paragraph",
+              text: "This email names no one. We'll give you the identification of each person affected separately, by secure transfer, as your agreement provides, along with anything else you need for notices of your own.",
+            },
+          ] as const)
+        : []),
     {
       type: "paragraph",
       text: "This report is as complete as we can make it today, and we'll add to it as we learn more.",
@@ -186,3 +203,4 @@ export const INCIDENT_REPORT_ENTRY: TemplateEntry<IncidentReportPayload> = {
     isUpdate: false,
   },
 };
+

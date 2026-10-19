@@ -11,7 +11,8 @@ import ts from "typescript";
  * comment, an arrow function, a directive without a semicolon or a helper in
  * another file does not get past it.
  *
- * For every file under a `conversations/` or `bookings/` directory:
+ * For every file under a `conversations/`, `bookings/` or `incidents/`
+ * directory (the last, the incident's list of who it affected, L29):
  *
  * 1. **Entry points take the step-up.** A page's default export, a route's
  *    exported handlers and every export of a "use server" file call
@@ -84,14 +85,14 @@ const WITH_PATIENT_PAGE = "src/lib/portal/patient-page.ts#withPatientPage";
 
 export type Finding = { file: string; line: number; message: string };
 
-/** Every .ts and .tsx file under `conversations/` or `bookings/` below `dir`. */
+/** Every .ts and .tsx file under `conversations/`, `bookings/` or `incidents/` below `dir`. */
 export function patientScreenFiles(dir: string): string[] {
   const out: string[] = [];
   const walk = (at: string, inside: boolean) => {
     for (const name of readdirSync(at)) {
       const path = join(at, name);
       if (statSync(path).isDirectory()) {
-        walk(path, inside || name === "conversations" || name === "bookings");
+        walk(path, inside || name === "conversations" || name === "bookings" || name === "incidents");
       } else if (inside && /\.tsx?$/.test(name)) {
         out.push(path);
       }

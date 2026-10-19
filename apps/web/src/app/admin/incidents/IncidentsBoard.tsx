@@ -52,6 +52,21 @@ const INFO_TYPES = Object.entries(INCIDENT_INFORMATION_TYPES) as [
 ][];
 const MITIGATIONS = Object.entries(INCIDENT_MITIGATIONS) as [IncidentMitigation, string][];
 
+/**
+ * The list of who an incident affected, as the console says it: a count,
+ * never who, and how it is recorded (from the app's own shell, by contact
+ * id; never here, since the list is patient information and this console
+ * is on the side without a business associate agreement).
+ */
+export function affectedLine(count: number | null): string {
+  if (count === null) return "Not known here until apps/app is deployed.";
+  const how =
+    "Record it from the app's shell by contact id (npm run ops:incident-affected); the practice reads it on the incident's page in its portal, behind its passkey, once a report has gone. The report itself never names anyone.";
+  return count === 0
+    ? `No one recorded yet. ${how}`
+    : `${count} ${count === 1 ? "person" : "people"} recorded. ${how}`;
+}
+
 function describe(result: OpsResult<{ status: string; message?: string }>): string | null {
   if (!result.ok) return result.message;
   if (result.data.status === "refused") return result.data.message ?? "Refused.";
@@ -188,6 +203,12 @@ function IncidentCard({
                   : "Waiting"}
           {incident.notifiedAt ? ` · practice told ${incident.notifiedAt}` : ""}
         </dd>
+        {incident.class !== "service_complaint" ? (
+          <>
+            <dt className="text-muted font-bold uppercase">Who it affected</dt>
+            <dd>{affectedLine(incident.affectedCount)}</dd>
+          </>
+        ) : null}
       </dl>
 
       {decidable ? (

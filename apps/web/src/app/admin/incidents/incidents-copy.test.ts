@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 
 import type { IncidentRegisterRow, OpsResult } from "@/lib/admin/ops-client";
 
-import { IncidentsBoard } from "./IncidentsBoard";
+import { affectedLine, IncidentsBoard } from "./IncidentsBoard";
 
 /**
  * What /admin/incidents tells the operator about each incident's clock (WP7):
@@ -52,6 +52,7 @@ const ROW: IncidentRegisterRow = {
   decidedBy: null,
   resolvedAt: null,
   openedBy: "ops@healdesk.test",
+  affectedCount: 0,
 };
 
 function board(rows: IncidentRegisterRow[], now = "2026-10-07T12:00:00.000Z"): string {
@@ -118,5 +119,20 @@ describe("the incidents page", () => {
     expect(board([{ ...ROW, agreementVersion: null }])).toContain(
       "(no agreement on file: the strictest rule)",
     );
+  });
+
+  test("who an incident affected is a count and where it is recorded, never who, and unknown before apps/app has it", () => {
+    const none = board([ROW]);
+    expect(none).toContain("Who it affected No one recorded yet.");
+    expect(none).toContain("npm run ops:incident-affected");
+    expect(none).toContain("The report itself never names anyone.");
+    expect(board([{ ...ROW, affectedCount: 3 }])).toContain("3 people recorded.");
+    expect(affectedLine(1)).toMatch(/^1 person recorded\./);
+    // An apps/app before its deploy sends no count: said as unknown, never as none.
+    expect(board([{ ...ROW, affectedCount: null }])).toContain(
+      "Not known here until apps/app is deployed.",
+    );
+    // A service complaint affects no one an agreement reports.
+    expect(board([{ ...ROW, class: "service_complaint" }])).not.toContain("Who it affected");
   });
 });

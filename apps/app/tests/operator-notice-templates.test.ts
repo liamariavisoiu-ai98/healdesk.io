@@ -119,6 +119,29 @@ describe("the incident report (L29)", () => {
     expect(incident).not.toContain("secure transfer");
   });
 
+  test("a breach's report since the incident's page points there for the list, behind the passkey, and names no one", () => {
+    const listUrl = `${ORIGIN}/c/radiance/incidents/5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a`;
+    const email = renderIncidentReport({ ...base, listUrl }, CTX);
+    const text = all(email);
+    expect(text).toContain("This email names no one.");
+    expect(text).toContain(
+      "The identification of each patient affected is on this incident's page in healdesk, behind your passkey",
+    );
+    expect(text).toContain("it's never emailed");
+    expect(text).toContain(`See who was affected: ${listUrl}`);
+    expect(text).not.toContain("secure transfer");
+    expect(linkProblems(email, "incident_report")).toEqual([]);
+    expect(() => assertPayloadAllowed({ ...base, listUrl }, "incident_report")).not.toThrow();
+    // A vet's clients, in its own word; and no other class carries the link.
+    expect(all(renderIncidentReport({ ...base, listUrl }, { ...CTX, audience: "clients" }))).toContain(
+      "each client affected",
+    );
+    expect(all(renderIncidentReport({ ...base, kind: "security_incident", listUrl }, CTX))).not.toContain(
+      "See who was affected",
+    );
+    expect(email).toMatchSnapshot();
+  });
+
   test("states no deadline, so no reporting promise of 24 hours or five days can reach a practice", () => {
     for (const kind of ["breach", "security_incident", "improper_use_or_disclosure"] as const) {
       for (const isUpdate of [false, true]) {

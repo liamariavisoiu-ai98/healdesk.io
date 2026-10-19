@@ -26,7 +26,7 @@ import {
 } from "@healdesk/catalog";
 import { and, desc, eq, gte, inArray } from "drizzle-orm";
 
-import { billingNotices, incidents } from "@/db/schema";
+import { billingNotices, clinics, incidents } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { resolveBillingClinicId } from "@/lib/billing/billing-clinic";
 import { getEntitlementsForUpdate } from "@/lib/billing/entitlements";
@@ -35,6 +35,7 @@ import { canTransition, transition } from "@/lib/billing/state-machine";
 import { isDemoClinic } from "@/lib/booking/terms";
 import type { NoticeKind, PlanNoticeKind } from "@/lib/email/kinds";
 import { deliverCriticalAfterCommit, MAX_NOTICE_ATTEMPTS } from "@/lib/email/outbox";
+import { countAffected, incidentPagePath } from "@/lib/incidents/affected";
 import {
   incidentForDecision,
   recordNotReportable,
@@ -49,7 +50,7 @@ import {
 } from "@/lib/incidents/reporting-rules";
 import { describeError, log } from "@/lib/log";
 import { listClinics, type ClinicOverview } from "@/lib/ops/clinics";
-import { publicUrl } from "@/lib/public-url";
+import { publicOriginProblem, publicUrl } from "@/lib/public-url";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { enqueuePlanNotice, type PlanNoticePayloads } from "./plan-notices";
@@ -483,6 +484,10 @@ export async function sendIncidentReport(
 
       const n = row.reportsSent + 1;
       const key = `incident_report:${row.id}:${n}`;
+      // A breach's report points to the incident's page, where the practice
+      // reads who it affected behind its passkey (lib/portal/incidents.ts):
+      // the list is never emailed (X5, L29).
+      const listUrl = row.class === "breach" ? await incidentListUrl(tx, row.id) : null;
       await enqueuePlanNotice(tx.db, tx.clinicId, "incident_report", key, {
         kind: row.class,
         event: fields.event,
@@ -491,6 +496,7 @@ export async function sendIncidentReport(
         infoRows: fields.infoRows,
         mitigationRows: fields.mitigationRows,
         isUpdate: n > 1,
+        ...(listUrl ? { listUrl } : {}),
       });
       const noticeId = await noticeIdOf(tx, "incident_report", key);
       const report = await recordReportQueued(tx, row.id, {
@@ -523,6 +529,29 @@ export async function markIncidentNotReportable(
       ? { status: "updated" as const }
       : refuse("No open incident with that id at this clinic.");
   });
+}
+
+/**
+ * The incident's page in the portal, on the public origin, or null when there
+ * is none to compose it from: the report then says the list comes by secure
+ * transfer, and the critical report still goes.
+ */
+async function incidentListUrl(tx: TenantTx, incidentId: string): Promise<string | null> {
+  const [clinic] = await tx.db
+    .select({ slug: clinics.slug })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (!clinic || publicOriginProblem()) return null;
+  try {
+    return publicUrl(incidentPagePath(clinic.slug, incidentId));
+  } catch (error) {
+    log.error("incident report: no link to the incident's page", {
+      clinicId: tx.clinicId,
+      error: describeError(error),
+    });
+    return null;
+  }
 }
 
 async function noticeIdOf(tx: TenantTx, kind: PlanNoticeKind, dedupeKey: string): Promise<string> {
@@ -895,6 +924,12 @@ export type IncidentRegisterRow = {
   decidedBy: string | null;
   resolvedAt: string | null;
   openedBy: string;
+  /**
+   * How many people the incident's list names (lib/incidents/affected.ts): a
+   * count, never who. The practice reads them on the incident's page once a
+   * report has gone; the operator records them from the app's shell.
+   */
+  affectedCount: number;
 };
 
 /** How long a resolved incident stays on the cross-practice page. */
@@ -927,7 +962,10 @@ export async function incidentRegister(
           metadata: { purpose: "incident_register" },
         });
       }
-      return shown;
+      const counted = await Promise.all(
+        shown.map(async (i) => ({ ...i, affectedCount: await countAffected(tx, i.id) })),
+      );
+      return counted;
     });
     for (const i of rows) {
       out.push({
@@ -952,6 +990,7 @@ export async function incidentRegister(
         decidedBy: i.decidedBy,
         resolvedAt: i.resolvedAt?.toISOString() ?? null,
         openedBy: i.openedBy,
+        affectedCount: i.affectedCount,
       });
     }
   }

@@ -105,6 +105,18 @@ describe("the incidents page", () => {
     });
   });
 
+  test("each incident's list of who it affected is read as a count, and an older apps/app's reply as unknown", async () => {
+    reply({ data: { incidents: [{ ...REGISTER_ROW, affectedCount: 4 }] } });
+    const now = await fetchIncidentRegister();
+    expect(now.ok && now.data[0]!.affectedCount).toBe(4);
+    // apps/web is live before apps/app is deployed: the reply without the count still reads.
+    reply({ data: { incidents: [REGISTER_ROW] } });
+    const before = await fetchIncidentRegister();
+    expect(before.ok && before.data[0]!.affectedCount).toBeNull();
+    reply({ data: { incidents: [{ ...REGISTER_ROW, affectedCount: -1 }] } });
+    expect((await fetchIncidentRegister()).ok).toBe(false);
+  });
+
   test("an incident without its internal target, or with a class it doesn't know, is not shown half-read", async () => {
     reply({ data: { incidents: [{ ...REGISTER_ROW, targetNotifyBy: undefined }] } });
     expect((await fetchIncidentRegister()).ok).toBe(false);

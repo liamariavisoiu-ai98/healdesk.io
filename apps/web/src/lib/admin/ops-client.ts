@@ -4363,6 +4363,12 @@ export type IncidentRegisterRow = {
   decidedBy: string | null;
   resolvedAt: string | null;
   openedBy: string;
+  /**
+   * How many people the incident's list names (wave 2 R11): a count, never
+   * who. Null from an apps/app that predates the list, which is read as
+   * "not known here", never as zero.
+   */
+  affectedCount: number | null;
 };
 
 function readIncidentRegisterRow(entry: unknown): IncidentRegisterRow {
@@ -4396,6 +4402,11 @@ function readIncidentRegisterRow(entry: unknown): IncidentRegisterRow {
     decidedBy: optionalText(i.decidedBy, "incidentRegister.decidedBy"),
     resolvedAt: optionalInstant(i.resolvedAt, "incidentRegister.resolvedAt")?.at ?? null,
     openedBy: text(i.openedBy, "incidentRegister.openedBy"),
+    // apps/web goes live before apps/app does: an older reply has no count.
+    affectedCount:
+      i.affectedCount === undefined || i.affectedCount === null
+        ? null
+        : count(i.affectedCount, "incidentRegister.affectedCount"),
   };
 }
 

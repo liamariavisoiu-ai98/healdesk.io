@@ -1,0 +1,78 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the incident report (L29) > a breach's report since the incident's page points there for the list, behind the passkey, and names no one 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>healdesk incident report: a breach</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+  a.hd-action { background: #e6edf3 !important; color: #0d1117 !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;">
+<span style="display:none;max-height:0;overflow:hidden;opacity:0;mso-hide:all;">What happened, when, what was involved and what we&#39;ve done.</span>
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;font-size:16px;line-height:1.5;color:#1f2328;background:#ffffff;">
+<p style="margin:0 0 16px;">We&#39;re reporting a breach of information your agreement with healdesk protects, as that agreement requires. It involves information healdesk handles for Radiance Med Spa.</p>
+<p style="margin:0 0 16px;">What happened: An email carrying information about people who contacted your practice went to a recipient who should not have received it.</p>
+<p style="margin:0 0 4px;"><strong>When it happened:</strong> Sunday 4 October</p>
+<p style="margin:0 0 4px;"><strong>When we discovered it:</strong> Monday 5 October</p>
+<p style="margin:0 0 16px;">The information involved:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>3 first names</li><li>3 phone numbers</li><li>1 conversation transcript</li></ul>
+<p style="margin:0 0 16px;">What we&#39;ve done:</p>
+<ul style="margin:0 0 16px;padding-left:20px;"><li>We asked the recipient to delete what they received, and they confirmed that they have.</li><li>We fixed the fault that caused it.</li></ul>
+<p style="margin:0 0 16px;">This email names no one. The identification of each patient affected is on this incident&#39;s page in healdesk, behind your passkey, as your agreement provides: it&#39;s never emailed. We&#39;ll tell you in an update if it isn&#39;t complete yet.</p>
+<p style="margin:16px 0 24px;"><a class="hd-action" href="https://app.healdesk.test/c/radiance/incidents/5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a" style="display:inline-block;background:#1f2328;color:#ffffff;padding:10px 16px;border-radius:6px;text-decoration:none;font-weight:600;">See who was affected</a></p>
+<p style="margin:0 0 16px;">This report is as complete as we can make it today, and we&#39;ll add to it as we learn more.</p>
+<p style="margin:0 0 16px;">Your contact at healdesk: reply to this email, or write to hello@healdesk.io.</p>
+<hr style="border:none;border-top:1px solid #d0d7de;margin:24px 0 16px;">
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You&#39;re receiving this because this is the address on Radiance Med Spa&#39;s healdesk account.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p>
+<p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "What happened, when, what was involved and what we've done.",
+  "subject": "healdesk incident report: a breach",
+  "text": "We're reporting a breach of information your agreement with healdesk protects, as that agreement requires. It involves information healdesk handles for Radiance Med Spa.
+
+What happened: An email carrying information about people who contacted your practice went to a recipient who should not have received it.
+
+When it happened: Sunday 4 October
+When we discovered it: Monday 5 October
+
+The information involved:
+
+- 3 first names
+- 3 phone numbers
+- 1 conversation transcript
+
+What we've done:
+
+- We asked the recipient to delete what they received, and they confirmed that they have.
+- We fixed the fault that caused it.
+
+This email names no one. The identification of each patient affected is on this incident's page in healdesk, behind your passkey, as your agreement provides: it's never emailed. We'll tell you in an update if it isn't complete yet.
+
+See who was affected: https://app.healdesk.test/c/radiance/incidents/5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a
+
+This report is as complete as we can make it today, and we'll add to it as we learn more.
+
+Your contact at healdesk: reply to this email, or write to hello@healdesk.io.
+
+—
+You're receiving this because this is the address on Radiance Med Spa's healdesk account.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States
+",
+}
+`;

@@ -247,6 +247,9 @@ describeDb("the operator's notices and the incidents page (WP7)", () => {
         ],
         mitigationRows: [{ code: "recipient_confirmed_deletion" }, { code: "fault_fixed" }],
         isUpdate: false,
+        // A breach's report points to the incident's page, where the list of
+        // who it affected is read behind the passkey (wave 2 R11).
+        listUrl: `${ORIGIN}/c/${c.slug}/incidents/${i.id}`,
       });
       expect(JSON.stringify(row!.payload)).not.toMatch(/Jane|555/);
 

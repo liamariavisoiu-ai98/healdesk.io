@@ -13,7 +13,7 @@ import {
 } from "@/lib/email/voice-follow-up";
 import { isValidEmail } from "@/lib/gate";
 import { canEmail, leadForCommercialEmail } from "@/lib/leads";
-import { rateLimit } from "@/lib/rate-limit";
+import { rateLimit, releaseRateLimit, takeRateLimit } from "@/lib/rate-limit";
 import { verifyRetellSignature } from "@/lib/retell-signature";
 import { site } from "@/lib/site";
 
@@ -70,10 +70,11 @@ const PER_CALL_LIMIT = 3;
 const PER_CALL_WINDOW_MS = 60 * 60 * 1000;
 
 /**
- * Bounds the day's mail, not a person: each "start" is two emails, and
- * Resend's free plan stops every email at 100 a day, sign-in links and urgent
- * alerts included. Shared across instances (lib/rate-limit.ts). Demo calls
- * are capped upstream too.
+ * The day's emails from AYA's demo calls, not their requests: a "start" is
+ * two emails and takes two places, anything else one. Resend's free plan
+ * stops every email at 100 a day, sign-in links and urgent alerts included.
+ * Shared across instances (lib/rate-limit.ts). Demo calls are capped upstream
+ * too.
  */
 const DAILY_LIMIT = 20;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -168,8 +169,19 @@ export async function POST(request: Request): Promise<NextResponse> {
   }
 
   const perCall = await rateLimit(`voice-followup:call:${callId}`, PER_CALL_LIMIT, PER_CALL_WINDOW_MS);
-  const daily = perCall.ok ? await rateLimit("voice-followup:day", DAILY_LIMIT, DAY_MS) : perCall;
-  if (!perCall.ok || !daily.ok) {
+  // One of the day's places per email this request sends, each taken only if
+  // free, and all given back if they cannot all be had.
+  let dailyOk = perCall.ok;
+  if (perCall.ok) {
+    const emails = topic === "start" ? 2 : 1;
+    let taken = 0;
+    while (taken < emails && (await takeRateLimit("voice-followup:day", DAILY_LIMIT, DAY_MS)).ok) taken += 1;
+    if (taken < emails) {
+      for (let i = 0; i < taken; i += 1) await releaseRateLimit("voice-followup:day");
+      dailyOk = false;
+    }
+  }
+  if (!perCall.ok || !dailyOk) {
     return reply(false, `Already sent for this call. If something changed, give them ${site.email}.`, 429);
   }
 

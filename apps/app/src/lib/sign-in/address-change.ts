@@ -662,8 +662,9 @@ async function applyChange(changeId: string, clinicId: string): Promise<ApplyOut
     }
   }
 
+  let outcome: ApplyOutcome | "failed_sign_in_changed";
   try {
-    return await withTenant({ clinicId, actor: JOB_ACTOR }, async (tx) => {
+    outcome = await withTenant({ clinicId, actor: JOB_ACTOR }, async (tx) => {
       const [locked] = await tx.db
         .select({ status: signInAddressChanges.status })
         .from(signInAddressChanges)
@@ -678,8 +679,9 @@ async function applyChange(changeId: string, clinicId: string): Promise<ApplyOut
         .where(and(eq(user.id, change.userId), sql`lower(${user.email}) = ${change.oldEmail}`))
         .returning({ id: user.id });
       if (moved.length === 0) {
-        await resolveFailed(tx, change, "sign_in_changed");
-        return "failed" as const;
+        return (await resolveFailed(tx, change, "sign_in_changed"))
+          ? ("failed_sign_in_changed" as const)
+          : ("skipped" as const);
       }
 
       await tx.db
@@ -749,6 +751,12 @@ async function applyChange(changeId: string, clinicId: string): Promise<ApplyOut
     if (isUniqueViolation(error)) return failChange(change, clinicId, "address_taken");
     throw error;
   }
+  // Told after the transaction, so no email waits on an open one.
+  if (outcome === "failed_sign_in_changed") {
+    await notifyOps("address_change_failed", { clinicId, code: "sign_in_changed" });
+    return "failed";
+  }
+  return outcome;
 }
 
 /** Every Stripe customer the sign-in's clinics are billed on, once each. */
@@ -771,7 +779,9 @@ async function failChange(
   const failed = await withTenant({ clinicId, actor: JOB_ACTOR }, (tx) =>
     resolveFailed(tx, change, code),
   );
-  return failed ? "failed" : "skipped";
+  if (!failed) return "skipped";
+  await notifyOps("address_change_failed", { clinicId, code });
+  return "failed";
 }
 
 async function resolveFailed(
@@ -791,7 +801,6 @@ async function resolveFailed(
     userId: change.userId,
     metadata: { changeId: change.id, clinicId: tx.clinicId, code },
   });
-  await notifyOps("address_change_failed", { clinicId: tx.clinicId, code });
   return true;
 }
 

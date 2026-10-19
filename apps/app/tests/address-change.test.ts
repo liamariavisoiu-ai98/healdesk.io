@@ -393,6 +393,26 @@ describeDb("a change of the clinic's address", () => {
     expect(failed[0]!.metadata).toMatchObject({ code: "address_taken" });
   });
 
+  test("a sign-in whose address moved some other way in the meantime closes the change without effect", async () => {
+    const { sent, transport } = fakeTransport();
+    const asked = await ask("front@radiance.test", transport);
+    if (asked.status !== "requested") throw new Error("not requested");
+    await confirmAddressChange(confirmTokenIn(sent[0]!.message.text), {}, { transport });
+    await getMigratorPool().query(
+      `update "user" set email = 'elsewhere@radiance.test' where id = $1`,
+      [clinic.staffUserId],
+    );
+    await makeDue(clinic.clinicId, asked.change.id);
+    expect(await runAddressChangesJob()).toMatchObject({ applied: 0, failed: 1 });
+    expect(await userEmail(clinic.staffUserId)).toBe("elsewhere@radiance.test");
+    const failed = await events("sign_in_address_change_failed");
+    expect(failed[0]!.metadata).toMatchObject({ code: "sign_in_changed" });
+    const { rows } = await getMigratorPool().query<{ n: number }>(
+      `select count(*)::int as n from ops_alerts where event = 'address_change_failed'`,
+    );
+    expect(rows[0]!.n).toBeGreaterThan(0);
+  });
+
   test("an unused link closes after its 72 hours", async () => {
     const { transport } = fakeTransport();
     const asked = await ask("front@radiance.test", transport);

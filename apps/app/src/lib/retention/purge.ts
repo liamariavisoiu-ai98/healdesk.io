@@ -71,7 +71,7 @@ import type { TenantTx } from "@/lib/tenant";
  * night the booking request, appointment or conversation it amends goes, in
  * the same call, and never before.
  *
- * ## The periods, as BAA 1.3.0's, 1.4.0's and 1.5.0's clause 11 state them
+ * ## The periods, as BAA 1.3.0's, 1.4.0's, 1.5.0's and 1.5.1's clause 11 state them
  *
  * The record clock is the clinic's `retention_record_days`
  * (TRANSCRIPT_RETENTION_DAYS, 90, unless the practice shortens it):

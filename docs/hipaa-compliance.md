@@ -199,7 +199,7 @@ for.
 - **Minimum necessary.** Don't collect a DOB because the form looked incomplete.
 - **Audit logging.** Every PHI access — who, what, when — including every transcript
   opened in the portal, which also requires a second factor.
-- **Retention policy.** Transcripts are not stored (owner, 13 October 2026; BAA 1.5.0
+- **Retention policy.** Transcripts are not stored (owner, 13 October 2026; BAA 1.5.1
   clause 11): each call's and web chat's is emailed to the clinic when it ends, and the
   one sealed copy kept to send it again is deleted the moment SES reports the clinic's
   mail server took it; a failed or returned email is sent again until it is delivered,

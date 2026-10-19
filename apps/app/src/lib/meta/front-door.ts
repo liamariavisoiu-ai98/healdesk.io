@@ -72,7 +72,7 @@ import { openMetaConversation, type MetaConversation } from "./greeting";
  * the pre-v1 request taker until they do.
  *
  * Every message is screened before the model sees it, as clause 16 of the
- * agreement in force says (BAA 1.5.0, unchanged since 1.3.0: "healdesk checks
+ * agreement in force says (BAA 1.5.1, unchanged since 1.3.0: "healdesk checks
  * each message a person sends there for clinical content before the language
  * model sees it, and keeps no message there and no summary of one";
  * docs/counsel/agreement-changes.md §12.14, gate 4, PT-12). The screen, like

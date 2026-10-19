@@ -100,7 +100,7 @@ At least six months' notice before a service leaves the list, less under the
 §1 carve-outs; 90 days if AWS terminates (§5.2). Notices go to the account's
 contact addresses: its security, operations and billing alternate contacts all
 name the Security Official at hello@healdesk.io (set 13 October 2026). Our clinic BAA
-(1.2.2, 1.3.0, 1.4.0, and 1.5.0, the floor since 14 October 2026; `packages/catalog/src/baa.ts`) promises notice without unreasonable
+(1.2.2, 1.3.0, 1.4.0, 1.5.0, and 1.5.1, the floor since 19 October 2026; `packages/catalog/src/baa.ts`) promises notice without unreasonable
 delay and in no case later than 60 calendar days after our discovery, and we
 work to 24 hours internally ([incident-response.md](../incident-response.md));
 §6 makes neither party the other's agent, so both clocks start when AWS's

@@ -60,7 +60,11 @@ type OwedPayload = never;
 
 /** What each plan kind carries. No PHI: counts, ISO dates, channel ids, our own URLs. */
 export type PlanNoticePayloads = {
-  /** Dedupe `setup_reminder:<n>`, n from 1 to 6. */
+  /**
+   * Dedupe `setup_reminder:<n>`, n from 1 to 6, before a channel is live;
+   * then `setup_reminder:live:<channels>`, the channels it names sorted and
+   * joined with "+", each named once (lib/setup/reminders.ts).
+   */
   setup_reminder: SetupReminderPayload;
   /** Dedupe `setup_closed`: once per clinic. */
   setup_closed: SetupClosedPayload;

@@ -85,6 +85,12 @@ import {
 } from "../lib/engine/practice/types";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 import {
+  CHANNEL_NAMES,
+  CONVERSATION_OUTCOMES,
+  type ConversationChannel,
+  type ConversationOutcome,
+} from "../lib/portal/conversation-words";
+import {
   SETTINGS_HISTORY_FIELDS,
   SETUP_SCREEN_OUTCOMES,
   SETUP_SCREENS,
@@ -943,7 +949,7 @@ export const contacts = pgTable(
       .on(t.clinicId, t.externalSource, t.externalContactId)
       .where(sql`${t.externalContactId} is not null`),
     // The key a patient's request names its contact by, with the clinic
-    // (patient_requests_contact_fk, drizzle/0092), so a request can only name
+    // (patient_requests_contact_fk, drizzle/0093), so a request can only name
     // a contact of its own clinic. id is unique already.
     unique("contacts_clinic_id_unique").on(t.clinicId, t.id),
   ],
@@ -1350,7 +1356,13 @@ export type AgentService = {
 };
 
 /** A question and the clinic's answer: a quick answer, or the most-asked question. */
-export type KnowledgeAnswer = { question: string; answer: string };
+/**
+ * A question and the answer AYA gives. `flagId` tags a quick answer that came
+ * from a "Flag this answer" correction (conversation_flags.id): the Flagged
+ * view reads it to say whether the correction is still live, and Knowledge
+ * shows it. It is a tag only: AYA's prompt reads the question and the answer.
+ */
+export type KnowledgeAnswer = { question: string; answer: string; flagId?: string };
 
 // -----------------------------------------------------------------------------
 // Report delivery — who gets the monthly email, and proof of what was sent
@@ -1535,6 +1547,14 @@ export type ForwardingTestObservation = {
   callerIdPreserved: boolean;
   /** Which forward condition fired, where the carrier told us. */
   condition: "busy" | "no_answer" | "all" | "unknown";
+  /**
+   * How it was observed. Absent: the first call in a forwarding test's
+   * window. `forwarded_call`: a call the carrier said it forwarded from the
+   * clinic's own published line, with no window open (the spec's "flips to
+   * live by itself"); it has no `windowUntil`, so it makes no call a test
+   * call.
+   */
+  via?: "forwarded_call";
 };
 
 export type DepositStatus = "none" | "pending_front_desk" | "pending_link" | "paid" | "waived";
@@ -2798,7 +2818,7 @@ export type PatientRequestKind = (typeof PATIENT_REQUEST_KINDS)[number];
  * (lib/patient-rights/patient-requests.ts).
  *
  * PHI while it names a contact: whose request it is, at which practice. So
- * tenant RLS, FORCEd, and the BAA gate (drizzle/0092). It holds no name, no
+ * tenant RLS, FORCEd, and the BAA gate (drizzle/0093). It holds no name, no
  * number, no address and nothing typed: the person is the contact it names,
  * read from `contacts` when the page opens, and the contact's own clock and
  * erasure govern them. Its foreign key (clinic_id, contact_id) is written by
@@ -5916,6 +5936,7 @@ export const TENANT_SCOPED_TABLES = [
   "agreement_resigns",
   "site_rereads",
   "website_changes",
+  "conversation_flags",
   "patient_requests",
 ] as const;
 
@@ -6036,6 +6057,109 @@ export const transcriptEmails = pgTable(
     ),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// Flag this answer (spec, "When the agent gets something wrong"; plan Part F4)
+// -----------------------------------------------------------------------------
+
+/** Where a flagged conversation is held: a call's or web chat's row, or a Meta thread. */
+export const CONVERSATION_FLAG_SOURCES = ["call_or_chat", "meta_thread"] as const;
+export type ConversationFlagSource = (typeof CONVERSATION_FLAG_SOURCES)[number];
+
+/**
+ * A staff member's "Flag this answer" on one conversation: the clinic says
+ * AYA got something wrong there. One per conversation. It opens an ops ticket
+ * (I4, lib/ops/flag-alert.ts: ids and counts only), and two flags from one
+ * clinic in seven days make that ticket an alert. It may carry a correction,
+ * typed by staff and screened as Knowledge screens a quick answer, which is
+ * written into the clinic's quick answers at once, tagged with this flag's id
+ * (KnowledgeAnswer.flagId), so the Flagged view can say whether it is still
+ * live. The correction's words live there, in the clinic's knowledge, and
+ * never here; nothing of the conversation's words is anywhere, since none is
+ * kept.
+ *
+ * It points at the conversation the portal shows: a call's or web chat's row
+ * (`conversation_id`, against conversations' (clinic_id, id) key), or a Meta
+ * thread's current conversation (`thread_conversation_id`, with the thread's
+ * channel and keyed party reference against chat_threads' key), and records
+ * that conversation's channel, outcome and start, so the Flagged view can
+ * list a Meta conversation its thread has since moved on from. Either way it
+ * goes with what it points at, through the foreign key's cascade: an erasure,
+ * the record clock or a quiet thread's purge, and destruction, which also
+ * deletes it first and checks (drizzle/0092).
+ *
+ * PHI-adjacent, since it marks a patient's conversation: tenant RLS, forced,
+ * and the BAA gate. `flagged_at` and `corrected_at` are the database's clock
+ * (a trigger), so the seven-day count cannot be moved; the runtime role may
+ * change only `corrected_at`, once, from none.
+ */
+export const conversationFlags = pgTable(
+  "conversation_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    source: text("source").$type<ConversationFlagSource>().notNull(),
+    /** A call's or web chat's conversations row. */
+    conversationId: uuid("conversation_id"),
+    /** A Meta thread's conversation id, as Conversations shows it (chat_threads.conversation_id). */
+    threadConversationId: uuid("thread_conversation_id"),
+    /** The Meta thread's keyed party reference (chat_threads.party_ref), the thread's key with `channel`. */
+    threadPartyRef: text("thread_party_ref"),
+    /** The channel as Conversations names it (lib/portal/conversation-words.ts). */
+    channel: text("channel").$type<ConversationChannel>().notNull(),
+    /** The conversation's outcome when it was flagged; null for a Meta thread with none stored. */
+    outcome: text("outcome").$type<ConversationOutcome>(),
+    /** When the flagged conversation started. */
+    conversationStartedAt: timestamp("conversation_started_at", { withTimezone: true }).notNull(),
+    flaggedAt: timestamp("flagged_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    /** When staff's correction went into the quick answers; null while none has. */
+    correctedAt: timestamp("corrected_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("conversation_flags_conversation_idx")
+      .on(t.clinicId, t.conversationId)
+      .where(sql`${t.conversationId} is not null`),
+    uniqueIndex("conversation_flags_thread_conversation_idx")
+      .on(t.clinicId, t.threadConversationId)
+      .where(sql`${t.threadConversationId} is not null`),
+    index("conversation_flags_flagged_idx").on(t.clinicId, t.flaggedAt),
+    // Composite, so a flag can only point at its own clinic's records; it
+    // goes when they go.
+    foreignKey({
+      name: "conversation_flags_conversation_fk",
+      columns: [t.clinicId, t.conversationId],
+      foreignColumns: [conversations.clinicId, conversations.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "conversation_flags_thread_fk",
+      columns: [t.clinicId, t.channel, t.threadPartyRef],
+      foreignColumns: [chatThreads.clinicId, chatThreads.channel, chatThreads.partyRef],
+    }).onDelete("cascade"),
+    check("conversation_flags_source_check", sql`${t.source} in (${sqlList(CONVERSATION_FLAG_SOURCES)})`),
+    check(
+      "conversation_flags_target_check",
+      sql`(${t.source} = 'call_or_chat' and ${t.conversationId} is not null and ${t.threadConversationId} is null and ${t.threadPartyRef} is null)
+        or (${t.source} = 'meta_thread' and ${t.conversationId} is null and ${t.threadConversationId} is not null and ${t.threadPartyRef} is not null
+            and ${t.channel} in ('instagram', 'messenger', 'whatsapp'))`,
+    ),
+    check(
+      "conversation_flags_channel_check",
+      sql`${t.channel} in (${sqlList(Object.keys(CHANNEL_NAMES))})`,
+    ),
+    check(
+      "conversation_flags_outcome_check",
+      sql`${t.outcome} is null or ${t.outcome} in (${sqlList(CONVERSATION_OUTCOMES)})`,
+    ),
+    check(
+      "conversation_flags_party_ref_check",
+      sql`${t.threadPartyRef} is null or char_length(${t.threadPartyRef}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type ConversationFlagRow = typeof conversationFlags.$inferSelect;
 
 // -----------------------------------------------------------------------------
 // The signed website re-reads and the drift list (plan Part B, "Re-reads";

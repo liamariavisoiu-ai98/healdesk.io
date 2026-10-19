@@ -65,8 +65,9 @@ ALTER TABLE "contacts" ADD CONSTRAINT "contacts_clinic_id_unique" UNIQUE("clinic
 --   * app_open_patient_requests() lists the requests no one has marked
 --     received, ids only, across clinics, for the hourly sweep's reminders
 --     and ops alerts (lib/patient-rights/patient-requests.ts).
---   * app_mark_clinic_destroyed() is 0069's definition with patient_requests
---     added to the tables it requires empty; destroyClinicData deletes them.
+--   * app_mark_clinic_destroyed() is 0092's definition (which added
+--     conversation_flags) with patient_requests added to the tables it
+--     requires empty; destroyClinicData deletes them.
 --
 -- Safe to apply in place: a new, empty table with its key, policy, grants,
 -- triggers and one function; a unique key on contacts over columns already
@@ -191,9 +192,10 @@ GRANT EXECUTE ON FUNCTION app_open_patient_requests() TO healdesk_app;--> statem
 -- -----------------------------------------------------------------------------
 -- Destruction: the clinic's requests go with its data
 -- -----------------------------------------------------------------------------
--- 0069's definition, the last before this one, with patient_requests added
--- to the tables it requires empty. Every other check, the row lock, the UTC
--- pin and the pinned search_path are as they were.
+-- 0092's definition, the last before this one, with patient_requests added
+-- to the tables it requires empty beside 0092's conversation_flags. Every
+-- other check, the row lock, the UTC pin and the pinned search_path are as
+-- they were.
 CREATE OR REPLACE FUNCTION app_mark_clinic_destroyed(target_clinic uuid)
 RETURNS timestamptz
 LANGUAGE plpgsql
@@ -246,6 +248,7 @@ BEGIN
      OR EXISTS (SELECT 1 FROM record_amendments ra WHERE ra.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM deposit_payments dp WHERE dp.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM transcript_emails te WHERE te.clinic_id = target_clinic)
+     OR EXISTS (SELECT 1 FROM conversation_flags cf WHERE cf.clinic_id = target_clinic)
      OR EXISTS (SELECT 1 FROM patient_requests pq WHERE pq.clinic_id = target_clinic) THEN
     RAISE EXCEPTION 'Clinic % still holds rows that destruction deletes; refusing to mark it destroyed.', target_clinic
       USING ERRCODE = 'check_violation',
@@ -262,8 +265,8 @@ END
 $$;--> statement-breakpoint
 
 COMMENT ON TABLE patient_requests IS
-  'A request a patient made to healdesk itself about their information at a practice (L32; BAA 1.5.1 clause 14): its kind, the contact it names (set to NULL when the contact goes), when it arrived, the day it must be passed on by, who recorded it, and the practice''s mark that it has it. No name, number, address or typed text. PHI while it names a contact: FORCE RLS and the BAA gate (0092).';--> statement-breakpoint
+  'A request a patient made to healdesk itself about their information at a practice (L32; BAA 1.5.1 clause 14): its kind, the contact it names (set to NULL when the contact goes), when it arrived, the day it must be passed on by, who recorded it, and the practice''s mark that it has it. No name, number, address or typed text. PHI while it names a contact: FORCE RLS and the BAA gate (0093).';--> statement-breakpoint
 COMMENT ON FUNCTION app_open_patient_requests() IS
-  'The patient requests no practice has marked received, as (clinic_id, id), across clinics not destroyed: for the hourly sweep''s reminders and ops alerts (lib/patient-rights/patient-requests.ts). Ids only (0092).';--> statement-breakpoint
+  'The patient requests no practice has marked received, as (clinic_id, id), across clinics not destroyed: for the hourly sweep''s reminders and ops alerts (lib/patient-rights/patient-requests.ts). Ids only (0093).';--> statement-breakpoint
 COMMENT ON FUNCTION app_mark_clinic_destroyed(uuid) IS
-  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Locks the clinic row, then refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: deposits included (0065), the transcript outbox (0069) and the patient requests passed to it (0092), with suppressions, consent records, contact attempts, erasure requests, record amendments, the setup screens, slot holds, providers and provider services. Returns destroyed_at.';
+  'Stamps clinics.destroyed_at from the database''s clock, once, for destroyClinicData. Locks the clinic row, then refuses unless the clinic passed is app.clinic_id, app_destruction_due() says it is due, and it holds none of the rows destroyClinicData deletes: deposits included (0065), the transcript outbox (0069), the flags on conversations (0092) and the patient requests passed to it (0093), with suppressions, consent records, contact attempts, erasure requests, record amendments, the setup screens, slot holds, providers and provider services. Returns destroyed_at.';

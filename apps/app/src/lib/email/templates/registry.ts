@@ -33,6 +33,7 @@ import { DAILY_SUMMARY_ENTRY } from "./daily_summary";
 import { DEVICE_CHANGED_ENTRY } from "./device_changed";
 import { EXPORT_READY_ENTRY } from "./export_ready";
 import { EXPORT_REMINDER_ENTRY } from "./export_reminder";
+import { FLAG_ALERT_ENTRY } from "./flag_alert";
 import { GRACE_ENDING_ENTRY } from "./grace_ending";
 import { GUARANTEE_CLAIM_RECEIVED_ENTRY, GUARANTEE_FINDING_ENTRY } from "./guarantee_claim";
 import { INCIDENT_REPORT_ENTRY } from "./incident_report";
@@ -197,6 +198,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   agreement_to_sign: AGREEMENT_TO_SIGN_ENTRY,
   // WP11, the drift list (M7): L23.
   website_changes: WEBSITE_CHANGES_ENTRY,
+  // Wave 2's R2, Flag this answer (plan Part F4): I4, each flag and two in
+  // seven days, to ops (lib/ops/flag-alert.ts).
+  flag_alert: FLAG_ALERT_ENTRY,
   // L32, a patient's request recorded from a trusted shell (M5): its own
   // table (patient_requests, behind the BAA gate), the Home pointer and the
   // request's patient page (lib/patient-rights/patient-requests.ts).
@@ -313,6 +317,7 @@ export const PENDING_TEMPLATES: Record<
     | "weekly_recap"
     | "agreement_to_sign"
     | "website_changes"
+    | "flag_alert"
     | "patient_request"
     | BillingTemplatedKind
   >,
@@ -322,9 +327,6 @@ export const PENDING_TEMPLATES: Record<
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
   guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
-  // I4 waits for the flags themselves (package H's conversation_flags), which
-  // do not exist yet; WP5 built I2 and leaves this one named to it.
-  flag_alert: { owner: "plan", package: "WP5", ships: "Gate A (I4)" },
 };
 
 /** The template for a kind, or undefined while it is pending. */

@@ -803,7 +803,7 @@ every booking request whose key is already there, which is all of them, since
 `erased_at` with the moment of the load, which would keep its restore references longer
 than the backup window and move the line `reapply-erasures` draws between what the
 person gave before the deletion and after it; 0064's `record_amendments_guard` likewise
-restamps every amendment's `recorded_at`; and 0092's `patient_requests_guard` restamps
+restamps every amendment's `recorded_at`; and 0093's `patient_requests_guard` restamps
 every patient request's `recorded_at` and refuses every one the practice has already
 marked received. For such a load the owner disables all five by name, loads every
 table, `booking_request_keys` included, and enables them again, in one transaction:

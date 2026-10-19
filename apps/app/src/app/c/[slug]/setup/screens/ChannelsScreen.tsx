@@ -4,7 +4,10 @@ import { useId, useState } from "react";
 
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
 import type { ForwardingView } from "@/lib/setup/forwarding";
+import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
 
+import { ForwardingStepsPanel } from "../../ForwardingStepsPanel";
+import { ForwardingTestPanel } from "../../ForwardingTestPanel";
 import { sendPhoneStepsAction } from "../../steps-actions";
 import { ScreenShell } from "../ScreenShell";
 
@@ -19,10 +22,12 @@ import { ScreenShell } from "../ScreenShell";
  *     login (/api/meta/login), until a platform is connected;
  *   - Phone: nothing about forwarding until voice is ready for the clinic
  *     (lib/setup/forwarding.ts); then AYA's number, the codes for the
- *     clinic's carrier and coverage mode with a carrier picker, the undo
- *     codes, "Email these to my office manager" (O11, the action Settings
- *     uses) and "Book a five-minute call and we'll do it with you", with
- *     equal weight.
+ *     clinic's phone system, carrier and coverage mode with a picker for
+ *     each (ForwardingStepsPanel), the undo codes, "Email these to my
+ *     office manager" (O11, the action Settings uses) and "Book a
+ *     five-minute call and we'll do it with you", with equal weight; then
+ *     "Waiting for call forwarding" with "Test it now" (ForwardingTestPanel)
+ *     until a forwarded call lands.
  *
  * Every step sits in the screen's `lead`, outside its form, because the
  * Facebook button and the email are forms of their own.
@@ -41,6 +46,8 @@ export type ChannelRow = {
   meta?: { connected: string[]; canConnect: boolean } | null;
   /** Phone, once ready for the clinic: the forwarding steps. */
   forwarding?: ForwardingView | null;
+  /** Phone, once ready for the clinic: "Test it now" and what it saw. */
+  forwardingTest?: ForwardingTestView | null;
   /** Phone, ready but for the direct line: where to set it. */
   directLineHref?: string | null;
 };
@@ -95,6 +102,7 @@ export function ChannelsScreen(props: {
                   <Forwarding
                     slug={props.slug}
                     forwarding={row.forwarding}
+                    test={row.forwardingTest ?? null}
                     callBookingUrl={props.callBookingUrl}
                   />
                 ) : row.directLineHref ? (
@@ -229,18 +237,15 @@ function MetaConnect({
 function Forwarding({
   slug,
   forwarding,
+  test,
   callBookingUrl,
 }: {
   slug: string;
   forwarding: ForwardingView;
+  test: ForwardingTestView | null;
   callBookingUrl: string | null;
 }) {
-  const pickerId = useId();
   const numberId = useId();
-  const [carrier, setCarrier] = useState(forwarding.carrier);
-  const shown =
-    forwarding.carriers.find((c) => c.id === carrier) ??
-    forwarding.carriers[forwarding.carriers.length - 1]!;
   return (
     <div className="mt-3 grid gap-3 text-sm">
       <div>
@@ -252,54 +257,7 @@ function Forwarding({
           <CopyButton text={forwarding.ayaNumberE164} label="Copy the number" targetId={numberId} />
         </p>
       </div>
-      {forwarding.phoneSystem === "voip" ? null : (
-        <div className="grid gap-1">
-          <label htmlFor={pickerId} className="font-semibold">
-            Who provides your main line
-          </label>
-          <select
-            id={pickerId}
-            value={carrier}
-            onChange={(event) => setCarrier(event.target.value as typeof carrier)}
-            className="border-line min-h-11 rounded-xl border bg-white px-3"
-          >
-            {forwarding.carriers.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-      <div>
-        <p className="font-semibold">The steps</p>
-        <ol className="mt-1 grid list-decimal gap-1 pl-5">
-          {shown.steps.map((step) => (
-            <li key={`${step.label}${step.dial}`}>
-              {step.label}
-              {step.dial ? <strong className="ml-1 font-mono">{step.dial}</strong> : null}
-            </li>
-          ))}
-        </ol>
-      </div>
-      <div>
-        <p className="font-semibold">To undo it at any time</p>
-        <ul className="mt-1 grid gap-1">
-          {shown.undo.map((step) => (
-            <li key={`${step.label}${step.dial}`}>
-              {step.label}
-              {step.dial ? <strong className="ml-1 font-mono">{step.dial}</strong> : null}
-            </li>
-          ))}
-        </ul>
-      </div>
-      {shown.notes.length > 0 ? (
-        <ul className="text-muted grid list-disc gap-1 pl-5">
-          {shown.notes.map((note) => (
-            <li key={note}>{note}</li>
-          ))}
-        </ul>
-      ) : null}
+      <ForwardingStepsPanel slug={slug} view={forwarding} />
       <div className="grid gap-3 sm:grid-cols-2">
         <EmailSteps slug={slug} />
         {callBookingUrl ? (
@@ -316,6 +274,7 @@ function Forwarding({
           </div>
         ) : null}
       </div>
+      {test ? <ForwardingTestPanel slug={slug} initial={test} /> : null}
     </div>
   );
 }

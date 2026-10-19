@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 import { annualTotalUsd, getPlan, SENDER_IDENTITY } from "@healdesk/catalog";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { DIRECT_KIND_REGISTRY, DIRECT_KINDS, LEDGER_DIRECT_KINDS } from "@/lib/email/direct-kinds";
 import {
@@ -40,6 +40,7 @@ import {
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
 import { addressConfirmReason } from "@/lib/email/templates/address_change_confirm";
+import { ASSISTANT_READY_ENTRY } from "@/lib/email/templates/assistant_ready";
 import { AGREEMENT_TO_SIGN_ENTRY } from "@/lib/email/templates/agreement_to_sign";
 import {
   ADDRESS_CHANGING_ENTRY,
@@ -101,6 +102,7 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
     clinicName:
       kind === "ops_alert" ||
       kind === "ops_digest" ||
+      kind === "flag_alert" ||
       kind === "sign_in_link" ||
       kind === "sign_in_help_link" ||
       kind === "device_changed"
@@ -108,7 +110,7 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
         : "Radiance Med Spa",
     audience,
     reason:
-      kind === "ops_alert" || kind === "ops_digest"
+      kind === "ops_alert" || kind === "ops_digest" || kind === "flag_alert"
         ? OPS_REASON
         : kind === "sign_in_link"
           ? SIGN_IN_REASON
@@ -175,11 +177,10 @@ describe("the template registry", () => {
     }
     expect(byPackage).toEqual({
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
-      WP5: ["flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, and a patient's request, L32", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, the drift list's L23, Flag this answer's I4, and a patient's request, L32", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -251,6 +252,7 @@ describe("the template registry", () => {
       "weekly_recap",
       "agreement_to_sign",
       "website_changes",
+      "flag_alert",
       "patient_request",
     ]);
   });
@@ -376,6 +378,38 @@ describe("O5 from ops' changeClinicEmail", () => {
     expect(ops(true).text).toContain(
       "You're receiving this because Radiance Med Spa is moving its healdesk address to this one.",
     );
+  });
+});
+
+// Round 2 of the 19 October guardrails: O8 said "She has passed her practice
+// questions … among others" while the booking and deposit cases cannot be
+// asked. It names what was asked, as Home's tracker does, until they can be.
+describe("O8, your AYA is ready to talk to", () => {
+  afterEach(() => {
+    vi.doUnmock("@/lib/engine/practice/cases");
+    vi.resetModules();
+  });
+
+  test("names the questions asked and says the booking ones wait, then goes back to the plain line once every case can be asked", async () => {
+    for (const audience of ["patients", "clients"] as const) {
+      const one = audience === "clients" ? "client" : "patient";
+      const r = ASSISTANT_READY_ENTRY.render(ASSISTANT_READY_ENTRY.fixture, contextFor("assistant_ready", audience));
+      expect(r.text).toContain(`an urgent message from a ${one}, an off-topic ${one} and a question your answers don't cover.`);
+      expect(r.text).toContain("The ones about booking and deposits wait for her booking tools.");
+      expect(r.text).not.toMatch(/among others/);
+      expect(r.preheader).toBe(`She has passed the practice questions she can be asked. Nothing in the preview reaches ${audience}.`);
+      expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
+    }
+    vi.resetModules();
+    vi.doMock("@/lib/engine/practice/cases", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("@/lib/engine/practice/cases")>()),
+      casesNotAskable: () => [],
+    }));
+    const { ASSISTANT_READY_ENTRY: every } = await import("@/lib/email/templates/assistant_ready");
+    const plain = every.render(every.fixture, contextFor("assistant_ready"));
+    expect(plain.preheader).toBe("She has passed her practice questions. Nothing in the preview reaches patients.");
+    expect(plain.text).toContain("AYA has passed her practice questions about Radiance Med Spa:");
+    expect(plain.text).not.toMatch(/booking tools/);
   });
 });
 

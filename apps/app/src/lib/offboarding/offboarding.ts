@@ -15,6 +15,7 @@ import {
   clinics,
   clinicSetupScreens,
   contacts,
+  conversationFlags,
   conversations,
   metaBookingDrafts,
   metaInboundMessages,
@@ -569,8 +570,10 @@ export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boole
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
- * directed, its deposits, and the patients' requests passed to it (L32), gone. Audit, agreements, calendar elections and
- * billing stay, and so does AYA's number until the pass-through has ended.
+ * directed, the flags staff put on its conversations, its deposits, and the
+ * patients' requests passed to it (L32), gone. Audit, agreements, calendar
+ * elections and billing stay, and so does AYA's number until the pass-through
+ * has ended.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
@@ -619,6 +622,11 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // deleted here first so the count is in the record and the stamp's check
   // names it.
   await del("transcript_emails", () => tx.db.delete(transcriptEmails).where(eq(transcriptEmails.clinicId, c)).returning({ id: transcriptEmails.id }));
+  // The flags staff put on conversations (drizzle/0092): each goes with its
+  // conversation or its Meta thread by the foreign keys' cascades, and is
+  // deleted here first, as the transcript outbox is, so the count is in the
+  // record and the stamp's check names it.
+  await del("conversation_flags", () => tx.db.delete(conversationFlags).where(eq(conversationFlags.clinicId, c)).returning({ id: conversationFlags.id }));
   await del("conversations", () => tx.db.delete(conversations).where(eq(conversations.clinicId, c)).returning({ id: conversations.id }));
   // Who messaged the clinic, as keyed hashes of their sender ids (see the header).
   await del("chat_threads", () => tx.db.delete(chatThreads).where(eq(chatThreads.clinicId, c)).returning({ id: chatThreads.partyRef }));
@@ -626,7 +634,7 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   // The half-collected drafts hold a phone number and nothing the record
   // needs, so they are deleted outright.
   await del("meta_booking_drafts", () => tx.db.delete(metaBookingDrafts).where(eq(metaBookingDrafts.clinicId, c)).returning({ id: metaBookingDrafts.senderId }));
-  // The patients' requests passed to the practice (drizzle/0092), before the
+  // The patients' requests passed to the practice (drizzle/0093), before the
   // contacts they name: a contact's delete would set each one's contact_id to
   // NULL first, a rewrite for nothing.
   await del("patient_requests", () => tx.db.delete(patientRequests).where(eq(patientRequests.clinicId, c)).returning({ id: patientRequests.id }));

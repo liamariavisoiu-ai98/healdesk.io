@@ -22,10 +22,19 @@ import {
   chatThreads,
   clinics,
   contacts,
+  conversationFlags,
   conversations,
   recordAmendments,
+  type ConversationFlagRow,
 } from "@/db/schema";
 import { clinicLocalDate } from "@/lib/clinic/closures";
+import {
+  correctionReader,
+  flagsOn,
+  metaFlags,
+  summaryOf,
+  type FlagSummary,
+} from "@/lib/conversations/flags";
 import {
   canResend,
   resendTranscriptIn,
@@ -97,6 +106,14 @@ import {
  * person otherwise), booked (an appointment came of it), request (a booking
  * request did), answered (anything else). A Meta thread without a request
  * has no outcome stored, so it shows none.
+ *
+ * Every row carries its "Flag this answer" flag, if staff put one on it
+ * (conversation_flags, lib/conversations/flags.ts), with whether its
+ * correction is live; the Flagged filter lists only the flagged ones (spec:
+ * "Flagged conversations get their own view in the portal so the clinic can
+ * see that its corrections landed"). A Meta thread keeps only each person's
+ * latest conversation, so a flag on one it has moved on from is listed from
+ * the flag's own record, and cannot be opened.
  */
 
 export {
@@ -212,9 +229,21 @@ export type ConversationListItem = {
   bookingRequestId: string | null;
   /** The practice directed an amendment to this record or its request. */
   amended: boolean;
+  /** Staff's "Flag this answer" on it, and where its correction stands. */
+  flag: FlagSummary | null;
+  /**
+   * It opens: false only for a flagged Meta conversation its thread has moved
+   * on from, which the Flagged view lists from the flag's own record.
+   */
+  openable: boolean;
 };
 
-export type ConversationFilter = { search?: ConversationSearch; day?: DayChip | null };
+export type ConversationFilter = {
+  search?: ConversationSearch;
+  day?: DayChip | null;
+  /** Only the conversations staff flagged (the Flagged filter). */
+  flagged?: boolean;
+};
 
 /** How many rows the list shows: the newest first. Records are kept 90 days. */
 export const LIST_LIMIT = 100;
@@ -338,6 +367,21 @@ async function callsAndChats(
       sql`(${conversations.startedAt} at time zone ${timeZone})::date between ${range.from}::date and ${range.to}::date`,
     );
   }
+  if (filter.flagged) {
+    where.push(
+      exists(
+        tx.db
+          .select({ one: sql`1` })
+          .from(conversationFlags)
+          .where(
+            and(
+              eq(conversationFlags.clinicId, conversations.clinicId),
+              eq(conversationFlags.conversationId, conversations.id),
+            ),
+          ),
+      ),
+    );
+  }
   const search = filter.search;
   if (search.kind === "digits") {
     const like = containing(search.digits);
@@ -362,6 +406,8 @@ async function callsAndChats(
     callerPhone: row.callerPhone,
     bookingRequestId: row.requestId,
     amended: row.amended === true,
+    flag: null,
+    openable: true,
   }));
 }
 
@@ -491,6 +537,48 @@ function threadItem({ thread, request }: MatchedThread): ConversationListItem {
     callerPhone: request?.phone ?? null,
     bookingRequestId: request?.id ?? null,
     amended: request?.amended === true,
+    flag: null,
+    openable: true,
+  };
+}
+
+/**
+ * The Flagged view's Meta rows: each flag on a Meta conversation, as its
+ * thread shows it while the thread is still on that conversation, and from
+ * the flag's own record (channel, start, outcome; nobody named) once the
+ * thread has moved on. Newest flag first.
+ */
+async function flaggedMetaItems(tx: TenantTx, limit: number): Promise<ConversationListItem[]> {
+  const flags = await metaFlags(tx, limit);
+  if (flags.length === 0) return [];
+  const ids = flags.map((f) => f.threadConversationId!);
+  const current = new Map(
+    (await metaThreads(tx, [inArray(chatThreads.conversationId, ids)], ids.length)).map((m) => [
+      m.thread.conversationId,
+      m,
+    ]),
+  );
+  const state = await correctionReader(tx);
+  return flags.map((flag): ConversationListItem => {
+    const matched = current.get(flag.threadConversationId!);
+    if (matched) return { ...threadItem(matched), flag: summaryOf(flag, state) };
+    return flagOnlyItem(flag, summaryOf(flag, state));
+  });
+}
+
+function flagOnlyItem(flag: ConversationFlagRow, summary: FlagSummary): ConversationListItem {
+  return {
+    id: flag.threadConversationId!,
+    source: "meta_thread",
+    channel: metaChannel(flag.channel),
+    at: iso(flag.conversationStartedAt),
+    outcome: flag.outcome ?? null,
+    callerName: null,
+    callerPhone: null,
+    bookingRequestId: null,
+    amended: false,
+    flag: summary,
+    openable: false,
   };
 }
 
@@ -528,24 +616,51 @@ export async function listConversations(
   const full: Required<ConversationFilter> = {
     search: filter.search ?? { kind: "none" },
     day: filter.day ?? null,
+    flagged: filter.flagged === true,
   };
   const range = full.day ? dayRange(full.day, now, timeZone) : null;
   const calls = await callsAndChats(tx, full, range, timeZone);
-  const threadWhere = range
-    ? [
-        sql`(${chatThreads.lastInboundAt} at time zone ${timeZone})::date between ${range.from}::date and ${range.to}::date`,
-      ]
-    : [];
-  // A search reads further back, since a thread is named only through its
-  // request, which is matched here rather than in SQL.
-  const threads = (
-    await metaThreads(tx, threadWhere, full.search.kind === "none" ? LIST_LIMIT : 2000)
-  )
-    .map(threadItem)
-    .filter((item) => matchesSearch(item, full.search));
-  return [...calls, ...threads]
+  let threads: ConversationListItem[];
+  if (full.flagged) {
+    // The flags first, then their threads: a flag outlives its thread's move
+    // to a newer conversation, so the day chip reads the row as shown.
+    threads = (await flaggedMetaItems(tx, LIST_LIMIT)).filter(
+      (item) =>
+        matchesSearch(item, full.search) &&
+        (!range ||
+          (clinicLocalDate(new Date(item.at), timeZone) >= range.from &&
+            clinicLocalDate(new Date(item.at), timeZone) <= range.to)),
+    );
+  } else {
+    const threadWhere = range
+      ? [
+          sql`(${chatThreads.lastInboundAt} at time zone ${timeZone})::date between ${range.from}::date and ${range.to}::date`,
+        ]
+      : [];
+    // A search reads further back, since a thread is named only through its
+    // request, which is matched here rather than in SQL.
+    threads = (
+      await metaThreads(tx, threadWhere, full.search.kind === "none" ? LIST_LIMIT : 2000)
+    )
+      .map(threadItem)
+      .filter((item) => matchesSearch(item, full.search));
+  }
+  const rows = [...calls, ...threads]
     .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id < b.id ? 1 : -1))
     .slice(0, LIST_LIMIT);
+  return withFlags(tx, rows);
+}
+
+/** Each row with its flag, read in one query for the rows as shown. */
+async function withFlags(
+  tx: TenantTx,
+  rows: ConversationListItem[],
+): Promise<ConversationListItem[]> {
+  const flags = await flagsOn(
+    tx,
+    rows.filter((r) => r.flag === null).map((r) => r.id),
+  );
+  return rows.map((row) => (row.flag ? row : { ...row, flag: flags.get(row.id) ?? null }));
 }
 
 /**
@@ -614,6 +729,8 @@ export type ConversationDetail = {
   /** "Send again" applies: the copy is still held, and the chat is over. */
   canSendAgain: boolean;
   amendments: ShownAmendment[];
+  /** Staff's "Flag this answer" on it, and where its correction stands. */
+  flag: FlagSummary | null;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -644,6 +761,7 @@ async function readCallOrChat(tx: TenantTx, id: string): Promise<ConversationDet
     receipt,
     canSendAgain: receipt !== null && canResend(receipt.status),
     amendments: await shownAmendments(tx, row.id, row.requestId),
+    flag: (await flagsOn(tx, [row.id])).get(row.id) ?? null,
   };
 }
 
@@ -669,6 +787,7 @@ async function readThread(tx: TenantTx, id: string): Promise<ConversationDetail 
     receipt: null,
     canSendAgain: false,
     amendments: await shownAmendments(tx, null, request?.id ?? null),
+    flag: (await flagsOn(tx, [item.id])).get(item.id) ?? null,
   };
 }
 

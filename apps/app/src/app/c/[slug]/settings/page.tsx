@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { COVERAGE_MODE_OPTIONS, type CoverageModeId } from "@healdesk/catalog";
+
 import { readPhoneStepsNumber } from "@/lib/channels/state";
 import { requirePortal } from "@/lib/portal/access";
 import { readSignInFactors } from "@/lib/portal/devices";
@@ -10,6 +12,8 @@ import { readCalendarCard } from "@/lib/portal/settings-calendar";
 import { readSettingsView } from "@/lib/portal/settings-view";
 import { sessionBinding } from "@/lib/portal/step-up";
 import { loadOpenAddressChange } from "@/lib/sign-in/address-change";
+import { forwardingView, type ForwardingView } from "@/lib/setup/forwarding";
+import { readForwardingTest } from "@/lib/setup/forwarding-test-view";
 import { formatPhone } from "@/lib/setup/help";
 import { withTenant } from "@/lib/tenant";
 
@@ -24,6 +28,7 @@ import {
   PaymentsCard,
   SafetyNetCard,
   TalkCard,
+  type SettingsForwarding,
 } from "./SettingsCards";
 import { SignInCard } from "./SignInCard";
 
@@ -86,6 +91,9 @@ export default async function SettingsPage({
   const ayaNumber = await withTenant({ clinicId: portal.clinicId, actor: page.actorContext }, (tx) =>
     readPhoneStepsNumber(tx.db, tx.clinicId),
   );
+  const forwarding = ayaNumber
+    ? await settingsForwarding(portal.clinicId, page.actorContext, ayaNumber, page.state)
+    : null;
   const factors = await readSignInFactors(portal.userId, await sessionBinding(portal));
   const tz = page.state.clinic.timezone;
   const settingsPath = `/c/${portal.clinicSlug}/settings`;
@@ -109,6 +117,7 @@ export default async function SettingsPage({
           <ChannelsCard
             view={view}
             phoneSteps={ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null}
+            forwarding={forwarding}
           />
           <TalkCard view={view} />
           <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />
@@ -135,4 +144,34 @@ export default async function SettingsPage({
       </FeedbackProvider>
     </PortalShell>
   );
+}
+
+/**
+ * Phone's forwarding steps for Settings → Channels, for each coverage mode,
+ * so changing the mode shows its steps at once (spec: "Shows the matching
+ * forwarding instructions again whenever it is changed"), with "Test it now"
+ * while phone waits on forwarding. Only once phone is ready for forwarding,
+ * as in the wizard: AYA's number, and a direct line for the calls AYA cannot
+ * take (lib/setup/forwarding.ts).
+ */
+async function settingsForwarding(
+  clinicId: string,
+  actor: Parameters<typeof withTenant>[0]["actor"],
+  ayaNumber: string,
+  state: { clinic: { carrier: string | null; phoneSystemType: string | null }; settings: { directLineE164: string | null } },
+): Promise<SettingsForwarding | null> {
+  if (!state.settings.directLineE164) return null;
+  const views = Object.fromEntries(
+    COVERAGE_MODE_OPTIONS.map((o) => [
+      o.id,
+      forwardingView({
+        assistantNumberE164: ayaNumber,
+        carrier: state.clinic.carrier,
+        phoneSystemType: state.clinic.phoneSystemType,
+        coverageMode: o.id,
+      }),
+    ]),
+  ) as Record<CoverageModeId, ForwardingView>;
+  const test = await withTenant({ clinicId, actor }, (tx) => readForwardingTest(tx));
+  return { views, test };
 }

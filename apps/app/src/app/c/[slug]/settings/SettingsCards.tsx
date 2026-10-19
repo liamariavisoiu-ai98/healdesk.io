@@ -1,10 +1,16 @@
+import type { CoverageModeId } from "@healdesk/catalog";
 import type { ReactNode } from "react";
 
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import type { ForwardingView } from "@/lib/setup/forwarding";
+import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
 
+import { ForwardingTestPanel } from "../ForwardingTestPanel";
 import { SendStepsForm } from "../SendStepsForm";
+
+import { CoverageSetting } from "./CoverageSetting";
 
 import {
   ChecklistSetting,
@@ -46,13 +52,23 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
 // Channels
 // -----------------------------------------------------------------------------
 
+/** Phone's forwarding in Settings, once phone is ready for it: the steps for each mode, and the test. */
+export type SettingsForwarding = {
+  views: Readonly<Record<CoverageModeId, ForwardingView>>;
+  /** "Test it now", while phone waits on the clinic's forwarding; null otherwise. */
+  test: ForwardingTestView | null;
+};
+
 export function ChannelsCard({
   view,
   phoneSteps = null,
+  forwarding = null,
 }: {
   view: SettingsView;
   /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
   phoneSteps?: { numberLabel: string } | null;
+  /** The forwarding steps and the test, once phone is ready for forwarding; null until then. */
+  forwarding?: SettingsForwarding | null;
 }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
@@ -99,7 +115,17 @@ export function ChannelsCard({
           </div>
         ),
       )}
-      {view.bought.voice ? (
+      {view.bought.voice && forwarding ? (
+        <CoverageSetting
+          slug={view.slug}
+          legend="Which calls reach AYA"
+          line={`Your call forwarding steps follow this choice. ${view.coverage.landlineNote}`}
+          applies={view.applies.coverage_mode}
+          options={view.coverage.options as readonly { id: CoverageModeId; label: string; line: string }[]}
+          initial={view.coverage.mode as CoverageModeId}
+          views={forwarding.views}
+        />
+      ) : view.bought.voice ? (
         <ChoiceSetting
           slug={view.slug}
           settingKey="coverage_mode"
@@ -109,6 +135,11 @@ export function ChannelsCard({
           options={view.coverage.options}
           initial={view.coverage.mode}
         />
+      ) : null}
+      {view.bought.voice && forwarding?.test ? (
+        <div className="py-3">
+          <ForwardingTestPanel slug={view.slug} initial={forwarding.test} />
+        </div>
       ) : null}
       {view.bought.voice && phoneSteps ? (
         <SendStepsForm slug={view.slug} numberLabel={phoneSteps.numberLabel} />

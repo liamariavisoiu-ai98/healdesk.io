@@ -74,6 +74,12 @@ export const SANCTIONED: Readonly<Record<string, string>> = {
   "src/lib/booking/terms.ts#calendarTermsFor":
     "the location's calendar terms, read through the caller's tx.db; the checker reads the " +
     "`rows` of tx.db.execute's result as the pg driver's own. Business data, no patient row",
+  // Conversations' Flag this answer (wave 2, R2).
+  "src/lib/ops/flag-alert.ts#sendFlagAlert":
+    "I4, the ops ticket a flag opens, sent after the flag's patient transaction has committed: " +
+    "its row is in the ops log (ops_alerts), which has no clinic_id and holds the flag's, the " +
+    "clinic's and the conversation's ids and a count, never a patient row, and the email carries " +
+    "the same ids and counts through the payload allowlist",
   "src/app/c/[slug]/pause-actions.ts#pauseAyaAction":
     "the header's AYA is answering switch: writes the clinic's pause, reads no patient",
   "src/app/c/[slug]/pause-actions.ts#resumeAyaAction":

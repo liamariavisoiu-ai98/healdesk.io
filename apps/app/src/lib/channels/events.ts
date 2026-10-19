@@ -82,9 +82,11 @@ import { connectedMetaPlatforms } from "./meta-platforms";
  *   - **the platform's attestations** (`platform`): what every channel needs
  *     attested in platform_compliance, and the channel's own (Retell and
  *     phone's tests; the other channels' runtimes), lib/compliance;
- *   - **the clinic's step, evidenced**: for phone, a forwarding-test call
- *     observed with the caller's number intact (never the onboarding stamp
- *     alone, which an operator can set by hand); for website chat, an
+ *   - **the clinic's step, evidenced**: for phone, a call observed with the
+ *     caller's number intact, in a forwarding test the clinic or an operator
+ *     ran, or forwarded from the clinic's own line with no test at all
+ *     (never the onboarding stamp alone, which an operator can set by hand);
+ *     for website chat, an
  *     operator's confirmation that its line is on the clinic's site
  *     (`runtime_seen`; an Origin header is never proof, because anyone can
  *     send one); for the Meta channel, a connected platform;
@@ -265,7 +267,10 @@ export type ReadinessFacts = {
   assistantNumberE164: string | null;
   metaFrontDoor: boolean;
   metaConnected: boolean;
-  /** A forwarding-test call observed with the caller's number intact. */
+  /**
+   * A call observed with the caller's number intact: a forwarding test's, or
+   * one the carrier forwarded from the clinic's own line (observeForwardingCall).
+   */
   forwardingObserved: boolean;
   auditPassed: ReadonlySet<Channel>;
   runtimeSeen: ReadonlySet<Channel>;

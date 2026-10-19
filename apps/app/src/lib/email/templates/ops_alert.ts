@@ -392,6 +392,14 @@ const WORDING: Record<OpsEvent, Wording> = {
     action:
       "Our own target is to tell the practice within 24 hours of discovering a breach, a security incident or an improper use or disclosure, well inside the agreement's outer limit, and no notice is recorded for the incident below. Decide it now on the console's Incidents page: send the report, which emails the practice's address from fixed fields, or record why it isn't reportable (docs/incident-response.md).",
   },
+  // Raised by lib/notices/booking-alerts.ts (urgentAlertNotQueued) when an
+  // urgent message's L12 could not be queued: the clinic has no email about
+  // it and /api/health stays green, so a person has to phone the clinic.
+  urgent_alert_not_queued: {
+    title: "An urgent message's alert to the clinic failed",
+    action:
+      "Someone reported a complication or an urgent symptom, and the clinic's urgent alert could not be queued, so the clinic has not been emailed about it. They were given the fixed urgent reply (emergency services, then the clinic's own number), or, where the message could not be recorded at all, asked to contact the practice directly. Phone the clinic now: tell them an urgent message came in on the channel below at about the time this alert was raised; if its conversation was recorded, its transcript reaches their address when it ends. Then read apps/app's error lines for the failure, usually the database.",
+  },
   agreement_refund_due: {
     title: "A terminated practice is owed a refund",
     action:
@@ -432,6 +440,8 @@ const LABELS: Record<string, string> = {
   phase: "Phase",
   serviceEndedAt: "Service ended (UTC)",
   lateDays: "Days late",
+  conversationId: "Conversation id",
+  channel: "Channel",
 };
 
 function wordingFor(payload: OpsAlertPayload): Wording {

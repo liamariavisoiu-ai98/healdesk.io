@@ -12,6 +12,7 @@ import {
   handoverWords,
   isDecidable,
   MISSED_DAYS,
+  olderHandoversLine,
   readBookingsScreen,
   requestWords,
   withFreeTimes,
@@ -159,6 +160,11 @@ export default async function BookingsPage({
                   </li>
                 ))}
               </ul>
+              {screen.openHandoverCount > screen.handovers.length ? (
+                <p className="text-muted mt-2 text-sm">
+                  {olderHandoversLine(screen.openHandoverCount, screen.handovers.length)}
+                </p>
+              ) : null}
             </>
           ) : null}
           {screen.deposits.length > 0 ? (

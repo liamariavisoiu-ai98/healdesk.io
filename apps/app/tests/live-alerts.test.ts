@@ -2,18 +2,26 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { CHANNELS, TREATMENT_NAMES, type Channel } from "@healdesk/catalog";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "vitest";
+import {
+  CHANNELS,
+  fixedUrgentReply,
+  TREATMENT_NAMES,
+  URGENT_TEAM_TOLD_LINE,
+  type Channel,
+} from "@healdesk/catalog";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { GET as health } from "@/app/api/health/route";
 import { __setMetaRuntimeForTests, POST as metaWebhook } from "@/app/api/webhooks/meta/route";
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import {
+  readToken,
   sendWebChatMessage,
   startWebChat,
   webChatClinic,
   type WebChatClinic,
 } from "@/lib/chat/web-chat";
+import { readOpenChat } from "@/lib/conversations/transcript-outbox";
 import { CRITICAL_NOTICE_KINDS } from "@/lib/email/kind-rules";
 import { NOTICE_KIND_REGISTRY } from "@/lib/email/kinds";
 import {
@@ -37,6 +45,7 @@ import {
   notifyBookingAlert,
   queueRequestsStillOpen,
   URGENT_ALERT_DELIVERED,
+  withoutTeamTold,
   type BookingAlertKind,
 } from "@/lib/notices/booking-alerts";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -261,6 +270,23 @@ describe("the live alerts' templates", () => {
     expect(new Set(Object.values(rest))).toEqual(new Set(["bookings"]));
   });
 
+  test("a reply built as told reads as the untold one once its alert turns out not to be queued", () => {
+    for (const channel of ["voice", "web_chat", "meta"] as const) {
+      for (const language of ["en", "es"] as const) {
+        for (const emergency of ["911", "veterinary"] as const) {
+          const input = { channel, language, emergency, clinicName: "Radiance", clinicNumber: "(415) 555-0123" };
+          const told = fixedUrgentReply({ ...input, teamAlerted: URGENT_ALERT_DELIVERED });
+          const untold = fixedUrgentReply({ ...input, teamAlerted: false });
+          const what = `${channel} ${language} ${emergency}`;
+          expect(told, what).not.toBe(untold);
+          expect(withoutTeamTold(told), what).toBe(untold);
+          expect(withoutTeamTold(untold), what).toBe(untold);
+        }
+      }
+    }
+    expect(withoutTeamTold("Happy to help.")).toBe("Happy to help.");
+  });
+
   test("the dedupe key: the appointment, then the request, the conversation, the call, else a fresh one", () => {
     const appointmentId = randomUUID();
     const bookingRequestId = randomUUID();
@@ -446,6 +472,102 @@ describeDb("the live alerts' hooks", () => {
     expect(transport.notices()).toHaveLength(1);
     // The report recipient notifyDesk used to mail never hears of it.
     expect(transport.sent.some((s) => s.target.to === DESK)).toBe(false);
+  });
+
+  /** The urgent-alert-not-queued ops alerts raised about a clinic. */
+  async function urgentMisses(clinicId: string): Promise<Record<string, unknown>[]> {
+    const { rows } = await getMigratorPool().query<{ fields: Record<string, unknown> }>(
+      `select fields from ops_alerts where event = 'urgent_alert_not_queued' and fields->>'clinicId' = $1 order by raised_at`,
+      [clinicId],
+    );
+    return rows.map((r) => r.fields);
+  }
+
+  /** A database fault on one table, as the app's role meets it, for the length of `fn`. */
+  async function refusing<T>(table: string, when: string, fn: () => Promise<T>): Promise<T> {
+    const pool = getMigratorPool();
+    await pool.query(`
+      create or replace function live_alerts_refuse() returns trigger language plpgsql as $$
+      begin raise exception 'refused for the test'; end $$`);
+    await pool.query(`create trigger live_alerts_refuse before insert on ${table} for each row when (${when}) execute function live_alerts_refuse()`);
+    try {
+      return await fn();
+    } finally {
+      await pool.query(`drop trigger if exists live_alerts_refuse on ${table}`);
+      await pool.query(`drop function if exists live_alerts_refuse()`);
+    }
+  }
+
+  test("web chat: an urgent alert that cannot be queued is told to ops, the reply never says the team was told, and the next urgent message tries again", async () => {
+    const { seeded, clinic } = await webClinic("alert-web-urgent-miss");
+    await senderOn(seeded);
+    const transport = new FakeTransport();
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const responder = scripted(() => ({ reply: "Happy to help." }));
+
+    const first = await refusing("billing_notices", "new.kind = 'urgent'", () =>
+      sendWebChatMessage(clinic, start.token, URGENT_WORDS, { responder, transport }),
+    );
+    if (first.mode !== "chat") throw new Error("no chat");
+    const conversationId = readToken(first.token, seeded.clinicId)!.conversationId!;
+    // Still 911 and the clinic's number; never a promise that was not kept.
+    expect(first.reply).toMatch(/call 911/);
+    expect(first.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(first.reply).toContain("Leave a number for the clinic to call you.");
+    expect(await queuedNotices(seeded.clinicId)).toEqual([]);
+    expect(transport.notices()).toEqual([]);
+    // Ops hears of it, to phone the clinic: ids and a channel, nothing said.
+    await vi.waitFor(async () => expect(await urgentMisses(seeded.clinicId)).toHaveLength(1), { timeout: 10_000 });
+    expect(await urgentMisses(seeded.clinicId)).toEqual([
+      { clinicId: seeded.clinicId, channel: "web", conversationId },
+    ]);
+    // The conversation is still marked urgent, and the transcript holds what was said.
+    const { rows } = await inTenant(seeded.clinicId, (client) =>
+      client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
+    );
+    expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
+    const open = await withTenant({ clinicId: seeded.clinicId, actor: ACTOR }, (tx) =>
+      readOpenChat<{ urgentAlerted: boolean }>(tx, conversationId),
+    );
+    expect(open!.payload.turns.at(-1)).toEqual({ speaker: "assistant", text: first.reply });
+    expect(open!.payload.state.urgentAlerted).toBe(false);
+
+    // The next urgent message, with the outbox taking rows again, alerts the clinic.
+    const second = await sendWebChatMessage(clinic, first.token, URGENT_WORDS, { responder, transport });
+    if (second.mode !== "chat") throw new Error("no chat");
+    expect(second.reply).toContain(URGENT_TEAM_TOLD_LINE);
+    expect((await queuedNotices(seeded.clinicId)).map((n) => [n.kind, n.payload.conversationId])).toEqual([
+      ["urgent", conversationId],
+    ]);
+    expect(transport.notices().map((s) => s.message.subject)).toEqual([
+      "URGENT: a complication or urgent symptom was reported",
+    ]);
+    expect(await urgentMisses(seeded.clinicId)).toHaveLength(1);
+  });
+
+  test("web chat: an urgent message whose whole transaction fails is told to ops once it has ended", async () => {
+    const { seeded, clinic } = await webClinic("alert-web-urgent-rollback");
+    await senderOn(seeded);
+    const transport = new FakeTransport();
+    const start = await startWebChat(clinic);
+    if (start.mode !== "chat") throw new Error("no chat");
+    const responder = scripted(() => ({ reply: "Happy to help." }));
+    const tasks: (() => Promise<void>)[] = [];
+
+    const answer = await refusing("conversations", "true", () =>
+      sendWebChatMessage(clinic, start.token, URGENT_WORDS, { responder, transport, after: (task) => tasks.push(task) }),
+    );
+    if (answer.mode !== "chat") throw new Error("no chat");
+    expect(answer.reply).not.toContain(URGENT_TEAM_TOLD_LINE);
+    expect(await queuedNotices(seeded.clinicId)).toEqual([]);
+    // Handed to the route's after(), so the reply never waits on it.
+    expect(tasks).toHaveLength(1);
+    expect(await urgentMisses(seeded.clinicId)).toEqual([]);
+    await tasks[0]!();
+    expect(await urgentMisses(seeded.clinicId)).toEqual([
+      { clinicId: seeded.clinicId, channel: "web", conversationId: expect.any(String) },
+    ]);
   });
 
   test("web chat: asking for a person queues one L11 per conversation, sent by the minute queue, and none after an urgent alert", async () => {
@@ -765,6 +887,36 @@ describeDb("the live alerts' hooks", () => {
       ].sort(),
     );
     expect((await queuedNotices(c.clinicId)).every((n) => n.sent_at !== null)).toBe(true);
+  });
+
+  test("notifyBookingAlert says whether the alert is queued; an urgent one that is not is told to ops, and no other kind is", async () => {
+    const c = await seedClinic("alert-result");
+    const contactId = await seedContact(c.clinicId, "+15550100782");
+    const results = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, async (tx) => {
+      const request = await createBookingRequest(tx, {
+        channel: "voice",
+        contactId,
+        conversationId: null,
+        preferredWindow: "Monday",
+        treatment: null,
+      });
+      return [
+        await notifyBookingAlert(tx, "booking_request", { bookingRequestId: request.id }),
+        // Already queued under the same key: still queued.
+        await notifyBookingAlert(tx, "booking_request", { bookingRequestId: request.id }),
+        await notifyBookingAlert(tx, "urgent", { callId: "call_result", channel: "voice" }),
+        // Not a uuid, and no channel given: the read of the conversation fails in the savepoint.
+        await notifyBookingAlert(tx, "calendar_check", { bookingRequestId: "not-a-uuid" }),
+        await notifyBookingAlert(tx, "urgent", { conversationId: "not-a-uuid" }),
+      ];
+    });
+    expect(results).toEqual([true, true, true, false, false]);
+    // One transaction, one created_at: compared as a set.
+    expect((await queuedNotices(c.clinicId)).map((n) => n.kind).sort()).toEqual(["booking_request", "urgent"]);
+    await vi.waitFor(async () => expect(await urgentMisses(c.clinicId)).toHaveLength(1), { timeout: 10_000 });
+    expect(await urgentMisses(c.clinicId)).toEqual([
+      { clinicId: c.clinicId, channel: null, conversationId: "not-a-uuid" },
+    ]);
   });
 
   test("an alert that cannot be queued breaks nothing: the caller's transaction still commits", async () => {

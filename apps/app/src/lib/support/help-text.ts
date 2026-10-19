@@ -66,7 +66,7 @@ The portal does not have, by design: editing AYA's instructions or prompt, a flo
 
 - Setup has four steps: confirm the practice's details (filled in from its website), set how AYA behaves, connect Google Calendar, and connect the channels bought. Each step saves as it is finished, and the link in the welcome email resumes it.
 - The practice has 30 days from payment to finish setup. Until a channel is live it gets a reminder every five days. If nothing is live by the end of the 30th day, the subscription is cancelled and the account closed. The setup fee is never refunded.
-- Home's "Building your AYA" tracker shows each stage: Agreement signed, Payment, Your website read, Your answers set up, Calendar, Assistant built and Practice questions passed. "Your answers set up" needs at least one service with its price checked, the hours confirmed and the most-asked question answered, all in Knowledge.
+- Home's "Building your AYA" tracker shows each stage: Agreement signed, Payment, Your website read, Your answers set up, Calendar, Assistant built and Practice questions passed. "Your answers set up" needs at least one service with its price checked, the hours confirmed and the most-asked question answered. Until all three are there AYA isn't built: the practice questions don't run and no channel can go live. Prices are checked on Setup's services screen; hours are confirmed on Setup's hours screen or in Knowledge; the most-asked question is answered only on Setup's most-asked question screen, as Knowledge has no field for it.
 - Talk to your AYA, the private preview, opens once every stage is done.
 
 ## Channels, and why one is not live yet

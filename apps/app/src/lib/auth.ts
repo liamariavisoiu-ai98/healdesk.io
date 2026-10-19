@@ -86,7 +86,10 @@ const linkSession = {
         if (!found) throw new APIError("NOT_FOUND", { message: "No such user." });
         const session = await ctx.context.internalAdapter.createSession(found.id);
         await setSessionCookie(ctx, { session, user: found });
-        return ctx.json({ ok: true });
+        // The session's row id, never its token: the human route's link
+        // binds itself to the session it started (lib/factors/recovery.ts),
+        // reading the token's digest from the row.
+        return ctx.json({ ok: true, sessionId: session.id });
       },
     ),
   },

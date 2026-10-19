@@ -31,6 +31,7 @@ import {
   type AddressChangingPayload,
 } from "@/lib/email/templates/address_changing";
 import { audienceFor, clinicReason } from "@/lib/email/templates/context";
+import { lockFactors, revokeOpenDeviceRecoveries } from "@/lib/factors/recovery";
 import { describeError, log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
 import { portalGrants } from "@/lib/portal/access";
@@ -266,6 +267,10 @@ async function startChange(
       if (!signIn || (input.userId !== null && signIn.userId !== input.userId)) {
         return { refused: "Only the clinic's own sign-in can change its address." } as const;
       }
+      // The factor lock the human route's link is issued under
+      // (lib/factors/recovery-issue.ts): a link and a change of the address
+      // it goes to cannot pass each other.
+      await lockFactors(tx.db, signIn.userId);
       if (signIn.email === newEmail) {
         return { refused: "That's already the clinic's address." } as const;
       }
@@ -329,6 +334,26 @@ async function startChange(
         // Ids and categories only: the row holds the addresses.
         metadata: { source: input.source },
       });
+      // A link that adds a device, mailed to the address now on its way out,
+      // ends here, and so does any browser it signed in (lib/factors/
+      // recovery.ts): its reader may be who the change is moving away from.
+      const recoveries = await revokeOpenDeviceRecoveries(tx.db, signIn.userId, "address_changed");
+      if (recoveries.ids.length > 0) {
+        await recordSecurityEvent(tx.db, {
+          event: "device_recovery_revoked",
+          actorLabel: requestedBy,
+          userId: signIn.userId,
+          ipAddress: input.request?.ipAddress ?? null,
+          userAgent: input.request?.userAgent ?? null,
+          metadata: {
+            recoveryIds: recoveries.ids,
+            reason: "address_changed",
+            clinicId: tx.clinicId,
+            changeId: row.id,
+            browsersSignedOut: recoveries.browsersSignedOut,
+          },
+        });
+      }
       await recordSecurityEvent(tx.db, {
         event: operator ? "sign_in_address_change_entered" : "sign_in_address_change_requested",
         actorLabel: requestedBy,
@@ -672,6 +697,9 @@ async function applyChange(changeId: string, clinicId: string): Promise<ApplyOut
         .for("update")
         .limit(1);
       if (locked?.status !== "pending") return "skipped" as const;
+      // The factor lock the human route's link is issued under: none is
+      // minted for the old address while it moves (lib/factors/recovery-issue.ts).
+      await lockFactors(tx.db, change.userId);
 
       const moved = await tx.db
         .update(user)
@@ -702,6 +730,10 @@ async function applyChange(changeId: string, clinicId: string): Promise<ApplyOut
             sql`${signInLinks.expiresAt} > now()`,
           ),
         );
+      // Nor may a link that adds a device: ended, with any browser it signed
+      // in. Starting the change ended them already; this holds if one was
+      // minted some other way since.
+      const recoveries = await revokeOpenDeviceRecoveries(tx.db, change.userId, "address_changed");
 
       await tx.db.insert(clinicSettingsHistory).values({
         clinicId: tx.clinicId,
@@ -726,6 +758,10 @@ async function applyChange(changeId: string, clinicId: string): Promise<ApplyOut
           clinicId: tx.clinicId,
           source: change.source,
           stripeCustomers: customers.length,
+          recoveriesRevoked: recoveries.ids.length,
+          ...(recoveries.ids.length > 0
+            ? { recoveryIds: recoveries.ids, browsersSignedOut: recoveries.browsersSignedOut }
+            : {}),
         },
       });
       // The notice address: the practice gave a new one in writing, which

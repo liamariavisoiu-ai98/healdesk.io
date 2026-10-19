@@ -197,6 +197,13 @@ export const OPS_EVENTS = [
   // stops AYA where that vendor serves and asks for an incident.
   "vendor_agreement_expiring",
   "vendor_agreement_lapsed",
+  // L32, a patient's request passed to its practice (BAA 1.5.1 clause 14:
+  // within five business days), by the hourly sweep in
+  // lib/patient-rights/patient-requests.ts, once per request each: nobody at
+  // the practice has marked it received by the fourth business day, the day
+  // before its reply-by day; and the reply-by day has passed unmarked.
+  "patient_request_due_soon",
+  "patient_request_past_due",
   // An urgent message's alert to the clinic (L12) could not be queued, so
   // the clinic has not been emailed and /api/health cannot see it: raised by
   // lib/notices/booking-alerts.ts (urgentAlertNotQueued), with the clinic,

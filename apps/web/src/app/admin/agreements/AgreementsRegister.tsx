@@ -5,6 +5,8 @@ import { useState, useTransition } from "react";
 import {
   AGREEMENT_TERMINATION_REASON_COPY,
   AGREEMENT_TERMINATION_REASONS,
+  agreementKindOfVersion,
+  DPA_VERSION_PREFIX,
   isAgreementTerminationReason,
   type AgreementTerminationReason,
 } from "@healdesk/catalog";
@@ -21,11 +23,16 @@ import type {
 } from "@/lib/admin/ops-client";
 
 /**
- * The register of signed business associate agreements.
+ * The register of signed agreements: business associate agreements, and the
+ * data protection agreements a practice HIPAA does not cover signs instead
+ * (plan Part L). A row's kind is read from its version, as the database's
+ * generated `agreement_kind` reads it (`agreementKindOfVersion`: a DPA's is
+ * namespaced, "dpa/1.0.0"), and the register never puts BAA wording beside a
+ * DPA (Part L, Copy).
  *
  * Two questions this answers that nothing else can:
  *
- *   1. **Does the other party have their copy?** A BAA binds two parties, and
+ *   1. **Does the other party have their copy?** An agreement binds two parties, and
  *      until the copy is sent only one of them can produce it. `copy_sent_at`
  *      is the answer, and "no" is the state that needs a button next to it, so
  *      it gets one.
@@ -103,8 +110,24 @@ const REGISTER_PATH = "/admin/agreements";
  */
 const PDF_TIMEOUT_MS = 15_000;
 
-/** Used when the route sends no usable filename. Names the document, nothing else. */
-const FALLBACK_FILENAME = "healdesk-baa.pdf";
+/**
+ * A row's agreement as the register names it: "BAA v1.5.1", "DPA v1.0.0".
+ * The DPA's namespace is the kind, so it is not printed again.
+ */
+export function agreementLabel(version: string): string {
+  return agreementKindOfVersion(version) === "dpa"
+    ? `DPA v${version.slice(DPA_VERSION_PREFIX.length)}`
+    : `BAA v${version}`;
+}
+
+/**
+ * Used when the route sends no usable filename. Names the document, nothing
+ * else, by its kind: healdesk-baa.pdf or healdesk-dpa.pdf, the stems the
+ * route's own names use (catalog agreement-pdf.ts).
+ */
+export function fallbackFilename(version: string): string {
+  return agreementKindOfVersion(version) === "dpa" ? "healdesk-dpa.pdf" : "healdesk-baa.pdf";
+}
 
 /** How much of the fingerprint is shown before it is asked for in full. */
 const HASH_PREFIX = 16;
@@ -253,7 +276,7 @@ export function AgreementsRegister({
         <div className="border-line mt-4 overflow-x-auto rounded-md border bg-white">
           <table className="w-full min-w-[1040px] border-collapse text-sm">
             <caption className="sr-only">
-              Signed business associate agreements
+              Signed agreements
               {filtered ? ", filtered" : ""}
             </caption>
             <thead>
@@ -261,7 +284,7 @@ export function AgreementsRegister({
                 <Th>Clinic</Th>
                 <Th>Signatory</Th>
                 <Th>Signed</Th>
-                <Th>Version</Th>
+                <Th>Agreement</Th>
                 <Th>Copy sent</Th>
                 <Th>Retention</Th>
                 <Th>Fingerprint</Th>
@@ -365,8 +388,10 @@ function FilterRow({
           className="border-line focus:border-orange w-full rounded-sm border bg-white px-3 py-2 text-sm"
         />
         <datalist id="agreement-versions">
+          {/* The value is what the search matches, the stored version
+              ("dpa/1.0.0"); the label says which agreement it is. */}
           {versions.map((version) => (
-            <option key={version} value={version} />
+            <option key={version} value={version} label={agreementLabel(version)} />
           ))}
         </datalist>
       </Field>
@@ -501,7 +526,7 @@ function AgreementRow({
       link.href = objectUrl;
       link.download = filenameFrom(
         response.headers.get("content-disposition"),
-        FALLBACK_FILENAME,
+        fallbackFilename(row.version),
       );
       document.body.appendChild(link);
       link.click();
@@ -536,7 +561,9 @@ function AgreementRow({
         <Td>
           <span className="whitespace-nowrap">{row.signedOn}</span>
         </Td>
-        <Td>v{row.version}</Td>
+        <Td>
+          <span className="whitespace-nowrap">{agreementLabel(row.version)}</span>
+        </Td>
         <Td>
           {row.copySentOn ? (
             <span className="whitespace-nowrap">{row.copySentOn}</span>

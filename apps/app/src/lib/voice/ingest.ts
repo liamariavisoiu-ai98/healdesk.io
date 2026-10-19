@@ -23,6 +23,7 @@ import {
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
+import type { ForwardedFrom } from "./forwarded-from";
 import { isHealdeskTestNumber } from "./test-numbers";
 
 /**
@@ -90,6 +91,16 @@ export type VoiceCallEvent = {
    */
   rangAtClinicFirst?: boolean;
   clinicLineBusy?: boolean;
+  /**
+   * The lines that forwarded the call, as the carrier's Diversion and
+   * History-Info headers name them (lib/voice/forwarded-from.ts). A call
+   * forwarded from the clinic's own published line with the caller's number
+   * kept is proof that its call forwarding works, and meets phone's
+   * forwarding step with no test window (observeForwardingCall). Being
+   * forwarded says nothing about whether the call is a first answer.
+   * ⚠️ May hold PHI; read for this call only and never stored.
+   */
+  forwardedFrom?: readonly ForwardedFrom[];
   /**
    * True when the vendor says the agent placed this call. healdesk is
    * inbound-only (v1 spec: no outbound on any product), so `ingestCall()`
@@ -701,9 +712,10 @@ export async function ingestCall(
       ],
     });
 
-    // The forwarding test, and the caller-ID watch: after the row exists, in
-    // the same transaction, so a test call that stamps the step and the
-    // conversation it stamped it from commit or roll back together.
+    // The forwarding test, a call forwarded from the clinic's own line, and
+    // the caller-ID watch: after the row exists, in the same transaction, so
+    // a call that stamps the step and the conversation it stamped it from
+    // commit or roll back together.
     await observeForwardingCall(tx, clinic, event, row.id);
 
     // Channel events (lib/channels/events.ts), in the same transaction: the

@@ -1,13 +1,21 @@
+import type { CoverageModeId } from "@healdesk/catalog";
 import type { ReactNode } from "react";
 
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import type { SettingsView } from "@/lib/portal/settings-view";
 import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import type { ForwardingView } from "@/lib/setup/forwarding";
+import type { ForwardingTestView } from "@/lib/setup/forwarding-test-words";
+import { GREETING_LABELS, META_GREETING_NOTE } from "@/lib/setup/greetings";
 
 import { portalMetaOutcome } from "@/lib/meta/portal-return";
 
+import { ForwardingTestPanel } from "../ForwardingTestPanel";
 import { MetaConnectButtons } from "../MetaConnectButtons";
 import { SendStepsForm } from "../SendStepsForm";
+import { WebsiteLinePanel } from "../WebsiteLinePanel";
+
+import { CoverageSetting } from "./CoverageSetting";
 
 import {
   ChecklistSetting,
@@ -49,9 +57,18 @@ export function Card(props: { id: string; title: string; intro?: ReactNode; chil
 // Channels
 // -----------------------------------------------------------------------------
 
+/** Phone's forwarding in Settings, once phone is ready for it: the steps for each mode, and the test. */
+export type SettingsForwarding = {
+  views: Readonly<Record<CoverageModeId, ForwardingView>>;
+  /** "Test it now", while phone waits on the clinic's forwarding; null otherwise. */
+  test: ForwardingTestView | null;
+};
+
 export function ChannelsCard({
   view,
   phoneSteps = null,
+  forwarding = null,
+  webLine = null,
   metaOutcome = null,
 }: {
   view: SettingsView;
@@ -59,6 +76,10 @@ export function ChannelsCard({
   metaOutcome?: string | null;
   /** AYA's number as the page prints it, once phone is ready on our side; null until then. */
   phoneSteps?: { numberLabel: string } | null;
+  /** The forwarding steps and the test, once phone is ready for forwarding; null until then. */
+  forwarding?: SettingsForwarding | null;
+  /** Website chat's line once the channel is open (lib/setup/snippet.ts); null until then. */
+  webLine?: string | null;
 }) {
   return (
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
@@ -121,7 +142,17 @@ export function ChannelsCard({
           <MetaConnectButtons slug={view.slug} from="settings" view={view.metaConnect} />
         </div>
       ) : null}
-      {view.bought.voice ? (
+      {view.bought.voice && forwarding ? (
+        <CoverageSetting
+          slug={view.slug}
+          legend="Which calls reach AYA"
+          line={`Your call forwarding steps follow this choice. ${view.coverage.landlineNote}`}
+          applies={view.applies.coverage_mode}
+          options={view.coverage.options as readonly { id: CoverageModeId; label: string; line: string }[]}
+          initial={view.coverage.mode as CoverageModeId}
+          views={forwarding.views}
+        />
+      ) : view.bought.voice ? (
         <ChoiceSetting
           slug={view.slug}
           settingKey="coverage_mode"
@@ -132,10 +163,21 @@ export function ChannelsCard({
           initial={view.coverage.mode}
         />
       ) : null}
+      {view.bought.voice && forwarding?.test ? (
+        <div className="py-3">
+          <ForwardingTestPanel slug={view.slug} initial={forwarding.test} />
+        </div>
+      ) : null}
       {view.bought.voice && phoneSteps ? (
         <SendStepsForm slug={view.slug} numberLabel={phoneSteps.numberLabel} />
       ) : null}
-      {view.bought.web ? (
+      {view.bought.web && webLine ? (
+        // The line stays here for good once it is open (spec: "available in
+        // the dashboard forever"), live or not: O10 and Home link here.
+        <div id="website-line" className="scroll-mt-6 pb-3">
+          <WebsiteLinePanel slug={view.slug} snippet={webLine} />
+        </div>
+      ) : view.bought.web ? (
         <p className="text-muted py-3 text-sm">
           The line to paste on your website appears here when website chat is ready, with a button
           to send it to whoever looks after your site. {WEB_CHAT_COUNTS_LINE}
@@ -197,19 +239,20 @@ export function TalkCard({ view }: { view: SettingsView }) {
           key={g.key}
           slug={view.slug}
           settingKey={g.key}
-          label={
-            g.key === "phone_greeting"
-              ? "When AYA answers a call"
-              : "When someone opens a chat or sends a message"
-          }
+          label={g.key === "phone_greeting" ? GREETING_LABELS.phone : GREETING_LABELS.chat}
           before={
-            <p className="border-line bg-paper-2 rounded-xl border px-4 py-3 text-sm">
-              {g.lockedLine}
-              <span className="text-muted mt-1 block text-xs">
-                Always first, on every {g.key === "phone_greeting" ? "call" : "conversation"}. It
-                can&rsquo;t be changed.
-              </span>
-            </p>
+            <>
+              <p className="border-line bg-paper-2 rounded-xl border px-4 py-3 text-sm">
+                {g.lockedLine}
+                <span className="text-muted mt-1 block text-xs">
+                  Always first, on every {g.key === "phone_greeting" ? "call" : "website chat"}. It
+                  can&rsquo;t be changed.
+                </span>
+              </p>
+              {g.key === "chat_greeting" && view.bought.meta ? (
+                <p className="text-muted mt-2 text-sm">{META_GREETING_NOTE}</p>
+              ) : null}
+            </>
           }
           initial={g.isDefault ? "" : g.text}
           placeholder={g.isDefault ? g.text : undefined}

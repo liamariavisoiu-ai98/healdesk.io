@@ -39,9 +39,12 @@ const STATUS_WORDS: Record<AddressChangeRow["status"], string> = {
 export function AccountPanel({
   view,
   actions,
+  devices,
 }: {
   view: OpsResult<ClinicSignInView>;
   actions: Actions;
+  /** The sign-in's devices and the two acts on them (DevicesSection.tsx). */
+  devices?: React.ReactNode;
 }) {
   if (!view.ok) {
     return (
@@ -67,7 +70,7 @@ export function AccountPanel({
         {v.clinicName}
       </h1>
       <p className="text-muted mt-1 text-sm">
-        The clinic&rsquo;s one address, and the agreement it is under.
+        The clinic&rsquo;s one address, its devices, and the agreement it is under.
       </p>
 
       <Section title="The clinic's address">
@@ -104,6 +107,8 @@ export function AccountPanel({
           </ul>
         ) : null}
       </Section>
+
+      {devices}
 
       <Section title="Covered entity">
         <CoveredEntity view={v} onSet={actions.setCovered} />

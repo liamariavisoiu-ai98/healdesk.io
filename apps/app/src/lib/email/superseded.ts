@@ -28,9 +28,15 @@ import type { NoticeKind } from "./kinds";
  * about something that has already happened, and goes regardless.
  */
 
-/** The one step O10 names for each channel that has its ready email. */
+/**
+ * The one step O10 names for each channel that has its ready email: phone's
+ * forwarding, and website chat's line, which stops being the step once an
+ * operator has seen it on the clinic's site (`runtime_seen`) or the channel
+ * is live, so a line already in place is never mailed as the step left.
+ */
 export const READY_STEP: Readonly<Partial<Record<Channel, ChannelWaitingOn>>> = {
   voice: "forwarding",
+  web: "snippet",
 };
 
 /** A channel is still waiting on the step O10 names: ready on our side, not live, that step open. */

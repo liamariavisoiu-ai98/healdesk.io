@@ -1,5 +1,6 @@
 "use client";
 
+import { COVERAGE_MODE_OPTIONS } from "@healdesk/catalog";
 import { useState, useTransition } from "react";
 
 import type {
@@ -28,7 +29,6 @@ type Actions = {
   reopenStep: (step: string, note?: string) => Promise<OpsResult<SimpleOutcome>>;
   savePhone: (settings: {
     phoneSystemType?: "landline" | "voip" | "unknown";
-    callRouting?: "conditional" | "always";
     carrier?: string | null;
     assistantNumberE164?: string | null;
     publishedPhoneE164?: string | null;
@@ -256,6 +256,17 @@ function StepRow({ step, actions }: { step: OnboardingView["steps"][number]; act
   );
 }
 
+/**
+ * The clinic's coverage mode, read-only (plan Part K: the onboarding page has
+ * no two-mode routing). The two-mode select this replaced could not say
+ * "after hours only", and an operator who changed it rewrote the clinic's
+ * own choice.
+ */
+function coverageWords(mode: OnboardingView["clinic"]["coverageMode"]): string {
+  const option = COVERAGE_MODE_OPTIONS.find((o) => o.id === mode);
+  return option ? `${option.label}: ${option.line}` : "Not reported by apps/app.";
+}
+
 function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["savePhone"] }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
@@ -269,7 +280,6 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
           setProblem(null);
           const result = await onSave({
             phoneSystemType: String(f.get("phoneSystemType")) as "landline" | "voip" | "unknown",
-            callRouting: String(f.get("callRouting")) as "conditional" | "always",
             carrier: String(f.get("carrier") || "") || null,
             assistantNumberE164: number || null,
             publishedPhoneE164: String(f.get("publishedPhoneE164") ?? "").trim() || null,
@@ -296,16 +306,13 @@ function PhoneForm({ view, onSave }: { view: OnboardingView; onSave: Actions["sa
           ))}
         </select>
       </label>
-      <label className="text-sm">
-        <span className="text-muted block text-xs font-bold uppercase">Call routing</span>
-        <select name="callRouting" defaultValue={view.clinic.callRouting} className="border-line mt-1 w-full rounded-sm border px-3 py-2">
-          <option value="conditional">Practice answers first; AYA takes what they miss</option>
-          <option value="always">AYA answers everything</option>
-        </select>
-        {!view.clinic.callRoutingConfirmedAt ? (
-          <span className="text-muted block text-xs">Not yet confirmed with the clinic — saving confirms it.</span>
-        ) : null}
-      </label>
+      <div className="text-sm">
+        <span className="text-muted block text-xs font-bold uppercase">Which calls reach AYA</span>
+        <p className="mt-1 py-2">{coverageWords(view.clinic.coverageMode)}</p>
+        <span className="text-muted block text-xs">
+          The clinic chooses this in its setup or Settings, from the three modes. It is not set here.
+        </span>
+      </div>
       <label className="text-sm">
         <span className="text-muted block text-xs font-bold uppercase">Assistant number (E.164)</span>
         <input name="assistantNumberE164" defaultValue={view.clinic.assistantNumberE164 ?? ""} placeholder="+14155550100" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
@@ -440,7 +447,8 @@ function AgentForm({ view, onSave, onApprove }: { view: OnboardingView; onSave: 
               </label>
               <p className="text-muted sm:col-span-2 text-xs">
                 The agent says a deposit is due and that the desk will call to collect it; the booking is flagged for the desk
-                and the booked alert says so. A payment link needs a text channel, which waits on 10DLC.
+                and the booked alert says so. AYA never texts anyone: a payment link goes only inside a chat, through the
+                clinic&rsquo;s own gateway, and a call always leaves the deposit to the desk.
               </p>
             </div>
           ) : null}

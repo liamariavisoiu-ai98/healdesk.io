@@ -1,5 +1,5 @@
 import { GOOGLE_CALENDAR_PROVIDER } from "@healdesk/connectors";
-import { and, count, eq, gte, inArray, isNull, lt, min, ne, sql } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNull, lt, min, ne, notInArray, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -33,6 +33,8 @@ import {
 import { describeError, log } from "@/lib/log";
 import { findUnhealthyConnections, readConnectionHealth } from "@/lib/scheduler/connection-health";
 import { JOB_OPS_DIGEST, runJob, type JobOutcome } from "@/lib/scheduler/jobs";
+
+import { FLAG_ALERT_EVENT } from "./flag-alert";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { listSupportRequests } from "./support-replies";
@@ -216,24 +218,36 @@ export async function collectDigest(now: Date = new Date()): Promise<OpsDigestPa
         ),
       );
     tally.queue("ops_alerts_unsent", unsent?.n ?? 0, unsent?.oldest);
-    // I1's own sends, which have no ledger row: its state is the ops log.
-    const [sent] = await unsafeDb
-      .select({ n: count() })
-      .from(opsAlerts)
-      .where(and(ne(opsAlerts.event, DIGEST_EVENT), gte(opsAlerts.sentAt, since)));
-    const [failed] = await unsafeDb
-      .select({ n: count() })
-      .from(opsAlerts)
-      .where(
-        and(
-          ne(opsAlerts.event, DIGEST_EVENT),
-          isNull(opsAlerts.sentAt),
-          sql`${opsAlerts.lastError} is not null`,
-          gte(opsAlerts.raisedAt, since),
-        ),
-      );
-    if ((sent?.n ?? 0) + (failed?.n ?? 0) > 0) {
-      tally.email("ops_alert", { sentCount: sent?.n ?? 0, failedCount: failed?.n ?? 0 });
+    // I1's own sends, and I4's (a flag's ticket), which have no ledger row:
+    // their state is the ops log, each under its own kind.
+    const sends = async (events: { only: string } | { except: readonly string[] }) => {
+      const which =
+        "only" in events
+          ? eq(opsAlerts.event, events.only)
+          : notInArray(opsAlerts.event, [...events.except]);
+      const [sent] = await unsafeDb
+        .select({ n: count() })
+        .from(opsAlerts)
+        .where(and(which, gte(opsAlerts.sentAt, since)));
+      const [failed] = await unsafeDb
+        .select({ n: count() })
+        .from(opsAlerts)
+        .where(
+          and(
+            which,
+            isNull(opsAlerts.sentAt),
+            sql`${opsAlerts.lastError} is not null`,
+            gte(opsAlerts.raisedAt, since),
+          ),
+        );
+      return { sentCount: sent?.n ?? 0, failedCount: failed?.n ?? 0 };
+    };
+    for (const [kind, events] of [
+      ["ops_alert", { except: [DIGEST_EVENT, FLAG_ALERT_EVENT] }],
+      ["flag_alert", { only: FLAG_ALERT_EVENT }],
+    ] as const) {
+      const totals = await sends(events);
+      if (totals.sentCount + totals.failedCount > 0) tally.email(kind, totals);
     }
   });
 

@@ -26,14 +26,19 @@ import {
   requestedScreen,
   type CalendarNotice,
 } from "@/lib/setup/calendar";
-import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
-import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
+import { channelNextStep, channelStatusLabel, setupSentence } from "@/lib/setup/channels";
+import {
+  defaultChatGreeting,
+  defaultPhoneGreeting,
+  META_GREETING_NOTE,
+} from "@/lib/setup/greetings";
 import {
   forwardingView,
   voiceForwardingReady,
   waitsOnDirectLine,
   type ForwardingFacts,
 } from "@/lib/setup/forwarding";
+import { readForwardingTest } from "@/lib/setup/forwarding-test-view";
 import { formatPhone, helpContacts } from "@/lib/setup/help";
 import { serviceInputOf } from "@/lib/setup/knowledge";
 import {
@@ -368,17 +373,15 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           isDefault: settings.phoneGreeting === null,
         });
       }
-      if (channels.includes("web") || channels.includes("meta")) {
+      // Website chat's alone: Instagram, Messenger and WhatsApp open with
+      // their own fixed line, and the clinic with them is told so.
+      if (channels.includes("web")) {
         greetings.push({
           kind: "chat" as const,
-          // Website chat's line where the clinic has it; a Meta-only clinic's
-          // people read the Meta channels' own warning first.
-          lockedLine: disclosureFor({
-            clinicName: name,
-            channel: channels.includes("web") ? "web_chat" : "instagram_dm",
-          }),
+          lockedLine: disclosureFor({ clinicName: name, channel: "web_chat" }),
           text: settings.chatGreeting ?? defaultChatGreeting(),
           isDefault: settings.chatGreeting === null,
+          note: channels.includes("meta") ? META_GREETING_NOTE : null,
         });
       }
       return (
@@ -539,6 +542,10 @@ async function ChannelsStep({
     assistantNumberE164: state.clinic.assistantNumberE164,
     directLineE164: state.settings.directLineE164,
   };
+  // "Test it now" and what it saw, beside the forwarding steps.
+  const forwardingTest = voiceForwardingReady(facts)
+    ? await withTenant({ clinicId: state.clinic.id, actor }, (tx) => readForwardingTest(tx))
+    : null;
   return (
     <ChannelsScreen
       slug={slug}
@@ -552,7 +559,7 @@ async function ChannelsStep({
         const row = {
           channel: c.channel,
           name: CHANNEL_NAMES[c.channel],
-          status: channelStatusWord(c.status),
+          status: channelStatusLabel(c, state.clinic.timezone, new Date()),
           line: setupSentence(c.channel, step),
         };
         // A step shown below the row is the one the row names, whatever
@@ -582,6 +589,7 @@ async function ChannelsStep({
                     phoneSystemType: state.clinic.phoneSystemType,
                     coverageMode: state.settings.coverageMode,
                   }),
+                  forwardingTest,
                 }
               : {
                   ...row,

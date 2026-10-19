@@ -262,6 +262,15 @@ describe("the request", () => {
     }
     expect(HELP_TEXT).not.toMatch(/HIPAA compliant\b(?!")/);
   });
+
+  test("the help text says where the build's three answers are given, and that AYA waits on them", () => {
+    // It said all three were "in Knowledge", which has no most-asked field.
+    expect(HELP_TEXT).not.toContain("all in Knowledge");
+    expect(HELP_TEXT).toContain("Until all three are there AYA isn't built");
+    expect(HELP_TEXT).toContain(
+      "the most-asked question is answered only on Setup's most-asked question screen, as Knowledge has no field for it.",
+    );
+  });
 });
 
 describe("the screen, before the model and before the person", () => {

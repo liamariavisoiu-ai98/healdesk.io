@@ -9,7 +9,14 @@ import {
 
 import type { ChannelState } from "@/lib/channels/state";
 
+import {
+  isPhoneSystem,
+  type CarrierSteps,
+  type ForwardingSteps,
+} from "./forwarding-steps";
 import { formatPhone } from "./help";
+
+export type { CarrierSteps, ForwardingSteps } from "./forwarding-steps";
 
 /**
  * Setup step 4's phone row (plan Part E), and the gate on everything in it
@@ -32,8 +39,14 @@ import { formatPhone } from "./help";
  * the channel is live the steps are done, and Settings → Safety net keeps
  * the undo codes.
  *
- * Pure: the page reads the facts. The O11 email (lib/notices/steps-sent.ts)
- * is given the number only by a server action that asks this same question.
+ * The clinic picks what runs its main line, a phone company's line or a
+ * cloud phone system, and on a phone company's line which carrier, from
+ * the lists here (spec: "The clinic picks its carrier or phone system from
+ * a list"). Both are saved as they are picked (lib/setup/phone-line.ts), so the steps
+ * emailed on (O11, lib/notices/steps-sent.ts) are the ones on the screen.
+ *
+ * The view is pure: the page reads the facts. The O11 email is given the
+ * number only by a server action that asks this same question.
  */
 
 export type ForwardingFacts = {
@@ -63,14 +76,6 @@ export function waitsOnDirectLine(facts: ForwardingFacts): boolean {
   );
 }
 
-export type CarrierSteps = {
-  id: Carrier;
-  name: string;
-  steps: { label: string; dial: string }[];
-  undo: { label: string; dial: string }[];
-  notes: string[];
-};
-
 export type ForwardingView = {
   ayaNumberE164: string;
   /** AYA's number as people write it: "(512) 555-0142". */
@@ -78,8 +83,12 @@ export type ForwardingView = {
   /** The carrier the clinic named, or "other" when it named none. */
   carrier: Carrier;
   phoneSystem: PhoneSystemType;
-  /** Each carrier's steps for this clinic's phone system and coverage mode, for the picker. */
+  /** The coverage mode these steps are for. */
+  coverageMode: CoverageModeId;
+  /** Each carrier's steps for a phone company's line in this coverage mode, for the picker. */
   carriers: CarrierSteps[];
+  /** The steps for a cloud phone system in this coverage mode. */
+  cloud: ForwardingSteps;
 };
 
 /** The forwarding screen's content, for a clinic voiceForwardingReady says is ready. */
@@ -89,23 +98,29 @@ export function forwardingView(input: {
   phoneSystemType: string | null;
   coverageMode: CoverageModeId;
 }): ForwardingView {
-  const phoneSystem: PhoneSystemType =
-    input.phoneSystemType === "voip" || input.phoneSystemType === "landline"
-      ? input.phoneSystemType
-      : "unknown";
+  const phoneSystem: PhoneSystemType = isPhoneSystem(input.phoneSystemType)
+    ? input.phoneSystemType
+    : "unknown";
+  const steps = (carrier: Carrier | null, system: PhoneSystemType): ForwardingSteps => {
+    const found = forwardingInstructions({
+      carrier,
+      phoneSystemType: system,
+      routing: input.coverageMode,
+      destinationE164: input.assistantNumberE164,
+    });
+    return { steps: found.steps, undo: found.undo, notes: found.notes };
+  };
   return {
     ayaNumberE164: input.assistantNumberE164,
     ayaNumber: formatPhone(input.assistantNumberE164),
     carrier: isCarrier(input.carrier) ? input.carrier : "other",
     phoneSystem,
-    carriers: CARRIERS.map(({ id, name }) => {
-      const steps = forwardingInstructions({
-        carrier: id === "other" ? null : id,
-        phoneSystemType: phoneSystem,
-        routing: input.coverageMode,
-        destinationE164: input.assistantNumberE164,
-      });
-      return { id, name, steps: steps.steps, undo: steps.undo, notes: steps.notes };
-    }),
+    coverageMode: input.coverageMode,
+    carriers: CARRIERS.map(({ id, name }) => ({
+      id,
+      name,
+      ...steps(id === "other" ? null : id, "landline"),
+    })),
+    cloud: steps(null, "voip"),
   };
 }

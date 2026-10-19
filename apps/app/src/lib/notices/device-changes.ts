@@ -6,7 +6,11 @@ import { clinics, userFactors } from "@/db/schema";
 import { isAllowedDeviceName } from "@/lib/email/lint";
 import { sendEmail, type SendEmailOptions } from "@/lib/email/send";
 import { ACCOUNT_REASON } from "@/lib/email/templates/context";
-import { renderDeviceChanged, type DeviceChange } from "@/lib/email/templates/device_changed";
+import {
+  renderDeviceChanged,
+  type DeviceChange,
+  type DeviceChangeSource,
+} from "@/lib/email/templates/device_changed";
 import { describeError, log } from "@/lib/log";
 import { portalGrants } from "@/lib/portal/access";
 import { withTenant } from "@/lib/tenant";
@@ -22,6 +26,12 @@ import { withTenant } from "@/lib/tenant";
  * person reading the inbox. A first passkey from any other session is the
  * one O3 most needs to report: before go-live it needs no step-up (Part D3),
  * so it is a device gaining patient details on nothing but a session.
+ *
+ * Two changes are made on our word rather than the clinic's, and say so
+ * (`source`): a device added with the human route's link (`recovery`,
+ * lib/factors/recovery.ts), which is always told, whichever browser used
+ * it; and every browser signed out by the operator (`operator`, the ops
+ * operation removeClinicDevices) after the clinic replied to one of these.
  *
  * Sent straight, not through the outbox: factors belong to the user, not to
  * a clinic, and one sign-in can open several locations. The factor's row (or,
@@ -45,10 +55,12 @@ export async function notifyDeviceChange(
     lockedUntil?: Date;
     /** For "Someone left": how many devices it removed. */
     removedCount?: number;
+    /** Made through healdesk: the human route's link, or the operator's sign-out. */
+    source?: DeviceChangeSource;
   },
   options: SendEmailOptions = {},
 ): Promise<void> {
-  if (change.kind === "added" && change.first && change.payingBrowser) return;
+  if (change.kind === "added" && change.first && change.payingBrowser && !change.source) return;
   try {
     const [account] = await unsafeDb
       .select({ email: user.email })
@@ -81,6 +93,7 @@ export async function notifyDeviceChange(
       changedAt: now.toISOString(),
       ...(lockedMinutes ? { lockedMinutes } : {}),
       ...(change.kind === "signed_out" ? { removedCount: change.removedCount ?? 0 } : {}),
+      ...(change.source ? { source: change.source } : {}),
     };
     const rendered = renderDeviceChanged(
       payload,

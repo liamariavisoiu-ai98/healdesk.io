@@ -23,6 +23,13 @@ import { env } from "@/lib/env";
  * after the plan's seven-day same-browser window for first enrolment
  * (Part D3). Losing it, or a browser that refuses it, costs one extra email,
  * never a missing one.
+ *
+ * It is that window too (lib/factors/authority.ts, basis `paying_browser`):
+ * for its seven days, this browser may add the sign-in's first passkey ever
+ * even once a clinic has gone live, so a buyer who skipped the Protect
+ * screen after /welcome is not locked out of patient pages from the very
+ * browser that paid. Losing the cookie then means a code from the backup or
+ * the human route, never a device added on less.
  */
 
 export const PAYING_BROWSER_COOKIE = "hd_paying_browser";

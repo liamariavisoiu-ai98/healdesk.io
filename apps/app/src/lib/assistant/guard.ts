@@ -9,7 +9,8 @@ import type { AssistantFacts } from "./facts";
  *
  * Inbound, before the model: a card number is cut out of what the person
  * said, so it reaches neither the model nor the transcript email, and they
- * are told why (cardNumberIn).
+ * are told why (cardNumberIn). One read out across turns is cut where the
+ * transcript is assembled (cutCardNumbersAcrossTurns).
  *
  * Outbound, after the model, a reply is refused when it:
  *   - says anything on the never-say list (the clinic's own and the defaults);
@@ -373,23 +374,177 @@ function luhn(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-const CARDISH = /\b(?:\d[ -]?){12,18}\d\b/g;
+/**
+ * A run of digits a card number can be written in: groups of digits with up
+ * to three spaces, full stops, commas, hyphens or slashes between them, as a
+ * recogniser punctuates a number read aloud ("4242, 4242, 4242, 4242.",
+ * "4,242 4,242", double spaces) and as a person types one, with the expiry
+ * and the security code said straight after it ("... 4242 12/28 123").
+ */
+const DIGIT_RUN = /\d(?:[\s.,/\-\u2010-\u2015]{0,3}\d)*/g;
+const DIGIT_GROUP = /\d+/g;
+
+/** The first digit of every major issuer's card numbers: Mastercard's 2-series, Amex, Diners and JCB, Visa, Mastercard, Discover. */
+function issuerDigit(digits: string): boolean {
+  return digits[0]! >= "2" && digits[0]! <= "6";
+}
 
 /**
- * The text with every card number cut out, and whether there was one. A run
- * of 13 to 19 digits, spaced or dashed, that passes the Luhn check; a phone
- * number does not pass it by design often enough to matter, and one that does
- * is only cut from the transcript.
+ * Where the card numbers in `text` are, as [start, end) spans: each from the
+ * first digit of a number that passes the Luhn check to the end of its run,
+ * so an expiry or a security code said after the number goes with it.
+ *
+ * A run of 13 to 19 digits is tested whole, as it always was. Then every
+ * stretch of its digit groups holding 13 to 19 digits is tested: dropping
+ * groups from the front finds a number said straight after a phone number,
+ * dropping them from the back finds one followed by its expiry or code. Such
+ * a stretch must also start with an issuer's digit (2 to 6) and take in no
+ * part of a phone number's shape; and nothing tested, whole or not, takes in
+ * a slash or a date's separators (shapes). A group of 17 digits or more, a
+ * number with its code typed onto it, is tested at each length from 13 to
+ * 19 from its start.
+ *
+ * A phone number, a date, a price or a time on its own holds fewer than 13
+ * digits and is never tested; a 3-3-4 phone number next to a date written
+ * with slashes, hyphens or full stops, or next to another 3-3-4 phone
+ * number, is never read as a card. A run of 13 to 19 digits tested whole can
+ * still pass by chance, one time in ten, as it always could ("415 555 0192
+ * 94110"); it is cut, and the person asked not to share card details, the
+ * safe way to be wrong.
+ *
+ * `crossing`, for the pass over a transcript's turns joined together
+ * (cutCardNumbersAcrossTurns): only a number that spans one of these
+ * offsets is returned, and only at 15 or 16 digits, the lengths of nearly
+ * every card in use, with an issuer's first digit, so that the end of one
+ * message and the start of the next are seldom read as one card.
+ */
+function cardNumberSpans(text: string, crossing?: readonly number[]): Array<[number, number]> {
+  const spans: Array<[number, number]> = [];
+  for (const run of text.matchAll(DIGIT_RUN)) {
+    const groups = [...run[0].matchAll(DIGIT_GROUP)].map((g) => ({
+      start: run.index + g.index,
+      end: run.index + g.index + g[0].length,
+      digits: g[0],
+    }));
+    if (groups.reduce((n, g) => n + g.digits.length, 0) < 13) continue;
+    const { breakBefore, inPhone } = shapes(text, groups);
+    // Groups s to e, or only the first `digits.length` digits of group s.
+    const passes = (digits: string, s: number, e: number, to: number, whole: boolean): boolean => {
+      const from = groups[s]!.start;
+      if (crossing) {
+        if (digits.length !== 15 && digits.length !== 16) return false;
+        if (!crossing.some((at) => from < at && at < to)) return false;
+      } else if (whole) {
+        return luhn(digits);
+      }
+      return issuerDigit(digits) && !inPhone.slice(s, e + 1).some(Boolean) && luhn(digits);
+    };
+    let cutFrom: number | null = null;
+    for (let s = 0; s < groups.length && cutFrom === null; s += 1) {
+      const first = groups[s]!;
+      let digits = "";
+      for (let e = s; e < groups.length; e += 1) {
+        if (e > s && breakBefore[e]) break;
+        digits += groups[e]!.digits;
+        if (digits.length > 19) break;
+        if (digits.length >= 13 && passes(digits, s, e, groups[e]!.end, s === 0 && e === groups.length - 1)) {
+          cutFrom = first.start;
+          break;
+        }
+      }
+      for (let n = 13; cutFrom === null && first.digits.length >= 17 && n <= Math.min(19, first.digits.length - 1); n += 1) {
+        if (passes(first.digits.slice(0, n), s, s, first.start + n, false)) cutFrom = first.start;
+      }
+    }
+    if (cutFrom !== null) spans.push([cutFrom, run.index + run[0].length]);
+  }
+  return spans;
+}
+
+/**
+ * What in a run of digit groups is not part of a card. `breakBefore`: the
+ * separator before the group is a slash, or one of a date's ("12-03-2026",
+ * "2026.12.03"), which no card number is written across. `inPhone`: the
+ * group is part of a phone number's 3-3-4 shape, after an optional 1, with
+ * one and the same space, hyphen or full stop between ("415-555-0192",
+ * "1 415 555 0192"), which only a run tested whole may take in, as it always
+ * could; so two phone numbers side by side are never read as one card.
+ */
+function shapes(text: string, groups: readonly { start: number; end: number; digits: string }[]): { breakBefore: boolean[]; inPhone: boolean[] } {
+  const sep = groups.map((g, i) => (i === 0 ? "" : text.slice(groups[i - 1]!.end, g.start)));
+  const len = groups.map((g) => g.digits.length);
+  const breakBefore = sep.map((s) => s.includes("/"));
+  const inPhone = groups.map(() => false);
+  for (let i = 0; i < groups.length; i += 1) {
+    if (i + 2 < groups.length && sep[i + 1] === sep[i + 2] && (sep[i + 1] === "-" || sep[i + 1] === ".")) {
+      const [a, b, c] = [len[i]!, len[i + 1]!, len[i + 2]!];
+      if ((a <= 2 && b <= 2 && (c === 2 || c === 4)) || (a === 4 && b <= 2 && c <= 2)) breakBefore[i + 1] = breakBefore[i + 2] = true;
+    }
+    for (const shape of [[3, 3, 4], [1, 3, 3, 4]]) {
+      if (i + shape.length > groups.length || !shape.every((n, k) => len[i + k] === n)) continue;
+      const between = shape.slice(1).map((_, k) => sep[i + k + 1]);
+      if ([" ", "-", "."].includes(between[0]!) && between.every((s) => s === between[0])) {
+        for (let k = 0; k < shape.length; k += 1) inPhone[i + k] = true;
+      }
+    }
+  }
+  return { breakBefore, inPhone };
+}
+
+const CARD_REMOVED = "[card number removed]";
+
+/**
+ * The text with every card number cut out, and whether there was one
+ * (cardNumberSpans says what is taken for one). The live path's cut: what it
+ * leaves reaches the model and the transcript.
  */
 export function cardNumberIn(text: string): { text: string; found: boolean } {
-  let found = false;
-  const cut = text.replace(CARDISH, (match) => {
-    const digits = match.replace(/[ -]/g, "");
-    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) {
-      found = true;
-      return "[card number removed]";
-    }
-    return match;
+  const spans = cardNumberSpans(text);
+  let cut = text;
+  for (const [start, end] of [...spans].reverse()) cut = cut.slice(0, start) + CARD_REMOVED + cut.slice(end);
+  return { text: cut, found: spans.length > 0 };
+}
+
+/**
+ * Every card number cut from the person's turns of a transcript, one read
+ * out across turns included ("my card is 4242 4242", the assistant answers,
+ * "4242 4242"), which no single turn holds whole. Each person turn is cut
+ * on its own as cardNumberIn cuts it; then the person's turns are read
+ * joined, past whatever the assistant said between them, and each part of a
+ * number found across them is cut from the turn that holds it. Run where
+ * the transcript is assembled for the email (queueTranscriptEmail, before
+ * it is sealed, and renderTranscriptEmail), the one place every channel's
+ * turns are seen together.
+ */
+export function cutCardNumbersAcrossTurns<T extends { speaker: "assistant" | "person"; text: string }>(turns: readonly T[]): T[] {
+  const out = turns.map((turn) => (turn.speaker === "person" ? { ...turn, text: cardNumberIn(turn.text).text } : { ...turn }));
+  // The person's turns, trimmed and joined by one space, and where each sits in the join.
+  const placed: { index: number; from: number; length: number; at: number }[] = [];
+  let joined = "";
+  out.forEach((turn, index) => {
+    if (turn.speaker !== "person") return;
+    const from = turn.text.length - turn.text.trimStart().length;
+    const length = turn.text.trim().length;
+    if (length === 0) return;
+    if (joined) joined += " ";
+    placed.push({ index, from, length, at: joined.length });
+    joined += turn.text.slice(from, from + length);
   });
-  return { text: cut, found };
+  if (placed.length < 2) return out;
+  const spans = cardNumberSpans(joined, placed.slice(1).map((p) => p.at - 1));
+  // Last first, so the offsets of the cuts still to make stand.
+  for (const [start, end] of spans.reverse()) {
+    for (const p of [...placed].reverse()) {
+      // This turn's part of the number, from its first digit to its last:
+      // the punctuation either side of it stays with the turn.
+      const part = joined.slice(Math.max(start, p.at), Math.min(end, p.at + p.length));
+      const first = part.search(/\d/);
+      if (first < 0) continue;
+      const last = part.search(/\d\D*$/) + 1;
+      const turn = out[p.index]!;
+      const local = p.from + (Math.max(start, p.at) - p.at) + first;
+      turn.text = turn.text.slice(0, local) + CARD_REMOVED + turn.text.slice(local + (last - first));
+    }
+  }
+  return out;
 }

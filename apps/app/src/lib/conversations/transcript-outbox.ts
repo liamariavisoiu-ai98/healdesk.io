@@ -17,6 +17,7 @@ import { describeError, log, scrub } from "@/lib/log";
 import { notifyOps, notifyOpsOnce } from "@/lib/ops/notify";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { getJob, JOB_TRANSCRIPT_EMAILS, runSwitchedJob, type JobOutcome } from "@/lib/scheduler/jobs";
+import { cutCardNumbersAcrossTurns } from "@/lib/assistant/guard";
 import type { ActorContext } from "@/lib/audit";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
@@ -138,7 +139,9 @@ export async function queueTranscriptEmail(
   if (input.channel !== "voice" && input.channel !== "web_chat") {
     throw new Error(`No transcript is queued for channel ${String(input.channel)}: only calls and web chats.`);
   }
-  const turns = input.turns
+  // Every card number cut before the copy is sealed, one read out across
+  // turns included, which no channel's own cut sees whole (lib/assistant/guard.ts).
+  const turns = cutCardNumbersAcrossTurns(input.turns)
     .filter((turn) => turn.text.trim().length > 0)
     .map((turn) => ({ speaker: turn.speaker, text: turn.text }));
   if (turns.length === 0) return null;

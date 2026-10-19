@@ -13,7 +13,7 @@ import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { carriesUnsubscribe, CRITICAL_NOTICE_KINDS, optionalSwitchOf } from "./kind-rules";
 import { NOTICE_KIND_REGISTRY, NOTICE_KINDS, type NoticeKind } from "./kinds";
-import { assertPayloadAllowed, LinkNotAllowedError, PayloadNotAllowedError } from "./lint";
+import { assertPayloadAllowed, LinkNotAllowedError, PayloadNotAllowedError, printableClinicName } from "./lint";
 import { optionalEmailAllowed } from "./stop";
 import { supersededReason } from "./superseded";
 import { EmailEnvelopeError, sendEmail } from "./send";
@@ -299,6 +299,11 @@ async function sendToRecipients(
   const { notice, entry, clinic, slots } = claim;
   if (slots.length === 0) return [];
 
+  // The name as an email may print it, or none: clinic names are not held to
+  // the email rule when they are typed, so one with a link in it (a website
+  // pasted into the name) would have every outbox email refused for good,
+  // urgent alerts included, as the direct senders' were until R9.
+  const printedName = printableClinicName(clinic.name);
   let rendered: RenderedEmail;
   let headers: Record<string, string> | undefined;
   try {
@@ -307,9 +312,9 @@ async function sendToRecipients(
       ? (optionalSwitchOf(notice.kind) ?? "commercial")
       : null;
     const ctx: TemplateContext = {
-      clinicName: clinic.name,
+      clinicName: printedName,
       audience: audienceFor(clinic.specialty),
-      reason: clinicReason(clinic.name),
+      reason: clinicReason(printedName),
       ...(scope ? { unsubscribeUrl: unsubscribeUrl(notice.clinicId, scope) } : {}),
       // The notice's own time, never the clock: a retry renders the same bytes.
       raisedAt: notice.createdAt,
@@ -342,7 +347,7 @@ async function sendToRecipients(
           html: rendered.html,
           phiClass: "none",
           clinicId: notice.clinicId,
-          clinicName: clinic.name,
+          clinicName: printedName,
           deliveryId: slot.deliveryId,
           idempotencyKey: `hd-${notice.kind}-${notice.id}-${slot.n}`,
           ...(headers ? { headers } : {}),

@@ -197,6 +197,33 @@ describeDb("the outbox sender", () => {
     await closePools();
   });
 
+  test("a clinic name an email may not print is left out, never a reason to refuse the clinic's mail", async () => {
+    // Names are not held to the email rule when typed: a buyer who pastes the
+    // website into the name field gets one with a link in it. With the name in
+    // its footer, every outbox email, the critical ones included, was refused
+    // for good by the link scan (R9's review, 19 October 2026).
+    const c = await seedClinic("outbox-name");
+    await getMigratorPool().query(`update clinics set name = $2 where id = $1`, [
+      c.clinicId,
+      "Glow Med Spa https://glowspa.com",
+    ]);
+    const T = new Date("2026-10-06T15:00:00Z");
+    const id = await enqueue(
+      c.clinicId,
+      "payment_failed",
+      "in_name",
+      { amountDueCents: 8970, hostedInvoiceUrl: null, graceEndsAt: null, isFirstPlanCharge: false },
+      T,
+    );
+    const transport = new FakeTransport();
+    // The real template, not the test one: its footer is where the name goes.
+    expect(await deliverNotice(c.clinicId, id, { now: T, transport })).toBe("sent");
+    expect(transport.calls).toHaveLength(1);
+    const { text } = transport.calls[0]!.message;
+    expect(text).not.toContain("glowspa");
+    expect(text).toContain("the address on your practice's healdesk account");
+  });
+
   test("claims a notice with a two-minute lease, sends once, and keys the email on its ledger row", async () => {
     const c = await seedClinic("outbox-send");
     const T = new Date("2026-10-06T15:00:00Z");

@@ -539,9 +539,14 @@ export const KEYS: readonly KeyDef[] = [
     env: "HEALDESK_RETELL_API_KEY",
     home: "aws",
     label: "Retell key (engine): signs call-ended messages and reads a call back",
-    need: "later",
-    waitsFor:
-      "every business associate agreement in the chain is signed, Retell's included, which the paste script asks you to confirm before it takes this. Paste the key of the Retell workspace the clinics' agents are in (their own, under Retell's agreement, never the demo line's, whose keys are on Vercel), the one with the webhook badge, and set each clinic's agent webhook to https://app.healdesk.io/api/webhooks/retell/<clinic id>",
+    // Optional, not later: the live line runs without it, and only the
+    // backstop for a call the voice task never recorded is off. As "later"
+    // it would show the whole voice line off while calls were being answered.
+    // Pasted with the line password, from the clinics' own Retell workspace
+    // (under Retell's agreement, never the demo line's, whose keys are on
+    // Vercel), the key with the webhook badge; each clinic's agent webhook is
+    // https://app.healdesk.io/api/webhooks/retell/<clinic id>.
+    need: "optional",
     rotation: {
       kind: "every",
       days: 180,
@@ -551,8 +556,8 @@ export const KEYS: readonly KeyDef[] = [
   },
   {
     // Not a secret: Terraform sets it on the web task whenever enable_voice is
-    // on (infra/aws/locals.tf), because the secret above is given to the web
-    // task, and so reads as present, before the voice service exists.
+    // on (infra/aws/locals.tf), because HEALDESK_RETELL_LLM_SECRET is given to
+    // the web task, and so reads as present, before the voice service exists.
     id: "aws.HEALDESK_VOICE_ENABLED",
     env: "HEALDESK_VOICE_ENABLED",
     home: "aws",

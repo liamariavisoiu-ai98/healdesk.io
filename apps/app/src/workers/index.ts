@@ -223,17 +223,17 @@ async function main(): Promise<void> {
   // The voice call backstop (lib/voice/backstop.ts): a call Retell says has
   // ended and the live socket never recorded. Each job is ten minutes behind
   // its webhook and idempotent on the call id; a throw is retried by
-  // pg-boss with the backoff set at enqueue. Guarded like the clocks: where
-  // `queue:install` has not been re-run since this queue arrived, the log
-  // names the fix and the rest of the worker starts.
-  try {
+  // pg-boss with the backoff set at enqueue. pg-boss works a queue that was
+  // never installed without a word (its fetch swallows the error), so the
+  // queue is looked up first, and a missing one is logged with its fix; the
+  // webhook's send into it fails too, and Retell is told to retry.
+  if (await boss.getQueue(QUEUE_VOICE_CALL_BACKSTOP)) {
     await boss.work<CallBackstopPayload>(QUEUE_VOICE_CALL_BACKSTOP, { batchSize: 1 }, async (jobs) => {
       for (const job of jobs) await handleCallBackstopJob(job.data);
     });
-  } catch (error) {
+  } else {
     log.error("queue not worked: run `npm run queue:install` as the migrator, then restart the worker", {
       job: QUEUE_VOICE_CALL_BACKSTOP,
-      error: describeError(error),
     });
   }
 

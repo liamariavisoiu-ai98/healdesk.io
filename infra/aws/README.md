@@ -190,7 +190,7 @@ would land in the state at the next plan.) The real values are written inside AW
 | `app/STRIPE_CONNECT_WEBHOOK_SECRET` | The owner, from doorbell B (Stripe's Connect endpoint at `https://app.healdesk.io/api/webhooks/stripe-connect`) | web |
 | `app/META_APP_SECRET`, `app/META_VERIFY_TOKEN`, `app/ANTHROPIC_API_KEY` | The owner, only once the BAA chain allows ("What still blocks real patient data") | web |
 | `app/HEALDESK_RETELL_LLM_SECRET` | The owner, before turning `enable_voice` on: a random value, at least 32 characters (letters, digits, `-` and `_` only, since it is a URL path segment: `openssl rand -hex 32`); the same value goes into each clinic's Retell agent URL ("The voice endpoint", below). Until then leave it `__unset__`, and the voice process refuses every call | voice (and web, which gets every `app/` parameter) |
-| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET`: the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge. That workspace is the one under Retell's BAA and holds no demo agent: a key reads every call in its workspace, and the demo's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded ("The voice endpoint", below). Unset, the webhook answers 503 and nothing is backstopped | web (the webhook), worker (the backstop job) |
+| `app/HEALDESK_RETELL_API_KEY` | The owner, with `HEALDESK_RETELL_LLM_SECRET`: the API key of the Retell workspace the clinics' agents are in, the one with the webhook badge. That workspace is the one under Retell's BAA and holds no demo agent: a key reads every call in its workspace, and the demo's keys sit on Vercel, which handles no patient data. It verifies Retell's call-ended webhook (`/api/webhooks/retell/<clinic id>`) and lets the worker read a call back (`GET https://api.retellai.com/v2/get-call/<id>`), the backstop for a call the voice task never recorded ("The voice endpoint", below). Unset, the webhook answers 503 and nothing is backstopped | web (the webhook), worker (the backstop job), and voice, which gets every `app/` parameter the web tier does |
 | `ci/CLOUDFLARE_API_TOKEN` (not Terraform's) | The owner, before the first plan, under the bootstrap stack's key | `infra.yml` and `host.yml`, after they assume the Terraform role |
 | RDS master secret (Secrets Manager, managed by RDS, rotated every 7 days) | RDS | db-bootstrap only, through the execution role |
 
@@ -1206,9 +1206,11 @@ calls drop and the other answers the next.
    `deploy-app.yml` runs). Ten minutes later the worker records the call only if the voice task
    never did: it reads the call back from Retell, and the ingest writes the conversation, emails
    the transcript and counts the minutes, with no booking request, since what the caller asked for
-   was in the dead task's memory; the clinic reads it in the transcript. Check on the test call:
-   the web log shows no `retell webhook signature did not verify`, and the worker log no
-   `voice call recorded by the backstop` (the live line got there first).
+   was in the dead task's memory; the clinic reads it in the transcript. It reads the words from
+   Retell's own copy, so an agent that opts out of Retell storing sensitive data gets a backstop
+   with no transcript. Check on the test call: the web log shows no `retell webhook signature did
+   not verify`, and ten minutes later the worker log shows `voice call backstop found the call
+   recorded` (the live line got there first), never `voice call recorded by the backstop`.
 
 **Rotating the secret**: paste a new value, run `restart_only`, then update every agent's URL;
 calls to an agent not yet updated are refused in between, so do it in a quiet hour.

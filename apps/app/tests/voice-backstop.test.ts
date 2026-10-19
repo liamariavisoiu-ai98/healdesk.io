@@ -170,6 +170,11 @@ describe("the backstop's queue and mapping", () => {
     expect(sent[0]![0]).toBe(QUEUE_VOICE_CALL_BACKSTOP);
     expect(sent[0]![1]).toEqual({ clinicId: CLINIC, callId: "call_abc123" });
     expect(sent[0]![2]).toMatchObject({ startAfter: BACKSTOP_DELAY_SECONDS, singletonKey: `${CLINIC}:call_abc123` });
+
+    // pg-boss declining the job: fine for a duplicate of one waiting, an error when the queue was never installed.
+    const declined = (async () => null) as never;
+    await expect(scheduleCallBackstop({ clinicId: CLINIC, callId: "call_abc123" }, declined, async () => true)).resolves.toBeUndefined();
+    await expect(scheduleCallBackstop({ clinicId: CLINIC, callId: "call_abc123" }, declined, async () => false)).rejects.toThrow(/queue:install/);
   });
 
   test("Retell's call becomes the ingest's event: turns, times, minutes and the disclosure, never a request", () => {
@@ -196,13 +201,22 @@ describe("the backstop's queue and mapping", () => {
     expect(callEventFromRetell(retellCall({ call_id: "call_2" }), clinic)).toEqual({ refused: "wrong_call" });
   });
 
-  test("an outbound call is flagged for the ingest to refuse; no disclosure claimed without the locked line", () => {
+  test("refuses an outbound call, and a call our endpoint never spoke on; no disclosure claimed without the locked line", () => {
+    const clinic = { clinicId: CLINIC, callId: "call_1", assistantNumber: ASSISTANT };
+    expect(callEventFromRetell(retellCall({ call_id: "call_1", direction: "outbound" }), clinic)).toEqual({ refused: "outbound" });
+    // The socket never opened (Retell's error_llm_websocket_open): only the caller is in the transcript.
+    expect(callEventFromRetell(retellCall({ call_id: "call_1", transcript_object: [{ role: "user", content: "Hello?" }] }), clinic)).toEqual({ refused: "never_answered" });
+    expect(callEventFromRetell(retellCall({ call_id: "call_1", transcript_object: [] }), clinic)).toEqual({ refused: "never_answered" });
+    expect(callEventFromRetell(retellCall({ call_id: "call_1", start_timestamp: undefined }), clinic)).toEqual({ refused: "no_start" });
     const mapped = callEventFromRetell(
-      retellCall({ call_id: "call_1", direction: "outbound", transcript_object: [{ role: "agent", content: "Hello there." }, { role: "user", content: "Hi" }] }),
-      { clinicId: CLINIC, callId: "call_1", assistantNumber: ASSISTANT },
+      retellCall({ call_id: "call_1", transcript_object: [{ role: "agent", content: "Hello there." }, { role: "user", content: "Hi" }] }),
+      clinic,
     );
-    expect("event" in mapped && mapped.event.isCallback).toBe(true);
+    expect("event" in mapped && mapped.event.isCallback).toBe(false);
     expect("event" in mapped && mapped.event.disclosurePlayedAt).toBeUndefined();
+    // A call cut before the caller spoke is still recorded, with no transcript to email.
+    const silent = callEventFromRetell(retellCall({ call_id: "call_1", transcript_object: [{ role: "agent", content: opening("X") }] }), clinic);
+    expect("event" in silent && silent.event.transcriptTurns).toBeUndefined();
     expect(openedWithDisclosure(turnsFromRetell([{ role: "user", content: "hi" }]))).toBe(false);
     expect(turnsFromRetell([{ role: "transfer_target", content: "x" }, { role: "user", content: "  " }, null, "x"])).toEqual([]);
   });
@@ -375,13 +389,34 @@ describeDb("the backstop against the database", () => {
       runCallBackstop({ clinicId: clinic.clinicId, callId: "call_ongoing" }, { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, call_status: "ongoing" }), transport }),
     ).rejects.toThrow(/in progress/);
 
+    await expect(
+      runCallBackstop({ clinicId: clinic.clinicId, callId: "call_registered" }, { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, call_status: "registered" }), transport }),
+    ).rejects.toThrow(/in progress/);
+    // A call that failed at Retell is final: refused, not retried.
+    expect(
+      await runCallBackstop({ clinicId: clinic.clinicId, callId: "call_error" }, { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, call_status: "error" }), transport }),
+    ).toEqual({ status: "refused", reason: "not_ended" });
+
+    // Outbound: refused without the ingest, so the live socket's security event is not recorded twice.
+    const ingest = vi.fn();
     const outbound = await runCallBackstop(
       { clinicId: clinic.clinicId, callId: "call_out" },
-      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, direction: "outbound" }), transport },
+      { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, direction: "outbound" }), ingest, transport },
     );
-    expect(outbound).toEqual({ status: "refused", reason: "ingest_refused" });
+    expect(outbound).toEqual({ status: "refused", reason: "outbound" });
+    expect(ingest).not.toHaveBeenCalled();
+
+    // Our endpoint never answered: nothing recorded, counted or billed.
+    expect(
+      await runCallBackstop(
+        { clinicId: clinic.clinicId, callId: "call_unanswered" },
+        { apiKey: KEY, fetchCall: async (id) => retellCall({ call_id: id, transcript_object: [{ role: "user", content: "Hello?" }] }), ingest, transport },
+      ),
+    ).toEqual({ status: "refused", reason: "never_answered" });
+
+    expect(await runCallBackstop({ clinicId: "0f6c2b8e-2a4f-4c1e-9a77-0b2d3c4e5f61", callId: "call_x" }, { apiKey: KEY, transport })).toEqual({ status: "unknown_clinic" });
 
     await expect(runCallBackstop({ clinicId: clinic.clinicId, callId: "call_nokey" }, { apiKey: null, transport })).rejects.toThrow(/HEALDESK_RETELL_API_KEY/);
-    expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 0, requests: 0, transcripts: 0 });
+    expect(await counts(clinic.clinicId)).toMatchObject({ conversations: 0, requests: 0, transcripts: 0, usage: 0 });
   });
 });

@@ -79,6 +79,11 @@ async function main(): Promise<void> {
     // job per call, so call_ended, call_analyzed and Retell's retries
     // collapse onto it (lib/voice/backstop.ts).
     await boss.createQueue(queue, queue === QUEUE_VOICE_CALL_BACKSTOP ? { name: queue, policy: "short" } : undefined);
+    // createQueue keeps an existing queue as it is, so a backstop queue
+    // created under another policy is put right here, every install.
+    if (queue === QUEUE_VOICE_CALL_BACKSTOP && (await boss.getQueue(queue))?.policy !== "short") {
+      await boss.updateQueue(queue, { name: queue, policy: "short" });
+    }
     console.info(`[healdesk]   queue ready: ${queue}`);
   }
 

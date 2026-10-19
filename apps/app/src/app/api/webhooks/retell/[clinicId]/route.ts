@@ -16,8 +16,9 @@ import { BACKSTOP_EVENTS, isRetellCallId, retellApiKey, scheduleCallBackstop } f
  * HEALDESK_RETELL_API_KEY, at most five minutes old. The clinic id in the
  * path is not a secret; it only names which clinic to check, and the job
  * records nothing unless Retell's own record of the call shows it reached
- * that clinic's Retell number. Nothing in the body is kept, logged or
- * queued but the call id: the job reads the call back from Retell itself.
+ * that clinic's Retell number. Nothing in the body is kept or queued but
+ * the call id, and nothing logged but the event's name: the job reads the
+ * call back from Retell itself.
  *
  * Answers in milliseconds (Retell waits ten seconds, then retries three
  * times): 204 for an event handled or ignored, 401 for a bad signature, 503

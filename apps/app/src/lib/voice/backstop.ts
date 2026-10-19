@@ -7,7 +7,7 @@ import { clinicHasLeft } from "@/lib/clinic/leaving";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { describeError, log } from "@/lib/log";
-import { enqueue, QUEUE_VOICE_CALL_BACKSTOP } from "@/lib/queue/boss";
+import { enqueue, getBoss, QUEUE_VOICE_CALL_BACKSTOP } from "@/lib/queue/boss";
 import type { EmailTransport } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 
@@ -57,6 +57,10 @@ import { ingestCall, VoiceIngestError, type IngestResult, type VoiceCallEvent } 
  * not evidence of a first answer (the gate's decision is unknown), and
  * `urgent` stays false; an urgent caller's alert was raised in the call
  * itself, when it was heard.
+ *
+ * It needs Retell to have kept the call's transcript. An agent set to opt
+ * out of Retell storing sensitive data leaves the backstop the call's times
+ * and minutes but no words, and no transcript is emailed.
  */
 
 /** Long after any live socket has recorded its call; short enough that the clinic's transcript is still timely. */
@@ -92,15 +96,24 @@ export function isRetellCallId(value: unknown): value is string {
 export async function scheduleCallBackstop(
   payload: CallBackstopPayload,
   send: typeof enqueue = enqueue,
+  queueInstalled: () => Promise<boolean> = async () => Boolean(await (await getBoss()).getQueue(QUEUE_VOICE_CALL_BACKSTOP)),
 ): Promise<void> {
-  await send(QUEUE_VOICE_CALL_BACKSTOP, { clinicId: payload.clinicId, callId: payload.callId }, {
+  const id = await send(QUEUE_VOICE_CALL_BACKSTOP, { clinicId: payload.clinicId, callId: payload.callId }, {
     startAfter: BACKSTOP_DELAY_SECONDS,
     singletonKey: `${payload.clinicId}:${payload.callId}`,
-    // Retell's API down for a while is the likely failure; give it the hour.
-    retryLimit: 6,
-    retryDelay: 120,
+    // Retell's API down for a while is the likely failure. pg-boss doubles
+    // the delay each time, with jitter: about one to two hours in all.
+    retryLimit: 5,
+    retryDelay: 60,
     retryBackoff: true,
   });
+  // null is pg-boss declining the job: a duplicate of one already waiting,
+  // which is the point of the queue's policy, or a queue that was never
+  // installed, which would drop the backstop without a word. Only the
+  // second is an error, and Retell retries on it.
+  if (id === null && !(await queueInstalled())) {
+    throw new Error("the voice-call-backstop queue is not installed: run `npm run queue:install` as the migrator");
+  }
 }
 
 /** The fields of Retell's call object this file reads (https://docs.retellai.com/api-references/get-call). */
@@ -166,7 +179,20 @@ export type BackstopRefusal =
   | "not_a_phone_call"
   | "not_this_clinic"
   | "no_start"
-  /** ingestCall refused it: an outbound call (recorded there as a security event), or a clinic it cannot find. */
+  /**
+   * The vendor says we placed it. healdesk places none; the live socket ends
+   * such a call at once and its ingest records the security event, so the
+   * backstop records nothing and does not record that event a second time.
+   */
+  | "outbound"
+  /**
+   * No agent turn: our endpoint never spoke on the call (the socket never
+   * opened, or was refused). AYA did not answer it, so it is not recorded as
+   * a call she answered, counted as recovered or billed as minutes. A call
+   * whose task died mid-call always has the opening line.
+   */
+  | "never_answered"
+  /** ingestCall refused it: a clinic it cannot find. */
   | "ingest_refused";
 
 /**
@@ -185,10 +211,12 @@ export function callEventFromRetell(
   const to = typeof call.to_number === "string" ? (toE164(call.to_number) ?? call.to_number.trim()) : null;
   const ours = clinic.assistantNumber ? (toE164(clinic.assistantNumber) ?? clinic.assistantNumber.trim()) : null;
   if (!to || !ours || to !== ours) return { refused: "not_this_clinic" };
+  if (call.direction === "outbound") return { refused: "outbound" };
   const startedAt = timestamp(call.start_timestamp);
   if (!startedAt) return { refused: "no_start" };
   const endedAt = timestamp(call.end_timestamp) ?? undefined;
   const turns = turnsFromRetell(call.transcript_object);
+  if (!turns.some((t) => t.speaker === "assistant")) return { refused: "never_answered" };
   const durationSeconds =
     typeof call.duration_ms === "number" && Number.isFinite(call.duration_ms) && call.duration_ms >= 0 ? Math.round(call.duration_ms / 1000) : undefined;
   const from = typeof call.from_number === "string" && call.from_number.trim() ? call.from_number.trim() : undefined;
@@ -200,8 +228,7 @@ export function callEventFromRetell(
       startedAt,
       endedAt,
       durationSeconds,
-      // ingestCall refuses an outbound call and records it as a security event, as for the live socket.
-      isCallback: call.direction === "outbound",
+      isCallback: false,
       answeredByAssistant: false,
       urgent: false,
       disclosurePlayedAt: openedWithDisclosure(turns) ? startedAt : undefined,
@@ -269,7 +296,7 @@ export async function runCallBackstop(payload: CallBackstopPayload, deps: Backst
     const result = await (deps.ingest ?? ((e) => ingestCall(e, ACTOR, { transport: deps.transport })))(mapped.event);
     return { status: "recorded", result };
   } catch (error) {
-    // A refusal is final; retrying it would only record the security event again.
+    // A refusal is final; retrying it would refuse it again.
     if (error instanceof VoiceIngestError) return { status: "refused", reason: "ingest_refused" };
     throw error;
   }
@@ -285,6 +312,10 @@ export async function handleCallBackstopJob(payload: CallBackstopPayload, deps: 
         conversationId: outcome.result.conversationId,
         status: outcome.result.duplicate ? "duplicate" : "recorded",
       });
+    } else if (outcome.status === "already_recorded") {
+      // The usual case: the live socket got there first. Logged so a test
+      // call shows the backstop ran.
+      log.info("voice call backstop found the call recorded", { clinicId: payload.clinicId, status: outcome.status });
     } else if (outcome.status === "refused" || outcome.status === "unknown_clinic") {
       log.warn("voice call backstop refused", { clinicId: payload.clinicId, status: outcome.status === "refused" ? outcome.reason : outcome.status });
     }

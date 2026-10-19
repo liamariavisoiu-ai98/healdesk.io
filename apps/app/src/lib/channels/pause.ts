@@ -2,7 +2,13 @@ import { CHANNELS, type Channel } from "@healdesk/catalog";
 import { and, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
-import { channelEvents, clinicChannels, clinics, clinicSettings } from "@/db/schema";
+import {
+  agreementResigns,
+  channelEvents,
+  clinicChannels,
+  clinics,
+  clinicSettings,
+} from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import {
   getClinicSettings,
@@ -138,6 +144,15 @@ export async function updateClinicSettingsRecordingPause(
   patch: ClinicSettingsPatch,
   actorLabel: string,
   now: Date = new Date(),
+  options: {
+    /**
+     * False for a pause whose own email says it already: the agreement
+     * re-sign's (lib/agreements/resign.ts), whose L22 says AYA is paused
+     * until it is signed, and which L15's "until someone turns her back on"
+     * would contradict. The record of the pause is written either way.
+     */
+    emailClinic?: boolean;
+  } = {},
 ): Promise<{ before: ClinicSettings; after: ClinicSettings }> {
   const touchesPause = patch.aiPaused !== undefined || patch.aiPausedUntil !== undefined;
   if (touchesPause) await lockPause(tx);
@@ -146,7 +161,9 @@ export async function updateClinicSettingsRecordingPause(
   // else is recorded, so its window never runs into the next one's.
   if (touchesPause) await settleLocked(tx, before, now);
   const after = await updateClinicSettings(tx, patch, actorLabel, now);
-  if (touchesPause) await recordPauseChange(tx, before, after, actorLabel, now);
+  if (touchesPause) {
+    await recordPauseChange(tx, before, after, actorLabel, now, options.emailClinic ?? true);
+  }
   return { before, after };
 }
 
@@ -156,6 +173,7 @@ async function recordPauseChange(
   after: ClinicSettings,
   actorLabel: string,
   now: Date,
+  emailClinic: boolean,
 ): Promise<void> {
   const was = isPaused(pauseOf(before), now);
   const is = isPaused(pauseOf(after), now);
@@ -184,7 +202,12 @@ async function recordPauseChange(
   // L15, once per pause (its dedupe key is when the pause began): on a new
   // pause long enough for it, and on a pause whose end moved so that it now
   // is, as when the console turns an hour into "until switched back on".
-  if (is && after.aiPausedAt && pauseEmailsClinic(after.aiPausedAt, after.aiPausedUntil)) {
+  if (
+    emailClinic &&
+    is &&
+    after.aiPausedAt &&
+    pauseEmailsClinic(after.aiPausedAt, after.aiPausedUntil)
+  ) {
     await queuePauseEmails(tx, {
       kind: "pause",
       channels: await answeringChannels(tx),
@@ -286,6 +309,28 @@ async function queuePauseEmails(
 // -----------------------------------------------------------------------------
 
 /**
+ * While a practice owes its updated agreement (lib/agreements/resign.ts), AYA
+ * stays paused and the header cannot move the pause: turning her back on,
+ * or choosing a pause that ends by itself, would have her answer a covered
+ * practice's patients with no business associate agreement in force, and
+ * would make L22's "AYA is paused until it's signed" untrue. Signing it lifts
+ * the pause. The console (lib/ops/billing.ts) can still move it: an
+ * operator's override, never the header's.
+ */
+async function refuseWhileAgreementToSign(tx: TenantTx): Promise<void> {
+  const [open] = await tx.db
+    .select({ id: agreementResigns.id })
+    .from(agreementResigns)
+    .where(and(eq(agreementResigns.clinicId, tx.clinicId), eq(agreementResigns.status, "open")))
+    .limit(1);
+  if (open) {
+    throw new PauseError(
+      "AYA stays paused until your updated agreement is signed. Sign it in Billing, under Your agreement.",
+    );
+  }
+}
+
+/**
  * Pause AYA on every channel from the header: for an hour, until 08:00
  * tomorrow on the clinic's clock, or until someone turns her back on.
  * Refused before go-live, when there is nothing to pause: the header then
@@ -296,6 +341,7 @@ export async function pauseAya(
   input: { choice: PauseChoice; actorLabel: string; now?: Date },
 ): Promise<{ settings: ClinicSettings; timeZone: string }> {
   if (!isPauseChoice(input.choice)) throw new PauseError("Choose how long to pause AYA.");
+  await refuseWhileAgreementToSign(tx);
   const now = input.now ?? new Date();
   const [clinic] = await tx.db
     .select({ timezone: clinics.timezone })
@@ -326,6 +372,7 @@ export async function resumeAya(
   tx: TenantTx,
   input: { actorLabel: string; now?: Date },
 ): Promise<ClinicSettings> {
+  await refuseWhileAgreementToSign(tx);
   const { after } = await updateClinicSettingsRecordingPause(
     tx,
     { aiPaused: false },

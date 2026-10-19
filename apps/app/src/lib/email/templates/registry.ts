@@ -2,6 +2,7 @@ import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
 import { ADDRESS_CHANGE_CONFIRM_ENTRY } from "./address_change_confirm";
+import { AGREEMENT_TO_SIGN_ENTRY } from "./agreement_to_sign";
 import { ADDRESS_CHANGING_ENTRY } from "./address_changing";
 import { AI_PAUSED_ENTRY } from "./ai_paused";
 import { ALLOWANCE_FALLBACK_ENTRY } from "./allowance_fallback";
@@ -135,6 +136,8 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   // The practice questions (M4, package B): O8 and O9.
   assistant_ready: ASSISTANT_READY_ENTRY,
   practice_questions_failed: PRACTICE_QUESTIONS_FAILED_ENTRY,
+  // WP9, the DPA's completion (plan Part L): L22 and its reminders.
+  agreement_to_sign: AGREEMENT_TO_SIGN_ENTRY,
 };
 
 /**
@@ -218,6 +221,7 @@ export const PENDING_TEMPLATES: Record<
     | "support_escalation"
     | "assistant_ready"
     | "practice_questions_failed"
+    | "agreement_to_sign"
     | BillingTemplatedKind
   >,
   PendingTemplate
@@ -238,8 +242,6 @@ export const PENDING_TEMPLATES: Record<
   outage_started: { owner: "plan", package: "runtime", ships: "M6 (L17)" },
   outage_ended: { owner: "plan", package: "runtime", ships: "M6 (L18)" },
   guarantee_miss: { owner: "plan", package: "runtime", ships: "M6 (L21)" },
-  // WP9: DPA completion.
-  agreement_to_sign: { owner: "plan", package: "WP9", ships: "M2 (L22)" },
   // WP11: the drift list.
   website_changes: { owner: "plan", package: "WP11", ships: "M7 (L23)" },
   // WP7: the operator's notices and incidents, from /admin.

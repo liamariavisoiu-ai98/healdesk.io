@@ -6,11 +6,12 @@ import {
 } from "@healdesk/catalog";
 import { eq } from "drizzle-orm";
 
-import { clinics } from "@/db/schema";
+import { clinics, type AgreementResignSource } from "@/db/schema";
 import { recordSecurityEvent, type ActorContext, type RequestContext } from "@/lib/audit";
 import { withTenant, type TenantTx } from "@/lib/tenant";
 
 import { agreementInEffect } from "./in-effect";
+import { openAgreementResign, sendAgreementToSign, withdrawAgreementResign } from "./resign";
 
 /**
  * Recording whether a practice is a HIPAA covered entity, from ops
@@ -31,8 +32,14 @@ import { agreementInEffect } from "./in-effect";
  *     false for a DPA once the practice is covered or not sure, so the
  *     database refuses the practice's client data from this write until a
  *     BAA is signed and app_supersede_agreement() puts it in force. The
- *     DPA→BAA supersede then starts (`startAgreementSupersede` below), which
- *     is the seam WP9 builds on.
+ *     DPA→BAA supersede then starts (`startAgreementSupersede` below): the
+ *     re-sign opens, AYA pauses in the same transaction, and L22 goes with
+ *     its link after commit (lib/agreements/resign.ts). "No" again, while
+ *     the re-sign is open, withdraws it: the DPA covers the practice again.
+ *
+ * The practice records the same answer itself from Billing ("We've started
+ * billing insurance electronically", behind a passkey step-up), through this
+ * same function with `source: "portal"`.
  *
  * Contract metadata only; never a patient.
  */
@@ -57,12 +64,16 @@ export async function setCoveredEntity(input: {
   clinicId: string;
   answer: CoveredAnswer;
   actor: ActorContext;
-  /** Who recorded it, for the security event: the operator's address. */
+  /** Who recorded it, for the security event: the operator's address, or the device that stepped up. */
   actorLabel: string;
+  /** Ops (the default), or the practice from Billing. */
+  source?: AgreementResignSource;
   request?: RequestContext;
+  now?: Date;
 }): Promise<CoveredEntityOutcome> {
   const covered = coveredFlag(input.answer);
-  return withTenant(
+  const now = input.now ?? new Date();
+  const outcome = await withTenant(
     { clinicId: input.clinicId, actor: input.actor, request: input.request },
     async (tx) => {
       const [clinic] = await tx.db
@@ -103,9 +114,12 @@ export async function setCoveredEntity(input: {
         action: "update",
         resourceType: "clinic_covered_entity",
         resourceId: tx.clinicId,
-        metadata: { coveredEntity: covered, source: "operator", agreementKind: clinic.kind },
+        metadata: {
+          coveredEntity: covered,
+          source: input.source ?? "operator",
+          agreementKind: clinic.kind,
+        },
       });
-
       const stillCovered = agreementKindSufficient(
         clinic.regime as RegulatoryRegime,
         clinic.kind,
@@ -116,10 +130,16 @@ export async function setCoveredEntity(input: {
           ? await startAgreementSupersede(tx, {
               organizationId: clinic.organizationId,
               reason: input.answer === "yes" ? "now_covered" : "not_sure",
+              source: input.source ?? "operator",
               actorLabel: input.actorLabel,
               request: input.request,
+              now,
             })
           : null;
+      // "No" again: the DPA covers the practice, so a re-sign still open is moot.
+      if (clinic.kind === "dpa" && stillCovered) {
+        await withdrawAgreementResign(tx, { resolvedBy: input.actorLabel, now });
+      }
       return {
         status: "recorded",
         agreementKind: clinic.kind,
@@ -129,42 +149,53 @@ export async function setCoveredEntity(input: {
       } as const;
     },
   );
+
+  // L22 goes after commit (X1.4): the re-sign it links to exists now. A send
+  // that fails here is sent again by the hourly job (runAgreementResignsJob).
+  if (outcome.status === "recorded" && outcome.supersede?.resignId) {
+    const linkSent = await sendAgreementToSign({
+      clinicId: input.clinicId,
+      resignId: outcome.supersede.resignId,
+      waitingDays: 0,
+    });
+    return { ...outcome, supersede: { ...outcome.supersede, linkSent } };
+  }
+  return outcome;
 }
 
 // -----------------------------------------------------------------------------
-// The DPA→BAA supersede: the seam WP9 builds on
+// The DPA→BAA supersede
 // -----------------------------------------------------------------------------
 
 export type SupersedeStart = {
   /** The DPA in force that a BAA is to replace, or null when none is. */
   fromAgreementId: string | null;
+  /** The open re-sign (lib/agreements/resign.ts), or null when no DPA is in force to replace. */
+  resignId: string | null;
   /**
-   * Whether the practice has been sent its re-sign link. False until WP9
-   * builds it: the signed one-time link that reuses AgreementStep and calls
-   * supersedeAgreement (lib/agreements/kind.ts), with L22 and its reminders.
+   * Whether the practice has been sent its re-sign link (L22). False inside
+   * the transaction; setCoveredEntity sends it after commit and says.
    */
   linkSent: boolean;
 };
 
 /**
  * Start replacing a clinic's data protection agreement with a business
- * associate agreement, in the transaction that recorded why. Today it
- * records that the supersede is owed (`agreement_supersede_started`), which
- * the PHI gate already enforces by itself: nothing of the practice's client
- * data is written until the BAA is in force.
- *
- * WP9: mint the re-sign link here (AgreementStep through a signed one-time
- * link, which calls supersedeAgreement once signed), queue L22
- * (`agreement_to_sign`) with its reminders at 3 and 7 days, and raise
- * `agreement_unsigned_7_days`. Return `linkSent: true` once it goes.
+ * associate agreement, in the transaction that recorded why: records that the
+ * supersede is owed (`agreement_supersede_started`), opens the re-sign, which
+ * pauses AYA, and leaves L22 to be sent after commit. The PHI gate already
+ * refuses the practice's client data from this write until the BAA is in
+ * force.
  */
 export async function startAgreementSupersede(
   tx: TenantTx,
   input: {
     organizationId: string;
     reason: "now_covered" | "not_sure";
+    source?: AgreementResignSource;
     actorLabel: string;
     request?: RequestContext;
+    now?: Date;
   },
 ): Promise<SupersedeStart> {
   const agreement = await agreementInEffect(tx);
@@ -183,5 +214,13 @@ export async function startAgreementSupersede(
       reason: input.reason,
     },
   });
-  return { fromAgreementId, linkSent: false };
+  if (!fromAgreementId) return { fromAgreementId, resignId: null, linkSent: false };
+  const { resignId } = await openAgreementResign(tx, {
+    fromAgreementId,
+    reason: input.reason,
+    source: input.source ?? "operator",
+    requestedBy: input.actorLabel,
+    now: input.now,
+  });
+  return { fromAgreementId, resignId, linkSent: false };
 }

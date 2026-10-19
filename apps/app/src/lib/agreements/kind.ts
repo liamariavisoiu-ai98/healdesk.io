@@ -6,7 +6,7 @@ import {
 } from "@healdesk/catalog";
 import { eq, sql } from "drizzle-orm";
 
-import { unsafeDb } from "@/db";
+import { unsafeDb, type Queryable } from "@/db";
 import { baaAcceptances } from "@/db/schema";
 
 /**
@@ -77,19 +77,22 @@ export type Superseded = {
  * transaction. What it cannot know is checked here first: that the new
  * agreement's template is released.
  *
- * Nothing calls this yet. The re-sign screen (AgreementStep through a signed
- * one-time link) and the operator's covered-entity flow are to, once they are
- * built.
+ * The re-sign (lib/agreements/resign.ts) calls it, with `db` the
+ * transaction that wrote the signature: the new row is read, bound and put
+ * in force in the transaction that recorded it, so a signature is never left
+ * unbound beside a practice that is still waiting for it. `db` must be in
+ * service context (no tenant), where an unbound acceptance is visible.
  */
 export async function supersedeAgreement(
   clinicId: string,
   supersedingAgreementId: string,
   actorLabel: string,
+  db: Queryable = unsafeDb,
 ): Promise<Superseded> {
   if (!UUID.test(clinicId) || !UUID.test(supersedingAgreementId)) {
     throw new SupersedeError("That is not a clinic and an agreement.");
   }
-  const [row] = await unsafeDb
+  const [row] = await db
     .select({ version: baaAcceptances.documentVersion })
     .from(baaAcceptances)
     .where(eq(baaAcceptances.id, supersedingAgreementId))
@@ -101,7 +104,7 @@ export async function supersedeAgreement(
     );
   }
 
-  const result = await unsafeDb.execute<{ result: Record<string, string> }>(
+  const result = await db.execute<{ result: Record<string, string> }>(
     sql`select app_supersede_agreement(${clinicId}::uuid, ${supersedingAgreementId}::uuid, ${actorLabel}) as result`,
   );
   const out = (result as unknown as { rows?: { result: Record<string, string> }[] }).rows?.[0]

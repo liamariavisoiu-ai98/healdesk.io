@@ -1,3 +1,4 @@
+import { runAgreementResignsJob } from "@/lib/agreements/resign";
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { sweepChannelStates } from "@/lib/channels/events";
 import { sweepEndedPauses } from "@/lib/channels/pause";
@@ -178,6 +179,15 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
       status: "ok",
       note: `${r.applied} applied, ${r.expired} expired, ${r.failed} failed, ${r.waiting} waiting`,
     };
+  });
+  // L22's reminders at 3 and 7 days, and the ops alert at 7, for each
+  // practice that owes its updated agreement (plan Part L; WP9). Not a
+  // switched job, like the address changes: the practice was told AYA is
+  // paused until it signs, and a switch that ships off would leave it waiting
+  // with no word. Each email is once per re-sign and day on the ledger.
+  await record("agreement-resigns", async () => {
+    const r = await runAgreementResignsJob({ now });
+    return { status: "ok", note: `${r.open} open, ${r.sent} sent, ${r.alerted} past 7 days` };
   });
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));

@@ -575,6 +575,13 @@
       "when": 1792395733912,
       "tag": "0081_address_change",
       "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792397249247,
+      "tag": "0082_agreement_resign",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import type { Channel } from "@healdesk/catalog";
-import { and, desc, eq, gt, inArray, ne, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, ne, or } from "drizzle-orm";
 
 import {
   auditReviewQueue,
@@ -82,13 +82,19 @@ export async function listPracticeReviews(input: {
           .where(
             and(
               eq(auditReviewQueue.clinicId, tx.clinicId),
+              // The practice questions' reviews only: the agreement-kind
+              // signal shares the queue and has its own reader
+              // (lib/agreements/misclassification.ts).
+              eq(auditReviewQueue.kind, "practice_questions"),
+              isNotNull(auditReviewQueue.runId),
               ne(auditReviewQueue.status, "superseded"),
               or(eq(auditReviewQueue.status, "open"), gt(auditReviewQueue.createdAt, since)),
             ),
           )
           .orderBy(desc(auditReviewQueue.createdAt))
           .limit(MAX_LISTED);
-        if (reviews.length === 0) return [];
+        const runReviews = reviews.flatMap((r) => (r.runId ? [{ ...r, runId: r.runId }] : []));
+        if (runReviews.length === 0) return [];
         const results = await tx.db
           .select({
             runId: practiceQuestionResults.runId,
@@ -101,11 +107,11 @@ export async function listPracticeReviews(input: {
               eq(practiceQuestionResults.clinicId, tx.clinicId),
               inArray(
                 practiceQuestionResults.runId,
-                reviews.map((r) => r.runId),
+                runReviews.map((r) => r.runId),
               ),
             ),
           );
-        return reviews.map((review) => ({
+        return runReviews.map((review) => ({
           review,
           results: results.filter((r) => r.runId === review.runId),
         }));
@@ -185,11 +191,18 @@ export async function decidePracticeReview(input: {
         .select()
         .from(auditReviewQueue)
         .where(
-          and(eq(auditReviewQueue.id, input.reviewId), eq(auditReviewQueue.clinicId, tx.clinicId)),
+          and(
+            eq(auditReviewQueue.id, input.reviewId),
+            eq(auditReviewQueue.clinicId, tx.clinicId),
+            eq(auditReviewQueue.kind, "practice_questions"),
+          ),
         )
         .for("update")
         .limit(1);
-      if (!review) return { status: "refused", message: "No such review at this clinic." };
+      if (!review || !review.runId) {
+        return { status: "refused", message: "No such review at this clinic." };
+      }
+      const runId = review.runId;
       if (review.status !== "open") {
         return {
           status: "refused",
@@ -203,10 +216,7 @@ export async function decidePracticeReview(input: {
         .select()
         .from(practiceQuestionRuns)
         .where(
-          and(
-            eq(practiceQuestionRuns.id, review.runId),
-            eq(practiceQuestionRuns.clinicId, tx.clinicId),
-          ),
+          and(eq(practiceQuestionRuns.id, runId), eq(practiceQuestionRuns.clinicId, tx.clinicId)),
         )
         .limit(1);
       if (!run) return { status: "refused", message: "The run this review is about is not there." };

@@ -230,7 +230,8 @@ describeDb("the account operations", () => {
       isCoveredEntity: true,
       covered: false,
       supersedeStarted: true,
-      linkSent: false,
+      // L22 went to the practice with its re-sign link (WP9, lib/agreements/resign.ts).
+      linkSent: true,
     });
     expect(await acceptsPhi(clinic.clinicId)).toBe(false);
     await expect(seedContact(clinic.clinicId, "+15550190102")).rejects.toMatchObject({

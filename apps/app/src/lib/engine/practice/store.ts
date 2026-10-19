@@ -488,10 +488,12 @@ export async function recordPracticeRun(
   }
 
   // An open review of an earlier run is about words that have changed since.
+  // Only the practice questions' own: the agreement-kind signal shares the
+  // queue and is about the practice, not its words.
   await tx.db
     .update(auditReviewQueue)
     .set({ status: "superseded" })
-    .where(and(eq(auditReviewQueue.clinicId, tx.clinicId), eq(auditReviewQueue.status, "open")));
+    .where(openPracticeReviews(tx));
 
   if (verdict.status === "failed") {
     await finish({ status: "failed", failedSection: verdict.section, failedCount: verdict.count });
@@ -761,7 +763,7 @@ export async function recordOperatorOverride(
   await tx.db
     .update(auditReviewQueue)
     .set({ status: "superseded" })
-    .where(and(eq(auditReviewQueue.clinicId, tx.clinicId), eq(auditReviewQueue.status, "open")));
+    .where(openPracticeReviews(tx));
   const [run] = await tx.db
     .insert(practiceQuestionRuns)
     .values({
@@ -794,6 +796,19 @@ export async function recordOperatorOverride(
 // Reviews past their day
 // -----------------------------------------------------------------------------
 
+/**
+ * The clinic's open reviews of the practice questions: the queue also holds
+ * the agreement-kind signal (WP9), which a run never supersedes and whose
+ * day is not one the clinic was promised.
+ */
+function openPracticeReviews(tx: TenantTx) {
+  return and(
+    eq(auditReviewQueue.clinicId, tx.clinicId),
+    eq(auditReviewQueue.kind, "practice_questions"),
+    eq(auditReviewQueue.status, "open"),
+  );
+}
+
 /** Open reviews past the day the clinic was given, not yet alerted: stamped, and returned to alert. */
 export async function claimPastDueReviews(tx: TenantTx, now: Date): Promise<string[]> {
   const rows = await tx.db
@@ -801,8 +816,7 @@ export async function claimPastDueReviews(tx: TenantTx, now: Date): Promise<stri
     .set({ pastDueAlertedAt: now })
     .where(
       and(
-        eq(auditReviewQueue.clinicId, tx.clinicId),
-        eq(auditReviewQueue.status, "open"),
+        openPracticeReviews(tx),
         lt(auditReviewQueue.dueAt, now),
         sql`${auditReviewQueue.pastDueAlertedAt} is null`,
       ),

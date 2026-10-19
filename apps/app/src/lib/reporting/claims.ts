@@ -35,16 +35,20 @@ import type { ClaimsPayload } from "./claim-words";
  *
  *   - **Conversations handled**, per bought channel. Phone and website chat:
  *     the `conversations` row the voice ingest and web chat write for every
- *     call and chat. Instagram, Messenger and WhatsApp keep no conversation
- *     row (they carry nothing clinical), so theirs is the usage ledger's count
- *     of Meta conversations AYA was allowed to answer (usage_events, source
- *     `meta`: one row per conversation, the 24-hour rule's, R18).
+ *     call and chat; a call only where AYA's opening line played
+ *     (`disclosure_played_at`, ANSWERED_CALL), because one she never spoke
+ *     on, put through to the clinic or closed by the pass-through or by a
+ *     start that failed, is recorded but was not handled by her. Instagram,
+ *     Messenger and WhatsApp keep no conversation row (they carry nothing
+ *     clinical), so theirs is the usage ledger's count of Meta conversations
+ *     AYA was allowed to answer (usage_events, source `meta`: one row per
+ *     conversation, the 24-hour rule's, R18).
  *   - **Calls answered that would have rung out**, in the phone row: calls
- *     whose `recovery_reason`, decided at ingestion from the clinic's coverage
- *     mode and hours (lib/voice/ingest.ts classifyRecovery), says nobody at
- *     the clinic would have taken them. Never `missed_call_callback`: v1
- *     places no calls. Null, "unavailable", for a clinic without phone,
- *     rather than a zero that would claim we looked.
+ *     AYA answered whose `recovery_reason`, decided at ingestion from the
+ *     clinic's coverage mode and hours (lib/voice/ingest.ts classifyRecovery),
+ *     says nobody at the clinic would have taken them. Never
+ *     `missed_call_callback`: v1 places no calls. Null, "unavailable", for a
+ *     clinic without phone, rather than a zero that would claim we looked.
  *   - **Booking requests taken, and confirmed by the team; appointments booked
  *     by AYA.** The cohort is the booking requests AYA took in the period
  *     (`source` `assistant`; a message left on the website's contact form
@@ -123,6 +127,13 @@ export type Claims = {
 export const RANG_OUT_REASONS = ["after_hours", "line_busy", "rang_unanswered"] as const;
 const RANG_OUT_LIST = sql.raw(RANG_OUT_REASONS.map((r) => `'${r}'`).join(", "));
 
+/**
+ * A call AYA answered: her opening line played. The ingest records every
+ * call, and leaves one without it unbilled and unrecovered
+ * (lib/voice/ingest.ts); the claims count only these.
+ */
+const ANSWERED_CALL = sql`(${conversations.channel} = 'voice' and ${conversations.disclosurePlayedAt} is not null)`;
+
 /** The claims over [from, to) for the transaction's clinic. */
 export async function readClaims(
   tx: TenantTx,
@@ -140,9 +151,9 @@ export async function readClaims(
   );
   const [talk] = await tx.db
     .select({
-      voice: sql<number>`count(*) filter (where ${conversations.channel} = 'voice')::int`,
+      voice: sql<number>`count(*) filter (where ${ANSWERED_CALL})::int`,
       web: sql<number>`count(*) filter (where ${conversations.channel} = 'web_chat')::int`,
-      rangOut: sql<number>`count(*) filter (where ${conversations.channel} = 'voice'
+      rangOut: sql<number>`count(*) filter (where ${ANSWERED_CALL}
         and ${conversations.recoveryReason} in (${RANG_OUT_LIST}))::int`,
       urgent: sql<number>`count(*) filter (where ${conversations.urgent})::int`,
       handovers: sql<number>`count(*) filter (where not ${conversations.urgent}
@@ -294,6 +305,7 @@ export async function countHandled(tx: TenantTx, from: Date, to: Date): Promise<
             and(
               eq(conversations.clinicId, c),
               inArray(conversations.channel, kinds),
+              sql`(${conversations.channel} <> 'voice' or ${ANSWERED_CALL})`,
               gte(conversations.startedAt, from),
               lt(conversations.startedAt, to),
             ),

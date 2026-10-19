@@ -261,6 +261,7 @@ const KIND_LABEL: Record<Source["kind"], string> = {
   government: "government",
   "peer-reviewed": "peer-reviewed",
   association: "association",
+  research: "research",
   vendor: "vendor data",
   news: "news",
   company: "healdesk",

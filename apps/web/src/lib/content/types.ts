@@ -38,6 +38,7 @@ export type SourceKind =
   | "government"
   | "peer-reviewed"
   | "association"
+  | "research"
   | "vendor"
   | "news"
   | "company";

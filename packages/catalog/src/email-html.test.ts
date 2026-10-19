@@ -58,7 +58,7 @@ describe("htmlTwinOfText", () => {
     expect(html).not.toMatch(/<img|<table|src=|url\(|@import|<link/i);
     expect(html).toContain("-apple-system");
     expect(html).toContain("prefers-color-scheme: dark");
-    expect(html).toContain("max-width:600px");
+    expect(html).toContain("max-width:560px");
   });
 
   test("the footer after the rule is set apart, one line to a paragraph", () => {

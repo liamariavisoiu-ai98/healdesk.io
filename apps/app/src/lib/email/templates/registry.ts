@@ -2,6 +2,7 @@ import type { EmailKind } from "../kind-rules";
 import type { NoticeKind, NoticeOwner } from "../kinds";
 
 import { ADDRESS_CHANGE_CONFIRM_ENTRY } from "./address_change_confirm";
+import { AGREEMENT_COPY_ENTRY } from "./agreement_copy";
 import { AGREEMENT_TO_SIGN_ENTRY } from "./agreement_to_sign";
 import { ADDRESS_CHANGING_ENTRY } from "./address_changing";
 import { AI_PAUSED_ENTRY } from "./ai_paused";
@@ -196,6 +197,9 @@ export const TEMPLATES: Partial<Record<EmailKind, AnyEntry>> = {
   agreement_to_sign: AGREEMENT_TO_SIGN_ENTRY,
   // WP11, the drift list (M7): L23.
   website_changes: WEBSITE_CHANGES_ENTRY,
+  // P6 from apps/app (19 October 2026): an operator's resend of the agreement
+  // copy, in the catalog's words, which apps/web sends at signature.
+  agreement_copy: AGREEMENT_COPY_ENTRY,
 };
 
 /**
@@ -308,6 +312,7 @@ export const PENDING_TEMPLATES: Record<
     | "weekly_recap"
     | "agreement_to_sign"
     | "website_changes"
+    | "agreement_copy"
     | BillingTemplatedKind
   >,
   PendingTemplate

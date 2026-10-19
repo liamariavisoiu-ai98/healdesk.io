@@ -35,14 +35,23 @@ const CONTACT = SENDER_IDENTITY.replyTo;
 export const AGREEMENT_COPY_SUBJECT_MAX = 70;
 
 /**
- * Why the reader gets this email, the first line of its footer (Annex X1.9).
- * The address is the one typed beside the signature, which nobody confirmed.
+ * Why the reader gets this email, the first line of its footer (Annex X1.9),
+ * in the words apps/app's footers use ("You're receiving this because"),
+ * since both apps send it. The address is the one typed beside the
+ * signature, which nobody confirmed.
  */
 export const AGREEMENT_COPY_REASON =
-  "You're getting this because this address was given for the signatory when an agreement with healdesk was signed.";
+  "You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.";
 
-/** The footer's reply line (X1.9), as every healdesk email words it, so hello@ stays free of patient details. */
-const REPLY_LINE = "Replies reach the healdesk team. Please leave out patient details.";
+/**
+ * The footer's reply line (X1.9), as every healdesk email words it, so hello@
+ * stays free of patient details; a DPA's, for a practice HIPAA does not reach,
+ * names its clients instead, as the rest of a DPA's copy does.
+ */
+const REPLY_LINE: Readonly<Record<AgreementKind, string>> = {
+  baa: "Replies reach the healdesk team. Please leave out patient details.",
+  dpa: "Replies reach the healdesk team. Please leave out your clients' details.",
+};
 
 /**
  * The footer, as lines: why the email came, who reads a reply, and who sent
@@ -50,10 +59,10 @@ const REPLY_LINE = "Replies reach the healdesk team. Please leave out patient de
  * opt-out: this is a transactional message, the copy of a contract the reader
  * signed, sent once.
  */
-export function agreementCopyFooter(): readonly string[] {
+export function agreementCopyFooter(kind: AgreementKind = "baa"): readonly string[] {
   return [
     AGREEMENT_COPY_REASON,
-    REPLY_LINE,
+    REPLY_LINE[kind],
     SENDER_IDENTITY.entityLine,
     `${SENDER_IDENTITY.postalAddressLabel}: ${SENDER_IDENTITY.postalAddress}`,
   ];
@@ -118,7 +127,7 @@ export function renderAgreementCopy(copy: {
   const opening = `Your signed ${words.noun} for `;
   const subject = `${opening}${nameForSubject(copy.clinicName, AGREEMENT_COPY_SUBJECT_MAX - opening.length)}`;
   const signed = copy.signatoryName ? `Signed by ${copy.signatoryName} on ${when}.` : `Signed on ${when}.`;
-  const footer = agreementCopyFooter();
+  const footer = agreementCopyFooter(agreementKindOfVersion(copy.version));
 
   const text = [
     `Attached, as a PDF, is the ${words.noun} you signed for`,

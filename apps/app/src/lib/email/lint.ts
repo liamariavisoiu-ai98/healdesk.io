@@ -1,4 +1,11 @@
-import { allPlans, CHANNELS, isPlanId, PACKAGES, TREATMENT_NAMES } from "@healdesk/catalog";
+import {
+  allPlans,
+  CHANNELS,
+  isPlanId,
+  isSafeTypedText,
+  PACKAGES,
+  TREATMENT_NAMES,
+} from "@healdesk/catalog";
 
 import { publicOrigin } from "@/lib/public-url";
 
@@ -51,6 +58,9 @@ type ValueClass =
   | "channel"
   | "clinicName"
   | "deviceName"
+  | "personName"
+  | "sha256"
+  | "documentVersion"
   | "masked"
   | "phone"
   | "url"
@@ -132,6 +142,11 @@ function classOfKey(key: string): ValueClass | null {
   if (/open(ing|s)/i.test(key)) return null;
   if (key === "clinicName") return "clinicName";
   if (key === "deviceName") return "deviceName";
+  // P6, the agreement copy: who signed it, as typed, and the document's
+  // SHA-256, the one reference the email gives for it.
+  if (key === "signatoryName") return "personName";
+  if (key === "documentHash") return "sha256";
+  if (key === "documentVersion") return "documentVersion";
   if (key === "planName") return "planName";
   if (key === "planId" || key === "plan" || key === "boughtPlanId") return "planId";
   if (key === "channel" || key === "channels") return "channel";
@@ -273,6 +288,18 @@ function checkValue(
       return;
     case "deviceName":
       if (!isAllowedDeviceName(value)) fail("must be a device's name.");
+      return;
+    case "personName":
+      if (!isSafeTypedText(value, 120)) fail("must be a person's name.");
+      return;
+    case "sha256":
+      if (typeof value !== "string" || !/^[0-9a-f]{64}$/.test(value)) fail("must be a SHA-256.");
+      return;
+    case "documentVersion":
+      // An agreement template's version: "1.6.0", "0.1.0-draft", a DPA's "dpa/1.0.0".
+      if (typeof value !== "string" || !/^(?:[a-z]{2,8}\/)?\d{1,4}\.\d{1,4}\.\d{1,4}(?:-[a-z0-9.]{1,20})?$/.test(value)) {
+        fail("must be an agreement's version.");
+      }
       return;
     case "masked":
       if (typeof value !== "string" || value.length > 120 || !/[*•]{2,}/.test(value)) {

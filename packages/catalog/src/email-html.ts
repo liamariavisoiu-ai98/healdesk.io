@@ -62,7 +62,7 @@ export function emailHtmlDocument(subject: string, bodyHtml: string): string {
     `<style>${DARK_MODE}</style>`,
     "</head>",
     `<body style="margin:0;padding:0;background:#ffffff;color:${INK};font-family:${FONT};">`,
-    `<div class="hd-wrap" style="max-width:600px;margin:0 auto;padding:24px 16px;font-size:16px;line-height:1.5;color:${INK};font-family:${FONT};">`,
+    `<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-size:16px;line-height:1.5;color:${INK};font-family:${FONT};">`,
     bodyHtml,
     "</div>",
     "</body>",

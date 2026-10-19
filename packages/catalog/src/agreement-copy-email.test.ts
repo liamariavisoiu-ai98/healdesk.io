@@ -24,7 +24,7 @@ describe("renderAgreementCopy", () => {
     const copy = renderAgreementCopy(COPY);
     for (const body of [copy.text, copy.html]) {
       expect(body).toContain(
-        "You're getting this because this address was given for the signatory when an agreement with healdesk was signed.",
+        "You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.",
       );
       expect(body).toContain("Replies reach the healdesk team. Please leave out patient details.");
       expect(body).toContain("healdesk is a service of Viixi FZC");
@@ -32,6 +32,10 @@ describe("renderAgreementCopy", () => {
         "US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States",
       );
     }
+    // A DPA's never calls its clients patients, the footer included.
+    const dpa = renderAgreementCopy({ ...COPY, version: "dpa/1.0.0" });
+    expect(dpa.text).toContain("Replies reach the healdesk team. Please leave out your clients' details.");
+    expect(dpa.text).not.toMatch(/\bpatients?\b/i);
     // A transactional copy of a contract: nothing to unsubscribe from.
     expect(copy.text).not.toMatch(/unsubscribe|Stop these emails/i);
   });

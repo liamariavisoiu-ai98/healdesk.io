@@ -421,6 +421,112 @@ US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wil
 }
 `;
 
+exports[`each template's output > agreement_copy, for clients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your signed business associate agreement for Radiance Med Spa LLC</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-size:16px;line-height:1.5;color:#1f2328;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<p>Attached, as a PDF, is the business associate agreement you signed for <strong>Radiance Med Spa LLC</strong>. It is the document we recorded at signature, word for word — the same text that was on your screen.</p><p>Signed by Alex Chen on 6 October 2026 at 14:32 UTC.<br>Agreement version 1.6.0.</p><p><strong>Please keep it.</strong> This is a contract with two parties to it, and healdesk should not be the only one holding a copy — if your practice is ever asked to produce its business associate agreements, this is the file.</p><p>Our reference for it is the SHA-256 of the agreement text:<br><code style="word-break:break-all">9f2c4e1a7b3d5f6081a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708</code></p><p>If you need another copy, or this reached the wrong address, email hello@healdesk.io and a person will deal with it.</p><p>If you did not sign anything, someone has typed this address by mistake. You can ignore this email; if you would rather tell us, hello@healdesk.io reaches a person.</p><hr style="border:0;border-top:1px solid #d0d7de;margin:24px 0 12px;"><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.</p><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "The agreement you signed, attached as a PDF, to keep.",
+  "subject": "Your signed business associate agreement for Radiance Med Spa LLC",
+  "text": "Attached, as a PDF, is the business associate agreement you signed for
+Radiance Med Spa LLC. It is the document we recorded at signature, word for
+word — the same text that was on your screen.
+
+Signed by Alex Chen on 6 October 2026 at 14:32 UTC.
+Agreement version 1.6.0.
+
+Please keep it. This is a contract with two parties to it, and healdesk
+should not be the only one holding a copy — if your practice is ever asked
+to produce its business associate agreements, this is the file.
+
+Our reference for it is the SHA-256 of the agreement text:
+9f2c4e1a7b3d5f6081a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708
+
+If you need another copy, or this reached the wrong address, email
+hello@healdesk.io and a person will deal with it.
+
+If you did not sign anything, someone has typed this address by mistake.
+You can ignore this email; if you would rather tell us, hello@healdesk.io
+reaches a person.
+
+--
+You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States",
+}
+`;
+
+exports[`each template's output > agreement_copy, for patients: the snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>Your signed business associate agreement for Radiance Med Spa LLC</title>
+<style>@media (prefers-color-scheme: dark) {
+  body, .hd-wrap { background: #0d1117 !important; color: #e6edf3 !important; }
+  .hd-muted { color: #9da7b3 !important; }
+  a { color: #8cc4ff !important; }
+}</style>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;color:#1f2328;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<div class="hd-wrap" style="max-width:560px;margin:0 auto;padding:24px 16px;font-size:16px;line-height:1.5;color:#1f2328;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<p>Attached, as a PDF, is the business associate agreement you signed for <strong>Radiance Med Spa LLC</strong>. It is the document we recorded at signature, word for word — the same text that was on your screen.</p><p>Signed by Alex Chen on 6 October 2026 at 14:32 UTC.<br>Agreement version 1.6.0.</p><p><strong>Please keep it.</strong> This is a contract with two parties to it, and healdesk should not be the only one holding a copy — if your practice is ever asked to produce its business associate agreements, this is the file.</p><p>Our reference for it is the SHA-256 of the agreement text:<br><code style="word-break:break-all">9f2c4e1a7b3d5f6081a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708</code></p><p>If you need another copy, or this reached the wrong address, email hello@healdesk.io and a person will deal with it.</p><p>If you did not sign anything, someone has typed this address by mistake. You can ignore this email; if you would rather tell us, hello@healdesk.io reaches a person.</p><hr style="border:0;border-top:1px solid #d0d7de;margin:24px 0 12px;"><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.</p><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">Replies reach the healdesk team. Please leave out patient details.</p><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.</p><p class="hd-muted" style="margin:0 0 6px;color:#57606a;font-size:13px;">US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States</p>
+</div>
+</body>
+</html>",
+  "preheader": "The agreement you signed, attached as a PDF, to keep.",
+  "subject": "Your signed business associate agreement for Radiance Med Spa LLC",
+  "text": "Attached, as a PDF, is the business associate agreement you signed for
+Radiance Med Spa LLC. It is the document we recorded at signature, word for
+word — the same text that was on your screen.
+
+Signed by Alex Chen on 6 October 2026 at 14:32 UTC.
+Agreement version 1.6.0.
+
+Please keep it. This is a contract with two parties to it, and healdesk
+should not be the only one holding a copy — if your practice is ever asked
+to produce its business associate agreements, this is the file.
+
+Our reference for it is the SHA-256 of the agreement text:
+9f2c4e1a7b3d5f6081a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708
+
+If you need another copy, or this reached the wrong address, email
+hello@healdesk.io and a person will deal with it.
+
+If you did not sign anything, someone has typed this address by mistake.
+You can ignore this email; if you would rather tell us, hello@healdesk.io
+reaches a person.
+
+--
+You're receiving this because this address was given for the signatory when an agreement with healdesk was signed.
+Replies reach the healdesk team. Please leave out patient details.
+healdesk is a service of Viixi FZC, a company registered under the Sharjah Publishing City Free Zone, United Arab Emirates.
+US mailing address (correspondence only): 800 N King Street, Suite 304-1426, Wilmington, DE 19801, United States",
+}
+`;
+
 exports[`each template's output > agreement_to_sign, for clients: the snapshot 1`] = `
 {
   "html": "<!doctype html>

@@ -545,7 +545,9 @@ export const KEYS: readonly KeyDef[] = [
     // sync, lib/voice/retell-fallback-sync.ts; the voice endpoint reads it
     // back when the database is down, fallback-line.ts). As "later" it would
     // show the whole voice line off while calls were being answered. Pasted
-    // with the line password, from the clinics' own Retell workspace (under
+    // with the line password and on the same answer (test before the
+    // agreements, while the workspace holds the demo clinic's agent and number
+    // alone; yes once every agreement is signed), from the clinics' own Retell workspace (under
     // Retell's agreement, never the demo line's, whose keys are on Vercel),
     // the key with the webhook badge; each clinic's agent webhook is
     // https://app.healdesk.io/api/webhooks/retell/<clinic id>.
@@ -572,7 +574,8 @@ export const KEYS: readonly KeyDef[] = [
     rotation: { kind: "public" },
   },
   {
-    // Not a secret: Terraform sets it on the voice task, and on the web task
+    // Not a secret: Terraform sets it on the voice task, on the worker (whose
+    // call backstop reads it, in either worker_placement), and on the web task
     // for this page, only with voice_real_calls (infra/aws/locals.tf). Without
     // it the voice endpoint answers only the demo clinic (apps/app
     // src/lib/voice/test-calls.ts).
@@ -1180,7 +1183,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, and nothing of it is kept, so the line password may be pasted before the agreements. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. If the voice task crashes mid-call, Retell's signed call-ended message (each clinic's agent webhook, https://app.healdesk.io/api/webhooks/retell/<clinic id>) queues a backstop that, ten minutes later, reads the call back from Retell and records it with its words, emailed to the clinic, and its minutes, unless the live line already did; in test mode it does so for the demo clinic alone. What the caller asked for is not rebuilt: the clinic reads it in the transcript, and the call makes no booking request.",
+      "Voice runs only while enable_voice is on in AWS, and turning it on is what makes the test call on a made-up clinic possible, which checks Retell's fields before any real call. Until real calls are switched on (voice_real_calls, once every agreement is signed), the engine itself answers only the demo clinic: a call for any other clinic goes to its direct line, or is refused, before AYA speaks, nothing of it is kept, and you are emailed each time (voice_test_mode_refused); a check that cannot answer within the three-second start deadline is a refusal too. So the line password may be pasted before the agreements. The demo clinic is answered by AYA even with a direct line set, though its phone channel can never go live, and its calls never start billing. This page sees the switch through the running tasks, so it shows voice on, or off again, only after the full deploy-app.yml that follows the change. If the voice task crashes mid-call, Retell's signed call-ended message (each clinic's agent webhook, https://app.healdesk.io/api/webhooks/retell/<clinic id>) queues a backstop that, ten minutes later, reads the call back from Retell and records it with its words, emailed to the clinic, and its minutes, marked urgent when its urgent alert went out, unless the live line already did; in test mode it does so for the demo clinic alone. A call AYA never spoke on (put through to the direct line or closed before her opening line, on either path) is recorded but bills no minutes and is left out of what Home and the summaries claim. What the caller asked for is not rebuilt: the clinic reads it in the transcript, and the call makes no booking request.",
   },
   {
     id: "retell-clinic",
@@ -1199,7 +1202,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line.",
+      "Wherever the clinic has set a direct line: when AYA is paused, capped or suspended, when the model fails twice, when answering a turn fails, and when a call starts while the database is down (the engine remembers each clinic's line from its last call, and otherwise reads it back from Retell). In Retell's outage mode, untested here, Retell would dial it without us. With no line known, the caller hears a closing line. The engine never puts a call through to a number that would bring it back to AYA: a direct line equal to the clinic's published number, its AYA number or the number called counts as no line, AYA answers with the safe script (or closes the call once the Services have ended), and you are emailed (voice_direct_line_loops).",
   },
   {
     id: "patients-widget",
@@ -1364,7 +1367,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: false,
     build: "built",
     buildNote:
-      "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. Nothing goes while the billing-notices job is off, and go-live does not check it: switching it on before the first clinic goes live is an open item on /admin/seo; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
+      "Every booking alert is queued in the outbox in the same transaction as what it reports, so nothing goes for work that rolled back, and each is only a pointer to Bookings (Conversations for an urgent one) after sign-in and the passkey. They go to the clinic's account address; an urgent one goes in-process the moment its transaction commits. If an urgent alert cannot be queued, you are emailed at once (urgent_alert_not_queued) to phone the clinic, and neither the call nor website chat tells the person the team was told. Nothing goes while the billing-notices job is off, and go-live does not check it: switching it on before the first clinic goes live is an open item on /admin/seo; the opening-hour \"still open\" email also needs the requests-still-open job. \"AYA is paused\" emails go too, for a pause longer than an hour and when a live channel is switched off in Settings, with a reminder a day later if it has no end. The daily summary goes at each clinic's opening time on its working days, and the weekly recap alone on Mondays while the summary is off, once their two jobs are switched on; each counts what AYA did and lists every booking and request only as a link.",
   },
   {
     id: "app-ses",
@@ -1381,7 +1384,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "Until AWS takes our Amazon email out of its sandbox (infra/aws/README.md, First run, step 9), it delivers only to addresses verified in our account, so no transcript reaches a clinic; this page cannot see which. A clinic that replies sends the transcript to hello@, which no agreement covers, until a covered reply-to address is set or that risk is accepted in writing.",
+      "Until AWS takes our Amazon email out of its sandbox (infra/aws/README.md, First run, step 9), it delivers only to addresses verified in our account, so no transcript reaches a clinic; this page cannot see which. A clinic that replies sends the transcript to hello@, which no agreement covers, until a covered reply-to address is set or that risk is accepted in writing. A website chat that had an urgent message ends, and its transcript goes at once, as soon as the visitor leaves a number to call back on, rather than after thirty quiet minutes.",
   },
   {
     id: "ses-app",
@@ -1441,7 +1444,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phi: true,
     build: "built",
     buildNote:
-      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings lists, under Needs you, each person who asked AYA for a person, on the phone, in website chat or on Instagram, Messenger or WhatsApp (not after an urgent alert, which already has the clinic looking), until the desk marks it handled, and each message left on the website's contact form while AYA was off or paused.",
+      "All six screens are built: Home, Settings, Knowledge, Conversations, Bookings and Billing, with the set-up wizard, the support chat, Talk to your AYA (once the build tracker is complete) and, once a channel is live, the AYA is answering switch at the top of every screen. Conversations and Bookings open only behind a passkey. Bookings lists, under Needs you, each person who asked AYA for a person, on the phone, in website chat or on Instagram, Messenger or WhatsApp (not after an urgent alert that reached the clinic), newest first, up to 100 with a count of the older ones not shown, until the desk marks it handled (a call's shows the caller ID, and a number the caller gave AYA is in the call's transcript email, which the card says), and each message left on the website's contact form while AYA was off or paused.",
   },
   {
     id: "connectors-app",

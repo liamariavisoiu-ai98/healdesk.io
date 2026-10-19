@@ -9,10 +9,12 @@ import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta
 import {
   FRONT_DOOR_PROBES,
   answerFrontDoor,
+  buildFrontDoorPrompt,
   firstReplyVerdict,
   frontDoorFacts,
   guardReply,
   handoffLine,
+  languageLine,
   openWithGreeting,
   screenInbound,
   stripOwnGreeting,
@@ -109,6 +111,71 @@ describe("the screen, before any model", () => {
     expect(screenInbound(FRONT_DOOR_PROBES.find((p) => p.id === "hours")!.text)).toBeNull();
     expect(screenInbound("How much is it per unit?")).toBeNull();
     expect(screenInbound(FRONT_DOOR_PROBES.find((p) => p.id === "request")!.text)).toBeNull();
+  });
+
+  test("a veterinary practice is screened with the animal set; a med spa never is", () => {
+    expect(screenInbound("my cat can't pee", "veterinary")).toBe("urgent");
+    expect(screenInbound("my dog ate a whole bar of chocolate", "veterinary")).toBe("urgent");
+    expect(screenInbound("my dog ate a whole bar of chocolate", "med-spa")).toBeNull();
+    // Without a specialty, the set for people, as the front door always had.
+    expect(screenInbound("my dog ate a whole bar of chocolate")).toBeNull();
+    expect(screenInbound("Can I book a nail trim for Saturday?", "veterinary")).toBeNull();
+  });
+
+  test("a veterinary practice's urgent line gives the emergency vet, never 911, and passes the reply guard", () => {
+    const facts = {
+      clinicName: "Paws",
+      phone: PUBLISHED,
+      urgentPhone: DIRECT,
+      vetReferralPhone: "+14155550911",
+      openingHours: { sun: [], mon: [["09:00", "17:00"]], tue: [["09:00", "17:00"]], wed: [], thu: [], fri: [], sat: [] } as const,
+      timeZone: "America/Los_Angeles",
+    };
+    // Tuesday 10:00 in Los Angeles, then the Sunday before.
+    const open = urgentLine(facts, { emergency: "veterinary" }, new Date("2026-10-13T17:00:00Z"));
+    expect(open).toBe(
+      `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call the emergency vet now on +14155550911. If a person is hurt or in danger, call 911 now. Otherwise, please call Paws on ${DIRECT}.`,
+    );
+    const closed = urgentLine(facts, { emergency: "veterinary" }, new Date("2026-10-11T17:00:00Z"));
+    expect(closed).not.toContain(DIRECT);
+    for (const line of [open, closed]) {
+      // 911 only for a person, after the emergency vet.
+      expect(line.indexOf("emergency vet")).toBeLessThan(line.indexOf("911"));
+      expect(guardReply(line, { clinicName: "Paws", serviceNames: ["Senior diagnostics"] })).toEqual({ ok: true });
+    }
+    // A person's own emergency at a vet is 911's on Meta too.
+    expect(screenInbound("my husband collapsed", "veterinary")).toBe("urgent");
+  });
+
+  test("a message in a language no screen reads is screened as such, and its fixed line passes the guard", () => {
+    for (const text of ["Je n'arrive pas à respirer", "Não consigo respirar", "Bonjour, je voudrais un rendez-vous"]) {
+      expect(screenInbound(text), text).toBe("language");
+    }
+    // Spanish is screened, so it is never turned away for its language.
+    expect(screenInbound("¿Cuánto cuesta una consulta?")).toBeNull();
+    expect(screenInbound("No puedo respirar")).toBe("urgent");
+    const line = languageLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: DIRECT });
+    expect(line).toContain("I can only help in English or Spanish.");
+    expect(line).toContain("call 911 now");
+    expect(line).toContain(DIRECT);
+    expect(guardReply(line, { clinicName: "Radiance", serviceNames: ["Botox"] })).toEqual({ ok: true });
+  });
+
+  test("the prompt carries the clinic's tone, and asks for English only: the guard reads English", () => {
+    const facts = {
+      clinicName: "Radiance",
+      phone: PUBLISHED,
+      websiteHint: null,
+      services: [],
+      notes: null,
+      escalationHours: null,
+      requirements: [],
+      deferredRequirements: [],
+    };
+    expect(buildFrontDoorPrompt(facts)).toContain("Plain, warm and friendly.");
+    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" })).toContain("Plain, calm and precise.");
+    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" })).not.toContain("warm and friendly");
+    expect(buildFrontDoorPrompt(facts)).toContain("Always write in English, whatever language the message is in");
   });
 
   test("an everyday skin or hair condition is clinical here, never urgent; a front desk's question still passes", () => {
@@ -1126,5 +1193,72 @@ describeDb("the screen and the greeting, end to end", () => {
       { platform: "messenger", source: "model" },
       { platform: "messenger", source: "model", greeted: true },
     ]);
+  }, 60_000);
+
+  test("a model that declines to answer gets the hand-off line, recorded as a refusal and never as a guard refusal", async () => {
+    const c = await doorOpen("screen-refusal", [{ platform: "messenger", externalId: "910000000000071" }]);
+    const responder = vi.fn<FrontDoorResponder>(async () => ({ refused: true, category: "bio" }));
+    const answer = (await answerSent(c.clinicId, { platform: "messenger", text: "What are your opening hours?", responder }))!;
+    expect(responder).toHaveBeenCalledTimes(1);
+    expect(answer).toMatchObject({ source: "handoff", guard: "model refusal", screened: null, booking: "none" });
+    expect(answer.text).toBe(`${greetingFor(c.clinicName, "messenger")} ${handoffLine({ clinicName: c.clinicName, phone: PUBLISHED })}`);
+    expect(await frontDoorAudit(c.clinicId)).toEqual([
+      { platform: "messenger", source: "handoff", guarded: "model refusal", greeted: true },
+    ]);
+  }, 60_000);
+
+  test("a veterinary practice's urgent message never reaches the model and gets its emergency vet, its own number only while open", async () => {
+    const c = await doorOpen("screen-vet", [{ platform: "messenger", externalId: "910000000000072" }], { directLine: DIRECT });
+    await getMigratorPool().query(`update clinics set specialty = 'veterinary', timezone = 'America/Los_Angeles' where id = $1`, [c.clinicId]);
+    await inTenant(c.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, vet_referral_e164) values ($1, $2)
+         on conflict (clinic_id) do update set vet_referral_e164 = excluded.vet_referral_e164`,
+        [c.clinicId, "+14155550911"],
+      ),
+    );
+    const facts = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) => frontDoorFacts(tx));
+    expect(facts).toMatchObject({ specialty: "veterinary", vetReferralPhone: "+14155550911", timeZone: "America/Los_Angeles" });
+
+    const responder = vi.fn<FrontDoorResponder>(async () => modelJson("Please call the practice."));
+    const greeting = greetingFor(c.clinicName, "messenger");
+    // Tuesday 10:00 in Los Angeles: open.
+    const open = (await answerSent(c.clinicId, { platform: "messenger", text: "my cat can't pee", responder, now: new Date("2026-10-13T17:00:00Z") }))!;
+    expect(open).toMatchObject({ source: "urgent", screened: "urgent" });
+    expect(open.text).toBe(`${greeting} ${urgentLine(facts!, { emergency: "veterinary" }, new Date("2026-10-13T17:00:00Z"))}`);
+    expect(open.text).toContain("call the emergency vet now on +14155550911");
+    // 911 only for a person, after the emergency vet.
+    expect(open.text.indexOf("+14155550911")).toBeLessThan(open.text.indexOf("call 911"));
+    // Sunday: closed, so only the emergency vet.
+    const closed = (await answerSent(c.clinicId, { platform: "messenger", text: "my dog ate a whole bar of chocolate", responder, now: new Date("2026-10-11T17:00:00Z") }))!;
+    expect(closed.source).toBe("urgent");
+    expect(closed.text).toContain("+14155550911");
+    expect(closed.text).not.toContain("Otherwise, please call");
+    expect(responder).not.toHaveBeenCalled();
+    // And a person's own emergency there is 911's.
+    const person = (await answerSent(c.clinicId, { platform: "messenger", text: "call 911, my husband collapsed", responder, now: new Date("2026-10-13T17:00:00Z") }))!;
+    expect(person.source).toBe("urgent");
+    expect(person.text).toContain("If this is an emergency, call 911 now.");
+    // 911 leads, and at a vet the emergency vet is always given too.
+    expect(person.text.indexOf("call 911")).toBeLessThan(person.text.indexOf("emergency vet"));
+    expect(person.text).toContain("+14155550911");
+    expect(responder).not.toHaveBeenCalled();
+  }, 60_000);
+
+  test("a message in another language never reaches the model, and a reply in anything but English is never sent", async () => {
+    const c = await doorOpen("screen-language", [{ platform: "messenger", externalId: "910000000000073" }]);
+    const responder = vi.fn<FrontDoorResponder>(async () => modelJson("We're open weekdays 9 to 5 — call the practice to book."));
+    const french = (await answerSent(c.clinicId, { platform: "messenger", text: "Je n'arrive pas à respirer", responder }))!;
+    expect(responder).not.toHaveBeenCalled();
+    expect(french).toMatchObject({ source: "handoff", screened: "language" });
+    expect(french.text).toContain("I can only help in English or Spanish.");
+    expect(french.text).toContain("Si es una emergencia, llame al 911 ahora.");
+
+    // A Spanish message is screened, so it reaches the model; a Spanish reply is not sent.
+    const spanish = vi.fn<FrontDoorResponder>(async () => modelJson("Abrimos de lunes a viernes, de 9 a 5. Llame a la clínica para reservar."));
+    const answer = (await answerSent(c.clinicId, { platform: "messenger", text: "¿Cuál es su horario?", responder: spanish }))!;
+    expect(spanish).toHaveBeenCalledTimes(1);
+    expect(answer).toMatchObject({ source: "handoff", guard: "a reply not in English" });
+    expect(answer.text).toContain(handoffLine({ clinicName: c.clinicName, phone: PUBLISHED }));
   }, 60_000);
 });

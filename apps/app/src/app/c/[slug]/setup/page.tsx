@@ -16,6 +16,7 @@ import { getDepositSettings } from "@/lib/billing/deposits";
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { disclosureFor } from "@/lib/compliance/disclosure";
 import { connectedMetaPlatforms, META_PLATFORM_NAMES } from "@/lib/channels/meta-platforms";
+import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 import { MAX_PROVIDERS } from "@/lib/connections/google-calendar";
 import { env } from "@/lib/env";
 import { requirePortal } from "@/lib/portal/access";
@@ -435,6 +436,7 @@ function renderScreen(state: SetupState, screen: SetupScreenId, nav: Nav) {
           vetReferral={settings.vetReferralE164 ? formatPhone(settings.vetReferralE164) : ""}
           audience={audience}
           address={state.address}
+          teamAlerted={URGENT_ALERT_DELIVERED}
         />
       );
     }

@@ -412,6 +412,8 @@ describeDb("phone flips to live on the first forwarded call", () => {
       () => undefined,
       {
         responder: null,
+        // Past the test-mode check (lib/voice/test-calls.ts): this is about the headers.
+        realCalls: true,
         gate: async (): Promise<AnswerDecision> => ({ decision: "answer" }),
         ingest: async (event) => {
           events.push(event);
@@ -442,6 +444,7 @@ describeDb("phone flips to live on the first forwarded call", () => {
     const plain: VoiceCallEvent[] = [];
     const direct = new RetellCallSession(clinic.clinicId, `call_${randomUUID()}`, () => undefined, {
       responder: null,
+      realCalls: true,
       gate: async (): Promise<AnswerDecision> => ({ decision: "answer" }),
       ingest: async (event) => {
         plain.push(event);

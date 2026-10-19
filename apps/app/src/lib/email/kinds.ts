@@ -121,8 +121,9 @@ export const NOTICE_KIND_REGISTRY = {
   // how a change nobody at the clinic made gets noticed.
   setting_changed: kind("O4", "transactional", "normal", null, "any_hour", "plan"),
   // O10: a channel ready on our side and still waiting on the clinic an
-  // hour later (lib/notices/channel-ready.ts, the seam the voice runtime
-  // calls). It waits for daytime: it is a step to take, not an alert.
+  // hour later, phone's forwarding or website chat's line
+  // (lib/notices/channel-ready.ts, which lib/channels/events.ts calls). It
+  // waits for daytime: it is a step to take, not an alert.
   channel_ready: kind("O10", "transactional", "normal", null, "daytime", "plan"),
 
   // The rest of Annex X5, registered together (14 October 2026) so the CHECK

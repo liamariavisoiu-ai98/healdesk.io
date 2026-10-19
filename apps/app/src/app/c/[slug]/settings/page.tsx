@@ -15,6 +15,7 @@ import { loadOpenAddressChange } from "@/lib/sign-in/address-change";
 import { forwardingView, type ForwardingView } from "@/lib/setup/forwarding";
 import { readForwardingTest } from "@/lib/setup/forwarding-test-view";
 import { formatPhone } from "@/lib/setup/help";
+import { snippetOpen, widgetSnippet } from "@/lib/setup/snippet";
 import { withTenant } from "@/lib/tenant";
 
 import { PortalShell } from "../PortalShell";
@@ -94,6 +95,9 @@ export default async function SettingsPage({
   const forwarding = ayaNumber
     ? await settingsForwarding(portal.clinicId, page.actorContext, ayaNumber, page.state)
     : null;
+  const webLine = snippetOpen(page.state.channels.find((c) => c.channel === "web"))
+    ? widgetSnippet(page.state.clinic.slug)
+    : null;
   const factors = await readSignInFactors(portal.userId, await sessionBinding(portal));
   const tz = page.state.clinic.timezone;
   const settingsPath = `/c/${portal.clinicSlug}/settings`;
@@ -118,6 +122,7 @@ export default async function SettingsPage({
             view={view}
             phoneSteps={ayaNumber ? { numberLabel: formatPhone(ayaNumber) } : null}
             forwarding={forwarding}
+            webLine={webLine}
           />
           <TalkCard view={view} />
           <CalendarCard card={calendarCard} timeZone={page.state.clinic.timezone} now={now} />

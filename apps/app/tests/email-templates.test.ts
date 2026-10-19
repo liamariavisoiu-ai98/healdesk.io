@@ -28,6 +28,7 @@ import {
 import {
   compose,
   EmailCompositionError,
+  escapeHtml,
   MAX_HTML_BYTES,
   REPLY_LINE,
 } from "@/lib/email/templates/compose";
@@ -49,7 +50,17 @@ import {
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
 import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
-import { stepsReason } from "@/lib/email/templates/steps_sent";
+import {
+  CHANNEL_READY_ENTRY,
+  channelReadyWebFixture,
+} from "@/lib/email/templates/channel_ready";
+import {
+  STEPS_SENT_ENTRY,
+  stepsReason,
+  stepsSentWebFixture,
+} from "@/lib/email/templates/steps_sent";
+import { WEB_CHAT_COUNTS_LINE } from "@/lib/setup/channels";
+import { widgetSnippet } from "@/lib/setup/snippet";
 import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
@@ -454,6 +465,106 @@ describe("L22, sign your updated agreement", () => {
     expect(day7.text).toContain("still waiting to be signed, 7 days after we sent it");
     expect(day7.text).toContain("not sure whether Radiance Med Spa bills any health insurance");
     expect(copyProblems([day7.subject, day7.text].join("\n"))).toEqual([]);
+  });
+});
+
+describe("website chat's line in O10 and O11", () => {
+  // The registry's fixtures are phone's. Website chat's variants carry the
+  // line a clinic pastes (lib/setup/snippet.ts), built from the stored script
+  // address and slug, so it must be the screens' line to the byte, shown and
+  // never parsed in the HTML, and on our public origin.
+  const LINE = `<script src="${ORIGIN}/widget/v1.js" data-clinic="radiance-med-spa" async></script>`;
+  const ready = () =>
+    CHANNEL_READY_ENTRY.render(channelReadyWebFixture(), contextFor("channel_ready"));
+  const steps = () => STEPS_SENT_ENTRY.render(stepsSentWebFixture(), contextFor("steps_sent"));
+
+  test("the snapshots, for patients and for clients", () => {
+    for (const audience of ["patients", "clients"] as const) {
+      expect(
+        CHANNEL_READY_ENTRY.render(channelReadyWebFixture(), contextFor("channel_ready", audience)),
+      ).toMatchSnapshot();
+      expect(
+        STEPS_SENT_ENTRY.render(stepsSentWebFixture(), contextFor("steps_sent", audience)),
+      ).toMatchSnapshot();
+    }
+  });
+
+  test("each carries the line the screens print, on a line of its own, and its payload passes the allowlist", () => {
+    expect(widgetSnippet("radiance-med-spa")).toBe(LINE);
+    for (const [kind, rendered, payload] of [
+      ["channel_ready", ready(), channelReadyWebFixture()],
+      ["steps_sent", steps(), stepsSentWebFixture()],
+    ] as const) {
+      expect(rendered.text.split("\n"), kind).toContain(LINE);
+      // Escaped in the HTML: shown as text, never a tag a mail client runs.
+      expect(rendered.html, kind).toContain(escapeHtml(LINE));
+      expect(rendered.html, kind).not.toMatch(/<script|<img|<link|<iframe|<[^>]*\bsrc=/i);
+      expect(visibleText(rendered.html), kind).toContain(LINE);
+      expect(linkProblems(rendered, kind), kind).toEqual([]);
+      expect(subjectProblems(rendered.subject), kind).toEqual([]);
+      expect(
+        copyProblems([rendered.subject, rendered.preheader, rendered.text].join("\n")),
+        kind,
+      ).toEqual([]);
+      expect(() => assertPayloadAllowed(payload, kind), kind).not.toThrow();
+    }
+    // A slug is an id's shape; anything that is not one is refused.
+    expect(() =>
+      assertPayloadAllowed({ ...stepsSentWebFixture(), clinicSlug: "<b>radiance</b>" }, "steps_sent"),
+    ).toThrow(PayloadNotAllowedError);
+    // The script on any origin but ours is refused, so no email can hand a
+    // clinic a line that loads someone else's code.
+    expect(() =>
+      assertPayloadAllowed(
+        { ...stepsSentWebFixture(), scriptUrl: "https://cdn.example.com/widget/v1.js" },
+        "steps_sent",
+      ),
+    ).toThrow(PayloadNotAllowedError);
+  });
+
+  test("O10 tells the clinic its one step, that a chat on its site is real, and links to Settings for the web person", () => {
+    const { subject, text } = ready();
+    expect(subject).toBe("Website chat is ready: one step left");
+    expect(text).toContain(
+      "AYA is ready to answer chats on Radiance Med Spa's website. One step is left, and it's yours: paste this line once, just before </body>, on every page of your website.",
+    );
+    expect(text).toContain(WEB_CHAT_COUNTS_LINE);
+    expect(text).toContain(
+      `Open the line in Settings: ${ORIGIN}/c/radiance-med-spa/settings#website-line`,
+    );
+    expect(findLinks(text)).toEqual([
+      `${ORIGIN}/widget/v1.js`,
+      `${ORIGIN}/c/radiance-med-spa/settings#website-line`,
+    ]);
+  });
+
+  test("O11 is the line with a two-sentence instruction, says who asked, and carries the stop link", () => {
+    const { subject, text, html } = steps();
+    expect(subject).toBe("Website chat line from Radiance Med Spa");
+    expect(text).toContain(
+      "Radiance Med Spa asked us to send you this line for its website. Paste it once, just before </body>, on every page of the site, and AYA, the practice's AI assistant from healdesk, answers chats there once it's in.",
+    );
+    for (const body of [text, visibleText(html)]) {
+      expect(body).toContain(
+        "You're receiving this because someone at Radiance Med Spa asked us to send it to this address.",
+      );
+      expect(body).toContain(`Stop these emails: ${stepsStopUrl(CLINIC_ID, STEPS_DELIVERY_ID)}`);
+    }
+  });
+
+  test("the Meta channels have no step an email can carry: refused, never sent without it", () => {
+    expect(() =>
+      CHANNEL_READY_ENTRY.render(
+        { channel: "meta" } as unknown as ReturnType<typeof channelReadyWebFixture>,
+        contextFor("channel_ready"),
+      ),
+    ).toThrow(EmailCompositionError);
+    expect(() =>
+      STEPS_SENT_ENTRY.render(
+        { channel: "meta" } as unknown as ReturnType<typeof stepsSentWebFixture>,
+        contextFor("steps_sent"),
+      ),
+    ).toThrow(EmailCompositionError);
   });
 });
 

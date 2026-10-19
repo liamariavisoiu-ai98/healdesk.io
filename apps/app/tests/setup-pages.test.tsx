@@ -302,11 +302,55 @@ describeDb("the setup wizard's pages", () => {
           `<script src="${publicUrl("/widget/v1.js")}" data-clinic="${voiceWeb.clinicSlug}" async></script>`,
         );
         expect(words).toContain("Copy the line");
+        // "Send this to my web person" (spec), beside the line.
+        expect(words).toContain("Email to my web person");
+        expect(words).toContain("Send the line");
         expect(words).not.toContain(process.env.HEALDESK_APP_URL ?? "app-internal");
+        expect(brokenLinks(html, voiceWeb.clinicSlug)).toEqual([]);
         expect(await axeViolations(html)).toEqual([]);
       } finally {
         await setChannel(voiceWeb, "web", `ready_at = null, waiting_on = null`);
       }
+    });
+
+    test("the website line's panel is Settings' own, and its email goes through the action the phone steps use", async () => {
+      const fs = await import("node:fs");
+      // One component in both places, so the line and its words never differ.
+      for (const file of [
+        "src/app/c/[slug]/setup/screens/ChannelsScreen.tsx",
+        "src/app/c/[slug]/settings/SettingsCards.tsx",
+      ]) {
+        const source = fs.readFileSync(file, "utf8");
+        expect(source, file).toMatch(/import \{ WebsiteLinePanel \} from "\.\.\/(\.\.\/)?WebsiteLinePanel"/);
+        expect(source, file).toContain("<WebsiteLinePanel slug=");
+      }
+      expect(fs.readFileSync("src/app/c/[slug]/SendStepsForm.tsx", "utf8")).toContain(
+        "sendStepsAction(props.slug",
+      );
+
+      const { sendStepsAction } = await import("@/app/c/[slug]/steps-actions");
+      as(voiceWeb);
+      steps.sendStepsOn.mockResolvedValueOnce({ status: "sent", to: "web@agency.test" });
+      expect(await sendStepsAction(voiceWeb.clinicSlug, "web", "web@agency.test")).toEqual({
+        ok: true,
+        message: "Sent to web@agency.test.",
+      });
+      // Website chat's line needs no number: lib/notices/steps-sent.ts checks
+      // the channel is open itself.
+      expect(steps.sendStepsOn).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          clinicId: voiceWeb.clinicId,
+          channel: "web",
+          to: "web@agency.test",
+          ayaNumberE164: null,
+        }),
+      );
+      // A browser can send anything: a channel with no step to send is refused here.
+      steps.sendStepsOn.mockClear();
+      expect(
+        await sendStepsAction(voiceWeb.clinicSlug, "meta" as "web", "web@agency.test"),
+      ).toEqual({ ok: false, message: "There's nothing to send for that." });
+      expect(steps.sendStepsOn).not.toHaveBeenCalled();
     });
 
     test("phone ready but no direct line: no number yet, and the way to set the line", async () => {

@@ -7,6 +7,7 @@ import {
   wizardFinished,
   wizardScreens,
 } from "@/lib/setup/screens";
+import type { ChannelState } from "@/lib/channels/state";
 import type { CalendarConnectionView } from "@/lib/connections/google-calendar";
 import type { SetupState } from "@/lib/setup/state";
 import { PRACTICE_SECTION_WORDS } from "@/lib/engine/practice/sections";
@@ -41,6 +42,11 @@ import { isBuiltSection, sectionPath, type PortalSection } from "./nav";
  * linking to the section, while AYA keeps answering as she was. Before
  * go-live the build tracker says the same thing in its own stage.
  *
+ * At any stage, website chat waiting on its line (ready on our side, setup
+ * done, the line not yet seen on the clinic's site): the one step left is
+ * the clinic's, and the line lives in Settings → Channels with its copy
+ * button and "Email to my web person", so the item links there.
+ *
  * Pure: the page reads the facts, this decides what to say.
  */
 
@@ -53,6 +59,7 @@ export type AttentionId =
   | "passkey"
   | "backup"
   | "payment_account"
+  | "website_line"
   | "website_changes"
   | "calendar_disconnected"
   | "quiet_channel"
@@ -71,7 +78,10 @@ export type AttentionFacts = {
   state: Pick<
     SetupState,
     "screens" | "progress" | "clinic" | "hasPasskey" | "hasBackup" | "billing" | "address"
-  >;
+  > & {
+    /** Each bought channel's state, for the one step a channel waits on the clinic for. */
+    channels?: readonly Pick<ChannelState, "channel" | "status" | "waitingOn">[];
+  };
   /** The latest report on the clinic's address says it bounced, complained or was suppressed. */
   addressUndeliverable: boolean;
   /** The clinic's Stripe account was disconnected and nothing is connected now. */
@@ -154,6 +164,15 @@ export function needsAttention(facts: AttentionFacts): AttentionItem[] {
       id: "insurance",
       text: "Tell us whether your practice bills any health insurance electronically.",
       action: { label: "Answer it", href: `${home}/setup?s=insurance` },
+    });
+  }
+
+  const web = state.channels?.find((c) => c.channel === "web");
+  if (web?.status === "waiting" && web.waitingOn === "snippet") {
+    items.push({
+      id: "website_line",
+      text: "Website chat is ready: paste one line on your website and AYA starts answering there.",
+      action: screenLink(slug, "settings", "#website-line", "Get the line"),
     });
   }
 

@@ -2,7 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "vitest"
 
 import { POST as messagePost, __setWebChatDepsForTests } from "@/app/api/widget/v1/[slug]/message/route";
 import { OPTIONS as startOptions, POST as startPost } from "@/app/api/widget/v1/[slug]/start/route";
-import type { AssistantMessage, AssistantPrompt, AssistantResponder } from "@/lib/assistant/turn";
+import { SCREENED_TURN, type AssistantMessage, type AssistantPrompt, type AssistantResponder } from "@/lib/assistant/turn";
 import { endWebChat, originAllowed, readToken, sendWebChatMessage, signToken, startWebChat, webChatClinic, type WebChatClinic } from "@/lib/chat/web-chat";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -186,6 +186,32 @@ describeDb("the web chat", () => {
       client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
     );
     expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
+  });
+
+  // The 19 October audit: the sealed history kept the urgent message, and
+  // the next message sent the whole history to the model.
+  test("an urgent message, or one in a language no screen reads, never reaches the model on a later message, and the transcript keeps it", async () => {
+    for (const [label, said] of [
+      ["chat-urgent-later", "My lips are swelling and it's getting hard to breathe"],
+      ["chat-language-later", "Je n'arrive pas à respirer"],
+    ] as const) {
+      const clinic = await liveWebClinic(label);
+      const start = await startWebChat(clinic);
+      if (start.mode !== "chat") throw new Error("no chat");
+      const { responder, seen } = scripted(() => ({ reply: "We're open weekdays." }));
+      const transport = new FakeTransport();
+      const first = await sendWebChatMessage(clinic, start.token, said, { responder, transport });
+      if (first.mode !== "chat") throw new Error("no chat");
+      expect(seen).toHaveLength(0);
+      const second = await sendWebChatMessage(clinic, first.token, "When are you open?", { responder, transport });
+      expect(second).toMatchObject({ mode: "chat", reply: "We're open weekdays." });
+      expect(seen).toHaveLength(1);
+      expect(JSON.stringify(seen[0]!.messages), label).not.toContain(said);
+      expect(seen[0]!.messages[0]).toEqual({ role: "user", content: SCREENED_TURN });
+      if (second.mode !== "chat") return;
+      await endWebChat(clinic, second.token, { transport });
+      expect(transport.transcripts()[0]!.message.text, label).toContain(said);
+    }
   });
 
   test("a card number is cut from the transcript and never reaches the model", async () => {

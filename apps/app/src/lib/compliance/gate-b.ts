@@ -1,6 +1,8 @@
 import { CHANNELS, type Channel } from "@healdesk/catalog";
 
 import { DIRECT_KIND_REGISTRY } from "@/lib/email/direct-kinds";
+import { casesNotAskable } from "@/lib/engine/practice/cases";
+import type { PracticeCaseId } from "@/lib/engine/practice/types";
 import { NOTICE_KIND_REGISTRY } from "@/lib/email/kinds";
 import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
 
@@ -11,8 +13,19 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  * says whether it is built, read from the code where the code can say so,
  * and go-live names honestly what is not.
  *
- *   - **The practice questions**: built (lib/engine/practice); go-live asks
- *     them per clinic and channel (app_channel_audit_ok).
+ *   - **The practice questions**: go-live asks them per clinic and channel
+ *     (app_channel_audit_ok), and they pass a channel on the cases they ask
+ *     (lib/engine/practice). Built only once every case can be asked: the
+ *     spec's "Pass means every case". Today the straightforward booking and
+ *     the deposit booking cannot be, since the brain has no booking tools
+ *     (it takes a request; nothing holds a slot, writes a booking or sends a
+ *     deposit link), and every channel's cases include them, so none goes
+ *     live on them. Read off the case set (casesNotAskable), so it is built
+ *     in the commit that gives those cases their checks. That commit also
+ *     bumps PRACTICE_CASES_VERSION, and must see that no pass recorded while
+ *     a case was not askable opens a channel: practiceQuestionsGate and
+ *     app_practice_gate_open read the latest run and its result, not the
+ *     cases it asked.
  *   - **The answer gate**: built (lib/billing/answering.ts), and called by
  *     each runtime that answers a patient: the Retell process
  *     (lib/voice/retell.ts), website chat (lib/chat/web-chat.ts) and the Meta
@@ -40,6 +53,12 @@ import { PENDING_TEMPLATES } from "@/lib/email/templates/registry";
  * is empty", to true. tests/go-live.test.ts fails while the two disagree, so
  * neither opens without the other.
  */
+
+/** The spec's own words for each case the runtime cannot ask yet ("The pre-launch audit"). */
+const CASE_WORDS: Partial<Record<PracticeCaseId, string>> = {
+  booking: "a straightforward booking (the right slot held, the right booking written, the right confirmation said)",
+  deposit_booking: "a booking for a deposit-required service (the clinic's deposit settings followed exactly)",
+};
 
 /** The runtimes that ask the answer gate before AYA answers. Every channel, today. */
 export const ANSWER_GATE_CHANNELS: readonly Channel[] = ["web", "meta", "voice"];
@@ -113,14 +132,17 @@ export function gateBInCode(): GateBCodeItem[] {
   const counter = routedAnsweredCounterBuilt();
   const live = pendingLiveSet();
   const gated = CHANNELS.every((c) => ANSWER_GATE_CHANNELS.includes(c));
+  const unasked = casesNotAskable();
   return [
     {
       id: "practice_questions",
       label: "Practice questions passed",
-      built: true,
+      built: unasked.length === 0,
       checked: true,
       detail:
-        "Asked per clinic and channel: the latest run passed with nothing changed since, or an operator attested the channel.",
+        unasked.length === 0
+          ? "Asked per clinic and channel: the latest run passed with nothing changed since, or an operator attested the channel."
+          : `Not every case can be asked yet: ${unasked.map((id) => CASE_WORDS[id] ?? id).join("; and ")}. The brain has no booking tools, so it holds no slot, writes no booking and sends no deposit link, and every channel's cases include these. Pass means every case, so no clinic goes live on the practice questions until they can be asked.`,
     },
     {
       id: "answer_gate",

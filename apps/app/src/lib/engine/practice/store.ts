@@ -311,7 +311,11 @@ export type RunVerdict =
  * A run's verdict from its channels: an error anywhere is an error (nothing
  * was learnt); any case failed on the clinic's own data is the clinic's to
  * fix, in the section that most cases failed on; any other failure, or a
- * judge's, is a review; otherwise a pass. Not-applicable cases are neither.
+ * judge's, is a review; otherwise a pass. Not-applicable cases are neither:
+ * the pass approves the script the cases that were asked read, and a case
+ * the runtime cannot ask yet holds go-live through Gate B instead
+ * (lib/compliance/gate-b.ts, casesNotAskable), so no channel goes live on a
+ * pass that did not ask it.
  */
 export function runVerdict(
   outcomes: readonly Pick<ChannelOutcome, "status" | "cases">[],

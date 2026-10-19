@@ -28,7 +28,8 @@ export const dynamic = "force-dynamic";
  * The page says what Meta will ask for before the window opens, because the
  * step that stops clinics, adding a payment method to their WhatsApp account,
  * is better known beforehand (v1 spec, "Meta bot onboarding"). It shows no
- * patient and asks for no step-up (api/meta/whatsapp/route.ts).
+ * patient. A first connect and a reconnect of the same number ask for no
+ * step-up; swapping in a different number does (api/meta/whatsapp/route.ts).
  */
 export default async function PortalWhatsAppPage({
   params,
@@ -67,8 +68,8 @@ export default async function PortalWhatsAppPage({
       </ul>
       <p className="text-muted mt-3 max-w-[58ch]">
         Use a number that is not already on the WhatsApp Business app on a phone. A number can only be on one WhatsApp
-        platform at a time. Already connected and being asked to connect again? Signing up again replaces the old
-        connection.
+        platform at a time. Already connected? Signing up again replaces the old connection, and a different number asks
+        for your passkey first.
       </p>
 
       <h2 className="mt-8 text-base font-semibold">What AYA is designed to do</h2>
@@ -81,6 +82,7 @@ export default async function PortalWhatsAppPage({
       {available && appId && configId ? (
         <WhatsAppConnect
           clinic={portal.clinicSlug}
+          from={surface}
           returnTo={portalReturnUrl(portal.clinicSlug, surface, "whatsapp_connected")}
           appId={appId}
           configId={configId}

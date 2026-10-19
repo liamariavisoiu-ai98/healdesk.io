@@ -63,7 +63,7 @@ export function ChannelsCard({
     <Card id="channels" title="Channels" intro="Each channel you bought, on or off on its own.">
       {portalMetaOutcome(metaOutcome) ? (
         <p
-          role="status"
+          role={portalMetaOutcome(metaOutcome)!.ok ? "status" : "alert"}
           className={`my-3 rounded-xl border px-4 py-3 text-sm ${
             portalMetaOutcome(metaOutcome)!.ok ? "border-line bg-tint-mint" : "border-red-200 text-red-800"
           }`}

@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
+import { MetaConnectButtons } from "@/app/c/[slug]/MetaConnectButtons";
+import { issueConnectionLink, resolveConnectionLink } from "@/lib/connections/links";
 import { attachMetaChannel, graphSend, sendMetaReply } from "@/lib/meta/channels";
 import { GraphError, isTokenInvalid, probeToken, type FetchLike } from "@/lib/meta/graph";
 import { decodeLoginCookie, encodeLoginCookie } from "@/lib/meta/login-state";
@@ -159,6 +162,50 @@ describe("Home's Needs attention", () => {
 
     const healthy = metaConnectViewOf([{ provider: "meta-messenger", brokenAt: null }], AVAILABLE);
     expect(needsAttention(facts(healthy)).filter((i) => i.id.startsWith("meta_"))).toEqual([]);
+  });
+});
+
+describe("the Connect and Reconnect buttons", () => {
+  const html = (rows: Parameters<typeof metaConnectViewOf>[0], from: "setup" | "settings", available = AVAILABLE) =>
+    renderToStaticMarkup(MetaConnectButtons({ slug: "glow", from, view: metaConnectViewOf(rows, available) }));
+
+  test("nothing connected: both Connect buttons, the Facebook one a form post that remembers where it was pressed", () => {
+    const out = html([], "settings");
+    expect(out).toContain('action="/api/meta/login"');
+    expect(out).toContain('name="from" value="settings"');
+    expect(out).toContain("Connect with Facebook");
+    expect(out).toContain('href="/c/glow/whatsapp?from=settings"');
+    expect(out).toContain("Connect WhatsApp");
+  });
+
+  test("connected: set-up only says so; Settings keeps a quiet Reconnect", () => {
+    const rows = [{ provider: "meta-messenger", brokenAt: null }, { provider: "meta-whatsapp", brokenAt: null }];
+    const setup = html(rows, "setup");
+    expect(setup).toContain("Connected: Messenger.");
+    expect(setup).not.toContain("<form");
+    expect(setup).not.toContain("Reconnect");
+    const settings = html(rows, "settings");
+    expect(settings).toContain("Reconnect Facebook");
+    expect(settings).toContain("Reconnect WhatsApp");
+    expect(settings).not.toContain("text-red-800");
+  });
+
+  test("dropped: says why in red and offers Reconnect, on both screens", () => {
+    const rows = [{ provider: "meta-instagram", brokenAt: new Date() }, { provider: "meta-whatsapp", brokenAt: new Date() }];
+    for (const from of ["setup", "settings"] as const) {
+      const out = html(rows, from);
+      expect(out).toContain("Facebook dropped the connection to Instagram");
+      expect(out).toContain("Meta dropped the WhatsApp connection");
+      expect(out).toContain("Reconnect Facebook");
+      expect(out).toContain("Reconnect WhatsApp");
+    }
+  });
+
+  test("without the keys there is no button, only the way to ask us", () => {
+    const out = html([], "setup", { facebook: false, whatsapp: false });
+    expect(out).not.toContain("<form");
+    expect(out).not.toContain("/whatsapp?from");
+    expect(out).toContain("hello@healdesk.io");
   });
 });
 
@@ -331,5 +378,17 @@ describeDb("a dropped Meta login", () => {
     );
     expect(marked).toBe(false);
     expect((await view(clinic)).facebook.state).toBe("connected");
+  });
+
+  test("a link says whether a signed-in person minted it, so the callback cannot be steered round the step-up by editing the cookie", async () => {
+    const clinic = await provisionPortalClinic("reconnect-issuer", { plan: "voice-metachat-1000-1000" });
+    const byPerson = await issueConnectionLink(
+      clinic.clinicId,
+      { purpose: "meta", expiresInDays: 1 },
+      { actor: { type: "user", userId: clinic.userId, label: "Front desk" } },
+    );
+    const byOperator = await issueConnectionLink(clinic.clinicId, { purpose: "meta", expiresInDays: 1 }, { actor: ACTOR });
+    expect((await resolveConnectionLink(byPerson.token, undefined, "meta"))?.issuedBy).toBe(clinic.userId);
+    expect((await resolveConnectionLink(byOperator.token, undefined, "meta"))?.issuedBy).toBeNull();
   });
 });

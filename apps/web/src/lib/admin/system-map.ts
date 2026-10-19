@@ -1220,7 +1220,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phiNote: META_SCOPE,
     build: "built",
     buildNote:
-      "The button is on the set-up wizard's channels step and in Settings → Channels (Reconnect once connected), and shows only once the Facebook login's keys are in (without them the clinic is told to email us). Meta dropping a login is noticed by a send it refuses and by a check every six hours (Graph /me with the stored token); either marks the login, Home lists it and the button returns. Meta's Deauthorize Callback is not used: it names a Facebook user, which we do not store. A link from run-task.sh channels-link still works for any clinic that needs one.",
+      "The button is on the set-up wizard's channels step and in Settings → Channels (Reconnect once connected), and shows only once the Facebook login's keys are in (without them the clinic is told to email us). Meta dropping a login is noticed by a send it refuses and by a check every six hours (Graph /me with the stored token); either marks the login, Home lists it and the button returns. Meta's Deauthorize Callback is not used: it names a Facebook user, which we do not store. Replacing the connected Page or Instagram account with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same one does not. A link from run-task.sh channels-link still works for any clinic that needs one.",
   },
   {
     id: "app-whatsapp",
@@ -1237,7 +1237,7 @@ export const BRIDGES: readonly BridgeDef[] = [
     phiNote: META_SCOPE,
     build: "built",
     buildNote:
-      "The Connect WhatsApp button is on set-up's channels step and in Settings → Channels (Reconnect once connected, or when Meta drops the login: a refused send or the six-hourly check marks it). It opens /c/<slug>/whatsapp, which runs the same embedded sign-up as the emailed link. The clinic still adds its own payment method inside Meta's window. run-task.sh channels-link (choosing whatsapp) still works for operators.",
+      "The Connect WhatsApp button is on set-up's channels step and in Settings → Channels (Reconnect once connected, or when Meta drops the login: a refused send or the six-hourly check marks it). It opens /c/<slug>/whatsapp, which runs the same embedded sign-up as the emailed link. Replacing the connected number with a different one asks for the clinic's passkey step-up; a first connect or a reconnect of the same number does not. The clinic still adds its own payment method inside Meta's window. run-task.sh channels-link (choosing whatsapp) still works for operators.",
   },
   {
     id: "app-gcal",

@@ -91,7 +91,12 @@ export async function GET(request: Request): Promise<Response> {
   // clinic is sent to step up and presses the button again. The write is then
   // recorded under the device's name instead of the service's.
   let actor: typeof META_CONNECT_ACTOR | { type: "user"; userId: string; label: string } = META_CONNECT_ACTOR;
-  if (cookie.from) {
+  // Decided on the link, not the cookie: a portal-minted link names the person
+  // who issued it, an operator's does not, and a cookie edited to drop `from`,
+  // or the link opened on its mailed page, must not skip the step-up.
+  const portalIssued = cookie.from !== undefined || link.issuedBy !== null;
+  const surface = cookie.from ?? "setup";
+  if (portalIssued) {
     const portal = await portalOrNull(link.clinicSlug);
     const stepped = portal ? await portalActor(portal) : null;
     if (portal && stepped) actor = { type: "user", userId: portal.userId, label: stepped.label };
@@ -99,7 +104,7 @@ export async function GET(request: Request): Promise<Response> {
       replacesConnectedAsset(tx.db, tx.clinicId, outcome.channels),
     );
     if (swaps && !stepped?.steppedUp) {
-      const next = cookie.from === "settings" ? `/c/${link.clinicSlug}/settings#channels` : `/c/${link.clinicSlug}/setup?s=channels`;
+      const next = surface === "settings" ? `/c/${link.clinicSlug}/settings` : `/c/${link.clinicSlug}/setup?s=channels`;
       return seeOther(publicUrl(stepUpPath(link.clinicSlug, next)), clear);
     }
   }
@@ -126,7 +131,7 @@ export async function GET(request: Request): Promise<Response> {
     return back("meta_error");
   }
 
-  if (cookie.from) return seeOther(portalReturnUrl(link.clinicSlug, cookie.from, "connected"), clear);
+  if (portalIssued) return seeOther(portalReturnUrl(link.clinicSlug, surface, "connected"), clear);
 
   const done = new URLSearchParams({ channel: "meta", page: outcome.page.name });
   if (outcome.instagram) done.set("instagram", outcome.instagram.username ?? "");

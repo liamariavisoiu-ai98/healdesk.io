@@ -69,7 +69,7 @@ export function ChannelsScreen(props: {
         <>
           {metaOutcome ? (
             <p
-              role="status"
+              role={metaOutcome.ok ? "status" : "alert"}
               className={`rounded-xl border bg-white px-4 py-3 text-sm ${
                 metaOutcome.ok ? "border-line" : "border-red-200 text-red-800"
               }`}

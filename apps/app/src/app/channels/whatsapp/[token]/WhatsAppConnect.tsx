@@ -59,6 +59,7 @@ type Phase = "loading" | "ready" | "working" | "failed";
 export function WhatsAppConnect({
   token,
   clinic,
+  from,
   returnTo,
   appId,
   configId,
@@ -67,6 +68,7 @@ export function WhatsAppConnect({
   /** A mailed link's token; the portal's page sends `clinic` (its slug) and `returnTo` instead. */
   token?: string;
   clinic?: string;
+  from?: "setup" | "settings";
   returnTo?: string;
   appId: string;
   configId: string;
@@ -90,7 +92,7 @@ export function WhatsAppConnect({
         headers: { "content-type": "application/json" },
         body: JSON.stringify(
           clinic
-            ? { clinic, code: code.current, wabaId, phoneNumberId }
+            ? { clinic, from, code: code.current, wabaId, phoneNumberId }
             : { token, code: code.current, wabaId, phoneNumberId },
         ),
       });

@@ -65,6 +65,7 @@ export type CoverageMode = "all_calls" | "overflow_after_hours" | "after_hours_o
  */
 export type PassThroughReason =
   | "no_agreement"
+  | "agreement_insufficient"
   | "unpaid"
   | "not_active"
   | "cancel_before_start"
@@ -81,11 +82,13 @@ export type PassThroughReason =
  * The refusals that mean the Services are not in effect at all: no agreement
  * (BAA 1.3.0 clause 17 ¶3, terminating it "ends the Services on the same
  * day"), or a subscription that has ended, before its plan started or after
- * (clause 1: the Services end when the subscription does). A refused voice
- * call with no direct line otherwise falls back to the assistant's safe
- * script (R25), because the agreement still covers it; after one of these
- * nothing may process the caller at all, so the runtime closes the call with
- * a fixed line instead (lib/voice/retell.ts CLOSED_LINE).
+ * (clause 1: the Services end when the subscription does). A call with a
+ * direct line is still passed straight through to it, as every refused call
+ * is (the Terms' pass-through after the service ends, sections 2 and 7). A
+ * refused voice call with no direct line otherwise falls back to the
+ * assistant's safe script (R25), because the agreement still covers it;
+ * after one of these nothing may process the caller at all, so the runtime
+ * closes the call with a fixed line instead (lib/voice/retell.ts CLOSED_LINE).
  */
 export const SERVICES_ENDED_REASONS: readonly PassThroughReason[] = [
   "no_agreement",
@@ -95,6 +98,20 @@ export const SERVICES_ENDED_REASONS: readonly PassThroughReason[] = [
 
 export function servicesEnded(reason: PassThroughReason): boolean {
   return SERVICES_ENDED_REASONS.includes(reason);
+}
+
+/**
+ * The refusals after which nothing may take or keep a person's details on
+ * the practice's behalf: the Services have ended, or the agreement in effect
+ * no longer covers the practice (`agreement_insufficient`), when the
+ * database refuses its patient rows (app_clinic_accepts_phi). The assistant
+ * may not answer even as the fallback for a call with no direct line (R25's
+ * safe script), so that call is closed with the fixed line (a call with a
+ * direct line still goes to it, as every refused call does); and the
+ * website's contact form takes no message (lib/chat/contact-form.ts).
+ */
+export function patientDataRefused(reason: PassThroughReason): boolean {
+  return servicesEnded(reason) || reason === "agreement_insufficient";
 }
 
 /**
@@ -138,6 +155,17 @@ export type AnswerFacts = {
    * but on synthetic data, which no agreement is needed for.
    */
   agreement: "in_effect" | "ended" | "none";
+  /**
+   * Whether the kind of agreement the clinic is under still covers it, by
+   * the same rule the database's patient-data gate uses
+   * (app_agreement_kind_sufficient, drizzle/0051): a BAA for a HIPAA
+   * practice, a DPA only for a practice that is not a covered entity. False
+   * once a DPA practice is found to be covered (ops' setCoveredEntity, or a
+   * re-sign), until it signs a BAA: the database then refuses its patient
+   * rows, so the assistant must not take them either. True when no kind is
+   * recorded, as the database treats it.
+   */
+  agreementCovers: boolean;
   /** The BILLING clinic's entitlements, or null when it has no row. */
   billing: {
     status: BillingStatus;
@@ -309,7 +337,9 @@ function billingRefusal(
  * R18, R20 and R21):
  *
  *   0. the agreement: none in effect is `no_agreement`, on synthetic data
- *      too once one has been terminated (see `AnswerFacts.agreement`). It
+ *      too once one has been terminated (see `AnswerFacts.agreement`); one
+ *      in effect whose kind no longer covers a production clinic (a DPA
+ *      practice now a covered entity) is `agreement_insufficient`. It
  *      comes first because nothing else can make a terminated practice's
  *      Services run again;
  *   1. billing (BD9). A synthetic clinic with no billing row skips it; any
@@ -333,10 +363,11 @@ export function decideAnswer(facts: AnswerFacts): AnswerDecision {
   const { channel, now, billing } = facts;
   const refuse = (reason: PassThroughReason) => passThrough(channel, reason, facts.directLine);
 
-  // 0. The agreement.
+  // 0. The agreement, and whether its kind still covers the practice.
   if (facts.agreement === "ended" || (facts.agreement === "none" && !facts.isSynthetic)) {
     return refuse("no_agreement");
   }
+  if (!facts.isSynthetic && !facts.agreementCovers) return refuse("agreement_insufficient");
 
   // 1. Billing.
   if (billing === null) {
@@ -444,10 +475,18 @@ async function runGate(
 
     // The organisation's agreements, as the tenant sees them: its own
     // organisation's rows (baa_acceptances is FORCE RLS, 0031).
-    const agreementRows = await tx.db.execute<{ in_effect: boolean; any_bound: boolean }>(
+    // And whether the clinic's kind of agreement still covers it, as the
+    // database's patient-data gate decides it (app_clinic_accepts_phi).
+    const agreementRows = await tx.db.execute<{
+      in_effect: boolean;
+      any_bound: boolean;
+      kind_covers: boolean;
+    }>(
       sql`select exists (select 1 from app_agreement_in_effect(c.organization_id)) as in_effect,
                  exists (select 1 from baa_acceptances b
-                          where b.organization_id = c.organization_id) as any_bound
+                          where b.organization_id = c.organization_id) as any_bound,
+                 (c.agreement_kind is null
+                  or app_agreement_kind_sufficient(c.regulatory_regime, c.agreement_kind, c.is_covered_entity)) as kind_covers
             from clinics c
            where c.id = ${tx.clinicId}`,
     );
@@ -478,6 +517,7 @@ async function runGate(
       organizationId: clinic.organizationId,
       isSynthetic: clinic.dataClassification === "synthetic",
       agreement,
+      agreementCovers: agreementRow?.kind_covers !== false,
       channelRow: row ?? null,
       pause: { pausedAt: settings?.pausedAt ?? null, pausedUntil: settings?.pausedUntil ?? null },
       directLine: settings?.directLine ?? null,
@@ -534,6 +574,7 @@ async function runGate(
     now,
     isSynthetic: location.isSynthetic,
     agreement: location.agreement,
+    agreementCovers: location.agreementCovers,
     billing: row
       ? {
           status: row.status,

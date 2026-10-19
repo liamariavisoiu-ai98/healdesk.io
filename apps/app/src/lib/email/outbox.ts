@@ -247,7 +247,7 @@ async function claimNotice(
 
   // Re-read at send time, after quiet hours: an O10 held until morning is not
   // sent about a step the clinic finished overnight.
-  const superseded = await supersededReason(tx, kind, row.payload, { createdAt: row.createdAt, now });
+  const superseded = await supersededReason(tx, kind, row.payload);
   if (superseded) {
     await tx.db
       .update(billingNotices)
@@ -651,16 +651,9 @@ function dueAt(notice: PendingNotice): Date {
  * queued: critical kinds are due at once, and a quota that has run out is a
  * mail outage like any other. Dead letters are not counted: they have already
  * been escalated, and a health check that stays red forever is one people
- * learn to ignore. Nor is anything while the sender's switch is off.
+ * learn to ignore.
  */
 export async function lateCriticalNotices(now: Date = new Date()): Promise<PendingNotice[]> {
-  // While the sender's switch is off nothing goes by the operator's choice,
-  // and the urgent reply says nothing about the team (urgentAlertLive): the
-  // seeded state of every new deployment, which a red health check and one
-  // ops alert per synthetic urgent message would only teach people to
-  // ignore. Notices queued meanwhile go when it is turned on, or close
-  // unsent after a day (lib/email/superseded.ts).
-  if (!(await isSwitchedOn())) return [];
   const cutoff = now.getTime() - LATE_CRITICAL_MS;
   return (await pendingNotices(CRITICAL_NOTICE_KINDS, 500)).filter(
     (notice) => dueAt(notice).getTime() <= cutoff,

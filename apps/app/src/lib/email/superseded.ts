@@ -1,7 +1,8 @@
 import { CHANNELS, type Channel } from "@healdesk/catalog";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 
-import { clinicChannels, type ChannelWaitingOn } from "@/db/schema";
+import { bookingRequests, clinicChannels, clinics, type ChannelWaitingOn } from "@/db/schema";
+import { pauseEmailSuperseded } from "@/lib/channels/pause";
 import type { TenantTx } from "@/lib/tenant";
 
 import type { NoticeKind } from "./kinds";
@@ -13,23 +14,19 @@ import type { NoticeKind } from "./kinds";
  * not sent about a step the clinic finished overnight. A superseded notice is
  * closed unsent, like one whose optional switch is off.
  *
- * O10 (`channel_ready`): "{Channel} is ready: one step left" is wrong once
- * the step is done or the channel is live.
- *
- * L11 and L12 (`handover`, `urgent`), a day after they were queued: "Please
- * check on them now" about a message a day old is wrong too. Nothing in the
- * outbox's own retries or its wait for Resend's daily quota holds one that
- * long; a backlog does, queued while the sender's switch was off (urgent
- * replies said nothing about the team then, urgentAlertLive) and released
- * all at once when it is turned on. Each conversation is still marked in
- * Conversations.
- *
- * Every other kind is about something that has already happened, and goes
- * regardless.
+ * Five kinds today. O10 (`channel_ready`): "{Channel} is ready: one step
+ * left" is wrong once the step is done or the channel is live. L15's
+ * reminder (`ai_paused`, 24 hours into a pause with no end, or a channel left
+ * Off): wrong once AYA is back on there (lib/channels/pause.ts). L8
+ * (`request_still_open`): "still waiting" is wrong once the desk has answered
+ * every request, which matters when the sender's switch was off and a day's
+ * L8 would otherwise go out late. E4 and E5 (`export_ready`,
+ * `export_reminder`): "Your export is ready" and "Download it by" are wrong
+ * once a download or the operator's handover has recorded the export as
+ * delivered, or once the data is destroyed (lib/offboarding/
+ * after-cancellation.ts). Every other kind, the first L15 among them, is
+ * about something that has already happened, and goes regardless.
  */
-
-/** How long an urgent alert or a handover may wait before it is closed unsent. */
-export const STALE_ALERT_MS = 24 * 60 * 60 * 1000;
 
 /** The one step O10 names for each channel that has its ready email. */
 export const READY_STEP: Readonly<Partial<Record<Channel, ChannelWaitingOn>>> = {
@@ -53,12 +50,21 @@ export async function supersededReason(
   tx: TenantTx,
   kind: NoticeKind,
   payload: unknown,
-  at?: { createdAt: Date; now: Date },
 ): Promise<string | null> {
-  if (kind === "urgent" || kind === "handover") {
-    return at && at.now.getTime() - at.createdAt.getTime() > STALE_ALERT_MS
-      ? "a day old; the conversation is marked in Conversations"
-      : null;
+  if (kind === "ai_paused") return pauseEmailSuperseded(tx, payload);
+  if (kind === "export_ready" || kind === "export_reminder") return exportNoticeSuperseded(tx);
+  if (kind === "request_still_open") {
+    const [open] = await tx.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(bookingRequests)
+      .where(
+        and(
+          eq(bookingRequests.clinicId, tx.clinicId),
+          eq(bookingRequests.status, "requested"),
+          gt(bookingRequests.expiresAt, sql`now()`),
+        ),
+      );
+    return (open?.n ?? 0) > 0 ? null : "no booking request is still waiting";
   }
   if (kind !== "channel_ready") return null;
   const channel = (payload as { channel?: unknown } | null)?.channel;
@@ -79,4 +85,16 @@ export async function supersededReason(
   return isWaitingOnReadyStep(channel as Channel, row)
     ? null
     : "the channel's last step was done before it could go";
+}
+
+/** E4 and E5 are moot once the export is delivered, or once there is nothing left to export. */
+async function exportNoticeSuperseded(tx: TenantTx): Promise<string | null> {
+  const [clinic] = await tx.db
+    .select({ deliveredAt: clinics.exportDeliveredAt, destroyedAt: clinics.destroyedAt })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (clinic?.destroyedAt) return "the clinic's data was destroyed before it could go";
+  if (clinic?.deliveredAt) return "the export was delivered before it could go";
+  return null;
 }

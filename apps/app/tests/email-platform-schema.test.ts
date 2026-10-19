@@ -194,10 +194,8 @@ describeDb("drizzle/0046: the email platform's schema", () => {
       update: false,
       delete: false,
     });
-    // exhausted_at: the day's quota refusal, stamped by lib/email/send.ts (0081).
     expect(await updatableColumns("email_daily_quota")).toEqual([
       "alerted_at",
-      "exhausted_at",
       "observed_at",
       "used",
     ]);

@@ -72,27 +72,17 @@ describe("the notice seams", () => {
     vi.restoreAllMocks();
   });
 
-  test("the booking alerts queue in the outbox since 19 October, and never throw into their caller", async () => {
-    // A transaction that cannot run anything: the alert is not queued, the
-    // caller hears so (false, which keeps "I've told the team" out of an
-    // urgent reply), one error line says so, and the booking it reports on
-    // goes on. tests/booking-alerts.test.ts proves the queueing on a real
-    // transaction.
+  test("the booking alerts queue through the outbox since M5, and never throw into their caller", async () => {
+    // A transaction that cannot run anything: the alert is not queued, one
+    // error line says so, and the deposit it reports on goes on.
+    // tests/live-alerts.test.ts proves the queueing on a real transaction.
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    const info = vi.spyOn(console, "info").mockImplementation(() => {});
     const tenantTx = { clinicId: CLINIC } as unknown as TenantTx;
     await expect(
       notifyBookingAlert(tenantTx, "deposit_to_collect", { appointmentId: CLINIC }),
-    ).resolves.toBe(false);
+    ).resolves.toBeUndefined();
     expect(error).toHaveBeenCalledTimes(1);
-    expect(String(error.mock.calls[0]![0])).toContain("booking alert not queued");
-    expect(info).not.toHaveBeenCalled();
-
-    // An alert whose email is not built yet (L8, L9, L20) is not queued either.
-    error.mockClear();
-    await expect(notifyBookingAlert(tenantTx, "request_missed", { bookingRequestId: CLINIC })).resolves.toBe(false);
-    expect(info).toHaveBeenCalledTimes(1);
-    expect(error).not.toHaveBeenCalled();
+    expect(String(error.mock.calls[0]![0])).toMatch(/^\[healdesk\] booking alert not queued /);
   });
 
   test("the calendar email queues O13 since M3, and never throws into its caller", async () => {

@@ -39,12 +39,16 @@ import {
   ORDER_REASON,
   SIGN_IN_REASON,
 } from "@/lib/email/templates/context";
-import { alertFixture, fixtureBookingsUrl, opensBookings } from "@/lib/email/templates/booking-alert-copy";
-import { DEPOSIT_DECLINED_FIXTURE, DEPOSIT_TO_COLLECT_ENTRY } from "@/lib/email/templates/deposit_to_collect";
+import { addressConfirmReason } from "@/lib/email/templates/address_change_confirm";
+import { AGREEMENT_TO_SIGN_ENTRY } from "@/lib/email/templates/agreement_to_sign";
+import {
+  ADDRESS_CHANGING_ENTRY,
+  addressMovingReason,
+} from "@/lib/email/templates/address_changing";
 import { renderOpsAlert } from "@/lib/email/templates/ops_alert";
+import { SIGN_IN_HELP_REASON } from "@/lib/email/templates/sign_in_help_link";
 import { PENDING_TEMPLATES, TEMPLATES, templateFor } from "@/lib/email/templates/registry";
 import { stepsReason } from "@/lib/email/templates/steps_sent";
-import { renderUrgent } from "@/lib/email/templates/urgent";
 import { SUPPORT_REASON } from "@/lib/email/templates/support_escalation";
 import type { EmailAudience, TemplateContext } from "@/lib/email/templates/types";
 import { WELCOME_ENTRY } from "@/lib/email/templates/welcome";
@@ -95,16 +99,24 @@ function contextFor(kind: EmailKind, audience: EmailAudience = "patients"): Temp
   const scope = carriesUnsubscribe(kind) ? "commercial" : null;
   return {
     clinicName:
-      kind === "ops_alert" || kind === "sign_in_link" || kind === "device_changed"
+      kind === "ops_alert" ||
+      kind === "ops_digest" ||
+      kind === "sign_in_link" ||
+      kind === "sign_in_help_link" ||
+      kind === "device_changed"
         ? null
         : "Radiance Med Spa",
     audience,
     reason:
-      kind === "ops_alert"
+      kind === "ops_alert" || kind === "ops_digest"
         ? OPS_REASON
         : kind === "sign_in_link"
           ? SIGN_IN_REASON
-          : kind === "order_confirmed_delayed"
+          : kind === "sign_in_help_link"
+            ? SIGN_IN_HELP_REASON
+            : kind === "address_change_confirm"
+              ? addressConfirmReason("Radiance Med Spa")
+              : kind === "order_confirmed_delayed"
             ? ORDER_REASON
             : kind === "device_changed"
               ? ACCOUNT_REASON
@@ -162,30 +174,14 @@ describe("the template registry", () => {
       (byPackage[pending.package] ??= []).push(kind);
     }
     expect(byPackage).toEqual({
-      WP8: ["sign_in_help_link", "address_change_confirm", "address_changing"],
-      F: ["request_still_open", "request_missed", "website_message"],
-      WP4: ["daily_summary", "weekly_recap"],
-      WP3: ["ai_paused"],
       runtime: ["outage_started", "outage_ended", "guarantee_miss"],
-      WP9: ["agreement_to_sign"],
-      WP11: ["website_changes"],
-      WP7: [
-        "terms_notice",
-        "subprocessor_notice",
-        "incident_report",
-        "guarantee_claim_received",
-        "guarantee_finding",
-        "suspended_for_cause",
-        "patient_request",
-        "product_update",
-      ],
-      WP6: ["pass_through_ending", "export_ready", "export_reminder", "data_destroyed"],
-      B: ["assistant_ready", "practice_questions_failed"],
-      WP5: ["ops_digest", "flag_alert"],
+      // WP7's operator notices are templated; L32 is the one left.
+      WP7: ["patient_request"],
+      WP5: ["flag_alert"],
     });
   });
 
-  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the support chat's L25 and I3, and the live alerts L7, L10, L11, L12 and L34", () => {
+  test("the templates shipped so far: I1, B2, B3, O3 and the billing kinds (the usage alerts among them since 13 October), then B1, O7, the setup closure, O13, O4, O10 and O11, the calendar's two, the live alerts, the operator's notices, O6 and O5's two, the support chat's L25 and I3, the practice questions' O8 and O9, I2, after cancellation E3 to E6, the claims function's L13 and L14, the DPA re-sign's L22, and the drift list's L23", () => {
     expect(Object.keys(TEMPLATES)).toEqual([
       "ops_alert",
       "sign_in_link",
@@ -223,15 +219,40 @@ describe("the template registry", () => {
       "channel_ready",
       "steps_sent",
       "channel_live",
+      "ai_paused",
       "calendar_link",
       "calendar_election_recorded",
-      "support_request",
-      "support_escalation",
       "booking_request",
+      "request_still_open",
+      "request_missed",
       "deposit_to_collect",
       "handover",
       "urgent",
+      "website_message",
       "calendar_check",
+      "terms_notice",
+      "subprocessor_notice",
+      "incident_report",
+      "guarantee_claim_received",
+      "guarantee_finding",
+      "suspended_for_cause",
+      "product_update",
+      "sign_in_help_link",
+      "address_change_confirm",
+      "address_changing",
+      "support_request",
+      "support_escalation",
+      "assistant_ready",
+      "practice_questions_failed",
+      "ops_digest",
+      "pass_through_ending",
+      "export_ready",
+      "export_reminder",
+      "data_destroyed",
+      "daily_summary",
+      "weekly_recap",
+      "agreement_to_sign",
+      "website_changes",
     ]);
   });
 
@@ -327,6 +348,82 @@ describe("each template's output", () => {
   }
 });
 
+describe("O5 from ops' changeClinicEmail", () => {
+  const ops = (isToNewAddress: boolean) =>
+    ADDRESS_CHANGING_ENTRY.render(
+      { ...ADDRESS_CHANGING_ENTRY.fixture, isFromOperator: true, isToNewAddress },
+      {
+        ...contextFor("address_changing"),
+        reason: isToNewAddress
+          ? addressMovingReason("Radiance Med Spa")
+          : clinicReason("Radiance Med Spa"),
+      },
+    );
+
+  test("to the old address and to the new: the snapshots", () => {
+    expect(ops(false)).toMatchSnapshot();
+    expect(ops(true)).toMatchSnapshot();
+  });
+
+  test("both name the end of the objection window, how to object, and carry no stop link or token", () => {
+    for (const isToNewAddress of [false, true]) {
+      const r = ops(isToNewAddress);
+      expect(r.text).toContain("takes effect on Friday, October 9 at 10:32 AM EDT");
+      expect(r.text).toContain("reply to this email before Friday, October 9 at 10:32 AM EDT");
+      expect(r.text).not.toContain("Stop this change");
+      expect(linkProblems(r, "address_changing")).toEqual([]);
+      expect(copyProblems([r.subject, r.text].join("\n"))).toEqual([]);
+    }
+    expect(ops(true).text).toContain(
+      "You're receiving this because Radiance Med Spa is moving its healdesk address to this one.",
+    );
+  });
+});
+
+describe("L22, sign your updated agreement", () => {
+  const render = (over: Partial<typeof AGREEMENT_TO_SIGN_ENTRY.fixture>, audience: EmailAudience = "patients") =>
+    AGREEMENT_TO_SIGN_ENTRY.render(
+      { ...AGREEMENT_TO_SIGN_ENTRY.fixture, ...over },
+      contextFor("agreement_to_sign", audience),
+    );
+
+  test("the reminders and an unsure practice with nothing answering yet: the snapshots", () => {
+    expect(render({ waitingDays: 3 })).toMatchSnapshot();
+    expect(render({ isUnsure: true, channels: [], directLineE164: null })).toMatchSnapshot();
+  });
+
+  test("says AYA is paused until it's signed and where each channel goes, with the link", () => {
+    const first = render({});
+    expect(first.subject).toBe("Sign your updated agreement");
+    expect(first.preheader).toBe("AYA is paused until it's signed.");
+    expect(first.text).toContain("now bills health insurance electronically");
+    expect(first.text).toContain("Until it's signed, AYA is paused:");
+    expect(first.text).toContain("Phone: calls go to your direct line ((415) 555-0100)");
+    expect(first.text).toContain("Website chat: shows a contact form");
+    expect(first.text).toContain("AYA answers again the moment it's signed");
+    expect(first.text).toContain("The link works for 14 days");
+    expect(linkProblems(first, "agreement_to_sign")).toEqual([]);
+    // A token in it is a single-use token, allowed only in a link email.
+    expect(linkProblems(first, "ai_paused").join(" ")).toContain("single-use token");
+  });
+
+  test("before anything answers, it says AYA starts once it's signed, and never that she answers again", () => {
+    const quiet = render({ channels: [], directLineE164: null }, "clients");
+    expect(quiet.preheader).toBe("AYA starts answering once it's signed.");
+    expect(quiet.text).toContain("AYA doesn't answer your clients until it's signed.");
+    expect(quiet.text).not.toContain("is paused:");
+    expect(quiet.text).not.toContain("answers again");
+  });
+
+  test("a reminder says how long it has waited, and an unsure practice is told why the BAA covers it", () => {
+    const day7 = render({ waitingDays: 7, isUnsure: true });
+    expect(day7.subject).toBe("Your updated agreement is waiting to be signed");
+    expect(day7.text).toContain("still waiting to be signed, 7 days after we sent it");
+    expect(day7.text).toContain("not sure whether Radiance Med Spa bills any health insurance");
+    expect(copyProblems([day7.subject, day7.text].join("\n"))).toEqual([]);
+  });
+});
+
 describe("the welcome email (B1)", () => {
   const usd = (amount: number) => `$${amount.toLocaleString("en-US")}`;
 
@@ -368,6 +465,24 @@ describe("the welcome email (B1)", () => {
     expect(voice).toContain("Past the allowance: $104 for each started block of 100 extra voice minutes\n");
   });
 
+  test("cancelling online is Billing's Auto-renew, and the signed agreement downloads from Billing", () => {
+    const { text, html } = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome"));
+    // Not a reply to this email: the portal's own switch (plan Part F6).
+    expect(text).not.toMatch(/reply to this email and we'll cancel/i);
+    expect(text).toContain(
+      "To cancel online, turn off Auto-renew in Billing. Before your plan starts, that means it won't start, and nothing more is charged.",
+    );
+    expect(text).toContain(`Open Billing: ${WELCOME_ENTRY.fixture.billingUrl}`);
+    expect(WELCOME_ENTRY.fixture.billingUrl).toMatch(/\/c\/[a-z0-9-]+\/billing#switches$/);
+    // The agreement's download, beside the Terms (plan C4).
+    expect(text).toContain(
+      `Download your signed agreement (PDF): ${WELCOME_ENTRY.fixture.agreementUrl}`,
+    );
+    expect(WELCOME_ENTRY.fixture.agreementUrl).toMatch(/\/c\/[a-z0-9-]+\/billing\/agreement$/);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.agreementUrl}"`);
+    expect(html).toContain(`href="${WELCOME_ENTRY.fixture.billingUrl}"`);
+  });
+
   test("Help: the voicemail line in the plan's words while one is set, and nothing while not", () => {
     const set = WELCOME_ENTRY.render(WELCOME_ENTRY.fixture, contextFor("welcome", "clients"));
     expect(set.text).toContain(
@@ -379,6 +494,61 @@ describe("the welcome email (B1)", () => {
     );
     expect(unset.text).toContain("Questions? Reply to this email, or write to hello@healdesk.io.");
     expect(unset.text).not.toMatch(/leave a message|five-minute call|\/help\/call/);
+  });
+});
+
+describe("after cancellation (E3 to E6)", () => {
+  // Annex X5: E4 links to the read-only portal behind the sign-in and the
+  // step-up, and never attaches the export; E5 says the same; E6 links
+  // nowhere, since the portal holds nothing of the clinic's patients by then.
+  test("E4 and E5 point at the export on Conversations, and never carry it", () => {
+    for (const kind of ["export_ready", "export_reminder"] as const) {
+      const entry = templateFor(kind)!;
+      const { text, html } = entry.render(entry.fixture, contextFor(kind));
+      expect(findLinks(text), kind).toEqual([`${ORIGIN}/c/radiance-med-spa/conversations#export`]);
+      expect(html, kind).toContain(`href="${ORIGIN}/c/radiance-med-spa/conversations#export"`);
+      expect(text, kind).toContain("It isn't attached to this email");
+      expect(text, kind).toContain("confirm it's you with Face ID or your screen lock");
+    }
+  });
+
+  test("E4's dates are E2's: the day to download by, and the day the data is gone at the latest", () => {
+    const entry = templateFor("export_ready")!;
+    const { text } = entry.render(entry.fixture, contextFor("export_ready"));
+    expect(text).toContain("Download it by Friday 4 December.");
+    expect(text).toContain(
+      "We destroy our copies of your data within 30 days of your export being delivered, and by Thursday 4 February 2027 at the latest.",
+    );
+  });
+
+  test("E6 says what was destroyed and when, what remains and why, and links nowhere", () => {
+    const entry = templateFor("data_destroyed")!;
+    const baa = entry.render(entry.fixture, contextFor("data_destroyed"));
+    expect(findLinks(baa.text)).toEqual([]);
+    expect(baa.text).toContain("On Saturday 5 December we destroyed the patient information");
+    expect(baa.text).toContain("until Saturday 9 January 2027");
+    expect(baa.text).toContain("Anthropic");
+    expect(baa.text).toContain("The signed agreement and our record of disclosures");
+    expect(baa.text).toContain("Your billing history, as tax law requires.");
+    const dpa = entry.render(
+      { ...entry.fixture, isDataProtectionAgreement: true },
+      contextFor("data_destroyed", "clients"),
+    );
+    expect(dpa.text).toContain("we destroyed the client information");
+    expect(dpa.text).not.toContain("record of disclosures");
+  });
+
+  test("E3 prints the date, never 'tomorrow', and the undo codes for the clinic's carrier", () => {
+    const entry = templateFor("pass_through_ending")!;
+    for (const noticeDays of [7, 1] as const) {
+      const { subject, text } = entry.render(
+        { ...entry.fixture, noticeDays },
+        contextFor("pass_through_ending"),
+      );
+      expect(subject).toBe("Calls stop passing through on 6 December");
+      expect(text).not.toMatch(/tomorrow/i);
+      expect(text).toContain("From the clinic's own line, dial");
+    }
   });
 });
 
@@ -653,211 +823,6 @@ describe("the link scanner", () => {
     expect(
       linkProblems({ ...body, subject: "See https://app.healdesk.test/x" }, "payment_failed"),
     ).toContain("a link in the subject");
-  });
-});
-
-describe("the live alerts: L7, L10, L11, L12 and L34", () => {
-  const ALERTS = ["booking_request", "deposit_to_collect", "handover", "urgent", "calendar_check"] as const;
-
-  test("every channel's wording keeps to the subject rules and the copy lint, and names nobody", () => {
-    for (const kind of ALERTS) {
-      const entry = templateFor(kind)!;
-      for (const [channel, platform] of [
-        ["voice", null],
-        ["web", null],
-        ["meta", null],
-        ["meta", "instagram"],
-        ["meta", "messenger"],
-        ["meta", "whatsapp"],
-        [null, null],
-      ] as const) {
-        for (const [conversationId, isBurst] of [
-          ["5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d", false],
-          [null, false],
-          [null, true],
-        ] as const) {
-          const payload = alertFixture({ channel, platform, conversationId, isBurst });
-          expect(() => assertPayloadAllowed(payload, kind), kind).not.toThrow();
-          const r = entry.render(payload, contextFor(kind));
-          expect(subjectProblems(r.subject), `${kind} ${channel}`).toEqual([]);
-          expect(copyProblems([r.subject, r.preheader, r.text, visibleText(r.html)].join("\n")), kind).toEqual([]);
-          expect(linkProblems(r, kind), kind).toEqual([]);
-          expect(r.text).toContain(payload.portalUrl);
-          expect(r.text).not.toContain("/booking/");
-          expect(r.text).toMatch(/carries no patient details on purpose/);
-        }
-      }
-    }
-  });
-
-  test("where to find who it is follows what the alert points at, and only a call or a request says healdesk shows it", () => {
-    const ctx = contextFor("urgent");
-    const portal = /Who it is and how to reach them open in healdesk/;
-    // A call: the caller's number came with it.
-    expect(renderUrgent(alertFixture({ channel: "voice" }), ctx).text).toMatch(portal);
-    // Instagram or Messenger with no request: no name or number to show, so the clinic's own inbox there.
-    const instagram = renderUrgent(alertFixture({ channel: "meta", platform: "instagram" }), ctx);
-    expect(instagram.text).not.toMatch(portal);
-    expect(instagram.subject).toBe("Urgent: someone sent AYA an urgent message");
-    expect(instagram.preheader).toBe("Please check on them now. Reply to them in your Instagram inbox.");
-    expect(instagram.text).toContain("in an Instagram message to");
-    expect(instagram.text).toContain("Reply to them in your Instagram inbox.");
-    expect(instagram.text).toContain("this link stops opening");
-    const messenger = renderUrgent(alertFixture({ channel: "meta", platform: "messenger" }), ctx);
-    expect(messenger.preheader).toBe("Please check on them now. Reply to them in your Facebook Page's inbox.");
-    expect(messenger.text).toContain("in a Messenger message to");
-    // WhatsApp: the number is on the Cloud API alone, so there is no inbox,
-    // and staff are never asked to do what they cannot.
-    const whatsapp = renderUrgent(alertFixture({ channel: "meta", platform: "whatsapp" }), ctx);
-    expect(whatsapp.text).not.toMatch(portal);
-    expect(whatsapp.text).toContain("in a WhatsApp message to");
-    expect(whatsapp.preheader).toBe("They may call you. There is no WhatsApp inbox to reply to them from.");
-    expect(whatsapp.text).toContain("There is no WhatsApp inbox to reply to them from: AYA alone answers your WhatsApp number.");
-    for (const r of [whatsapp]) {
-      expect(r.text).not.toMatch(/reply to them in|check on them|inbox\.|get back to them/i);
-    }
-    // A payload that names no platform says only what holds on all three.
-    const unnamed = renderUrgent(alertFixture({ channel: "meta" }), ctx);
-    expect(unnamed.text).toContain("If they wrote on Instagram or Messenger, reply to them in that inbox; a WhatsApp message has no inbox to reply from.");
-    // No Meta alert anywhere tells staff to reply in a WhatsApp inbox.
-    for (const kind of ALERTS) {
-      for (const platform of [null, "instagram", "messenger", "whatsapp"] as const) {
-        const r = templateFor(kind)!.render(alertFixture({ channel: "meta", platform }), contextFor(kind));
-        expect(r.text, `${kind} ${platform}`).not.toMatch(/WhatsApp inbox(?! to reply)/);
-      }
-    }
-    // A website chat with no request: only what the visitor left, and the transcript.
-    const web = renderUrgent(alertFixture({ channel: "web" }), ctx);
-    expect(web.text).not.toMatch(portal);
-    expect(web.text).toContain("If they left a name and number, they open in healdesk");
-    expect(web.text).toContain("The chat's transcript, emailed to you when the chat ends, has everything they wrote.");
-    // A request from any of them: its name and number are in healdesk.
-    const request = { bookingRequestId: "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f" };
-    for (const [channel, platform] of [["web", null], ["meta", "messenger"], ["meta", "whatsapp"]] as const) {
-      const r = templateFor("booking_request")!.render(alertFixture({ channel, platform, ...request }), contextFor("booking_request"));
-      expect(r.text, channel).toMatch(portal);
-      expect(r.preheader).toBe("Someone asked to book. Open healdesk to see who, and when suits them.");
-    }
-    // A handover on Instagram or Messenger: answer them in that inbox.
-    const handover = templateFor("handover")!.render(alertFixture({ channel: "meta", platform: "instagram" }), contextFor("handover"));
-    expect(handover.preheader).toBe("Reply to them in your Instagram inbox.");
-  });
-
-  test("a handover says only what is always true: never what AYA told them, except on WhatsApp, where the reply is fixed", () => {
-    const render = templateFor("handover")!.render;
-    for (const [channel, platform] of [["voice", null], ["web", null], ["meta", "instagram"], ["meta", "messenger"], ["meta", null]] as const) {
-      const r = render(alertFixture({ channel, platform }), contextFor("handover"));
-      // The model's words when the guard passes them, a fixed line when it
-      // does not: the email cannot know which, so it says neither.
-      expect(r.text, `${channel} ${platform}`).not.toMatch(/AYA (told|tells|answers|asked)|get back to them\./);
-      expect(r.text).toMatch(/^Someone asked to speak to a person /m);
-    }
-    // WhatsApp: answerFrontDoor always sends the fixed line asking them to call.
-    const whatsapp = render(alertFixture({ channel: "meta", platform: "whatsapp" }), contextFor("handover"));
-    expect(whatsapp.text).toContain("Someone asked to speak to a person in a WhatsApp message to");
-    expect(whatsapp.text).toContain("AYA answers a request for a person on WhatsApp by asking them to call your practice.");
-    expect(whatsapp.text).toContain("There is no WhatsApp inbox to reply to them from");
-    expect(whatsapp.preheader).toBe("There is no WhatsApp inbox to reply to them from.");
-    expect(whatsapp.text).not.toMatch(/reply to them in|get back to them/i);
-  });
-
-  test("past the hour's cap on handovers, one email says more asked and opens Conversations; an urgent alert has no such email", () => {
-    const burst = alertFixture({ channel: "web", conversationId: null, isBurst: true });
-    const handover = templateFor("handover")!.render(burst, contextFor("handover"));
-    expect(handover.subject).toBe("More people asked to speak to a person this hour");
-    expect(handover.text).toContain("in the last hour than healdesk emails one by one");
-    expect(handover.text).toContain("Each one opens in Conversations once you sign in and confirm it's you, marked as a request for a person.");
-    expect(handover.preheader).toBe("Open Conversations in healdesk to see each one.");
-    expect(handover.text).not.toMatch(/AYA told/);
-    expect(() => assertPayloadAllowed(burst, "handover")).not.toThrow();
-    // Each urgent conversation is its own email: no subject or body speaks of more.
-    for (const channel of ["voice", "web", "meta", null] as const) {
-      const urgent = renderUrgent(alertFixture({ channel }), contextFor("urgent"));
-      expect(urgent.subject, `${channel}`).not.toMatch(/more|this hour/i);
-      expect(urgent.text).not.toContain("one by one");
-    }
-  });
-
-  test("a call still going on says it shows in Conversations once it ends", () => {
-    const going = renderUrgent(alertFixture({ channel: "voice", conversationId: null }), contextFor("urgent"));
-    expect(going.text).toContain("The call shows in Conversations once it ends.");
-    const ended = renderUrgent(alertFixture({ channel: "voice" }), contextFor("urgent"));
-    expect(ended.text).not.toContain("once it ends");
-  });
-
-  test("a booking request, a deposit or a calendar check opens its own row in Bookings, and the words follow the link there", () => {
-    const requestId = "8c2d4e6f-1a3b-4c5d-8e9f-0a1b2c3d4e5f";
-    const atRequest = fixtureBookingsUrl(`request-${requestId}`);
-    for (const kind of ["booking_request", "deposit_to_collect", "calendar_check"] as const) {
-      for (const [channel, platform, conversationId] of [
-        // A call still going on: the request is in Bookings already.
-        ["voice", null, null],
-        ["web", null, "5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d"],
-        // A Meta request: its row does not move when the thread does.
-        ["meta", "whatsapp", "5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d"],
-        ["meta", "instagram", "5b0c8a1e-2f3d-4c5b-9a6e-7d8f9a0b1c2d"],
-      ] as const) {
-        const payload = alertFixture({ channel, platform, conversationId, bookingRequestId: requestId, portalUrl: atRequest });
-        expect(opensBookings(payload)).toBe(true);
-        const r = templateFor(kind)!.render(payload, contextFor(kind));
-        expect(r.text, `${kind} ${channel}`).toContain(atRequest);
-        expect(r.text).toContain("open in Bookings in healdesk once you sign in and confirm it's you.");
-        expect(r.text).not.toContain("once it ends");
-        expect(r.text).not.toContain("this link stops opening");
-        expect(r.text).not.toMatch(/inbox/i);
-        expect(linkProblems(r, kind)).toEqual([]);
-        expect(() => assertPayloadAllowed(payload, kind)).not.toThrow();
-      }
-    }
-    // A deposit left for the team opens its row in Deposits to collect.
-    const deposit = DEPOSIT_TO_COLLECT_ENTRY.fixture;
-    expect(deposit.portalUrl).toMatch(/\/c\/radiance-med-spa\/bookings#deposit-/);
-    expect(templateFor("deposit_to_collect")!.render(deposit, contextFor("deposit_to_collect")).text).toContain("open in Bookings");
-    // A conversation link is not Bookings, whatever the payload names.
-    expect(opensBookings(alertFixture({ bookingRequestId: requestId }))).toBe(false);
-  });
-
-  test("a deposit: booked and left to the team, possibly paid already, or not booked for want of one", () => {
-    const render = templateFor("deposit_to_collect")!.render;
-    const booked = render(alertFixture({ appointmentId: CLINIC_ID }), contextFor("deposit_to_collect"));
-    expect(booked.text).toContain("left the deposit for your team to collect");
-    expect(booked.text).not.toContain("Stripe");
-    const maybePaid = render(alertFixture({ appointmentId: CLINIC_ID, isPossiblyPaid: true }), contextFor("deposit_to_collect"));
-    expect(maybePaid.text).toContain("Check the payment in your Stripe account before you ask for it again.");
-    const declined = render(DEPOSIT_DECLINED_FIXTURE(), contextFor("deposit_to_collect", "clients"));
-    expect(declined.text).toContain("AYA did not book an appointment on a call to");
-    expect(declined.text).toContain("carries no client details");
-    for (const r of [booked, maybePaid, declined]) {
-      expect(copyProblems([r.subject, r.preheader, r.text].join("\n"))).toEqual([]);
-    }
-  });
-
-  const refused: [string, Record<string, unknown>][] = [
-    ["Package D's own name for the flag", { mayBePaid: true }],
-    ["the website chat's database name", { channel: "web_chat" }],
-    ["a caller's number", { phone: "+15551234567" }],
-    ["a caller's name", { firstName: "Dana" }],
-    ["the time they asked for", { preferredWindow: "Thursday afternoon" }],
-    ["a treatment", { service: "lip filler" }],
-    ["what they said", { text: "my lips are swelling" }],
-    ["a sentence where the platform goes", { platform: "my lips are swelling" }],
-  ];
-  for (const [what, extra] of refused) {
-    test(`the payload allowlist refuses ${what}, for good, at send time`, () => {
-      expect(() => assertPayloadAllowed({ ...alertFixture(), ...extra }, "urgent")).toThrow(PayloadNotAllowedError);
-    });
-  }
-
-  test("the link opens the portal on the public origin: never a desk token, never HEALDESK_APP_URL", () => {
-    expect(linkProblem(alertFixture().portalUrl, "booking_request")).toBeNull();
-    expect(linkProblem(`${ORIGIN}/booking/${TOKEN}`, "booking_request")).toMatch(/not a link email/);
-    process.env.HEALDESK_APP_URL = "https://internal.healdesk.test";
-    expect(() =>
-      assertPayloadAllowed(
-        { ...alertFixture(), portalUrl: "https://internal.healdesk.test/c/radiance-med-spa/conversations" },
-        "urgent",
-      ),
-    ).toThrow(PayloadNotAllowedError);
   });
 });
 

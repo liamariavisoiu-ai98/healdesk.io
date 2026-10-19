@@ -1,664 +1,514 @@
-import { collectedFieldRows } from "@healdesk/catalog";
-import { and, asc, eq, gt, gte, inArray, isNotNull, lte, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, min, sql } from "drizzle-orm";
 
 import {
   appointments,
   bookingRequests,
+  clinics,
   contacts,
+  type BookedVia,
   type CalendarWriteStatus,
   type DepositStatus,
 } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { writableConnection } from "@/lib/booking/calendar";
 import {
   channelLabel,
-  decideBookingRequest,
   deskFreeTimes,
-  isOpenRequest,
-  MAX_PROPOSED_SLOTS,
-  readBookingRequest,
-  readBookingRequests,
-  type BookingDecision,
-  type BookingRequestStatus,
-  type DecisionInput,
-  type DecisionOutcome,
-  type ResolvedBookingRequest,
+  openRequestCondition,
+  readBookingRequestViews,
+  type BookingChannel,
+  type BookingRequestView,
+  type DeskActor,
 } from "@/lib/meta/booking-requests";
-import { amendmentsFor, type RecordAmendment } from "@/lib/patient-rights/amendments";
+import type { MetaPlatform } from "@/lib/meta/front-door";
+import { amendmentsFor } from "@/lib/patient-rights/amendments";
+import type { TenantTx } from "@/lib/tenant";
 
-import { logPatientAccess, withPatientPage, type PatientPage, type PatientTx } from "./patient-page";
+import { logPatientAccess, type PatientPage, type PatientTx } from "./patient-page";
 
 /**
- * The Bookings screen (plan Part F5; spec, "Portal map": "What the AI booked,
- * with deposit status, and the queue of anything flagged for manual deposit
- * collection or manual confirmation"). Four lists, one page, nothing nested:
+ * The Bookings screen's data (plan Part F5; spec, "Portal map", 5. Bookings):
+ * what AYA booked, with its deposit, and the queue of what needs staff.
  *
- *   - **Waiting for you**: every open booking request, from every channel
- *     (calls, website chat, Instagram, Messenger and WhatsApp alike, which is
- *     why it reads booking_requests and not Conversations: a Meta request has
- *     no conversations row), oldest first. Requests AYA took in manual
- *     booking mode or with Auto-confirm off, a booking whose calendar write
- *     was never confirmed, a deposit reservation with the time it is kept
- *     until, and a booking AYA refused for want of a deposit. Staff confirm
- *     a time, accept and call, propose up to three other times, or decline,
- *     through decideBookingRequest.
- *   - **Missed**: requests that lapsed in the last week. They were told the
- *     practice would call, so a call is what is owed.
- *   - **Deposits to collect**: appointments whose deposit is the front desk's
- *     to take (L10), from yesterday on, with "Deposit paid".
- *   - **Booked**: appointments made through healdesk, by AYA or by staff
- *     confirming a request, from two weeks ago on, with the deposit's and the
- *     calendar's status, and the spec's one-click outcome (showed, no-show,
- *     cancelled) once the time has come.
+ * - **Needs you:** every open request, oldest first, to call, confirm,
+ *   propose times for or decline; and every deposit a booking left for the
+ *   front desk to collect, while the appointment is still ahead.
+ * - **Missed:** requests that lapsed in the last 30 days without a decision.
+ *   The person was told the practice would call.
+ * - **Booked by AYA:** the appointments that came from AYA's conversations,
+ *   the last 30 days and everything ahead: the ones she booked on the call,
+ *   and the requests staff confirmed. Each takes one click for Showed,
+ *   No-show or Cancelled (spec, "The claims": the cheap bridge that makes the
+ *   numbers real).
  *
- * Everything here runs behind requirePatientPage, inside withPatientPage, and
- * writes its access-log row naming the device's passkey in the transaction
- * that reads: the requests as shown, the appointments as shown, and each
- * request or appointment an action touches. A decision opens its own
- * transactions as the same device (decideBookingRequest), after that row.
+ * Patient data, so every reader here takes a `PatientTx`: the page or action
+ * under app/c/[slug]/bookings calls requirePatientPage and then
+ * withPatientPage itself, and each reader writes its access-log row naming
+ * the passkey (logPatientAccess) in that transaction: one for the requests
+ * shown, one for the appointments. A message left on the website while AYA
+ * was off is a request (source 'contact_form', package F) and sits in Needs
+ * you with the rest, worded by `requestWords`. A handover has no record of
+ * its own to list: its alert (L11) and the conversation's transcript carry
+ * it.
  *
- * Nothing here contacts a patient: staff call them. A decision sends nothing
- * on any channel, and the screen says so.
+ * Server only.
  */
 
-/** How many rows each list shows. A list longer than this is a practice that should be told, not one that scrolls. */
-export const LIST_LIMIT = 100;
 /** How far back Missed reaches. */
-export const MISSED_DAYS = 7;
-/** How far back Booked reaches, so last week's outcomes can still be marked. */
-export const BOOKED_DAYS = 14;
-/** A deposit for an appointment that started within this is still listed: the desk may take it at the visit. */
-export const DEPOSIT_GRACE_HOURS = 24;
+export const MISSED_DAYS = 30;
+/** How far back Booked by AYA reaches: long enough to mark how last week's appointments went. */
+export const BOOKED_LOOKBACK_DAYS = 30;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+/** The one-click outcomes on a booking (spec, "The claims"). */
+export const APPOINTMENT_OUTCOMES = ["showed", "no_show", "cancelled"] as const;
+export type AppointmentOutcome = (typeof APPOINTMENT_OUTCOMES)[number];
+
+export type AppointmentStatus =
+  "scheduled" | "confirmed" | "showed" | "no_show" | "cancelled" | "rescheduled";
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function isBookingId(value: unknown): value is string {
-  return typeof value === "string" && UUID.test(value);
-}
-
-/** The device whose passkey step-up opened the page: the actor of everything done from it. */
-function deviceActor(page: PatientPage): ActorContext {
-  return { type: "user", userId: page.portal.userId, label: page.stepUp.deviceLabel };
-}
-
-const iso = (value: Date | null): string | null => (value ? value.toISOString() : null);
-
-// -----------------------------------------------------------------------------
-// What the screen shows
-// -----------------------------------------------------------------------------
-
-export type BookingAmendment = Pick<RecordAmendment, "id" | "amendment" | "requestedBy"> & {
-  recordedAt: string;
-};
-
-/** A booking request, as a row of Waiting for you or Missed. Times are ISO. */
-export type ShownRequest = {
-  id: string;
-  /** "a phone call", "the website chat", "Instagram": where it was taken. */
+/**
+ * How Bookings words a request: one AYA took in a conversation, or a message
+ * left on the website's contact form while AYA was not answering (L20). The
+ * person left only a name, a number and a time to call, and was told the
+ * practice would call them back.
+ */
+export function requestWords(view: Pick<BookingRequestView, "source" | "channel" | "platform">): {
+  /** Follows the person's first name: "Maria would like to book". */
+  headline: string;
+  /** "through Messenger", "on your website's contact form". */
   via: string;
-  status: BookingRequestStatus;
-  /** Past its seven days, whether or not the hourly tick has marked it yet. */
-  lapsed: boolean;
-  firstName: string | null;
-  /** E.164. */
-  phone: string | null;
-  createdAt: string;
-  expiresAt: string;
-  preferredWindow: string;
-  alternativeWindows: string[];
-  /** The service asked for, on a call or a website chat; a Meta request names none. */
-  service: string | null;
-  /** What AYA collected besides, in the practice's words (collectedFieldRows). */
-  collected: { id: string; label: string; value: string }[];
-  /** AYA tried to book it but the calendar never confirmed the write. */
-  unconfirmedDirect: boolean;
-  /** When AYA held time for them on the call, and until when a deposit reservation keeps it. */
-  heldFor: string | null;
-  heldUntil: string | null;
-  /** The times staff proposed, and when they lapse. */
-  proposedSlots: { at: string; label: string }[];
-  rescheduleExpiresAt: string | null;
-  decidedAt: string | null;
-  decidedByLabel: string | null;
-  deskNote: string | null;
-  /** The practice's amendments to it, oldest first: every screen that shows the request carries them (BAA clause 14(b)). */
-  amendments: BookingAmendment[];
-};
-
-export type DepositToCollect = {
-  appointmentId: string;
-  /** The request it was confirmed from, if any. */
-  requestId: string | null;
-  firstName: string | null;
-  phone: string | null;
-  scheduledFor: string;
-  service: string | null;
-  /** Dollars as stored ("75.00"), or null when the practice set no amount. */
-  depositUsd: string | null;
-};
-
-/** What staff may mark a booking as once its time has come: the spec's "cheap bridge". */
-export const BOOKING_OUTCOMES = ["showed", "no_show", "cancelled"] as const;
-export type BookingOutcome = (typeof BOOKING_OUTCOMES)[number];
-
-export function isBookingOutcome(value: unknown): value is BookingOutcome {
-  return (BOOKING_OUTCOMES as readonly unknown[]).includes(value);
-}
-
-export type BookedAppointment = {
-  appointmentId: string;
-  /** The request it was confirmed from, if any: its row's anchor, so a link to the request lands here. */
-  requestId: string | null;
-  firstName: string | null;
-  phone: string | null;
-  scheduledFor: string;
-  service: string | null;
-  /** AYA booked it; otherwise staff confirmed it from a request. */
-  bookedByAssistant: boolean;
-  /** Who confirmed it, for a staff confirmation. */
-  confirmedBy: string | null;
-  depositStatus: DepositStatus;
-  depositUsd: string | null;
-  status: "scheduled" | "confirmed" | "showed" | "no_show" | "cancelled" | "rescheduled";
-  calendar: { status: CalendarWriteStatus; error: string | null };
-  /** Its time has come, so its outcome may be marked. */
-  started: boolean;
-};
-
-export type BookingsScreen = {
-  waiting: ShownRequest[];
-  missed: ShownRequest[];
-  deposits: DepositToCollect[];
-  booked: BookedAppointment[];
-};
-
-function shownRequest(req: ResolvedBookingRequest, amendments: RecordAmendment[] | undefined): ShownRequest {
-  const direct = req.status === "confirmed" && (req.decidedByLabel ?? "").startsWith("assistant");
+  /** The row label for the time they gave. */
+  timeLabel: string;
+} {
+  if (view.source === "contact_form") {
+    return {
+      headline: "left a message while AYA was off",
+      via: "on your website's contact form",
+      timeLabel: "Best time to call",
+    };
+  }
   return {
-    id: req.id,
-    via: channelLabel(req.channel, req.platform),
-    status: req.status,
-    lapsed: req.status === "expired" || (req.expired && isOpenStatus(req.status)),
-    firstName: req.firstName,
-    phone: req.phone,
-    createdAt: req.createdAt.toISOString(),
-    expiresAt: req.expiresAt.toISOString(),
-    preferredWindow: req.preferredWindow,
-    alternativeWindows: req.alternativeWindows,
-    // `treatment` is frozen at creation; a service collected later lands in
-    // collected_fields (the column's own note in db/schema.ts).
-    service: req.treatment ?? req.collectedFields.service ?? null,
-    collected: collectedFieldRows(req.collectedFields, req.audience).filter((row) => row.id !== "service"),
-    unconfirmedDirect: req.bookedVia === "agent_direct" && !direct,
-    heldFor: iso(req.heldFor),
-    heldUntil: iso(req.heldUntil),
-    proposedSlots: req.proposedSlots.map((s) => ({ at: s.at, label: s.label })),
-    rescheduleExpiresAt: iso(req.rescheduleExpiresAt),
-    decidedAt: iso(req.decidedAt),
-    decidedByLabel: req.decidedByLabel,
-    deskNote: req.deskNote,
-    amendments: (amendments ?? []).map((a) => ({
-      id: a.id,
-      amendment: a.amendment,
-      requestedBy: a.requestedBy,
-      recordedAt: a.recordedAt.toISOString(),
-    })),
+    headline: "would like to book",
+    via: `through ${channelLabel(view.channel, view.platform)}`,
+    timeLabel: "First choice",
   };
 }
 
-const OPEN_STATUSES = ["requested", "accepted", "rescheduling"] as const;
+export { bookingRequestPath, bookingsPath } from "./booking-paths";
 
-function isOpenStatus(status: BookingRequestStatus): boolean {
-  return (OPEN_STATUSES as readonly string[]).includes(status);
+/** The decision's actor: the sign-in, by the device whose passkey step-up opened the page. */
+export function deskActorOf(page: PatientPage): DeskActor {
+  return {
+    userId: page.portal.userId,
+    passkeyId: page.stepUp.passkeyId,
+    stepUpId: page.stepUp.stepUpId,
+    deviceLabel: page.stepUp.deviceLabel,
+  };
 }
 
-/** Every open request that has not lapsed, oldest first: the queue. */
-function waitingWhere() {
-  return and(inArray(bookingRequests.status, [...OPEN_STATUSES]), gt(bookingRequests.expiresAt, sql`now()`))!;
+function actorOf(page: PatientPage): ActorContext {
+  return { type: "user", userId: page.portal.userId, label: page.stepUp.deviceLabel };
 }
 
-/** Requests that lapsed since `since`: marked expired by the hourly tick, or past their seven days and not yet marked. */
-function missedWhere(since: Date) {
-  return or(
-    and(eq(bookingRequests.status, "expired"), gte(bookingRequests.decidedAt, since)),
-    and(
-      inArray(bookingRequests.status, [...OPEN_STATUSES]),
-      lte(bookingRequests.expiresAt, sql`now()`),
-      gte(bookingRequests.expiresAt, since),
-    ),
-  )!;
+/** An appointment that came from one of AYA's conversations. */
+export type BookedAppointment = {
+  id: string;
+  requestId: string;
+  firstName: string | null;
+  phone: string | null;
+  scheduledFor: Date;
+  treatment: string | null;
+  status: AppointmentStatus;
+  depositStatus: DepositStatus;
+  /** Dollars as the column holds them ("50.00"), or null. */
+  depositUsd: string | null;
+  /** AYA booked it on the call, or staff confirmed AYA's request. */
+  bookedBy: "assistant" | "team";
+  decidedByLabel: string | null;
+  bookedVia: BookedVia;
+  channel: BookingChannel;
+  platform: MetaPlatform | null;
+  calendarWrite: { status: CalendarWriteStatus; error: string | null; attempts: number };
+  amendments: { text: string; requestedAt: Date }[];
+};
+
+export type BookingsScreen = {
+  timeZone: string;
+  /** Open requests, oldest first. */
+  open: BookingRequestView[];
+  /** Deposits a booking left for the front desk, while the appointment is ahead. */
+  deposits: BookedAppointment[];
+  /** Lapsed requests, newest first. */
+  missed: BookingRequestView[];
+  /** AYA's appointments, by time. */
+  booked: BookedAppointment[];
+  /**
+   * The request the page was opened for (the emailed link, or a decision a
+   * moment ago), wherever it now sits, with its calendar's free times when it
+   * is open. Null when none was asked for, or it is not this clinic's.
+   */
+  focus: BookingRequestView | null;
+  /** Whether healdesk may write to the location's calendar now, so free times can be offered. */
+  writableCalendar: boolean;
+};
+
+/**
+ * Everything Bookings shows, read inside the page's patient transaction
+ * (withPatientPage), with its access rows. The free times for the request in
+ * focus come after, from `withFreeTimes`, once the transaction has committed:
+ * Google is never asked inside one.
+ */
+export async function readBookingsScreen(
+  tx: PatientTx,
+  opts: { focus?: string | null; now?: Date } = {},
+): Promise<BookingsScreen> {
+  const now = opts.now ?? new Date();
+  const focusId = typeof opts.focus === "string" && UUID.test(opts.focus) ? opts.focus : null;
+
+  const open = await readBookingRequestViews(tx, { kind: "open" }, { now, limit: 100 });
+  const missed = await readBookingRequestViews(
+    tx,
+    { kind: "missed", days: MISSED_DAYS },
+    { now, limit: 50 },
+  );
+  const booked = await readBookedAppointments(tx, now);
+  let focus: BookingRequestView | null = null;
+  if (focusId !== null) {
+    focus =
+      open.find((r) => r.id === focusId) ??
+      missed.find((r) => r.id === focusId) ??
+      (await readBookingRequestViews(tx, { kind: "ids", ids: [focusId] }, { now }))[0] ??
+      null;
+  }
+  const writableCalendar = (await writableConnection(tx)) !== null;
+
+  const requestIds = [...new Set([...open, ...missed, ...(focus ? [focus] : [])].map((r) => r.id))];
+  await logPatientAccess(tx, {
+    action: "read",
+    resourceType: "booking_request",
+    resourceIds: requestIds,
+  });
+  if (booked.length > 0) {
+    await logPatientAccess(tx, {
+      action: "read",
+      resourceType: "appointment",
+      resourceIds: booked.map((a) => a.id),
+    });
+  }
+
+  const deposits = booked.filter((a) => isDepositToCollect(a, now));
+  return {
+    timeZone: open[0]?.timeZone ?? missed[0]?.timeZone ?? (await clinicZone(tx)),
+    open,
+    deposits,
+    missed,
+    booked,
+    focus,
+    writableCalendar,
+  };
 }
 
-async function depositRows(tx: PatientTx, now: Date): Promise<DepositToCollect[]> {
-  const rows = await tx.db
-    .select({
-      appointmentId: appointments.id,
-      requestId: bookingRequests.id,
-      firstName: contacts.fullName,
-      phone: contacts.phone,
-      scheduledFor: appointments.scheduledFor,
-      service: appointments.treatment,
-      depositUsd: appointments.depositUsd,
-    })
+/**
+ * A deposit a booking left for the front desk to collect, while the
+ * appointment is still ahead: Needs you lists it, and Home counts it.
+ */
+export function isDepositToCollect(
+  a: Pick<BookedAppointment, "depositStatus" | "status" | "scheduledFor">,
+  now: Date,
+): boolean {
+  return (
+    a.depositStatus === "pending_front_desk" &&
+    (a.status === "scheduled" || a.status === "confirmed") &&
+    a.scheduledFor.getTime() > now.getTime()
+  );
+}
+
+/** Home's "Waiting for you": how many of each thing on Needs you, never which. */
+export type WaitingCounts = {
+  /** Open requests, each a person the team has to call back. */
+  toCallBack: number;
+  /** When the longest-waiting of them was taken, or null when there are none. */
+  oldestSince: Date | null;
+  /** Deposits a booking left for the front desk, while the appointment is ahead. */
+  depositsToCollect: number;
+};
+
+/**
+ * The counts behind Home's "Waiting for you" card (plan Part F1): the same
+ * requests and deposits Needs you lists on Bookings, by the same rules
+ * (openRequestCondition, isDepositToCollect), counted in the database
+ * without reading a single person. Home is not a patient page, so this takes
+ * a plain tenant transaction and writes no access-log row: it learns no
+ * name, number, time or service, only how many, and when the oldest request
+ * was taken.
+ *
+ * A handover has no record that says whether anyone has dealt with it yet
+ * (Bookings lists none either, above), so there is no count of handovers
+ * waiting: each one was emailed the moment it happened.
+ */
+export async function readWaitingCounts(tx: TenantTx, now: Date = new Date()): Promise<WaitingCounts> {
+  const [open] = await tx.db
+    .select({ n: sql<number>`count(*)::int`, oldest: min(bookingRequests.createdAt) })
+    .from(bookingRequests)
+    .where(and(eq(bookingRequests.clinicId, tx.clinicId), openRequestCondition()));
+  const [deposits] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
     .from(appointments)
-    .innerJoin(contacts, and(eq(contacts.clinicId, appointments.clinicId), eq(contacts.id, appointments.contactId)))
-    .leftJoin(
+    .innerJoin(
       bookingRequests,
-      and(eq(bookingRequests.clinicId, appointments.clinicId), eq(bookingRequests.appointmentId, appointments.id)),
+      and(
+        eq(bookingRequests.appointmentId, appointments.id),
+        eq(bookingRequests.clinicId, appointments.clinicId),
+      ),
     )
     .where(
       and(
         eq(appointments.clinicId, tx.clinicId),
         eq(appointments.depositStatus, "pending_front_desk"),
-        gte(appointments.scheduledFor, new Date(now.getTime() - DEPOSIT_GRACE_HOURS * 60 * 60 * 1000)),
+        inArray(appointments.status, ["scheduled", "confirmed"]),
+        gt(appointments.scheduledFor, now),
       ),
-    )
-    .orderBy(asc(appointments.scheduledFor), asc(appointments.id))
-    .limit(LIST_LIMIT);
-  return rows.map((r) => ({ ...r, scheduledFor: r.scheduledFor.toISOString() }));
+    );
+  const oldest = open?.oldest ?? null;
+  return {
+    toCallBack: open?.n ?? 0,
+    oldestSince: oldest === null ? null : new Date(oldest),
+    depositsToCollect: deposits?.n ?? 0,
+  };
 }
 
-async function bookedRows(tx: PatientTx, now: Date): Promise<BookedAppointment[]> {
+/**
+ * The calendar's free times for the request in focus, when it is open and
+ * healdesk may write to the calendar, after the page's transaction.
+ */
+export async function withFreeTimes(
+  page: PatientPage,
+  screen: BookingsScreen,
+): Promise<BookingsScreen> {
+  if (screen.focus && screen.writableCalendar && isDecidable(screen.focus)) {
+    screen.focus.calendar = await deskFreeTimes(page.portal.clinicId, screen.focus, actorOf(page));
+  }
+  return screen;
+}
+
+/** Thrown inside the patient transaction for an id that is not this clinic's request, so it rolls back with no row. */
+export class RequestNotFoundError extends Error {
+  constructor() {
+    super("Not one of this clinic's booking requests.");
+    this.name = "RequestNotFoundError";
+  }
+}
+
+/**
+ * The request a decision is about, opened in the action's patient
+ * transaction (withPatientPage) with its access row naming the passkey.
+ * Throws RequestNotFoundError, logging nothing, when the id is not one of
+ * this clinic's requests.
+ */
+export async function openRequestForDecision(tx: PatientTx, requestId: string): Promise<void> {
+  if (!UUID.test(requestId)) throw new RequestNotFoundError();
+  const [row] = await tx.db
+    .select({ id: bookingRequests.id })
+    .from(bookingRequests)
+    .where(and(eq(bookingRequests.id, requestId), eq(bookingRequests.clinicId, tx.clinicId)))
+    .limit(1);
+  if (!row) throw new RequestNotFoundError();
+  await logPatientAccess(tx, {
+    action: "read",
+    resourceType: "booking_request",
+    resourceId: row.id,
+  });
+}
+
+/** Whether staff can still decide a request: open, and not lapsed. */
+export function isDecidable(view: BookingRequestView): boolean {
+  return (
+    !view.lapsed &&
+    (view.status === "requested" || view.status === "accepted" || view.status === "rescheduling")
+  );
+}
+
+async function clinicZone(tx: TenantTx): Promise<string> {
+  const [row] = await tx.db
+    .select({ timeZone: clinics.timezone })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  return row?.timeZone ?? "America/New_York";
+}
+
+/**
+ * The appointments AYA's conversations produced: every healdesk appointment
+ * comes from a request (lib/meta/booking-requests.ts is its one writer), so
+ * the join keeps out anything a phase-two sync might have read back.
+ */
+async function readBookedAppointments(tx: TenantTx, now: Date): Promise<BookedAppointment[]> {
+  const since = new Date(now.getTime() - BOOKED_LOOKBACK_DAYS * 86_400_000);
   const rows = await tx.db
     .select({
-      appointmentId: appointments.id,
+      id: appointments.id,
       requestId: bookingRequests.id,
-      decidedByLabel: bookingRequests.decidedByLabel,
       firstName: contacts.fullName,
       phone: contacts.phone,
       scheduledFor: appointments.scheduledFor,
-      service: appointments.treatment,
-      bookingOrigin: appointments.bookingOrigin,
+      treatment: appointments.treatment,
+      status: appointments.status,
       depositStatus: appointments.depositStatus,
       depositUsd: appointments.depositUsd,
-      status: appointments.status,
+      bookingOrigin: appointments.bookingOrigin,
+      decidedByLabel: bookingRequests.decidedByLabel,
+      bookedVia: bookingRequests.bookedVia,
+      channel: bookingRequests.channel,
+      platform: bookingRequests.platform,
       calendarWriteStatus: appointments.calendarWriteStatus,
       calendarWriteError: appointments.calendarWriteError,
+      calendarWriteAttempts: appointments.calendarWriteAttempts,
     })
     .from(appointments)
-    .innerJoin(contacts, and(eq(contacts.clinicId, appointments.clinicId), eq(contacts.id, appointments.contactId)))
-    .leftJoin(
+    .innerJoin(
       bookingRequests,
-      and(eq(bookingRequests.clinicId, appointments.clinicId), eq(bookingRequests.appointmentId, appointments.id)),
-    )
-    .where(
       and(
-        eq(appointments.clinicId, tx.clinicId),
-        gte(appointments.scheduledFor, new Date(now.getTime() - BOOKED_DAYS * DAY_MS)),
-        // Made through healdesk: AYA's own, or confirmed from a request. A
-        // phase-two row read back from a clinic's system is neither.
-        or(isNotNull(appointments.bookingOrigin), isNotNull(bookingRequests.id)),
+        eq(bookingRequests.appointmentId, appointments.id),
+        eq(bookingRequests.clinicId, appointments.clinicId),
       ),
     )
-    .orderBy(asc(appointments.scheduledFor), asc(appointments.id))
-    .limit(LIST_LIMIT);
-  return rows.map((r) => {
-    const assistant = r.bookingOrigin === "assistant" || (r.decidedByLabel ?? "").startsWith("assistant");
-    return {
-      appointmentId: r.appointmentId,
-      requestId: r.requestId,
-      firstName: r.firstName,
-      phone: r.phone,
-      scheduledFor: r.scheduledFor.toISOString(),
-      service: r.service,
-      bookedByAssistant: assistant,
-      confirmedBy: assistant ? null : r.decidedByLabel,
-      depositStatus: r.depositStatus,
-      depositUsd: r.depositUsd,
-      status: r.status,
-      calendar: { status: r.calendarWriteStatus, error: r.calendarWriteError },
-      started: r.scheduledFor.getTime() <= now.getTime(),
-    };
-  });
-}
-
-/**
- * The screen as it renders: the four lists, read in one transaction behind
- * the step-up, with one access row for the requests shown and one for the
- * appointments shown, every id in each.
- */
-export async function readBookingsScreen(
-  page: PatientPage,
-  options: { now?: Date } = {},
-): Promise<BookingsScreen> {
-  const now = options.now ?? new Date();
-  return withPatientPage(page, async (tx) => {
-    const open = await readBookingRequests(tx, waitingWhere(), LIST_LIMIT);
-    const lapsed = (await readBookingRequests(tx, missedWhere(new Date(now.getTime() - MISSED_DAYS * DAY_MS)), LIST_LIMIT))
-      // Newest first: the one they were most recently told about is the call to make first.
-      .reverse();
-    const amended = await amendmentsFor(tx, "booking_request", [...open, ...lapsed].map((r) => r.id));
-    const screen: BookingsScreen = {
-      waiting: open.map((r) => shownRequest(r, amended.get(r.id))),
-      missed: lapsed.map((r) => shownRequest(r, amended.get(r.id))),
-      deposits: await depositRows(tx, now),
-      booked: await bookedRows(tx, now),
-    };
-    await logPatientAccess(tx, {
-      action: "read",
-      resourceType: "booking_request",
-      resourceIds: [...screen.waiting, ...screen.missed].map((r) => r.id),
-    });
-    const shownAppointments = [
-      ...new Set([...screen.deposits, ...screen.booked].map((a) => a.appointmentId)),
-    ];
-    if (shownAppointments.length > 0) {
-      await logPatientAccess(tx, {
-        action: "read",
-        resourceType: "appointment",
-        resourceIds: shownAppointments,
-      });
-    }
-    return screen;
-  });
-}
-
-// -----------------------------------------------------------------------------
-// Free times
-// -----------------------------------------------------------------------------
-
-export type FreeTimesResult =
-  | { status: "ok"; slots: { at: string; label: string }[] }
-  /** healdesk may not write to the practice's calendar, so there is nothing to pick from. */
-  | { status: "no_calendar" }
-  /** Decided or lapsed meanwhile. */
-  | { status: "closed" }
-  | { status: "not_found" };
-
-/**
- * The free times in the practice's calendar for one open request, on
- * demand: the read of the request, with its access row, then Google, after
- * that transaction has committed (deskFreeTimes). An empty list is Google
- * not answering just now: staff type a time.
- */
-export async function freeTimesFor(page: PatientPage, requestId: string): Promise<FreeTimesResult> {
-  if (!isBookingId(requestId)) return { status: "not_found" };
-  const req = await withPatientPage(page, async (tx) => {
-    const found = await readBookingRequest(tx, requestId);
-    await logPatientAccess(tx, { action: "read", resourceType: "booking_request", resourceId: requestId });
-    return found;
-  });
-  if (!req) return { status: "not_found" };
-  if (!isOpenRequest(req)) return { status: "closed" };
-  const free = await deskFreeTimes(page.portal.clinicId, req, { actor: deviceActor(page) });
-  return free ? { status: "ok", slots: free.slots } : { status: "no_calendar" };
-}
-
-// -----------------------------------------------------------------------------
-// A decision
-// -----------------------------------------------------------------------------
-
-const DECISIONS: readonly BookingDecision[] = ["accepted", "declined", "confirmed", "rescheduling"];
-const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?Z$/;
-const LOCAL_INPUT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
-
-export type ParsedDecision =
-  | { ok: true; decision: BookingDecision; input: DecisionInput; name: string | null }
-  | { ok: false; message: string };
-
-/**
- * What the decision form sent, read and checked: which decision, the time
- * confirmed (a calendar slot, an ISO instant the page rendered, or a typed
- * time read on the browser's clock, which is the practice's), the times
- * proposed, the service, and who and why. A time already an hour past is
- * refused; the decision itself refuses anything else it cannot take.
- */
-export function parseDecision(form: FormData, now: Date = new Date()): ParsedDecision {
-  const decision = form.get("decision");
-  if (typeof decision !== "string" || !DECISIONS.includes(decision as BookingDecision)) {
-    return { ok: false, message: "Choose what to do with this request." };
-  }
-  const text = (key: string, max: number): string | null => {
-    const raw = form.get(key);
-    return typeof raw === "string" && raw.trim() ? raw.trim().slice(0, max) : null;
-  };
-  const offset = form.get("tzOffsetMinutes");
-  const minutes = typeof offset === "string" && /^-?\d{1,4}$/.test(offset) ? Number(offset) : 0;
-  // A typed time comes from a datetime-local input: no zone, read as the
-  // desk's browser clock. The desk and the practice are in the same place.
-  const fromLocal = (raw: FormDataEntryValue | null): Date | null => {
-    if (typeof raw !== "string" || !LOCAL_INPUT.test(raw)) return null;
-    const at = new Date(new Date(`${raw.slice(0, 16)}:00Z`).getTime() + minutes * 60_000);
-    return Number.isFinite(at.getTime()) ? at : null;
-  };
-  // A calendar slot is an ISO instant the page rendered; nothing to adjust.
-  const fromIso = (raw: FormDataEntryValue | null): Date | null => {
-    if (typeof raw !== "string" || !ISO_INSTANT.test(raw)) return null;
-    const at = new Date(raw);
-    return Number.isFinite(at.getTime()) ? at : null;
-  };
-  const stillAhead = (at: Date) => at.getTime() >= now.getTime() - 60 * 60_000;
-
-  let confirmedFor: Date | null = null;
-  if (decision === "confirmed") {
-    // A typed time is the deliberate choice when both are present.
-    confirmedFor = fromLocal(form.get("confirmedFor")) ?? fromIso(form.get("slotAt"));
-    if (!confirmedFor) return { ok: false, message: "Pick the date and time you are confirming." };
-    if (!stillAhead(confirmedFor)) return { ok: false, message: "That time has already passed. Pick a time from now on." };
-  }
-
-  let proposedSlots: { at: Date; source: "calendar" | "desk" }[] = [];
-  if (decision === "rescheduling") {
-    const seen = new Set<number>();
-    const add = (at: Date | null, source: "calendar" | "desk") => {
-      if (at && !seen.has(at.getTime())) {
-        seen.add(at.getTime());
-        proposedSlots.push({ at, source });
-      }
-    };
-    for (const raw of form.getAll("proposedSlot")) add(fromIso(raw), "calendar");
-    for (const raw of form.getAll("proposedAt")) add(fromLocal(raw), "desk");
-    proposedSlots = proposedSlots.slice(0, MAX_PROPOSED_SLOTS);
-    if (proposedSlots.length === 0) return { ok: false, message: "Pick one to three times to propose." };
-    if (!proposedSlots.every((s) => s.at.getTime() > now.getTime())) {
-      return { ok: false, message: "One of those times has already passed. Propose times from now on." };
-    }
-  }
-
-  const name = text("name", 80);
-  return {
-    ok: true,
-    decision: decision as BookingDecision,
-    name,
-    input: {
-      decidedByLabel: name,
-      deskNote: text("note", 500),
-      confirmedFor,
-      treatment: text("treatment", 120),
-      proposedSlots,
-      addAnyway: decision === "confirmed" && form.get("addAnyway") === "1",
-      now,
-    },
-  };
-}
-
-export type DecideResult =
-  | { status: "done"; message: string }
-  | { status: "refused"; message: string }
-  /**
-   * Google shows the time busy: the screen offers "Confirm anyway" for
-   * exactly this time, carrying the name and note so the audited
-   * confirmation keeps who made it and why.
-   */
-  | { status: "busy"; message: string; slotAt: string; treatment: string | null; name: string | null; note: string | null };
-
-/** The refusals and outcomes (plan §7.10), in the desk's words. */
-export const DECISION_LINES = {
-  notFound: "That request isn't here any more. Reload the page.",
-  lapsed: "That request has lapsed: it waited seven days. They were told you'd call, so call them.",
-  alreadyDecided: "Someone at your practice has already answered this request. The page now shows where it stands.",
-  checking: "We're still checking whether AYA's booking reached your calendar. Try again in a minute.",
-  liveCall: "Someone is booking that time on a call right now. Pick another time, or try again in a minute.",
-  taken: "Another booking made through healdesk already holds this time. Pick another time.",
-  busy: "Your calendar shows that time as busy. Pick another time, or confirm it anyway if you know it is free.",
-  alreadyInCalendar: "AYA's booking for this request reached your calendar after all, so it stands as booked.",
-} as const;
-
-/** What staff are told once a decision is made: what happened, and that the call is theirs. */
-export function decidedLine(decision: BookingDecision, outcome: DecisionOutcome): string {
-  switch (decision) {
-    case "accepted":
-      return "Accepted. Call them to arrange a time, then confirm it here.";
-    case "rescheduling":
-      return "Times saved. Call them to go through them, then confirm the one they choose here.";
-    case "declined":
-      return "Declined. They were told your team would call, so call them to find another time.";
-    case "confirmed":
-      switch (outcome.calendarWrite) {
-        case "written":
-          return "Confirmed and added to your calendar. Call them to tell them the time.";
-        case "failed":
-          return "Confirmed here, but it couldn't be added to your calendar: add it by hand, then call them.";
-        case "unknown":
-          return "Confirmed here. We're checking it reached your calendar, and the page says when it has. Call them to tell them the time.";
-        default:
-          return "Confirmed here. Add it to your own calendar or booking system, then call them to tell them the time.";
-      }
-  }
-}
-
-/**
- * One decision from Bookings: the request read, with its access row, as
- * this clinic's (another clinic's is not found), then decided as the device
- * whose passkey is live (decideBookingRequest), which takes the fresh look
- * at Google and the idempotent calendar write. Never sends anything to the
- * person.
- */
-export async function decideFromBookings(
-  page: PatientPage,
-  requestId: string,
-  parsed: Extract<ParsedDecision, { ok: true }>,
-): Promise<DecideResult> {
-  if (!isBookingId(requestId)) return { status: "refused", message: DECISION_LINES.notFound };
-  const req = await withPatientPage(page, async (tx) => {
-    const found = await readBookingRequest(tx, requestId);
-    await logPatientAccess(tx, { action: "read", resourceType: "booking_request", resourceId: requestId });
-    return found;
-  });
-  if (!req) return { status: "refused", message: DECISION_LINES.notFound };
-  if (req.expired || req.status === "expired") return { status: "refused", message: DECISION_LINES.lapsed };
-
-  const { decision, input } = parsed;
-  const outcome = await decideBookingRequest(
-    { clinicId: page.portal.clinicId, requestId, actor: deviceActor(page), request: page.request },
-    decision,
-    // Who decided, as the screen shows it afterwards: the name typed, else the device.
-    { ...input, decidedByLabel: input.decidedByLabel ?? page.stepUp.deviceLabel },
+    .innerJoin(contacts, eq(contacts.id, appointments.contactId))
+    .where(and(eq(appointments.clinicId, tx.clinicId), gt(appointments.scheduledFor, since)))
+    .orderBy(appointments.scheduledFor, appointments.id)
+    .limit(200);
+  if (rows.length === 0) return [];
+  const amended = await amendmentsFor(
+    tx,
+    "appointment",
+    rows.map((r) => r.id),
   );
-  switch (outcome.outcome) {
-    case "decided":
-      return { status: "done", message: decidedLine(decision, outcome) };
-    case "already_in_calendar":
-      return { status: "done", message: DECISION_LINES.alreadyInCalendar };
-    case "already-decided":
-      return { status: "refused", message: DECISION_LINES.alreadyDecided };
-    case "invalid":
-      return { status: "refused", message: DECISION_LINES.lapsed };
-    case "checking":
-      return { status: "refused", message: DECISION_LINES.checking };
-    case "slot_taken":
-      return {
-        status: "refused",
-        message: outcome.takenBy === "live_call" ? DECISION_LINES.liveCall : DECISION_LINES.taken,
-      };
-    case "calendar_busy":
-      return {
-        status: "busy",
-        message: DECISION_LINES.busy,
-        slotAt: input.confirmedFor!.toISOString(),
-        treatment: input.treatment ?? null,
-        name: parsed.name,
-        note: input.deskNote,
-      };
+  return rows.map((r) => ({
+    id: r.id,
+    requestId: r.requestId,
+    firstName: r.firstName,
+    phone: r.phone,
+    scheduledFor: r.scheduledFor,
+    treatment: r.treatment,
+    status: r.status,
+    depositStatus: r.depositStatus,
+    depositUsd: r.depositUsd,
+    bookedBy: r.bookingOrigin === "assistant" ? "assistant" : "team",
+    decidedByLabel: r.decidedByLabel,
+    bookedVia: r.bookedVia,
+    channel: r.channel,
+    platform: r.platform,
+    calendarWrite: {
+      status: r.calendarWriteStatus,
+      error: r.calendarWriteError,
+      attempts: r.calendarWriteAttempts,
+    },
+    amendments: (amended.get(r.id) ?? []).map((a) => ({
+      text: a.amendment,
+      requestedAt: a.requestedAt,
+    })),
+  }));
+}
+
+export type OutcomeResult =
+  | { ok: true; status: AppointmentOutcome; changed: boolean }
+  /**
+   * `not_yet`: showed and no-show wait for the appointment's start.
+   * `checking`: its calendar write has not settled, so it cannot be cancelled yet.
+   * `confirm`: cancelling one still ahead asks first.
+   */
+  | { ok: false; reason: "not_found" | "not_yet" | "checking" | "confirm" | "invalid" };
+
+/** Thrown inside the patient transaction for an id that is not this clinic's appointment, so it rolls back with no row. */
+export class AppointmentNotFoundError extends Error {
+  constructor() {
+    super("Not one of this clinic's appointments.");
+    this.name = "AppointmentNotFoundError";
   }
 }
 
-// -----------------------------------------------------------------------------
-// Deposits and outcomes
-// -----------------------------------------------------------------------------
-
-export type MarkResult = { ok: boolean; message: string };
-
-/**
- * "Deposit paid": the front desk took a deposit healdesk left for it, so it
- * leaves Deposits to collect. Only from `pending_front_desk`; a link the
- * patient paid is marked by Stripe's own event (recordDepositPaid). Logged
- * as an access to the appointment and audited as the device's.
- */
-export async function markDepositPaid(page: PatientPage, appointmentId: string): Promise<MarkResult> {
-  if (!isBookingId(appointmentId)) return { ok: false, message: "That booking isn't here any more. Reload the page." };
-  return withPatientPage(page, async (tx) => {
-    await logPatientAccess(tx, { action: "read", resourceType: "appointment", resourceId: appointmentId });
-    const moved = await tx.db
-      .update(appointments)
-      .set({ depositStatus: "paid", updatedAt: sql`now()` })
-      .where(
-        and(
-          eq(appointments.id, appointmentId),
-          eq(appointments.clinicId, tx.clinicId),
-          eq(appointments.depositStatus, "pending_front_desk"),
-        ),
-      )
-      .returning({ id: appointments.id });
-    if (moved.length === 0) {
-      return { ok: false, message: "That deposit isn't waiting for your team any more. Reload the page." };
-    }
-    tx.audit.record({
-      action: "update",
-      resourceType: "appointment",
-      resourceId: appointmentId,
-      metadata: { outcome: "deposit_marked_paid", by: "practice" },
-    });
-    return { ok: true, message: "Marked paid. It's off the list of deposits to collect." };
-  });
+/** Whether a form's value is one of the one-click outcomes. */
+export function isAppointmentOutcome(value: unknown): value is AppointmentOutcome {
+  return typeof value === "string" && (APPOINTMENT_OUTCOMES as readonly string[]).includes(value);
 }
 
-const OUTCOME_WORDS: Record<BookingOutcome, string> = {
-  showed: "showed",
-  no_show: "a no-show",
-  cancelled: "cancelled",
-};
-
 /**
- * The spec's one outcome control: showed, no-show or cancelled, once the
- * appointment's time has come, on a booking made through healdesk. One
- * click, changeable. It records what happened here only; a change to the
- * calendar is the practice's own.
+ * Showed, No-show or Cancelled on one of AYA's appointments, in the action's
+ * patient transaction (withPatientPage), by the device whose passkey is
+ * live: an access row for the appointment it read and an update row for the
+ * change, each naming the passkey. Showed and No-show wait until the
+ * appointment has started. Cancelled only marks it here: the clinic cancels
+ * in its own calendar too. It frees the time in healdesk (availability no
+ * longer counts it busy) and cannot be put back to booked, so for an
+ * appointment still ahead it asks first (`confirmed`). It is refused while
+ * the appointment's calendar write is still `writing` or `unknown`: under
+ * this row lock, a write that has not settled could otherwise land a
+ * cancelled booking in the clinic's calendar afterwards (the calendar
+ * write's claim and the desk sweep never write one that is not on either).
+ * An id that is not one of this clinic's appointments throws
+ * AppointmentNotFoundError, so the transaction rolls back and leaves no row.
  */
-export async function markBookingOutcome(
-  page: PatientPage,
+export async function markAppointmentOutcome(
+  tx: PatientTx,
   appointmentId: string,
-  outcome: unknown,
+  outcome: AppointmentOutcome,
   now: Date = new Date(),
-): Promise<MarkResult> {
-  if (!isBookingId(appointmentId)) return { ok: false, message: "That booking isn't here any more. Reload the page." };
-  if (!isBookingOutcome(outcome)) return { ok: false, message: "Choose showed, no-show or cancelled." };
-  return withPatientPage(page, async (tx) => {
-    await logPatientAccess(tx, { action: "read", resourceType: "appointment", resourceId: appointmentId });
-    const marked = await tx.db
-      .update(appointments)
-      .set({ status: outcome, updatedAt: sql`now()` })
-      .where(
-        and(
-          eq(appointments.id, appointmentId),
-          eq(appointments.clinicId, tx.clinicId),
-          lte(appointments.scheduledFor, now),
-          or(
-            isNotNull(appointments.bookingOrigin),
-            sql`exists (select 1 from ${bookingRequests} where ${bookingRequests.clinicId} = ${appointments.clinicId} and ${bookingRequests.appointmentId} = ${appointments.id})`,
-          ),
+  opts: { confirmed?: boolean } = {},
+): Promise<OutcomeResult> {
+  if (!UUID.test(appointmentId)) throw new AppointmentNotFoundError();
+  const [row] = await tx.db
+    .select({
+      status: appointments.status,
+      scheduledFor: appointments.scheduledFor,
+      calendarWriteStatus: appointments.calendarWriteStatus,
+    })
+    .from(appointments)
+    .where(
+      and(
+        eq(appointments.id, appointmentId),
+        eq(appointments.clinicId, tx.clinicId),
+        inArray(
+          appointments.id,
+          tx.db
+            .select({ id: bookingRequests.appointmentId })
+            .from(bookingRequests)
+            .where(eq(bookingRequests.clinicId, tx.clinicId)),
         ),
-      )
-      .returning({ id: appointments.id });
-    if (marked.length === 0) {
-      return { ok: false, message: "You can mark a booking once its time has come." };
-    }
-    tx.audit.record({
-      action: "update",
-      resourceType: "appointment",
-      resourceId: appointmentId,
-      metadata: { outcome: "marked", status: outcome },
-    });
-    return { ok: true, message: `Marked as ${OUTCOME_WORDS[outcome]}.` };
+      ),
+    )
+    .for("update")
+    .limit(1);
+  if (!row) throw new AppointmentNotFoundError();
+  await logPatientAccess(tx, {
+    action: "read",
+    resourceType: "appointment",
+    resourceId: appointmentId,
   });
+  const ahead = row.scheduledFor.getTime() > now.getTime();
+  if (outcome !== "cancelled" && ahead) return { ok: false, reason: "not_yet" };
+  if (row.status === outcome) return { ok: true, status: outcome, changed: false };
+  if (outcome === "cancelled") {
+    if (row.calendarWriteStatus === "writing" || row.calendarWriteStatus === "unknown") {
+      return { ok: false, reason: "checking" };
+    }
+    if (ahead && opts.confirmed !== true) return { ok: false, reason: "confirm" };
+  }
+  await tx.db
+    .update(appointments)
+    .set({ status: outcome, updatedAt: sql`now()` })
+    .where(and(eq(appointments.id, appointmentId), eq(appointments.clinicId, tx.clinicId)));
+  tx.audit.record({
+    action: "update",
+    resourceType: "appointment",
+    resourceId: appointmentId,
+    metadata: {
+      outcome: "marked",
+      status: outcome,
+      from: row.status,
+      passkeyId: tx.page.stepUp.passkeyId,
+      stepUpId: tx.page.stepUp.stepUpId,
+    },
+  });
+  return { ok: true, status: outcome, changed: true };
 }

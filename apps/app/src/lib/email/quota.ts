@@ -1,6 +1,6 @@
 import { and, eq, gte, isNull, sql } from "drizzle-orm";
 
-import { unsafeDb, type Queryable } from "@/db";
+import { unsafeDb } from "@/db";
 import { emailDailyQuota } from "@/db/schema";
 import { describeError, log } from "@/lib/log";
 import { notifyOps } from "@/lib/ops/notify";
@@ -64,40 +64,6 @@ export async function recordDailyQuota(used: number, at: Date = new Date()): Pro
   } catch (error) {
     log.warn("email quota not recorded", { error: describeError(error) });
   }
-}
-
-/**
- * Resend refused a send for the day's quota (daily_quota_exceeded): stamp
- * the UTC day, once, so urgentAlertLive stops promising an alert until the
- * quota resets at midnight. The refusal itself is the evidence, never the
- * count: the free plan's 100 is shared with apps/web's mail, and a paid
- * plan's limit is higher. Never throws, like recordDailyQuota.
- */
-export async function recordQuotaExhausted(at: Date = new Date()): Promise<void> {
-  try {
-    await unsafeDb
-      .insert(emailDailyQuota)
-      .values({ day: quotaDay(at), used: 0, observedAt: at, exhaustedAt: at })
-      .onConflictDoUpdate({
-        target: emailDailyQuota.day,
-        set: { exhaustedAt: sql`coalesce(${emailDailyQuota.exhaustedAt}, excluded.exhausted_at)` },
-      });
-  } catch (error) {
-    log.warn("email quota refusal not recorded", { error: describeError(error) });
-  }
-}
-
-/**
- * Whether Resend has refused a send for the quota this UTC day. In a
- * transaction, pass it: the read is the caller's to wrap.
- */
-export async function quotaExhausted(db: Queryable = unsafeDb, at: Date = new Date()): Promise<boolean> {
-  const [row] = await db
-    .select({ exhaustedAt: emailDailyQuota.exhaustedAt })
-    .from(emailDailyQuota)
-    .where(eq(emailDailyQuota.day, quotaDay(at)))
-    .limit(1);
-  return Boolean(row?.exhaustedAt);
 }
 
 /** The day's count as last reported, or null when no response reported one. For the ops digest. */

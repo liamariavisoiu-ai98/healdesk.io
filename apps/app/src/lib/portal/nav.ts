@@ -2,10 +2,9 @@
  * The clinic portal's menu (plan Part F0; spec, "Portal map"): six screens,
  * nothing nested more than one level deep, in the spec's order.
  *
- * Conversations and Bookings hold patient details and open only behind the
- * passkey step-up (lib/portal/patient-page.ts). Until one exists, or while
- * the clinic has nothing for it to show, it is a menu entry that says it
- * opens after go-live, never a link:
+ * Conversations and Bookings hold patient details and are built with step-up
+ * enforcement in M5. Until one exists, or while the clinic has nothing for it
+ * to show, it is a menu entry that says it opens after go-live, never a link:
  * a menu item that goes nowhere breaks the rule that every link works the day
  * it ships, and one that 404s reads as a broken product. A built patient
  * screen links once the clinic `opened` it: a channel has gone live, or there
@@ -38,7 +37,7 @@ const SECTIONS: readonly { section: PortalSection; label: string; path: string }
   { section: "billing", label: "Billing", path: "/billing" },
 ];
 
-/** The screens that exist in this build: all six since Bookings joined on 19 October 2026. */
+/** The screens that exist in this build. */
 const BUILT: ReadonlySet<PortalSection> = new Set<PortalSection>([
   "home",
   "settings",
@@ -56,6 +55,9 @@ const AFTER_GO_LIVE: ReadonlySet<PortalSection> = new Set<PortalSection>([
 
 /** What a patient screen says instead of linking before any channel is live. */
 export const OPENS_AFTER_GO_LIVE = "Opens after go-live";
+
+/** What Bookings says after go-live until its screen is built: requests go to the desk (lib/meta/booking-requests.ts). */
+export const BOOKINGS_BY_EMAIL = "Each request is emailed to your team";
 
 /**
  * What Conversations says after go-live until its screen is built, for the
@@ -107,8 +109,10 @@ export function portalNav(
       items.push({ section, label, href: sectionPath(slug, section), current: section === active });
     } else if (AFTER_GO_LIVE.has(section)) {
       const note =
-        !BUILT.has(section) && section === "conversations" && liveChannels.length > 0
-          ? conversationsUntilBuilt(liveChannels)
+        !BUILT.has(section) && liveChannels.length > 0
+          ? section === "bookings"
+            ? BOOKINGS_BY_EMAIL
+            : conversationsUntilBuilt(liveChannels)
           : OPENS_AFTER_GO_LIVE;
       items.push({ section, label, href: null, current: false, note });
     }

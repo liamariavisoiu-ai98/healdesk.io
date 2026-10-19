@@ -17,6 +17,7 @@ import {
   collectingLine,
   firstReplyVerdict,
   frontDoorFacts,
+  frontDoorTerms,
   guardContextFor,
   guardReply,
   handoffLine,
@@ -141,7 +142,7 @@ describe("the screen, before any model", () => {
     // Tuesday 10:00 in Los Angeles, then the Sunday before.
     const open = urgentLine(facts, { emergency: "veterinary" }, new Date("2026-10-13T17:00:00Z"));
     expect(open).toBe(
-      `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call the emergency vet now on +14155550911. If a person is hurt or in danger, call 911 now. Otherwise, please call Paws on ${DIRECT}.`,
+      `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call the emergency vet now on +14155550911. If a person is hurt or in danger, call 911 now. Otherwise, please call Paws on ${DIRECT}. I've told the team.`,
     );
     const closed = urgentLine(facts, { emergency: "veterinary" }, new Date("2026-10-11T17:00:00Z"));
     expect(closed).not.toContain(DIRECT);
@@ -168,6 +169,16 @@ describe("the screen, before any model", () => {
     expect(guardReply(line, { clinicName: "Radiance", serviceNames: ["Botox"] })).toEqual({ ok: true });
   });
 
+  test("the practice's own terms are no language to the screen: its menu and its people reach the model", () => {
+    expect(screenInbound("zelora glow + kaviar peel?", "med-spa", "Glow Med Spa")).toBe("language");
+    expect(screenInbound("zelora glow + kaviar peel?", "med-spa", "Glow Med Spa", ["Zelora Glow Facial", "Kaviar Peel"])).toBeNull();
+    expect(
+      frontDoorTerms({ clinicName: "Glow", services: [], serviceNames: ["Kaviar Peel"], address: "1 Main St, Austin", providerNames: ["Ngozi Okafor"] }),
+    ).toEqual(["Glow", "1 Main St, Austin", "Kaviar Peel", "Ngozi Okafor"]);
+    // Never another language made English by them.
+    expect(screenInbound("Mwen pa ka respire, Kaviar Peel", "med-spa", "Glow Med Spa", ["Kaviar Peel"])).toBe("language");
+  });
+
   test("the prompt carries the clinic's tone, and asks for English only: the guard reads English", () => {
     const facts = {
       clinicName: "Radiance",
@@ -180,10 +191,10 @@ describe("the screen, before any model", () => {
       deferredRequirements: [],
       neverSay: [],
     };
-    expect(buildFrontDoorPrompt(facts, "messenger")).toContain("Plain, warm and friendly.");
-    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" }, "messenger")).toContain("Plain, calm and precise.");
-    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" }, "messenger")).not.toContain("warm and friendly");
-    expect(buildFrontDoorPrompt(facts, "messenger")).toContain("Always write in English, whatever language the message is in");
+    expect(buildFrontDoorPrompt(facts)).toContain("Plain, warm and friendly.");
+    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" })).toContain("Plain, calm and precise.");
+    expect(buildFrontDoorPrompt({ ...facts, tone: "clinical" })).not.toContain("warm and friendly");
+    expect(buildFrontDoorPrompt(facts)).toContain("Always write in English, whatever language the message is in");
   });
 
   test("an everyday skin or hair condition is clinical here, never urgent; a front desk's question still passes", () => {
@@ -213,20 +224,21 @@ describe("the screen, before any model", () => {
   test("the urgent line says it is an AI assistant, sends an emergency to 911 and gives the clinic's direct line, else its published one", () => {
     const direct = urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: DIRECT });
     expect(direct).toBe(
-      `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call 911 now. Otherwise, please call Radiance on ${DIRECT}.`,
+      `I'm an AI assistant, so I can't help with anything urgent here. If this is an emergency, call 911 now. Otherwise, please call Radiance on ${DIRECT}. I've told the team.`,
     );
     expect(urgentLine({ clinicName: "Radiance", phone: PUBLISHED, urgentPhone: null })).toMatch(
-      new RegExp(`call Radiance on \\${PUBLISHED}\\.$`),
+      new RegExp(`call Radiance on \\${PUBLISHED}\\. I've told the team\\.$`),
     );
     expect(urgentLine({ clinicName: "Radiance", phone: PUBLISHED })).toMatch(
-      new RegExp(`call Radiance on \\${PUBLISHED}\\.$`),
+      new RegExp(`call Radiance on \\${PUBLISHED}\\. I've told the team\\.$`),
     );
     expect(urgentLine({ clinicName: "Radiance", phone: null, urgentPhone: null })).toMatch(
-      /call Radiance\.$/,
+      /call Radiance\. I've told the team\.$/,
     );
-    // It promises nothing that is not built: no "I've told the team" until
-    // the urgent alert sends something.
-    expect(direct).not.toMatch(/told|let .* know|alerted|someone will/i);
+    // It promises only what is built: the team is told because the front
+    // door queues L12 with the answer and the webhook sends it in-process
+    // (package F), and nothing more than that (no call, no time).
+    expect(direct).not.toMatch(/let .* know|alerted|someone will|call you/i);
     // Like every fixed Meta line, it passes the reply guard, service names included.
     expect(
       guardReply(direct, { clinicName: "Radiance", serviceNames: ["Botox", "Lip filler"] }),

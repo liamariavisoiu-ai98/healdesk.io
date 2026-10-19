@@ -63,7 +63,7 @@ export default async function ConversationsPage({ params }: { params: Promise<{ 
             }
             limit={LIST_LIMIT}
           />
-          <section aria-labelledby="export-heading" className="mt-10">
+          <section id="export" aria-labelledby="export-heading" className="mt-10 scroll-mt-6">
             <h2 id="export-heading" className="text-lg font-semibold">
               Export
             </h2>
@@ -80,8 +80,9 @@ export default async function ConversationsPage({ params }: { params: Promise<{ 
 }
 
 /**
- * After cancellation, what a download sets in motion: it records the export
- * as delivered, and the agreement then says when the records go.
+ * After cancellation, what a download sets in motion: one that arrives in
+ * full records the export as delivered, and the agreement then says when
+ * the records go.
  */
 function closedNote(standing: ExportStanding, timeZone: string, now: Date): string | null {
   if (!standing.closed || standing.destroyed || !standing.deletedFromIfDownloaded) return null;
@@ -96,5 +97,5 @@ function closedNote(standing: ExportStanding, timeZone: string, now: Date): stri
         timeZone,
         now,
       )}, so your records are deleted ${when}.`
-    : `Your account has closed. Downloading this records your export as delivered, and your records are then deleted ${when}, as your agreement says.`;
+    : `Your account has closed. A download that arrives in full records your export as delivered, and your records are then deleted ${when}, as your agreement says.`;
 }

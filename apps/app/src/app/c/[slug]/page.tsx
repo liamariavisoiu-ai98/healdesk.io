@@ -11,6 +11,9 @@ import { portalDay } from "@/lib/portal/format";
 import { readHomeFacts } from "@/lib/portal/home";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
+import { waitingSentence } from "@/lib/portal/waiting-words";
+import { claimLines } from "@/lib/reporting/claim-words";
+import { claimsPayload } from "@/lib/reporting/claims";
 import { channelNextStep, channelStatusWord, setupSentence } from "@/lib/setup/channels";
 import { wizardFinished } from "@/lib/setup/screens";
 import { buildTracker, joinWords } from "@/lib/setup/tracker";
@@ -27,9 +30,12 @@ export const dynamic = "force-dynamic";
  * Talk to your AYA (locked until every stage is done, naming what is left),
  * each channel's status in words with no dates, and when the plan starts.
  *
- * After go-live M5 and M6 add the "Waiting for you" card and the week's three
- * numbers from the claims function; until then Home shows the channels and
- * the plan as they stand. Nothing here shows a patient, so no step-up.
+ * After go-live: first the "Waiting for you" card, counts only, one tap into
+ * Bookings (lib/portal/waiting-words.ts); then Needs attention, which adds a
+ * channel gone quiet; then this week's numbers from the claims function, the
+ * one the daily summary and the weekly recap share (lib/reporting/claims.ts,
+ * claim-words.ts); then the channels and the plan. Nothing here shows a
+ * patient, never a name, a time or a service, so no step-up.
  */
 export default async function ClinicHome({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -55,22 +61,48 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
     clinicId: portal.clinicId,
     address: state.address,
     actor: page.actorContext,
+    channels: state.channels,
+    now,
   });
-  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts });
-  const tracker = buildTracker(
-    state,
-    await getCalendarConnection(portal.clinicId, { actor: page.actorContext }),
-  );
+  const calendar = await getCalendarConnection(portal.clinicId, { actor: page.actorContext });
+  const live = shell.status.kind !== "not_yet";
+  const attention = needsAttention({ slug: portal.clinicSlug, state, ...facts, live, calendar });
+  const bookingsHref = isBuiltSection("bookings") ? sectionPath(portal.clinicSlug, "bookings") : null;
+  const week = facts.week ? claimLines(claimsPayload(facts.week)) : [];
+  const tracker = buildTracker(state, calendar, facts.practice);
   const finished = wizardFinished(state.screens, state.progress);
   const plan = state.billing ? getPlan(state.billing.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);
-  const live = shell.status.kind !== "not_yet";
   const started = state.billing?.planStartedAt ?? null;
   const summary = started ? await getBillingSummary(portal.clinicId, { now }) : null;
 
   return (
     <PortalShell {...shell}>
       <h1 className="text-2xl font-semibold">Home</h1>
+
+      {live && facts.waiting ? (
+        <section aria-labelledby="waiting-heading" className="mt-6">
+          {/* The first card after go-live (plan Part F1): counts only, and
+              one tap into Bookings, where the people open behind the
+              passkey. */}
+          <div className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3">
+            <p>
+              <span id="waiting-heading" className="font-semibold">
+                Waiting for you:
+              </span>{" "}
+              {waitingSentence(facts.waiting, now)}
+            </p>
+            {bookingsHref ? (
+              <a
+                href={bookingsHref}
+                className="bg-ink inline-flex min-h-11 items-center rounded-full px-5 text-sm font-bold text-white"
+              >
+                Open Bookings
+              </a>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
       {attention.length > 0 ? (
         <section aria-labelledby="attention-heading" className="mt-6">
@@ -80,7 +112,7 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
           <ul className="mt-3 grid gap-2">
             {attention.map((item) => (
               <li
-                key={item.id}
+                key={item.key ?? item.id}
                 className="border-line flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-white px-4 py-3"
               >
                 <span>{item.text}</span>
@@ -121,25 +153,59 @@ export default async function ClinicHome({ params }: { params: Promise<{ slug: s
             ))}
           </ol>
           <div className="border-line mt-4 rounded-xl border bg-white px-4 py-4">
-            {/* Talk to your AYA is the engine's preview (M4). Until every
+            {/* Talk to your AYA, the preview (/c/[slug]/preview). Until every
                 blocking stage is done the button stays locked and names what
-                is left; it is never a link to a page that does not exist. */}
-            <button
-              type="button"
-              disabled
-              aria-describedby="preview-left"
-              className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
-            >
-              Talk to your AYA
-            </button>
+                is left; once they are, it is a link to the preview, which
+                checks the same tracker again itself. */}
+            {tracker.previewUnlocked ? (
+              <a
+                href={`/c/${portal.clinicSlug}/preview`}
+                aria-describedby="preview-left"
+                className="bg-ink inline-flex min-h-11 items-center rounded-full px-6 py-3 text-sm font-bold text-white"
+              >
+                Talk to your AYA
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled
+                aria-describedby="preview-left"
+                className="bg-ink min-h-11 rounded-full px-6 py-3 text-sm font-bold text-white opacity-50"
+              >
+                Talk to your AYA
+              </button>
+            )}
             <p id="preview-left" className="text-muted mt-2 text-sm">
-              Opens when every stage above is done. Still to come:{" "}
-              {joinWords(tracker.left.map((l) => l.toLowerCase()))}. In the preview nothing reaches{" "}
-              {shell.audience}, and nothing is booked.
+              {tracker.previewUnlocked ? (
+                <>Every stage above is done: talk to her before anyone else does.</>
+              ) : (
+                <>
+                  Opens when every stage above is done. Still to come:{" "}
+                  {joinWords(tracker.left.map((l) => l.toLowerCase()))}.
+                </>
+              )}{" "}
+              In the preview nothing reaches {shell.audience}, and nothing is booked.
             </p>
           </div>
         </section>
       )}
+
+      {live && week.length > 0 ? (
+        <section aria-labelledby="week-heading" className="mt-10">
+          <h2 id="week-heading" className="text-lg font-semibold">
+            This week
+          </h2>
+          <p className="text-muted mt-1 text-sm">The last 7 days.</p>
+          <dl className="border-line mt-3 grid gap-2 rounded-xl border bg-white px-4 py-3">
+            {week.map((line) => (
+              <div key={line.label} className="flex flex-wrap items-baseline justify-between gap-x-3">
+                <dt className="text-muted">{line.label}</dt>
+                <dd className="font-semibold">{line.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ) : null}
 
       <section aria-labelledby="channels-heading" className="mt-10">
         <h2 id="channels-heading" className="text-lg font-semibold">

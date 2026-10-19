@@ -1273,3 +1273,214 @@ describe("directBookingOpen", () => {
     expect(sent).toHaveLength(1);
   });
 });
+
+describe("the practice questions' review queue (/admin/reviews)", () => {
+  const REVIEW = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+  const RUN = "6f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f";
+  function review(over: Record<string, unknown> = {}) {
+    return {
+      id: REVIEW,
+      clinicId: CLINIC,
+      clinicSlug: "radiance",
+      clinicName: "Radiance Med Spa",
+      runId: RUN,
+      status: "open",
+      createdAt: "2026-10-14T13:05:00.000Z",
+      dueOn: "2026-10-15",
+      pastDue: false,
+      decidedAt: null,
+      decidedByLabel: null,
+      section: null,
+      cases: [
+        {
+          channel: "voice",
+          id: "clinical",
+          status: "review",
+          asked: ["Is Botox safe for me while I'm breastfeeding?"],
+          answered: ["It's generally fine,\nbut ask the clinicians."],
+          sources: ["model"],
+          checks: [{ name: "not_answered_as_urgent", ok: true }],
+          judge: { verdict: "fail", reason: "It reassured." },
+        },
+      ],
+      ...over,
+    };
+  }
+
+  test("a review is read field by field: the answers whole, the judge's reason, the day promised", async () => {
+    reply({ data: { reviews: [review()] } });
+    const result = await opsClient.fetchPracticeReviews();
+    if (!result.ok) throw new Error(result.message);
+    expect(sent[0]).toEqual({ op: "listPracticeReviews", args: {} });
+    expect(result.data[0]).toMatchObject({
+      id: REVIEW,
+      status: "open",
+      dueOn: "2026-10-15",
+      createdAt: { on: "2026-10-14", at: "2026-10-14 13:05 UTC" },
+      cases: [
+        {
+          channel: "voice",
+          id: "clinical",
+          answered: ["It's generally fine,\nbut ask the clinicians."],
+          checks: [{ name: "not_answered_as_urgent", ok: true, detail: null }],
+          judge: { verdict: "fail", reason: "It reassured." },
+        },
+      ],
+    });
+  });
+
+  test("a status, a channel or a section it does not know is a shape error, never a guessed row", async () => {
+    reply({ data: { reviews: [review({ status: "maybe" })] } });
+    expect((await opsClient.fetchPracticeReviews()).ok).toBe(false);
+    reply({ data: { reviews: [review({ section: "the whole thing" })] } });
+    expect((await opsClient.fetchPracticeReviews()).ok).toBe(false);
+  });
+
+  test("a decision sends the clinic, the review and the decision, and a section only with a failure", async () => {
+    reply({ data: { status: "updated", decision: "pass", auditRecorded: true } });
+    expect(await opsClient.decidePracticeReview(CLINIC, REVIEW, "pass", "prices")).toEqual({
+      ok: true,
+      data: { status: "updated", decision: "pass", auditRecorded: true },
+    });
+    expect(sent[0]).toEqual({ op: "decidePracticeReview", args: { clinicId: CLINIC, reviewId: REVIEW, decision: "pass" } });
+
+    reply({ data: { status: "refused", message: "This review has been decided already." } });
+    expect(await opsClient.decidePracticeReview(CLINIC, REVIEW, "fail", "prices")).toEqual({
+      ok: true,
+      data: { status: "refused", message: "This review has been decided already." },
+    });
+    expect(sent[1]).toEqual({ op: "decidePracticeReview", args: { clinicId: CLINIC, reviewId: REVIEW, decision: "fail", section: "prices" } });
+
+    reply({ data: { status: "updated", auditRecorded: true } });
+    expect(await opsClient.rerunPracticeQuestions(CLINIC)).toEqual({ ok: true, data: { status: "updated", auditRecorded: true } });
+    expect(sent[2]).toEqual({ op: "rerunPracticeQuestions", args: { clinicId: CLINIC } });
+  });
+
+  test("a website re-read sends only the clinic, and reads back the read's id or a refusal", async () => {
+    const READ = "0b1c2d3e-4f50-4617-8899-aabbccddeeff";
+    reply({ data: { status: "queued", rereadId: READ, auditRecorded: true } });
+    expect(await opsClient.requestSiteReread(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "queued", rereadId: READ, auditRecorded: true },
+    });
+    expect(sent[0]).toEqual({ op: "requestSiteReread", args: { clinicId: CLINIC } });
+
+    reply({ data: { status: "refused", message: "This clinic has no website to read." } });
+    expect(await opsClient.requestSiteReread(CLINIC)).toEqual({
+      ok: true,
+      data: { status: "refused", message: "This clinic has no website to read." },
+    });
+
+    // A read id that is not one is a shape error, never a guessed link.
+    reply({ data: { status: "queued", rereadId: "glowmedspa.com", auditRecorded: true } });
+    expect((await opsClient.requestSiteReread(CLINIC)).ok).toBe(false);
+  });
+});
+
+describe("dated promises (WP5): the setup-replies relay and the support marks", () => {
+  const REQUEST = "5b4a3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d";
+
+  test("the cron's relay sends only ids, with no browser context, and reads the count", async () => {
+    reply({ data: { raised: 1 } });
+    expect(await opsClient.relaySetupRepliesPastDue([REQUEST])).toEqual({ ok: true, data: { raised: 1 } });
+    expect(sent).toEqual([{ op: "setupRepliesPastDue", args: { requestIds: [REQUEST] } }]);
+    const init = vi.mocked(fetch).mock.calls[0]![1] as { body: string };
+    expect(JSON.parse(init.body)).not.toHaveProperty("context");
+  });
+
+  test("the support list is read field by field, and a bad field is malformed rather than shown", async () => {
+    const row = {
+      clinicId: CLINIC,
+      clinicSlug: "radiance",
+      requestId: REQUEST,
+      topic: "billing",
+      replyByOn: "2026-10-15",
+      askedAt: "2026-10-14T13:05:00.000Z",
+      repliedAt: null,
+      pastDue: true,
+    };
+    reply({ data: { requests: [row], unreadClinics: 0 } });
+    expect(await opsClient.fetchSupportRequests()).toEqual({
+      ok: true,
+      data: { requests: [row], unreadClinics: 0 },
+    });
+    reply({ data: { requests: [{ ...row, topic: "Billing, and the words they typed" }], unreadClinics: 0 } });
+    expect(await opsClient.fetchSupportRequests()).toMatchObject({ ok: false, code: "malformed" });
+  });
+
+  test("the mark says marked, already or not found, and nothing else", async () => {
+    reply({ data: { status: "marked" } });
+    expect(await opsClient.markSupportReplied(CLINIC, REQUEST)).toEqual({ ok: true, data: { status: "marked" } });
+    expect(sent.at(-1)).toEqual({ op: "markSupportReplied", args: { clinicId: CLINIC, requestId: REQUEST } });
+    reply({ data: { status: "already", repliedAt: "2026-10-15T10:00:00.000Z" } });
+    expect(await opsClient.markSupportReplied(CLINIC, REQUEST)).toEqual({
+      ok: true,
+      data: { status: "already", repliedAt: "2026-10-15T10:00:00.000Z" },
+    });
+    reply({ data: { status: "done" } });
+    expect(await opsClient.markSupportReplied(CLINIC, REQUEST)).toMatchObject({ ok: false, code: "malformed" });
+  });
+});
+
+describe("the agreement checks (plan Part L, WP9)", () => {
+  const CHECK = "5b9d6f2a-3c4e-4f80-9a1b-2c3d4e5f6a7b";
+  const row = (over: Record<string, unknown> = {}) => ({
+    id: CHECK,
+    clinicId: CLINIC,
+    clinicSlug: "glow",
+    clinicName: "Glow Med Spa",
+    status: "open",
+    signal: "site_accepts_insurance",
+    createdAt: "2026-10-19T12:00:00.000Z",
+    decidedAt: null,
+    decidedByLabel: null,
+    ...over,
+  });
+
+  test("reads each check, and refuses a status or signal it does not know", async () => {
+    reply({ data: { reviews: [row()] } });
+    const read = await opsClient.fetchAgreementReviews();
+    if (!read.ok) throw new Error(read.message);
+    expect(read.data[0]).toMatchObject({
+      id: CHECK,
+      status: "open",
+      signal: "site_accepts_insurance",
+      createdAt: { on: "2026-10-19" },
+      decidedAt: null,
+    });
+    expect(sent[0]).toEqual({ op: "listAgreementReviews", args: {} });
+
+    reply({ data: { reviews: [row({ status: "superseded" })] } });
+    expect((await opsClient.fetchAgreementReviews()).ok).toBe(false);
+    reply({ data: { reviews: [row({ signal: "the website looks medical" })] } });
+    expect((await opsClient.fetchAgreementReviews()).ok).toBe(false);
+  });
+
+  test("a decision sends the clinic, the check and the practice's answer, and reads setCoveredEntity's reply", async () => {
+    reply({
+      data: {
+        status: "recorded",
+        agreementKind: "dpa",
+        isCoveredEntity: true,
+        covered: false,
+        supersedeStarted: true,
+        linkSent: true,
+        auditRecorded: true,
+      },
+    });
+    expect(await opsClient.decideAgreementReview(CLINIC, CHECK, "yes")).toMatchObject({
+      ok: true,
+      data: { status: "recorded", supersedeStarted: true, linkSent: true },
+    });
+    expect(sent[0]).toEqual({
+      op: "decideAgreementReview",
+      args: { clinicId: CLINIC, reviewId: CHECK, answer: "yes" },
+    });
+
+    reply({ data: { status: "refused", message: "This review has been decided already." } });
+    expect(await opsClient.decideAgreementReview(CLINIC, CHECK, "no")).toEqual({
+      ok: true,
+      data: { status: "refused", message: "This review has been decided already." },
+    });
+  });
+});

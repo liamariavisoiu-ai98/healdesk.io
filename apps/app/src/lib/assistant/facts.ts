@@ -5,12 +5,11 @@ import {
   type BookingField,
   type ScreenedLanguage,
 } from "@healdesk/catalog";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import { agentConfigs, clinicChannels, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
+import { agentConfigs, clinicChannels, clinicProviders, clinics, type AgentService, type KnowledgeAnswer } from "@/db/schema";
 import { DAY_KEYS, DAY_LABELS, type OpeningHours } from "@/lib/clinic/opening-hours";
 import { defaultChatGreeting, defaultPhoneGreeting } from "@/lib/setup/greetings";
-import { urgentAlertLive } from "@/lib/notices/urgent-alert-live";
 import { neverSayWithDefaults, readKnowledge } from "@/lib/setup/knowledge";
 import { readSetupSettings } from "@/lib/setup/settings";
 import { urgentHelpNumber } from "@/lib/setup/urgent";
@@ -81,13 +80,10 @@ export type AssistantFacts = {
   languages: ScreenedLanguage[];
   /** "Suggest add-on treatments": on lets AYA suggest a complementary service during a booking. */
   suggestAddOns: boolean;
-  /**
-   * Whether an urgent alert queued now reaches the clinic (urgentAlertLive,
-   * lib/notices/urgent-alert-live.ts): the urgent reply says the team was
-   * told only while it does, and only once the adapter has queued the alert.
-   */
-  urgentAlertLive: boolean;
+  /** The practice's providers, as it names them: words the language check reads as no language. */
+  providerNames: string[];
 };
+
 
 function screenedLanguages(chosen: readonly string[]): ScreenedLanguage[] {
   const screened = chosen.filter(isScreenedLanguage);
@@ -102,7 +98,15 @@ function hoursLines(hours: OpeningHours | null): string[] {
   });
 }
 
-export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | null> {
+/**
+ * `asApproved` reads the script as it would be once approved: the practice
+ * questions (lib/engine/practice) check the words a pass would approve,
+ * before anyone has approved them. Every channel reads it without.
+ */
+export async function assistantFacts(
+  tx: TenantTx,
+  options: { asApproved?: boolean } = {},
+): Promise<AssistantFacts | null> {
   const [clinic] = await tx.db
     .select({
       name: clinics.name,
@@ -123,11 +127,15 @@ export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | nul
     .from(agentConfigs)
     .where(eq(agentConfigs.clinicId, tx.clinicId))
     .limit(1);
-  const approved = Boolean(agent?.approvedAt);
+  const approved = options.asApproved === true ? Boolean(agent) : Boolean(agent?.approvedAt);
   const knowledge = await readKnowledge(tx.db, tx.clinicId);
 
   const settings = await readSetupSettings(tx.db, tx.clinicId);
   const bought = await tx.db.select({ channel: clinicChannels.channel }).from(clinicChannels).where(eq(clinicChannels.clinicId, tx.clinicId));
+  const providers = await tx.db
+    .select({ name: clinicProviders.displayName })
+    .from(clinicProviders)
+    .where(and(eq(clinicProviders.clinicId, tx.clinicId), eq(clinicProviders.active, true)));
 
   return {
     clinicId: tx.clinicId,
@@ -170,6 +178,6 @@ export async function assistantFacts(tx: TenantTx): Promise<AssistantFacts | nul
     tone: settings.tone,
     languages: screenedLanguages(settings.languages),
     suggestAddOns: settings.suggestAddOns,
-    urgentAlertLive: await urgentAlertLive(tx.db),
+    providerNames: providers.map((p) => p.name),
   };
 }

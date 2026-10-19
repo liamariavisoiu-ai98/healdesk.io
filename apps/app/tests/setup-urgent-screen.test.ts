@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 
 import { UrgentScreen } from "@/app/c/[slug]/setup/screens/BehaviourScreens";
+import { URGENT_ALERT_DELIVERED } from "@/lib/notices/booking-alerts";
 
 /**
  * Wizard 2.5, the urgent-help screen, in each practice's own words: a
@@ -49,10 +50,10 @@ describe("the urgent-help screen", () => {
     expect(html).not.toContain("emergency referral clinic");
   });
 
-  test("it says AYA tells the team only while the urgent alert reaches it", () => {
-    // The review of 14 October: the screen promised an alert that only
-    // logged. The page passes urgentAlertLive(): the outbox's sender on, a
-    // mail transport and a public origin.
+  test("it says AYA tells the team only once the urgent alert reaches it, which it now does", () => {
+    // The review of 14 October: the screen promised an alert that only logged.
+    // Package F sends L12, so the page passes true (setup/page.tsx).
+    expect(URGENT_ALERT_DELIVERED).toBe(true);
     expect(render(false)).not.toContain("tells your team");
     expect(render(false)).toContain("and gives them the number below.");
     expect(render(false, true)).toContain(

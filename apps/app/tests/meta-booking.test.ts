@@ -1,63 +1,38 @@
 import { randomUUID } from "node:crypto";
 
-import { URGENT_TEAM_TOLD_LINE } from "@healdesk/catalog";
-import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
-
-// The desk's token, where createBookingRequest mints it: no email carries it
-// since the clinic's booking alert became a pointer into the portal.
-vi.mock("@/lib/meta/booking-requests", async (importOriginal) =>
-  (await import("./setup/minted-tokens")).recordingMints(await importOriginal()),
-);
-// The real alert, wrapped so one test can make it fail to queue.
-vi.mock("@/lib/notices/booking-alerts", async (importOriginal) => {
-  const real = await importOriginal<typeof import("@/lib/notices/booking-alerts")>();
-  return { ...real, notifyBookingAlert: vi.fn(real.notifyBookingAlert) };
-});
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "vitest";
 
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
 import { bookingModeFor } from "@/lib/booking/mode";
 import { metaChannelGreeting } from "@/lib/compliance/disclosure";
-import { sendPendingNotices } from "@/lib/email/outbox";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
 import {
   cleanAlternatives,
   cleanBookingFields,
-  decideBookingRequest,
   expireLapsedRequests,
   followUpLine,
   requestReceivedLine,
-  resolveBookingRequest,
   windowIsClean,
 } from "@/lib/meta/booking-requests";
-import {
-  buildFrontDoorPrompt,
-  collectingLine,
-  guardReply,
-  handoffLine,
-  parseModelReply,
-  probeVerdict,
-  whatsAppPersonLine,
-  type MetaPlatform,
-} from "@/lib/meta/front-door";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
+import { collectingLine, guardReply, parseModelReply, probeVerdict, type MetaPlatform } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
 import type { DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
+import { sendPendingNotices } from "@/lib/email/outbox";
 import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { bindAgreementInEffect, inTenant, seedClinic, seedEntitled } from "./setup/factories";
-import { mintedTokens } from "./setup/minted-tokens";
+import { deskDecide, deskView } from "./setup/desk";
+import { bindAgreementInEffect, inTenant, mintDeskToken, queuedNotices, seedClinic, seedEntitled } from "./setup/factories";
 
 /**
  * The booking hand-off (decisions of 21 and 23 September 2026, narrowed by
  * the v1 spec's inbound-only rule): the front door collects a first name, a
  * number, a window and up to two alternatives, and the request exists the
  * moment the three are in hand. No consent question, no WhatsApp opt-in, no
- * template, no call-back. The clinic is alerted with a pointer into its
- * portal (L7), and the desk's single-use page still has four decisions;
+ * template, no call-back. The desk gets a single-use link and four decisions;
  * the person is told in fixed text that names no time, and only inside
  * Meta's 24-hour window.
  */
@@ -76,35 +51,8 @@ describe("what the model may hand over", () => {
   test("a plain reply is read as a reply with no booking", () => {
     expect(parseModelReply("We're open 9 to 5. Call the practice to book.")).toEqual({
       reply: "We're open 9 to 5. Call the practice to book.",
-      handoff: false,
       booking: { wants: false, first_name: null, phone: null, window: null, alt_windows: [], fields: {} },
     });
-  });
-
-  test("a request for a person is the model's handoff flag, and only a true one counts", () => {
-    expect(parseModelReply('{"reply":"The practice team will get back to you here.","handoff":true}').handoff).toBe(true);
-    expect(parseModelReply('{"reply":"I\'m an automated assistant.","handoff":"yes"}').handoff).toBe(false);
-    expect(parseModelReply('{"reply":"We\'re open 9 to 5."}').handoff).toBe(false);
-    for (const platform of ["messenger", "instagram", "whatsapp"] as const) {
-      const prompt = buildFrontDoorPrompt(
-        {
-          clinicName: "Radiance",
-          phone: null,
-          websiteHint: null,
-          services: [],
-          notes: null,
-          escalationHours: null,
-          requirements: [],
-          deferredRequirements: [],
-          neverSay: [],
-        },
-        platform,
-      );
-      expect(prompt, platform).toContain('set "handoff" to true');
-      expect(prompt, platform).toContain("Asking whether you are a person is not that");
-      // Only where the team can answer the thread does the prompt promise they will.
-      expect(prompt.includes("will get back to them here"), platform).toBe(platform !== "whatsapp");
-    }
   });
 
   test("JSON, fenced or bare, is parsed: strings or null, alternatives and the fields — and a consent classifier is not read", () => {
@@ -253,8 +201,12 @@ describeDb("the booking hand-off, end to end", () => {
     await closePools();
   });
 
+  /** The clinic liveClinic made last: quickRequest mints its newest request's desk token. */
+  let lastClinicId = "";
+
   async function liveClinic(label: string, externalId = PAGE_ID, platform: MetaPlatform = "messenger", opts: { agreement?: boolean } = {}) {
     const c = await seedClinic(label);
+    lastClinicId = c.clinicId;
     // Live under an agreement in effect, as go-live leaves a clinic: without
     // one the answer gate and the database refuse it (drizzle/0066).
     if (opts.agreement !== false) await bindAgreementInEffect(c.clinicId);
@@ -279,19 +231,8 @@ describeDb("the booking hand-off, end to end", () => {
     return c;
   }
 
-  /** The clinic's booking alerts (L7) in the outbox. */
-  async function bookingAlerts(clinicId: string) {
-    const { rows } = await inTenant(clinicId, (client) =>
-      client.query<{ dedupe_key: string; payload: Record<string, unknown> }>(
-        `select dedupe_key, payload from billing_notices where kind = 'booking_request' order by created_at`,
-      ),
-    );
-    return rows;
-  }
-
   /** One message with the three things: the request exists at once. Returns the desk's token. */
   async function quickRequest(platform: MetaPlatform, externalId: string, senderId: string, opts: { name?: string; phone?: string } = {}) {
-    const minted = mintedTokens.length;
     const name = opts.name ?? "Sam";
     const phone = opts.phone ?? "+14155550177";
     __setMetaRuntimeForTests(async () => json("Got it — the practice will call you.", { wants: true, first_name: name, phone, window: "Saturday afternoon" }), sender, transport);
@@ -301,8 +242,12 @@ describeDb("the booking hand-off, end to end", () => {
     // A new sender, so the thread's first reply: the greeting opens it.
     const channel = platform === "instagram" ? "instagram_dm" : platform;
     expect(sent.at(-1)!.text).toBe(`${metaChannelGreeting({ clinicName: clinicName!, channel })} ${requestReceivedLine(clinicName!, name)}`);
-    if (mintedTokens.length !== minted + 1) throw new Error("no booking request was created");
-    return mintedTokens.at(-1)!;
+    // The desk is mailed nothing (notifyDesk is retired); the clinic's L7
+    // alert is queued instead, and the token the desk decides with is minted
+    // here, as package E's Bookings screen will make it unnecessary.
+    expect(mailed).toEqual([]);
+    expect((await queuedNotices(lastClinicId, ["booking_request"])).length).toBeGreaterThan(0);
+    return mintDeskToken(lastClinicId);
   }
 
   test("collects the three things across messages and creates the request the moment they are in hand — with the alternative, and no consent row", async () => {
@@ -327,27 +272,25 @@ describeDb("the booking hand-off, end to end", () => {
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from booking_requests`))).rows).toHaveLength(0);
 
     // Message 3: the window arrives last, with an alternative. The three
-    // things are in hand, so the request exists now, the clinic's alert is
-    // queued, the draft is gone, and the reply is the fixed line — not the
-    // model's text, which promised a time. No consent question is asked first.
+    // things are in hand, so the request exists now, the clinic's L7 alert is
+    // queued with it, the draft is gone, and the reply is the fixed line — not
+    // the model's text, which promised a time. No consent question is asked
+    // first.
     __setMetaRuntimeForTests(async () => json("Great, you're all booked for Tuesday at 2pm!", { window: "any weekday morning", alt_windows: ["Thursday after 4"] }), sender, transport);
     res = await post(inbound("any weekday morning works, or Thursday after 4"));
     expect(await res.json()).toEqual({ received: true, answered: 1, skipped: 0 });
     expect(sent[2]!.text).toBe(requestReceivedLine("booking Clinic", "Maria"));
     expect(sent[2]!.text).not.toMatch(/2pm|Tuesday|0134/);
 
-    // The clinic's alert (L7): queued in the outbox with the request, ids and
-    // a link to this conversation in the portal only. Nothing is mailed to the
-    // report recipients, and no email carries the desk's single-use link.
-    expect(mailed).toHaveLength(0);
-    const alerts = await bookingAlerts(c.clinicId);
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0]!.payload).toMatchObject({ channel: "meta", isPossiblyPaid: false });
-    const { rows: threads } = await inTenant(c.clinicId, (client) => client.query<{ conversation_id: string }>(`select conversation_id from chat_threads`));
-    expect(alerts[0]!.payload.conversationId).toBe(threads[0]!.conversation_id);
-    expect(alerts[0]!.payload.portalUrl).toBe(`https://app.healdesk.test/c/${c.slug}/conversations/${threads[0]!.conversation_id}`);
-    expect(JSON.stringify(alerts)).not.toMatch(/Maria|0134|weekday|Thursday|\/booking\//);
-    const token = mintedTokens.at(-1)!;
+    // Nothing is mailed to the report recipient (notifyDesk is retired): one
+    // L7 alert is queued for the clinic's one address, a pointer into
+    // Bookings that names nobody.
+    expect(mailed).toEqual([]);
+    const alerts = await queuedNotices(c.clinicId);
+    expect(alerts.map((a) => a.kind)).toEqual(["booking_request"]);
+    expect(alerts[0]!.payload).toMatchObject({ channel: "meta", portalUrl: `https://app.healdesk.test/c/${c.slug}/bookings` });
+    expect(JSON.stringify(alerts[0]!.payload)).not.toMatch(/Maria|0134|weekday|Thursday/);
+    const token = await mintDeskToken(c.clinicId);
 
     const stored = await inTenant(c.clinicId, async (client) => ({
       drafts: (await client.query(`select 1 from meta_booking_drafts`)).rows.length,
@@ -362,7 +305,6 @@ describeDb("the booking hand-off, end to end", () => {
     }));
     expect(stored.drafts).toBe(0);
     expect(stored.requests).toMatchObject([{ status: "requested", preferred_window: "any weekday morning", alternative_windows: ["Thursday after 4"], token_len: 32 }]);
-    expect(alerts[0]!.dedupe_key).toBe(`booking_request:${stored.requests[0]!.id}`);
     expect(stored.requests[0]!.last_inbound_at).not.toBeNull();
     expect(stored.consent).toBe(0);
     expect(stored.contacts).toEqual([{ phone: "+14155550134", full_name: "Maria" }]);
@@ -373,7 +315,7 @@ describeDb("the booking hand-off, end to end", () => {
     // calendar is connected, so the desk confirms in its own system. Its
     // times are said on the practice's clock, whatever the server's is.
     await getMigratorPool().query(`update clinics set timezone = 'America/Los_Angeles' where id = $1`, [c.clinicId]);
-    const opened = await resolveBookingRequest(token);
+    const opened = await deskView(token);
     expect(opened).toMatchObject({
       clinicId: c.clinicId,
       timeZone: "America/Los_Angeles",
@@ -388,11 +330,11 @@ describeDb("the booking hand-off, end to end", () => {
       bookedVia: "desk",
       collectedFields: {},
     });
-    expect(await resolveBookingRequest("A".repeat(43))).toBeNull();
-    expect(await resolveBookingRequest("not-a-token")).toBeNull();
+    expect(await deskView("A".repeat(43))).toBeNull();
+    expect(await deskView("not-a-token")).toBeNull();
 
     // Accept: one decision, relayed as the fixed line through the sealed token.
-    const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
+    const decided = await deskDecide(token, "accepted", { decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" }, sender);
     expect(decided).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
     // The fourth message: three replies above, then this follow-up. (It was
     // the fifth while a callback-consent question sat between them; that
@@ -403,9 +345,9 @@ describeDb("the booking hand-off, end to end", () => {
     expect(sent[3]!.text).not.toMatch(/Thursday|10am/);
 
     // A second decision, either way, changes nothing and sends nothing.
-    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null, calendarWrite: null });
+    expect(await deskDecide(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toEqual({ outcome: "already-decided", followUp: null, appointmentId: null, calendarWrite: null });
     expect(sent).toHaveLength(4);
-    const after = await resolveBookingRequest(token);
+    const after = await deskView(token);
     expect(after).toMatchObject({ status: "accepted", decidedByLabel: "Jo at the desk", deskNote: "Thursday 10am works" });
 
     // The row cannot be re-decided even by a direct write.
@@ -417,8 +359,8 @@ describeDb("the booking hand-off, end to end", () => {
     await getMigratorPool().query(`alter table booking_requests disable trigger booking_requests_no_rewrite`);
     await inTenant(c.clinicId, (client) => client.query(`update booking_requests set expires_at = now() - interval '1 minute'`));
     await getMigratorPool().query(`alter table booking_requests enable trigger booking_requests_no_rewrite`);
-    expect(await resolveBookingRequest(token)).toBeNull();
-    expect(await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskView(token)).toBeNull();
+    expect(await deskDecide(token, "accepted", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "invalid" });
     // Both refusals are on the record: the second decision, and the decision on a dead link.
     const refused = await inTenant(c.clinicId, (client) =>
       client.query<{ reason: string; decision: string }>(
@@ -459,8 +401,8 @@ describeDb("the booking hand-off, end to end", () => {
     await post(inboundWa("Ana, 415 555 0155, Friday morning", "15550100123", "555000111"));
     expect(sent.at(-1)!.text).toBe(`${metaChannelGreeting({ clinicName: "booking-wa Clinic", channel: "whatsapp" })} ${requestReceivedLine("booking-wa Clinic", "Ana")}`);
     expect(sent.at(-1)!.text).not.toMatch(/WhatsApp/);
-    expect(mailed).toHaveLength(0);
-    expect(await bookingAlerts(c.clinicId)).toHaveLength(1);
+    expect(mailed).toEqual([]);
+    expect((await queuedNotices(c.clinicId)).map((a) => [a.kind, a.payload.channel])).toEqual([["booking_request", "meta"]]);
     expect((await inTenant(c.clinicId, (client) => client.query<{ platform: string }>(`select platform from booking_requests`))).rows).toEqual([{ platform: "whatsapp" }]);
     expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from consent_records`))).rows).toHaveLength(0);
     // The adapter has one way to send, and it is the windowed one.
@@ -479,8 +421,8 @@ describeDb("the booking hand-off, end to end", () => {
       const token = await quickRequest(k.platform, k.externalId, k.sender, { phone: `+1415555061${i}` });
       const before = sent.length;
       await inTenant(c.clinicId, (client) => client.query(`update booking_requests set last_inbound_at = now() - interval '25 hours'`));
-      expect(await resolveBookingRequest(token)).toMatchObject({ metaWindowOpen: false });
-      const decided = await decideBookingRequest(token, "accepted", { decidedByLabel: null, deskNote: null }, sender);
+      expect(await deskView(token)).toMatchObject({ metaWindowOpen: false });
+      const decided = await deskDecide(token, "accepted", { decidedByLabel: null, deskNote: null }, sender);
       expect(decided).toEqual({ outcome: "decided", followUp: "outside_window", appointmentId: null, calendarWrite: null });
       expect(sent).toHaveLength(before);
       const audit = await inTenant(c.clinicId, (client) => client.query<{ metadata: Record<string, unknown> }>(`select metadata from audit_log where resource_type = 'meta_front_door_reply' and metadata->>'outcome' = 'outside_window'`));
@@ -490,8 +432,8 @@ describeDb("the booking hand-off, end to end", () => {
       await inTenant(c.clinicId, (client) => client.query(`update booking_requests set last_inbound_at = now() - interval '25 hours' where status = 'requested'`));
       __setMetaRuntimeForTests(async () => json("We're open 9 to 5 — the practice will call you."), sender, transport);
       await post(inboundOn(k.platform, "any news?", `${k.sender}-b`, k.externalId));
-      expect(await resolveBookingRequest(token2)).toMatchObject({ metaWindowOpen: true });
-      expect((await decideBookingRequest(token2, "declined", { decidedByLabel: null, deskNote: null }, sender)).followUp).toBe("sent");
+      expect(await deskView(token2)).toMatchObject({ metaWindowOpen: true });
+      expect((await deskDecide(token2, "declined", { decidedByLabel: null, deskNote: null }, sender)).followUp).toBe("sent");
     }
   });
 
@@ -502,10 +444,10 @@ describeDb("the booking hand-off, end to end", () => {
     const d2 = new Date(Date.now() + 3 * DAY);
 
     // One to three future slots; a past one or none is refused before anything is read.
-    expect(await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [] }, sender)).toMatchObject({ outcome: "invalid" });
-    expect(await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() - DAY) }] }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [] }, sender)).toMatchObject({ outcome: "invalid" });
+    expect(await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() - DAY) }] }, sender)).toMatchObject({ outcome: "invalid" });
 
-    const proposed = await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: "offered two", proposedSlots: [{ at: d2, source: "desk" }, { at: d1, source: "calendar" }] }, sender);
+    const proposed = await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: "offered two", proposedSlots: [{ at: d2, source: "desk" }, { at: d1, source: "calendar" }] }, sender);
     expect(proposed).toEqual({ outcome: "decided", followUp: "sent", appointmentId: null, calendarWrite: null });
     expect(sent.at(-1)!.text).toBe(followUpLine("booking-resched Clinic", "rescheduling"));
     expect(guardReply(sent.at(-1)!.text)).toEqual({ ok: true });
@@ -521,39 +463,39 @@ describeDb("the booking hand-off, end to end", () => {
     expect(audit.rows).toHaveLength(1);
     expect(audit.rows[0]!.metadata).toMatchObject({ outcome: "decided", decision: "rescheduling", slots: 2 });
     expect(JSON.stringify(audit.rows[0]!.metadata)).not.toMatch(/\d{4}-\d{2}-\d{2}T/);
-    expect(await resolveBookingRequest(token)).toMatchObject({ status: "rescheduling", proposedSlots: [{ at: d1.toISOString(), source: "calendar" }, { at: d2.toISOString(), source: "desk" }] });
+    expect(await deskView(token)).toMatchObject({ status: "rescheduling", proposedSlots: [{ at: d1.toISOString(), source: "calendar" }, { at: d2.toISOString(), source: "desk" }] });
 
     // Propose different times while still rescheduling: a plain update.
     const d3 = new Date(Date.now() + 4 * DAY);
-    expect((await decideBookingRequest(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d3 }] }, sender)).outcome).toBe("decided");
-    expect((await resolveBookingRequest(token))!.proposedSlots.map((s) => s.at)).toEqual([d3.toISOString()]);
+    expect((await deskDecide(token, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d3 }] }, sender)).outcome).toBe("decided");
+    expect((await deskView(token))!.proposedSlots.map((s) => s.at)).toEqual([d3.toISOString()]);
 
     // The person chooses on the desk's own call, and the desk confirms it on
     // the page: rescheduling → confirmed, an appointment row, recorded here
     // only (no writable calendar), and the fixed line on the thread.
-    const chosen = await decideBookingRequest(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
+    const chosen = await deskDecide(token, "confirmed", { decidedByLabel: "Jo", deskNote: null, confirmedFor: d3 }, sender);
     expect(chosen).toMatchObject({ outcome: "decided", followUp: "sent", calendarWrite: "not-connected" });
     expect(chosen.appointmentId).not.toBeNull();
     // No calendar terms here: the booking occupies no calendar time (booking_origin
     // NULL, no calendar), is never written, and carries the request's own key.
-    const requestId = (await resolveBookingRequest(token))!.id;
+    const requestId = (await deskView(token))!.id;
     expect((await inTenant(c.clinicId, (client) => client.query(`select booking_origin, calendar_id, calendar_event_key, calendar_write_status from appointments`))).rows).toEqual([
       { booking_origin: null, calendar_id: null, calendar_event_key: requestId, calendar_write_status: "none" },
     ]);
-    expect(await resolveBookingRequest(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
+    expect(await deskView(token)).toMatchObject({ status: "confirmed", confirmedFor: d3, decidedByLabel: "Jo" });
     expect((await inTenant(c.clinicId, (client) => client.query<{ scheduled_for: Date }>(`select scheduled_for from appointments`))).rows.map((r) => new Date(r.scheduled_for).getTime())).toEqual([Math.floor(d3.getTime() / 1000) * 1000 + (d3.getTime() % 1000)]);
-    expect(await decideBookingRequest(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });
+    expect(await deskDecide(token, "declined", { decidedByLabel: null, deskNote: null }, sender)).toMatchObject({ outcome: "already-decided" });
 
     // Lapse: a second request whose alternatives nobody chose.
     const token2 = await quickRequest("messenger", "723456789012345", "user-72", { name: "Kim", phone: "+14155550172" });
-    expect((await decideBookingRequest(token2, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d1 }] }, sender)).outcome).toBe("decided");
+    expect((await deskDecide(token2, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: d1 }] }, sender)).outcome).toBe("decided");
     // The sweep is platform-wide: flush what earlier tests left lapsed, then nothing here has.
     await expireLapsedRequests(new Date());
     expect(await expireLapsedRequests(new Date())).toEqual({ expired: 0 });
     await inTenant(c.clinicId, (client) => client.query(`update booking_requests set reschedule_expires_at = now() - interval '1 minute' where status = 'rescheduling'`));
     expect(await expireLapsedRequests(new Date())).toEqual({ expired: 1 });
-    expect(await resolveBookingRequest(token2)).toMatchObject({ status: "expired", proposedSlots: [{ at: d1.toISOString() }] });
-    expect(await decideBookingRequest(token2, "confirmed", { decidedByLabel: null, deskNote: null, confirmedFor: d1 }, sender)).toMatchObject({ outcome: "already-decided" });
+    expect(await deskView(token2)).toMatchObject({ status: "expired", proposedSlots: [{ at: d1.toISOString() }] });
+    expect(await deskDecide(token2, "confirmed", { decidedByLabel: null, deskNote: null, confirmedFor: d1 }, sender)).toMatchObject({ outcome: "already-decided" });
   });
 
   test("the follow-up and the reschedule line obey the practice's switches: front door off, platform off, paused or suspended, neither is sent", async () => {
@@ -602,14 +544,14 @@ describeDb("the booking hand-off, end to end", () => {
       await switchOff(c.clinicId);
       const before = sent.length;
 
-      expect(await decideBookingRequest(accepted, "accepted", { decidedByLabel: "Jo", deskNote: null }, sender), label).toEqual({
+      expect(await deskDecide(accepted, "accepted", { decidedByLabel: "Jo", deskNote: null }, sender), label).toEqual({
         outcome: "decided",
         followUp: "withheld",
         appointmentId: null,
         calendarWrite: null,
       });
       expect(
-        await decideBookingRequest(rescheduled, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() + 3 * DAY) }] }, sender),
+        await deskDecide(rescheduled, "rescheduling", { decidedByLabel: "Jo", deskNote: null, proposedSlots: [{ at: new Date(Date.now() + 3 * DAY) }] }, sender),
         label,
       ).toMatchObject({ outcome: "decided", followUp: "withheld" });
       // Nothing went out, and the drop is recorded as the adapter records one outside the window.
@@ -626,7 +568,7 @@ describeDb("the booking hand-off, end to end", () => {
     }
   });
 
-  test("the clinic's alert is queued with the request, and a reply that fails to send loses neither", async () => {
+  test("the clinic's alert is queued with the request and goes to its one address, and a reply that fails to send loses neither", async () => {
     const externalId = "693456789012345";
     const c = await liveClinic("booking-after-commit", externalId);
     const failing: MetaSender = async () => {
@@ -641,237 +583,26 @@ describeDb("the booking hand-off, end to end", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ received: true, answered: 0, skipped: 1 });
 
-    // The reply never went, but the request and its alert committed together
-    // before the send was tried, and the outbox sends the alert from there.
+    // The reply never went, but the request stands, and its alert was queued
+    // in the transaction that created it: once, and nothing mailed yet.
     const requests = await inTenant(c.clinicId, (client) => client.query<{ id: string }>(`select id from booking_requests`));
     expect(requests.rows).toHaveLength(1);
-    expect((await bookingAlerts(c.clinicId)).map((a) => a.dedupe_key)).toEqual([`booking_request:${requests.rows[0]!.id}`]);
-    expect(mailed).toHaveLength(0);
-  });
+    const alerts = await queuedNotices(c.clinicId);
+    expect(alerts.map((a) => [a.kind, a.dedupe_key])).toEqual([["booking_request", `booking_request:request:${requests.rows[0]!.id}`]]);
+    expect(mailed).toEqual([]);
 
-  test("an urgent message: the fixed line, and the clinic's urgent alert with the channel and ids only, even when the reply fails to send", async () => {
-    const externalId = "703456789012345";
-    const c = await liveClinic("booking-urgent", externalId);
-    const failing: MetaSender = async () => {
-      throw new Error("Graph API 500");
-    };
-    let asked = false;
-    __setMetaRuntimeForTests(
-      async () => {
-        asked = true;
-        return json("model");
-      },
-      failing,
-      transport,
-    );
-    const res = await post(inbound("I'm having a severe reaction to my lip filler", "user-urgent", externalId));
-    expect(await res.json()).toEqual({ received: true, answered: 0, skipped: 1 });
-    expect(asked).toBe(false);
-    const { rows } = await inTenant(c.clinicId, (client) =>
-      client.query<{ kind: string; dedupe_key: string; payload: Record<string, unknown> }>(
-        `select kind, dedupe_key, payload from billing_notices where kind = 'urgent'`,
-      ),
-    );
-    const { rows: threads } = await inTenant(c.clinicId, (client) => client.query<{ conversation_id: string }>(`select conversation_id from chat_threads`));
-    expect(rows).toEqual([
-      {
-        kind: "urgent",
-        dedupe_key: `urgent:meta:${threads[0]!.conversation_id}`,
-        payload: {
-          channel: "meta",
-          platform: "messenger",
-          conversationId: threads[0]!.conversation_id,
-          bookingRequestId: null,
-          appointmentId: null,
-          isPossiblyPaid: false,
-          isBurst: false,
-          portalUrl: `https://app.healdesk.test/c/${c.slug}/conversations/${threads[0]!.conversation_id}`,
-        },
-      },
-    ]);
-    expect(JSON.stringify(rows)).not.toMatch(/reaction|filler|lip/i);
-  });
-
-  /** An operator, the sender switched on, and Resend configured: the urgent alert is live. */
-  async function alertsLive(): Promise<() => Promise<void>> {
-    const ops = `usr_ops_${randomUUID().slice(0, 8)}`;
-    await getMigratorPool().query(
-      `insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, 'Ops', $2, true, now(), now())`,
-      [ops, `${ops}@healdesk.test`],
-    );
-    vi.stubEnv("HEALDESK_EMAIL_TRANSPORT", "resend");
-    vi.stubEnv("RESEND_API_KEY", "re_test_key");
-    vi.stubEnv("HEALDESK_EMAIL_FROM", "healdesk <hello@healdesk.io>");
-    // No quota refusal left over from another file (it lasts the UTC day).
-    await getMigratorPool().query(`truncate email_daily_quota`);
-    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
-    return async () => {
-      vi.unstubAllEnvs();
-      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
-    };
-  }
-
-  async function urgentNotices(clinicId: string) {
-    const { rows } = await inTenant(clinicId, (client) =>
-      client.query<{ dedupe_key: string; sent_at: Date | null }>(`select dedupe_key, sent_at from billing_notices where kind = 'urgent'`),
-    );
-    return rows;
-  }
-
-  test("live, an urgent message's alert is sent once the answer commits, to the clinic's one address, and the line says the team was told", async () => {
-    const externalId = "713456789012345";
-    const c = await liveClinic("meta-urgent-live", externalId);
-    const done = await alertsLive();
+    // The outbox sends it to the clinic's one address, never to the report
+    // recipient notifyDesk used to mail, and with no link to /booking/.
+    await setJobEnabled(JOB_BILLING_NOTICES, true, c.staffUserId);
     try {
-      __setMetaRuntimeForTests(async () => json("model"), sender, transport);
-      const res = await post(inbound("I'm having a severe reaction to my lip filler", "user-urgent-live", externalId));
-      expect(await res.json()).toEqual({ received: true, answered: 1, skipped: 0 });
-      expect(sent.at(-1)!.text).toMatch(/call 911/);
-      expect(sent.at(-1)!.text).toContain(URGENT_TEAM_TOLD_LINE);
-      const notices = await urgentNotices(c.clinicId);
-      expect(notices).toHaveLength(1);
-      expect(notices[0]!.sent_at).not.toBeNull();
-      expect(mailed.map((m) => m.target.to)).toEqual([c.staffEmail]);
-      expect(mailed[0]!.message.text).toContain("in a Messenger message to");
-      expect(mailed[0]!.message.text).toContain("Reply to them in your Facebook Page's inbox.");
-      expect(JSON.stringify(mailed[0]!.message)).not.toMatch(/reaction|filler/i);
-    } finally {
-      await done();
-    }
-  });
-
-  test("live, an urgent alert that could not be queued: the line does not say the team was told", async () => {
-    const externalId = "763456789012345";
-    const c = await liveClinic("meta-urgent-unqueued", externalId);
-    const done = await alertsLive();
-    try {
-      vi.mocked(notifyBookingAlert).mockResolvedValueOnce(false);
-      __setMetaRuntimeForTests(async () => json("model"), sender, transport);
-      await post(inbound("I'm having a severe reaction to my lip filler", "user-urgent-unqueued", externalId));
-      expect(sent.at(-1)!.text).toMatch(/call 911/);
-      expect(sent.at(-1)!.text).not.toContain(URGENT_TEAM_TOLD_LINE);
-      expect(await urgentNotices(c.clinicId)).toEqual([]);
-      expect(mailed).toHaveLength(0);
-    } finally {
-      await done();
-    }
-  });
-
-  test("an urgent message whose answer cannot be recorded still gets the greeted fixed line, without saying the team was told", async () => {
-    const externalId = "733456789012345";
-    const c = await liveClinic("meta-urgent-failed", externalId);
-    const done = await alertsLive();
-    const pool = getMigratorPool();
-    // The answer's own write fails at commit, as a deadlock or a pool timeout would.
-    await pool.query(`create or replace function test_refuse_insert() returns trigger language plpgsql as $$ begin raise exception 'test: this write fails'; end $$`);
-    await pool.query(
-      `create trigger test_refuse_insert before insert on audit_log for each row
-         when (new.clinic_id = '${c.clinicId}'::uuid and new.resource_type = 'meta_front_door_reply') execute function test_refuse_insert()`,
-    );
-    const error = vi.spyOn(console, "error").mockImplementation(() => {});
-    try {
-      __setMetaRuntimeForTests(async () => json("model"), sender, transport);
-      const res = await post(inbound("I'm having a severe reaction to my lip filler", "user-urgent-failed", externalId));
-      expect(await res.json()).toEqual({ received: true, answered: 1, skipped: 0 });
-      const line = sent.at(-1)!.text;
-      expect(line.startsWith(metaChannelGreeting({ clinicName: "meta-urgent-failed Clinic", channel: "messenger" }))).toBe(true);
-      expect(line).toMatch(/call 911/);
-      expect(line).not.toContain(URGENT_TEAM_TOLD_LINE);
-      expect(await urgentNotices(c.clinicId)).toEqual([]);
-      expect(error.mock.calls.map((call) => String(call[0]))).toEqual(
-        expect.arrayContaining([expect.stringContaining("meta urgent message not recorded")]),
-      );
-    } finally {
-      await pool.query(`drop trigger if exists test_refuse_insert on audit_log`);
-      error.mockRestore();
-      await done();
-    }
-  });
-
-  test("a request for a person on a Meta channel alerts the clinic once per conversation, with ids only", async () => {
-    const externalId = "743456789012345";
-    const c = await liveClinic("meta-handover", externalId);
-    __setMetaRuntimeForTests(async () => JSON.stringify({ reply: "The practice team will get back to you here.", handoff: true, booking: {} }), sender, transport);
-    await post(inbound("Can I talk to someone at the clinic please?", "user-handover", externalId));
-    await post(inbound("A real person please", "user-handover", externalId));
-    expect(sent.at(-1)!.text).toContain("The practice team will get back to you here.");
-    const { rows } = await inTenant(c.clinicId, (client) =>
-      client.query<{ dedupe_key: string; payload: Record<string, unknown> }>(`select dedupe_key, payload from billing_notices where kind = 'handover'`),
-    );
-    const { rows: threads } = await inTenant(c.clinicId, (client) => client.query<{ conversation_id: string }>(`select conversation_id from chat_threads`));
-    expect(rows).toEqual([
-      {
-        dedupe_key: `handover:meta:${threads[0]!.conversation_id}`,
-        payload: expect.objectContaining({ channel: "meta", platform: "messenger", conversationId: threads[0]!.conversation_id, bookingRequestId: null }),
-      },
-    ]);
-    expect(JSON.stringify(rows)).not.toMatch(/someone|person please/i);
-    // Asking what it is talking to is not a request for a person.
-    __setMetaRuntimeForTests(async () => JSON.stringify({ reply: "I'm an automated assistant for the practice.", handoff: false, booking: {} }), sender, transport);
-    await post(inbound("Are you a real person?", "user-not-handover", externalId));
-    expect((await inTenant(c.clinicId, (client) => client.query(`select 1 from billing_notices where kind = 'handover'`))).rows).toHaveLength(1);
-  });
-
-  test("a request for a person on WhatsApp, which has no inbox: the fixed line sends them to the phone, never a reply in the chat, and the email says so", async () => {
-    const externalId = "555000333";
-    const c = await liveClinic("meta-handover-wa", externalId, "whatsapp");
-    const done = await alertsLive();
-    try {
-      // The model flags the handoff and promises a reply in the chat anyway.
-      __setMetaRuntimeForTests(async () => JSON.stringify({ reply: "The practice team will get back to you here.", handoff: true, booking: {} }), sender, transport);
-      await post(inboundWa("Can I talk to someone at the clinic please?", "15550100333", externalId));
-      const greeting = metaChannelGreeting({ clinicName: "meta-handover-wa Clinic", channel: "whatsapp" });
-      expect(sent.at(-1)!.text).toBe(`${greeting} ${whatsAppPersonLine({ clinicName: "meta-handover-wa Clinic", phone: "+14155550199" })}`);
-      expect(sent.at(-1)!.text).not.toMatch(/get back to you/);
-      const { rows } = await inTenant(c.clinicId, (client) =>
-        client.query<{ payload: Record<string, unknown> }>(`select payload from billing_notices where kind = 'handover'`),
-      );
-      expect(rows.map((r) => r.payload)).toEqual([expect.objectContaining({ channel: "meta", platform: "whatsapp" })]);
-      // A reply that promises an answer in the chat, with no handoff flagged, is refused too.
-      __setMetaRuntimeForTests(async () => json("Someone from the team will reply here shortly."), sender, transport);
-      await post(inboundWa("Will someone answer me on here?", "15550100333", externalId));
-      expect(sent.at(-1)!.text).toBe(handoffLine({ clinicName: "meta-handover-wa Clinic", phone: "+14155550199" }));
-      const guarded = await inTenant(c.clinicId, (client) =>
-        client.query<{ guarded: string | null }>(
-          `select metadata->>'guarded' as guarded from audit_log where resource_type = 'meta_front_door_reply' order by occurred_at`,
-        ),
-      );
-      // The first reply's promise was refused as well, and the person line went in its place.
-      expect(guarded.rows.map((r) => r.guarded)).toEqual(["a reply promised in a chat nobody answers", "a reply promised in a chat nobody answers"]);
-      // The email: nobody can reply on WhatsApp, and they were asked to call.
       await sendPendingNotices({ clinicId: c.clinicId, transport });
-      const email = mailed.find((m) => m.message.subject === "Someone asked to speak to a person")!;
-      expect(email.target.to).toBe(c.staffEmail);
-      expect(email.message.text).toContain("in a WhatsApp message to");
-      expect(email.message.text).toContain("AYA answers a request for a person on WhatsApp by asking them to call your practice.");
-      expect(email.message.text).toContain("There is no WhatsApp inbox to reply to them from");
-      expect(email.message.text).not.toMatch(/Reply to them in|get back to them/);
     } finally {
-      await done();
+      await setJobEnabled(JOB_BILLING_NOTICES, false, c.staffUserId);
     }
-  });
-
-  test("on Messenger a handoff whose reply the guard refused still alerts, and the email never says what the person was told", async () => {
-    const externalId = "753456789012345";
-    const c = await liveClinic("meta-handover-guarded", externalId);
-    const done = await alertsLive();
-    try {
-      // A reply the guard refuses: the person gets the fixed hand-off line.
-      __setMetaRuntimeForTests(
-        async () => JSON.stringify({ reply: "Sorry to hear about your acne, the team will get back to you here.", handoff: true, booking: {} }),
-        sender,
-        transport,
-      );
-      await post(inbound("I want to talk to a real person", "user-handover-guarded", externalId));
-      expect(sent.at(-1)!.text).toContain(handoffLine({ clinicName: "meta-handover-guarded Clinic", phone: "+14155550199" }));
-      await sendPendingNotices({ clinicId: c.clinicId, transport });
-      const email = mailed.find((m) => m.message.subject === "Someone asked to speak to a person")!;
-      expect(email.message.text).toContain("Someone asked to speak to a person in a Messenger message to");
-      expect(email.message.text).toContain("Reply to them in your Facebook Page's inbox.");
-      expect(email.message.text).not.toMatch(/AYA told|get back to them/);
-    } finally {
-      await done();
-    }
+    expect(mailed.map((m) => m.target.to)).toEqual([c.staffEmail]);
+    expect(mailed[0]!.message.subject).toBe("A booking request is waiting for your team");
+    expect(mailed[0]!.message.text).toContain(`https://app.healdesk.test/c/${c.slug}/bookings`);
+    expect(mailed[0]!.message.text).not.toMatch(/\/booking\/|Rae|0191|Saturday/);
   });
 
   test("a stop word on a thread is a message like any other: nothing is suppressed, because nothing is ever sent outside the conversation", async () => {
@@ -919,13 +650,13 @@ describeDb("the booking hand-off, end to end", () => {
     }
   });
 
-  test("a clinic with no report recipients still gets the request and its alert: the alert goes to the clinic's one address", async () => {
+  test("a clinic with no report recipient still gets the request and its alert", async () => {
     const c = await liveClinic("booking-nodesk", "133456789012345");
     await inTenant(c.clinicId, (client) => client.query(`delete from report_recipients`));
     await quickRequest("messenger", "133456789012345", "user-13", { name: "Lee", phone: "+14155550166" });
     expect(mailed).toHaveLength(0);
     const rows = await inTenant(c.clinicId, (client) => client.query<{ status: string }>(`select status from booking_requests`));
     expect(rows.rows).toEqual([{ status: "requested" }]);
-    expect(await bookingAlerts(c.clinicId)).toHaveLength(1);
+    expect((await queuedNotices(c.clinicId)).map((a) => a.kind)).toEqual(["booking_request"]);
   });
 });

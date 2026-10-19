@@ -9,7 +9,9 @@ import {
   QUEUE_BILLING_MINUTE,
   QUEUE_CALENDAR_WATCH,
   QUEUE_NOTICES,
+  QUEUE_PRACTICE_QUESTIONS,
   QUEUE_PROCESS_WEBHOOK,
+  QUEUE_SITE_READS,
   QUEUE_RECONCILE_CLINIC,
   QUEUE_SYNC_CONNECTION,
   QUEUE_TICK,
@@ -24,6 +26,9 @@ import {
   CALENDAR_WATCH_RETRY_LIMIT,
   runCalendarWatchJob,
 } from "@/lib/scheduler/calendar-watch";
+import { runPracticeQuestionsJob } from "@/lib/engine/practice/job";
+import { runOpsWatchJob } from "@/lib/ops/watch";
+import { runSiteReadsJob } from "@/lib/website/job";
 import { runTick } from "@/lib/scheduler/tick";
 import { syncConnection } from "@/lib/sync/run";
 import { processWebhookEvent } from "@/lib/sync/webhooks";
@@ -163,6 +168,9 @@ async function main(): Promise<void> {
       ["billing-requests", () => runBillingRequestsJob()],
       ["usage-meter-report", () => runUsageMeterReportJob()],
       ["transcript-emails", () => runTranscriptEmailsJob()],
+      // The ops watch's purchase checks (WP5): a paid order with no account
+      // ten minutes on, and B3's follow-up past its day (lib/ops/watch.ts).
+      ["ops-watch", () => runOpsWatchJob()],
     ] as const) {
       try {
         const outcome = await run();
@@ -198,6 +206,39 @@ async function main(): Promise<void> {
       if (outcome.status === "failed") throw new Error(`calendar-watch: ${outcome.note}`);
     },
     { retryLimit: CALENDAR_WATCH_RETRY_LIMIT },
+  );
+
+  // The practice questions (lib/engine/practice/job.ts): every minute, each
+  // clinic's due run, one at a time per clinic, behind the practice-questions
+  // job row's switch, which ships off because every run asks the model.
+  // Guarded like the clocks above. Never retried at once: a run is leased on
+  // its own row, and the next minute's fire takes up whatever is still due.
+  await startGuardedClock(
+    boss,
+    QUEUE_PRACTICE_QUESTIONS,
+    "* * * * *",
+    async () => {
+      const outcome = await runPracticeQuestionsJob();
+      if (outcome.status === "failed") throw new Error(`practice-questions: ${outcome.note}`);
+    },
+    { retryLimit: 0 },
+  );
+
+  // The website re-reads (lib/website/job.ts): every minute, each clinic's
+  // due read sent to apps/web's signed /api/clinic-site, one at a time per
+  // clinic, behind the site-reads job row's switch; nothing is read until
+  // HEALDESK_WEB_URL is set. Guarded like the clocks above. Never retried at
+  // once: a read is leased on its own row, and a failure worth another try
+  // is queued again with its own back-off.
+  await startGuardedClock(
+    boss,
+    QUEUE_SITE_READS,
+    "* * * * *",
+    async () => {
+      const outcome = await runSiteReadsJob();
+      if (outcome.status === "failed") throw new Error(`site-reads: ${outcome.note}`);
+    },
+    { retryLimit: 0 },
   );
 
   // No outbound clock. The call-back dialer of 23 September 2026 was removed

@@ -57,10 +57,26 @@ export const SANCTIONED: Readonly<Record<string, string>> = {
     "the shell's business data (the practice, its setup, its locations), no patient",
   "src/app/c/[slug]/keep-open.ts#patientPageStatus": "the guard's question about the step-up",
   "src/app/c/[slug]/keep-open.ts#keepPatientPageOpen": "the guard's Keep open: a touch",
+  // Bookings (package E).
   "src/lib/meta/booking-requests.ts#decideBookingRequest":
-    "a staff decision on a request (Bookings), called only after withPatientPage has written the request's access row; it opens its own transactions, as the device, because it asks Google with none open, and returns an outcome and ids, no patient",
+    "the desk's decision is several transactions by design (plan §7.10, the calendar session's " +
+    "invariants): the assistant-write guard and Google's busy re-check run outside any " +
+    "transaction, the decision in its own under the calendar and row locks, the calendar write " +
+    "after it commits. Keyed by the page's clinic and the request's id, as the sign-in by its " +
+    "passkey, every decision and refusal audited with the passkey; Bookings' action opens the " +
+    "request in withPatientPage, with its access row, before it calls this",
   "src/lib/meta/booking-requests.ts#deskFreeTimes":
-    "the practice's free times from Google for a request already read and logged in withPatientPage: business data, no patient",
+    "the calendar's free times for the request in focus, asked after the page's patient " +
+    "transaction has committed, because Google is never asked inside one: availableSlotsFor " +
+    "opens its own transactions for the hours, the holds and the calendar token, business data " +
+    "and time spans, no patient row",
+  "src/lib/booking/terms.ts#calendarTermsFor":
+    "the location's calendar terms, read through the caller's tx.db; the checker reads the " +
+    "`rows` of tx.db.execute's result as the pg driver's own. Business data, no patient row",
+  "src/app/c/[slug]/pause-actions.ts#pauseAyaAction":
+    "the header's AYA is answering switch: writes the clinic's pause, reads no patient",
+  "src/app/c/[slug]/pause-actions.ts#resumeAyaAction":
+    "the header's AYA is answering switch: clears the clinic's pause, reads no patient",
 };
 
 const REQUIRE_PATIENT_PAGE = "src/lib/portal/patient-page.ts#requirePatientPage";

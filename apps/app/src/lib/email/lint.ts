@@ -111,14 +111,15 @@ const CATEGORY_KEYS: ReadonlySet<string> = new Set([
   "phoneSystem",
   "routing",
   "waitingOn",
-  // L7, L11 and L12 from Meta: which of its platforms ("instagram",
-  // "messenger", "whatsapp"), since staff can answer the first two in the
-  // clinic's own inbox and a WhatsApp number has none.
-  "platform",
   // O3: what happened to a device (added, removed, locked).
   "change",
   // B1: the Terms version accepted at checkout ("2026-10-07.1").
   "version",
+  // O9: the Knowledge section or Settings card to fix (lib/engine/practice
+  // PRACTICE_SECTIONS), a closed vocabulary that never names the service.
+  "section",
+  // L15: the Meta app switched Off ("instagram"), an id, never a name.
+  "platform",
   // L25 and I3: a support-chat escalation's topic and what is wrong, each an
   // id from lib/support/escalation-fields.ts's fixed lists, never words.
   "topic",
@@ -135,6 +136,10 @@ function classOfKey(key: string): ValueClass | null {
   if (key === "planId" || key === "plan" || key === "boughtPlanId") return "planId";
   if (key === "channel" || key === "channels") return "channel";
   if (key === "rows" || /Rows$/.test(key)) return "rows";
+  // The claims (lib/reporting/claim-words.ts ClaimsPayload) as one nested
+  // object, `dayClaims` and `weekClaims` in L13 and L14: counts and cents,
+  // each field checked against this same list, one level down.
+  if (/Claims$/.test(key)) return "rows";
   if (/^(is|has|was|can|will)[A-Z]/.test(key)) return "flag";
   if (/Cents$/.test(key)) return "cents";
   if (/Url$/.test(key)) return "url";

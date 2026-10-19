@@ -217,38 +217,41 @@ describe("1.5.0's notes", () => {
   });
 });
 
-describe("1.6.0's notes", () => {
-  test("say Anthropic's retention as the 1.6.0 draft's clause does; the rest are 1.5.0's", () => {
-    // Anthropic's documentation for the models the product calls
-    // (model-retention.ts; agreement-changes.md §16): no more than the 30 days
-    // of its standard retention, the two years for flagged content alone, and
-    // the law's own period for what the law requires.
-    const note = clauseExplainer("1.6.0", "subcontractors")!.plain;
+describe("1.5.1's notes", () => {
+  test("say the optional booking details are asked on calls and in website chats, beside the clause that says so; the rest are 1.5.0's", () => {
+    // The owner's decision of 19 October 2026, as 1.5.1's clause 11 states it.
+    const note = clauseExplainer("1.5.1", "minimum-necessary")!.plain;
+    const before = clauseExplainer("1.5.0", "minimum-necessary")!.plain;
     expect(note).toContain(
-      "keeps that content for no more than the 30 days of its standard retention, then deletes " +
-        "it (content its safety systems flag may be held for up to two years, and content the " +
-        "law requires it to keep for as long as the law requires), and doesn't train on it " +
-        "without healdesk's permission, which healdesk won't give",
+      "and on calls and in website chats, where your settings or your specialty's defaults ask " +
+        "for them, a last name, the service, whether they're new or returning, consultation or " +
+        "treatment, and a preferred practitioner.",
     );
-    expect(note).not.toMatch(/abuse detection|law requires it to keep, may be held|never trains/);
-    expect(note).toContain(
-      "only under a business associate agreement with healdesk, signed before any patient's " +
-        "information reaches it",
+    // Nothing else in the note moved: 1.5.0's, with "on calls" widened.
+    expect(note).toBe(
+      before.replace(
+        "and on calls, where your settings",
+        "and on calls and in website chats, where your settings",
+      ),
     );
-    const clause = getBaaTemplate("1.6.0")!
-      .clauses.find((c) => c.id === "subcontractors")!
+    expect(note).not.toBe(before);
+    const clause = getBaaTemplate("1.5.1")!
+      .clauses.find((c) => c.id === "minimum-necessary")!
       .body({} as never)
       .replace(/\s+/g, " ");
-    expect(clause).toContain("for no more than the 30 days of its standard retention");
-    expect(clause).toContain("which it may keep for as long as the law requires");
-    expect(clause).toContain(`at least ${SUBPROCESSOR_NOTICE_HOURS} hours`);
-    // 1.5.0's note stays what 1.5.0's frozen clause says.
-    expect(clauseExplainer("1.5.0", "subcontractors")!.plain).toMatch(/for abuse detection and security/);
-    for (const id of ["data-sources-none", "minimum-necessary"]) {
-      expect(clauseExplainer("1.6.0", id), id).toBe(clauseExplainer("1.5.0", id));
+    expect(clause).toContain(
+      "b. on a call or in a website chat, where Practice's settings or its specialty's defaults ask for them: a last name and the service asked about; and",
+    );
+    expect(clause).toContain(
+      "c. on a call or in a website chat, on the same condition: whether the person is a new or returning patient, whether the visit is a consultation or a treatment, and any practitioner they would like to see.",
+    );
+    // 1.5.0's note stays what 1.5.0 says.
+    expect(before).toContain("and on calls, where your settings");
+    for (const id of ["data-sources-none", "subcontractors"]) {
+      expect(clauseExplainer("1.5.1", id), id).toBe(clauseExplainer("1.3.0", id));
     }
-    expect(baaExplainerTerms("1.6.0")).toBe(baaExplainerTerms("1.3.0"));
-    expect(baaExplainerFor("1.6.0").terms).toBe(baaExplainerFor("1.3.0").terms);
+    expect(baaExplainerTerms("1.5.1")).toBe(baaExplainerTerms("1.3.0"));
+    expect(baaExplainerFor("1.5.1").terms).toBe(baaExplainerFor("1.3.0").terms);
   });
 });
 
@@ -339,8 +342,8 @@ describe("the explainer for one version (gate 11)", () => {
     expect(baaExplainerFor("1.2.2")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1")).toBe(BAA_EXPLAINER);
     expect(baaExplainerFor("1.2.1").terms).toBe(BAA_EXPLAINER.terms);
-    // The current template is 1.5.0, which shows 1.3.0's own bullets (the next test).
-    expect(currentBaaTemplate().version).toBe("1.5.0");
+    // The current template is 1.5.1, which shows 1.3.0's own bullets (the next test).
+    expect(currentBaaTemplate().version).toBe("1.5.1");
     expect(baaExplainerFor(currentBaaTemplate().version).terms).toBe(
       baaExplainerFor("1.3.0").terms,
     );

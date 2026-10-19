@@ -25,7 +25,19 @@ export const JOB_RETENTION_PURGE = "retention-purge";
 export const JOB_HEARTBEAT = "heartbeat";
 export const JOB_CONNECTION_HEALTH = "connection-health";
 export const JOB_ANNUAL_RENEWAL_REMINDER = "annual-renewal-reminder";
+/**
+ * The weekly recap (L14, lib/scheduler/weekly-recap.ts), seeded off by
+ * drizzle/0034: hourly from the tick, last week's recap on each live
+ * clinic's Monday, only while no daily summary can carry it.
+ */
 export const JOB_WEEKLY_RECAP = "weekly-recap";
+/**
+ * The daily summary (L13, lib/scheduler/daily-summary.ts), seeded off by
+ * drizzle/0087: hourly from the tick, at each live clinic's opening time on
+ * its working days, while its Daily summary switch is on. The owner switches
+ * it on with the email launch set, once the sender's own switch is on.
+ */
+export const JOB_DAILY_SUMMARY = "daily-summary";
 export const JOB_NIGHTLY_SYNC = "nightly-sync";
 export const JOB_OFFBOARDING_DESTROY = "offboarding-destroy";
 /**
@@ -104,6 +116,74 @@ export const JOB_INCIDENT_DEADLINES = "incident-deadlines";
  * and the deletion runs even with it off; it leases its own rows.
  */
 export const JOB_TRANSCRIPT_EMAILS = "transcript-emails";
+/**
+ * L8, "Request still open" (package F), seeded off by drizzle/0082. Hourly
+ * from the tick: at a clinic's opening hour, only while its daily summary is
+ * off, one email counting the booking requests still waiting for the desk
+ * (lib/scheduler/requests-still-open.ts). The owner switches it on with the
+ * live alerts, once the sender's own switch is on.
+ */
+export const JOB_REQUESTS_STILL_OPEN = "requests-still-open";
+/**
+ * The practice questions (lib/engine/practice, plan Part G), seeded off by
+ * the practice_questions migration. Every minute from its own
+ * `practice-questions` queue: each clinic's due run, one at a time per
+ * clinic, two minutes after the last change that asked for it; and hourly
+ * from the tick, a run for any clinic whose inputs changed with nothing
+ * asked, O8 for a tracker complete, and the review-past-due alert. Off,
+ * nothing is asked of the model, so nothing is approved automatically and
+ * the operator's approval is the only way through. Each run spends real
+ * tokens, so the owner switches it on, with ANTHROPIC_API_KEY set, once
+ * the engine's key is in place (docs/blockers-runbook.md §3).
+ */
+export const JOB_PRACTICE_QUESTIONS = "practice-questions";
+/**
+ * The internal health flags (WP5; spec, "The first 48 hours" and the voice
+ * plan's fourteen days), seeded OFF by drizzle/0085. Hourly from the tick:
+ * a clinic whose channels went live 48 hours ago with no interaction on any
+ * of them, and a live phone channel with no inbound call for 14 days, each
+ * raised once through notifyOpsOnce (lib/ops/health-flags.ts). Internal: it
+ * reaches ops only, never the clinic. The owner switches it on from /admin's
+ * job list with the go-live set (Gate B), when the first clinic goes live.
+ */
+export const JOB_HEALTH_FLAGS = "health-flags";
+/**
+ * I2, the 07:00 ops digest (WP5; Annex X5), seeded ON by drizzle/0085, like
+ * incident-deadlines, because it only mails ops, ids and counts: from the
+ * hourly tick at 07 UTC and after, once a UTC day, every queue with the age
+ * of its oldest item, email health per kind, connection health and the
+ * day's email count (lib/ops/digest.ts). It replaced the connection-health
+ * job's own email.
+ */
+export const JOB_OPS_DIGEST = "ops-digest";
+/**
+ * The ops watch (WP5), seeded ON by drizzle/0085, because it only alerts:
+ * every minute from the billing-minute queue, a paid purchase with no
+ * account ten minutes after its relay reached this host, and B3's follow-up
+ * past its day; hourly from the tick, those and every support reply (L25)
+ * past its day with no reply marked (lib/ops/watch.ts). Each through
+ * notifyOpsOnce, once per purchase or request. Its rows lease nothing, so it
+ * runs without runJob's lock (runSwitchedJob).
+ */
+export const JOB_OPS_WATCH = "ops-watch";
+/**
+ * The signed website re-reads (lib/website, the website_drift migration).
+ *
+ * `site-reads`, seeded ON: every minute from its own `site-reads` queue, and
+ * hourly from the tick, each clinic's due read sent to apps/web's signed
+ * /api/clinic-site, one at a time per clinic; and hourly, a read asked for
+ * where a clinic has a website and no profile (or one of another website)
+ * and its own save did not ask. On, because it reads only what a clinic's
+ * setup asked for and mails nothing; it reads nothing until HEALDESK_WEB_URL
+ * is set.
+ *
+ * `website-drift`, seeded OFF: hourly from the tick, the monthly check of
+ * each live clinic's website against its purchase-time baseline, which
+ * raises "Changes on your website" in Knowledge and L23. Owner: the owner
+ * switches it on, before the first clinic's 30th live day (plan M7).
+ */
+export const JOB_SITE_READS = "site-reads";
+export const JOB_WEBSITE_DRIFT = "website-drift";
 /**
  * Phase two: the attribution jobs. Their code is kept, but they never run in
  * v1 (env.phaseTwoAttribution()), and the console refuses to switch them on.

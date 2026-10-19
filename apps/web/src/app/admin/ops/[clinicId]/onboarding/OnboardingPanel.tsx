@@ -16,7 +16,6 @@ import type {
   DisconnectCalendarOutcome,
   ForwardingTestOutcome,
   GoLiveOutcome,
-  IssueLinkOutcome,
   MetaPlatform,
   OnboardingView,
   OpsResult,
@@ -50,7 +49,6 @@ type Actions = {
   setMetaPlatform: (platform: MetaPlatform, enabled: boolean) => Promise<OpsResult<SimpleOutcome>>;
   // Booking hand-off (design of 23 September 2026).
   saveRequirements: (fields: string[]) => Promise<OpsResult<SimpleOutcome>>;
-  resendSetupLink: (to: string | null) => Promise<OpsResult<IssueLinkOutcome>>;
   confirmTimezone: (timezone: string) => Promise<OpsResult<SimpleOutcome>>;
   retryCalendarWrite: (appointmentId: string) => Promise<OpsResult<RetryCalendarWriteOutcome>>;
   // The booking mode and the Google Calendar (plan §10).
@@ -174,7 +172,7 @@ export function OnboardingPanel({ view, actions }: { view: OpsResult<OnboardingV
       </Section>
 
       <Section title="Booking request fields">
-        <RequirementsCard view={v} onSave={actions.saveRequirements} onResend={actions.resendSetupLink} />
+        <RequirementsCard view={v} onSave={actions.saveRequirements} />
       </Section>
 
       <Section
@@ -739,9 +737,9 @@ function MetaFrontDoor({
         waiting · {m.bookingRequests.confirmed} confirmed · {m.bookingRequests.accepted} accepted (the desk calls) ·{" "}
         {m.bookingRequests.declined} declined. Meta conversations always take requests. Calls take requests too: a call can
         book only at healdesk&rsquo;s demo clinic, and only while the booking mode below allows live booking. For a request
-        the agent takes a name, a number and a preferred window, and the clinic&rsquo;s address gets an alert that points
-        into its portal, where the request opens behind sign-in; the desk calls them to settle a time. healdesk itself
-        contacts no one about a request. The requests themselves are not shown here.
+        the agent takes a name, a number and a preferred window, emails the desk a single-use link, and the desk confirms a
+        slot, calls them or declines there. healdesk itself contacts no one about a request. The requests themselves are not
+        shown here.
       </p>
       <form
         onSubmit={(event) => {
@@ -848,10 +846,9 @@ function whenLabel(iso: string | null): string {
   return iso ? iso.slice(0, 10) : "—";
 }
 
-function RequirementsCard({ view, onSave, onResend }: { view: OnboardingView; onSave: Actions["saveRequirements"]; onResend: Actions["resendSetupLink"] }) {
+function RequirementsCard({ view, onSave }: { view: OnboardingView; onSave: Actions["saveRequirements"] }) {
   const [pending, start] = useTransition();
   const [problem, setProblem] = useState<string | null>(null);
-  const [link, setLink] = useState<string | null>(null);
   const r = view.requirements;
   const chosen = new Set(r.fields);
   const status =
@@ -860,10 +857,10 @@ function RequirementsCard({ view, onSave, onResend }: { view: OnboardingView; on
       : r.source === "operator"
         ? `Confirmed by the operator on ${whenLabel(r.confirmedAt)}.`
         : r.source === "defaults"
-          ? `Defaults in effect since ${whenLabel(r.confirmedAt)}: nobody opened the setup link before it expired.`
+          ? `The specialty's defaults, in effect since ${whenLabel(r.confirmedAt)}.`
           : r.setupLinkOutstanding
-            ? "Not yet confirmed. A setup link is outstanding; the specialty defaults apply when it expires."
-            : "Not yet confirmed, and no setup link is outstanding. Resend one, or confirm the set on the call below.";
+            ? "Not yet confirmed. A setup link from before the setup wizard is outstanding; the specialty defaults apply when it expires."
+            : "Not yet confirmed. Confirm the set on the call below.";
   return (
     <div className="text-sm">
       <p className="text-muted">
@@ -903,34 +900,6 @@ function RequirementsCard({ view, onSave, onResend }: { view: OnboardingView; on
         </div>
       </form>
       <p className="text-muted mt-3 text-xs">Never asked, and cannot be added: {r.neverAsked.join(" · ")}.</p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          const to = String(new FormData(event.currentTarget).get("to") ?? "").trim() || null;
-          start(async () => {
-            setLink(null);
-            const result = await onResend(to);
-            if (!result.ok) return setProblem(result.message);
-            if (result.data.status === "refused") return setProblem(result.data.message);
-            setLink(result.data.url);
-            setProblem(
-              result.data.delivery.attempted
-                ? result.data.delivery.status === "sent"
-                  ? `Sent. Expires ${result.data.expiresAt}.`
-                  : `Not sent (${result.data.delivery.status}): ${"reason" in result.data.delivery ? result.data.delivery.reason : ""}. Send the link yourself.`
-                : `Issued, not mailed. Expires ${result.data.expiresAt}.`,
-            );
-          });
-        }}
-        className="border-line mt-4 flex flex-wrap items-end gap-3 border-t pt-4"
-      >
-        <label className="min-w-[220px] flex-1">
-          <span className="text-muted block text-xs font-bold uppercase">Resend the setup link to (optional)</span>
-          <input name="to" type="email" placeholder="frontdesk@practice.example" className="border-line mt-1 w-full rounded-sm border px-3 py-2" />
-        </label>
-        <button type="submit" disabled={pending} className="border-line-strong rounded-full border px-4 py-2 text-xs font-bold">Resend setup link</button>
-        {link ? <code className="w-full break-all rounded-sm bg-black/5 px-2 py-1 text-xs">{link}</code> : null}
-      </form>
     </div>
   );
 }

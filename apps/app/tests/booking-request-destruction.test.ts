@@ -213,8 +213,17 @@ const KEPT_AT_DESTRUCTION: Record<string, string> = {
   entitlements: "the plan and its allowances; no patient",
   incidents: "the record of each incident and of its notice",
   overage_invoices: "billing evidence",
+  practice_question_runs: "what approved the agent's words (lib/engine/practice): synthetic cases, never deleted by the runtime role, no patient",
+  practice_question_results: "the synthetic cases and AYA's answers to them, per channel and input version; no patient",
+  audit_review_queue: "ops-only decisions on those synthetic runs, and who made them; no patient",
+  site_rereads: "each read of the clinic's own public website after purchase (lib/website): business data like agent_configs, never deleted by the runtime role, no patient",
+  website_changes: "what those reads found on the clinic's website and whether it confirmed or ignored each: its own published business data, no patient",
   report_deliveries: "the ledger of every email sent to the clinic",
   report_recipients: "the clinic's own addresses for its email",
+  sign_in_address_changes:
+    "the record of each change of the clinic's address, the notice address its agreement names; business contact data, no patient (0084)",
+  agreement_resigns:
+    "the record of each re-sign from the DPA to the BAA: which agreement covered the practice, and when; contract metadata, no patient (0088)",
   sync_runs: "append-only by grant: what each sync ran, no patient",
   usage_events: "billing evidence: the usage ledger the clinic was charged from",
 };

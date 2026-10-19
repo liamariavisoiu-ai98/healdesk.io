@@ -160,10 +160,9 @@ const TERMS_1_3_0: Readonly<Record<string, BaaExplainerTerm>> = {
 };
 
 /**
- * 1.3.0's nine bullets. 1.4.0, 1.5.0 and the 1.6.0 draft show the same list,
- * the same object: their Term clauses say the same in plain terms (1.6.0's
- * differs only in one phrase about Anthropic), no bullet speaks of
- * transcripts, and none of Anthropic's retention.
+ * 1.3.0's nine bullets. 1.4.0, 1.5.0 and 1.5.1 show the same list, the same
+ * object: their Term clause is 1.3.0's own, and no bullet speaks of
+ * transcripts or of which channel asks for which booking detail.
  */
 const BULLETS_1_3_0: readonly BaaExplainerTerm[] = BAA_EXPLAINER.terms.map(
   (term) => TERMS_1_3_0[term.citation] ?? term,
@@ -176,7 +175,7 @@ const BULLETS_1_3_0: readonly BaaExplainerTerm[] = BAA_EXPLAINER.terms.map(
  */
 export const BAA_EXPLAINER_TERMS_BY_VERSION: Readonly<Record<string, readonly BaaExplainerTerm[]>> =
   {
-    "1.6.0": BULLETS_1_3_0,
+    "1.5.1": BULLETS_1_3_0,
     "1.5.0": BULLETS_1_3_0,
     "1.4.0": BULLETS_1_3_0,
     "1.3.0": BULLETS_1_3_0,
@@ -218,9 +217,9 @@ const BAA_EXPLAINERS_BY_VERSION: Readonly<Record<string, BaaExplainer>> = Object
  * its bullets from `baaExplainerTerms`: BAA_EXPLAINER itself for 1.2.2, the
  * version signed until 1.3.0's release, for 1.2.1 before it, and for any
  * version that words no bullet differently, so what that screen shows for
- * them stays byte for byte what it showed; for 1.3.0, 1.4.0 and 1.5.0, the
- * current version, the same heading, lead, objection and disclaimer above
- * 1.3.0's bullets.
+ * them stays byte for byte what it showed; for 1.3.0, 1.4.0, 1.5.0 and 1.5.1,
+ * the current version, the same heading, lead, objection and disclaimer
+ * above 1.3.0's bullets.
  * The signing screen takes the explainer from here with the version it
  * renders, never BAA_EXPLAINER directly (agreement-changes.md §12.14, release
  * gate 11).
@@ -374,15 +373,12 @@ export const BAA_CLAUSE_EXPLAINERS: Readonly<Record<ExplainedClauseId, BaaExplai
  * days (owner, 14 October 2026). Its minimum-necessary note says so in place
  * of 1.4.0's seven days; its other two notes are 1.3.0's, as in 1.4.0.
  *
- * In the 1.6.0 draft (19 October 2026) the subcontractors clause states
- * Anthropic's retention as Anthropic's documentation states it for the models
- * the product calls: no more than the 30 days of its standard retention, the
- * two years for flagged content alone, content the law requires kept as long
- * as the law requires, and no training without healdesk's permission
- * (model-retention.ts; agreement-changes.md §16). Its subcontractors note
- * says the same; its other notes are 1.5.0's. 1.3.0's, 1.4.0's and 1.5.0's
- * subcontractors note stays as it is, because it must say what the clause
- * beside it says, and those clauses are frozen.
+ * In 1.5.1 the minimum-necessary clause asks for the optional booking
+ * details (a last name, the service, new or returning, consultation or
+ * treatment, a practitioner) in a website chat as well as on a call, as the
+ * website chat does (owner, 19 October 2026). Its note says "on calls and in
+ * website chats" where 1.5.0's says "on calls", and is otherwise 1.5.0's;
+ * its other two notes are 1.3.0's, as in 1.5.0.
  */
 const CLAUSE_NOTES_1_3_0: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> = {
   "data-sources-none": {
@@ -422,49 +418,47 @@ const CLAUSE_NOTES_1_3_0: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> =
   },
 };
 
-/** 1.5.0's notes: 1.3.0's, with the minimum-necessary note for its transcript copy. */
-const CLAUSE_NOTES_1_5_0: Partial<Record<ExplainedClauseId, BaaExplainerTerm>> = {
-  ...CLAUSE_NOTES_1_3_0,
-  "minimum-necessary": {
-    plain:
-      "When someone books, the assistant asks only for what a receptionist would write on a " +
-      "callback slip: a first name, a number you can call, a preferred time and one or two " +
-      "others, and on calls, where your settings or your specialty's defaults ask for them, a " +
-      "last name, the service, whether they're new or returning, consultation or treatment, " +
-      "and a preferred practitioner. It asks for no email, history, medication or diagnosis, " +
-      "and never takes a card number. It says it is an AI assistant in its first line on every " +
-      "channel, and on calls that the call is transcribed; you cannot switch that off. " +
-      "healdesk doesn't keep transcripts: when a call or website chat ends, its transcript is " +
-      "emailed to your account's address, and healdesk deletes its encrypted copy as soon as " +
-      "your mail server confirms delivery. If the email can't be delivered, healdesk keeps " +
-      "trying for up to 30 days, then deletes the copy. From then on that email is your " +
-      "practice's record, to keep and protect",
-    citation: "164.502(b)",
-  },
-};
-
 export const BAA_CLAUSE_EXPLAINERS_BY_VERSION: Readonly<
   Record<string, Partial<Record<ExplainedClauseId, BaaExplainerTerm>>>
 > = {
-  "1.6.0": {
-    ...CLAUSE_NOTES_1_5_0,
-    subcontractors: {
+  "1.5.1": {
+    ...CLAUSE_NOTES_1_3_0,
+    "minimum-necessary": {
       plain:
-        "Every vendor that handles patient information signs the same obligations with " +
-        "healdesk before it does. The language model is Anthropic's: it receives conversation " +
-        "content only under a business associate agreement with healdesk, signed before any " +
-        "patient's information reaches it, keeps that content for no more than the 30 days of " +
-        "its standard retention, then deletes it (content its safety systems flag may be held " +
-        "for up to two years, and content the law requires it to keep for as long as the law " +
-        "requires), and doesn't train on it without healdesk's permission, which healdesk won't " +
-        `give. You're told by email at least ${SUBPROCESSOR_NOTICE_HOURS} hours before a new ` +
-        "vendor handles patient information, and may end the agreement without penalty if you " +
-        "object on reasonable grounds before the change takes effect: the service ends with it, " +
-        "and fees you paid for the time after are refunded",
-      citation: "164.504(e)(2)(ii)(D), 164.308(b)(2)",
+        "When someone books, the assistant asks only for what a receptionist would write on a " +
+        "callback slip: a first name, a number you can call, a preferred time and one or two " +
+        "others, and on calls and in website chats, where your settings or your specialty's " +
+        "defaults ask for them, a last name, the service, whether they're new or returning, " +
+        "consultation or treatment, and a preferred practitioner. It asks for no email, " +
+        "history, medication or diagnosis, and never takes a card number. It says it is an AI " +
+        "assistant in its first line on every channel, and on calls that the call is " +
+        "transcribed; you cannot switch that off. healdesk doesn't keep transcripts: when a " +
+        "call or website chat ends, its transcript is emailed to your account's address, and " +
+        "healdesk deletes its encrypted copy as soon as your mail server confirms delivery. If " +
+        "the email can't be delivered, healdesk keeps trying for up to 30 days, then deletes " +
+        "the copy. From then on that email is your practice's record, to keep and protect",
+      citation: "164.502(b)",
     },
   },
-  "1.5.0": CLAUSE_NOTES_1_5_0,
+  "1.5.0": {
+    ...CLAUSE_NOTES_1_3_0,
+    "minimum-necessary": {
+      plain:
+        "When someone books, the assistant asks only for what a receptionist would write on a " +
+        "callback slip: a first name, a number you can call, a preferred time and one or two " +
+        "others, and on calls, where your settings or your specialty's defaults ask for them, a " +
+        "last name, the service, whether they're new or returning, consultation or treatment, " +
+        "and a preferred practitioner. It asks for no email, history, medication or diagnosis, " +
+        "and never takes a card number. It says it is an AI assistant in its first line on every " +
+        "channel, and on calls that the call is transcribed; you cannot switch that off. " +
+        "healdesk doesn't keep transcripts: when a call or website chat ends, its transcript is " +
+        "emailed to your account's address, and healdesk deletes its encrypted copy as soon as " +
+        "your mail server confirms delivery. If the email can't be delivered, healdesk keeps " +
+        "trying for up to 30 days, then deletes the copy. From then on that email is your " +
+        "practice's record, to keep and protect",
+      citation: "164.502(b)",
+    },
+  },
   "1.4.0": {
     ...CLAUSE_NOTES_1_3_0,
     "minimum-necessary": {

@@ -42,6 +42,7 @@ import {
 import { amendmentsFor, type RecordAmendment } from "@/lib/patient-rights/amendments";
 import { exportClinic, exportPatient } from "@/lib/patient-rights/export";
 import { isPatientRequester, type PatientRequester } from "@/lib/patient-rights/requesters";
+import { exportReceipt, receiptMatches } from "@/lib/portal/export-receipt";
 import type { TenantTx } from "@/lib/tenant";
 
 import {
@@ -76,7 +77,7 @@ import {
  * delivery is confirmed (lib/conversations/transcript-outbox.ts). What is
  * shown is the record without the words: the channel, the time, the outcome,
  * the person as the clinic's records name them, any booking request it
- * produced, any amendment the practice directed (BAA 1.5.0 clause 14(b):
+ * produced, any amendment the practice directed (BAA 1.5.1 clause 14(b):
  * every screen that shows the record carries it), and the transcript's
  * delivery receipt.
  *
@@ -605,7 +606,7 @@ export type ConversationDetail = {
   callerPhone: string | null;
   /** The contact a per-person export is made for, when the records name one. */
   contactId: string | null;
-  request: ShownRequest | null;
+  request: { id: string; status: string; createdAt: string } | null;
   /** A Meta thread: how many conversations this person has had on the channel. */
   conversationsCount: number | null;
   /** The transcript's delivery: calls and web chats only, and only when one was queued. */
@@ -615,49 +616,7 @@ export type ConversationDetail = {
   amendments: ShownAmendment[];
 };
 
-/**
- * The booking request a conversation produced, as staff need it to act: when
- * the person would like to come, the other times they gave and the service
- * they named (a Meta request names none). The booking alert (L7) opens here
- * until the Bookings screen does, so this is where staff read it.
- */
-export type ShownRequest = {
-  id: string;
-  status: string;
-  createdAt: string;
-  preferredWindow: string;
-  alternativeWindows: string[];
-  service: string | null;
-};
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** One request's times and service, read by id inside the page's transaction. */
-async function shownRequest(
-  tx: TenantTx,
-  request: { id: string; status: string; createdAt: Date },
-): Promise<ShownRequest> {
-  const [row] = await tx.db
-    .select({
-      preferredWindow: bookingRequests.preferredWindow,
-      alternativeWindows: bookingRequests.alternativeWindows,
-      treatment: bookingRequests.treatment,
-      collectedFields: bookingRequests.collectedFields,
-    })
-    .from(bookingRequests)
-    .where(and(eq(bookingRequests.clinicId, tx.clinicId), eq(bookingRequests.id, request.id)))
-    .limit(1);
-  return {
-    id: request.id,
-    status: request.status,
-    createdAt: iso(request.createdAt),
-    preferredWindow: row?.preferredWindow ?? "",
-    alternativeWindows: row?.alternativeWindows ?? [],
-    // `treatment` is frozen at creation; a service collected later lands in
-    // collected_fields (the column's own note in db/schema.ts).
-    service: row?.treatment ?? row?.collectedFields?.service ?? null,
-  };
-}
 
 export function isConversationId(value: unknown): value is string {
   return typeof value === "string" && UUID.test(value);
@@ -679,7 +638,7 @@ async function readCallOrChat(tx: TenantTx, id: string): Promise<ConversationDet
     contactId: row.contactId,
     request:
       row.requestId && row.requestStatus && row.requestCreatedAt
-        ? await shownRequest(tx, { id: row.requestId, status: row.requestStatus, createdAt: row.requestCreatedAt })
+        ? { id: row.requestId, status: row.requestStatus, createdAt: iso(row.requestCreatedAt) }
         : null,
     conversationsCount: null,
     receipt,
@@ -703,7 +662,9 @@ async function readThread(tx: TenantTx, id: string): Promise<ConversationDetail 
     callerName: item.callerName,
     callerPhone: item.callerPhone,
     contactId: request?.contactId ?? null,
-    request: request ? await shownRequest(tx, request) : null,
+    request: request
+      ? { id: request.id, status: request.status, createdAt: iso(request.createdAt) }
+      : null,
     conversationsCount: thread.conversationsCount,
     receipt: null,
     canSendAgain: false,
@@ -846,8 +807,8 @@ export type ExportStanding = {
   deliveredAt: Date | null;
   /**
    * Once closed: when the records are deleted if the complete export is
-   * downloaded now (a download records the export as delivered), by the rule
-   * of the agreement the service ended under.
+   * downloaded now (a download that arrives in full records the export as
+   * delivered), by the rule of the agreement the service ended under.
    */
   deletedFromIfDownloaded: Date | null;
 };
@@ -911,8 +872,14 @@ export type ExportResult =
       filename: string;
       /** The bundle, as JSON: the same shape the operator's export writes. */
       body: string;
-      /** Set when this download recorded a closed clinic's export as delivered. */
-      deliveredAt: Date | null;
+      /**
+       * A closed clinic's whole export only: the receipt the browser sends
+       * back, with the digest of what it received, so that a download that
+       * arrived in full records the export as delivered (confirmClinicExport).
+       * Null otherwise: an open account's download, or one person's, is not
+       * the export the agreements owe.
+       */
+      receipt: string | null;
     }
   | { ok: false; reason: "destroyed" | "not_found" | "no_details" | "requester" };
 
@@ -930,9 +897,10 @@ function stamp(at: Date): string {
  * (in the outbox, in this transaction). The bundle is written out in full
  * inside the transaction, so a bundle that cannot be produced whole leaves no
  * row and no email. After cancellation it is the complete export the
- * agreements owe, so this download records it as delivered
- * (markExportDelivered), which sets the destruction date
- * (lib/offboarding/offboarding.ts).
+ * agreements owe (E4 points here), but producing it records nothing: it
+ * carries a receipt, and only the browser's report that the whole file
+ * arrived (confirmClinicExport) records it as delivered, which sets the
+ * destruction date (lib/offboarding/offboarding.ts).
  */
 export async function exportClinicRecords(
   page: PatientPage,
@@ -964,9 +932,6 @@ export async function exportClinicRecords(
       resourceId: tx.clinicId,
     });
     const body = JSON.stringify(bundle, null, 2);
-    const deliveredAt = clinic.offboardingStartedAt
-      ? await markExportDelivered(tx, "downloaded by the clinic from Conversations in the portal")
-      : null;
     await notifyRecordsExported(tx, {
       field: "clinic_export",
       exportId: randomUUID(),
@@ -977,8 +942,59 @@ export async function exportClinicRecords(
       ok: true,
       filename: `healdesk-records-${clinic.slug}-${stamp(now)}.json`,
       body,
-      deliveredAt,
+      receipt: clinic.offboardingStartedAt ? exportReceipt(tx.clinicId, body, now) : null,
     };
+  });
+}
+
+export type ConfirmExportResult =
+  | { ok: true; deliveredAt: Date }
+  | { ok: false; reason: "incomplete" | "destroyed" | "open" };
+
+/**
+ * The browser has the whole export: `receipt` is the one exportClinicRecords
+ * handed it with the file, `digest` the SHA-256 it computed over the file it
+ * received. A digest that matches the file the server produced, for this
+ * clinic, within the receipt's time, records the export as delivered
+ * (markExportDelivered): the stamp the destruction clock reads, once, and
+ * only while the clinic is closed and not destroyed. Anything else records
+ * nothing: a partial, altered or stale download is not a delivery, and the
+ * clinic downloads again. Behind the same step-up, and logged in the access
+ * log as the export reaching that device.
+ */
+export async function confirmClinicExport(
+  page: PatientPage,
+  receipt: unknown,
+  digest: unknown,
+  now: Date = new Date(),
+): Promise<ConfirmExportResult> {
+  if (!receiptMatches(receipt, page.portal.clinicId, digest, now)) {
+    return { ok: false, reason: "incomplete" };
+  }
+  return withPatientPage(page, async (tx) => {
+    const [clinic] = await tx.db
+      .select({ offboardingStartedAt: clinics.offboardingStartedAt, destroyedAt: clinics.destroyedAt })
+      .from(clinics)
+      .where(eq(clinics.id, tx.clinicId))
+      .limit(1);
+    if (!clinic || clinic.destroyedAt || !clinic.offboardingStartedAt) {
+      await logPatientAccess(tx, {
+        action: "read",
+        resourceType: "clinic_bundle",
+        resourceId: tx.clinicId,
+      });
+      return { ok: false, reason: clinic && !clinic.destroyedAt ? "open" : "destroyed" };
+    }
+    await logPatientAccess(tx, {
+      action: "export",
+      resourceType: "clinic_bundle",
+      resourceId: tx.clinicId,
+    });
+    const deliveredAt = await markExportDelivered(
+      tx,
+      "downloaded in full by the clinic from Conversations in the portal",
+    );
+    return { ok: true, deliveredAt };
   });
 }
 
@@ -1028,7 +1044,7 @@ export async function exportPersonRecords(
       ok: true,
       filename: `healdesk-person-records-${stamp(now)}.json`,
       body,
-      deliveredAt: null,
+      receipt: null,
     };
   });
 }

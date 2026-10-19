@@ -51,6 +51,7 @@ import {
   type CoverageModeId,
   type OnboardingState,
   type RegulatoryRegime,
+  SERVICE_PRICE_KINDS,
   type ServicePriceKind,
   TRANSCRIPT_RETENTION_DAYS_OPTIONS,
   type TranscriptRetentionDays,
@@ -60,6 +61,21 @@ import type { OpeningHours } from "../lib/clinic/opening-hours";
 import type { SealedPayload } from "../lib/crypto/envelope";
 import { LEDGER_DIRECT_KINDS } from "../lib/email/direct-kinds";
 import { NOTICE_KINDS, PACKAGE_NOTICE_KINDS, type NoticeKind } from "../lib/email/kinds";
+import {
+  AUDIT_REVIEW_KINDS,
+  AUDIT_REVIEW_STATUSES,
+  PRACTICE_RESULT_STATUSES,
+  PRACTICE_RUN_REASONS,
+  PRACTICE_RUN_STATUSES,
+  PRACTICE_SECTIONS,
+  type AuditReviewKind,
+  type AuditReviewStatus,
+  type PracticeCaseResult,
+  type PracticeResultStatus,
+  type PracticeRunReason,
+  type PracticeRunStatus,
+  type PracticeSection,
+} from "../lib/engine/practice/types";
 import { DEVICE_LABEL_MAX } from "../lib/factors/device";
 import {
   SETTINGS_HISTORY_FIELDS,
@@ -69,6 +85,20 @@ import {
   type SetupScreenId,
   type SetupScreenOutcome,
 } from "../lib/setup/screen-ids";
+import {
+  SITE_REREAD_FAILURES,
+  SITE_REREAD_REASONS,
+  SITE_REREAD_STATUSES,
+  WEBSITE_CHANGE_KINDS,
+  WEBSITE_CHANGE_SECTIONS,
+  WEBSITE_CHANGE_STATES,
+  type SiteRereadFailure,
+  type SiteRereadReason,
+  type SiteRereadStatus,
+  type WebsiteChangeKind,
+  type WebsiteChangeSection,
+  type WebsiteChangeState,
+} from "../lib/website/types";
 
 import { organization, user } from "./auth-schema";
 
@@ -553,6 +583,17 @@ export const clinics = pgTable(
     destroyAfter: timestamp("destroy_after", { withTimezone: true }),
     /** The destruction ran. The clinic row and its audit trail remain; nothing else does. */
     destroyedAt: timestamp("destroyed_at", { withTimezone: true }),
+    /**
+     * Where E6, "Your data has been destroyed", goes: the clinic's one
+     * address, read in the destruction's own transaction before anything is
+     * deleted and written beside the destroyed stamp
+     * (lib/offboarding/after-cancellation.ts), so the email never depends on
+     * a sign-in that may not outlive the destruction. Only a destroyed clinic
+     * holds one (a CHECK). Business contact data, never a patient's. It is
+     * the clinic row's, which destruction keeps, and it goes itself once E6
+     * is sent, or once DESTRUCTION_NOTICE_DAYS have passed without a send.
+     */
+    destructionNoticeAddress: text("destruction_notice_address"),
 
     // --- Billing across locations and the deposit account (0043). ---
     /**
@@ -638,6 +679,11 @@ export const clinics = pgTable(
     check(
       "clinics_website_check",
       sql`${t.website} is null or (char_length(${t.website}) between 4 and 200 and ${t.website} !~ '[[:space:][:cntrl:]]')`,
+    ),
+    // Held only by a clinic already destroyed, and only an address.
+    check(
+      "clinics_destruction_notice_address_check",
+      sql`${t.destructionNoticeAddress} is null or (${t.destroyedAt} is not null and char_length(${t.destructionNoticeAddress}) between 3 and 254 and ${t.destructionNoticeAddress} ~ '^[^[:space:][:cntrl:]@]+@[^[:space:][:cntrl:]@]+$')`,
     ),
   ],
 );
@@ -1103,6 +1149,23 @@ export const appointments = pgTable(
      */
     calendarId: text("calendar_id"),
 
+    /**
+     * The clinic's own listed price for the booked service when the booking
+     * was made (drizzle/0087): what "booked value" multiplies by (spec, "What
+     * v1 can prove": bookings times the clinic's own configured prices,
+     * labelled booked value, never revenue; lib/reporting/claims.ts). The
+     * low end of the price as Knowledge → Prices states it: an exact price,
+     * the start of a "from" price or a range, or the price of one unit for a
+     * per-unit price, which the claims count apart and never multiply into a
+     * total. Both null when the booking named no service on the clinic's
+     * list, or the service has no price there. Written once, at insert, by
+     * insertAppointment (lib/meta/booking-requests.ts); a trigger refuses a
+     * change, so a price edited in Knowledge later never rewrites what was
+     * booked.
+     */
+    listedPriceCents: integer("listed_price_cents"),
+    listedPriceKind: text("listed_price_kind").$type<ServicePriceKind>(),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1111,6 +1174,10 @@ export const appointments = pgTable(
       .defaultNow(),
   },
   (t) => [
+    check(
+      "appointments_listed_price_check",
+      sql`(${t.listedPriceCents} is null and ${t.listedPriceKind} is null) or (${t.listedPriceCents} >= 0 and ${t.listedPriceKind} in (${sqlList(SERVICE_PRICE_KINDS)}))`,
+    ),
     check(
       "appointments_duration_check",
       sql`${t.durationMinutes} is null or ${t.durationMinutes} between 5 and 480`,
@@ -1435,14 +1502,6 @@ export const emailDailyQuota = pgTable(
     observedAt: timestamp("observed_at", { withTimezone: true }).notNull().defaultNow(),
     /** When notifyOps was told the count reached 70. Set once per day. */
     alertedAt: timestamp("alerted_at", { withTimezone: true }),
-    /**
-     * When a send first came back daily_quota_exceeded this day: nothing more
-     * goes through Resend until midnight UTC, urgent alerts included, so the
-     * urgent reply stops saying the team was told (urgentAlertLive). A
-     * refusal seen, not a count reached: the plan's limit is not ours to
-     * know (drizzle/0081).
-     */
-    exhaustedAt: timestamp("exhausted_at", { withTimezone: true }),
   },
   (t) => [check("email_daily_quota_used_check", sql`${t.used} >= 0`)],
 );
@@ -1536,6 +1595,33 @@ export const incidents = pgTable(
      * kept; see lib/incidents/incidents.ts.
      */
     ftcNotifyBy: timestamp("ftc_notify_by", { withTimezone: true }),
+    /**
+     * The deadline the clinic's agreement itself promises, set when the
+     * incident is opened from the agreement in effect then
+     * (lib/incidents/reporting-rules.ts): 60 calendar days after discovery
+     * under BAA 1.2.2 on and the DPA; five calendar days for a breach and
+     * five business days for the rest under 1.2.1 and before, and for a
+     * clinic with no agreement or one the map does not know. Null for a
+     * service complaint, which no agreement clocks. `notify_by` is healdesk's
+     * own target, stricter, and never a promise (owner, 12 October 2026).
+     */
+    agreementNotifyBy: timestamp("agreement_notify_by", { withTimezone: true }),
+    /** The version that deadline was read from, or null when there was none (the strictest rule applied). */
+    agreementVersion: text("agreement_version"),
+    /**
+     * Ops' decision on an incident the agreement covers (plan Part J,
+     * "incidents"): a report sent (L29, from fixed fields only, through the
+     * outbox) or not reportable, with the reason. Nothing reaches a clinic
+     * unless ops sends it. `reports_sent` counts the reports and their
+     * updates, so each one has its own outbox dedupe key.
+     */
+    reportedAt: timestamp("reported_at", { withTimezone: true }),
+    reportsSent: integer("reports_sent").notNull().default(0),
+    notReportableAt: timestamp("not_reportable_at", { withTimezone: true }),
+    /** Operator prose, PHI-scanned on the way in like the summary. */
+    notReportableReason: text("not_reportable_reason"),
+    /** Who decided: the administrator's address (lib/ops/api.ts). */
+    decidedBy: text("decided_by"),
     openedBy: text("opened_by").notNull(),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolution: text("resolution"),
@@ -1545,6 +1631,14 @@ export const incidents = pgTable(
   (t) => [
     index("incidents_clinic_idx").on(t.clinicId, t.discoveredAt),
     index("incidents_open_idx").on(t.notifyBy).where(sql`${t.resolvedAt} is null`),
+    // One decision: a report sent, or not reportable with its reason, never both.
+    check(
+      "incidents_decision_check",
+      sql`not (${t.reportedAt} is not null and ${t.notReportableAt} is not null)
+          and (${t.notReportableAt} is null) = (${t.notReportableReason} is null)
+          and (${t.reportedAt} is null) = (${t.reportsSent} = 0)
+          and ${t.reportsSent} >= 0`,
+    ),
   ],
 );
 
@@ -1578,9 +1672,8 @@ export const clinicTouches = pgTable(
  * thread, and the assistant did not book it — because the clinic runs manual
  * booking mode, or (v1, not built yet) has "Auto-confirm bookings" off, or
  * its calendar connection is broken. The request is written here (the PHI
- * side), the clinic is alerted with a pointer into its portal and no patient
- * in it (L7, lib/notices/booking-alerts.ts), and a human decides. On a Meta
- * thread the person may hear back on the
+ * side), the practice's desk is emailed a single-use link with no patient in
+ * it, and a human decides. On a Meta thread the person may hear back on the
  * channel they used, inside Meta's 24-hour window only — that the practice
  * has their request, never a time.
  *
@@ -1690,11 +1783,25 @@ export const bookingRequests = pgTable(
      * route idempotent on a retried tool call. Frozen after insert.
      */
     vendorCallId: text("vendor_call_id"),
+    /**
+     * How the request was taken: by AYA in a conversation, or on the
+     * website's contact form while website chat was not answering (L20,
+     * package F): a first name, a number and one of a fixed set of times,
+     * nothing else. A contact-form request is always web chat's, with no
+     * conversation (CHECK). Frozen after insert: the runtime role has no
+     * UPDATE on it, and the no-rewrite trigger refuses it to the owner too.
+     */
+    source: text("source").$type<BookingRequestSource>().notNull().default("assistant"),
     /** The person's last inbound message on the thread — the start of Meta's 24-hour window. */
     lastInboundAt: timestamp("last_inbound_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    check("booking_requests_source_known", sql`${t.source} in ('assistant', 'contact_form')`),
+    check(
+      "booking_requests_source_shape",
+      sql`${t.source} = 'assistant' or (${t.channel} = 'web_chat' and ${t.conversationId} is null and ${t.vendorCallId} is null)`,
+    ),
     uniqueIndex("booking_requests_token_idx").on(t.tokenHash),
     index("booking_requests_clinic_idx").on(t.clinicId, t.createdAt),
     uniqueIndex("booking_requests_vendor_call_idx")
@@ -1712,6 +1819,8 @@ export const bookingRequests = pgTable(
 export type ProposedSlot = { at: string; label: string; source: "calendar" | "desk" };
 /** See bookingRequests.bookedVia. 0041 dropped 'callback' from the CHECK: healdesk places no calls. */
 export type BookedVia = "desk" | "agent_direct";
+/** See bookingRequests.source: AYA took it, or the website's contact form did while AYA was not answering. */
+export type BookingRequestSource = "assistant" | "contact_form";
 
 /**
  * The id and token hash of every booking request ever written, kept after
@@ -2541,7 +2650,7 @@ export type AmendmentTargetKind = (typeof AMENDMENT_TARGET_KINDS)[number];
 
 /**
  * An amendment Practice directed to a record that must stay as it was made
- * (clause 14(b) of BAA 1.5.0, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
+ * (clause 14(b) of BAA 1.5.1, as of 1.3.0; 45 CFR 164.526(c)(1); the DPA's
  * Clients' requests clause; release gate 8, PT-17). A booking request's
  * facts never change (the no-rewrite trigger, 0039 and 0041), a conversation
  * is the record of what was said, and an appointment is the booking as the
@@ -3388,6 +3497,22 @@ export const checkoutIntents = pgTable(
     provisionedUserId: text("provisioned_user_id"),
     /** Provisioning refused this intent: /welcome says so instead of waiting. */
     provisionFailedAt: timestamp("provision_failed_at", { withTimezone: true }),
+    /**
+     * When a paid first invoice's relay first reached /api/provision for this
+     * purchase (WP5): the database's clock, written before provisioning runs
+     * and kept whatever it does. Ten minutes later with no account, the ops
+     * watch raises `paid_intent_without_clinic` (lib/ops/watch.ts). The relay
+     * is the only caller, and it calls only for a paid first invoice (or, in
+     * development, for the unpaid path that provisions at once).
+     */
+    paidSeenAt: timestamp("paid_seen_at", { withTimezone: true }),
+    /**
+     * How many provisioning attempts failed in a way a retry could fix (a 500
+     * that Stripe redelivers). At PROVISION_DEAD_LETTER_AT the purchase is
+     * dead-lettered: ops is told, B3 goes to the buyer, and /welcome stops
+     * waiting; later redeliveries still provision (lib/checkout/dead-letter.ts).
+     */
+    provisionFailures: integer("provision_failures").notNull().default(0),
     /**
      * Stripe's hosted page for the paid first invoice, where the setup-fee
      * receipt is, as the invoice.paid relay passed it to provisioning (0056).
@@ -4405,6 +4530,252 @@ export const clinicSettingsHistory = pgTable(
 
 export type ClinicSettingsHistoryRow = typeof clinicSettingsHistory.$inferSelect;
 
+/**
+ * Where a change of the clinic's one address stands (plan Part D5, Annex X5
+ * O5; drizzle/0084). `awaiting_confirmation`: asked for from Settings, with a
+ * single-use link sent to the new address. `pending`: confirmed (or entered
+ * by the operator through ops' changeClinicEmail), and taking effect at
+ * `effective_at`, 72 hours on. Then exactly one of `applied`, `stopped` (by
+ * the clinic or the operator), `expired` (the link was never used) or
+ * `failed` (the new address became another sign-in's in the meantime).
+ */
+export const ADDRESS_CHANGE_STATUSES = [
+  "awaiting_confirmation",
+  "pending",
+  "applied",
+  "stopped",
+  "expired",
+  "failed",
+] as const;
+export type AddressChangeStatus = (typeof ADDRESS_CHANGE_STATUSES)[number];
+
+/** The statuses a change is still open in: at most one per sign-in. */
+export const OPEN_ADDRESS_CHANGE_STATUSES = [
+  "awaiting_confirmation",
+  "pending",
+] as const satisfies readonly AddressChangeStatus[];
+
+/** Who asked: the clinic from Settings, or the operator after a call back (D5). */
+export const ADDRESS_CHANGE_SOURCES = ["settings", "operator"] as const;
+export type AddressChangeSource = (typeof ADDRESS_CHANGE_SOURCES)[number];
+
+/** Who stopped one: the clinic, signed in, or the operator on an objection. */
+export const ADDRESS_CHANGE_STOPPERS = ["clinic", "operator"] as const;
+export type AddressChangeStopper = (typeof ADDRESS_CHANGE_STOPPERS)[number];
+
+/**
+ * A change of the clinic's one address: its sign-in (the Better Auth user's
+ * email), the Stripe customer's email and the agreement's notice address,
+ * which move together when it takes effect (lib/sign-in/address-change.ts).
+ * Business contact data, never a patient. Tenant RLS on the clinic it was
+ * asked for; the confirmation link and the hourly job find a row across
+ * tenants only through two SECURITY DEFINER functions (0084).
+ *
+ * The confirmation token is never stored, only its SHA-256, as sign-in links
+ * keep theirs. The runtime role may move the state columns and never DELETE:
+ * the row is the written record that the practice gave healdesk a new notice
+ * address (the agreements' Notices clause), and destruction keeps it.
+ */
+export const signInAddressChanges = pgTable(
+  "sign_in_address_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** The sign-in that moves. */
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    /** Lower-cased, as user.email stood when the change was asked for. */
+    oldEmail: text("old_email").notNull(),
+    newEmail: text("new_email").notNull(),
+    source: text("source").$type<AddressChangeSource>().notNull(),
+    status: text("status").$type<AddressChangeStatus>().notNull(),
+    /** The device whose passkey stepped up, or the operator's address. A snapshot. */
+    requestedBy: text("requested_by").notNull(),
+    /** SHA-256 of the single-use confirmation link's token; Settings changes only. */
+    confirmTokenHash: bytea("confirm_token_hash"),
+    confirmExpiresAt: timestamp("confirm_expires_at", { withTimezone: true }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    /** When it takes effect: 72 hours after confirmation (or after the operator entered it). */
+    effectiveAt: timestamp("effective_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    stoppedBy: text("stopped_by").$type<AddressChangeStopper>(),
+    /** A closed code for `failed`, or the label of whoever stopped it. Never typed text. */
+    resolution: text("resolution"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("sign_in_address_changes_clinic_idx").on(t.clinicId, t.createdAt),
+    uniqueIndex("sign_in_address_changes_token_idx")
+      .on(t.confirmTokenHash)
+      .where(sql`${t.confirmTokenHash} is not null`),
+    // One open change per sign-in: a second request while one is open would
+    // leave two notices naming two different addresses.
+    uniqueIndex("sign_in_address_changes_open_idx")
+      .on(t.userId)
+      .where(sql`${t.status} in (${sqlList(OPEN_ADDRESS_CHANGE_STATUSES)})`),
+    index("sign_in_address_changes_due_idx")
+      .on(t.effectiveAt)
+      .where(sql`${t.status} = 'pending'`),
+    check(
+      "sign_in_address_changes_status_check",
+      sql`${t.status} in (${sqlList(ADDRESS_CHANGE_STATUSES)})`,
+    ),
+    check(
+      "sign_in_address_changes_source_check",
+      sql`${t.source} in (${sqlList(ADDRESS_CHANGE_SOURCES)})`,
+    ),
+    check(
+      "sign_in_address_changes_stopped_by_check",
+      sql`${t.stoppedBy} is null or ${t.stoppedBy} in (${sqlList(ADDRESS_CHANGE_STOPPERS)})`,
+    ),
+    check(
+      "sign_in_address_changes_emails_check",
+      sql`${t.oldEmail} = lower(btrim(${t.oldEmail})) and ${t.newEmail} = lower(btrim(${t.newEmail})) and char_length(${t.oldEmail}) between 3 and 254 and char_length(${t.newEmail}) between 3 and 254 and ${t.oldEmail} <> ${t.newEmail}`,
+    ),
+    check(
+      "sign_in_address_changes_token_hash_length",
+      sql`${t.confirmTokenHash} is null or octet_length(${t.confirmTokenHash}) = 32`,
+    ),
+    check(
+      "sign_in_address_changes_requested_by_check",
+      sql`char_length(${t.requestedBy}) between 1 and 200`,
+    ),
+    check(
+      "sign_in_address_changes_resolution_check",
+      sql`${t.resolution} is null or char_length(${t.resolution}) between 1 and 200`,
+    ),
+    // A Settings change carries its link until it is confirmed; the operator's
+    // has none, because the operator confirmed it on the call back.
+    check(
+      "sign_in_address_changes_link_check",
+      sql`(${t.source} = 'settings') = (${t.confirmExpiresAt} is not null)`,
+    ),
+    check(
+      "sign_in_address_changes_pending_check",
+      sql`${t.status} <> 'pending' or (${t.effectiveAt} is not null and ${t.confirmedAt} is not null)`,
+    ),
+    check(
+      "sign_in_address_changes_resolved_check",
+      sql`(${t.status} in (${sqlList(OPEN_ADDRESS_CHANGE_STATUSES)})) = (${t.resolvedAt} is null)`,
+    ),
+    check(
+      "sign_in_address_changes_stopped_check",
+      sql`(${t.status} = 'stopped') = (${t.stoppedBy} is not null)`,
+    ),
+  ],
+);
+
+export type SignInAddressChange = typeof signInAddressChanges.$inferSelect;
+
+// -----------------------------------------------------------------------------
+// The DPA→BAA re-sign (package WP9, plan Part L, Annex X5 L22; drizzle/0088)
+// -----------------------------------------------------------------------------
+
+/** Why a practice under the Data Protection Agreement now needs the BAA: its answer. */
+export const AGREEMENT_RESIGN_REASONS = ["now_covered", "not_sure"] as const;
+export type AgreementResignReason = (typeof AGREEMENT_RESIGN_REASONS)[number];
+
+/** Who recorded the answer: ops (setCoveredEntity), or the practice from Billing. */
+export const AGREEMENT_RESIGN_SOURCES = ["operator", "portal"] as const;
+export type AgreementResignSource = (typeof AGREEMENT_RESIGN_SOURCES)[number];
+
+/**
+ * `open` until the practice signs the BAA (`signed`), or until ops records
+ * that it bills no insurance electronically after all (`withdrawn`), which
+ * leaves the DPA in force and covering it again.
+ */
+export const AGREEMENT_RESIGN_STATUSES = ["open", "signed", "withdrawn"] as const;
+export type AgreementResignStatus = (typeof AGREEMENT_RESIGN_STATUSES)[number];
+
+/**
+ * A practice's re-sign, from the Data Protection Agreement to the Business
+ * Associate Agreement (lib/agreements/resign.ts): opened the moment its
+ * covered-entity answer stops the DPA covering it, which is the moment the
+ * PHI gate starts refusing its data, and closed when the BAA it signs through
+ * L22's link is put in force by app_supersede_agreement().
+ *
+ * L22's link is signed and never stored: it names this row and its clinic,
+ * and works only while the row is open, so signing spends every link it was
+ * ever sent. The emails are on the ledger (report_deliveries), one period key
+ * each for L22 and its reminders at 3 and 7 days.
+ *
+ * `paused_at` is the header pause this re-sign put on AYA
+ * (clinic_settings.ai_paused_at), so that L22's "AYA is paused until it's
+ * signed" is true whatever the answer gate reads, and so signing lifts only
+ * that pause and never one the practice set itself.
+ *
+ * Contract metadata, never a patient: no BAA gate. Tenant RLS on the clinic
+ * that recorded the answer; the hourly job walks open rows through a SECURITY
+ * DEFINER function that answers ids only (0088). Destruction keeps it: it is
+ * part of the record of which agreement covered the practice, and when.
+ */
+export const agreementResigns = pgTable(
+  "agreement_resigns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** The DPA in force when the re-sign began, which the BAA is to replace. */
+    fromAgreementId: uuid("from_agreement_id")
+      .notNull()
+      .references(() => baaAcceptances.id),
+    reason: text("reason").$type<AgreementResignReason>().notNull(),
+    source: text("source").$type<AgreementResignSource>().notNull(),
+    /** The operator's address, or the device whose passkey stepped up. A snapshot. */
+    requestedBy: text("requested_by").notNull(),
+    status: text("status").$type<AgreementResignStatus>().notNull().default("open"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    /** The pause this re-sign put on AYA, or null when she was already paused or nothing answered. */
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    signedAt: timestamp("signed_at", { withTimezone: true }),
+    supersedingAgreementId: uuid("superseding_agreement_id").references(() => baaAcceptances.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    /** Who closed it: the signatory's address, or the operator who withdrew it. */
+    resolvedBy: text("resolved_by"),
+  },
+  (t) => [
+    // One open re-sign per clinic: "Not sure" after "Yes" is the same re-sign.
+    uniqueIndex("agreement_resigns_open_idx")
+      .on(t.clinicId)
+      .where(sql`${t.status} = 'open'`),
+    index("agreement_resigns_clinic_idx").on(t.clinicId, t.startedAt),
+    check(
+      "agreement_resigns_status_check",
+      sql`${t.status} in (${sqlList(AGREEMENT_RESIGN_STATUSES)})`,
+    ),
+    check(
+      "agreement_resigns_reason_check",
+      sql`${t.reason} in (${sqlList(AGREEMENT_RESIGN_REASONS)})`,
+    ),
+    check(
+      "agreement_resigns_source_check",
+      sql`${t.source} in (${sqlList(AGREEMENT_RESIGN_SOURCES)})`,
+    ),
+    check(
+      "agreement_resigns_requested_by_check",
+      sql`char_length(${t.requestedBy}) between 1 and 200`,
+    ),
+    check(
+      "agreement_resigns_resolved_by_check",
+      sql`${t.resolvedBy} is null or char_length(${t.resolvedBy}) between 1 and 254`,
+    ),
+    check(
+      "agreement_resigns_resolved_check",
+      sql`(${t.status} = 'open') = (${t.resolvedAt} is null) and (${t.resolvedAt} is null) = (${t.resolvedBy} is null)`,
+    ),
+    check(
+      "agreement_resigns_signed_check",
+      sql`(${t.status} = 'signed') = (${t.signedAt} is not null and ${t.supersedingAgreementId} is not null)`,
+    ),
+  ],
+);
+
+export type AgreementResign = typeof agreementResigns.$inferSelect;
+
 // -----------------------------------------------------------------------------
 // The portal's second factors and step-up (drizzle/0047). Identity plane, like
 // sign_in_links: a factor belongs to the clinic's one sign-in, not to a clinic,
@@ -5160,6 +5531,226 @@ export const clinicProviderServices = pgTable(
   ],
 );
 
+// -----------------------------------------------------------------------------
+// The practice questions (plan Part G; spec, "The pre-launch audit")
+// -----------------------------------------------------------------------------
+
+/**
+ * One run of a clinic's practice questions: the spec's nine cases, and the
+ * disclosure line, templated from its own profile and asked of every channel
+ * it bought, through the brain each channel answers with
+ * (lib/engine/practice). A run is asked for by a change to what the cases
+ * read and waits two minutes without another (`run_after`, moved on by each
+ * change while it is queued); the job claims it under a lease, one at a time
+ * per clinic, which the two partial unique indexes hold.
+ *
+ * `agent_version` is agent_configs.version as the run read it, and a pass
+ * approves that version and no other; `input_version` the hash of
+ * everything the cases read (the knowledge, the settings, the case set),
+ * which tells a run whose inputs changed while it ran (`superseded`).
+ * `failed_section` and `failed_count` are what O9 names when a case failed
+ * on the clinic's own data. `override_label` is an operator's approval of
+ * the script recorded as a passed run (ops approveAgentConfig), the path
+ * that stays as an override.
+ *
+ * Synthetic: no patient is in any run, and nothing here is PHI. Tenant RLS,
+ * forced; the runtime role may read, add and move a run on, never delete
+ * one. Kept at destruction, beside agent_configs: the record of what
+ * approved the words AYA said for the clinic.
+ */
+export const practiceQuestionRuns = pgTable(
+  "practice_question_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    status: text("status").$type<PracticeRunStatus>().notNull().default("queued"),
+    reason: text("reason").$type<PracticeRunReason>().notNull(),
+    /** The Knowledge section whose save asked for it, when one did: what Home's "double-checking" line names. */
+    triggerSection: text("trigger_section").$type<PracticeSection>(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Not before: two minutes after the last change that asked for it. */
+    runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    /** While running: the job's lease, after which another run of the job may take it over. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    agentVersion: integer("agent_version"),
+    casesVersion: text("cases_version"),
+    inputVersion: text("input_version"),
+    failedSection: text("failed_section").$type<PracticeSection>(),
+    failedCount: integer("failed_count"),
+    /** The agent_configs version this pass approved; null when it approved nothing new. */
+    approvedVersion: integer("approved_version"),
+    overrideLabel: text("override_label"),
+    /** Why the last attempt could not finish: a category, never the model's words. */
+    lastError: text("last_error"),
+  },
+  (t) => [
+    uniqueIndex("practice_question_runs_queued_idx").on(t.clinicId).where(sql`${t.status} = 'queued'`),
+    uniqueIndex("practice_question_runs_running_idx").on(t.clinicId).where(sql`${t.status} = 'running'`),
+    // The target of the results' and reviews' composite foreign keys, so a
+    // result or a review can only belong to a run of its own clinic.
+    unique("practice_question_runs_clinic_run_key").on(t.clinicId, t.id),
+    index("practice_question_runs_clinic_idx").on(t.clinicId, t.requestedAt),
+    check("practice_question_runs_status_check", sql`${t.status} in (${sqlList(PRACTICE_RUN_STATUSES)})`),
+    check("practice_question_runs_reason_check", sql`${t.reason} in (${sqlList(PRACTICE_RUN_REASONS)})`),
+    check(
+      "practice_question_runs_trigger_section_check",
+      sql`${t.triggerSection} is null or ${t.triggerSection} in (${sqlList(PRACTICE_SECTIONS)})`,
+    ),
+    check(
+      "practice_question_runs_failed_section_check",
+      sql`${t.failedSection} is null or ${t.failedSection} in (${sqlList(PRACTICE_SECTIONS)})`,
+    ),
+    check("practice_question_runs_attempts_check", sql`${t.attempts} >= 0`),
+    check("practice_question_runs_failed_count_check", sql`${t.failedCount} is null or ${t.failedCount} >= 0`),
+    check(
+      "practice_question_runs_input_version_check",
+      sql`${t.inputVersion} is null or ${t.inputVersion} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "practice_question_runs_cases_version_check",
+      sql`${t.casesVersion} is null or ${t.casesVersion} ~ '^[a-z0-9.-]{1,32}$'`,
+    ),
+    check("practice_question_runs_last_error_check", sql`${t.lastError} is null or ${t.lastError} ~ '^[a-z0-9_]{1,64}$'`),
+    check(
+      "practice_question_runs_override_check",
+      sql`${t.overrideLabel} is null or (${t.reason} = 'override' and ${t.status} = 'passed' and char_length(${t.overrideLabel}) between 1 and 200)`,
+    ),
+  ],
+);
+
+export type PracticeQuestionRun = typeof practiceQuestionRuns.$inferSelect;
+
+/**
+ * One channel's result within a run, at the input version that channel read:
+ * the cases, what the synthetic person said, what AYA answered on that
+ * channel, and what the checks and the judge made of it. Kept per channel
+ * and per audit-input version (plan Part G), so a later run whose inputs for
+ * a channel are unchanged reuses that channel's pass instead of asking the
+ * model again (`reused`).
+ *
+ * Synthetic, so no PHI. Tenant RLS, forced; the runtime role adds a result
+ * and moves its status on once a review decides it, and changes nothing else.
+ */
+export const practiceQuestionResults = pgTable(
+  "practice_question_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    runId: uuid("run_id").notNull(),
+    channel: text("channel").$type<Channel>().notNull(),
+    inputVersion: text("input_version").notNull(),
+    status: text("status").$type<PracticeResultStatus>().notNull(),
+    cases: jsonb("cases").$type<PracticeCaseResult[]>().notNull(),
+    /** Copied from an earlier pass at the same input version, so the model was not asked again. */
+    reused: boolean("reused").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("practice_question_results_run_channel_idx").on(t.runId, t.channel),
+    index("practice_question_results_version_idx").on(t.clinicId, t.channel, t.inputVersion),
+    foreignKey({
+      name: "practice_question_results_run_fk",
+      columns: [t.clinicId, t.runId],
+      foreignColumns: [practiceQuestionRuns.clinicId, practiceQuestionRuns.id],
+    }).onDelete("cascade"),
+    check("practice_question_results_channel_check", sql`${t.channel} in (${sqlList(CHANNELS)})`),
+    check(
+      "practice_question_results_status_check",
+      sql`${t.status} in (${sqlList(PRACTICE_RESULT_STATUSES)})`,
+    ),
+    check(
+      "practice_question_results_input_version_check",
+      sql`${t.inputVersion} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
+
+export type PracticeQuestionResult = typeof practiceQuestionResults.$inferSelect;
+
+/**
+ * The audit review queue (plan Part G, Part K): a run whose judge failed a
+ * case, or whose check failed on our side, waits here for a person at
+ * healdesk, who decides it by `due_on`, the next business day, which is the
+ * date the clinic's tracker shows ("Being checked by our team; ready by …").
+ * A decision passes the run (and approves its script) or fails it; a later
+ * run supersedes an open one. A review still open after `due_at` raises
+ * `practice_question_review_past_due` once (`past_due_alerted_at`).
+ *
+ * Ops-only: read and decided through the ops envelope (/admin/reviews), never
+ * by the portal. No PHI: the cases are synthetic. Tenant RLS, forced; never
+ * deleted, kept at destruction with its run.
+ */
+export const auditReviewQueue = pgTable(
+  "audit_review_queue",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /**
+     * What the review is about (AUDIT_REVIEW_KINDS): a practice-questions
+     * run, or the agreement-kind signal (WP9, drizzle/0088), which has no run.
+     */
+    kind: text("kind").$type<AuditReviewKind>().notNull().default("practice_questions"),
+    /** The run reviewed; null exactly when the review is not about one. */
+    runId: uuid("run_id"),
+    status: text("status").$type<AuditReviewStatus>().notNull().default("open"),
+    /** The day promised to the clinic, in New York: the next business day after the review opened. */
+    dueOn: date("due_on", { mode: "string" }).notNull(),
+    /** The end of `due_on` in New York: past it, an open review alerts ops. */
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    pastDueAlertedAt: timestamp("past_due_alerted_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** The operator's address, as the ops envelope's environment names them. */
+    decidedByLabel: text("decided_by_label"),
+    /** A failed review that is the clinic's to fix: the section O9 named. */
+    section: text("section").$type<PracticeSection>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("audit_review_queue_run_idx").on(t.runId),
+    index("audit_review_queue_open_idx").on(t.clinicId, t.dueAt).where(sql`${t.status} = 'open'`),
+    foreignKey({
+      name: "audit_review_queue_run_fk",
+      columns: [t.clinicId, t.runId],
+      foreignColumns: [practiceQuestionRuns.clinicId, practiceQuestionRuns.id],
+    }).onDelete("cascade"),
+    check("audit_review_queue_status_check", sql`${t.status} in (${sqlList(AUDIT_REVIEW_STATUSES)})`),
+    check("audit_review_queue_kind_check", sql`${t.kind} in (${sqlList(AUDIT_REVIEW_KINDS)})`),
+    // A practice-questions review names its run; the agreement-kind signal has none.
+    check(
+      "audit_review_queue_run_check",
+      sql`(${t.kind} = 'practice_questions') = (${t.runId} is not null)`,
+    ),
+    // One open agreement-kind review per clinic: the signal is about the
+    // practice, not about a run, so a second read of the same site adds nothing.
+    uniqueIndex("audit_review_queue_agreement_open_idx")
+      .on(t.clinicId)
+      .where(sql`${t.kind} = 'agreement_kind' and ${t.status} = 'open'`),
+    check(
+      "audit_review_queue_section_check",
+      sql`${t.section} is null or (${t.status} = 'failed' and ${t.section} in (${sqlList(PRACTICE_SECTIONS)}))`,
+    ),
+    check(
+      "audit_review_queue_decided_check",
+      sql`(${t.status} in ('open', 'superseded')) = (${t.decidedAt} is null) and (${t.decidedAt} is null) = (${t.decidedByLabel} is null)`,
+    ),
+    check(
+      "audit_review_queue_decided_by_check",
+      sql`${t.decidedByLabel} is null or char_length(${t.decidedByLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type AuditReviewRow = typeof auditReviewQueue.$inferSelect;
+
 /** Tables carrying a clinic_id, and therefore requiring RLS. Asserted by tests. */
 export const TENANT_SCOPED_TABLES = [
   "clinic_memberships",
@@ -5204,6 +5795,13 @@ export const TENANT_SCOPED_TABLES = [
   "clinic_settings_history",
   "erasure_requests",
   "record_amendments",
+  "sign_in_address_changes",
+  "practice_question_runs",
+  "practice_question_results",
+  "audit_review_queue",
+  "agreement_resigns",
+  "site_rereads",
+  "website_changes",
 ] as const;
 
 // -----------------------------------------------------------------------------
@@ -5323,3 +5921,155 @@ export const transcriptEmails = pgTable(
     ),
   ],
 );
+
+// -----------------------------------------------------------------------------
+// The signed website re-reads and the drift list (plan Part B, "Re-reads";
+// Part F3, "Changes on your website")
+// -----------------------------------------------------------------------------
+
+/**
+ * One read of a clinic's website after purchase, asked of apps/web's signed
+ * route (/api/clinic-site), which fetches and extracts off the PHI host and
+ * stores nothing (lib/website). Asked for when a clinic has a website and no
+ * profile (`missing`), when it corrects its website (`corrected`), by the
+ * monthly drift check (`drift`), or by an operator (`ops`); claimed by the
+ * site-reads job under a lease, one at a time per clinic, which the two
+ * partial unique indexes hold. A queued read asked for again is moved on
+ * rather than doubled.
+ *
+ * `website` is the address read, the clinic's own public website; `changes`
+ * how many changes the read raised on the drift list. What came back is not
+ * kept here: a missing or corrected read becomes clinics.site_profile, the
+ * baseline, and a drift read leaves only its changes.
+ *
+ * Business data, never a patient's: no BAA gate. Tenant RLS, forced; the
+ * runtime role may read, add and move a read on, never delete one. Kept at
+ * destruction, beside agent_configs.
+ */
+export const siteRereads = pgTable(
+  "site_rereads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    reason: text("reason").$type<SiteRereadReason>().notNull(),
+    status: text("status").$type<SiteRereadStatus>().notNull().default("queued"),
+    /** The website read: host and path, without the scheme (catalog `cleanWebsite`). */
+    website: text("website").notNull(),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Not before: now when asked for, later after a failure worth retrying. */
+    runAfter: timestamp("run_after", { withTimezone: true }).notNull().defaultNow(),
+    /** While running: the job's lease, after which another run of the job may take it over. */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** Why the last attempt brought no profile back: a category, never apps/web's words. */
+    failure: text("failure").$type<SiteRereadFailure>(),
+    /** How many changes the read raised on the drift list; null until it was read. */
+    changes: integer("changes"),
+  },
+  (t) => [
+    uniqueIndex("site_rereads_queued_idx").on(t.clinicId).where(sql`${t.status} = 'queued'`),
+    uniqueIndex("site_rereads_running_idx").on(t.clinicId).where(sql`${t.status} = 'running'`),
+    // The target of the changes' composite foreign key, so a change can only
+    // name a read of its own clinic.
+    unique("site_rereads_clinic_read_key").on(t.clinicId, t.id),
+    index("site_rereads_clinic_idx").on(t.clinicId, t.requestedAt),
+    check("site_rereads_reason_check", sql`${t.reason} in (${sqlList(SITE_REREAD_REASONS)})`),
+    check("site_rereads_status_check", sql`${t.status} in (${sqlList(SITE_REREAD_STATUSES)})`),
+    check(
+      "site_rereads_failure_check",
+      sql`${t.failure} is null or ${t.failure} in (${sqlList(SITE_REREAD_FAILURES)})`,
+    ),
+    check(
+      "site_rereads_website_check",
+      sql`char_length(${t.website}) between 4 and 200 and ${t.website} !~ '[[:space:][:cntrl:]]'`,
+    ),
+    check("site_rereads_attempts_check", sql`${t.attempts} >= 0`),
+    check("site_rereads_changes_check", sql`${t.changes} is null or ${t.changes} >= 0`),
+    // A finished read has its time, and only a finished read.
+    check(
+      "site_rereads_finished_check",
+      sql`(${t.status} in ('read', 'failed', 'superseded')) = (${t.finishedAt} is not null)`,
+    ),
+  ],
+);
+
+export type SiteReread = typeof siteRereads.$inferSelect;
+
+/**
+ * One change a re-read found on a clinic's website against its baseline,
+ * clinics.site_profile, the profile read at purchase (plan Part B): a
+ * service, an hour, a policy, a question and its answer, a provider, or the
+ * location's address or phone, per Knowledge section, that the website now
+ * lists, no longer lists, or states differently. Screened like the purchase
+ * read (screenClinicProfile), and raised only when Knowledge does not
+ * already say the same.
+ *
+ * The clinic confirms each one, which applies it into Knowledge through the
+ * knowledge writers, or ignores it. `fingerprint` is the hash of the section,
+ * the kind, the item and what the website now says, one row per clinic, so
+ * an ignored change is remembered and never raised again, and a later read
+ * that no longer finds a waiting one marks it `superseded` until it comes
+ * back. `before` and `after` are the item as the baseline and the new read
+ * have it: the clinic's own published business data, never a patient's.
+ *
+ * Tenant RLS, forced; the runtime role may read, add and move a change's
+ * state on, never delete one. Kept at destruction with its read.
+ */
+export const websiteChanges = pgTable(
+  "website_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** The read that last found it. */
+    rereadId: uuid("reread_id").notNull(),
+    section: text("section").$type<WebsiteChangeSection>().notNull(),
+    kind: text("kind").$type<WebsiteChangeKind>().notNull(),
+    /** Which item within the section: a service's or a provider's name, a question, a policy, "weekly", "address" or "phone", lower-cased. */
+    itemKey: text("item_key").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    before: jsonb("before").$type<Record<string, unknown>>(),
+    after: jsonb("after").$type<Record<string, unknown>>(),
+    state: text("state").$type<WebsiteChangeState>().notNull().default("new"),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** The device whose session decided it, as the portal labels the actor. */
+    decidedByLabel: text("decided_by_label"),
+  },
+  (t) => [
+    uniqueIndex("website_changes_fingerprint_idx").on(t.clinicId, t.fingerprint),
+    index("website_changes_new_idx").on(t.clinicId, t.detectedAt).where(sql`${t.state} = 'new'`),
+    foreignKey({
+      name: "website_changes_reread_fk",
+      columns: [t.clinicId, t.rereadId],
+      foreignColumns: [siteRereads.clinicId, siteRereads.id],
+    }).onDelete("cascade"),
+    check("website_changes_section_check", sql`${t.section} in (${sqlList(WEBSITE_CHANGE_SECTIONS)})`),
+    check("website_changes_kind_check", sql`${t.kind} in (${sqlList(WEBSITE_CHANGE_KINDS)})`),
+    check("website_changes_state_check", sql`${t.state} in (${sqlList(WEBSITE_CHANGE_STATES)})`),
+    check("website_changes_fingerprint_check", sql`${t.fingerprint} ~ '^[0-9a-f]{64}$'`),
+    check(
+      "website_changes_item_key_check",
+      sql`char_length(${t.itemKey}) between 1 and 300 and ${t.itemKey} !~ '[[:cntrl:]]'`,
+    ),
+    // What each kind carries: an addition has no before, a removal no after.
+    check(
+      "website_changes_values_check",
+      sql`(${t.kind} = 'added' and ${t.before} is null and ${t.after} is not null) or (${t.kind} = 'removed' and ${t.before} is not null and ${t.after} is null) or (${t.kind} = 'changed' and ${t.before} is not null and ${t.after} is not null)`,
+    ),
+    check(
+      "website_changes_decided_check",
+      sql`(${t.state} in ('confirmed', 'ignored')) = (${t.decidedAt} is not null) and (${t.decidedAt} is null) = (${t.decidedByLabel} is null)`,
+    ),
+    check(
+      "website_changes_decided_by_check",
+      sql`${t.decidedByLabel} is null or char_length(${t.decidedByLabel}) between 1 and 200`,
+    ),
+  ],
+);
+
+export type WebsiteChangeRow = typeof websiteChanges.$inferSelect;

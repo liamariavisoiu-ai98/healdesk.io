@@ -78,7 +78,11 @@ const IP_LIMIT = 5;
  * dollars, far above the purchases a day will bring.
  */
 const DAILY_CAP = 300;
-/** Signed re-reads: a missing profile, a corrected website and the drift check fit easily. */
+/**
+ * Signed re-reads: a missing profile, a corrected website and the drift check
+ * fit easily. Both limits go through the marketing Sheet (lib/rate-limit.ts),
+ * so they hold across instances like the daily cap above.
+ */
 const CLINIC_LIMIT = 4;
 const SIGNED_DAILY_CAP = 1_000;
 

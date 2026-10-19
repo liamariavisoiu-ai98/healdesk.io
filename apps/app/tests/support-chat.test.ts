@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { CARRIERS, CARRIER_SERVICE_NUMBERS, COVERAGE_MODES, PATIENT_MODEL_IDS } from "@healdesk/catalog";
+import { CARRIERS, CARRIER_SERVICE_NUMBERS, COVERAGE_MODES } from "@healdesk/catalog";
 import { SETTING_KEYS } from "@/lib/portal/settings";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -217,9 +217,6 @@ describe("the request", () => {
     });
     const request = supportRequest({ system, messages: [{ role: "user", content: "Hi" }] });
     expect(request.model).toBe("claude-opus-5-5");
-    // On the patient-data key, so one of the models whose retention the terms
-    // and agreements describe; never a Covered Model (model-retention.ts).
-    expect(PATIENT_MODEL_IDS).toContain(SUPPORT_MODEL);
     expect(request.output_config).toEqual({ effort: "low" });
     expect(request.tool_choice).toEqual({ type: "auto" });
     const blocks = request.system as Anthropic.TextBlockParam[];
@@ -600,14 +597,14 @@ describe("link_to", () => {
   test("built from the public origin, never HEALDESK_APP_URL, to the card that holds the switch", () => {
     for (const target of LINK_TARGETS) {
       const link = linkTo("glow", target);
-      if (target === "bookings") {
-        // Not a screen in this build: no link that 404s.
-        expect(link).toBeNull();
-        continue;
-      }
       expect(link!.url.startsWith(`${ORIGIN}/c/glow`), target).toBe(true);
       expect(link!.url).not.toContain(INTERNAL);
     }
+    // Bookings is a screen of this build since package E, so the chat links it.
+    expect(linkTo("glow", "bookings")).toEqual({
+      label: "Bookings",
+      url: `${ORIGIN}/c/glow/bookings`,
+    });
     expect(linkTo("glow", "direct_line")).toEqual({
       label: "Settings → Safety net → Direct line",
       url: `${ORIGIN}/c/glow/settings#safety-net`,

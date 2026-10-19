@@ -4,6 +4,8 @@ import { randomUUID } from "node:crypto";
 
 import { isBillingInterval } from "@healdesk/catalog";
 
+import { setCoveredEntity } from "@/lib/agreements/covered-entity";
+import { readOpenResign, resignPath } from "@/lib/agreements/resign";
 import { addLocation, changePlan, createPortalSession } from "@/lib/billing/stripe-actions";
 import { previewAddLocation, previewChangePlan } from "@/lib/billing/summary";
 import { requirePortal } from "@/lib/portal/access";
@@ -182,4 +184,52 @@ export async function openStripePortalAction(
         message:
           "Stripe's billing page isn't available for this account right now. Email hello@healdesk.io and we'll help.",
       };
+}
+
+/**
+ * "We've started billing insurance electronically" (plan Part L), on a
+ * practice under the Data Protection Agreement: the practice's own "Yes",
+ * recorded through setCoveredEntity exactly as ops records one. From that
+ * write the DPA no longer covers it, AYA pauses, and L22 goes with its link;
+ * the browser is sent straight to the agreement to sign. Behind a passkey
+ * step-up: it stops AYA answering on every channel until it is signed. Once a
+ * re-sign is open, the same button opens it with a fresh link.
+ */
+export async function startAgreementResignAction(slug: string): Promise<BillingActionResult> {
+  const portal = await requirePortal(String(slug));
+  const actor = await portalActor(portal);
+  if (!actor.steppedUp) {
+    return {
+      ok: false,
+      message: STEP_UP,
+      stepUpHref: stepUpPath(portal.clinicSlug, `${billingPath(portal.clinicSlug)}#agreement`),
+    };
+  }
+  await touchStepUp(portal);
+  const actorContext = { type: "user" as const, userId: portal.userId, label: actor.label };
+  const open = await readOpenResign(portal.clinicId, actorContext);
+  if (open) {
+    return {
+      ok: true,
+      toast: "Opening your updated agreement…",
+      href: resignPath({ id: open.id, clinicId: portal.clinicId }),
+    };
+  }
+  const outcome = await setCoveredEntity({
+    clinicId: portal.clinicId,
+    answer: "yes",
+    actor: actorContext,
+    actorLabel: actor.label,
+    source: "portal",
+  });
+  if (outcome.status === "refused") return { ok: false, message: outcome.message };
+  const resignId = outcome.supersede?.resignId;
+  if (!resignId) {
+    return { ok: true, toast: "Recorded. Your agreement already covers a practice that bills insurance." };
+  }
+  return {
+    ok: true,
+    toast: "AYA is paused until it's signed. Opening your updated agreement…",
+    href: resignPath({ id: resignId, clinicId: portal.clinicId }),
+  };
 }

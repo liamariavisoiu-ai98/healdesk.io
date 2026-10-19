@@ -420,8 +420,8 @@ describeDb("ops: booking hand-off and direct booking", () => {
   test("the OnboardingView's forwarding codes follow the coverage mode, not clinics.call_routing", async () => {
     const { clinicId } = await seedClinic("ops-coverage");
     // call_routing still says 'conditional', as it does for After hours only;
-    // read from it, the console printed the busy and no-answer codes for a
-    // line forwarded in full at closing.
+    // read from it, the console printed the busy and no-answer pair (*91, *93)
+    // for a line forwarded in full at closing.
     await getMigratorPool().query(
       `update clinics set phone_system_type = 'landline', carrier = 'verizon',
               call_routing = 'conditional', assistant_number_e164 = '+14155550100'
@@ -440,8 +440,7 @@ describeDb("ops: booking hand-off and direct booking", () => {
     expect(clinic.coverageMode).toBe("after_hours_only");
     expect(clinic.callRouting).toBe("conditional");
     const forwarding = view.forwarding as { steps: { dial: string }[]; undo: { dial: string }[] };
-    // *72 and AYA's number at closing, *73 at opening, then the test call, which has nothing to dial.
-    expect(forwarding.steps.map((s) => s.dial)).toEqual(["*724155550100", "*73", ""]);
+    expect(forwarding.steps.map((s) => s.dial)).toEqual(["*724155550100", "*73"]);
     expect(forwarding.undo.map((s) => s.dial)).toEqual(["*73"]);
 
     // All calls reads as 'always' for the console's phone form, whatever call_routing says.
@@ -622,18 +621,17 @@ describeDb("ops: booking hand-off and direct booking", () => {
     expect(overview.onboarding.booking_requirements_confirmed).not.toBeNull();
   });
 
-  test("issueSetupLink mints a /setup link and setConnectionPhiBasis is audited", async () => {
+  test("issueSetupLink is retired with the setup wizard, and setConnectionPhiBasis refuses an unknown connection", async () => {
     const { clinicId } = await seedClinic("ops-setup-link");
-    const issued = await run("issueSetupLink", { clinicId });
-    expect(issued.status).toBe("issued");
-    expect(String(issued.url)).toMatch(/\/setup\/[A-Za-z0-9_-]{43}$/);
+    // The wizard asks what the setup page asked (plan C2): the op is gone,
+    // so the console cannot mint a link to a page that no longer exists.
+    const retired = await runOperation("issueSetupLink" as Parameters<typeof runOperation>[0], { clinicId }, OPERATOR);
+    expect(retired.status).toBe(400);
     const purposes = await inTenant(clinicId, async (client) => (await client.query<{ purpose: string }>(`select purpose from connection_links where clinic_id = $1`, [clinicId])).rows.map((r) => r.purpose));
-    expect(purposes).toEqual(["setup"]);
+    expect(purposes).toEqual([]);
 
     const missing = await run("setConnectionPhiBasis", { clinicId, connectionId: "00000000-0000-4000-8000-000000000000", basis: "vendor_baa" });
     expect(missing.status).toBe("error");
-    const events = await getMigratorPool().query(`select count(*)::int as n from security_events where event = 'setup_link_issued'`);
-    expect(events.rows[0].n).toBeGreaterThanOrEqual(1);
   });
 });
 

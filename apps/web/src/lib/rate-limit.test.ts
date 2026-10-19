@@ -95,12 +95,13 @@ describe("rateLimit (per-instance keys)", () => {
 });
 
 describe("rateLimit (the global daily caps)", () => {
-  it("names exactly the six spend caps the routes use", () => {
+  it("names exactly the seven spend caps the routes use", () => {
     expect([...GLOBAL_CAP_KEYS].sort()).toEqual([
       "callback:global:day",
       "chat:global:day",
       "own-demo:global:day",
       "site-read:global:day",
+      "site-read:signed:day",
       "voice-demo-webcall:global:day",
       "webcall:global:day",
     ]);
@@ -108,6 +109,9 @@ describe("rateLimit (the global daily caps)", () => {
 
   it("also shares the contact form's per-address acknowledgement limit, and nothing else per visitor", () => {
     expect(isGlobalCapKey("contact-ack:0123456789abcdef")).toBe(true);
+    // The signed re-reads' per-clinic limit: apps/app's, never a visitor's.
+    expect(isGlobalCapKey("site-read:clinic:0c1d2e3f-0000-4000-8000-000000000000")).toBe(true);
+    expect(isGlobalCapKey("site-read:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("contact:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("setup-request:10.0.0.1")).toBe(false);
     expect(isGlobalCapKey("admin-sign-in:10.0.0.1")).toBe(false);

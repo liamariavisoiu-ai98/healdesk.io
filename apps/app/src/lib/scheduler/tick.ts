@@ -1,27 +1,41 @@
+import { runAgreementResignsJob } from "@/lib/agreements/resign";
 import { runAnnualOverageJob } from "@/lib/billing/annual-overage";
 import { sweepChannelStates } from "@/lib/channels/events";
+import { sweepEndedPauses } from "@/lib/channels/pause";
 import { runCardExpiringJob } from "@/lib/billing/card-expiring";
 import { runBillingHousekeepingJob } from "@/lib/billing/housekeeping";
 import { runBillingReconcileJob } from "@/lib/billing/reconcile";
 import { runBillingRequestsJob } from "@/lib/billing/requests";
+import { runPracticeQuestionsSweep } from "@/lib/engine/practice/job";
 import { runTranscriptEmailsJob } from "@/lib/conversations/transcript-outbox";
 import { runUsageAlertsJob } from "@/lib/billing/usage-alerts";
 import { runUsageMeterReportJob } from "@/lib/billing/usage-report";
 import { expireLapsedRequests } from "@/lib/meta/booking-requests";
+import {
+  queueAfterCancellationNotices,
+  runDestructionNotices,
+} from "@/lib/offboarding/after-cancellation";
 import { applyBookingRequirementDefaults } from "@/lib/onboarding/requirements";
 import { expireErasureRecords } from "@/lib/patient-rights/erasure";
+import { runOpsDigestJob } from "@/lib/ops/digest";
+import { runHealthFlagsJob } from "@/lib/ops/health-flags";
+import { runOpsWatchJob } from "@/lib/ops/watch";
 import { runSetupRemindersJob } from "@/lib/setup/reminders";
+import { runAddressChangesJob } from "@/lib/sign-in/address-change";
 import { runWelcomeBackstop } from "@/lib/setup/welcome-email";
+import { runSiteReadsSweep, runWebsiteDriftJob } from "@/lib/website/job";
 
 import { runAnnualRenewalReminderJob } from "./annual-renewal-reminder";
 import { runBillingSweepJob } from "./billing-sweep";
 import { runConnectionHealthJob } from "./connection-health";
+import { runDailySummaryJob } from "./daily-summary";
 import { runDmarcReviewJob } from "./dmarc-review";
 import { runIncidentDeadlinesJob } from "./incident-deadlines";
 import { heartbeat } from "./jobs";
 import { runMonthlyReportJob } from "./monthly-report";
 import { runNightlySyncJob } from "./nightly-sync";
 import { runOffboardingDestroyJob } from "./offboarding-destroy";
+import { runRequestsStillOpenJob } from "./requests-still-open";
 import { runRetentionPurgeJob } from "./retention-purge";
 import { runWeeklyRecapJob } from "./weekly-recap";
 
@@ -80,6 +94,11 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   await record("billing-requests", () => runBillingRequestsJob({ now }));
   // Phase two: runJob() reports it "disabled" in v1 whatever its switch says.
   await record("monthly-report", () => runMonthlyReportJob({ now, send: true }));
+  // The daily summary (L13) and, while none can carry it, the weekly recap
+  // alone (L14): hourly, each behind its switch, each deciding per clinic
+  // from the clinic's own clock whether its opening time or its Monday has
+  // come. The summary first, so a Monday it goes on carries the recap.
+  await record("daily-summary", () => runDailySummaryJob({ now }));
   await record("weekly-recap", () => runWeeklyRecapJob({ now }));
   await record("connection-health", () => runConnectionHealthJob({ now }));
   // §C.4: booking requests whose link or proposed times have lapsed become
@@ -108,8 +127,34 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
   // Every hour, on either rule: a clinic is due at day 29 (on BAA 1.3.0 or
   // the DPA once its export is delivered, or at the delivery when later) or
   // at day 89, and the next hourly run destroys it (lib/offboarding, "Which
-  // rule, and why").
+  // rule, and why"). It also releases AYA's number of a clinic destroyed
+  // before its pass-through ended, once that has.
   await record("offboarding-destroy", () => runOffboardingDestroyJob({ now }));
+  // E6 (lib/offboarding/after-cancellation.ts), right after the destruction
+  // it reports, to the address captured in the destruction's transaction,
+  // and every hour after until it goes or DESTRUCTION_NOTICE_DAYS pass. Not
+  // a switched job: the captured address must not outlive its bound because
+  // a switch was off.
+  await record("destruction-notices", async () => {
+    const r = await runDestructionNotices({ now });
+    return {
+      status: r.retrying || r.givenUp ? "failed" : "ok",
+      note: `${r.owed} owed, ${r.sent} sent, ${r.retrying} retrying, ${r.givenUp} given up`,
+    };
+  });
+  // E3, E4 and E5 for every clinic whose service has ended, each once: the
+  // export is ready, the pass-through is ending, the export is about to go
+  // undownloaded. Not a switched job, for the reason the channel sweep is not:
+  // a pure function of rows that already exist, and the outbox that sends
+  // them has its own switch. E3 reaches a clinic destroyed before its
+  // pass-through ended too: its line still forwards to us until then.
+  await record("after-cancellation", async () => {
+    const r = await queueAfterCancellationNotices(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.queued} queued${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
   // Every hour: an incident past our internal 24-hour notice target with no
   // notice recorded raises one ops alert, ever (BAA 1.3.0 release gate 5;
   // the agreements' own limit is 60 calendar days).
@@ -134,9 +179,47 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
       note: `${r.clinics} clinics, ${r.readied} ready, ${r.live} live${r.failures ? `, ${r.failures} failed` : ""}`,
     };
   });
+  // The practice questions' sweep (lib/engine/practice/job.ts), behind the
+  // practice-questions switch: a run for a clinic whose inputs changed with
+  // none asked for, the review-past-due alert, and O8 for a complete tracker.
+  // The runs themselves go every minute from their own queue.
+  await record("practice-questions-sweep", () => runPracticeQuestionsSweep({ now }));
+  // The header's pause (lib/channels/pause.ts): a timed pause that ended by
+  // itself gets its `resumed` row, at the moment it ended, once. Not a
+  // switched job, for the reason the channel-states sweep is not: the answer
+  // gate already reads the end, so this only completes the record.
+  await record("ai-pause", async () => {
+    const r = await sweepEndedPauses(now);
+    return {
+      status: r.failures ? "failed" : "ok",
+      note: `${r.clinics} clinics, ${r.resumed} resumed${r.failures ? `, ${r.failures} failed` : ""}`,
+    };
+  });
+  // The internal health flags (WP5), hourly behind their switch, which ships
+  // off: a clinic quiet for 48 hours after going live, a phone line with no
+  // call for 14 days, each raised to ops once (lib/ops/health-flags.ts).
+  // After the pause sweep above, whose `resumed` rows restart a phone line's
+  // quiet stretch.
+  await record("health-flags", () => runHealthFlagsJob({ now }));
+  // The ops watch's hourly run (WP5): the minute's purchase checks, and the
+  // support replies past their day, which read every clinic's outbox
+  // (lib/ops/watch.ts). Every minute from the billing-minute queue as well.
+  await record("ops-watch", () => runOpsWatchJob({ now, supportReplies: true }));
+  // I2, the ops digest (WP5): at 07 UTC, or the first tick after it, once a
+  // UTC day; a tick that finds today's sent does nothing (lib/ops/digest.ts).
+  if (hour >= 7) await record("ops-digest", () => runOpsDigestJob({ now }));
+  // The website re-reads (lib/website): behind site-reads, a read for each
+  // clinic with a website and no profile its own save did not ask for, and
+  // the due reads, as the minute queue's backstop; behind website-drift, off
+  // until the owner switches it on, the monthly check of each live clinic.
+  await record("site-reads", () => runSiteReadsSweep({ now: () => now }));
+  await record("website-drift", () => runWebsiteDriftJob({ now }));
   // The setup reminder (O7), hourly: each clinic's due reminder is queued
   // only in its own daytime, so the hour it runs is the clinic's, not UTC's.
   await record("setup-reminders", () => runSetupRemindersJob({ now }));
+  // L8, hourly behind its switch: each clinic's "request still open" goes at
+  // its own opening hour, so the hour it runs is the clinic's, not UTC's.
+  await record("requests-still-open", () => runRequestsStillOpenJob({ now }));
   // The welcome email's backstop. Not a switched job: the welcome itself goes
   // at every provisioning, unswitched, so its retry must not wait for a
   // switch that ships off. It reaches only a clinic whose provisioning
@@ -147,6 +230,27 @@ export async function runTick(now: Date = new Date()): Promise<TickOutcome[]> {
       status: "ok",
       note: `${result.resent} resent, ${result.unsent} still unsent, ${result.failed} failed`,
     };
+  });
+  // A change of a clinic's one address takes effect 72 hours after it was
+  // confirmed, and an unused confirmation link closes after 72 hours (plan
+  // Part D5). Not a switched job, like the welcome email's backstop: the
+  // clinic was told the moment, and a switch that ships off would break it.
+  // Each change is applied under its own row lock (lib/sign-in/address-change.ts).
+  await record("address-changes", async () => {
+    const r = await runAddressChangesJob();
+    return {
+      status: "ok",
+      note: `${r.applied} applied, ${r.expired} expired, ${r.failed} failed, ${r.waiting} waiting`,
+    };
+  });
+  // L22's reminders at 3 and 7 days, and the ops alert at 7, for each
+  // practice that owes its updated agreement (plan Part L; WP9). Not a
+  // switched job, like the address changes: the practice was told AYA is
+  // paused until it signs, and a switch that ships off would leave it waiting
+  // with no word. Each email is once per re-sign and day on the ledger.
+  await record("agreement-resigns", async () => {
+    const r = await runAgreementResignsJob({ now });
+    return { status: "ok", note: `${r.open} open, ${r.sent} sent, ${r.alerted} past 7 days` };
   });
   // Phase two, like the monthly report.
   if (hour === 2) await record("nightly-sync", () => runNightlySyncJob({ now }));

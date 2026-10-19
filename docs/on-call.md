@@ -49,12 +49,7 @@ The fifth, `billing-notices`, is the email platform's sender (drizzle/0046,
 from the tick, and its job row is its switch: off, no clinic email is sent. Each notice
 is leased for two minutes while it sends and retried at 1, 5, 30, 120 and 360 minutes;
 the job's note counts what was sent, failed, waiting and held (a kind with no template
-yet). While it is off the urgent reply never says the team was told, and no urgent
-alert counts as late (`/api/health` stays green); notices queued meanwhile go when it is
-switched on, except urgent alerts and handovers more than a day old, which close unsent
-(`lib/email/superseded.ts`). Look at the backlog before switching it on: it releases
-queued billing emails too. Once Resend refuses a send for the day's quota, the urgent
-reply stops saying the team was told until midnight UTC (`email_daily_quota.exhausted_at`). `npm run queue:install` must be re-run in each environment for the `notices`
+yet). `npm run queue:install` must be re-run in each environment for the `notices`
 queue, or the worker will not start, and for pg-boss's own cron queue
 (`__pgboss__send-it`), without which no schedule fires: neither this minute clock nor
 the hourly tick. A worker whose job rows never show a `last_run_at` is the symptom.
@@ -108,8 +103,20 @@ restart is not optional: the worker registers its clocks only when it starts, so
 worker started before the install has logged `queue clock not running` with
 `"job":"calendar-watch"`, and runs everything else without the watch until it restarts.
 
-v1 adds jobs that are not built yet: knowledge re-audits when a clinic's knowledge
-changes, the monthly re-scrape diff, the demo-sandbox purge (7 to 14 days), the 14-day
+The website re-reads (`lib/website`, the website_drift migration) are two rows. `site-reads`
+ships ON: every minute from its own `site-reads` queue (install it and restart the worker,
+as above), and hourly from the tick, it sends each clinic's due read to apps/web's signed
+`/api/clinic-site`, which fetches and extracts off this host and stores nothing: a website
+with no profile, a website the clinic corrected, the monthly check, or an operator's read
+(ops `requestSiteReread`). It reads nothing until `HEALDESK_WEB_URL` names apps/web
+(`https://healdesk.io`, a plain setting in `app_environment`), and its note then says so.
+A failed read is tried again after 30 minutes and after 6 hours, then left `failed` on its
+`site_rereads` row. `website-drift` ships OFF, and the owner switches it on before the
+first clinic's 30th live day: hourly, it asks for a read of each live clinic's website 30
+days after its last, compares it with the purchase-time baseline, puts what Knowledge does
+not say on the clinic's "Changes on your website" list, and queues L23.
+
+v1 adds jobs that are not built yet: the demo-sandbox purge (7 to 14 days), the 14-day
 zero-inbound flag for an active voice plan, the 48-hour zero-interaction flag, the
 48-hour channel-not-live reminder to the clinic, and the daily summary email to the
 clinic. None of these contacts a patient; v1 sends patients nothing after a conversation

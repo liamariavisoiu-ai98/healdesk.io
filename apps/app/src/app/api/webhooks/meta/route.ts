@@ -1,5 +1,6 @@
 import { after } from "next/server";
 
+import { clinicAcceptsPhi } from "@/lib/agreements/phi-gate";
 import { assistantMayAnswer } from "@/lib/billing/answering";
 import { recordUsage } from "@/lib/billing/usage";
 import { recordFirstAnswer } from "@/lib/channels/events";
@@ -9,7 +10,7 @@ import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { resolveMetaChannel, sendMetaReply, type MetaSender } from "@/lib/meta/channels";
-import { anthropicResponder, answerFrontDoor, type FrontDoorAnswer, type FrontDoorFallback, type FrontDoorResponder } from "@/lib/meta/front-door";
+import { anthropicResponder, answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
 import { recordGreeting } from "@/lib/meta/greeting";
 import { claimMetaMessage } from "@/lib/meta/inbound";
 import { parseMetaEvents, verifyMetaSignature } from "@/lib/meta/webhook";
@@ -28,33 +29,31 @@ export const runtime = "nodejs";
  * clinic whose front door is switched off, or which has switched the
  * message's platform Off in Settings (Instagram, Messenger and WhatsApp each
  * have their own switch, lib/channels/meta-platforms.ts), is silently
- * skipped: nothing is claimed, counted or answered. On Instagram and
- * Messenger the message waits for the clinic's team in the app; a WhatsApp
- * number is on the Cloud API alone, with no app or inbox, so there nobody
- * sees it (lib/meta/front-door.ts, staffCanReplyOn). The reply is
+ * skipped: nothing is claimed, counted or answered, and the message waits for
+ * the clinic's team in the app. The reply is
  * produced by the narrow agent in lib/meta/front-door.ts and sent with the
  * clinic's sealed token, opened inside the tenant transaction. A message
- * that completes a booking request also queues the clinic's alert (L7, a
- * pointer into the portal, lib/notices/booking-alerts.ts) in the answer's
- * transaction; the sender id travels into the request so the desk's decision
- * can be relayed back to the person — inside Meta's 24-hour window only,
- * which lib/meta/channels.ts enforces. A request for a person queues the
- * handover alert (L11) the same way; on WhatsApp, where nobody at the
- * practice can answer the thread, its reply is always the fixed line that
- * sends the person to the phone. An urgent message's alert (L12) is sent the
- * moment the answer commits, before the reply goes.
+ * that completes a booking request also queues the clinic's booking-request
+ * alert (L7, a pointer into Bookings) in the answer's transaction; the
+ * sender id travels into the request so the desk's decision can be relayed
+ * back to the person — inside Meta's 24-hour window only, which
+ * lib/meta/channels.ts enforces. An urgent message queues L12 the same way,
+ * and it is sent in-process once that transaction has committed.
  *
  * Each message, in order (BD24, R18):
  *
+ *   0. a clinic whose data the PHI gate refuses (app_clinic_accepts_phi:
+ *      its re-sign to the BAA unsigned, or its agreement no longer covering
+ *      it) keeps nothing: no claim, no thread, no model, no reply, one log
+ *      line by ids;
  *   1. a redelivery is skipped entirely: the message id is claimed in
  *      meta_inbound_messages, in a short transaction of its own with
  *   2. the person's chat thread, which says which conversation the message
  *      belongs to (lib/chat/threads.ts);
  *   3. the answer gate, outside any transaction (lib/billing/answering.ts).
  *      A refusal means no model call and no reply, only an audit row with
- *      `source: "withheld"` and the reason: on Instagram and Messenger
- *      staff see the message in their own inbox, which is the Meta
- *      fallback; a WhatsApp number has none, so there it reaches nobody;
+ *      `source: "withheld"` and the reason: staff see the message in their
+ *      own inbox, which is the Meta fallback;
  *   4. an allowed message counts its conversation (recordUsage, idempotent
  *      on the conversation's reference, so every allowed message may call it
  *      and the conversation is counted once, from the first message the
@@ -74,8 +73,9 @@ let senderForTests: MetaSender | undefined;
 let transportForTests: EmailTransport | undefined;
 let nowForTests: Date | undefined;
 /**
- * Test seam: swap the model, the Graph API, the email transport the urgent
- * alert goes through, and the clock. Undefined restores the real ones.
+ * Test seam: swap the model, the Graph API, the clinic's email transport
+ * (the urgent alert, sent in-process) and the clock. Undefined restores the
+ * real ones.
  */
 export function __setMetaRuntimeForTests(
   responder: FrontDoorResponder | null | undefined,
@@ -145,6 +145,13 @@ export async function POST(request: Request): Promise<Response> {
       // even the keyed references (lib/clinic/leaving.ts).
       const thread = await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
         if (await clinicHasLeft(tx)) return "left" as const;
+        // The PHI gate (app_clinic_accepts_phi): a practice whose re-sign to
+        // the BAA is unsigned, or whose agreement no longer covers it, keeps
+        // nothing of the message, not even its claim or its thread, and
+        // nothing reaches the model or the person. Acknowledged to Meta with
+        // the rest of the batch, so it is not redelivered; it waits for the
+        // practice's team in the app, as the pause line says.
+        if (!(await clinicAcceptsPhi(tx.db, tx.clinicId))) return "uncovered" as const;
         if (message.messageId && !(await claimMetaMessage(tx, message.platform, message.messageId))) {
           return null;
         }
@@ -152,6 +159,14 @@ export async function POST(request: Request): Promise<Response> {
       });
       if (thread === "left") {
         log.warn("meta message refused: the clinic has left", { clinicId: owner.clinicId });
+        skipped += 1;
+        continue;
+      }
+      if (thread === "uncovered") {
+        log.warn("meta message not kept: no agreement covers the clinic's data", {
+          clinicId: owner.clinicId,
+          channel: message.platform,
+        });
         skipped += 1;
         continue;
       }
@@ -201,74 +216,47 @@ export async function POST(request: Request): Promise<Response> {
       // 5: the answer, committed before anything is sent: a booking request
       // it created survives a send that fails, which would otherwise roll it
       // back after the message id was claimed, so a redelivery could never
-      // make it again. An urgent message whose answer cannot be recorded
-      // still gets its fixed line (FrontDoorFallback), without "I've told the
-      // team": its alert rolled back too.
-      const fallback: FrontDoorFallback = {};
-      let answer: FrontDoorAnswer | null;
-      try {
-        answer = await withTenant({ clinicId: owner.clinicId, actor }, (tx) =>
-          answerFrontDoor(tx, {
-            platform: message.platform,
-            text: message.text,
-            responder,
-            thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
-            now: sentAt,
-            fallback,
-          }),
-        );
-      } catch (error) {
-        if (!fallback.urgentLine) throw error;
-        log.error("meta urgent message not recorded: no alert went", { clinicId, channel: message.platform, error: describeError(error) });
-        answer = {
-          text: fallback.urgentLine,
-          source: "urgent",
-          guard: null,
-          screened: "urgent",
-          booking: "none",
-          greeted: false,
-          greetingToRecord: null,
-          urgentQueued: false,
-        };
-      }
+      // make it again.
+      const answer = await withTenant({ clinicId: owner.clinicId, actor }, (tx) =>
+        answerFrontDoor(tx, {
+          platform: message.platform,
+          text: message.text,
+          responder,
+          thread: { platform: message.platform, externalId: message.externalId, senderId: message.senderId, connectionId: owner.connectionId },
+          now: sentAt,
+        }),
+      );
       if (!answer) {
         skipped += 1;
         continue;
       }
-      const reply = answer;
-      // 6: the urgent alert, now that the answer that queued it has
-      // committed, started before the reply is sent so it waits on neither
-      // the Graph API nor the rest of the batch. after() keeps the request
-      // alive until it is done without holding up Meta's response; outside a
-      // request scope it throws, and the alert is awaited here instead. It
-      // never rejects, and the minute queue sends whatever it misses.
-      if (reply.urgentQueued) {
-        const critical = deliverCriticalAfterCommit(owner.clinicId, { transport: transportForTests });
-        try {
-          after(() => critical);
-        } catch {
-          await critical;
-        }
+      // The urgent alert (L12) is critical: its row has committed with the
+      // answer, so it goes now, in-process, after the response; whatever
+      // this misses, the minute queue sends.
+      if (answer.source === "urgent") {
+        await deliverCriticalAfterCommit(owner.clinicId, { transport: transportForTests, after });
       }
-      // 7: the reply. Replying to the message just received: the thread
+      // 6: the reply. Replying to the message just received: the thread
       // may hold no request yet, so the instant is passed in. sendMetaReply
       // still drops the reply if that instant is more than 24 hours old.
       await withTenant({ clinicId: owner.clinicId, actor }, async (tx) => {
-        const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, reply.text, send, { lastInboundAt: sentAt, now });
+        const outcome = await sendMetaReply(tx, owner, message.externalId, message.senderId, answer.text, send, { lastInboundAt: sentAt, now });
         // The greeting is given once the reply carrying it has gone out. A
         // reply dropped outside the window (a backlog Meta delivers a day
         // late) leaves it owed, so the first reply the person does get
         // opens with it (lib/meta/greeting.ts).
-        if (outcome.status === "sent" && reply.greetingToRecord) await recordGreeting(tx, reply.greetingToRecord);
+        if (outcome.status === "sent" && answer.greetingToRecord) await recordGreeting(tx, answer.greetingToRecord);
         // A reply that reached the person, past the gate: the Meta
         // channel's first answer, if it is one, with its plan start or
         // step-up (lib/channels/events.ts). It never undoes the send's record.
         if (outcome.status === "sent") {
-          await recordFirstAnswer(
-            tx,
-            { channel: "meta", source: "runtime", gateAnswered: true, personAnswered: true, conversationId: thread.conversationId },
-            now,
-          );
+          await recordFirstAnswer(tx, {
+            channel: "meta",
+            source: "runtime",
+            gateAnswered: true,
+            personAnswered: true,
+            conversationId: thread.conversationId,
+          });
         }
       });
       answered += 1;

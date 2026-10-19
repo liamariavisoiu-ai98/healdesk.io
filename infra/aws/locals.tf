@@ -110,6 +110,11 @@ locals {
     },
     # Only the web tier answers SNS (app/api/webhooks/ses).
     var.enable_ses ? { HEALDESK_SES_EVENTS_TOPIC_ARN = aws_sns_topic.ses_events[0].arn } : {},
+    # Tells /admin/map that the voice endpoint exists (lib/ops/key-presence.ts).
+    # HEALDESK_RETELL_LLM_SECRET cannot: the web tier gets every app/*
+    # parameter, so it reads as present the moment it is pasted, with the voice
+    # service, its target group and its listener rule still switched off.
+    var.enable_voice ? { HEALDESK_VOICE_ENABLED = "1" } : {},
     {
       for k, v in {
         META_APP_ID              = var.meta_app_id
@@ -159,6 +164,7 @@ locals {
     "HEALDESK_OPS_EMAIL",
     "HEALDESK_SES_CONFIGURATION_SET",
     "HEALDESK_SES_EVENTS_TOPIC_ARN",
+    "HEALDESK_VOICE_ENABLED",
     "HOSTNAME",
     "KEEP_ALIVE_TIMEOUT",
     "META_APP_ID",

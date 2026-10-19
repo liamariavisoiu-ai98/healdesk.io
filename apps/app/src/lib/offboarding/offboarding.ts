@@ -1,5 +1,10 @@
-import { agreementKindOfVersion, DPA_VERSION_PREFIX, type AgreementKind } from "@healdesk/catalog";
-import { and, asc, eq, sql } from "drizzle-orm";
+import {
+  agreementKindOfVersion,
+  DPA_VERSION_PREFIX,
+  FORWARDING_PASS_THROUGH_DAYS,
+  type AgreementKind,
+} from "@healdesk/catalog";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 
 import { unsafeDb } from "@/db";
 import {
@@ -23,6 +28,7 @@ import {
 } from "@/db/schema";
 import { agreementStatesTheExportRule } from "@/lib/agreements/what-it-says";
 import { recordSecurityEvent } from "@/lib/audit";
+import { billingRecipients } from "@/lib/billing/recipients";
 import { sweepCalendarTerms } from "@/lib/connections/google-calendar";
 import { describeError, log } from "@/lib/log";
 import { listClinics } from "@/lib/ops/clinics";
@@ -50,8 +56,10 @@ import { withTenant } from "@/lib/tenant";
  * --all`) and handed over, and only a record of its reaching the practice
  * stamps `export_delivered_at` (`markExportDelivered`): the operator's record
  * of the handover, or the practice's own download of the complete export
- * from the portal's Conversations screen (lib/portal/conversations.ts), so
- * producing an export never counts as delivering it; and the clinic's calls and agent are
+ * from the portal's Conversations screen, once its browser reports the whole
+ * file arrived (lib/portal/conversations.ts), so producing an export never
+ * counts as delivering it; E2 to E6 tell the practice each step
+ * (lib/offboarding/after-cancellation.ts); and the clinic's calls and agent are
  * deleted at the voice vendor, Retell, and recorded on the care page
  * (`recordVoiceVendorDeletion`), which shows the step outstanding, with its
  * deadline, until it is.
@@ -178,6 +186,18 @@ import { withTenant } from "@/lib/tenant";
  * deleted in the vendor's console by the operator and recorded as a
  * voice_vendor_data_deleted security event; this job cannot reach it and does
  * not claim to.
+ *
+ * The clinic's one address is read before anything is deleted and written
+ * beside the destroyed stamp (clinics.destruction_notice_address, 0086), so
+ * E6, "Your data has been destroyed", goes to the address the account had
+ * when its data went, whatever becomes of the sign-in after
+ * (lib/offboarding/after-cancellation.ts sends it and clears the address).
+ *
+ * AYA's number, the one the clinic's line forwards to, is not patient data
+ * and does not go with it: forwarded calls pass through to the direct line
+ * until the end plus FORWARDING_PASS_THROUGH_DAYS, a day after the earliest
+ * destruction, so the number is released at the later of the two
+ * (releaseNumberAfterPassThrough), by this job's next hourly run.
  */
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -211,8 +231,8 @@ export const OFFBOARDING_BACKDATE_LIMIT_DAYS = 7;
  * thirty_days: destroyed from day 29 whatever the export (BAA 1.2.2 and
  * earlier). export_or_ninety: from day 29 if the export was delivered by
  * then, from its delivery if later, and from day 89 regardless (BAA 1.3.0,
- * and 1.4.0, 1.5.0 and the 1.6.0 draft, whose Term clauses state the same rule;
- * DPA 1.0.0). Every hourly run destroys on either rule.
+ * and 1.4.0, 1.5.0 and 1.5.1, whose Term clause is 1.3.0's own; DPA 1.0.0).
+ * Every hourly run destroys on either rule.
  */
 export type DestructionRule = "thirty_days" | "export_or_ninety";
 
@@ -228,10 +248,7 @@ export type DestructionRule = "thirty_days" | "export_or_ninety";
  */
 export const DESTRUCTION_RULES: Readonly<Record<AgreementKind, Readonly<Record<string, DestructionRule>>>> = {
   baa: {
-    // A draft until the owner releases it (drizzle/0080); no clinic can be
-    // bound to it before then. Its Term clause is 1.3.0's with one phrase about
-    // Anthropic changed, and states the same rule.
-    "1.6.0": "export_or_ninety",
+    "1.5.1": "export_or_ninety",
     "1.5.0": "export_or_ninety",
     "1.4.0": "export_or_ninety",
     "1.3.0": "export_or_ninety",
@@ -475,8 +492,9 @@ export async function alertIfOffboardingStartedLate(
 /**
  * The export reached the practice. `how` is the operator's record of the
  * handover (the channel, and to whom by role), or the portal's own words for
- * the practice's download of the complete export, which reaches it in that
- * response (lib/portal/conversations.ts). The stamp is the database's
+ * the practice's download of the complete export, once the browser has
+ * reported, with the file's digest, that the whole of it arrived
+ * (confirmClinicExport in lib/portal/conversations.ts). The stamp is the database's
  * (app_mark_export_delivered): this moment, once, and only while the clinic
  * is offboarding and not yet destroyed. Never call it when an export is
  * merely produced: `exportClinic` and the patient-export script produce one
@@ -493,17 +511,66 @@ export async function markExportDelivered(tx: TenantTx, how: string): Promise<Da
 
 export type DestructionResult = { clinicId: string; deleted: Record<string, number> };
 
+// -----------------------------------------------------------------------------
+// AYA's number: kept until the pass-through has ended
+// -----------------------------------------------------------------------------
+
+/**
+ * When calls still forwarded to us stop passing through to the clinic's
+ * direct line: the end of the service plus the Terms' pass-through days (§7,
+ * FORWARDING_PASS_THROUGH_DAYS), the day E2 and E3 name.
+ */
+export function passThroughEndsAt(endedAt: Date): Date {
+  return new Date(endedAt.getTime() + FORWARDING_PASS_THROUGH_DAYS * DAY_MS);
+}
+
+/**
+ * Release AYA's number (clinics.assistant_number_e164), the number the
+ * clinic's line forwards to, once the pass-through has ended, and not
+ * before. Destruction is due from day 29 (a day early, to meet the
+ * agreements' thirty days) while forwarded calls pass through to day 30, so
+ * releasing the number with the data cut the last day's callers off. The
+ * number is no patient's data, so keeping it past the destruction breaks no
+ * promise to destroy: the data goes on its agreement's day, and the number
+ * at the later of that and the pass-through's end. Decided by the database's
+ * clock, in hours, as the destruction floor is (drizzle/0058). Returns
+ * whether this call released it.
+ */
+export async function releaseNumberAfterPassThrough(tx: TenantTx): Promise<boolean> {
+  const released = await tx.db
+    .update(clinics)
+    .set({ assistantNumberE164: null })
+    .where(
+      and(
+        eq(clinics.id, tx.clinicId),
+        isNotNull(clinics.assistantNumberE164),
+        sql`${clinics.offboardingStartedAt} <= clock_timestamp() - make_interval(hours => ${24 * FORWARDING_PASS_THROUGH_DAYS}::int)`,
+      ),
+    )
+    .returning({ id: clinics.id });
+  if (released.length === 0) return false;
+  tx.audit.record({
+    action: "update",
+    resourceType: "clinic_offboarding",
+    resourceId: tx.clinicId,
+    metadata: { numberReleased: true },
+  });
+  return true;
+}
+
 /**
  * Every patient row for one clinic, booking requests and slot holds
  * included, the hashes of who messaged it, its closed days, its setup
  * progress, its providers, its suppressions, consent records and contact
  * attempts, the records of its deletion requests, the amendments Practice
  * directed, and its deposits, gone. Audit, agreements, calendar elections and
- * billing stay.
+ * billing stay, and so does AYA's number until the pass-through has ended.
  */
 export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult> {
   const c = tx.clinicId;
   const deleted: Record<string, number> = {};
+  // E6's address, read first: nothing below may take it before it is kept.
+  const noticeTo = destructionNoticeAddressOf(await billingRecipients(tx));
   const del = async (name: string, run: () => Promise<{ id: string }[]>) => {
     deleted[name] = (await run()).length;
   };
@@ -599,11 +666,18 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
   const providers = await tx.db.execute<{ n: number }>(sql`select app_destroy_clinic_providers(${c}::uuid) as n`);
   deleted.clinic_providers = providers.rows[0]?.n ?? 0;
 
-  // The number is released with the data. destroyed_at is the database's
-  // to stamp, and it refuses a clinic that is not due or still holds any
-  // row deleted above (see the header).
-  await tx.db.update(clinics).set({ assistantNumberE164: null }).where(eq(clinics.id, c));
+  // AYA's number goes with the data only when the pass-through has already
+  // ended; before then it stays, and the hourly job releases it on the
+  // pass-through's last day (releaseNumberAfterPassThrough). destroyed_at is
+  // the database's to stamp, and it refuses a clinic that is not due or
+  // still holds any row deleted above (see the header).
+  await releaseNumberAfterPassThrough(tx);
   await tx.db.execute(sql`select app_mark_clinic_destroyed(${c}::uuid)`);
+  // Beside the stamp, which the column's CHECK requires: only a destroyed
+  // clinic holds one, and E6's sender clears it.
+  if (noticeTo) {
+    await tx.db.update(clinics).set({ destructionNoticeAddress: noticeTo }).where(eq(clinics.id, c));
+  }
   const total = Object.values(deleted).reduce((a, b) => a + b, 0);
   tx.audit.record({
     action: "delete",
@@ -613,6 +687,22 @@ export async function destroyClinicData(tx: TenantTx): Promise<DestructionResult
     metadata: { ...Object.fromEntries(Object.entries(deleted).map(([k, v]) => [k, v])), stripe_connect_events: connectEvents },
   });
   return { clinicId: c, deleted };
+}
+
+/** What clinics_destruction_notice_address_check takes: one bare address. */
+const NOTICE_ADDRESS = /^[^\s@\p{Cc}]+@[^\s@\p{Cc}]+$/u;
+
+/**
+ * The address E6 goes to: the clinic's one address (the first of its
+ * billing recipients, owner first), or null when it has none the column's
+ * CHECK would take. Never a throw: an address the database would refuse must
+ * not roll the destruction back, so E6 is lost instead (and the destruction
+ * still logged and recorded).
+ */
+function destructionNoticeAddressOf(recipients: readonly { email: string }[]): string | null {
+  const email = recipients[0]?.email.trim().toLowerCase() ?? "";
+  if (email.length >= 3 && email.length <= 254 && NOTICE_ADDRESS.test(email)) return email;
+  return null;
 }
 
 /**
@@ -642,7 +732,25 @@ export async function destroyDueClinics(
   const actor = { type: "service", serviceName: "offboarding-destroy" } as const;
   const results: DestructionResult[] = [];
   for (const clinic of await listClinics()) {
-    if (clinic.destroyedAt) continue;
+    if (clinic.destroyedAt) {
+      // Destroyed before its pass-through ended: its number is released now
+      // that the pass-through has, whatever the job's switch says.
+      if (
+        clinic.assistantNumberE164 &&
+        clinic.offboardingStartedAt &&
+        now.getTime() >= passThroughEndsAt(clinic.offboardingStartedAt).getTime()
+      ) {
+        try {
+          await withTenant({ clinicId: clinic.id, actor }, (tx) => releaseNumberAfterPassThrough(tx));
+        } catch (error) {
+          log.error("number not released after the pass-through", {
+            clinicId: clinic.id,
+            error: describeError(error),
+          });
+        }
+      }
+      continue;
+    }
     const plan = destructionPlan(clinic);
     if (!plan) continue;
     if (options.onlyPromised && !exportRuleIsPromised(plan.agreementVersion)) continue;

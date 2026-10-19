@@ -791,7 +791,7 @@ const DEFINER_OUTCOMES = new Set(["recorded", "already", "not_bought", "not_live
  * answered channel, `stepUpPackage(channel, first_answer)` for each later
  * one.
  *
- * Once per channel, three ways over: drizzle/0079's definer sets
+ * Once per channel, three ways over: the definer (drizzle/0079, 0085) sets
  * `first_answer_at` once, for a conversation that exists on the channel; the
  * channel rows are locked in channel order while it is decided; and the
  * partial unique index on channel_events (drizzle/0044) refuses a second
@@ -804,11 +804,15 @@ const DEFINER_OUTCOMES = new Set(["recorded", "already", "not_bought", "not_live
  * channel (`first_answer_not_recorded`), and leaves the caller's
  * conversation recorded; the channel's next answered conversation tries
  * again. Never throws.
+ *
+ * The first answer's time is the database's clock, stamped inside the
+ * definer (drizzle/0085), as the destruction and the record clocks are: it
+ * is billing evidence, the day a channel's price joins, so no caller chooses
+ * it.
  */
 export async function recordFirstAnswer(
   tx: TenantTx,
   evidence: FirstAnswerEvidence,
-  now: Date = new Date(),
 ): Promise<FirstAnswerResult> {
   const excluded = firstAnswerExclusion(evidence);
   if (excluded) return { recorded: false, reason: excluded };
@@ -838,7 +842,7 @@ export async function recordFirstAnswer(
       const billing = first ? "plan_start" : "step_up";
 
       const outcome = await savepoint.execute<{ outcome: string }>(
-        sql`select app_channel_record_first_answer(${channel}, ${evidence.conversationId ?? null}::uuid, ${billing}, ${now}::timestamptz) as outcome`,
+        sql`select app_channel_record_first_answer(${channel}, ${evidence.conversationId ?? null}::uuid, ${billing}) as outcome`,
       );
       const recorded = outcome.rows[0]?.outcome ?? "";
       if (recorded !== "recorded") {

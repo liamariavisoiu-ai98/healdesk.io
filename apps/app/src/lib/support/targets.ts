@@ -194,8 +194,8 @@ export type SupportLink = { label: string; url: string };
 
 /**
  * The link for a target on clinic `slug`, or null when this build has no such
- * screen yet (Bookings, until it lands). Throws PublicUrlError only where
- * publicUrl() does: in production with no public origin set.
+ * screen. Throws PublicUrlError only where publicUrl() does: in production
+ * with no public origin set.
  */
 export function linkTo(slug: string, target: ScreenTarget | SettingKey): SupportLink | null {
   if (Object.prototype.hasOwnProperty.call(SCREEN_TARGETS, target)) {

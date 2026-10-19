@@ -14,7 +14,7 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
 /**
  * Amendments to the records that must stay as they were made.
  *
- * Clause 14(b) of the agreement in force (BAA 1.5.0, in the words it has had
+ * Clause 14(b) of the agreement in force (BAA 1.5.1, in the words it has had
  * since 1.3.0), and the DPA's Clients' requests clause in its own words:
  * healdesk incorporates any amendment Practice directs. healdesk
  * corrects a person's contact details in its own copy (`amendContact` in
@@ -50,7 +50,8 @@ import { isPatientRequester, type PatientRequester } from "./requesters";
  *     the amendments beside each record wherever the portal shows or exports
  *     that record, as `exportPatient` and `exportClinic` do here: the clause
  *     promises them in every later export and on every screen of healdesk's
- *     that shows the record.
+ *     that shows the record. Bookings does, for its requests and
+ *     appointments (lib/portal/bookings.ts).
  *
  * The amendment's text is Practice's words about a patient, so it is PHI: it
  * is stored here and nowhere else, never written to the audit trail or a
@@ -185,6 +186,27 @@ export async function appendAmendment(
 }
 
 export type RecordAmendment = typeof recordAmendments.$inferSelect;
+
+/**
+ * How many amendments a record carries, without reading what they say: for
+ * a view that may show that a record was amended but not the words. The
+ * portal's Bookings screen opens behind the passkey and shows the words
+ * (amendmentsFor); the desk's emailed link (/booking/<token>) shows no
+ * record at all since M5, only where it is.
+ */
+export async function amendmentCount(tx: TenantTx, target: AmendmentTarget): Promise<number> {
+  const [row] = await tx.db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(recordAmendments)
+    .where(
+      and(
+        eq(recordAmendments.clinicId, tx.clinicId),
+        eq(recordAmendments.targetKind, target.kind),
+        eq(columnOf(target.kind), target.id),
+      ),
+    );
+  return row?.n ?? 0;
+}
 
 /**
  * The amendments of the given records of one kind, oldest first, by the id

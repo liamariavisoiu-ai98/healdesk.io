@@ -62,13 +62,31 @@ export const QUEUE_BILLING_MINUTE = "billing-minute";
  * within one five-minute cycle, not within the hour.
  */
 export const QUEUE_CALENDAR_WATCH = "calendar-watch";
+/**
+ * The practice questions' minute clock (lib/engine/practice/job.ts): each
+ * clinic's due run, two minutes after the last change that asked for it, one
+ * at a time per clinic. A queue of its own because a run can take minutes of
+ * model calls, which must not hold up the email outbox or billing, and a
+ * clinic that edits a price must not wait for the top of the hour.
+ */
+export const QUEUE_PRACTICE_QUESTIONS = "practice-questions";
+/**
+ * The website re-reads' minute clock (lib/website/job.ts): each clinic's due
+ * read, sent to apps/web's signed /api/clinic-site. A queue of its own
+ * because a read can take a minute at apps/web, which must not hold up the
+ * email outbox or billing, and a clinic that corrects its website in setup
+ * should see it read before the screens that use it.
+ */
+export const QUEUE_SITE_READS = "site-reads";
 
 /**
  * scripts/install-queue.ts creates exactly these, and pg-boss v10 refuses to
  * work a queue that was never created — `npm run queue:install` must be
  * re-run per environment when this list grows (it grew `billing-minute` with
- * the Stripe build of 6 October 2026, and `calendar-watch` with the calendar
- * build of 8 October 2026), and the worker restarted after it, because the
+ * the Stripe build of 6 October 2026, `calendar-watch` with the calendar
+ * build of 8 October 2026, `practice-questions` with the practice
+ * questions of 14 October 2026, and `site-reads` with the website re-reads
+ * of 19 October 2026), and the worker restarted after it, because the
  * worker registers its clocks only at start-up. The 23 September 2026
  * `callback-dialer` queue was removed with the call-back (v1 places no
  * calls); where it was installed, it is simply never worked.
@@ -81,6 +99,8 @@ export const QUEUES = [
   QUEUE_NOTICES,
   QUEUE_BILLING_MINUTE,
   QUEUE_CALENDAR_WATCH,
+  QUEUE_PRACTICE_QUESTIONS,
+  QUEUE_SITE_READS,
 ] as const;
 
 export type QueueName = (typeof QUEUES)[number];

@@ -180,3 +180,57 @@ describe("the care page takes no patient data", () => {
     expect(page).toContain("0 amendments appended · 0 contact corrections");
   });
 });
+
+// The incident clocks (WP7; owner, 12 October 2026): the agreements promise
+// "without unreasonable delay and in no case later than 60 calendar days",
+// and 24 hours is healdesk's internal target. Until then this page labelled
+// each class "(24 hours to tell the clinic)" as if the agreement said so.
+describe("the care page's incident clocks", () => {
+  function withIncident(incident: Partial<CareView["incidents"][number]>): OpsResult<CareView> {
+    const view = leaving(THIRTY_DAYS);
+    if (!view.ok) throw new Error("unreachable");
+    return {
+      ok: true,
+      data: {
+        ...view.data,
+        incidents: [
+          {
+            id: "5c0ffee0-1111-4c2a-9a8b-1f2e3d4c5b6a",
+            class: "security_incident",
+            summary: "Notice 7f3a went to a second inbox.",
+            conversationId: null,
+            discoveredAt: "2026-10-05 12:00 UTC",
+            notifyBy: "2026-10-06 12:00 UTC",
+            ftcNotifyBy: null,
+            notifiedAt: null,
+            notifiedHow: null,
+            resolvedAt: null,
+            resolution: null,
+            openedBy: "ops@healdesk.test",
+            agreementNotifyBy: "2026-12-04 12:00 UTC",
+            reportsSent: 0,
+            notReportableReason: null,
+            ...incident,
+          },
+        ],
+      },
+    };
+  }
+
+  test("show the agreement's deadline and our internal target, and never a 24-hour promise", () => {
+    const page = text(h(CarePanel, { view: withIncident({}), actions: ACTIONS }));
+    expect(page).toContain("The agreement's deadline: 2026-12-04 12:00 UTC");
+    expect(page).toContain("our internal target: 2026-10-06 12:00 UTC");
+    expect(page).not.toMatch(/24 hours/);
+    expect(page).toContain("Send the report, or record it as not reportable, from Incidents");
+  });
+
+  test("say what was decided", () => {
+    expect(text(h(CarePanel, { view: withIncident({ reportsSent: 2 }), actions: ACTIONS }))).toContain(
+      "Report and 1 update(s) sent from Incidents.",
+    );
+    expect(
+      text(h(CarePanel, { view: withIncident({ notReportableReason: "Blocked sign-ins only." }), actions: ACTIONS })),
+    ).toContain("Not reportable: Blocked sign-ins only.");
+  });
+});

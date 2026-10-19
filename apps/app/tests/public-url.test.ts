@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { connectRedirectUri, connectReturnUrl, mintConnectState } from "@/lib/billing/connect";
+import { bookingRequestUrl } from "@/lib/meta/booking-requests";
 import { publicOrigin, publicOriginProblem, publicUrl, PublicUrlError } from "@/lib/public-url";
 
 /**
@@ -55,10 +56,11 @@ describe("publicUrl", () => {
 
   test("the existing clinic-facing builders go through it", () => {
     vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.io/");
+    expect(bookingRequestUrl("tok")).toBe("https://app.healdesk.io/booking/tok");
     expect(connectRedirectUri()).toBe("https://app.healdesk.io/api/connect/stripe");
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("BETTER_AUTH_URL", "");
-    expect(() => connectRedirectUri()).toThrow(PublicUrlError);
+    expect(() => bookingRequestUrl("tok")).toThrow(PublicUrlError);
   });
 
   test("publicOriginProblem lets a caller check before it mints a link", () => {

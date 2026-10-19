@@ -108,7 +108,7 @@ reaches `apps/app` until every link is done.
 |---|---|
 | Clinic to Healdesk | Built: accepted inline at checkout |
 | Healdesk to Retell | Not done. Self-sign the BAA and DPA in Retell's click-agreements portal, confirm the executed text names the services in use, then set per-agent retention and PII controls |
-| Healdesk to Anthropic | Not done. The primary owner signs and activates. Patient traffic needs its **own** organisation: the HIPAA setting is organisation-wide and one-way, so enabling it on the marketing org would bind the demo's key too. The marketing key in `apps/web/.env.local` is already from a separate, non-PHI organisation. The HIPAA-ready organisation runs under standard retention and cannot also have zero data retention. The product's models, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS` in `packages/catalog/src/model-retention.ts`), are not Covered Models: they keep content no more than 30 days, flagged content up to two years, law-required content as long as the law requires. Only Covered Models (Fable, Mythos) require 30 days, and the responder refuses an override onto one. Check the executed BAA against `docs/counsel/agreement-changes.md` § 16 when it is signed |
+| Healdesk to Anthropic | Not done. The primary owner signs and activates. Patient traffic needs its **own** organisation: the HIPAA setting is organisation-wide and one-way, so enabling it on the marketing org would bind the demo's key too. The marketing key in `apps/web/.env.local` is already from a separate, non-PHI organisation. Covered models require 30-day retention; do not also request zero data retention |
 | Healdesk to the database provider | AWS RDS under the agreement above, the owner's choice of 7 October 2026 over Neon; defined in `infra/aws`, not yet applied |
 | Healdesk to AWS | Done (above) |
 | Clinic to Google | The calendar is the clinic's own, under its agreement with Google. Confirm per clinic |
@@ -423,7 +423,7 @@ delivered, 30 days after it was queued or 72 hours after a send nothing answered
 whatever its switch, which decides only whether transcripts are sent, and leaves each row
 as a receipt (the ops operation `transcriptDeliveries` reads them). `retention-purge` and `offboarding-destroy` run for every clinic whose agreement
 states what they do, whatever their switch, which only adds the other clinics: BAA
-1.3.0, 1.4.0 and 1.5.0 and the DPA today, read from each version's own text (`purgeIsPromised`,
+1.3.0, 1.4.0, 1.5.0 and 1.5.1 and the DPA today, read from each version's own text (`purgeIsPromised`,
 `exportRuleIsPromised`; switched off, each run's note says so). And four sweeps have no
 switch at all: `erasure-expiry`, `booking-request-expiry`, `welcome-email` and
 `booking-requirements-defaults`. The `heartbeat` row is the liveness signal and
@@ -461,7 +461,7 @@ does, or once older than the record clock when its appointment is already gone
 
 Which clinics: a clinic whose agreement states the purge's periods is purged every night
 whether the job's switch is on or not (`purgeIsPromised`, which reads each version's own
-retention clause: BAA 1.3.0, 1.4.0 and 1.5.0 and the DPA today, and any later version only if
+retention clause: BAA 1.3.0, 1.4.0, 1.5.0 and 1.5.1 and the DPA today, and any later version only if
 its text says so); the switch adds every other clinic, those on 1.2.2 or earlier and any with no
 agreement. **At the release of 1.3.0, switch `retention-purge` on** in the
 ops console (Jobs), so the clinics still on 1.2.2 or 1.2.1, whose agreement promises ninety days
@@ -492,9 +492,9 @@ the same rule as the database's floor):
   though these agreements give it only "on request"), so deliver it and record the
   handover before then; ops is alerted at day 21 when none is recorded
   (`export_undelivered_before_destruction`).
-- BAA 1.3.0, 1.4.0 and 1.5.0 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
+- BAA 1.3.0, 1.4.0, 1.5.0 and 1.5.1 (whose Term clause is 1.3.0's) and the DPA: day 29 once the export is
   recorded as delivered, its delivery when that is later, and day 89 whatever happens, each
-  a day inside the thirty days and the ninety that BAA 1.3.0, 1.4.0 and 1.5.0 state. Record the delivery by day 29: one recorded later is
+  a day inside the thirty days and the ninety that BAA 1.3.0, 1.4.0, 1.5.0 and 1.5.1 state. Record the delivery by day 29: one recorded later is
   destroyed at the next hourly run, which in the thirtieth day's last hour can fall after
   the thirty days.
 

@@ -40,13 +40,17 @@ delivery is confirmed (kept and sent again until it is, but never past 30
 days) and released 1.5.0, which is 1.4.0 with that said in clauses 11 and
 14 (`agreement-changes.md` § 15), on the owner's own instruction and
 without external counsel; no clinic had signed 1.4.0, so 1.5.0 replaced it
-outright: it is the only version offered (`docs/baa-v1.5.0.txt`) and the
-go-live floor, and § 15 recommends that counsel review it. On 19 October
-2026 BAA 1.6.0 was drafted, not released: 1.5.0 with Anthropic's retention
-said as Anthropic's documentation says it for the models the product calls,
-correcting finding A3's misquote (`agreement-changes.md` § 16,
-`docs/baa-v1.6.0.txt`); its `approvedByCounsel` is false until the owner
-releases it. The reasoning: no clinic is live and no real patient data has been processed;
+outright, and § 15 recommends that counsel review it. On 19 October 2026
+the owner decided that the agreement says what the website chat asks for:
+the optional booking details (a last name, the service, new or returning,
+consultation or treatment, a practitioner), which 1.5.0 said are asked only
+on a call. The owner released 1.5.1, which is 1.5.0 with clause 11's items
+(b) and (c) saying "on a call or in a website chat" (`agreement-changes.md`
+§ 16), on the owner's own instruction and without external counsel; no
+clinic had signed 1.5.0, so 1.5.1 replaced it outright: it is the only
+version offered (`docs/baa-v1.5.1.txt`) and the go-live floor, and § 16
+recommends that counsel review it. The
+reasoning: no clinic is live and no real patient data has been processed;
 the regulatory skeleton of the BAA is checkable against the text of 45 CFR
 164.504(e) and was checked; the open points that a lawyer would settle are
 mostly questions about enforcement and platform policy that reasoning cannot
@@ -60,7 +64,7 @@ makes both healdesk and the clinic non-compliant. Several statutes in the
 state table could not be read on the state's own site this session and are
 marked as unverified with the one action that would verify each. The
 `approvedByCounsel` flag in `packages/catalog/src/baa.ts` is set true for
-1.5.0 (and the superseded 1.4.0, 1.3.0, 1.2.2, 1.2.1 and 1.2.0) on the owner's own
+1.5.1 (and the superseded 1.5.0, 1.4.0, 1.3.0, 1.2.2, 1.2.1 and 1.2.0) on the owner's own
 review, and its doc comment says so.
 
 ## Rules for this folder

@@ -16,9 +16,6 @@ import {
   handoffLine,
   NEVER_SAY_HEADING,
   probeVerdict,
-  promisesReplyInChat,
-  staffCanReplyOn,
-  whatsAppPersonLine,
 } from "@/lib/meta/front-door";
 import { parseMetaEvents, signMetaBody, verifyMetaSignature } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
@@ -75,35 +72,6 @@ describe("the guard", () => {
     // A practice named after what it sells can still say its own name.
     const named = handoffLine({ clinicName: "Botox Bar", phone: "+1 415 555 0199" });
     expect(guardReply(named, { clinicName: "Botox Bar", serviceNames: SERVICES })).toEqual({ ok: true });
-  });
-
-  test("WhatsApp has no inbox: the person line sends them to the phone, and a reply promising an answer in the chat is caught", () => {
-    expect(staffCanReplyOn("whatsapp")).toBe(false);
-    expect(staffCanReplyOn("messenger")).toBe(true);
-    expect(staffCanReplyOn("instagram")).toBe(true);
-    const line = whatsAppPersonLine({ clinicName: "Radiance", phone: "+1 415 555 0199" });
-    expect(line).toBe("To speak to someone at Radiance, please call the practice at +1 415 555 0199. The team can't see or answer messages in this chat, so a call is the way to reach a person.");
-    expect(promisesReplyInChat(line)).toBe(false);
-    expect(guardReply(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true });
-    expect(probeVerdict(line, { clinicName: "Radiance", serviceNames: SERVICES })).toEqual({ ok: true, reason: null });
-    for (const promise of [
-      "The practice team will get back to you here.",
-      "Someone from the team will reply here shortly.",
-      "A member of staff will message you back.",
-      "They'll get back to you in this chat as soon as they can.",
-      "The team will be in touch with you on WhatsApp.",
-      "Someone will respond to you here.",
-    ]) {
-      expect(promisesReplyInChat(promise), promise).toBe(true);
-    }
-    for (const fine of [
-      handoffLine({ clinicName: "Radiance", phone: "+1 415 555 0199" }),
-      "The practice will call you to confirm a time.",
-      "Please call the practice and a person can help.",
-      "I can answer questions about hours and parking here.",
-    ]) {
-      expect(promisesReplyInChat(fine), fine).toBe(false);
-    }
   });
 
   test("refuses one of the clinic's own service names however it is written, and lets the price through without it", () => {
@@ -219,7 +187,7 @@ describe("the guard", () => {
       requirements: metaEligible(resolved),
       deferredRequirements: resolved.filter((f) => !f.metaEligible),
       neverSay: [],
-    }, "messenger");
+    });
     expect(prompt).toMatch(/NEVER/);
     expect(prompt).toMatch(/Acknowledge, repeat, or respond to any health condition/);
     expect(prompt).toMatch(/appointment date, time, or provider/);
@@ -252,7 +220,7 @@ describe("the guard", () => {
 
   test("the prompt asks for no greeting: the code opens a first reply with the channel's, so the model starts with the substance (BAA 1.3.0 gate 20)", () => {
     const resolved = resolveBookingRequirements("med-spa", null);
-    const facts = {
+    const prompt = buildFrontDoorPrompt({
       clinicName: "Radiance",
       phone: "+1 415 555 0199",
       websiteHint: "radiance.example",
@@ -262,27 +230,16 @@ describe("the guard", () => {
       requirements: metaEligible(resolved),
       deferredRequirements: resolved.filter((f) => !f.metaEligible),
       neverSay: [],
-    };
-    const prompt = buildFrontDoorPrompt(facts, "messenger");
+    });
     expect(prompt).not.toContain("Greet the person warmly and briefly");
     // The one line that speaks of greeting or introducing forbids both, and says why.
     const greetingLines = prompt.split("\n").filter((line) => /\bgreet|\bintroduc/i.test(line));
     expect(greetingLines).toEqual([
       '1. Start your reply with the substance. Never greet the person (no "Hi", "Hello" or "Hey"), and never introduce yourself or say what you are unless they ask: the code puts the channel\'s opening line in front of your reply wherever one is owed, and that line already greets them and says you are an AI assistant.',
     ]);
-    // The rest of the list stands as it was: rule 1 changed, 2 to 4 did not,
-    // and 5 asks the model to flag a request for a person (the handover alert, L11).
+    // The rest of the list stands as it was: rule 1 changed, 2 to 4 did not.
     const rules = prompt.split("\n").filter((line) => /^\d\. /.test(line));
-    expect(rules.map((line) => line.slice(0, 3))).toEqual(["1. ", "2. ", "3. ", "4. ", "5. "]);
-    expect(rules[4]).toBe('5. If the person asks to speak to, or hear from, a person at the practice, set "handoff" to true and say the practice team will get back to them here. Asking whether you are a person is not that: answer it, with "handoff" false.');
-    // Instagram's is Messenger's: the team answers both from the clinic's own inbox.
-    expect(buildFrontDoorPrompt(facts, "instagram")).toBe(prompt);
-    // WhatsApp's number has no inbox, so its rule 5 sends them to the phone
-    // and forbids promising a reply; every other line is the same.
-    const wa = buildFrontDoorPrompt(facts, "whatsapp").split("\n");
-    const waRule = wa.find((line) => line.startsWith("5. "))!;
-    expect(waRule).toBe('5. If the person asks to speak to, or hear from, a person at the practice, set "handoff" to true and tell them to call the practice (+1 415 555 0199). Nobody at the practice can read or answer this chat, so never say that anyone will reply, get back to them or follow up here. Asking whether you are a person is not that: answer it, with "handoff" false.');
-    expect(wa.filter((line) => line !== waRule)).toEqual(prompt.split("\n").filter((line) => line !== rules[4]));
+    expect(rules.map((line) => line.slice(0, 3))).toEqual(["1. ", "2. ", "3. ", "4. "]);
     expect(rules[1]).toBe("2. Answer PUBLIC questions from the facts below: hours, location, parking, and whether the practice offers something the person asks about and its published price, without ever naming it.");
     expect(rules[2]).toBe("3. Move the person to a secure channel to discuss anything personal: the phone (+1 415 555 0199) or the website (radiance.example).");
     expect(prompt).toContain("- Claim to be human. If asked, say you are an automated assistant.");
@@ -301,8 +258,8 @@ describe("the guard", () => {
       deferredRequirements: resolved.filter((f) => !f.metaEligible),
     };
     const list = neverSayWithDefaults(["cheapest in town"]);
-    const without = buildFrontDoorPrompt({ ...base, neverSay: [] }, "messenger");
-    const prompt = buildFrontDoorPrompt({ ...base, neverSay: list }, "messenger");
+    const without = buildFrontDoorPrompt({ ...base, neverSay: [] });
+    const prompt = buildFrontDoorPrompt({ ...base, neverSay: list });
     // An empty list adds no heading.
     expect(without).not.toContain(NEVER_SAY_HEADING);
     expect(without).not.toMatch(/never-say/i);

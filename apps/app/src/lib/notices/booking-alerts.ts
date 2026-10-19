@@ -1,27 +1,20 @@
 import { randomUUID } from "node:crypto";
 
 import type { Channel } from "@healdesk/catalog";
-import { and, desc, eq, gt, isNull, like, sql } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
-import type { Transaction } from "@/db";
-import { appointments, billingNotices, bookingRequests, clinics } from "@/db/schema";
-import type { BookingAlertPayload, MetaAlertPlatform } from "@/lib/email/templates/booking-alert-copy";
+import { bookingRequests, clinics, conversations } from "@/db/schema";
+import type { BookingAlertPayload } from "@/lib/email/templates/booking_alert";
 import { describeError, log } from "@/lib/log";
-import { sectionPath } from "@/lib/portal/nav";
-import { publicOriginProblem, publicUrl } from "@/lib/public-url";
+import { sectionPath, type PortalSection } from "@/lib/portal/nav";
+import { PublicUrlError, publicUrl } from "@/lib/public-url";
 import type { TenantTx } from "@/lib/tenant";
 
 import { enqueuePlanNotice } from "./plan-notices";
 
 /**
- * Booking alerts to the clinic: L7-L12, L20 and L34 in Annex X5 of the
- * funnel and portal plan, queued in the outbox (`billing_notices`) since
- * 19 October 2026 for the five that are built: L7 booking requests, L10
- * deposits to collect, L11 handovers, L12 urgent messages and L34 calendar
- * checks. They replace notifyDesk, which mailed a /booking/<token> link to
- * every report recipient, and sendLiveAlert (Annex X6): every alert now goes
- * to the clinic's one address (billingRecipients, read by the sender) and
- * links into the signed-in portal.
+ * Booking alerts to the clinic: L7-L12, L20 and L34 in Annex X5 of the funnel
+ * and portal plan, queued in the outbox since M5 (package F).
  */
 
 export type BookingAlertKind =
@@ -37,7 +30,7 @@ export type BookingAlertKind =
   | "handover"
   /** L12: the urgent matcher fired. Critical. */
   | "urgent"
-  /** L20: a message left on the website's contact form while chat was off or paused. */
+  /** L20: a message left on the website's contact form while AYA was not answering (lib/chat/contact-form.ts). */
   | "website_message"
   /**
    * L34: a booking the assistant made may not be in the calendar (the write
@@ -46,323 +39,220 @@ export type BookingAlertKind =
    */
   | "calendar_check";
 
-/** The alerts that have a payload and a template: the ones notifyBookingAlert queues. */
-export type SentAlertKind = "booking_request" | "deposit_to_collect" | "handover" | "urgent" | "calendar_check";
-
-const SENT: ReadonlySet<BookingAlertKind> = new Set<SentAlertKind>([
-  "booking_request",
-  "deposit_to_collect",
-  "handover",
-  "urgent",
-  "calendar_check",
-]);
-
-function isSent(kind: BookingAlertKind): kind is SentAlertKind {
-  return SENT.has(kind);
-}
+/**
+ * Whether an urgent alert (L12) reaches the clinic: true since package F,
+ * which queues it in the outbox in the transaction that answers the urgent
+ * message and sends it in-process right after commit
+ * (deliverCriticalAfterCommit), with /api/health red if it is still unsent
+ * ten minutes later. The fixed urgent reply says "I've told the team" only
+ * while this is true (@healdesk/catalog, fixedUrgentReply), so the line never
+ * promises an alert that was not sent, and the wizard's urgent screen says
+ * AYA "tells your team at once".
+ */
+export const URGENT_ALERT_DELIVERED = true;
 
 /** What the alert points at. Ids only: the portal shows the rest behind sign-in and step-up. */
 export type BookingAlertRef = {
   appointmentId?: string;
   bookingRequestId?: string;
   conversationId?: string;
-  /** The channel it came in on, in the catalog's ids. Read from the request when absent. */
-  channel?: Channel;
   /**
-   * On the Meta channel, which platform: the email tells staff to answer an
-   * Instagram or Messenger message in the clinic's own inbox, and says a
-   * WhatsApp number has none. Ignored on any other channel.
-   */
-  platform?: MetaAlertPlatform;
-  /**
-   * The call's Retell id, for an alert raised while the call is up: its
-   * conversation row is written only when the call ends (lib/voice/ingest.ts),
-   * so the call's id keys the alert instead. It keys the notice and is never
-   * stored in it.
+   * The vendor's id for a call still in progress, when no conversation row
+   * exists yet (a Retell call writes its conversation when it ends). Only the
+   * dedupe key carries it, so one call raises each alert once even across a
+   * reconnect; it never enters the payload.
    */
   callId?: string;
+  /** How the person reached the clinic, when the caller knows it; otherwise read from the request. */
+  channel?: Channel;
   /**
    * L10 only: a deposit link that may already have been paid. Package D sets
    * it when a Stripe disconnect could not verify an open link, so the email
    * says to check Stripe before collecting the deposit again. A flag, not a
-   * sentence: the template words it. Stored as `isPossiblyPaid`, the name the
-   * payload allowlist reads as a flag.
+   * sentence: the template words it.
    */
   mayBePaid?: boolean;
 };
 
-/** booking_requests.channel in the catalog's channel ids: `web_chat` is the website chat, `web`. */
-function channelOfRequest(channel: "voice" | "meta" | "web_chat"): Channel {
-  return channel === "web_chat" ? "web" : channel;
-}
-
 /**
- * Where an alert opens in the clinic portal. The only place an alert's link
- * is decided.
- *
- * A booking request (L7), a deposit (L10) and a calendar check (L34) open
- * their own row in Bookings (app/c/[slug]/bookings), where staff act on it:
- * a deposit left for the team at its appointment in Deposits to collect, and
- * otherwise the request, which Bookings anchors in Waiting for you, in
- * Missed, or on the booking it was confirmed as. A deposit reservation or a
- * booking refused for want of a deposit is a request, so it opens there too.
- *
- * A handover (L11) and an urgent message (L12) open the conversation they
- * came from in Conversations, or Conversations itself while there is no
- * conversation to open (a call still going on), as does an L10 that names
- * neither a request nor an appointment.
+ * The portal screen each alert links to. Bookings for all of them today. An
+ * urgent message or a handover with no booking is a conversation, not a
+ * booking: once package G's Conversations screen lands, these two point
+ * there. The path is built either way; nothing here depends on the screen
+ * existing.
  */
-export function alertPortalPath(
-  slug: string,
-  kind: SentAlertKind,
-  target: { conversationId: string | null; bookingRequestId: string | null; appointmentId: string | null },
-): string {
-  if (kind === "booking_request" || kind === "deposit_to_collect" || kind === "calendar_check") {
-    const bookings = sectionPath(slug, "bookings");
-    if (kind === "deposit_to_collect" && target.appointmentId) return `${bookings}#deposit-${target.appointmentId}`;
-    if (target.bookingRequestId) return `${bookings}#request-${target.bookingRequestId}`;
-    if (target.appointmentId) return `${bookings}#booking-${target.appointmentId}`;
-  }
-  const conversations = sectionPath(slug, "conversations");
-  return target.conversationId ? `${conversations}/${target.conversationId}` : conversations;
-}
+export const ALERT_SECTION: Readonly<Record<BookingAlertKind, PortalSection>> = {
+  booking_request: "bookings",
+  request_still_open: "bookings",
+  request_missed: "bookings",
+  deposit_to_collect: "bookings",
+  handover: "bookings",
+  urgent: "bookings",
+  website_message: "bookings",
+  calendar_check: "bookings",
+};
+
+const REQUEST_CHANNEL: Readonly<Record<"voice" | "meta" | "web_chat", Channel>> = {
+  voice: "voice",
+  meta: "meta",
+  web_chat: "web",
+};
 
 /**
- * The key that makes an alert once: per request for L7 and L34, per
- * appointment (else request, else conversation) for L10, per call or
- * conversation for L11 and L12. A call is keyed on its Retell id whether the
- * alert is raised while it is up or by the ingest when it ends, so the
- * ingest's backstop never sends a call's alert twice. Null when the ref names
- * nothing to key on, except that an urgent alert or a handover is never
- * dropped for want of one: it is keyed on a fresh id, so each one alerts.
- */
-function dedupeKeyFor(
-  kind: SentAlertKind,
-  channel: Channel | null,
-  ref: BookingAlertRef,
-  conversationId: string | null,
-): string | null {
-  switch (kind) {
-    case "booking_request":
-    case "calendar_check":
-      return ref.bookingRequestId ? `${kind}:${ref.bookingRequestId}` : null;
-    case "deposit_to_collect": {
-      const id = ref.appointmentId ?? ref.bookingRequestId ?? conversationId;
-      return id ? `${kind}:${id}` : null;
-    }
-    case "handover":
-    case "urgent":
-      return `${kind}:${channel ?? "unknown"}:${ref.callId ?? conversationId ?? randomUUID()}`;
-  }
-}
-
-/**
- * How many requests for a person one clinic's calls, or its website chat,
- * send one by one in an hour. Every new website chat is a new conversation,
- * so anyone who can load a clinic's widget could otherwise turn "can I speak
- * to a person?" into emails without end: flooding the clinic's inbox, and
- * spending the Resend quota that every clinic's alerts and sign-in links
- * share. Past this many in the last hour on that channel, further handovers
- * share an email (burstKeyFor), which opens Conversations, where each one is
- * marked. The cap re-arms: once a shared email has gone, the next handover
- * starts another, so none is left without one.
+ * Tell the clinic a booking needs it. The email is a pointer: the kind, the
+ * clinic and a link into the portal, never who, when or which service
+ * (Annex X1; the spec's "Email").
  *
- * Urgent alerts are never capped or combined: the spec sends a complication
- * or an urgent symptom to the clinic "immediately", so each urgent
- * conversation (or call) is its own email, however many come. The website
- * chat's per-address rate limit (lib/chat/widget-http.ts) is what bounds
- * them, and once Resend refuses the day's quota the urgent reply stops
- * saying the team was told (urgentAlertLive). Nor are Meta's handovers
- * capped: each thread is one person's account, Conversations does not mark
- * a thread's request for a person, and what staff can do differs by platform,
- * so a shared email could not say it truthfully.
- */
-export const ALERT_BURST_AFTER = 3;
-
-/** Whether a handover on this channel counts towards the cap: a call's or a website chat's. */
-function cappedChannel(channel: Channel | null): boolean {
-  return channel === "web" || channel === "voice";
-}
-
-/**
- * The key a handover on a capped channel goes under (cappedChannel), or null when it is sent on
- * its own: it already has its own row (a second message in the same
- * conversation, or the ingest's backstop for a call), or fewer than
- * ALERT_BURST_AFTER went on this channel in the last hour and no shared
- * email did.
+ * Called inside the caller's tenant transaction, and it queues the outbox row
+ * in that same transaction, so nothing is sent for work that rolls back. The
+ * minute queue sends it; L12 is critical, and its caller hands the clinic to
+ * deliverCriticalAfterCommit (lib/email/outbox.ts) once the transaction has
+ * committed. Each alert is queued once per event: the dedupe key is the
+ * request, the appointment, the conversation or the call it is about.
  *
- * Past the cap it joins the shared email still waiting to be sent, if there
- * is one nobody has started to send (attempts 0, sent_at null), and locks
- * that row until this transaction commits: the sender's claim (a
- * conditional UPDATE, lib/email/outbox.ts) waits for the lock, so the email
- * it then sends comes after this handover, never before. The writers that
- * raise a handover hold their transaction only for a few writes after this,
- * never across a model or an HTTP call. Otherwise, the shared email before
- * it already claimed or gone, it starts a new one: the cap re-arms, and no
- * handover is left without an email.
- */
-async function burstKeyFor(
-  db: Transaction,
-  clinicId: string,
-  kind: "handover",
-  channel: Channel | null,
-  ownKey: string,
-): Promise<string | null> {
-  const mine = and(eq(billingNotices.clinicId, clinicId), eq(billingNotices.kind, kind));
-  const [own] = await db
-    .select({ id: billingNotices.id })
-    .from(billingNotices)
-    .where(and(mine, eq(billingNotices.dedupeKey, ownKey)))
-    .limit(1);
-  if (own) return null;
-  const prefix = `${kind}:${channel ?? "unknown"}:`;
-  const burstPrefix = `${prefix}burst:`;
-  const recent = await db
-    .select({ dedupeKey: billingNotices.dedupeKey })
-    .from(billingNotices)
-    .where(and(mine, like(billingNotices.dedupeKey, `${prefix}%`), gt(billingNotices.createdAt, sql`now() - interval '1 hour'`)));
-  const bursting = recent.some((r) => r.dedupeKey.startsWith(burstPrefix));
-  const single = recent.filter((r) => !r.dedupeKey.startsWith(burstPrefix)).length;
-  if (!bursting && single < ALERT_BURST_AFTER) return null;
-  const [open] = await db
-    .select({ dedupeKey: billingNotices.dedupeKey })
-    .from(billingNotices)
-    .where(
-      and(
-        mine,
-        like(billingNotices.dedupeKey, `${burstPrefix}%`),
-        isNull(billingNotices.sentAt),
-        eq(billingNotices.attempts, 0),
-      ),
-    )
-    .orderBy(desc(billingNotices.createdAt))
-    .limit(1)
-    .for("update");
-  return open?.dedupeKey ?? `${burstPrefix}${randomUUID()}`;
-}
-
-/**
- * The conversation, channel and Meta platform a ref leads to: the ref's own,
- * else the request's (a website chat's or a finished call's request names
- * its conversation; a Meta request names a thread, which the caller passes,
- * and its platform), else the appointment's.
- */
-async function targetOf(
-  db: Transaction,
-  clinicId: string,
-  ref: BookingAlertRef,
-): Promise<{ channel: Channel | null; platform: MetaAlertPlatform | null; conversationId: string | null }> {
-  let channel: Channel | null = ref.channel ?? null;
-  let platform: MetaAlertPlatform | null = ref.platform ?? null;
-  let conversationId: string | null = ref.conversationId ?? null;
-  if (ref.bookingRequestId && (!channel || !conversationId || !platform)) {
-    const [request] = await db
-      .select({ channel: bookingRequests.channel, platform: bookingRequests.platform, conversationId: bookingRequests.conversationId })
-      .from(bookingRequests)
-      .where(and(eq(bookingRequests.id, ref.bookingRequestId), eq(bookingRequests.clinicId, clinicId)))
-      .limit(1);
-    if (request) {
-      channel ??= channelOfRequest(request.channel);
-      platform ??= request.platform;
-      conversationId ??= request.conversationId;
-    }
-  }
-  if (ref.appointmentId && !conversationId) {
-    const [appointment] = await db
-      .select({ conversationId: appointments.conversationId })
-      .from(appointments)
-      .where(and(eq(appointments.id, ref.appointmentId), eq(appointments.clinicId, clinicId)))
-      .limit(1);
-    conversationId = appointment?.conversationId ?? null;
-  }
-  // A platform means something on the Meta channel only.
-  return { channel, platform: channel === "meta" ? platform : null, conversationId };
-}
-
-/**
- * Tell the clinic a booking, a deposit, a handover or something urgent needs
- * it. The email is a pointer (lib/email/templates/booking-alert-copy.ts): the
- * kind, the channel and a link into the portal, never who, when or which
- * service.
+ * It replaced notifyDesk (lib/meta/booking-requests.ts) and sendLiveAlert
+ * (lib/reporting/alerts.ts), which emailed every report recipient directly:
+ * the alert goes to the clinic's one address, resolved when it is sent.
  *
- * Called inside the caller's tenant transaction (the runtimes, the booking
- * engine and Package D's deposit transactions), it queues the notice in that
- * same transaction, once per dedupe key, and the email goes after commit:
- * nothing is sent for work that rolls back. The urgent alert is critical, so
- * the caller hands it to deliverCriticalAfterCommit once its transaction
- * commits; the rest go from the minute queue, at any hour.
- *
- * Returns whether the alert is queued: true when the row is in the outbox
- * (written now, or already there under the same key), false when it could
- * not be. The urgent reply says "I've told the team" only on true. An
- * urgent alert is always its own email; past ALERT_BURST_AFTER handovers on
- * a call or in the website chat in an hour, further ones share an email
- * that is sent after them (burstKeyFor).
- *
- * It never throws, and it never breaks the caller's transaction: the insert
- * runs in a savepoint, so a failure here rolls back only itself, is logged
- * with ids only, and the booking, deposit or conversation it reports on is
- * still recorded.
+ * It never throws, and never breaks the caller's transaction: the reads and
+ * the insert run in a savepoint, so a failure here rolls back only itself
+ * and the booking, deposit or conversation it reports on is still recorded.
  */
 export async function notifyBookingAlert(
   tx: TenantTx,
   kind: BookingAlertKind,
   ref: BookingAlertRef,
-): Promise<boolean> {
+): Promise<void> {
   try {
-    if (!isSent(kind)) {
-      // L8, L9 and L20 have no payload or template yet (PENDING_TEMPLATES).
-      log.info("booking alert not queued: its email is not built", { clinicId: tx.clinicId, kind });
-      return false;
-    }
-    if (publicOriginProblem()) {
-      log.error("booking alert not queued: no public origin", { clinicId: tx.clinicId, kind });
-      return false;
-    }
-    return await tx.db.transaction(async (savepoint) => {
+    await tx.db.transaction(async (savepoint) => {
+      const scoped: TenantTx = { ...tx, db: savepoint };
       const [clinic] = await savepoint
         .select({ slug: clinics.slug })
         .from(clinics)
         .where(eq(clinics.id, tx.clinicId))
         .limit(1);
-      if (!clinic) return false;
-      const { channel, platform, conversationId } = await targetOf(savepoint, tx.clinicId, ref);
-      const own = dedupeKeyFor(kind, channel, ref, conversationId);
-      if (!own) {
-        log.error("booking alert not queued: nothing to key it on", { clinicId: tx.clinicId, kind });
-        return false;
-      }
-      const burst = kind === "handover" && cappedChannel(channel) ? await burstKeyFor(savepoint, tx.clinicId, kind, channel, own) : null;
-      const key = burst ?? own;
-      // A shared email is about the channel, not one conversation: it opens Conversations.
-      const pointsAt = burst ? null : conversationId;
-      const payload: BookingAlertPayload = {
-        channel,
-        platform,
-        conversationId: pointsAt,
+      if (!clinic) return;
+      const alert: BookingAlertPayload = {
+        portalUrl: alertUrl(tx.clinicId, clinic.slug, kind),
+        channel: ref.channel ?? (await channelOf(scoped, ref)),
         bookingRequestId: ref.bookingRequestId ?? null,
         appointmentId: ref.appointmentId ?? null,
-        isPossiblyPaid: kind === "deposit_to_collect" && ref.mayBePaid === true,
-        isBurst: burst !== null,
-        portalUrl: publicUrl(
-          alertPortalPath(clinic.slug, kind, {
-            conversationId: pointsAt,
-            bookingRequestId: ref.bookingRequestId ?? null,
-            appointmentId: ref.appointmentId ?? null,
-          }),
-        ),
+        conversationId: ref.conversationId ?? null,
       };
-      // Inserted now, or already there under its key: this conversation's
-      // own row, or the shared email burstKeyFor holds locked until commit.
-      await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, payload);
-      return true;
+      const key = dedupeKey(kind, ref);
+      switch (kind) {
+        case "deposit_to_collect":
+          await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, {
+            ...alert,
+            isPossiblyPaid: ref.mayBePaid === true,
+          });
+          return;
+        case "request_still_open":
+          // A count, not one request: queued by the opening-hour job
+          // (lib/scheduler/requests-still-open.ts) through queueRequestsStillOpen.
+          log.error("booking alert not queued: L8 is queued by its job, with a count", {
+            clinicId: tx.clinicId,
+            kind,
+          });
+          return;
+        default:
+          await enqueuePlanNotice(savepoint, tx.clinicId, kind, key, alert);
+      }
     });
   } catch (error) {
     try {
-      log.error("booking alert not queued", { clinicId: tx.clinicId, kind, error: describeError(error) });
+      log.error("booking alert not queued", {
+        clinicId: tx.clinicId,
+        kind,
+        error: describeError(error),
+      });
     } catch {
       // Nothing reaches the caller; see above.
     }
-    return false;
   }
+}
+
+/**
+ * L8: the requests still waiting for the desk at the clinic's opening hour,
+ * once per clinic-local date, with their count. Called by the opening-hour job
+ * inside the clinic's tenant. Returns whether this call queued it. Throws
+ * only when the database does: the job counts the failure and carries on.
+ */
+export async function queueRequestsStillOpen(
+  tx: TenantTx,
+  input: { localDate: string; openCount: number; closesAfterDays: number },
+): Promise<boolean> {
+  const [clinic] = await tx.db
+    .select({ slug: clinics.slug })
+    .from(clinics)
+    .where(eq(clinics.id, tx.clinicId))
+    .limit(1);
+  if (!clinic || input.openCount < 1) return false;
+  return enqueuePlanNotice(
+    tx.db,
+    tx.clinicId,
+    "request_still_open",
+    `request_still_open:${input.localDate}`,
+    {
+      portalUrl: alertUrl(tx.clinicId, clinic.slug, "request_still_open"),
+      openCount: input.openCount,
+      closesAfterDays: input.closesAfterDays,
+    },
+  );
+}
+
+/** The portal link, or null when there is no public origin to build it on (the email still goes). */
+function alertUrl(clinicId: string, slug: string, kind: BookingAlertKind): string | null {
+  try {
+    return publicUrl(sectionPath(slug, ALERT_SECTION[kind]));
+  } catch (error) {
+    if (!(error instanceof PublicUrlError)) throw error;
+    log.error("booking alert queued without a link: no public origin", { clinicId, kind });
+    return null;
+  }
+}
+
+/** Once per what: the most specific thing the alert is about, or a fresh key when it names nothing. */
+export function dedupeKey(kind: BookingAlertKind, ref: BookingAlertRef): string {
+  const about = ref.appointmentId
+    ? `appointment:${ref.appointmentId}`
+    : ref.bookingRequestId
+      ? `request:${ref.bookingRequestId}`
+      : ref.conversationId
+        ? `conversation:${ref.conversationId}`
+        : ref.callId
+          ? `call:${ref.callId}`
+          : `event:${randomUUID()}`;
+  // A link that may already have been paid is its own alert, whatever was said before.
+  const unchecked = kind === "deposit_to_collect" && ref.mayBePaid ? ":unchecked" : "";
+  return `${kind}:${about}${unchecked}`.slice(0, 200);
+}
+
+/** The channel of the request or conversation the alert is about, when the caller did not say. */
+async function channelOf(tx: TenantTx, ref: BookingAlertRef): Promise<Channel | null> {
+  if (ref.bookingRequestId || ref.appointmentId) {
+    const [request] = await tx.db
+      .select({ channel: bookingRequests.channel })
+      .from(bookingRequests)
+      .where(
+        and(
+          eq(bookingRequests.clinicId, tx.clinicId),
+          ref.bookingRequestId
+            ? eq(bookingRequests.id, ref.bookingRequestId)
+            : eq(bookingRequests.appointmentId, ref.appointmentId!),
+        ),
+      )
+      .limit(1);
+    if (request) return REQUEST_CHANNEL[request.channel] ?? null;
+  }
+  if (ref.conversationId) {
+    const [conversation] = await tx.db
+      .select({ channel: conversations.channel })
+      .from(conversations)
+      .where(and(eq(conversations.clinicId, tx.clinicId), eq(conversations.id, ref.conversationId)))
+      .limit(1);
+    if (conversation?.channel === "voice") return "voice";
+    if (conversation?.channel === "web_chat") return "web";
+  }
+  return null;
 }

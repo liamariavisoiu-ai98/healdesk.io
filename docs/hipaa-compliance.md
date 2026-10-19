@@ -88,7 +88,7 @@ by scoping.
 | Hosting (product) | AWS (`us-east-1`, account `865780386982`) | **Accepted 22 September 2026** (account agreement in AWS Artifact). Covers only that account and HIPAA-eligible services; record in [policies/aws-hipaa-account.md](./policies/aws-hipaa-account.md) |
 | Database (product) | AWS RDS for PostgreSQL, or Neon on its Scale plan | **Not chosen.** RDS is covered by the AWS agreement already held; Neon signs its own (self-serve) and its Data API sits outside it. Sign, then apply the settings the agreement requires |
 | Voice telephony and speech | Retell | **Pending — self-serve.** Sign the BAA and DPA in Retell's click-agreements portal and confirm the executed text names the services in use; then set per-agent retention to the minimum, PII controls on and recording off. PHI subprocessor: caller audio in transit, transcript, number |
-| LLM, every channel | Anthropic (Claude API) | **Pending.** The primary owner signs and arranges activation. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. The models in use, `claude-opus-5-5` and `claude-sonnet-5-5` (`PATIENT_MODEL_IDS`, `packages/catalog/src/model-retention.ts`), are not Anthropic's Covered Models (Claude Fable and Mythos, which require 30-day retention): under the HIPAA-ready organisation's standard retention they keep conversation content **no more than 30 days**, flagged content up to two years, and law-required content as long as the law requires. The clinic agreement must disclose it (BAA 1.6.0, drafted; `docs/counsel/agreement-changes.md` § 16). The responder refuses a model override outside that list. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
+| LLM, every channel | Anthropic (Claude API) | **Pending.** The primary owner signs and arranges activation. Patient traffic runs in its own HIPAA-ready organisation, never the marketing org. Covered models require **30-day retention** and cannot run with zero data retention; the clinic agreement must disclose it. Batch, Files, web fetch, compaction and context editing are excluded from coverage (blockers-runbook §3) |
 | Calendar | Google Calendar (the clinic's own) | Between the **clinic and Google**, on a paid Workspace plan; confirm per clinic at onboarding. The clinic's OAuth token, granted to Healdesk's Google Cloud app, is stored in `apps/app` (not built yet) |
 | Payments (our subscription) | Stripe | **Never, on any tier.** Not needed: the buyer's name, work email and invoice are business contact data |
 | Payments (patient deposits) | Stripe Connect or the clinic's own gateway | **Never.** Used only inside the payment-processing carve-out: an amount, a generic descriptor and an opaque reference. No treatment name, diagnosis or clinical metadata in the description, the statement descriptor or metadata |
@@ -116,32 +116,14 @@ and review forms post to Resend **directly**, outside that transport discipline
 invariant "every message declares whether it may carry PHI" is enforced in
 `apps/app` alone.
 
-**The escalation emails are pointers, and carry no PHI** (decided in the owner-approved
-funnel and portal plan of 6 October 2026, Annex X3 and X5, and the spec's "Anything about a
-patient is a pointer into the portal"; built 19 October 2026). The urgent alert, the
-handover alert, and the booking-request, deposit-to-collect and calendar-check alerts (L7,
-L10, L11, L12, L34) say what kind of thing happened, on which channel and at which
-practice, and link into the clinic portal, where who, when and what open only after
-sign-in and the passkey step-up. They never carry a name, a number, a time, a service or
-any words from a conversation, so they go on Resend with `phiClass: "none"`: the sender
-refuses any other class on Resend (`apps/app/src/lib/email/send.ts`), and every payload
-passes the allowlist and the link scanner at send time (`apps/app/src/lib/email/lint.ts`:
-ids, a channel id, a Meta platform's name, a flag and a link to our public origin, never
-`HEALDESK_APP_URL` and never a single-use token). They are queued in the outbox in the transaction that records
-what they report (`apps/app/src/lib/notices/booking-alerts.ts`) and go to the clinic's one
-address; the urgent alert is sent the moment that transaction commits, each urgent
-conversation in its own email, never capped or combined. Where healdesk holds no name or
-number (an Instagram, Messenger or WhatsApp message with no request, or a website visitor
-who left none), the email says so and where to look instead: the clinic's own inbox on
-Instagram and Messenger, or the chat's transcript, which goes over SES as above. A WhatsApp
-number is on the Cloud API alone and has no inbox, so its email says nobody can reply there,
-and a request for a person on WhatsApp is always answered with the fixed line that sends the
-person to the practice's phone. The minimum-PHI
-variant over SES was not chosen. The email that replaced them, the desk's link to
-`/booking/<token>` (a page whose link is its only key), is no longer sent. The daily
-summary will follow the same rule. The spec's "Text or email address" option for these
-alerts conflicts with "no SMS anywhere in v1"; they are email only. The same choice is
-recorded in [hipaa-risk-analysis.md](./hipaa-risk-analysis.md) (T13).
+**The escalation emails are a decision still to make.** The spec sends urgent alerts and
+handover requests to the clinic's named contact, and a daily summary email. An alert that
+names a caller or a treatment carries PHI. Two designs satisfy the rules above: alerts
+that carry no patient detail and link into the 2FA-gated portal, or minimum PHI sent only
+through SES `healdesk-phi`, never Resend. Record the choice here and in
+[hipaa-risk-analysis.md](./hipaa-risk-analysis.md) (T13) before building them. The spec's
+"Text or email address" option for those alerts conflicts with "no SMS anywhere in v1";
+until that is resolved, they are email only.
 
 **Verify current terms directly with each vendor.** Plan requirements change, and this
 table will drift. This table is the register, and it is internal: there is no public
@@ -217,7 +199,7 @@ for.
 - **Minimum necessary.** Don't collect a DOB because the form looked incomplete.
 - **Audit logging.** Every PHI access — who, what, when — including every transcript
   opened in the portal, which also requires a second factor.
-- **Retention policy.** Transcripts are not stored (owner, 13 October 2026; BAA 1.5.0
+- **Retention policy.** Transcripts are not stored (owner, 13 October 2026; BAA 1.5.1
   clause 11): each call's and web chat's is emailed to the clinic when it ends, and the
   one sealed copy kept to send it again is deleted the moment SES reports the clinic's
   mail server took it; a failed or returned email is sent again until it is delivered,
@@ -229,10 +211,8 @@ for.
   to 14 day cycle whether or not the lead buys.
 - **Never log PHI.** Not to stdout, not to an error tracker, not to analytics. Scrub
   before it leaves the process.
-- **No PHI in LLM prompts** except through the BAA-covered Anthropic organisation, on a
-  model in `PATIENT_MODEL_IDS`, with its retention disclosed as Anthropic documents it:
-  no more than 30 days, two years for flagged content, the law's own period for what the
-  law requires (`packages/catalog/src/model-retention.ts`).
+- **No PHI in LLM prompts** except through the BAA-covered Anthropic organisation, with its
+  30-day retention disclosed.
 - **Offboarding** is export first, then destroy, on the clock the agreement states. The
   obligations persist through non-payment, suspension and cancellation until PHI is
   returned or destroyed.
@@ -249,8 +229,7 @@ patient-authored review text into any system that stores patient data.
 
 - [ ] Healthcare attorney review of the product and data flows, including the spec's open
       legal items (state-by-state AI-disclosure and transcription consent, the UAE
-      business-associate question, the Anthropic retention disclosure and BAA 1.6.0's
-      release, agreement-changes.md § 16)
+      business-associate question, the 30-day Anthropic retention disclosure)
 - [ ] BAA signed with Retell, Anthropic and the database provider; AWS already accepted
 - [ ] `apps/app` running on the AWS HIPAA account (CLAUDE.md lists what blocks the deploy)
 - [ ] Audit logging, including the transcript access log, implemented and verified

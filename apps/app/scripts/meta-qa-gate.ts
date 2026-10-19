@@ -8,12 +8,8 @@ import {
   buildFrontDoorPrompt,
   firstReplyVerdict,
   guardContextFor,
-  parseModelReply,
   probeVerdict,
-  promisesReplyInChat,
-  staffCanReplyOn,
   type FrontDoorFacts,
-  type MetaPlatform,
 } from "../src/lib/meta/front-door";
 
 /**
@@ -22,12 +18,10 @@ import {
  *
  *   ANTHROPIC_API_KEY=... npm run qa:meta -w @healdesk/app
  *
- * Runs the exact system prompts the webhook runs (Messenger's, which
- * Instagram shares, and WhatsApp's), for a representative clinic, against
- * the messages a real patient sends (FRONT_DOOR_PROBES) — a condition, a
- * booking request with a time and a provider, an insurance question, a
- * safety question, a symptom, "are you human", "can I talk to someone",
- * "check my file",
+ * Runs the exact system prompt the webhook runs, for a representative
+ * clinic, against the messages a real patient sends (FRONT_DOOR_PROBES) —
+ * a condition, a booking request with a time and a provider, an insurance
+ * question, a safety question, a symptom, "are you human", "check my file",
  * a prompt injection and more — and grades each reply with the SAME
  * deterministic guard the webhook applies before sending, plus a hand-off
  * check. Costs real tokens; run before any prompt change ships and nightly.
@@ -68,51 +62,35 @@ const FACTS: FrontDoorFacts = {
   neverSay: neverSayWithDefaults(["cheapest in town"]),
 };
 
-/**
- * The prompt differs by platform in one rule only, a request for a person
- * (rule 5): on Instagram and Messenger the team can answer in the thread,
- * on WhatsApp nobody can, and no reply there may promise one
- * (promisesReplyInChat). Messenger's prompt stands for Instagram's, which is
- * the same, and WhatsApp's is graded too.
- */
-const PLATFORMS: readonly MetaPlatform[] = ["messenger", "whatsapp"];
-
 async function main(): Promise<void> {
   const responder = anthropicResponder();
   if (!responder) throw new Error("ANTHROPIC_API_KEY is not set.");
+  const system = buildFrontDoorPrompt(FACTS);
   let failures = 0;
-  let runs = 0;
-  for (const platform of PLATFORMS) {
-    const system = buildFrontDoorPrompt(FACTS, platform);
-    for (const probe of FRONT_DOOR_PROBES) {
-      runs += 1;
-      const label = `${platform.padEnd(9)} ${probe.id.padEnd(10)}`;
-      const raw = await responder(system, probe.text);
-      if (isModelRefusal(raw)) {
-        // In production the hand-off line goes instead, but a probe the model
-        // will not answer is not a pass.
-        failures += 1;
-        console.log(`FAIL ${label} (the model declined to answer: ${raw.category ?? "no category"})`);
-        continue;
-      }
-      const reply = raw;
-      const verdict = probeVerdict(reply, guardContextFor(FACTS));
-      const first = firstReplyVerdict(reply, {
-        clinicName: FACTS.clinicName,
-        platform,
-        inbound: probe.text,
-      });
-      // On WhatsApp answerFrontDoor refuses a reply that promises an answer in the chat.
-      const promised = !staffCanReplyOn(platform) && promisesReplyInChat(parseModelReply(reply).reply) ? "a reply promised in a chat nobody answers" : null;
-      const ok = verdict.ok && first.ok && promised === null;
-      if (!ok) failures += 1;
-      const reasons = [verdict.reason, first.reason, promised].filter((r): r is string => r !== null);
-      console.log(
-        `${ok ? "PASS" : "FAIL"} ${label} ${reasons.length ? `(${reasons.join("; ")}) ` : ""}${first.stripped ? "[greeting stripped] " : ""}— ${reply.replace(/\s+/g, " ").slice(0, 160)}`,
-      );
+  for (const probe of FRONT_DOOR_PROBES) {
+    const raw = await responder(system, probe.text);
+    if (isModelRefusal(raw)) {
+      // In production the hand-off line goes instead, but a probe the model
+      // will not answer is not a pass.
+      failures += 1;
+      console.log(`FAIL ${probe.id.padEnd(10)} (the model declined to answer: ${raw.category ?? "no category"})`);
+      continue;
     }
+    const reply = raw;
+    const verdict = probeVerdict(reply, guardContextFor(FACTS));
+    const first = firstReplyVerdict(reply, {
+      clinicName: FACTS.clinicName,
+      platform: "messenger",
+      inbound: probe.text,
+    });
+    const ok = verdict.ok && first.ok;
+    if (!ok) failures += 1;
+    const reasons = [verdict.reason, first.reason].filter((r): r is string => r !== null);
+    console.log(
+      `${ok ? "PASS" : "FAIL"} ${probe.id.padEnd(10)} ${reasons.length ? `(${reasons.join("; ")}) ` : ""}${first.stripped ? "[greeting stripped] " : ""}— ${reply.replace(/\s+/g, " ").slice(0, 160)}`,
+    );
   }
-  console.log(`\n${runs - failures}/${runs} passed`);
+  console.log(`\n${FRONT_DOOR_PROBES.length - failures}/${FRONT_DOOR_PROBES.length} passed`);
   if (failures > 0) process.exit(1);
 }
 

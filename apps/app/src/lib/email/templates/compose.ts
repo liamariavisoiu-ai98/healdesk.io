@@ -25,7 +25,13 @@ export type Block =
   | { type: "facts"; rows: readonly (readonly [label: string, value: string])[] }
   /** The one next action (X1.3): a link, as a button in HTML and "Label: url" in text. */
   | { type: "action"; label: string; url: string }
-  | { type: "list"; items: readonly string[] };
+  | { type: "list"; items: readonly string[] }
+  /**
+   * A list whose every item ends in its own link: the daily summary's rows,
+   * "Phone call · Waiting for you", each opening its request. "- text:
+   * url" in text; in HTML the label is the link.
+   */
+  | { type: "links"; items: readonly { text: string; label: string; url: string }[] };
 
 export type EmailContent = {
   subject: string;
@@ -94,6 +100,8 @@ function blockText(block: Block): string {
       return `${block.label}: ${block.url}`;
     case "list":
       return block.items.map((item) => `- ${item}`).join("\n");
+    case "links":
+      return block.items.map((item) => `- ${item.text}: ${item.url}`).join("\n");
   }
 }
 
@@ -175,6 +183,13 @@ function blockHtml(block: Block): string {
     case "list":
       return `<ul style="margin:0 0 16px;padding-left:20px;">${block.items
         .map((item) => `<li>${escapeHtml(item)}</li>`)
+        .join("")}</ul>`;
+    case "links":
+      return `<ul style="margin:0 0 16px;padding-left:20px;">${block.items
+        .map(
+          (item) =>
+            `<li style="margin:0 0 4px;">${escapeHtml(item.text)} · <a href="${escapeHtml(item.url)}">${escapeHtml(item.label)}</a></li>`,
+        )
         .join("")}</ul>`;
   }
 }

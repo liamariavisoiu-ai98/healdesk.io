@@ -6,7 +6,6 @@ import { isImplemented } from "@healdesk/connectors";
 import { POST as providerWebhook } from "@/app/api/webhooks/[provider]/[clinicId]/route";
 import { COMMON_WEEKDAY_HOURS } from "@/lib/clinic/opening-hours";
 import { createBookingRequest } from "@/lib/meta/booking-requests";
-import { notifyBookingAlert } from "@/lib/notices/booking-alerts";
 import type { EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
 import { withTenant } from "@/lib/tenant";
 import {
@@ -18,7 +17,7 @@ import {
 } from "@/lib/voice/ingest";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
-import { inTenant, seedClinic, seedContact } from "./setup/factories";
+import { inTenant, queuedNotices, seedClinic, seedContact } from "./setup/factories";
 
 /**
  * The two classifications the monthly report is built on.
@@ -341,16 +340,6 @@ describeDb("the post-call ingest", () => {
     };
   }
 
-  /** The clinic's booking alerts (L7) in the outbox. */
-  async function bookingAlerts(clinicId: string) {
-    const { rows } = await inTenant(clinicId, (client) =>
-      client.query<{ dedupe_key: string; payload: Record<string, unknown> }>(
-        `select dedupe_key, payload from billing_notices where kind = 'booking_request' order by created_at`,
-      ),
-    );
-    return rows;
-  }
-
   const booked = (clinicId: string, externalCallId: string): VoiceCallEvent => ({
     externalCallId,
     clinicId,
@@ -391,20 +380,19 @@ describeDb("the post-call ingest", () => {
     const again = await ingestCall(booked(c.clinicId, "call_rt_1"), undefined, { transport });
     expect(again).toMatchObject({ duplicate: true, conversationId: retell.conversationId, bookingRequestId: first });
     // Every engine alert was raised when the request was committed: nothing
-    // is queued or mailed for that call.
+    // is mailed or queued for that call.
     expect(mailed).toEqual([]);
-    expect(await bookingAlerts(c.clinicId)).toEqual([]);
+    expect(await queuedNotices(c.clinicId, ["booking_request"])).toEqual([]);
     // The control: a call the engine logged nothing on is the ingest's to
-    // alert the clinic about (L7), queued in the outbox with the request; it
-    // mails no one directly, the report recipients least of all.
+    // deliver, and it queues the clinic's L7 alert for it, once, while the
+    // report recipient is mailed nothing (notifyDesk is retired).
     const unkeyed = await ingestCall(booked(c.clinicId, "call_desk_1"), undefined, { transport });
     expect(unkeyed.bookingRequestId).not.toBeNull();
+    await ingestCall(booked(c.clinicId, "call_desk_1"), undefined, { transport });
     expect(mailed).toEqual([]);
-    expect(await bookingAlerts(c.clinicId)).toEqual([
-      {
-        dedupe_key: `booking_request:${unkeyed.bookingRequestId}`,
-        payload: expect.objectContaining({ channel: "voice", conversationId: unkeyed.conversationId, bookingRequestId: unkeyed.bookingRequestId }),
-      },
+    const alerts = await queuedNotices(c.clinicId, ["booking_request"]);
+    expect(alerts.map((a) => [a.dedupe_key, a.payload.channel, a.payload.bookingRequestId])).toEqual([
+      [`booking_request:request:${unkeyed.bookingRequestId}`, "voice", unkeyed.bookingRequestId],
     ]);
 
     const rows = await inTenant(c.clinicId, async (client) => ({
@@ -429,7 +417,7 @@ describeDb("the post-call ingest", () => {
     );
   });
 
-  test("a synthetic clinic in setup: a booked call becomes one request for the desk, unkeyed, and the clinic is alerted", async () => {
+  test("a synthetic clinic in setup: a booked call becomes one request for the desk, unkeyed, and the clinic's alert is queued", async () => {
     // Every paying clinic is synthetic until ops put it live; its calls still
     // reach its desk as requests.
     const synthetic = await seedClinic("voice-synthetic");
@@ -461,55 +449,6 @@ describeDb("the post-call ingest", () => {
     );
     expect(stored.rows).toEqual([expect.objectContaining({ status: "requested", vendor_call_id: null, preferred_window: "Thursday afternoon" })]);
     expect(mailed).toEqual([]);
-    const alerts = await bookingAlerts(synthetic.clinicId);
-    expect(alerts).toEqual([
-      { dedupe_key: `booking_request:${ingested.bookingRequestId}`, payload: expect.objectContaining({ channel: "voice", conversationId: ingested.conversationId }) },
-    ]);
-    expect(JSON.stringify(alerts)).not.toMatch(/Dana|0177|Thursday|Consultation|\/booking\//);
-  });
-
-  test("an urgent call and a request for a person are alerted at the latest when the call ends, once per call", async () => {
-    const c = await seedClinic("voice-alert-backstop");
-    const actor = { type: "service", serviceName: "test" } as const;
-    const alerts = async () =>
-      (
-        await inTenant(c.clinicId, (client) =>
-          client.query<{ kind: string; dedupe_key: string; payload: Record<string, unknown> }>(
-            `select kind, dedupe_key, payload from billing_notices where kind in ('urgent', 'handover') order by kind, dedupe_key`,
-          ),
-        )
-      ).rows;
-    const ended = (externalCallId: string): VoiceCallEvent => ({
-      externalCallId,
-      clinicId: c.clinicId,
-      callerPhone: "+15550100140",
-      startedAt: new Date(Date.now() - 120_000),
-      endedAt: new Date(),
-      durationSeconds: 120,
-      outcome: "escalated_to_human",
-      urgent: true,
-      handover: true,
-    });
-
-    // The call's own alerts could not be queued while it was up: the ingest
-    // queues both, keyed on the call, now pointing at the call itself.
-    const missed = await ingestCall(ended("call_backstop_1"));
-    expect(await alerts()).toEqual([
-      expect.objectContaining({ kind: "handover", dedupe_key: "handover:voice:call_backstop_1", payload: expect.objectContaining({ conversationId: missed.conversationId }) }),
-      expect.objectContaining({ kind: "urgent", dedupe_key: "urgent:voice:call_backstop_1", payload: expect.objectContaining({ conversationId: missed.conversationId }) }),
-    ]);
-
-    // Queued while the call was up (no conversation yet): the ingest adds nothing.
-    await withTenant({ clinicId: c.clinicId, actor }, async (tx) => {
-      expect(await notifyBookingAlert(tx, "urgent", { channel: "voice", callId: "call_backstop_2" })).toBe(true);
-      expect(await notifyBookingAlert(tx, "handover", { channel: "voice", callId: "call_backstop_2" })).toBe(true);
-    });
-    await ingestCall(ended("call_backstop_2"));
-    const after = await alerts();
-    expect(after.map((a) => a.dedupe_key).sort()).toEqual(
-      ["handover:voice:call_backstop_1", "handover:voice:call_backstop_2", "urgent:voice:call_backstop_1", "urgent:voice:call_backstop_2"].sort(),
-    );
-    expect(after.find((a) => a.dedupe_key === "urgent:voice:call_backstop_2")!.payload.conversationId).toBeNull();
+    expect((await queuedNotices(synthetic.clinicId, ["booking_request"])).map((a) => a.payload.channel)).toEqual(["voice"]);
   });
 });
-

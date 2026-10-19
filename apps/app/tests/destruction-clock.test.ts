@@ -69,13 +69,7 @@ const ACTOR = { type: "service", serviceName: "test" } as const;
  * say "within thirty days", and 1.0.0 and 0.1.0-draft "on termination".
  */
 const THIRTY_DAY_VERSIONS = ["1.2.2", "1.2.1", "1.2.0", "1.1.0-draft", "1.0.0", "0.1.0-draft"];
-/**
- * Every version whose Term clause is 1.3.0's, and the DPA. 1.6.0 is a draft
- * (BAA 1.5.0 with Anthropic's retention corrected, agreement-changes.md §16):
- * no clinic can sign it before the owner releases it, but its rule is its
- * text's, so it is held to the same clock.
- */
-const EXPORT_RULE_VERSIONS = ["1.6.0", "1.5.0", "1.4.0", "1.3.0", "dpa/1.0.0"];
+const EXPORT_RULE_VERSIONS = ["1.5.1", "1.5.0", "1.4.0", "1.3.0", "dpa/1.0.0"];
 /**
  * A word for each version, for the labels clinics are seeded under. A label
  * of digits can give a slug the audit's PHI scan reads as a telephone number
@@ -87,7 +81,7 @@ const WORD: Record<string, string> = {
   "1.3.0": "next",
   "1.4.0": "latest",
   "1.5.0": "newest",
-  "1.6.0": "drafted",
+  "1.5.1": "current",
   "dpa/1.0.0": "dpa",
 };
 
@@ -990,9 +984,11 @@ describeDb("the destruction clock in the database", () => {
     // A restore from a backup taken before the export was recorded: the
     // patient is back, the clinic is not destroyed, and nothing says the
     // export was delivered. On the DPA's rule that is not due before day 89,
-    // so the check alone passes it over.
+    // so the check alone passes it over. A backup that old holds no address
+    // captured for E6 either: only a destroyed clinic can hold one (0086).
     await getMigratorPool().query(
-      `update clinics set destroyed_at = null, export_delivered_at = null where id = $1`,
+      `update clinics set destroyed_at = null, export_delivered_at = null,
+              destruction_notice_address = null where id = $1`,
       [c.clinicId],
     );
     await seedPersonAndEvidence(c.clinicId, "+15550130402");
@@ -1121,7 +1117,7 @@ describeDb("the destruction clock in the database", () => {
       .map((t) => t.version)
       .filter((v) => exportRuleIsPromised(v))
       .sort();
-    expect(promising).toEqual(["1.3.0", "1.4.0", "1.5.0", "1.6.0", "dpa/1.0.0"]);
+    expect(promising).toEqual(["1.3.0", "1.4.0", "1.5.0", "1.5.1", "dpa/1.0.0"]);
     // No text, no promise: an unknown version waits for the switch.
     expect(exportRuleIsPromised("9.9.9")).toBe(false);
     expect(exportRuleIsPromised(null)).toBe(false);

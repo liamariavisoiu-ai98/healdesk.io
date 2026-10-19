@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 
 import { agentConfigs, clinics } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
+import { requestPracticeQuestions } from "@/lib/engine/practice/store";
+import type { PracticeSection } from "@/lib/engine/practice/types";
 import { clinicDefaultDepositUsd } from "@/lib/billing/deposits";
 import {
   KnowledgeError,
@@ -36,9 +38,9 @@ import { appliesWhen } from "./applies";
  * refused, when what is left passes, so the clinic can take it in one tap.
  *
  * Edits apply at once. The practice questions that check AYA against this
- * knowledge are the engine's (M4): `practiceQuestionsSeam` below is where a
- * save asks for them to run again, in the background, never taking AYA
- * offline (Part F3).
+ * knowledge are the engine's (lib/engine/practice): `practiceQuestionsSeam`
+ * below is where a save asks for them to run again, in the background,
+ * never taking AYA offline (Part F3).
  */
 
 export const KNOWLEDGE_SECTIONS = [
@@ -97,9 +99,9 @@ export async function saveKnowledge(
         state.clinic.specialty,
         state.clinic.timezone,
         now,
-        await writeOptions(tx),
+        await knowledgeWriteOptions(tx),
       );
-      await practiceQuestionsSeam(tx, section);
+      await practiceQuestionsSeam(tx, section, now);
       const applies = appliesWhen(state.channels);
       return applies ? `${said} ${applies}` : `${said} AYA uses it from now on.`;
     });
@@ -123,7 +125,7 @@ export async function saveKnowledge(
  * approval (lib/onboarding/go-live.ts), and one given before an edit must
  * not carry words nobody has checked into the first patient conversation.
  */
-async function writeOptions(tx: TenantTx): Promise<KnowledgeWriteOptions> {
+export async function knowledgeWriteOptions(tx: TenantTx): Promise<KnowledgeWriteOptions> {
   const [clinic] = await tx.db
     .select({ wentLiveAt: clinics.wentLiveAt })
     .from(clinics)
@@ -240,21 +242,32 @@ export async function readClinicDefaultDeposit(
   });
 }
 
+/** Each Knowledge section as the practice questions name it (O9, Home). */
+const PRACTICE_SECTION: Readonly<Record<KnowledgeSection, PracticeSection>> = {
+  practice: "practice",
+  policies: "policies",
+  prices: "prices",
+  promotions: "promotions",
+  quick_answers: "quick_answers",
+  never_say: "never_say",
+  never_say_defaults: "never_say",
+  hours: "hours",
+};
+
 /**
- * M4's seam: a knowledge change asks for the practice questions to run again
- * (plan Part G), debounced, in the background. A failure there shows "We're
- * double-checking your change" on Home, calls notifyOps with the existing
- * `practice_question_failed` event, and never takes AYA offline. That alert
- * belongs to the run that fails, not to the save: nothing has failed when a
- * clinic saves, and nothing runs the questions in this build, so there is
- * nothing to ask for or report yet.
+ * A knowledge change asks for the practice questions to run again (plan Part
+ * G), two minutes after the last change, in the background
+ * (lib/engine/practice). Asked in the save's own transaction, so a save that
+ * rolls back asks for nothing. A failure there shows "We're double-checking
+ * your change" on Home and tells ops (practice_question_failed), and never
+ * takes AYA offline: the run approves, or it does not, and that is all.
  */
 export async function practiceQuestionsSeam(
   tx: TenantTx,
   section: KnowledgeSection,
+  now: Date = new Date(),
 ): Promise<void> {
-  void tx;
-  void section;
+  await requestPracticeQuestions(tx, { reason: "knowledge", section: PRACTICE_SECTION[section], now });
 }
 
 // -----------------------------------------------------------------------------

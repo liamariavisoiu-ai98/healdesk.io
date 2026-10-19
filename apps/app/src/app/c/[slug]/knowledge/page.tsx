@@ -4,11 +4,14 @@ import { notFound } from "next/navigation";
 
 import { clinicLocalDate } from "@/lib/clinic/closures";
 import { requirePortal } from "@/lib/portal/access";
+import { portalDay } from "@/lib/portal/format";
 import { depositShown, readClinicDefaultDeposit } from "@/lib/portal/knowledge";
 import { isBuiltSection, sectionPath } from "@/lib/portal/nav";
 import { loadPortalPage, shellProps } from "@/lib/portal/page";
 import { formatPhone } from "@/lib/setup/help";
 import { serviceInputOf } from "@/lib/setup/knowledge";
+import { loadWebsiteChanges, WEBSITE_ANCHOR } from "@/lib/website/store";
+import { WEBSITE_CHANGE_SECTION_NAMES } from "@/lib/website/types";
 
 import type { HoursInitial } from "../editors";
 import { FeedbackProvider } from "../feedback";
@@ -24,6 +27,7 @@ import {
   QuickAnswersForm,
   Section,
 } from "./KnowledgeForms";
+import { WebsiteChangesList } from "./WebsiteChanges";
 
 export const metadata: Metadata = { title: "Knowledge · healdesk", referrer: "no-referrer" };
 
@@ -39,7 +43,9 @@ export const dynamic = "force-dynamic";
  *
  * Every text is screened before it is stored and a refusal names the phrase
  * (lib/portal/knowledge.ts). Nothing here is about a patient, so no step-up.
- * "Changes on your website", the drift list, joins in M7.
+ * First, while there is any, "Changes on your website": what a read of the
+ * practice's own website found that Knowledge does not say, to confirm into
+ * the sections below or ignore (lib/website).
  */
 export default async function KnowledgePage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
@@ -71,6 +77,8 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
     portal.clinicId,
     page.actorContext,
   );
+  const website = await loadWebsiteChanges(portal.clinicId, page.actorContext);
+  const lastRead = website.lastReadAt ?? (website.baseline ? website.baseline.readAt : null);
 
   return (
     <PortalShell {...shell}>
@@ -81,6 +89,30 @@ export default async function KnowledgePage({ params }: { params: Promise<{ slug
       </p>
       <FeedbackProvider>
         <div className="mt-6 grid gap-6">
+          {website.changes.length > 0 ? (
+            <Section
+              id={WEBSITE_ANCHOR}
+              title="Changes on your website"
+              intro={`We read ${website.baseline?.website ?? "your website"}${lastRead ? ` on ${portalDay(lastRead, clinic.timezone, now)}` : ""} and found what AYA doesn't know yet. Confirm a change and AYA uses it; ignore it and we won't raise it again.`}
+            >
+              <WebsiteChangesList
+                slug={portal.clinicSlug}
+                changes={website.changes.map((change) => ({
+                  id: change.id,
+                  sectionName: WEBSITE_CHANGE_SECTION_NAMES[change.section],
+                  text: change.text,
+                  detail: change.detail,
+                  canConfirm: change.canConfirm,
+                }))}
+                providersHref={
+                  isBuiltSection("settings")
+                    ? `${sectionPath(portal.clinicSlug, "settings")}#calendar`
+                    : null
+                }
+              />
+            </Section>
+          ) : null}
+
           <Section id="practice" title="Your practice">
             <PracticeForm
               slug={portal.clinicSlug}

@@ -1,17 +1,21 @@
 import {
   additionalLocationChargeUsd,
+  asksCoveredQuestion,
   audienceSingular,
   CHANNEL_NAMES,
   channelList,
   getPlan,
+  isSpecialtyId,
   planStartSentence,
   USAGE_ALERT_PERCENT,
 } from "@healdesk/catalog";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { readOpenResign } from "@/lib/agreements/resign";
 import { setupLastDay } from "@/lib/clinic/setup-window";
 import { LOCATION_CLINICS_READY } from "@/lib/location-clinic";
+import { backupsExpireOn, type AfterCancellation } from "@/lib/offboarding/after-cancellation";
 import {
   extraBlockLine,
   includedLine,
@@ -29,6 +33,7 @@ import { PortalShell } from "../PortalShell";
 
 import {
   AddLocation,
+  AgreementResignButton,
   AllowanceChoice,
   BillingSwitch,
   ChangePlan,
@@ -69,6 +74,8 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
   const shell = shellProps(portal, page, "billing");
   const { clinic } = page.state;
   const view = await readBillingView({ clinicId: portal.clinicId, actor: page.actorContext, now });
+  const resign =
+    view.agreement?.kind === "dpa" ? await readOpenResign(portal.clinicId, page.actorContext) : null;
   const { summary } = view;
   const tz = clinic.timezone;
 
@@ -86,7 +93,12 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
 
   const bought = summary.boughtPlanId ? getPlan(summary.boughtPlanId) : undefined;
   const one = audienceSingular(shell.audience);
-  const ended = summary.status === "canceled" || summary.status === "purged";
+  // Read-only once the service has ended, however it ended: nothing left to
+  // switch or change, the export's deadline and the data's dates instead.
+  const ended =
+    summary.status === "canceled" ||
+    summary.status === "purged" ||
+    view.afterCancellation !== null;
   const setupLast =
     summary.setupDeadlineAt && !summary.isPlanStarted
       ? portalDay(setupLastDay(new Date(summary.setupDeadlineAt), tz), tz, now)
@@ -193,6 +205,25 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
               </p>
             ) : null}
           </section>
+
+          {/* After cancellation: the export and the data */}
+          {view.afterCancellation ? (
+            <section
+              id="your-data"
+              aria-labelledby="your-data-heading"
+              className="border-line scroll-mt-6 rounded-2xl border bg-white px-4 py-4 sm:px-5"
+            >
+              <h2 id="your-data-heading" className="text-lg font-semibold">
+                Your export and your data
+              </h2>
+              <AfterCancellationLines
+                slug={portal.clinicSlug}
+                state={view.afterCancellation}
+                timeZone={tz}
+                now={now}
+              />
+            </section>
+          ) : null}
 
           {/* Usage */}
           <section
@@ -419,15 +450,26 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
                 >
                   Download it (PDF)
                 </a>
-                {view.agreement.kind === "dpa" ? (
-                  <p className="text-muted mt-3 text-sm">
-                    If your practice starts billing any health insurance electronically, email{" "}
-                    <a href="mailto:hello@healdesk.io" className="text-ink font-semibold underline">
-                      hello@healdesk.io
-                    </a>
-                    : your agreement becomes a business associate agreement, and we send it to you
-                    to sign.
-                  </p>
+                {view.agreement.kind === "dpa" && resign ? (
+                  <div className="mt-3 text-sm">
+                    <p className="font-semibold">Your updated agreement is waiting to be signed.</p>
+                    <p className="text-muted mt-1">
+                      Your practice now needs a business associate agreement in place of this one.
+                      AYA is paused until it&rsquo;s signed.
+                    </p>
+                    <AgreementResignButton slug={portal.clinicSlug} open />
+                  </div>
+                ) : view.agreement.kind === "dpa" &&
+                  isSpecialtyId(clinic.specialty) &&
+                  asksCoveredQuestion(clinic.specialty) ? (
+                  <div className="mt-3 text-sm">
+                    <p className="text-muted">
+                      If your practice starts billing any health insurance electronically, yourself
+                      or through a clearinghouse, your agreement becomes a business associate
+                      agreement, which you sign here.
+                    </p>
+                    <AgreementResignButton slug={portal.clinicSlug} open={false} />
+                  </div>
                 ) : null}
               </>
             ) : (
@@ -440,5 +482,64 @@ export default async function BillingPage({ params }: { params: Promise<{ slug: 
         </div>
       </FeedbackProvider>
     </PortalShell>
+  );
+}
+
+/**
+ * Billing after cancellation (plan Part F6): read-only until the data is
+ * destroyed, with the export's deadline and the destruction's date, by the
+ * rule of the agreement the service ended under (destructionPlan). The same
+ * dates E2, E4 and E5 give; then the destruction, and what is kept.
+ */
+function AfterCancellationLines(props: {
+  slug: string;
+  state: AfterCancellation;
+  timeZone: string;
+  now: Date;
+}) {
+  const { state, timeZone: tz, now } = props;
+  if (state.destroyedAt) {
+    return (
+      <div className="mt-2 grid gap-1 text-sm">
+        <p>Your data was destroyed on {portalDay(state.destroyedAt, tz, now)}.</p>
+        <p className="text-muted">
+          Copies in our encrypted database backups expire by{" "}
+          {portalDay(backupsExpireOn(state.destroyedAt), tz, now)}. We keep the signed agreement
+          and your billing history, as the agreement and tax law require.
+        </p>
+      </div>
+    );
+  }
+  if (state.exportDeliveredAt) {
+    // The hourly destruction job reaches it within the hour it is due.
+    const goneBy = new Date(state.destroyDueAt.getTime() + 60 * 60 * 1000);
+    return (
+      <div className="mt-2 grid gap-1 text-sm">
+        <p>
+          Your export was delivered on {portalDay(state.exportDeliveredAt, tz, now)}. We destroy our
+          copies of your data by {portalDay(goneBy, tz, now)}.
+        </p>
+        <p className="text-muted">Billing records are kept, as tax law requires.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-2 grid gap-1 text-sm">
+      <p>
+        Your export is ready in Conversations. Download it by{" "}
+        {portalDay(state.downloadByOn, tz, now)}.
+      </p>
+      <p className="text-muted">
+        We destroy our copies of your data within 30 days of your export being delivered, and by{" "}
+        {portalDay(state.destroyByOn, tz, now)} at the latest. Billing records are kept, as tax law
+        requires.
+      </p>
+      <a
+        href={`${sectionPath(props.slug, "conversations")}#export`}
+        className="border-line mt-2 inline-flex min-h-11 w-fit items-center rounded-full border px-5 font-semibold"
+      >
+        Open the export
+      </a>
+    </div>
   );
 }

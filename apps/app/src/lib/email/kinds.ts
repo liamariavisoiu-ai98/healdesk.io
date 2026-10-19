@@ -175,10 +175,12 @@ export const NOTICE_KIND_REGISTRY = {
   // The operator's notices (L28–L33). Terms notices are mandatory, with no
   // unsubscribe, and go 30 days ahead, so they wait for daytime.
   terms_notice: kind("L28", "transactional", "normal", null, "daytime", "plan"),
-  // L29 is two emails with two payloads. A new subprocessor's notice goes as
-  // soon as ops sends it, because a 24-hour notice period starts then; an
-  // incident report is critical once ops sends it (X5).
-  subprocessor_notice: kind("L29", "transactional", "normal", null, "any_hour", "plan"),
+  // L29 is two emails with two payloads, and both are critical once ops
+  // sends them (X5; WP7): a new subprocessor's notice period runs from the
+  // notice, and an incident report is the agreement's written report. Each
+  // goes at once, turns /api/health red if it is late, and a dead letter
+  // raises notifyOps for a person to phone the practice.
+  subprocessor_notice: kind("L29", "transactional", "critical", null, "any_hour", "plan"),
   incident_report: kind("L29", "transactional", "critical", null, "any_hour", "plan"),
   // L30's two: the claim received, then our finding.
   guarantee_claim_received: kind("L30", "transactional", "normal", null, "any_hour", "plan"),

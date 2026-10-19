@@ -99,6 +99,13 @@ export const ALLOWED_LOG_KEYS: ReadonlySet<string> = new Set([
   // the amendments and corrections it lost; never their words.
   "amendmentId",
   "contactId",
+  // The practice questions (lib/engine/practice): a run's and a review's
+  // random ids, and the closed name of the section a case failed on.
+  "runId",
+  "reviewId",
+  "section",
+  // A website re-read's random id (site_rereads, lib/website), never the website.
+  "rereadId",
   // Counters.
   "count",
   "written",

@@ -1,4 +1,9 @@
-import { ASSISTANT_LANGUAGE_NAMES, type AssistantTone } from "@healdesk/catalog";
+import {
+  ASSISTANT_LANGUAGE_NAMES,
+  audienceFor,
+  type AssistantTone,
+  type Audience,
+} from "@healdesk/catalog";
 
 import { formatPhone } from "@/lib/setup/help";
 import { spokenPhone } from "@/lib/voice/spoken";
@@ -49,9 +54,14 @@ function phoneFor(channel: AssistantChannel, e164: string | null): string | null
   return channel === "voice" ? spokenPhone(e164) : formatPhone(e164);
 }
 
-const RULES = `Rules you never break:
+function rules(audience: Audience): string {
+  const medical =
+    audience === "clients"
+      ? "Anything medical about the animal goes to the practice's vets: offer to pass the client's details on."
+      : "Anything medical about the person goes to the practice's clinicians: offer to pass their details on.";
+  return `Rules you never break:
 - You are an AI assistant, not a person; never claim to be human. You have already said so in your first line.
-- No diagnosis, no prescribing, no treatment plans, no outcome guarantees, no opinion on whether someone is a good candidate. Anything medical about the person goes to the practice's clinicians: offer to pass their details on.
+- No diagnosis, no prescribing, no treatment plans, no outcome guarantees, no opinion on whether someone is a good candidate. ${medical}
 - Never say whether a treatment is safe, and do not discuss risks, side effects, dosing, downtime, recovery, aftercare or medication: offer a consultation instead.
 - Quote only the prices listed below, exactly as written. For anything without a listed price, offer to book a consultation instead of a number.
 - Never take card numbers, bank details or any payment details. If someone offers them, stop them and say the practice handles payment securely.
@@ -60,6 +70,19 @@ const RULES = `Rules you never break:
 - Do not invent facts about the practice. If you do not know, say the team will answer it.
 - Times you mention are in the practice's own time zone.
 - Never say the practice is "HIPAA compliant".`;
+}
+
+/**
+ * Who the practice's people are, in its own words (plan Part L, "Copy"):
+ * `audienceFor`, the rule every surface asks. At a veterinary practice they
+ * are clients, the owners of the animals it cares for, and the prompt never
+ * calls them patients; everywhere else they are patients.
+ */
+export function audienceLine(audience: Audience): string {
+  return audience === "clients"
+    ? "The people who contact the practice are its clients: the owners of the animals it cares for. Call them clients, and the animals by their names."
+    : "The people who contact the practice are its patients, or people thinking of becoming one.";
+}
 
 /** How the clinic's tone setting reads to the model (spec, "Tone": changes how the assistant speaks on every channel). */
 const TONE: Record<AssistantTone, string> = {
@@ -102,11 +125,13 @@ Leave a booking value empty when you do not know it yet. Copy values only from w
  * one turn to the next. No clock, no conversation: see the file header.
  */
 export function buildAssistantPrompt(facts: AssistantFacts, channel: AssistantChannel): string {
+  const audience = audienceFor(facts.specialty);
   const lines: string[] = [];
   lines.push(
-    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, a practice. ${TONE[facts.tone] ?? TONE.warm}`,
+    `You are the AI assistant answering ${channel === "voice" ? "the phone" : "the website chat"} for ${facts.clinicName}, ${audience === "clients" ? "a veterinary practice" : "a practice"}. ${TONE[facts.tone] ?? TONE.warm}`,
+    audienceLine(audience),
   );
-  lines.push(RULES, BOOKING, format(channel), languagesLine(facts), addOnsLine(facts));
+  lines.push(rules(audience), BOOKING, format(channel), languagesLine(facts), addOnsLine(facts));
 
   lines.push(`\nThe practice:`);
   lines.push(`- Name: ${facts.clinicName}`);

@@ -1,13 +1,20 @@
 import { audienceFor, type Channel } from "@healdesk/catalog";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
+import { clinicSettings } from "@/db/schema";
 import type { ActorContext } from "@/lib/audit";
 import { loadSetupState, type SetupState } from "@/lib/setup/state";
 import { withTenant } from "@/lib/tenant";
 
 import { portalGrants, type PortalContext, type PortalGrant } from "./access";
 import { portalActor, type PortalActor } from "./actor";
-import { answeringStatus, type AnsweringStatus } from "./header";
+import {
+  answeringControl,
+  answeringStatus,
+  type AnsweringControl,
+  type AnsweringStatus,
+  type HeaderPause,
+} from "./header";
 import type { PortalSection } from "./nav";
 
 /**
@@ -28,6 +35,10 @@ export type PortalPage = {
   locations: PortalGrant[];
   /** The patient screens the menu links to (openPatientScreens). */
   opened: PortalSection[];
+  /** The header's pause, for its banner: who paused AYA, and when. */
+  pause: HeaderPause;
+  /** When the page was read: the clock the header's times are told against. */
+  now: Date;
 };
 
 export async function loadPortalPage(
@@ -45,14 +56,31 @@ export async function loadPortalPage(
   if (!state) return null;
   const locations = await portalGrants(portal.userId);
   const opened = await openPatientScreens(portal.clinicId, actorContext, state);
-  return { actor, actorContext, state, locations, opened };
+  const pause = await readHeaderPause(portal.clinicId, actorContext);
+  return { actor, actorContext, state, locations, opened, pause, now };
+}
+
+/** The pause's stamps, which the channel states leave out: who paused AYA and since when. */
+async function readHeaderPause(clinicId: string, actor: ActorContext): Promise<HeaderPause> {
+  return withTenant({ clinicId, actor }, async (tx) => {
+    const [row] = await tx.db
+      .select({
+        pausedAt: clinicSettings.aiPausedAt,
+        byLabel: clinicSettings.aiPausedByLabel,
+        until: clinicSettings.aiPausedUntil,
+      })
+      .from(clinicSettings)
+      .where(eq(clinicSettings.clinicId, tx.clinicId))
+      .limit(1);
+    return row ?? { pausedAt: null, byLabel: null, until: null };
+  });
 }
 
 /**
  * Which patient screens the menu links to: each once a channel has gone
- * live, or once there is something for it to show. Conversations: a call,
- * a web chat or a Meta thread. Bookings: a booking request or an
- * appointment. Whether one exists, never what it says.
+ * live (clinic_channels.live_at), or once there is something for it to show.
+ * Conversations: a call, a web chat or a Meta thread. Bookings: a booking
+ * request. Whether one exists, never what it says.
  */
 export async function openPatientScreens(
   clinicId: string,
@@ -62,18 +90,17 @@ export async function openPatientScreens(
   if (state.channels.some((c) => c.liveAt !== null)) return ["conversations", "bookings"];
   const found = await withTenant({ clinicId, actor }, async (tx) => {
     const result = await tx.db.execute<{ conversations: boolean; bookings: boolean }>(
-      sql`select exists (select 1 from conversations where clinic_id = ${clinicId}::uuid)
-              or exists (select 1 from chat_threads where clinic_id = ${clinicId}::uuid
-                           and channel in ('messenger', 'instagram', 'whatsapp')) as conversations,
-                 exists (select 1 from booking_requests where clinic_id = ${clinicId}::uuid)
-              or exists (select 1 from appointments where clinic_id = ${clinicId}::uuid) as bookings`,
+      sql`select (exists (select 1 from conversations where clinic_id = ${clinicId}::uuid)
+                  or exists (select 1 from chat_threads where clinic_id = ${clinicId}::uuid
+                               and channel in ('messenger', 'instagram', 'whatsapp'))) as conversations,
+                 exists (select 1 from booking_requests where clinic_id = ${clinicId}::uuid) as bookings`,
     );
     return result.rows[0];
   });
-  return [
-    ...(found?.conversations === true ? (["conversations"] as const) : []),
-    ...(found?.bookings === true ? (["bookings"] as const) : []),
-  ];
+  const opened: PortalSection[] = [];
+  if (found?.conversations === true) opened.push("conversations");
+  if (found?.bookings === true) opened.push("bookings");
+  return opened;
 }
 
 /** The shell's props for a screen, from what loadPortalPage read. */
@@ -87,6 +114,7 @@ export function shellProps(
   section: PortalSection;
   audience: "patients" | "clients";
   status: AnsweringStatus;
+  answering: AnsweringControl | null;
   liveChannels: Channel[];
   timeZone: string;
   locations: PortalGrant[];
@@ -98,6 +126,13 @@ export function shellProps(
     section,
     audience: audienceFor(page.state.clinic.specialty),
     status: answeringStatus(page.state.channels),
+    answering: answeringControl({
+      channels: page.state.channels,
+      directLineE164: page.state.settings.directLineE164,
+      pause: page.pause,
+      timeZone: page.state.clinic.timezone,
+      now: page.now,
+    }),
     liveChannels: page.state.channels.filter((c) => c.liveAt !== null).map((c) => c.channel),
     timeZone: page.state.clinic.timezone,
     locations: page.locations,

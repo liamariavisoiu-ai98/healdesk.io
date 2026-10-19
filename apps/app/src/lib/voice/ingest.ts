@@ -10,7 +10,6 @@ import { recordUsage } from "@/lib/billing/usage";
 import { evaluateChannelsSafely, recordFirstAnswer, voiceFirstAnswerEvidence } from "@/lib/channels/events";
 import type { TranscriptTurn } from "@/lib/conversations/transcript-email";
 import { queueTranscriptEmail, sendQueuedTranscriptNow } from "@/lib/conversations/transcript-outbox";
-import { deliverCriticalAfterCommit } from "@/lib/email/outbox";
 import { identifierRef } from "@/lib/identifier-ref";
 import { describeError, log } from "@/lib/log";
 import { cleanAlternatives, cleanCollectedFields, createBookingRequest } from "@/lib/meta/booking-requests";
@@ -109,14 +108,6 @@ export type VoiceCallEvent = {
    * portal can tell them apart (conversations.urgent, drizzle/0078).
    */
   urgent?: boolean;
-  /**
-   * The caller asked for a person on the call (the model's handoff). With
-   * `urgent`, what the ingest makes sure the clinic was alerted about: the
-   * Retell process queues each alert while the call is up, and the ingest
-   * queues it again under the same key, so one that failed then still goes,
-   * at the latest when the call ends, and one that did go is not sent twice.
-   */
-  handover?: boolean;
   treatmentInterest?: string;
   /**
    * The answer gate said answer when the call came in, so AYA answered it as
@@ -630,21 +621,10 @@ export async function ingestCall(
           collectedFields: request.collectedFields,
         });
         bookingRequestId = created.id;
-        // The clinic's alert (L7), queued with the request: a pointer to this
-        // call in Conversations, sent from the outbox once this commits.
+        // L7, in the transaction that writes the request and the call: a
+        // pointer to the clinic's one address, sent after commit.
         await notifyBookingAlert(tx, "booking_request", { bookingRequestId: created.id, conversationId: row.id, channel: "voice" });
       }
-    }
-
-    // The call's urgent alert (L12) and handover (L11), keyed on the call as
-    // the Retell process keyed them while it was up (booking-alerts.ts): a
-    // no-op for one already queued, and the backstop for one that was not.
-    // Now with the conversation, so a new one opens the call itself.
-    if (event.urgent) {
-      await notifyBookingAlert(tx, "urgent", { channel: "voice", callId: externalCallId, conversationId: row.id });
-    }
-    if (event.handover) {
-      await notifyBookingAlert(tx, "handover", { channel: "voice", callId: externalCallId, conversationId: row.id });
     }
 
     tx.audit.record({
@@ -722,9 +702,6 @@ export async function ingestCall(
   });
 
   const { result, metering } = ingested;
-  // An urgent call's alert goes now that it is committed, if the call's own
-  // send has not taken it already. Never rejects.
-  if (event.urgent && !result.duplicate) await deliverCriticalAfterCommit(event.clinicId, { transport: deps.transport });
   // The clinic has the transcript in seconds; a failure here is the outbox's
   // to retry, every minute, and never the call's.
   if (result.transcriptEmailId) await sendQueuedTranscriptNow(event.clinicId, result.transcriptEmailId, { transport: deps.transport });

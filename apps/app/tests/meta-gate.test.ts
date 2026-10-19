@@ -5,7 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vite
 import { __setMetaRuntimeForTests, POST } from "@/app/api/webhooks/meta/route";
 import { setOverageMode } from "@/lib/billing/entitlements";
 import { attachMetaChannel, setMetaFrontDoor, type MetaSender } from "@/lib/meta/channels";
-import type { FrontDoorResponder } from "@/lib/meta/front-door";
+import { answerFrontDoor, type FrontDoorResponder } from "@/lib/meta/front-door";
 import { signMetaBody } from "@/lib/meta/webhook";
 import { approveAgentConfig, updateAgentConfig } from "@/lib/onboarding/agent-config";
 import { setPhoneSettings } from "@/lib/onboarding/phone";
@@ -310,6 +310,52 @@ describeDb("the Meta webhook and the answer gate", () => {
     ]);
     expect(s.fallbacks).toHaveLength(1);
     expect(sent.map((m) => m.recipientId)).toEqual(["psid-allowed", "psid-allowed"]);
+  });
+
+  test("a practice the PHI gate refuses (its re-sign to the BAA unsigned) keeps nothing of a message, answers nothing, and acknowledges it", async () => {
+    const c = await liveClinic("gate-uncovered", "310000000000011");
+    // A DPA practice now covered: app_clinic_accepts_phi refuses its data
+    // until its BAA is signed (lib/agreements/resign.ts). Not paused here, so
+    // this is the PHI gate alone, whatever the answer gate reads.
+    await getMigratorPool().query(
+      `update clinics set regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = true where id = $1`,
+      [c.clinicId],
+    );
+    const lines: string[] = [];
+    vi.spyOn(console, "warn").mockImplementation((line: unknown) => {
+      lines.push(String(line));
+    });
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await post(
+      batch("310000000000011", [
+        { sender: "psid-uncovered", text: "can I book a consultation?", mid: "mid.uncovered" },
+      ]),
+    );
+    // Acknowledged, so Meta does not redeliver; nothing reached the model or the person.
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ received: true, answered: 0, skipped: 1 });
+    expect(asked).toHaveLength(0);
+    expect(sent).toHaveLength(0);
+    // Nothing kept: no claim, no thread, no count, no reply's audit row.
+    const s = await stored(c.clinicId);
+    expect(s.handled).toEqual([]);
+    expect(s.threads).toEqual([]);
+    expect(s.usage).toEqual([]);
+    expect(s.audit).toEqual([]);
+    // One line by ids, and no error: nothing tried a write the database refuses.
+    const line = lines.find((l) => l.includes("meta message not kept"));
+    expect(line).toContain(c.clinicId);
+    expect(line).toContain('"channel":"messenger"');
+    expect(line).not.toMatch(/psid-uncovered|mid\.uncovered|consultation/);
+    expect(errors).not.toHaveBeenCalled();
+
+    // The front door holds for any other caller too.
+    const direct = await withTenant({ clinicId: c.clinicId, actor: ACTOR }, (tx) =>
+      answerFrontDoor(tx, { platform: "messenger", text: "what are your hours?", responder }),
+    );
+    expect(direct).toBeNull();
+    expect(asked).toHaveLength(0);
   });
 
   test("a failing send is logged with allowlisted keys and the batch carries on with a 200 (the crash)", async () => {

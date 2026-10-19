@@ -1,27 +1,13 @@
 import type { AddressInfo } from "node:net";
 
-import { URGENT_TEAM_TOLD_LINE } from "@healdesk/catalog";
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, test } from "vitest";
 import WebSocket from "ws";
-
-// A switch for the one case the database cannot be made to show on demand:
-// an urgent alert that could not be queued.
-const alertQueue = vi.hoisted(() => ({ fails: false }));
-vi.mock("@/lib/notices/booking-alerts", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/notices/booking-alerts")>();
-  return {
-    ...actual,
-    notifyBookingAlert: async (...args: Parameters<typeof actual.notifyBookingAlert>) =>
-      alertQueue.fails ? false : actual.notifyBookingAlert(...args),
-  };
-});
 
 import type { AssistantResponder } from "@/lib/assistant/turn";
 import { addRecipient } from "@/lib/reporting/recipients";
 import type { DeliveryResult, DeliveryTarget, EmailTransport, OutgoingEmail } from "@/lib/reporting/deliver";
-import { JOB_BILLING_NOTICES, setJobEnabled } from "@/lib/scheduler/jobs";
 import { withTenant } from "@/lib/tenant";
-import { latestCallerWords, TRANSFER_LINE } from "@/lib/voice/retell";
+import { CLOSED_LINE, latestCallerWords, RetellCallSession, TRANSFER_LINE, TROUBLE_TRANSFER_LINE } from "@/lib/voice/retell";
 import { createVoiceServer } from "@/voice/server";
 
 import { closePools, getMigratorPool, hasTestDatabase, runMigrations, truncateAll } from "./setup/db";
@@ -195,6 +181,112 @@ describeDb("the Retell voice endpoint", () => {
     await c.close();
   });
 
+  test("a practice whose agreement no longer covers it goes to its direct line, and with none the call is closed, never the assistant", async () => {
+    // A DPA practice that has told us it is now a covered entity: the
+    // database refuses its patient rows until it signs the BAA.
+    const coveredDpa = async (name: string) => {
+      const clinic = await seedClinic(name);
+      await bindAgreementInEffect(clinic.clinicId);
+      await getMigratorPool().query(
+        `update clinics
+            set data_classification = 'production', baa_signed_at = now(),
+                regulatory_regime = 'hipaa-if-covered', agreement_kind = 'dpa', is_covered_entity = true
+          where id = $1`,
+        [clinic.clinicId],
+      );
+      return clinic;
+    };
+    let asked = false;
+    modelAnswer = () => {
+      asked = true;
+      return { reply: "model" };
+    };
+
+    const withLine = await coveredDpa("retell-kind-line");
+    await inTenant(withLine.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550124')
+         on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [withLine.clinicId],
+      ),
+    );
+    const transferred = await call(port, `/llm-websocket/${SECRET}/${withLine.clinicId}/call_kind_line`);
+    await transferred.waitFor((r) => responses(r).length >= 1);
+    expect(responses(transferred.received)[0]).toMatchObject({ response_id: 0, content: TRANSFER_LINE, transfer_number: "+14155550124" });
+    await transferred.close();
+
+    const withoutLine = await coveredDpa("retell-kind-closed");
+    const closed = await call(port, `/llm-websocket/${SECRET}/${withoutLine.clinicId}/call_kind_closed`);
+    await closed.waitFor((r) => responses(r).length >= 1);
+    expect(responses(closed.received)[0]).toMatchObject({ response_id: 0, content: CLOSED_LINE, end_call: true });
+    // Nothing a caller says reaches the model afterwards.
+    closed.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "Hello?" }] });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(responses(closed.received)).toHaveLength(1);
+    expect(asked).toBe(false);
+    await closed.close();
+  });
+
+  test("a clinic with no agreement in effect still goes to its direct line, and with none the call is closed", async () => {
+    // Production with no agreement: the Services are not in effect
+    // (no_agreement). The Terms still pass a forwarded call straight through.
+    const ended = async (name: string) => {
+      const clinic = await seedClinic(name);
+      await getMigratorPool().query(`update clinics set data_classification = 'production', baa_signed_at = now() where id = $1`, [clinic.clinicId]);
+      return clinic;
+    };
+    const withLine = await ended("retell-ended-line");
+    await inTenant(withLine.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550125')
+         on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [withLine.clinicId],
+      ),
+    );
+    const transferred = await call(port, `/llm-websocket/${SECRET}/${withLine.clinicId}/call_ended_line`);
+    await transferred.waitFor((r) => responses(r).length >= 1);
+    expect(responses(transferred.received)[0]).toMatchObject({ response_id: 0, content: TRANSFER_LINE, transfer_number: "+14155550125" });
+    await transferred.close();
+
+    const withoutLine = await ended("retell-ended-closed");
+    const closed = await call(port, `/llm-websocket/${SECRET}/${withoutLine.clinicId}/call_ended_closed`);
+    await closed.waitFor((r) => responses(r).length >= 1);
+    expect(responses(closed.received)[0]).toMatchObject({ response_id: 0, content: CLOSED_LINE, end_call: true });
+    await closed.close();
+  });
+
+  test("a call whose start fails goes to the direct line when it can be read, and is closed when it cannot", async () => {
+    const failingGate = async () => {
+      throw new Error("settings could not be read");
+    };
+    const opened = async (clinicId: string) => {
+      const sent: Received[] = [];
+      const session = new RetellCallSession(clinicId, `call_${clinicId.slice(0, 8)}`, (m) => sent.push(m as Received), {
+        responder,
+        transport,
+        gate: failingGate,
+        ingest: async () => ({ conversationId: null }) as never,
+      });
+      await session.open();
+      return responses(sent);
+    };
+    const withLine = await seedClinic("retell-start-line");
+    await inTenant(withLine.clinicId, (client) =>
+      client.query(
+        `insert into clinic_settings (clinic_id, direct_line_e164) values ($1, '+14155550126')
+         on conflict (clinic_id) do update set direct_line_e164 = excluded.direct_line_e164`,
+        [withLine.clinicId],
+      ),
+    );
+    expect(await opened(withLine.clinicId)).toEqual([
+      expect.objectContaining({ response_id: 0, content: TROUBLE_TRANSFER_LINE, transfer_number: "+14155550126" }),
+    ]);
+    const withoutLine = await seedClinic("retell-start-closed");
+    expect(await opened(withoutLine.clinicId)).toEqual([
+      expect.objectContaining({ response_id: 0, content: CLOSED_LINE, end_call: true }),
+    ]);
+  });
+
   test("an urgent caller hears 911 and the urgent number, and the model is never asked", async () => {
     const clinic = await seedClinic("retell-urgent");
     let asked = false;
@@ -216,106 +308,6 @@ describeDb("the Retell voice endpoint", () => {
       client.query<{ outcome: string; urgent: boolean }>(`select outcome, urgent from conversations`),
     );
     expect(rows).toEqual([{ outcome: "escalated_to_human", urgent: true }]);
-  });
-
-  test("an urgent caller: one alert per call, keyed on the call and sent once it commits, and a request for a person alerts once too", async () => {
-    const clinic = await seedClinic("retell-alert");
-    const ops = `usr_ops_${crypto.randomUUID().slice(0, 8)}`;
-    await getMigratorPool().query(
-      `insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, 'Ops', $2, true, now(), now())`,
-      [ops, `${ops}@healdesk.test`],
-    );
-    // The urgent alert is live: the sender switched on, Resend configured, a public origin.
-    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
-    vi.stubEnv("HEALDESK_EMAIL_TRANSPORT", "resend");
-    vi.stubEnv("RESEND_API_KEY", "re_test_key");
-    vi.stubEnv("HEALDESK_EMAIL_FROM", "healdesk <hello@healdesk.io>");
-    vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
-    // What the send saw: from another connection, the alert is there only once its transaction has committed.
-    const delivered: { clinicId: string; committed: number }[] = [];
-    const deliverCritical = async (clinicId: string) => {
-      const { rows } = await inTenant(clinicId, (client) =>
-        client.query<{ n: number }>(`select count(*)::int as n from billing_notices where kind = 'urgent'`),
-      );
-      delivered.push({ clinicId, committed: rows[0]!.n });
-    };
-    const alerting = createVoiceServer({ secret: SECRET, responder, transport, sessionDeps: { deliverCritical } });
-    await new Promise<void>((resolve) => alerting.server.listen(0, "127.0.0.1", () => resolve()));
-    const alertingPort = (alerting.server.address() as AddressInfo).port;
-    try {
-      modelAnswer = (last) => (last.includes("person") ? { reply: "I'll pass that to the team.", handoff: true } : { reply: "model" });
-      const c = await call(alertingPort, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_alert_1`);
-      await c.waitFor((r) => responses(r).length >= 1);
-      c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "I'm having a severe reaction to my filler" }] });
-      await c.waitFor((r) => responses(r).length >= 2);
-      expect(String(responses(c.received)[1]!.content)).toMatch(/call 911/);
-      expect(String(responses(c.received)[1]!.content)).toContain(URGENT_TEAM_TOLD_LINE);
-      // Urgent again on the same call: the same alert, still told.
-      c.send({ interaction_type: "response_required", response_id: 2, transcript: [{ role: "agent", content: "..." }, { role: "user", content: "I'm having a severe reaction to my filler, it's worse" }] });
-      await c.waitFor((r) => responses(r).length >= 3);
-      expect(String(responses(c.received)[2]!.content)).toContain(URGENT_TEAM_TOLD_LINE);
-      // A request for a person, twice.
-      for (const id of [3, 4]) {
-        c.send({ interaction_type: "response_required", response_id: id, transcript: [{ role: "agent", content: "..." }, { role: "user", content: "Can I speak to a person?" }] });
-        await c.waitFor((r) => responses(r).length >= id + 1);
-      }
-      await vi.waitFor(() => expect(delivered).toHaveLength(1));
-      await c.close();
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await Promise.all([...alerting.sessions].map((s) => s.finish()));
-
-      // Sent after the commit, once.
-      expect(delivered).toEqual([{ clinicId: clinic.clinicId, committed: 1 }]);
-      const { rows } = await inTenant(clinic.clinicId, (client) =>
-        client.query<{ kind: string; dedupe_key: string; payload: Record<string, unknown> }>(
-          `select kind, dedupe_key, payload from billing_notices where kind in ('urgent', 'handover') order by kind`,
-        ),
-      );
-      expect(rows).toMatchObject([
-        { kind: "handover", dedupe_key: "handover:voice:call_alert_1", payload: { channel: "voice", conversationId: null } },
-        { kind: "urgent", dedupe_key: "urgent:voice:call_alert_1", payload: { channel: "voice", conversationId: null } },
-      ]);
-      expect(JSON.stringify(rows)).not.toMatch(/reaction|filler|person\?/);
-    } finally {
-      await alerting.drain();
-      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
-      vi.unstubAllEnvs();
-    }
-  });
-
-  test("an urgent alert that could not be queued: the caller still hears 911 and the number, never that the team was told", async () => {
-    const clinic = await seedClinic("retell-alert-failed");
-    const ops = `usr_ops_${crypto.randomUUID().slice(0, 8)}`;
-    await getMigratorPool().query(
-      `insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, 'Ops', $2, true, now(), now())`,
-      [ops, `${ops}@healdesk.test`],
-    );
-    await setJobEnabled(JOB_BILLING_NOTICES, true, ops);
-    vi.stubEnv("HEALDESK_EMAIL_TRANSPORT", "resend");
-    vi.stubEnv("RESEND_API_KEY", "re_test_key");
-    vi.stubEnv("HEALDESK_EMAIL_FROM", "healdesk <hello@healdesk.io>");
-    vi.stubEnv("BETTER_AUTH_URL", "https://app.healdesk.test");
-    let sends = 0;
-    const alerting = createVoiceServer({ secret: SECRET, responder, transport, sessionDeps: { deliverCritical: async () => void (sends += 1) } });
-    await new Promise<void>((resolve) => alerting.server.listen(0, "127.0.0.1", () => resolve()));
-    const alertingPort = (alerting.server.address() as AddressInfo).port;
-    alertQueue.fails = true;
-    try {
-      const c = await call(alertingPort, `/llm-websocket/${SECRET}/${clinic.clinicId}/call_alert_2`);
-      await c.waitFor((r) => responses(r).length >= 1);
-      c.send({ interaction_type: "response_required", response_id: 1, transcript: [{ role: "user", content: "I'm having a severe reaction to my filler" }] });
-      await c.waitFor((r) => responses(r).length >= 2);
-      const said = String(responses(c.received)[1]!.content);
-      expect(said).toMatch(/call 911/);
-      expect(said).not.toContain(URGENT_TEAM_TOLD_LINE);
-      expect(sends).toBe(0);
-      await c.close();
-    } finally {
-      alertQueue.fails = false;
-      await alerting.drain();
-      await setJobEnabled(JOB_BILLING_NOTICES, false, ops);
-      vi.unstubAllEnvs();
-    }
   });
 
   test("an outbound call is ended at once, and recorded as refused", async () => {
